@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AppShell } from '../components/AppShell'
 import { Badge, Button, Card, EmptyState, ErrorBanner, Input, PageHeader, Select } from '../components/ui'
+import { Hero } from '../components/Hero'
+import { Jar } from '../components/Jar'
 import { FundsIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
+import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import type { AccountDto, SinkingFundDto } from '../types'
 import {
   AccrualMethod,
@@ -32,15 +35,6 @@ const STATUS_LABEL: Record<string, string> = {
   Overspent: 'Overspent',
   Unfunded: 'No target',
 }
-// Progress-bar fill colour by status (the bar is decorative; meaning is in the badge/text).
-const STATUS_BAR: Record<string, string> = {
-  FullyFunded: 'bg-brand-600',
-  OnTrack: 'bg-brand-600',
-  Behind: 'bg-amber-500',
-  Overspent: 'bg-rose-500',
-  Unfunded: 'bg-slate-300',
-}
-
 /** Parse a non-negative amount string into a wire decimal; '' → 0; null when invalid. */
 function parseAmount(input: string): number | null {
   if (input.trim() === '') return 0
@@ -185,11 +179,28 @@ export function FundsPage() {
     }
   }, [])
 
+  // Hero totals — what's saved across the jars, the monthly contribution they need.
+  const totalSavedMinor = useMemo(() => funds.reduce((s, f) => s + fromAmount(f.currentBalance), 0), [funds])
+  const monthlyMinor = useMemo(
+    () => funds.reduce((s, f) => s + fromAmount(f.requiredMonthlyContribution), 0),
+    [funds],
+  )
+
   return (
     <AppShell active="funds">
       <PageHeader
         title="Sinking funds"
         subtitle="Save a little each month toward irregular and future costs. Each fund tracks its balance, the contribution it needs, and whether it's on pace for its target date."
+      />
+
+      <Hero
+        eyebrow="Total saved"
+        amount={formatMoney(totalSavedMinor, CURRENCY)}
+        amountLabel={`Total saved: ${formatMoney(totalSavedMinor, CURRENCY)}`}
+        tiles={[
+          { label: 'Monthly', value: `+${formatMoney(monthlyMinor, CURRENCY)}` },
+          { label: 'Active jars', value: `${funds.length}` },
+        ]}
       />
 
       {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -318,20 +329,24 @@ export function FundsPage() {
       )}
 
       {funds.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {funds.map((f) => (
-            <FundCard
-              key={f.id}
-              fund={f}
-              currency={CURRENCY}
-              fundingAccountName={accountName(f.fundingAccountId)}
-              onEdit={() => startEdit(f)}
-              onArchive={() => archive(f)}
-              disabled={saving}
-              canManage={canWrite}
-            />
-          ))}
-        </div>
+        <section className="space-y-3">
+          <h2 className="text-base font-bold tracking-[-0.01em] text-slate-900">Your jars</h2>
+          <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
+            {funds.map((f, i) => (
+              <FundCard
+                key={f.id}
+                fund={f}
+                hue={hueForIndex(i)}
+                currency={CURRENCY}
+                fundingAccountName={accountName(f.fundingAccountId)}
+                onEdit={() => startEdit(f)}
+                onArchive={() => archive(f)}
+                disabled={saving}
+                canManage={canWrite}
+              />
+            ))}
+          </div>
+        </section>
       )}
     </AppShell>
   )
@@ -339,6 +354,7 @@ export function FundsPage() {
 
 function FundCard({
   fund,
+  hue,
   currency,
   fundingAccountName,
   onEdit,
@@ -347,6 +363,7 @@ function FundCard({
   canManage,
 }: {
   fund: SinkingFundDto
+  hue: CategoryHue
   currency: string
   fundingAccountName: string | null
   onEdit: () => void
@@ -357,85 +374,81 @@ function FundCard({
   const balanceMinor = fromAmount(fund.currentBalance)
   const targetMinor = fromAmount(fund.targetAmount)
   const pct = targetMinor > 0 ? Math.min(100, Math.max(0, Math.round((balanceMinor / targetMinor) * 100))) : 0
+  const monthlyMinor = fromAmount(fund.requiredMonthlyContribution)
   const tone = STATUS_TONE[fund.status] ?? 'neutral'
-  const barColor = STATUS_BAR[fund.status] ?? 'bg-slate-300'
 
   return (
-    <Card className="flex flex-col gap-3 p-4">
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="font-semibold text-slate-800">{fund.name}</h3>
-        <Badge tone={tone}>{STATUS_LABEL[fund.status] ?? fund.status}</Badge>
-      </div>
-
-      {/* Thermometer. */}
-      <div
-        role="progressbar"
-        aria-label={`${fund.name} funding progress`}
-        aria-valuenow={pct}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        className="h-2 overflow-hidden rounded-full bg-slate-100"
-      >
-        <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
-      </div>
-
-      <p className="text-sm text-slate-600">
-        <span className="font-semibold tabular-nums text-slate-800">{formatMoney(balanceMinor, currency)}</span>
-        {targetMinor > 0 && (
-          <>
-            {' '}of <span className="tabular-nums">{formatMoney(targetMinor, currency)}</span>
-          </>
-        )}
-      </p>
-
-      <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-500">
-        <dt>Monthly</dt>
-        <dd className="text-right font-medium tabular-nums text-slate-700">
-          {formatMoney(fromAmount(fund.requiredMonthlyContribution), currency)}
-        </dd>
-        {fund.targetDate && (
-          <>
-            <dt>Target date</dt>
-            <dd className="text-right tabular-nums text-slate-700">{fund.targetDate}</dd>
-          </>
-        )}
-        {fund.projectedFullyFundedDate && (
-          <>
-            <dt>Funded by</dt>
-            <dd className="text-right tabular-nums text-slate-700">{fund.projectedFullyFundedDate}</dd>
-          </>
-        )}
-        {fundingAccountName && (
-          <>
-            <dt>Held in</dt>
-            <dd className="text-right text-slate-700">{fundingAccountName}</dd>
-          </>
-        )}
-      </dl>
-
-      {canManage && (
-        <div className="mt-auto flex justify-end gap-1 pt-1">
-          <button
-            type="button"
-            onClick={onEdit}
-            aria-label={`Edit ${fund.name}`}
-            title="Edit fund"
-            className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-          >
-            ✎
-          </button>
-          <button
-            type="button"
-            onClick={onArchive}
-            disabled={disabled}
-            aria-label={`Archive ${fund.name}`}
-            title="Archive fund"
-            className="rounded-md px-2 py-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
-          >
-            ✕
-          </button>
+    <Card className="flex gap-4 p-5">
+      <Jar hue={hue} pct={pct} size="card" label={`${fund.name}: ${pct}% funded`} />
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="truncate font-semibold text-slate-900">{fund.name}</h3>
+          <Badge tone={tone}>{STATUS_LABEL[fund.status] ?? fund.status}</Badge>
         </div>
-      )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          {targetMinor > 0 && (
+            <span
+              className="rounded-full px-2 py-0.5 text-xs font-semibold text-slate-900"
+              style={{ background: hueTint(hue) }}
+            >
+              {pct}%
+            </span>
+          )}
+          <span className="text-sm tabular-nums text-slate-600">
+            <span className="font-semibold text-slate-900">{formatMoney(balanceMinor, currency)}</span>
+            {targetMinor > 0 && <> of {formatMoney(targetMinor, currency)}</>}
+          </span>
+        </div>
+
+        <div
+          role="progressbar"
+          aria-label={`${fund.name} funding progress`}
+          aria-valuenow={pct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          className="h-2 overflow-hidden rounded-full"
+          style={{ background: hueTint(hue) }}
+        >
+          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: hueColor(hue) }} />
+        </div>
+
+        {(fund.targetDate || fundingAccountName) && (
+          <div className="truncate text-xs text-slate-500">
+            {fund.targetDate && <>By {fund.targetDate}</>}
+            {fund.targetDate && fundingAccountName && ' · '}
+            {fundingAccountName && <>in {fundingAccountName}</>}
+          </div>
+        )}
+
+        <div className="mt-auto flex items-center justify-between gap-2 pt-1">
+          <span className="text-[12.5px] font-semibold tabular-nums text-brand-700 dark:text-brand-200">
+            {monthlyMinor > 0 ? `+${formatMoney(monthlyMinor, currency)}/mo` : '—'}
+          </span>
+          {canManage && (
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onEdit}
+                aria-label={`Edit ${fund.name}`}
+                className="text-[12.5px] font-semibold text-slate-500 transition hover:text-brand-700 dark:hover:text-brand-200"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={onArchive}
+                disabled={disabled}
+                aria-label={`Archive ${fund.name}`}
+                title="Archive fund"
+                className="rounded-md px-1.5 py-0.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </Card>
   )
 }
