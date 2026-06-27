@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { Badge, Button, Card, EmptyState, ErrorBanner, Input, PageHeader, SegmentedControl, Select } from '../components/ui'
+import { Hero } from '../components/Hero'
 import { ImportIcon, TransactionsIcon } from '../components/icons'
 import { useFeatures } from '../features/FeatureContext'
 import { useAuth } from '../auth/AuthContext'
@@ -10,7 +11,13 @@ import { EVENTS, track } from '../analytics'
 import type { AccountDto, BudgetMonthDto, HouseholdMemberDto, TransactionDto } from '../types'
 import { TransactionType } from '../types'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount } from '../lib/money'
+import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { buildItemOptions, transactionTypeLabel } from '../lib/transactions'
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
 
 function today(): string {
   return new Date().toISOString().slice(0, 10)
@@ -54,6 +61,9 @@ export function TransactionsPage() {
   const [unassignedOnly, setUnassignedOnly] = useState(false)
   // External spending/income vs internal account-to-account transfers.
   const [typeFilter, setTypeFilter] = useState<'all' | 'transactions' | 'transfers'>('all')
+
+  // Which row is showing its inline category picker (the redesign's "+ Assign").
+  const [assigningId, setAssigningId] = useState<string | null>(null)
 
   // Inline edit state.
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -311,6 +321,53 @@ export function TransactionsPage() {
 
   const optionGroups = buildItemOptions(month)
 
+  // Map each budget line to its category's hue, so an assigned transaction's pill
+  // carries the same colour dot as its group on the Budget screen. Income lines
+  // read as the brand green; expense/fund groups cycle the five-hue palette.
+  const itemHue = useMemo(() => {
+    const map: Record<string, CategoryHue | 'income'> = {}
+    if (!month) return map
+    let expenseIdx = 0
+    let fundIdx = 0
+    for (const c of month.categories) {
+      const hue: CategoryHue | 'income' =
+        c.kind === 'Income' ? 'income' : c.kind === 'Fund' ? hueForIndex(fundIdx++) : hueForIndex(expenseIdx++)
+      for (const it of c.items) map[it.id] = hue
+    }
+    return map
+  }, [month])
+
+  // Hero totals — derived (never stored), like the budget's read-time actuals.
+  const moneyInMinor = useMemo(
+    () => sumMinor(transactions.filter((t) => t.type === TransactionType.Income).map((t) => fromAmount(t.amount))),
+    [transactions],
+  )
+  const moneyOutMinor = useMemo(
+    () => sumMinor(transactions.filter((t) => t.type === TransactionType.Expense).map((t) => fromAmount(t.amount))),
+    [transactions],
+  )
+  const unassignedCount = useMemo(
+    () =>
+      transactions.filter(
+        (t) => t.type !== TransactionType.Transfer && !t.isSplit && t.budgetItemId === null,
+      ).length,
+    [transactions],
+  )
+  const monthLabel = MONTH_NAMES[(month ? month.month - 1 : new Date().getMonth())]
+  const currency = month?.baseCurrency ?? 'EUR'
+
+  // Pill colours for a category's hue (or income / unknown). The dot carries the
+  // colour (>=3:1); the pill text stays --ink (text-slate-900) per the contrast rule.
+  type HueKey = CategoryHue | 'income' | undefined
+  const dotColor = (h: HueKey) =>
+    h === undefined ? 'var(--color-slate-400)' : h === 'income' ? 'var(--color-brand-600)' : hueColor(h)
+  const tintColor = (h: HueKey) =>
+    h === undefined
+      ? 'var(--color-slate-100)'
+      : h === 'income'
+        ? 'color-mix(in srgb, var(--color-brand-600) 14%, transparent)'
+        : hueTint(h)
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
     return transactions.filter((t) => {
@@ -341,6 +398,19 @@ export function TransactionsPage() {
               </Link>
             )
           }
+        />
+
+        <Hero
+          eyebrow={`Money in · ${monthLabel}`}
+          amount={`+${formatMoney(moneyInMinor, currency)}`}
+          amountLabel={`Money in for ${monthLabel}: ${formatMoney(moneyInMinor, currency)}`}
+          tiles={[
+            { label: 'Money out', value: formatMoney(moneyOutMinor, currency) },
+            {
+              label: 'Unassigned',
+              value: unassignedCount === 0 ? 'All assigned' : `${unassignedCount} to assign`,
+            },
+          ]}
         />
 
         {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -741,8 +811,8 @@ export function TransactionsPage() {
                                 isTransfer
                                   ? 'text-slate-500'
                                   : isIncome
-                                    ? 'text-emerald-600 dark:text-emerald-400'
-                                    : 'text-slate-700'
+                                    ? 'text-brand-700 dark:text-brand-200'
+                                    : 'text-slate-900'
                               }`}
                             >
                               {isTransfer ? '' : isIncome ? '+' : '−'}
@@ -770,13 +840,18 @@ export function TransactionsPage() {
                                       .join(' · ')}
                                   </span>
                                 </div>
-                              ) : canEnterData ? (
+                              ) : assigningId === t.id && canEnterData ? (
                                 <select
+                                  autoFocus
                                   value={t.budgetItemId ?? ''}
                                   disabled={savingId === t.id}
                                   aria-label={`Assign ${t.payee || 'transaction'}`}
-                                  onChange={(e) => assign(t.id, e.target.value || null)}
-                                  className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
+                                  onChange={(e) => {
+                                    assign(t.id, e.target.value || null)
+                                    setAssigningId(null)
+                                  }}
+                                  onBlur={() => setAssigningId(null)}
+                                  className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50"
                                 >
                                   <option value="">Unassigned</option>
                                   {optionGroups.map((g) => (
@@ -789,10 +864,50 @@ export function TransactionsPage() {
                                     </optgroup>
                                   ))}
                                 </select>
+                              ) : t.budgetItemId ? (
+                                // Assigned — a tint pill with a category colour dot (text stays --ink).
+                                (() => {
+                                  const hue = itemHue[t.budgetItemId]
+                                  const pill = (
+                                    <>
+                                      <span
+                                        className="h-[7px] w-[7px] shrink-0 rounded-full"
+                                        style={{ background: dotColor(hue) }}
+                                        aria-hidden
+                                      />
+                                      <span className="truncate">{t.budgetItemName}</span>
+                                    </>
+                                  )
+                                  return canEnterData ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setAssigningId(t.id)}
+                                      aria-label={`Reassign ${t.payee || 'transaction'}`}
+                                      className="inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1 text-[12.5px] font-semibold text-slate-900"
+                                      style={{ background: tintColor(hue) }}
+                                    >
+                                      {pill}
+                                    </button>
+                                  ) : (
+                                    <span
+                                      className="inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1 text-[12.5px] font-semibold text-slate-900"
+                                      style={{ background: tintColor(hue) }}
+                                    >
+                                      {pill}
+                                    </span>
+                                  )
+                                })()
+                              ) : canEnterData ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setAssigningId(t.id)}
+                                  aria-label={`Assign ${t.payee || 'transaction'}`}
+                                  className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-slate-400 px-3 py-1 text-[12.5px] font-semibold text-slate-500 transition hover:border-brand-600 hover:text-brand-700"
+                                >
+                                  + Assign
+                                </button>
                               ) : (
-                                <span className="text-sm text-slate-600">
-                                  {t.budgetItemName ?? 'Unassigned'}
-                                </span>
+                                <span className="text-sm text-slate-600">Unassigned</span>
                               )}
                             </td>
                             <td className="px-4 py-2.5 text-right">
