@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AppShell } from '../components/AppShell'
-import { Button, Card, EmptyState, ErrorBanner, Input, PageHeader, Select } from '../components/ui'
+import { Badge, Button, Card, EmptyState, ErrorBanner, Input, PageHeader, Select } from '../components/ui'
+import { Hero } from '../components/Hero'
 import { AccountsIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
@@ -8,6 +9,16 @@ import { EVENTS, track } from '../analytics'
 import type { AccountDto, AccountReconciliationDto } from '../types'
 import { ACCOUNT_TYPE_LABELS, AccountType } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import { hueColor, hueForAccountType, hueTint } from '../lib/categoryColors'
+
+// Account type -> Badge tone (the redesign's account hues mapped to ui Badge tones).
+const TYPE_TONE: Record<number, 'violet' | 'brand' | 'amber' | 'rose' | 'teal'> = {
+  [AccountType.Current]: 'violet',
+  [AccountType.Savings]: 'brand',
+  [AccountType.Cash]: 'amber',
+  [AccountType.CreditCard]: 'rose',
+  [AccountType.Other]: 'teal',
+}
 
 const TYPE_OPTIONS = Object.entries(ACCOUNT_TYPE_LABELS).map(([value, label]) => ({
   value: Number(value),
@@ -155,9 +166,18 @@ export function AccountsPage() {
     }
   }, [])
 
-  // Net balance across all accounts (single-currency).
+  // Net balance across all accounts (single-currency), plus the hero's split of
+  // what you hold (positive balances) vs what you owe (negative ones).
   const netMinor = useMemo(
     () => accounts.reduce((sum, a) => sum + fromAmount(a.currentBalance), 0),
+    [accounts],
+  )
+  const availableMinor = useMemo(
+    () => accounts.reduce((sum, a) => sum + Math.max(0, fromAmount(a.currentBalance)), 0),
+    [accounts],
+  )
+  const owedMinor = useMemo(
+    () => accounts.reduce((sum, a) => sum + Math.min(0, fromAmount(a.currentBalance)), 0),
     [accounts],
   )
 
@@ -166,6 +186,16 @@ export function AccountsPage() {
         <PageHeader
           title="Accounts"
           subtitle="Where your money actually sits. Each balance is your opening balance plus every transaction assigned to the account — so the register stays the source of truth."
+        />
+
+        <Hero
+          eyebrow="Total balance"
+          amount={formatMoney(netMinor, CURRENCY)}
+          amountLabel={`Total balance: ${formatMoney(netMinor, CURRENCY)}`}
+          tiles={[
+            { label: 'Available', value: formatMoney(availableMinor, CURRENCY) },
+            { label: 'Owed', value: formatMoney(-owedMinor, CURRENCY) },
+          ]}
         />
 
         {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -233,145 +263,106 @@ export function AccountsPage() {
         )}
 
         {accounts.length > 0 && (
-          <Card className="overflow-hidden">
-            <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                  <th className="px-4 py-2 font-medium">Account</th>
-                  <th className="px-4 py-2 font-medium">Type</th>
-                  <th className="px-4 py-2 text-right font-medium">Opening</th>
-                  <th className="px-4 py-2 text-right font-medium">Balance</th>
-                  <th className="px-4 py-2" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {accounts.map((a) => {
-                  const editing = editingId === a.id
-                  const balanceMinor = fromAmount(a.currentBalance)
+          <section className="space-y-3">
+            <h2 className="text-base font-bold tracking-[-0.01em] text-slate-900">Your accounts</h2>
+            <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
+              {accounts.map((a) => {
+                const editing = editingId === a.id
+                const balanceMinor = fromAmount(a.currentBalance)
+                const hue = hueForAccountType(a.type)
+                if (editing) {
                   return (
-                    <tr key={a.id} className="hover:bg-slate-50">
-                      {editing ? (
-                        <>
-                          <td className="px-4 py-2">
-                            <input
-                              type="text"
-                              value={eName}
-                              aria-label={`Name for ${a.name}`}
-                              onChange={(e) => setEName(e.target.value)}
-                              className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
-                            />
-                          </td>
-                          <td className="px-4 py-2">
-                            <select
-                              value={eType}
-                              aria-label={`Type for ${a.name}`}
-                              onChange={(e) => setEType(Number(e.target.value))}
-                              className="rounded-md border border-slate-300 px-2 py-1 text-sm"
-                            >
-                              {TYPE_OPTIONS.map((o) => (
-                                <option key={o.value} value={o.value}>
-                                  {o.label}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="px-4 py-2 text-right">
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={eOpening}
-                              aria-label={`Opening balance for ${a.name}`}
-                              onChange={(e) => setEOpening(e.target.value)}
-                              className="w-28 rounded-md border border-slate-300 px-2 py-1 text-right text-sm tabular-nums"
-                            />
-                          </td>
-                          <td className="px-4 py-2.5" />
-                          <td className="px-4 py-2 text-right">
-                            <div className="flex justify-end gap-1">
-                              <button
-                                type="button"
-                                onClick={() => saveEdit(a.id)}
-                                disabled={savingId === a.id}
-                                aria-label={`Save ${a.name}`}
-                                className="rounded-md bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-                              >
-                                Save
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setEditingId(null)}
-                                aria-label="Cancel edit"
-                                className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="px-4 py-2.5 font-medium text-slate-700">{a.name}</td>
-                          <td className="px-4 py-2.5 text-slate-500">{ACCOUNT_TYPE_LABELS[a.type] ?? 'Other'}</td>
-                          <td className="px-4 py-2.5 text-right tabular-nums text-slate-500">
-                            {formatMoney(fromAmount(a.openingBalance), CURRENCY)}
-                          </td>
-                          <td
-                            className={`px-4 py-2.5 text-right font-semibold tabular-nums ${
-                              balanceMinor < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800'
-                            }`}
-                          >
-                            {formatMoney(balanceMinor, CURRENCY)}
-                          </td>
-                          <td className="px-4 py-2.5 text-right">
-                            {canWrite && (
-                            <div className="flex justify-end gap-1">
-                              <button
-                                type="button"
-                                onClick={() => startEdit(a)}
-                                aria-label={`Edit ${a.name}`}
-                                title="Edit account"
-                                className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                              >
-                                ✎
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => remove(a.id)}
-                                disabled={savingId === a.id}
-                                aria-label={`Delete ${a.name}`}
-                                title="Delete account"
-                                className="rounded-md px-2 py-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                            )}
-                          </td>
-                        </>
-                      )}
-                    </tr>
+                    <Card key={a.id} className="flex flex-col gap-3 p-5">
+                      <Input
+                        type="text"
+                        value={eName}
+                        aria-label={`Name for ${a.name}`}
+                        onChange={(e) => setEName(e.target.value)}
+                        className="w-full"
+                      />
+                      <Select
+                        value={eType}
+                        aria-label={`Type for ${a.name}`}
+                        onChange={(e) => setEType(Number(e.target.value))}
+                      >
+                        {TYPE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </Select>
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        value={eOpening}
+                        aria-label={`Opening balance for ${a.name}`}
+                        onChange={(e) => setEOpening(e.target.value)}
+                        className="w-full text-right tabular-nums"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <Button size="sm" onClick={() => saveEdit(a.id)} disabled={savingId === a.id} aria-label={`Save ${a.name}`}>
+                          Save
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingId(null)} aria-label="Cancel edit">
+                          Cancel
+                        </Button>
+                      </div>
+                    </Card>
                   )
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-slate-200 font-semibold text-slate-800">
-                  <td className="px-4 py-2" colSpan={3}>
-                    Net
-                  </td>
-                  <td
-                    className={`px-4 py-2 text-right tabular-nums ${
-                      netMinor < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800'
-                    }`}
-                  >
-                    {formatMoney(netMinor, CURRENCY)}
-                  </td>
-                  <td />
-                </tr>
-              </tfoot>
-            </table>
+                }
+                return (
+                  <Card key={a.id} className="flex flex-col gap-3 p-5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div
+                        className="flex h-12 w-12 items-center justify-center rounded-2xl"
+                        style={{ background: hueTint(hue) }}
+                        aria-hidden
+                      >
+                        <span className="h-5 w-5 rounded-lg" style={{ background: hueColor(hue) }} />
+                      </div>
+                      <Badge tone={TYPE_TONE[a.type] ?? 'teal'}>{ACCOUNT_TYPE_LABELS[a.type] ?? 'Other'}</Badge>
+                    </div>
+                    <div>
+                      <div className="text-[14.5px] font-semibold text-slate-900">{a.name}</div>
+                      <div
+                        className={`mt-0.5 text-[25px] font-bold tabular-nums ${
+                          balanceMinor < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900'
+                        }`}
+                      >
+                        {formatMoney(balanceMinor, CURRENCY)}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Opening {formatMoney(fromAmount(a.openingBalance), CURRENCY)}
+                      </div>
+                    </div>
+                    {canWrite && (
+                      <div className="mt-auto flex justify-end gap-1 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => startEdit(a)}
+                          aria-label={`Edit ${a.name}`}
+                          title="Edit account"
+                          className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                        >
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => remove(a.id)}
+                          disabled={savingId === a.id}
+                          aria-label={`Delete ${a.name}`}
+                          title="Delete account"
+                          className="rounded-md px-2 py-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                  </Card>
+                )
+              })}
             </div>
-          </Card>
+          </section>
         )}
 
         {reconciliation.some((r) => r.backedFundCount > 0) && (

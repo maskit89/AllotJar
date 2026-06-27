@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto } from '../types'
@@ -45,19 +45,18 @@ describe('AccountsPage', () => {
     mockDelete.mockReset()
   })
 
-  it('lists accounts with balances and a net total', { timeout: 15000 }, async () => {
+  it('lists account cards with balances and a net total in the hero', { timeout: 15000 }, async () => {
     mockGet.mockResolvedValue({ data: accounts() })
 
     renderPage()
 
-    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
-    expect(table.getByText('Everyday')).toBeInTheDocument()
-    expect(table.getByText('Visa')).toBeInTheDocument()
-    // The credit card's type label shows in its row (the add-form select also lists it).
-    expect(table.getByText('Credit card')).toBeInTheDocument()
-    // Net across the two accounts: 250 + (−75) = 175.
-    expect(screen.getByText('Net')).toBeInTheDocument()
-    expect(table.getByText(/175,00/)).toBeInTheDocument()
+    // Each account renders as a card.
+    expect(await screen.findByText('Everyday', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText('Visa')).toBeInTheDocument()
+    // The credit card's type badge shows on its card (the add-form select also lists it).
+    expect(screen.getAllByText('Credit card').length).toBeGreaterThan(0)
+    // Net across the two accounts (250 + (−75) = 175) is the hero's Total balance.
+    expect(screen.getByText(/175,00/)).toBeInTheDocument()
   })
 
   it('adds an account', { timeout: 15000 }, async () => {
@@ -80,9 +79,8 @@ describe('AccountsPage', () => {
         expect.objectContaining({ name: 'Wallet', type: 2, currency: 'EUR', openingBalance: 40 }),
       ),
     )
-    // The new row appears in the table.
-    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
-    expect(table.getByText('Wallet')).toBeInTheDocument()
+    // The new account appears as a card.
+    expect(await screen.findByText('Wallet', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
   it('deletes an account', { timeout: 15000 }, async () => {
