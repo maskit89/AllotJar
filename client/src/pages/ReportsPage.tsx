@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AppShell } from '../components/AppShell'
 import { Card, EmptyState, ErrorBanner, PageHeader } from '../components/ui'
+import { Hero } from '../components/Hero'
 import { ReportsIcon } from '../components/icons'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import type { AnnualSummaryDto, BudgetMonthDto, BudgetTrendsDto } from '../types'
 import { formatMoney, fromAmount, type Minor } from '../lib/money'
+import { hueColor, hueForIndex, hueTint } from '../lib/categoryColors'
 
 const SHORT_MONTHS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -19,6 +21,8 @@ interface CategorySpend {
   name: string
   kind: string
   spentMinor: Minor
+  /** Position among the month's non-income groups, so the hue matches the Budget screen. */
+  hueIndex: number
 }
 
 export function ReportsPage() {
@@ -94,7 +98,7 @@ export function ReportsPage() {
     if (!breakdownMonth) return []
     return breakdownMonth.categories
       .filter((c) => c.kind !== 'Income')
-      .map((c) => ({ id: c.id, name: c.name, kind: c.kind, spentMinor: fromAmount(c.totalActual) }))
+      .map((c, i) => ({ id: c.id, name: c.name, kind: c.kind, spentMinor: fromAmount(c.totalActual), hueIndex: i }))
       .filter((c) => c.spentMinor > 0)
       .sort((a, b) => b.spentMinor - a.spentMinor)
   }, [breakdownMonth])
@@ -109,10 +113,15 @@ export function ReportsPage() {
   )
 
   const hasData = trends !== null && trends.points.length > 0
-  const totalIncomeMinor = trends ? fromAmount(trends.totalIncome) : 0
-  const totalReceivedMinor = trends ? fromAmount(trends.totalIncomeReceived) : 0
   const totalSpentMinor = trends ? fromAmount(trends.totalSpent) : 0
-  const netMinor = totalIncomeMinor - totalSpentMinor
+
+  // Hero figures — the most recent month's saving, the window's average spend,
+  // and this month's savings rate (saved ÷ received).
+  const latest = trends?.points.at(-1)
+  const savedThisMonthMinor = latest ? fromAmount(latest.incomeReceived) - fromAmount(latest.spent) : 0
+  const avgSpendMinor = trends && trends.points.length > 0 ? Math.round(totalSpentMinor / trends.points.length) : 0
+  const latestReceivedMinor = latest ? fromAmount(latest.incomeReceived) : 0
+  const savingsRate = latestReceivedMinor > 0 ? Math.round((savedThisMonthMinor / latestReceivedMinor) * 100) : 0
 
   return (
     <AppShell active="reports" maxWidth="4xl">
@@ -135,63 +144,68 @@ export function ReportsPage() {
 
         {!loading && hasData && trends && (
           <>
-            {/* Window summary. */}
-            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <SummaryCard label="Income (budgeted)" minor={totalIncomeMinor} currency={currency} tone="income" />
-              <SummaryCard label="Income (received)" minor={totalReceivedMinor} currency={currency} tone="income" />
-              <SummaryCard label="Spent" minor={totalSpentMinor} currency={currency} tone="spent" />
-              <SummaryCard label="Net" minor={netMinor} currency={currency} tone="net" />
-            </div>
+            <Hero
+              eyebrow="Saved this month"
+              amount={formatMoney(savedThisMonthMinor, currency)}
+              amountLabel={`Saved this month: ${formatMoney(savedThisMonthMinor, currency)}`}
+              tiles={[
+                { label: 'Avg monthly spend', value: formatMoney(avgSpendMinor, currency) },
+                { label: 'Savings rate', value: `${savingsRate}%` },
+              ]}
+            />
 
-            {/* Income vs spending per month. */}
+            {/* Income vs spending — a column per month (income solid, spent ghost). */}
             <Card as="section" className="p-5">
-              <h3 className="mb-4 text-sm font-semibold text-slate-700">Income vs spending</h3>
-              <div className="space-y-4">
-                {trends.points.map((p) => {
-                  const incomeMinor = fromAmount(p.income)
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-slate-700">Income vs spending</h3>
+                <div className="flex gap-4 text-xs text-slate-500">
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-sm" style={{ background: 'var(--color-brand-600)' }} /> Income
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className="h-2.5 w-2.5 rounded-sm border"
+                      style={{ background: 'var(--color-brand-50)', borderColor: 'var(--color-brand-600)' }}
+                    />{' '}
+                    Spent
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-end gap-3">
+                {trends.points.map((p, idx) => {
                   const receivedMinor = fromAmount(p.incomeReceived)
                   const spentMinor = fromAmount(p.spent)
-                  const overspent = spentMinor > incomeMinor
+                  const isCurrent = idx === trends.points.length - 1
                   return (
-                    <div key={p.key} aria-label={`Trend for ${monthLabel(p.year, p.month)}`}>
-                      <div className="mb-1 flex items-center justify-between text-xs">
-                        <span className="font-medium text-slate-600">{monthLabel(p.year, p.month)}</span>
-                        <span className={`tabular-nums ${overspent ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                          {overspent ? '−' : '+'}
-                          {formatMoney(Math.abs(incomeMinor - spentMinor), currency)}
-                        </span>
+                    <div
+                      key={p.key}
+                      aria-label={`Trend for ${monthLabel(p.year, p.month)}`}
+                      className="flex flex-1 flex-col items-center gap-2"
+                    >
+                      <div className="flex h-[190px] w-full items-end justify-center gap-1.5">
+                        <div
+                          className="w-[34%] rounded-t"
+                          style={{ height: `${pct(receivedMinor, trendMaxMinor)}%`, background: 'var(--color-brand-600)' }}
+                          title={`Income ${formatMoney(receivedMinor, currency)}`}
+                        />
+                        <div
+                          className="w-[34%] rounded-t border"
+                          style={{
+                            height: `${pct(spentMinor, trendMaxMinor)}%`,
+                            background: 'var(--color-brand-50)',
+                            borderColor: 'var(--color-brand-600)',
+                          }}
+                          title={`Spent ${formatMoney(spentMinor, currency)}`}
+                        />
                       </div>
-                      <Bar
-                        widthPct={pct(incomeMinor, trendMaxMinor)}
-                        className="bg-emerald-300"
-                        label={`Income budgeted ${formatMoney(incomeMinor, currency)}`}
-                      />
-                      <div className="h-1" />
-                      <Bar
-                        widthPct={pct(receivedMinor, trendMaxMinor)}
-                        className="bg-emerald-600"
-                        label={`Income received ${formatMoney(receivedMinor, currency)}`}
-                      />
-                      <div className="h-1" />
-                      <Bar
-                        widthPct={pct(spentMinor, trendMaxMinor)}
-                        className={overspent ? 'bg-rose-500' : 'bg-slate-400'}
-                        label={`Spent ${formatMoney(spentMinor, currency)}`}
-                      />
+                      <span
+                        className={`text-xs font-medium ${isCurrent ? 'text-brand-700 dark:text-brand-200' : 'text-slate-500'}`}
+                      >
+                        {SHORT_MONTHS[p.month - 1]}
+                      </span>
                     </div>
                   )
                 })}
-              </div>
-              <div className="mt-4 flex flex-wrap gap-4 text-xs text-slate-500">
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-3 rounded-sm bg-emerald-300" /> Income (budgeted)
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-3 rounded-sm bg-emerald-600" /> Income (received)
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-3 rounded-sm bg-slate-400" /> Spent
-                </span>
               </div>
             </Card>
 
@@ -344,27 +358,35 @@ export function ReportsPage() {
                 <p className="text-sm text-slate-500">No spending recorded for this month yet.</p>
               ) : (
                 <div className="space-y-3">
-                  {categorySpend.map((c) => (
-                    <div key={c.id} aria-label={`Spending for ${c.name}`}>
-                      <div className="mb-1 flex items-center justify-between text-xs">
-                        <span className="font-medium text-slate-600">
-                          {c.name}
-                          {c.kind === 'Fund' && (
-                            <span className="ml-1 rounded bg-violet-100 px-1 py-0.5 text-[10px] font-semibold text-violet-700">
-                              Fund
-                            </span>
-                          )}
-                        </span>
-                        <span className="tabular-nums text-slate-500">
-                          {formatMoney(c.spentMinor, currency)} ·{' '}
-                          {categoryTotalMinor === 0
-                            ? '0%'
-                            : `${Math.round((c.spentMinor / categoryTotalMinor) * 100)}%`}
-                        </span>
+                  {categorySpend.map((c) => {
+                    const hue = hueForIndex(c.hueIndex)
+                    return (
+                      <div key={c.id} aria-label={`Spending for ${c.name}`}>
+                        <div className="mb-1 flex items-center justify-between text-xs">
+                          <span className="font-medium text-slate-600">
+                            {c.name}
+                            {c.kind === 'Fund' && (
+                              <span className="ml-1 rounded bg-violet-100 px-1 py-0.5 text-[10px] font-semibold text-violet-700">
+                                Fund
+                              </span>
+                            )}
+                          </span>
+                          <span className="tabular-nums text-slate-500">
+                            {formatMoney(c.spentMinor, currency)} ·{' '}
+                            {categoryTotalMinor === 0
+                              ? '0%'
+                              : `${Math.round((c.spentMinor / categoryTotalMinor) * 100)}%`}
+                          </span>
+                        </div>
+                        <Bar
+                          widthPct={pct(c.spentMinor, categoryMaxMinor)}
+                          color={hueColor(hue)}
+                          track={hueTint(hue)}
+                          label={c.name}
+                        />
                       </div>
-                      <Bar widthPct={pct(c.spentMinor, categoryMaxMinor)} className="bg-indigo-500" label={c.name} />
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </Card>
@@ -379,37 +401,34 @@ function pct(value: Minor, max: Minor): number {
   return Math.max(2, Math.round((value / max) * 100)) // a visible sliver for tiny non-zero values
 }
 
-function Bar({ widthPct, className, label }: { widthPct: number; className: string; label: string }) {
-  return (
-    <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100" role="img" aria-label={label}>
-      <div className={`h-full rounded-full ${className}`} style={{ width: `${widthPct}%` }} />
-    </div>
-  )
-}
-
-function SummaryCard({
+/**
+ * A horizontal bar. `className` colours the fill via a utility; pass `color` to
+ * fill with an inline colour (a category hue) and `track` to tint the track.
+ */
+function Bar({
+  widthPct,
+  className = '',
   label,
-  minor,
-  currency,
-  tone,
+  color,
+  track,
 }: {
+  widthPct: number
+  className?: string
   label: string
-  minor: Minor
-  currency: string
-  tone: 'income' | 'spent' | 'net'
+  color?: string
+  track?: string
 }) {
-  const color =
-    tone === 'income'
-      ? 'text-emerald-600 dark:text-emerald-400'
-      : tone === 'spent'
-        ? 'text-slate-800'
-        : minor < 0
-          ? 'text-rose-600 dark:text-rose-400'
-          : 'text-emerald-600 dark:text-emerald-400'
   return (
-    <Card className="p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
-      <p className={`mt-1 text-2xl font-bold tabular-nums ${color}`}>{formatMoney(minor, currency)}</p>
-    </Card>
+    <div
+      className={`h-3 w-full overflow-hidden rounded-full ${track ? '' : 'bg-slate-100'}`}
+      style={track ? { background: track } : undefined}
+      role="img"
+      aria-label={label}
+    >
+      <div
+        className={`h-full rounded-full ${color ? '' : className}`}
+        style={{ width: `${widthPct}%`, ...(color ? { background: color } : null) }}
+      />
+    </div>
   )
 }
