@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { CategoryVM } from '../budgetModel'
-import { billStatus, categoryPlanned } from '../budgetModel'
+import { billStatus, categoryActual, categoryPlanned } from '../budgetModel'
 import { formatMoney, type Minor } from '../lib/money'
+import { hueColor, type CategoryHue } from '../lib/categoryColors'
 import { BudgetItemRow } from './BudgetItemRow'
 import { Badge, Card } from './ui'
 import { useAuth } from '../auth/AuthContext'
@@ -17,6 +18,8 @@ interface Props {
   defaultOpen?: boolean
   isFirst?: boolean
   isLast?: boolean
+  /** The group's category hue — drives the header dot and each line's progress bar. */
+  hue?: CategoryHue
   onMove?: (categoryId: string, direction: -1 | 1) => void
   onCommitItem: (itemId: string, plannedMinor: Minor) => void
   onSetBill: (itemId: string, dueDay: number | null) => void
@@ -44,6 +47,7 @@ export function CategoryAccordion({
   defaultOpen = true,
   isFirst = false,
   isLast = false,
+  hue = 'indigo',
   onMove,
   onCommitItem,
   onSetBill,
@@ -102,6 +106,11 @@ export function CategoryAccordion({
           >
             ▶
           </button>
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ background: hueColor(hue) }}
+            aria-hidden
+          />
           {canWrite ? (
             <input
               type="text"
@@ -146,7 +155,9 @@ export function CategoryAccordion({
               </button>
             </div>
           )}
-          <span className="text-sm font-semibold tabular-nums text-slate-600">
+          <span className="text-sm tabular-nums text-slate-500">
+            <span className="font-semibold text-slate-800">{formatMoney(categoryActual(category), currency)}</span>
+            {' / '}
             {formatMoney(categoryPlanned(category), currency)}
           </span>
           {canWrite &&
@@ -212,6 +223,7 @@ export function CategoryAccordion({
                 onRename={onRenameItem}
                 onDelete={onDeleteItem}
                 billStatus={billStatus(item, monthYear, monthNumber, today)}
+                hue={hue}
               />
             ))}
             {category.items.length === 0 && (

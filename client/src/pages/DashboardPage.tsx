@@ -714,6 +714,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                     today={today}
                     isFirst={i === 0}
                     isLast={i === arr.length - 1}
+                    hue={hueForIndex(i)}
                     onCommitItem={commitItem}
                     onSetBill={setBill}
                     onSetPaid={setPaid}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { BillStatus, ItemVM } from '../budgetModel'
 import { itemRemaining } from '../budgetModel'
 import { currencySymbol, formatMoney, parseMinor, toEditString, type Minor } from '../lib/money'
+import { hueColor, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { useAuth } from '../auth/AuthContext'
 
 interface Props {
@@ -28,6 +29,8 @@ interface Props {
    * shows this (the fund's running balance) instead of the single-month remaining.
    */
   availableMinor?: Minor | null
+  /** When set, a thin spent/planned progress bar (track = tint, fill = hue) is drawn under the row. */
+  hue?: CategoryHue
 }
 
 /**
@@ -51,6 +54,7 @@ export function BudgetItemRow({
   isLast = false,
   availableMinor,
   billStatus,
+  hue,
 }: Props) {
   // Structural edits need Admin+ (canWrite); marking a bill paid is day-to-day (canEnterData).
   const { canWrite, canEnterData } = useAuth()
@@ -123,8 +127,15 @@ export function BudgetItemRow({
       ? 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200'
       : 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200'
 
+  // The thin spent/planned bar (expense lines only — funds show Available instead).
+  const showBar = hue !== undefined && !showAvailable && item.plannedMinor > 0
+  const barPct = showBar
+    ? Math.min(100, Math.max(0, Math.round((item.actualMinor / item.plannedMinor) * 100)))
+    : 0
+
   return (
-    <div className="grid grid-cols-12 items-center gap-2 px-4 py-2.5 hover:bg-slate-50">
+    <div className="px-4 py-2 hover:bg-slate-50">
+    <div className="grid grid-cols-12 items-center gap-2">
       <div className="col-span-4 flex items-center gap-1">
         {canWrite && onMove && (
           <div className="flex shrink-0 flex-col">
@@ -328,6 +339,17 @@ export function BudgetItemRow({
           </button>
         )}
       </div>
+    </div>
+
+    {showBar && (
+      <div
+        className="mt-1.5 h-1.5 overflow-hidden rounded-full"
+        style={{ background: hueTint(hue as CategoryHue) }}
+        aria-hidden
+      >
+        <div className="h-full rounded-full" style={{ width: `${barPct}%`, background: hueColor(hue as CategoryHue) }} />
+      </div>
+    )}
     </div>
   )
 }
