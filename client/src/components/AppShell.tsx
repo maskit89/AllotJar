@@ -1,18 +1,27 @@
-import { useState, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { AppNav, type NavKey } from './AppNav'
 import { HouseholdSwitcher } from './HouseholdSwitcher'
-import { CloseIcon, HelpIcon, LogoMark, LogoutIcon, MenuIcon, SettingsIcon } from './icons'
+import { JarLogo } from './Jar'
+import { HelpIcon, LogoutIcon, SettingsIcon } from './icons'
 import { ThemeToggle } from './ThemeToggle'
 import { EVENTS, track } from '../analytics'
 
+/** Two-letter initials from a display name (or the email's first letter). */
+function initialsOf(name: string, email: string | null): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  const initials = words.slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('')
+  return initials || email?.trim().charAt(0).toUpperCase() || '?'
+}
+
 /**
- * The shared dashboard chrome: a fixed left sidebar for primary navigation and a
- * top header for the user/profile/settings. The sidebar is always visible on
- * large screens and collapses behind a hamburger (an off-canvas drawer) on
- * smaller ones. Every authenticated page renders its content inside one, so the
- * layout, width and chrome stay consistent.
+ * The shared dashboard chrome, redesigned: a desktop left **sidebar** (the jar
+ * logo, primary nav, a pinned user chip) that collapses below 900px into a
+ * horizontal **top bar** with scrollable nav pills. A slim top header in the
+ * content column carries the global actions (household switcher, theme, help,
+ * settings, sign-out) and a "Zero-based" signature pill. Every authenticated page
+ * renders its hero + content inside the 1180px column.
  */
 export function AppShell({
   active,
@@ -23,19 +32,54 @@ export function AppShell({
   maxWidth?: '4xl' | '5xl'
   children: ReactNode
 }) {
-  const { email, logout, canWrite, canEnterData, isReadOnly } = useAuth()
-  const [navOpen, setNavOpen] = useState(false)
+  const { email, displayName, preferredCurrency, households, logout, canWrite, canEnterData, isReadOnly } = useAuth()
   // Only Limited/Read-only roles are restricted; Owner/Admin have full write access.
   const accessBanner = isReadOnly
     ? 'You have read-only access — you can view everything but cannot make changes.'
     : !canWrite && canEnterData
       ? 'You have limited access — you can record transactions, mark bills paid and run allocation, but not change the budget structure or settings.'
       : null
-  const width = maxWidth === '4xl' ? 'max-w-4xl' : 'max-w-5xl'
-  const initial = email?.trim().charAt(0).toUpperCase() || '?'
+  const width = maxWidth === '4xl' ? 'max-w-[1080px]' : 'max-w-[1180px]'
+  const name = displayName || email || ''
+  const initials = initialsOf(name, email)
+  const householdLabel = households.find((h) => h.isActive)?.label ?? 'Personal'
+
+  const headerActions = (
+    <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+      <ThemeToggle />
+      <Link
+        to="/help"
+        data-tour="help"
+        aria-label="Help & guide"
+        title="Help & guide"
+        className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+      >
+        <HelpIcon className="h-5 w-5" />
+      </Link>
+      <Link
+        to="/account"
+        aria-label="Account settings"
+        title="Account settings"
+        className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+      >
+        <SettingsIcon className="h-5 w-5" />
+      </Link>
+      <button
+        type="button"
+        onClick={() => {
+          track(EVENTS.logout)
+          logout()
+        }}
+        className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 sm:px-3"
+      >
+        <LogoutIcon className="h-4 w-4" />
+        <span className="hidden sm:inline">Sign out</span>
+      </button>
+    </div>
+  )
 
   return (
-    <div className="min-h-full bg-slate-50">
+    <div className="min-h-screen bg-slate-50 min-[900px]:flex">
       {/* Bypass Blocks (2.4.1): a keyboard skip link to the main content. */}
       <a
         href="#main-content"
@@ -44,105 +88,57 @@ export function AppShell({
         Skip to main content
       </a>
 
-      {/* Mobile backdrop — tap to dismiss the drawer. */}
-      {navOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
-          aria-hidden
-          onClick={() => setNavOpen(false)}
-        />
-      )}
-
-      {/* Sidebar: a fixed drawer that slides in on mobile, pinned on desktop. */}
+      {/* Desktop sidebar (≥900px). */}
       <aside
         data-tour="sidebar"
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200 bg-surface transition-transform duration-200 ease-out lg:translate-x-0 ${
-          navOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className="sticky top-0 hidden h-screen w-[230px] shrink-0 flex-col gap-1 self-stretch overflow-y-auto border-r border-slate-200 bg-surface-2 px-[18px] py-6 min-[900px]:flex"
       >
-        <div className="flex h-16 items-center gap-2 border-b border-slate-200 px-5">
-          <LogoMark className="h-8 w-8 text-brand-600" />
-          <span className="text-lg font-extrabold tracking-tight text-slate-800">ZeroBudget</span>
-          <button
-            type="button"
-            onClick={() => setNavOpen(false)}
-            aria-label="Close menu"
-            className="ml-auto rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-600 lg:hidden"
-          >
-            <CloseIcon className="h-5 w-5" />
-          </button>
+        <div className="flex items-center gap-[11px] px-2 pb-[22px]">
+          <JarLogo />
+          <span className="text-lg font-bold tracking-[-0.02em] text-slate-900">allotjar</span>
         </div>
-        <AppNav active={active} onNavigate={() => setNavOpen(false)} />
+
+        <AppNav active={active} variant="sidebar" />
+
+        <div className="mt-auto flex items-center gap-[11px] border-t border-slate-200 pt-[18px]">
+          <span
+            className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-brand-600 text-[13px] font-semibold text-white"
+            aria-hidden
+          >
+            {initials}
+          </span>
+          <div className="min-w-0">
+            {name && <div className="truncate text-[13.5px] font-semibold text-slate-900">{name}</div>}
+            <div className="truncate text-[11.5px] text-slate-500">
+              {preferredCurrency} · {householdLabel}
+            </div>
+          </div>
+        </div>
       </aside>
 
-      {/* Content column, offset past the sidebar on desktop. */}
-      <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-slate-200 bg-surface/80 px-4 backdrop-blur sm:px-6">
-          <button
-            type="button"
-            onClick={() => setNavOpen(true)}
-            aria-label="Open menu"
-            className="rounded-md p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 lg:hidden"
-          >
-            <MenuIcon className="h-6 w-6" />
-          </button>
+      {/* Mobile top bar (<900px): logo + scrollable nav pills. */}
+      <header className="flex items-center gap-3 border-b border-slate-200 bg-surface-2 px-3.5 py-3 min-[900px]:hidden">
+        <div className="flex shrink-0 items-center gap-2">
+          <JarLogo compact />
+          <span className="text-base font-bold tracking-[-0.02em] text-slate-900">allotjar</span>
+        </div>
+        <AppNav active={active} variant="topbar" />
+      </header>
 
+      {/* Content column. */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-slate-200 bg-surface/80 px-4 backdrop-blur sm:px-6">
+          <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700 dark:bg-brand-500/15 dark:text-brand-200">
+            Zero-based
+          </span>
           <HouseholdSwitcher />
-
-          <div className="ml-auto flex items-center gap-2 sm:gap-3">
-            <ThemeToggle />
-            <Link
-              to="/help"
-              data-tour="help"
-              aria-label="Help & guide"
-              title="Help & guide"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-600"
-            >
-              <HelpIcon className="h-5 w-5" />
-            </Link>
-            <Link
-              to="/account"
-              aria-label="Account settings"
-              title="Account settings"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-600"
-            >
-              <SettingsIcon className="h-5 w-5" />
-            </Link>
-
-            <div className="hidden h-6 w-px bg-slate-200 sm:block" />
-
-            <div className="flex items-center gap-2">
-              <span
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-100 text-sm font-bold text-brand-700 dark:bg-brand-500/20 dark:text-brand-200"
-                aria-hidden
-              >
-                {initial}
-              </span>
-              {email && (
-                <span className="hidden max-w-[12rem] truncate text-sm text-slate-500 sm:block">
-                  {email}
-                </span>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                track(EVENTS.logout)
-                logout()
-              }}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 sm:px-3"
-            >
-              <LogoutIcon className="h-4 w-4" />
-              <span className="hidden sm:inline">Sign out</span>
-            </button>
-          </div>
+          {headerActions}
         </header>
 
         <main
           id="main-content"
           tabIndex={-1}
-          className={`mx-auto ${width} space-y-6 px-4 py-8 focus:outline-none sm:px-6 lg:px-8`}
+          className={`mx-auto w-full space-y-[22px] px-[clamp(16px,4.5vw,38px)] pb-11 pt-[clamp(18px,3.4vw,30px)] focus:outline-none ${width}`}
         >
           {accessBanner && (
             <div

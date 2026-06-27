@@ -1,6 +1,39 @@
 import { hueColor, hueTint, type CategoryHue } from '../lib/categoryColors'
 
 /**
+ * The AllotJar brand mark — a miniature brass-lidded jar, partly filled with the
+ * brand green. Two sizes: the desktop sidebar (default) and the compact mobile
+ * top bar. Decorative; the adjacent "allotjar" wordmark carries the name.
+ */
+export function JarLogo({ compact = false }: { compact?: boolean }) {
+  const s = compact
+    ? { w: 26, h: 28, lidL: 7, lidW: 12, lidH: 4, lidR: 2, bodyTop: 5, bodyR: 7 }
+    : { w: 30, h: 32, lidL: 8, lidW: 14, lidH: 5, lidR: 3, bodyTop: 6, bodyR: 8 }
+  return (
+    <div className="relative shrink-0" style={{ width: s.w, height: s.h }} aria-hidden>
+      <div
+        className="absolute top-0"
+        style={{
+          left: s.lidL,
+          width: s.lidW,
+          height: s.lidH,
+          borderRadius: s.lidR,
+          background: 'linear-gradient(180deg, rgba(255,255,255,.4), rgba(0,0,0,.08)), var(--color-gold)',
+        }}
+      />
+      <div
+        className="absolute bottom-0 bg-brand-600/15"
+        style={{ left: 3, right: 3, top: s.bodyTop, borderRadius: s.bodyR }}
+      />
+      <div
+        className="absolute bottom-0 h-[60%] bg-brand-600"
+        style={{ left: 3, right: 3, borderRadius: `1px 1px ${s.bodyR}px ${s.bodyR}px` }}
+      />
+    </div>
+  )
+}
+
+/**
  * A sinking-fund "jar" — the redesign's signature metaphor. A brass **gold lid**
  * sits on a rounded **body** outlined in the category hue and tinted with it; an
  * inner fill rises from the bottom to `pct` of the goal, with the percent centred

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { HTMLAttributes, ReactNode } from 'react'
 
 /** One dark-glass stat tile on the right of the hero. */
 export interface HeroTile {
@@ -23,16 +23,19 @@ export function Hero({
   amountLabel,
   tiles = [],
   footnote,
+  className = '',
+  ...rest
 }: {
   eyebrow: ReactNode
   amount: ReactNode
   amountLabel?: string
   tiles?: HeroTile[]
   footnote?: ReactNode
-}) {
+} & HTMLAttributes<HTMLElement>) {
   return (
     <section
-      className="hero-surface grid min-h-[172px] items-center gap-6 rounded-[20px] px-[30px] py-[26px] [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]"
+      className={`hero-surface grid min-h-[172px] items-center gap-6 rounded-[20px] px-[30px] py-[26px] [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))] ${className}`}
+      {...rest}
     >
       <div>
         <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/85">{eyebrow}</p>
