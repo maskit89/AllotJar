@@ -7,6 +7,7 @@ import type {
   BudgetMonthDto,
   BudgetMonthSummaryDto,
   BudgetTemplateDto,
+  SinkingFundDto,
 } from '../types'
 import {
   billAlerts,
@@ -31,8 +32,11 @@ import {
   withReorderedItems,
   type MonthVM,
 } from '../budgetModel'
-import { formatMoney, toAmount, type Minor } from '../lib/money'
-import { RemainingBanner } from '../components/RemainingBanner'
+import { formatMoney, fromAmount, toAmount, type Minor } from '../lib/money'
+import { Hero, EveryEuroBadge } from '../components/Hero'
+import { Card } from '../components/ui'
+import { Jar } from '../components/Jar'
+import { hueForIndex } from '../lib/categoryColors'
 import { CategoryAccordion } from '../components/CategoryAccordion'
 import { FundGroup } from '../components/FundGroup'
 import { IncomeGroup } from '../components/IncomeGroup'
@@ -58,6 +62,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   const [newCategoryIsFund, setNewCategoryIsFund] = useState(false)
   const [months, setMonths] = useState<BudgetMonthSummaryDto[]>([])
   const [templates, setTemplates] = useState<BudgetTemplateDto[]>([])
+  // The "Your jars" shelf — the household's sinking funds, with goal progress.
+  const [funds, setFunds] = useState<SinkingFundDto[]>([])
 
   // Load the viewed month whenever it changes; a 404 means "no budget yet".
   useEffect(() => {
@@ -98,6 +104,15 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     api
       .get<BudgetTemplateDto[]>('/budget/templates')
       .then(({ data }) => setTemplates(data))
+      .catch(() => {})
+  }, [])
+
+  // The sinking-fund jars for the "Your jars" shelf — load once. Guarded so a
+  // non-array (or a failed fetch) leaves the shelf empty rather than throwing.
+  useEffect(() => {
+    api
+      .get<SinkingFundDto[]>('/sinkingfunds')
+      .then(({ data }) => setFunds(Array.isArray(data) ? data : []))
       .catch(() => {})
   }, [])
 
@@ -570,13 +585,35 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           </div>
         )}
 
-        {month && (
+        {month && (() => {
+          const incomeMinor = totalIncome(month)
+          const allottedMinor = monthPlanned(month)
+          const remainingMinor = remainingToBudget(month)
+          const balanced = remainingMinor === 0
+          const over = remainingMinor < 0
+          const totalSavedMinor = funds.reduce((s, f) => s + fromAmount(f.currentBalance), 0)
+          return (
           <>
-            <RemainingBanner
-              totalIncomeMinor={totalIncome(month)}
-              totalPlannedMinor={monthPlanned(month)}
-              remainingMinor={remainingToBudget(month)}
-              currency={month.currency}
+            <Hero
+              data-tour="remaining-banner"
+              eyebrow="Remaining to budget"
+              amount={formatMoney(remainingMinor, month.currency)}
+              amountLabel={`Remaining to budget: ${formatMoney(remainingMinor, month.currency)}`}
+              tiles={[
+                { label: 'Income', value: formatMoney(incomeMinor, month.currency) },
+                { label: 'Allotted', value: formatMoney(allottedMinor, month.currency) },
+              ]}
+              footnote={
+                balanced ? (
+                  <EveryEuroBadge>Every euro has a job</EveryEuroBadge>
+                ) : (
+                  <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13.5px] font-medium">
+                    {over
+                      ? `${formatMoney(-remainingMinor, month.currency)} over-budgeted`
+                      : `${formatMoney(remainingMinor, month.currency)} still to assign`}
+                  </span>
+                )
+              }
             />
 
             {(() => {
@@ -608,6 +645,47 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                 </div>
               )
             })()}
+
+            {/* "Your jars" shelf — the sinking funds drawn as jars, the signature metaphor. */}
+            {funds.length > 0 && (
+              <Card className="p-6">
+                <div className="flex items-baseline justify-between gap-3">
+                  <h2 className="text-base font-bold tracking-[-0.01em] text-slate-900">Your jars</h2>
+                  <span className="text-sm tabular-nums text-slate-500">
+                    {formatMoney(totalSavedMinor, month.currency)} saved
+                  </span>
+                </div>
+                <div className="mt-[22px] grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(116px,1fr))]">
+                  {funds.map((f, i) => {
+                    const avail = fromAmount(f.currentBalance)
+                    const target = fromAmount(f.targetAmount)
+                    const pct = target > 0 ? (avail / target) * 100 : 0
+                    const monthly = fromAmount(f.requiredMonthlyContribution)
+                    return (
+                      <div key={f.id} className="flex flex-col items-center gap-3">
+                        <Jar
+                          hue={hueForIndex(i)}
+                          pct={pct}
+                          size="shelf"
+                          label={`${f.name}: ${Math.round(Math.max(0, Math.min(100, pct)))}% of goal`}
+                        />
+                        <div className="text-center">
+                          <div className="text-[13px] font-semibold text-slate-900">{f.name}</div>
+                          <div className="text-[13.5px] font-bold tabular-nums text-slate-900">
+                            {formatMoney(avail, month.currency)}
+                          </div>
+                          {monthly > 0 && (
+                            <div className="mt-px text-[11.5px] font-semibold tabular-nums text-brand-700 dark:text-brand-200">
+                              +{formatMoney(monthly, month.currency)}/mo
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </Card>
+            )}
 
             <div className="space-y-3">
               {/* Income groups always render first (EveryDollar style). */}
@@ -704,7 +782,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
               )}
             </div>
           </>
-        )}
+          )
+        })()}
     </AppShell>
   )
 }

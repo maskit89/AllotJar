@@ -105,8 +105,8 @@ describe('DashboardPage optimistic editing', () => {
     )
     fireEvent.blur(input) // blur -> commit
 
-    // Banner flips to the balanced state and the API was called with the amount.
-    expect(await screen.findByText(/Every Euro has a job/, {}, { timeout: 5000 })).toBeInTheDocument()
+    // The hero flips to the balanced state and the API was called with the amount.
+    expect(await screen.findByText(/every euro has a job/i, {}, { timeout: 5000 })).toBeInTheDocument()
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent', { plannedAmount: 3000 }),
     )
