@@ -96,7 +96,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.goto('/')
 
       // Welcome dialog.
-      await page.getByRole('heading', { name: 'Welcome to ZeroBudget' }).waitFor()
+      await page.getByRole('heading', { name: 'Welcome to AllotJar' }).waitFor()
       await expectNoViolations(page)
 
       // Spotlight tour — first step (a real element is spotlit).

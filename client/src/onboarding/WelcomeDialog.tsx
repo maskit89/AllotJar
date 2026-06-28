@@ -1,6 +1,7 @@
 import { useRef, type ReactNode } from 'react'
 import { Button } from '../components/ui'
-import { CheckIcon, CloseIcon, LogoMark } from '../components/icons'
+import { CheckIcon, CloseIcon } from '../components/icons'
+import { JarLogo } from '../components/Jar'
 import { useOnboarding } from './OnboardingContext'
 import { useDialogA11y } from './useDialogA11y'
 
@@ -40,13 +41,13 @@ export function WelcomeDialog() {
           <CloseIcon className="h-5 w-5" />
         </button>
 
-        <LogoMark className="h-12 w-12 text-brand-600" />
+        <JarLogo lg />
 
         <h2 id="zb-welcome-title" className="mt-4 text-2xl font-bold tracking-tight text-slate-900">
-          Welcome to ZeroBudget
+          Welcome to AllotJar
         </h2>
         <p id="zb-welcome-body" className="mt-2 text-sm leading-relaxed text-slate-600">
-          ZeroBudget is a <strong>zero-based</strong> budget — every month you give{' '}
+          AllotJar is a <strong>zero-based</strong> budget — every month you give{' '}
           <strong>every euro a job</strong> before you spend it. Setting up your first month takes a few
           minutes. Want a quick 60-second tour to see how it fits together?
         </p>

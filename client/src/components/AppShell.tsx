@@ -184,7 +184,9 @@ export function AppShell({
       >
         <div className="flex items-center gap-[11px] px-2 pb-[22px]">
           <JarLogo />
-          <span className="text-lg font-bold tracking-[-0.02em] text-slate-900">AllotJar</span>
+          <span className="text-lg font-extrabold tracking-[-0.035em] text-slate-900">
+            Allot<span style={{ color: 'var(--accent)' }}>Jar</span>
+          </span>
         </div>
 
         <AppNav active={active} variant="sidebar" />
@@ -198,7 +200,9 @@ export function AppShell({
       <header className="flex items-center gap-3 border-b border-slate-200 bg-surface-2 px-3.5 py-3 min-[900px]:hidden">
         <div className="flex shrink-0 items-center gap-2">
           <JarLogo compact />
-          <span className="text-base font-bold tracking-[-0.02em] text-slate-900">AllotJar</span>
+          <span className="text-base font-extrabold tracking-[-0.035em] text-slate-900">
+            Allot<span style={{ color: 'var(--accent)' }}>Jar</span>
+          </span>
         </div>
         <AppNav active={active} variant="topbar" />
         <UserMenu compact />
