@@ -21,6 +21,7 @@ vi.mock('../lib/api', () => ({
 
 import { DashboardPage } from './DashboardPage'
 import { AuthProvider } from '../auth/AuthContext'
+import { MonthProvider } from '../features/MonthContext'
 
 // Income(Take-home Pay 3000) at the top + Housing(Rent 1100). Remaining = 1900.
 function budget(): BudgetMonthDto {
@@ -65,7 +66,9 @@ function renderPage() {
   return render(
     <MemoryRouter>
       <AuthProvider>
-        <DashboardPage />
+        <MonthProvider>
+          <DashboardPage />
+        </MonthProvider>
       </AuthProvider>
     </MemoryRouter>,
   )
@@ -87,6 +90,8 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
+    // The planned amount reads as clean text; click it to reveal the editor.
+    fireEvent.click(await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 }))
     const input = (await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })) as HTMLInputElement
     // Set the planned amount to €3.000 and commit on blur. The dashboard fires
     // three loads on mount (/budget/{y}/{m}, /budget/months, /budget/templates);
@@ -105,8 +110,8 @@ describe('DashboardPage optimistic editing', () => {
     )
     fireEvent.blur(input) // blur -> commit
 
-    // Banner flips to the balanced state and the API was called with the amount.
-    expect(await screen.findByText(/Every Euro has a job/, {}, { timeout: 5000 })).toBeInTheDocument()
+    // The hero flips to the balanced state and the API was called with the amount.
+    expect(await screen.findByText(/every euro has a job/i, {}, { timeout: 5000 })).toBeInTheDocument()
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent', { plannedAmount: 3000 }),
     )
@@ -121,14 +126,19 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
+    await user.click(await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 }))
     const input = (await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })) as HTMLInputElement
     await user.clear(input)
     await user.type(input, '3000')
     await user.tab()
 
-    // The failure surfaces and the field reverts to its pre-edit value.
+    // The failure surfaces and the planned amount reverts to its pre-edit value —
+    // the editor closes, so the at-rest "€1,100.00" control shows the rollback.
     expect(await screen.findByText(/reverted to the previous value/, {}, { timeout: 5000 })).toBeInTheDocument()
-    await waitFor(() => expect(input.value).toBe('1100'), { timeout: 5000 })
+    await waitFor(
+      () => expect(screen.getByLabelText('Planned amount for Rent')).toHaveTextContent('1,100.00'),
+      { timeout: 5000 },
+    )
   })
 
   it('adds an income source and reconciles from the server response', { timeout: 15000 }, async () => {
@@ -200,8 +210,8 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
-    const input = await screen.findByLabelText('New category group name', {}, { timeout: 5000 })
-    await user.type(input, 'Subscriptions')
+    await user.click(await screen.findByRole('button', { name: 'Add a group' }, { timeout: 5000 }))
+    await user.type(await screen.findByLabelText('New category group name', {}, { timeout: 5000 }), 'Subscriptions')
     await user.click(screen.getByRole('button', { name: 'Add category group' }))
 
     await waitFor(() =>
@@ -318,8 +328,8 @@ describe('DashboardPage optimistic editing', () => {
     renderPage()
 
     expect(await screen.findByDisplayValue('Car', {}, { timeout: 5000 })).toBeInTheDocument()
-    // The fund's available balance (170,00 €) is shown, rolled over across months.
-    expect(screen.getByText('170,00 €')).toBeInTheDocument()
+    // The fund's available balance (€170.00) is shown, rolled over across months.
+    expect(screen.getByText('€170.00')).toBeInTheDocument()
   })
 
   it('creates a fund group when the kind is set to Fund', { timeout: 15000 }, async () => {
@@ -335,8 +345,8 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
-    const input = await screen.findByLabelText('New category group name', {}, { timeout: 5000 })
-    await user.type(input, 'Sinking Funds')
+    await user.click(await screen.findByRole('button', { name: 'Add a group' }, { timeout: 5000 }))
+    await user.type(await screen.findByLabelText('New category group name', {}, { timeout: 5000 }), 'Sinking Funds')
     await user.selectOptions(screen.getByLabelText('New group kind'), 'fund')
     await user.click(screen.getByRole('button', { name: 'Add category group' }))
 
@@ -399,7 +409,9 @@ describe('DashboardPage optimistic editing', () => {
     render(
       <MemoryRouter>
         <AuthProvider>
-          <DashboardPage today={new Date(2026, 5, 20)} />
+          <MonthProvider>
+            <DashboardPage today={new Date(2026, 5, 20)} />
+          </MonthProvider>
         </AuthProvider>
       </MemoryRouter>,
     )

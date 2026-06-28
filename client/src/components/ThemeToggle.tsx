@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { MoonIcon, SunIcon } from './icons'
 import { EVENTS, track } from '../analytics'
 
 const KEY = 'zbb.theme'
@@ -21,10 +20,10 @@ function apply(mode: Mode) {
 }
 
 /**
- * A header button that toggles light/dark and persists the explicit choice.
- * Until the user picks, the app follows the OS `prefers-color-scheme` (and keeps
- * following live system changes). The initial class is set by a script in
- * index.html so there's no flash before React mounts.
+ * The Light/Dark theme control — a small segmented toggle (the redesign shows it
+ * top-right of the top bar and on the auth screens). Persists the explicit choice
+ * and, until the user picks, follows the OS `prefers-color-scheme` live. The
+ * initial class is set by a script in index.html so there's no flash on load.
  */
 export function ThemeToggle() {
   const [mode, setMode] = useState<Mode>(() => currentMode())
@@ -42,22 +41,35 @@ export function ThemeToggle() {
     return () => mq.removeEventListener('change', onChange)
   }, [])
 
-  const isDark = mode === 'dark'
+  function choose(next: Mode) {
+    localStorage.setItem(KEY, next)
+    setMode(next)
+    track(EVENTS.themeChanged, { theme: next })
+  }
 
   return (
-    <button
-      type="button"
-      onClick={() => {
-        const next: Mode = isDark ? 'light' : 'dark'
-        localStorage.setItem(KEY, next)
-        setMode(next)
-        track(EVENTS.themeChanged, { theme: next })
-      }}
-      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-      title={isDark ? 'Light mode' : 'Dark mode'}
-      className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-600"
+    <div
+      role="group"
+      aria-label="Theme"
+      className="inline-flex items-center gap-0.5 rounded-[11px] border border-slate-200 bg-surface-2 p-[3px]"
     >
-      {isDark ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
-    </button>
+      {(['light', 'dark'] as const).map((m) => {
+        const selected = mode === m
+        return (
+          <button
+            key={m}
+            type="button"
+            aria-pressed={selected}
+            aria-label={m === 'light' ? 'Light mode' : 'Dark mode'}
+            onClick={() => choose(m)}
+            className={`rounded-lg px-4 py-1.5 text-[13px] font-semibold capitalize transition ${
+              selected ? 'bg-brand-600 text-white' : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            {m}
+          </button>
+        )
+      })}
+    </div>
   )
 }

@@ -1,29 +1,61 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
 /* Design tokens. Tailwind v4 reads theme from CSS, so no JS config. */
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
-  /* Brand accent (emerald family) — referenced as bg-brand-600 etc. where wanted.
-     600/700 darkened so white text and small text clear WCAG AA (4.5:1). */
-  --color-brand-50: #ecfdf5;
-  --color-brand-100: #d1fae5;
-  --color-brand-200: #a7f3d0;
-  --color-brand-500: #10b981;
-  --color-brand-600: #047857;
-  --color-brand-700: #065f46;
+  /* Brand accent — the AllotJar redesign "calm fintech" green (reference palette).
+     600 is the solid accent (white text clears AA at 6.4:1); 700 is the hover/press.
+     Dark mode brightens the lighter steps to #5FC093 for accent-as-text (see .dark). */
+  --color-brand-50: #e8f1ec;
+  --color-brand-100: #d2e6dc;
+  --color-brand-200: #a9cdbc;
+  --color-brand-500: #2e8b63;
+  --color-brand-600: #1f6b4d;
+  --color-brand-700: #155239;
 
   /* Darken the stock emerald/rose 600 the same way — they back buttons, links
      and status text that must meet AA on white (#059669/#e11d48 were ~3.8/4.2:1). */
   --color-emerald-600: #047857;
   --color-rose-600: #be123c;
 
+  /* The gold signature. Solid gold is used sparingly — brass jar lids, the logo
+     mark, the "every euro has a job" check. The metallic text gradient (the hero
+     number) lives in the `.gold-number` utility below, never on a light surface. */
+  --color-gold: #d7a93e;
+
   /* A soft, layered card shadow — used by the `shadow-card` utility. */
   --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.06);
 
+  /* The heavier elevation used on the gradient hero and raised panels
+     (`shadow-hero`). Flipped in dark mode. */
+  --shadow-hero: 0 1px 2px rgb(20 32 26 / 0.05), 0 20px 40px -24px rgb(31 107 77 / 0.30);
+
   /* The raised surface colour (cards, header, sidebar, inputs). Flipped in dark mode. */
   --color-surface: #ffffff;
+  /* A subtly inset surface — segmented-control track, register insets. */
+  --color-surface-2: #fafbfa;
+
+  /* The unified hero gradient (the dark-green band every screen opens with).
+     A gradient, not a colour, so it's applied via `bg-[image:var(--hero-grad)]`
+     or the `.hero-surface` helper rather than a Tailwind colour utility. */
+  --hero-grad: linear-gradient(135deg, #114a32, #1a6347 45%, #247e58);
+}
+
+/* Sinking-fund / budget-group / account category palette — five hues at equal
+   chroma. The colour rides the dot / bar / jar-lid (a graphic, needs only 3:1);
+   pill TEXT is always `--ink` (slate-900), never the hue. The 14% tint backs
+   pills, jar bodies and bar tracks. These are referenced via inline `var()`
+   (the hue is dynamic per category), so they live in :root rather than @theme —
+   Tailwind tree-shakes unused @theme vars, and no `cat-*` utility references
+   them. Dark variants brighten for dark surfaces (see .dark below). */
+:root {
+  --color-cat-emerald: #1f8a5b;
+  --color-cat-amber: #b0791a;
+  --color-cat-teal: #1f8a8a;
+  --color-cat-indigo: #4c5bc4;
+  --color-cat-rose: #b14a66;
 }
 
 /* Enables `dark:` utilities to key off a `.dark` class on <html>. */
@@ -32,12 +64,31 @@
 /*
  * Dark theme. Rather than sprinkle `dark:` variants on every element, we flip the
  * design at the token level: invert the slate ramp (which the whole app uses for
- * backgrounds / borders / text) and darken the raised surface. Accent colours
- * (brand / violet / rose / amber) are intentionally left vivid. A handful of true
- * white surfaces opt in by using `bg-surface` instead of `bg-white`.
+ * backgrounds / borders / text) and darken the raised surface. Accent fills stay
+ * the deep brand green (white text still clears AA), while the lighter brand
+ * steps (50/100/200/500) brighten to the #5FC093 family for accent-as-text and
+ * tints. The category hues and gold also brighten for dark surfaces.
  */
 .dark {
   --color-surface: #0f172a;
+  --color-surface-2: #111714;
+
+  /* Brand: keep 600/700 deep (fills + white text); brighten the rest for dark. */
+  --color-brand-50: #15271d;
+  --color-brand-100: #18281f;
+  --color-brand-200: #9bdcbc;
+  --color-brand-500: #5fc093;
+
+  --color-gold: #e8c36a;
+
+  --color-cat-emerald: #4fc08d;
+  --color-cat-amber: #d9a441;
+  --color-cat-teal: #46b5b0;
+  --color-cat-indigo: #8c95e6;
+  --color-cat-rose: #d98098;
+
+  --shadow-hero: 0 22px 46px -24px rgb(0 0 0 / 0.7);
+  --hero-grad: linear-gradient(135deg, #155339, #1e6e4e 45%, #2a8a60);
 
   --color-slate-50: #020617;
   --color-slate-100: #0f172a;
@@ -61,8 +112,8 @@ body,
 
 body {
   margin: 0;
-  background-color: #f8fafc; /* slate-50 */
-  color: #0f172a; /* slate-900 */
+  background-color: #fafcfa; /* --bg (reference app background); light enough that muted slate-500 text on it clears WCAG AA */
+  color: #15201b; /* --ink */
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -70,14 +121,34 @@ body {
 }
 
 .dark body {
-  background-color: #020617;
-  color: #e2e8f0;
+  background-color: #0e1311;
+  color: #e9f0eb;
 }
 
-/* A calmer, more deliberate focus ring across the app. */
+/* The metallic gold hero number: a vertical gradient clipped to the glyphs. Only
+   ever rendered on the dark-green gradient hero (passes AA for large text); never
+   place this on a light surface. Monetary, so tabular figures. */
+.gold-number {
+  background: linear-gradient(170deg, #f4db8e 8%, #e5be5e 48%, #d2a033);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The unified hero band: the dark-green gradient + heavy elevation + white text. */
+.hero-surface {
+  background: var(--hero-grad);
+  box-shadow: var(--shadow-hero);
+  color: #fff;
+}
+
+/* A calmer, more deliberate focus ring across the app (WCAG 2.4.7 / 2.4.13):
+   2px accent ring at 2px offset, per the redesign spec. */
 :focus-visible {
   outline: 2px solid var(--color-brand-600);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 
 /* WCAG 2.4.11 (Focus Not Obscured): keep a scrolled-to / focused element clear

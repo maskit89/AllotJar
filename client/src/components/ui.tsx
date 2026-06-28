@@ -95,7 +95,7 @@ export function Select({ className = '', children, ...rest }: SelectHTMLAttribut
   )
 }
 
-type BadgeTone = 'neutral' | 'brand' | 'violet' | 'rose' | 'amber'
+type BadgeTone = 'neutral' | 'brand' | 'violet' | 'rose' | 'amber' | 'teal'
 
 const BADGE_TONES: Record<BadgeTone, string> = {
   // neutral rides the inverted slate ramp, so it needs no `dark:` variant.
@@ -104,6 +104,8 @@ const BADGE_TONES: Record<BadgeTone, string> = {
   violet: 'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
   rose: 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300',
   amber: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+  // Transport's hue — the redesign adds teal (no teal tone existed before).
+  teal: 'bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300',
 }
 
 /** A small rounded pill for counts, tags and statuses. */
@@ -177,7 +179,7 @@ export function SegmentedControl<T extends string>({
             onClick={() => onChange(o.value)}
             className={`rounded-md px-3 py-1.5 transition ${
               selected
-                ? 'bg-surface text-slate-900 shadow-sm'
+                ? 'bg-brand-600 text-white shadow-sm'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >

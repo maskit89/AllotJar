@@ -118,7 +118,7 @@ describe('role gating', () => {
 
     renderPage(<AccountsPage />)
 
-    expect(await screen.findByLabelText('Account name', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Add account' }, { timeout: 5000 })).toBeInTheDocument()
     expect(await screen.findByLabelText('Edit Everyday')).toBeInTheDocument()
   })
 })

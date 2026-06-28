@@ -7,10 +7,13 @@ import type {
   BudgetMonthDto,
   BudgetMonthSummaryDto,
   BudgetTemplateDto,
+  SinkingFundDto,
 } from '../types'
 import {
   billAlerts,
   billsSummary,
+  categoryActual,
+  categoryPlanned,
   fromDto,
   findItem,
   isFund,
@@ -31,23 +34,26 @@ import {
   withReorderedItems,
   type MonthVM,
 } from '../budgetModel'
-import { formatMoney, toAmount, type Minor } from '../lib/money'
-import { RemainingBanner } from '../components/RemainingBanner'
+import { formatMoney, fromAmount, sumMinor, toAmount, type Minor } from '../lib/money'
+import { Hero, EveryEuroBadge } from '../components/Hero'
+import { Card } from '../components/ui'
+import { Jar } from '../components/Jar'
+import { hueForIndex } from '../lib/categoryColors'
 import { CategoryAccordion } from '../components/CategoryAccordion'
 import { FundGroup } from '../components/FundGroup'
 import { IncomeGroup } from '../components/IncomeGroup'
+import { useMonth } from '../features/MonthContext'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
 
-const now = new Date()
-
 export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // Building/editing the budget (groups, lines, months) needs Admin+ (canWrite).
   const { canWrite } = useAuth()
-  const [view, setView] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 })
+  // The viewed month comes from the app-wide top bar (MonthContext).
+  const { year, month: monthNum } = useMonth()
   const [month, setMonth] = useState<MonthVM | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -56,8 +62,11 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   const [savingItemId, setSavingItemId] = useState<string | null>(null)
   const [newCategoryName, setNewCategoryName] = useState('')
   const [newCategoryIsFund, setNewCategoryIsFund] = useState(false)
+  const [addingGroup, setAddingGroup] = useState(false)
   const [months, setMonths] = useState<BudgetMonthSummaryDto[]>([])
   const [templates, setTemplates] = useState<BudgetTemplateDto[]>([])
+  // The "Your jars" shelf — the household's sinking funds, with goal progress.
+  const [funds, setFunds] = useState<SinkingFundDto[]>([])
 
   // Load the viewed month whenever it changes; a 404 means "no budget yet".
   useEffect(() => {
@@ -66,7 +75,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     setError(null)
     setNotFound(false)
     api
-      .get<BudgetMonthDto>(`/budget/${view.year}/${view.month}`)
+      .get<BudgetMonthDto>(`/budget/${year}/${monthNum}`)
       .then(({ data }) => {
         if (!cancelled) setMonth(fromDto(data))
       })
@@ -82,7 +91,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     return () => {
       cancelled = true
     }
-  }, [view])
+  }, [year, monthNum])
 
   const refreshMonths = useCallback(() => {
     api
@@ -101,23 +110,19 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       .catch(() => {})
   }, [])
 
-  const hasPrevBudget = useMemo(
-    () =>
-      months.some(
-        (m) => m.year < view.year || (m.year === view.year && m.month < view.month),
-      ),
-    [months, view],
-  )
+  // The sinking-fund jars for the "Your jars" shelf — load once. Guarded so a
+  // non-array (or a failed fetch) leaves the shelf empty rather than throwing.
+  useEffect(() => {
+    api
+      .get<SinkingFundDto[]>('/sinkingfunds')
+      .then(({ data }) => setFunds(Array.isArray(data) ? data : []))
+      .catch(() => {})
+  }, [])
 
-  const goToMonth = useCallback((year: number, month: number) => setView({ year, month }), [])
-  const goPrev = useCallback(() => {
-    track(EVENTS.monthNavigated, { direction: 'prev' })
-    setView((v) => (v.month === 1 ? { year: v.year - 1, month: 12 } : { ...v, month: v.month - 1 }))
-  }, [])
-  const goNext = useCallback(() => {
-    track(EVENTS.monthNavigated, { direction: 'next' })
-    setView((v) => (v.month === 12 ? { year: v.year + 1, month: 1 } : { ...v, month: v.month + 1 }))
-  }, [])
+  const hasPrevBudget = useMemo(
+    () => months.some((m) => m.year < year || (m.year === year && m.month < monthNum)),
+    [months, year, monthNum],
+  )
 
   // Create the viewed month — copying the previous month's plan, or blank.
   const createMonth = useCallback(
@@ -126,8 +131,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setError(null)
       try {
         const { data } = await api.post<BudgetMonthDto>('/budget', {
-          year: view.year,
-          month: view.month,
+          year,
+          month: monthNum,
           copyFromPrevious,
         })
         setMonth(fromDto(data))
@@ -140,7 +145,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         setCreating(false)
       }
     },
-    [view, refreshMonths],
+    [year, monthNum, refreshMonths],
   )
 
   // Create the viewed month from a quick-start template.
@@ -150,8 +155,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setError(null)
       try {
         const { data } = await api.post<BudgetMonthDto>('/budget', {
-          year: view.year,
-          month: view.month,
+          year,
+          month: monthNum,
           copyFromPrevious: false,
           templateKey,
         })
@@ -165,7 +170,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         setCreating(false)
       }
     },
-    [view, refreshMonths],
+    [year, monthNum, refreshMonths],
   )
 
   // Optimistic commit: apply the edit locally and recompute the banner instantly
@@ -454,48 +459,11 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     if (trimmed === '') return
     addCategory(trimmed, newCategoryIsFund)
     setNewCategoryName('')
+    setAddingGroup(false)
   }
 
   return (
-    <AppShell active="budget" maxWidth="4xl">
-        {/* Page heading + month navigator — always visible so you can move between / create months. */}
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Budget</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Give every euro a job until “Remaining to Budget” reaches €0.00.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={goPrev}
-              aria-label="Previous month"
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-            >
-              ◀
-            </button>
-            <h2 className="min-w-40 text-center text-lg font-semibold tabular-nums text-slate-800">
-              {MONTH_NAMES[view.month - 1]} {view.year}
-            </h2>
-            <button
-              type="button"
-              onClick={goNext}
-              aria-label="Next month"
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-            >
-              ▶
-            </button>
-            <button
-              type="button"
-              onClick={() => goToMonth(now.getFullYear(), now.getMonth() + 1)}
-              className="ml-1 rounded-lg px-2.5 py-1.5 text-sm font-medium text-brand-700 transition hover:bg-brand-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
-            >
-              This month
-            </button>
-          </div>
-        </div>
-
+    <AppShell active="budget" title="Budget">
         {loading && <p className="text-slate-500">Loading your budget…</p>}
 
         {error && (
@@ -507,7 +475,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         {notFound && !loading && !canWrite && (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-surface px-6 py-12 text-center shadow-card">
             <p className="text-slate-600">
-              No budget for {MONTH_NAMES[view.month - 1]} {view.year} yet.
+              No budget for {MONTH_NAMES[monthNum - 1]} {year} yet.
             </p>
             <p className="mt-1 text-sm text-slate-500">
               Ask an admin or the owner to set this month up.
@@ -518,7 +486,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         {notFound && !loading && canWrite && (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-surface px-6 py-12 text-center shadow-card">
             <p className="text-slate-600">
-              No budget for {MONTH_NAMES[view.month - 1]} {view.year} yet.
+              No budget for {MONTH_NAMES[monthNum - 1]} {year} yet.
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-3">
               {hasPrevBudget && (
@@ -570,13 +538,35 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           </div>
         )}
 
-        {month && (
+        {month && (() => {
+          const incomeMinor = totalIncome(month)
+          const allottedMinor = monthPlanned(month)
+          const remainingMinor = remainingToBudget(month)
+          const balanced = remainingMinor === 0
+          const over = remainingMinor < 0
+          const totalSavedMinor = funds.reduce((s, f) => s + fromAmount(f.currentBalance), 0)
+          return (
           <>
-            <RemainingBanner
-              totalIncomeMinor={totalIncome(month)}
-              totalPlannedMinor={monthPlanned(month)}
-              remainingMinor={remainingToBudget(month)}
-              currency={month.currency}
+            <Hero
+              data-tour="remaining-banner"
+              eyebrow="Remaining to budget"
+              amount={formatMoney(remainingMinor, month.currency)}
+              amountLabel={`Remaining to budget: ${formatMoney(remainingMinor, month.currency)}`}
+              tiles={[
+                { label: 'Income', value: formatMoney(incomeMinor, month.currency) },
+                { label: 'Allotted', value: formatMoney(allottedMinor, month.currency) },
+              ]}
+              footnote={
+                balanced ? (
+                  <EveryEuroBadge>Every euro has a job</EveryEuroBadge>
+                ) : (
+                  <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13.5px] font-medium">
+                    {over
+                      ? `${formatMoney(-remainingMinor, month.currency)} over-budgeted`
+                      : `${formatMoney(remainingMinor, month.currency)} still to assign`}
+                  </span>
+                )
+              }
             />
 
             {(() => {
@@ -609,6 +599,47 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
               )
             })()}
 
+            {/* "Your jars" shelf — the sinking funds drawn as jars, the signature metaphor. */}
+            {funds.length > 0 && (
+              <Card className="p-6">
+                <div className="flex items-baseline justify-between gap-3">
+                  <h2 className="text-base font-bold tracking-[-0.01em] text-slate-900">Your jars</h2>
+                  <span className="text-sm tabular-nums text-slate-500">
+                    {formatMoney(totalSavedMinor, month.currency)} saved
+                  </span>
+                </div>
+                <div className="mt-[22px] grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(116px,1fr))]">
+                  {funds.map((f, i) => {
+                    const avail = fromAmount(f.currentBalance)
+                    const target = fromAmount(f.targetAmount)
+                    const pct = target > 0 ? (avail / target) * 100 : 0
+                    const monthly = fromAmount(f.requiredMonthlyContribution)
+                    return (
+                      <div key={f.id} className="flex flex-col items-center gap-3">
+                        <Jar
+                          hue={hueForIndex(i)}
+                          pct={pct}
+                          size="shelf"
+                          label={`${f.name}: ${Math.round(Math.max(0, Math.min(100, pct)))}% of goal`}
+                        />
+                        <div className="text-center">
+                          <div className="text-[13px] font-semibold text-slate-900">{f.name}</div>
+                          <div className="text-[13.5px] font-bold tabular-nums text-slate-900">
+                            {formatMoney(avail, month.currency)}
+                          </div>
+                          {monthly > 0 && (
+                            <div className="mt-px text-[11.5px] font-semibold tabular-nums text-brand-700 dark:text-brand-200">
+                              +{formatMoney(monthly, month.currency)}/mo
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </Card>
+            )}
+
             <div className="space-y-3">
               {/* Income groups always render first (EveryDollar style). */}
               {month.categories.filter(isIncome).map((category) => (
@@ -623,31 +654,48 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                   onAddItem={addItem}
                 />
               ))}
-              {month.categories
-                .filter((c) => c.kind === 'expense')
-                .map((category, i, arr) => (
-                  <CategoryAccordion
-                    key={category.id}
-                    category={category}
-                    currency={month.currency}
-                    savingItemId={savingItemId}
-                    monthYear={month.year}
-                    monthNumber={month.month}
-                    today={today}
-                    isFirst={i === 0}
-                    isLast={i === arr.length - 1}
-                    onCommitItem={commitItem}
-                    onSetBill={setBill}
-                    onSetPaid={setPaid}
-                    onRenameItem={renameItem}
-                    onDeleteItem={deleteItem}
-                    onAddItem={addItem}
-                    onRenameCategory={renameCategory}
-                    onDeleteCategory={deleteCategory}
-                    onMove={moveCategory}
-                    onReorderItems={reorderItems}
-                  />
-                ))}
+              {/* "Everyday spending" panel — all expense groups in one card. */}
+              {(() => {
+                const expense = month.categories.filter((c) => c.kind === 'expense')
+                if (expense.length === 0) return null
+                const spent = sumMinor(expense.map(categoryActual))
+                const planned = sumMinor(expense.map(categoryPlanned))
+                return (
+                  <Card className="px-6 py-[22px]">
+                    <div className="mb-1.5 flex items-baseline justify-between gap-3">
+                      <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Everyday spending</h2>
+                      <div className="text-[13px] tabular-nums text-slate-700">
+                        {formatMoney(spent, month.currency)}{' '}
+                        <span className="text-slate-500">of {formatMoney(planned, month.currency)}</span>
+                      </div>
+                    </div>
+                    {expense.map((category, i, arr) => (
+                      <CategoryAccordion
+                        key={category.id}
+                        category={category}
+                        currency={month.currency}
+                        savingItemId={savingItemId}
+                        monthYear={month.year}
+                        monthNumber={month.month}
+                        today={today}
+                        isFirst={i === 0}
+                        isLast={i === arr.length - 1}
+                        hue={hueForIndex(i)}
+                        onCommitItem={commitItem}
+                        onSetBill={setBill}
+                        onSetPaid={setPaid}
+                        onRenameItem={renameItem}
+                        onDeleteItem={deleteItem}
+                        onAddItem={addItem}
+                        onRenameCategory={renameCategory}
+                        onDeleteCategory={deleteCategory}
+                        onMove={moveCategory}
+                        onReorderItems={reorderItems}
+                      />
+                    ))}
+                  </Card>
+                )
+              })()}
 
               {/* Sinking funds render below expenses; their balances roll over. */}
               {month.categories.filter(isFund).map((category) => (
@@ -665,46 +713,73 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                 />
               ))}
 
-              {/* Add a new expense or fund group (EveryDollar "Add Group"). */}
-              {canWrite && (
-              <div className="flex items-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-surface/60 px-4 py-3">
-                <input
-                  type="text"
-                  value={newCategoryName}
-                  placeholder={
-                    newCategoryIsFund
-                      ? 'Add a fund group (e.g. Sinking Funds, Savings)…'
-                      : 'Add a category group (e.g. Subscriptions, Insurance)…'
-                  }
-                  aria-label="New category group name"
-                  onChange={(e) => setNewCategoryName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') submitNewCategory()
-                  }}
-                  className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                />
-                <select
-                  value={newCategoryIsFund ? 'fund' : 'expense'}
-                  aria-label="New group kind"
-                  onChange={(e) => setNewCategoryIsFund(e.target.value === 'fund')}
-                  className="rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-600 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                >
-                  <option value="expense">Expense</option>
-                  <option value="fund">Fund</option>
-                </select>
-                <button
-                  type="button"
-                  onClick={submitNewCategory}
-                  aria-label="Add category group"
-                  className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700"
-                >
-                  + Add group
-                </button>
-              </div>
-              )}
+              {/* Add a new expense or fund group — a quiet reveal to match the clean panel. */}
+              {canWrite &&
+                (addingGroup ? (
+                  <div className="flex items-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-surface/60 px-4 py-3">
+                    <input
+                      type="text"
+                      autoFocus
+                      value={newCategoryName}
+                      placeholder={
+                        newCategoryIsFund
+                          ? 'Add a fund group (e.g. Sinking Funds, Savings)…'
+                          : 'Add a category group (e.g. Subscriptions, Insurance)…'
+                      }
+                      aria-label="New category group name"
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') submitNewCategory()
+                        if (e.key === 'Escape') {
+                          setNewCategoryName('')
+                          setAddingGroup(false)
+                        }
+                      }}
+                      className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    />
+                    <select
+                      value={newCategoryIsFund ? 'fund' : 'expense'}
+                      aria-label="New group kind"
+                      onChange={(e) => setNewCategoryIsFund(e.target.value === 'fund')}
+                      className="rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-600 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    >
+                      <option value="expense">Expense</option>
+                      <option value="fund">Fund</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={submitNewCategory}
+                      aria-label="Add category group"
+                      className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700"
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewCategoryName('')
+                        setAddingGroup(false)
+                      }}
+                      aria-label="Cancel adding group"
+                      className="rounded-lg px-2 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-100"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setAddingGroup(true)}
+                    aria-label="Add a group"
+                    className="rounded-lg px-2 py-1.5 text-sm font-semibold text-slate-500 transition hover:text-brand-700"
+                  >
+                    + Add group
+                  </button>
+                ))}
             </div>
           </>
-        )}
+          )
+        })()}
     </AppShell>
   )
 }

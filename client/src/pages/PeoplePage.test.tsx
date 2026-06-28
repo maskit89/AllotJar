@@ -108,9 +108,11 @@ describe('PeoplePage', () => {
 
     renderPage()
 
-    await user.type(await screen.findByLabelText('Person name', {}, { timeout: 5000 }), 'Chris')
-    await user.type(screen.getByLabelText('Net monthly income'), '6000')
-    await user.click(screen.getByRole('button', { name: 'Add person' }))
+    await user.click(await screen.findByRole('button', { name: 'Add person' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(dialog.getByLabelText('Person name'), 'Chris')
+    await user.type(dialog.getByLabelText('Net monthly income'), '6000')
+    await user.click(dialog.getByRole('button', { name: 'Add person' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(

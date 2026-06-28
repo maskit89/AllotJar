@@ -99,10 +99,10 @@ describe('ReportsPage', () => {
     expect(await screen.findByText('Income vs spending', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByLabelText('Trend for May 2026')).toBeInTheDocument()
     expect(screen.getByLabelText('Trend for Jun 2026')).toBeInTheDocument()
-    // The window summary cards + legend, including budgeted vs received income.
-    expect(screen.getAllByText('Income (budgeted)').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Income (received)').length).toBeGreaterThan(0)
-    expect(screen.getByText('Net')).toBeInTheDocument()
+    // The hero summarises the window: saved this month, average spend, savings rate.
+    expect(screen.getByText('Saved this month')).toBeInTheDocument()
+    expect(screen.getByText('Avg monthly spend')).toBeInTheDocument()
+    expect(screen.getByText('Savings rate')).toBeInTheDocument()
 
     // Category breakdown loads from the latest month (Food spent more than Housing here).
     expect(await screen.findByLabelText('Spending for Food', {}, { timeout: 5000 })).toBeInTheDocument()

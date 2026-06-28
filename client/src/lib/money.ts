@@ -68,9 +68,10 @@ export const CURRENCY_OPTIONS: { value: string; label: string }[] = [
   { value: 'PLN', label: 'Polish złoty (zł)' },
 ]
 
-// The active display locale. Defaults to de-DE so rendering is unchanged until the
-// signed-in user's preference is applied (see setMoneyFormat / AuthContext).
-const DEFAULT_LOCALE = 'de-DE'
+// The active display locale. Defaults to en-GB — the design's canonical money
+// format (€1,234.56: € prefix, comma grouping, dot decimal) — until the signed-in
+// user's own preference is applied (see setMoneyFormat / AuthContext).
+const DEFAULT_LOCALE = 'en-GB'
 let activeLocale = DEFAULT_LOCALE
 
 /**
@@ -103,6 +104,20 @@ function formatterFor(currency: string): Intl.NumberFormat {
 /** Format integer minor units as a localized currency string (e.g. "1.100,00 €"). */
 export function formatMoney(minor: Minor, currency: string): string {
   return formatterFor(currency).format(toAmount(minor))
+}
+
+// A plain grouped number (no currency symbol), for inline-editable amount fields
+// that already render their own "€" prefix — e.g. "1,100.00" in en-GB.
+const plainFormatters = new Map<string, Intl.NumberFormat>()
+
+/** Format integer minor units as a grouped decimal with no currency symbol (e.g. "1,100.00"). */
+export function formatPlain(minor: Minor): string {
+  let fmt = plainFormatters.get(activeLocale)
+  if (!fmt) {
+    fmt = new Intl.NumberFormat(activeLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    plainFormatters.set(activeLocale, fmt)
+  }
+  return fmt.format(toAmount(minor))
 }
 
 /** The currency's symbol for the active locale (e.g. "EUR" -> "€", "GBP" -> "£"). */

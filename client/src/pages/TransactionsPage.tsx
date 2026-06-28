@@ -1,19 +1,31 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
-import { Badge, Button, Card, EmptyState, ErrorBanner, Input, PageHeader, SegmentedControl, Select } from '../components/ui'
+import { Badge, Button, Card, EmptyState, ErrorBanner, Input, SegmentedControl, Select } from '../components/ui'
+import { Hero } from '../components/Hero'
+import { Modal } from '../components/Modal'
 import { ImportIcon, TransactionsIcon } from '../components/icons'
 import { useFeatures } from '../features/FeatureContext'
+import { useMonth } from '../features/MonthContext'
 import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import type { AccountDto, BudgetMonthDto, HouseholdMemberDto, TransactionDto } from '../types'
 import { TransactionType } from '../types'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount } from '../lib/money'
+import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { buildItemOptions, transactionTypeLabel } from '../lib/transactions'
 
 function today(): string {
   return new Date().toISOString().slice(0, 10)
+}
+
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** ISO date (yyyy-MM-dd) -> the register's compact "Jun 20" (the year lives in the top bar). */
+function shortDate(iso: string): string {
+  const [, m, d] = iso.split('-').map(Number)
+  return m && d ? `${SHORT_MONTHS[m - 1]} ${d}` : iso
 }
 
 export function TransactionsPage() {
@@ -28,6 +40,8 @@ export function TransactionsPage() {
   const [error, setError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
 
+  // The Add transaction / transfer modal (opened from the toolbar's + button).
+  const [showAdd, setShowAdd] = useState(false)
   // Add form: "transaction" (spend/receive) or "transfer" (move between accounts).
   const [mode, setMode] = useState<'transaction' | 'transfer'>('transaction')
 
@@ -49,11 +63,11 @@ export function TransactionsPage() {
   const [tPayee, setTPayee] = useState('')
   const [transferring, setTransferring] = useState(false)
 
-  // Filters (client-side — the per-user list is small).
-  const [search, setSearch] = useState('')
-  const [unassignedOnly, setUnassignedOnly] = useState(false)
-  // External spending/income vs internal account-to-account transfers.
-  const [typeFilter, setTypeFilter] = useState<'all' | 'transactions' | 'transfers'>('all')
+  // Register filter — All or just Unassigned (the design's toolbar segmented control).
+  const [filter, setFilter] = useState<'all' | 'unassigned'>('all')
+
+  // Which row is showing its inline category picker (the redesign's "+ Assign").
+  const [assigningId, setAssigningId] = useState<string | null>(null)
 
   // Inline edit state.
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -128,6 +142,7 @@ export function TransactionsPage() {
       })
       setPayee('')
       setAmount('')
+      setShowAdd(false)
     } catch {
       setError('Could not add that transaction.')
     } finally {
@@ -163,6 +178,7 @@ export function TransactionsPage() {
       track(EVENTS.transferCreated)
       setTAmount('')
       setTPayee('')
+      setShowAdd(false)
     } catch {
       setError('Could not record that transfer.')
     } finally {
@@ -311,48 +327,94 @@ export function TransactionsPage() {
 
   const optionGroups = buildItemOptions(month)
 
+  // Map each budget line to its category's hue, so an assigned transaction's pill
+  // carries the same colour dot as its group on the Budget screen. Income lines
+  // read as the brand green; expense/fund groups cycle the five-hue palette.
+  const itemHue = useMemo(() => {
+    const map: Record<string, CategoryHue | 'income'> = {}
+    if (!month) return map
+    let expenseIdx = 0
+    let fundIdx = 0
+    for (const c of month.categories) {
+      const hue: CategoryHue | 'income' =
+        c.kind === 'Income' ? 'income' : c.kind === 'Fund' ? hueForIndex(fundIdx++) : hueForIndex(expenseIdx++)
+      for (const it of c.items) map[it.id] = hue
+    }
+    return map
+  }, [month])
+
+  // Hero totals — derived (never stored), like the budget's read-time actuals.
+  const moneyInMinor = useMemo(
+    () => sumMinor(transactions.filter((t) => t.type === TransactionType.Income).map((t) => fromAmount(t.amount))),
+    [transactions],
+  )
+  const moneyOutMinor = useMemo(
+    () => sumMinor(transactions.filter((t) => t.type === TransactionType.Expense).map((t) => fromAmount(t.amount))),
+    [transactions],
+  )
+  const unassignedCount = useMemo(
+    () =>
+      transactions.filter(
+        (t) => t.type !== TransactionType.Transfer && !t.isSplit && t.budgetItemId === null,
+      ).length,
+    [transactions],
+  )
+  const { label: monthLabel } = useMonth()
+  const currency = month?.baseCurrency ?? 'EUR'
+
+  // Budget lines that are bills (have a due day) — so an assigned transaction can
+  // show the "Bill" tag, like the design's Vodafone → Internet row.
+  const billItemIds = useMemo(() => {
+    const set = new Set<string>()
+    month?.categories.forEach((c) => c.items.forEach((i) => i.dueDay != null && set.add(i.id)))
+    return set
+  }, [month])
+
+  // Pill colours for a category's hue (or income / unknown). The dot carries the
+  // colour (>=3:1); the pill text stays --ink (text-slate-900) per the contrast rule.
+  type HueKey = CategoryHue | 'income' | undefined
+  const dotColor = (h: HueKey) =>
+    h === undefined ? 'var(--color-slate-400)' : h === 'income' ? 'var(--color-brand-600)' : hueColor(h)
+  const tintColor = (h: HueKey) =>
+    h === undefined
+      ? 'var(--color-slate-100)'
+      : h === 'income'
+        ? 'color-mix(in srgb, var(--color-brand-600) 14%, transparent)'
+        : hueTint(h)
+
   const visible = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return transactions.filter((t) => {
-      const isTransfer = t.type === TransactionType.Transfer
-      const matchesType =
-        typeFilter === 'all' || (typeFilter === 'transfers' ? isTransfer : !isTransfer)
-      return (
-        matchesType &&
-        (!unassignedOnly || t.budgetItemId === null) &&
-        (q === '' || (t.payee ?? '').toLowerCase().includes(q))
-      )
-    })
-  }, [transactions, search, unassignedOnly, typeFilter])
+    if (filter === 'all') return transactions
+    // "Unassigned": external (non-transfer) transactions not yet given a budget line.
+    return transactions.filter(
+      (t) => t.type !== TransactionType.Transfer && !t.isSplit && t.budgetItemId === null,
+    )
+  }, [transactions, filter])
 
   return (
-    <AppShell active="transactions">
-        <PageHeader
-          title="Transactions"
-          subtitle="Add what you’ve spent (or received) by hand, then assign each to a budget line — its spending rolls up into that line."
-          actions={
-            features.camtImport && canWrite && (
-              <Link
-                to="/import"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-surface px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                <ImportIcon className="h-4 w-4" />
-                Import
-              </Link>
-            )
-          }
+    <AppShell active="transactions" title="Transactions">
+        <Hero
+          eyebrow={`Money in · ${monthLabel}`}
+          amount={`+${formatMoney(moneyInMinor, currency)}`}
+          amountLabel={`Money in for ${monthLabel}: ${formatMoney(moneyInMinor, currency)}`}
+          tiles={[
+            { label: 'Money out', value: formatMoney(moneyOutMinor, currency) },
+            {
+              label: 'Unassigned',
+              value: unassignedCount === 0 ? 'All assigned' : `${unassignedCount} to assign`,
+            },
+          ]}
         />
 
-        {error && <ErrorBanner>{error}</ErrorBanner>}
+        {error && !showAdd && <ErrorBanner>{error}</ErrorBanner>}
 
-        {/* Add-transaction form (the manual "sheet" entry). Hidden for read-only access. */}
-        {canEnterData && (
-        <Card className="p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold text-slate-700">
-              {mode === 'transfer' ? 'Record a transfer' : 'Add a transaction'}
-            </h3>
-            {accounts.length >= 2 && (
+        {/* Add transaction / transfer — a modal opened from the toolbar's + button. */}
+        {showAdd && canEnterData && (
+        <Modal
+          title={mode === 'transfer' ? 'Record a transfer' : 'Add a transaction'}
+          onClose={() => setShowAdd(false)}
+        >
+          {accounts.length >= 2 && (
+            <div className="mb-4">
               <SegmentedControl
                 ariaLabel="Entry type"
                 value={mode}
@@ -365,21 +427,36 @@ export function TransactionsPage() {
                   { value: 'transfer', label: 'Transfer' },
                 ]}
               />
-            )}
-          </div>
+            </div>
+          )}
+          {error && <div className="mb-3"><ErrorBanner>{error}</ErrorBanner></div>}
           {mode === 'transaction' ? (
-          <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Type
+                <Select
+                  value={type}
+                  aria-label="Transaction type"
+                  onChange={(e) => setType(Number(e.target.value))}
+                  className="w-full"
+                >
+                  <option value={TransactionType.Expense}>Expense</option>
+                  <option value={TransactionType.Income}>Income</option>
+                </Select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Date
+                <Input
+                  type="date"
+                  value={date}
+                  aria-label="Transaction date"
+                  onChange={(e) => setDate(e.target.value)}
+                  className="w-full text-slate-700"
+                />
+              </label>
+            </div>
             <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Date
-              <Input
-                type="date"
-                value={date}
-                aria-label="Transaction date"
-                onChange={(e) => setDate(e.target.value)}
-                className="text-slate-700"
-              />
-            </label>
-            <label className="flex flex-1 flex-col gap-1 text-xs font-medium text-slate-500">
               Payee
               <Input
                 type="text"
@@ -387,69 +464,63 @@ export function TransactionsPage() {
                 placeholder="e.g. Tesco"
                 aria-label="Transaction payee"
                 onChange={(e) => setPayee(e.target.value)}
-                className="min-w-32"
+                className="w-full"
               />
             </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Amount
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={amount}
-                placeholder="0,00"
-                aria-label="Transaction amount"
-                onChange={(e) => setAmount(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') addTransaction()
-                }}
-                className="w-28 text-right tabular-nums"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Type
-              <Select
-                value={type}
-                aria-label="Transaction type"
-                onChange={(e) => setType(Number(e.target.value))}
-              >
-                <option value={TransactionType.Expense}>Expense</option>
-                <option value={TransactionType.Income}>Income</option>
-              </Select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Assign to
-              <Select
-                value={assignTo}
-                aria-label="Assign transaction to"
-                onChange={(e) => setAssignTo(e.target.value)}
-                className="w-48"
-              >
-                <option value="">Unassigned</option>
-                {optionGroups.map((g) => (
-                  <optgroup key={g.category} label={g.category}>
-                    {g.items.map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.name}
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Amount
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={amount}
+                  placeholder="0.00"
+                  aria-label="Transaction amount"
+                  onChange={(e) => setAmount(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') addTransaction()
+                  }}
+                  className="w-full text-right tabular-nums"
+                />
+              </label>
+              {accounts.length > 0 && (
+                <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                  Account
+                  <Select
+                    value={account}
+                    aria-label="Transaction account"
+                    onChange={(e) => setAccount(e.target.value)}
+                    className="w-full"
+                  >
+                    <option value="">No account</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
                       </option>
                     ))}
-                  </optgroup>
-                ))}
-              </Select>
-            </label>
-            {accounts.length > 0 && (
+                  </Select>
+                </label>
+              )}
+            </div>
+            {/* Category — hidden for income, per the design. */}
+            {type === TransactionType.Expense && (
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Account
+                Category
                 <Select
-                  value={account}
-                  aria-label="Transaction account"
-                  onChange={(e) => setAccount(e.target.value)}
-                  className="w-40"
+                  value={assignTo}
+                  aria-label="Assign transaction to"
+                  onChange={(e) => setAssignTo(e.target.value)}
+                  className="w-full"
                 >
-                  <option value="">No account</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
+                  <option value="">Unassigned</option>
+                  {optionGroups.map((g) => (
+                    <optgroup key={g.category} label={g.category}>
+                      {g.items.map((i) => (
+                        <option key={i.id} value={i.id}>
+                          {i.name}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </Select>
               </label>
@@ -461,7 +532,7 @@ export function TransactionsPage() {
                   value={member}
                   aria-label="Transaction member"
                   onChange={(e) => setMember(e.target.value)}
-                  className="w-36"
+                  className="w-full"
                 >
                   <option value="">No member</option>
                   {members.map((m) => (
@@ -472,70 +543,79 @@ export function TransactionsPage() {
                 </Select>
               </label>
             )}
-            <Button onClick={addTransaction} disabled={adding} aria-label="Add transaction">
-              Add
-            </Button>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="ghost" onClick={() => setShowAdd(false)}>
+                Cancel
+              </Button>
+              <Button onClick={addTransaction} disabled={adding} aria-label="Add transaction">
+                Add transaction
+              </Button>
+            </div>
           </div>
           ) : (
-          <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Date
+                <Input
+                  type="date"
+                  value={tDate}
+                  aria-label="Transfer date"
+                  onChange={(e) => setTDate(e.target.value)}
+                  className="w-full text-slate-700"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Amount
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={tAmount}
+                  placeholder="0.00"
+                  aria-label="Transfer amount"
+                  onChange={(e) => setTAmount(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') addTransfer()
+                  }}
+                  className="w-full text-right tabular-nums"
+                />
+              </label>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                From
+                <Select
+                  value={tFrom}
+                  aria-label="Transfer from account"
+                  onChange={(e) => setTFrom(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="">Choose…</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                To
+                <Select
+                  value={tTo}
+                  aria-label="Transfer to account"
+                  onChange={(e) => setTTo(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="">Choose…</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+            </div>
             <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Date
-              <Input
-                type="date"
-                value={tDate}
-                aria-label="Transfer date"
-                onChange={(e) => setTDate(e.target.value)}
-                className="text-slate-700"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Amount
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={tAmount}
-                placeholder="0,00"
-                aria-label="Transfer amount"
-                onChange={(e) => setTAmount(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') addTransfer()
-                }}
-                className="w-28 text-right tabular-nums"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              From
-              <Select
-                value={tFrom}
-                aria-label="Transfer from account"
-                onChange={(e) => setTFrom(e.target.value)}
-                className="w-40"
-              >
-                <option value="">Choose…</option>
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </Select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              To
-              <Select
-                value={tTo}
-                aria-label="Transfer to account"
-                onChange={(e) => setTTo(e.target.value)}
-                className="w-40"
-              >
-                <option value="">Choose…</option>
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </Select>
-            </label>
-            <label className="flex flex-1 flex-col gap-1 text-xs font-medium text-slate-500">
               Note
               <Input
                 type="text"
@@ -543,78 +623,90 @@ export function TransactionsPage() {
                 placeholder="Transfer"
                 aria-label="Transfer note"
                 onChange={(e) => setTPayee(e.target.value)}
-                className="min-w-32"
+                className="w-full"
               />
             </label>
-            <Button onClick={addTransfer} disabled={transferring} aria-label="Record transfer">
-              Transfer
-            </Button>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="ghost" onClick={() => setShowAdd(false)}>
+                Cancel
+              </Button>
+              <Button onClick={addTransfer} disabled={transferring} aria-label="Record transfer">
+                Record transfer
+              </Button>
+            </div>
           </div>
           )}
-        </Card>
+        </Modal>
         )}
 
         {loading && <p className="text-slate-500">Loading…</p>}
 
-        {!loading && transactions.length === 0 && (
-          <EmptyState
-            icon={<TransactionsIcon className="h-6 w-6" />}
-            title="No transactions yet"
-            description="Add one above, or use Import to bring in a bank statement."
-          />
-        )}
-
-        {transactions.length > 0 && (
+        {!loading && (
           <>
-            {/* Filter bar. */}
-            <div className="flex flex-wrap items-center gap-3">
-              <input
-                type="search"
-                value={search}
-                placeholder="Search payee…"
-                aria-label="Search transactions"
-                onChange={(e) => setSearch(e.target.value)}
-                className="flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              />
-              <SegmentedControl
-                ariaLabel="Filter by type"
-                value={typeFilter}
-                onChange={setTypeFilter}
-                options={[
-                  { value: 'all', label: 'All' },
-                  { value: 'transactions', label: 'Transactions' },
-                  { value: 'transfers', label: 'Transfers' },
-                ]}
-              />
-              <label className="flex items-center gap-2 text-sm text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={unassignedOnly}
-                  aria-label="Unassigned only"
-                  onChange={(e) => setUnassignedOnly(e.target.checked)}
-                  className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+            {/* Toolbar: All/Unassigned filter + count (left), Add transaction (right). */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <SegmentedControl
+                  ariaLabel="Filter transactions"
+                  value={filter}
+                  onChange={setFilter}
+                  options={[
+                    { value: 'all', label: 'All' },
+                    { value: 'unassigned', label: 'Unassigned' },
+                  ]}
                 />
-                Unassigned only
-              </label>
+                <span className="text-sm text-slate-500">{transactions.length} transactions</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {features.camtImport && canWrite && (
+                  <Link
+                    to="/import"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-surface px-3.5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <ImportIcon className="h-4 w-4" />
+                    Import
+                  </Link>
+                )}
+                {canEnterData && (
+                  <Button
+                    onClick={() => {
+                      setMode('transaction')
+                      setError(null)
+                      setShowAdd(true)
+                    }}
+                    aria-label="Add transaction"
+                  >
+                    <span aria-hidden className="text-base leading-none">+</span> Add transaction
+                  </Button>
+                )}
+              </div>
             </div>
 
+            {transactions.length === 0 ? (
+              <EmptyState
+                icon={<TransactionsIcon className="h-6 w-6" />}
+                title="No transactions yet"
+                description="Use + Add transaction to record one, or Import a bank statement."
+              />
+            ) : (
             <Card className="overflow-hidden">
               <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[720px] table-fixed text-sm">
                 <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                    <th className="px-4 py-2 font-medium">Date</th>
-                    <th className="px-4 py-2 font-medium">Payee</th>
-                    <th className="px-4 py-2 text-right font-medium">Amount</th>
-                    <th className="px-4 py-2 font-medium">Assigned to</th>
-                    <th className="px-4 py-2" />
+                  <tr className="border-b border-slate-100 text-left text-[11px] font-bold uppercase tracking-[0.05em] text-slate-500">
+                    <th className="w-[84px] px-4 py-3 font-bold">Date</th>
+                    <th className="px-4 py-3 font-bold">Payee</th>
+                    <th className="w-[184px] px-4 py-3 font-bold">Category</th>
+                    <th className="w-[148px] px-4 py-3 font-bold">Account</th>
+                    <th className="w-[128px] px-4 py-3 text-right font-bold">Amount</th>
+                    <th className="w-[80px] px-4 py-3" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {visible.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
-                        No transactions match your filters.
+                      <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
+                        {filter === 'unassigned' ? 'Nothing left to assign.' : 'No transactions yet.'}
                       </td>
                     </tr>
                   )}
@@ -629,10 +721,10 @@ export function TransactionsPage() {
                     const remainderMinor = totalMinor - allocatedMinor
                     return (
                       <Fragment key={t.id}>
-                      <tr className="hover:bg-slate-50">
+                      <tr className="group hover:bg-slate-50">
                         {editing ? (
-                          <>
-                            <td className="px-4 py-2">
+                          <td colSpan={6} className="px-4 py-3">
+                            <div className="flex flex-wrap items-center gap-2">
                               <input
                                 type="date"
                                 value={eDate}
@@ -640,49 +732,13 @@ export function TransactionsPage() {
                                 onChange={(e) => setEDate(e.target.value)}
                                 className="rounded-md border border-slate-300 px-2 py-1 text-sm"
                               />
-                            </td>
-                            <td className="px-4 py-2">
-                              <div className="flex flex-col gap-1">
-                                <input
-                                  type="text"
-                                  value={ePayee}
-                                  aria-label="Edit payee"
-                                  onChange={(e) => setEPayee(e.target.value)}
-                                  className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
-                                />
-                                {accounts.length > 0 && (
-                                  <select
-                                    value={eAccount}
-                                    aria-label="Edit account"
-                                    onChange={(e) => setEAccount(e.target.value)}
-                                    className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600"
-                                  >
-                                    <option value="">No account</option>
-                                    {accounts.map((a) => (
-                                      <option key={a.id} value={a.id}>
-                                        {a.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                )}
-                                {members.length >= 2 && (
-                                  <select
-                                    value={eMember}
-                                    aria-label="Edit member"
-                                    onChange={(e) => setEMember(e.target.value)}
-                                    className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600"
-                                  >
-                                    <option value="">No member</option>
-                                    {members.map((m) => (
-                                      <option key={m.id} value={m.id}>
-                                        {m.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-4 py-2 text-right">
+                              <input
+                                type="text"
+                                value={ePayee}
+                                aria-label="Edit payee"
+                                onChange={(e) => setEPayee(e.target.value)}
+                                className="min-w-32 flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                              />
                               <input
                                 type="text"
                                 inputMode="decimal"
@@ -691,8 +747,6 @@ export function TransactionsPage() {
                                 onChange={(e) => setEAmount(e.target.value)}
                                 className="w-24 rounded-md border border-slate-300 px-2 py-1 text-right text-sm tabular-nums"
                               />
-                            </td>
-                            <td className="px-4 py-2">
                               <select
                                 value={eType}
                                 aria-label="Edit type"
@@ -702,60 +756,64 @@ export function TransactionsPage() {
                                 <option value={TransactionType.Expense}>Expense</option>
                                 <option value={TransactionType.Income}>Income</option>
                               </select>
-                            </td>
-                            <td className="px-4 py-2 text-right">
-                              <div className="flex justify-end gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => saveEdit(t.id)}
-                                  disabled={savingId === t.id}
-                                  aria-label="Save transaction"
-                                  className="rounded-md bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                              {accounts.length > 0 && (
+                                <select
+                                  value={eAccount}
+                                  aria-label="Edit account"
+                                  onChange={(e) => setEAccount(e.target.value)}
+                                  className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-600"
                                 >
+                                  <option value="">No account</option>
+                                  {accounts.map((a) => (
+                                    <option key={a.id} value={a.id}>
+                                      {a.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                              {members.length >= 2 && (
+                                <select
+                                  value={eMember}
+                                  aria-label="Edit member"
+                                  onChange={(e) => setEMember(e.target.value)}
+                                  className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-600"
+                                >
+                                  <option value="">No member</option>
+                                  {members.map((m) => (
+                                    <option key={m.id} value={m.id}>
+                                      {m.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                              <div className="ml-auto flex gap-1">
+                                <Button size="sm" onClick={() => saveEdit(t.id)} disabled={savingId === t.id} aria-label="Save transaction">
                                   Save
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingId(null)}
-                                  aria-label="Cancel edit"
-                                  className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
-                                >
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => setEditingId(null)} aria-label="Cancel edit">
                                   Cancel
-                                </button>
+                                </Button>
                               </div>
-                            </td>
-                          </>
+                            </div>
+                          </td>
                         ) : (
                           <>
-                            <td className="px-4 py-2.5 tabular-nums text-slate-500">{t.date}</td>
-                            <td className="px-4 py-2.5 font-medium text-slate-700">
-                              {t.payee || (isTransfer ? 'Transfer' : '—')}
-                              {!isTransfer && (t.accountName || t.memberName) && (
-                                <span className="block text-xs font-normal text-slate-500">
-                                  {[t.accountName, t.memberName].filter(Boolean).join(' · ')}
-                                </span>
-                              )}
+                            <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-slate-500">
+                              {shortDate(t.date)}
                             </td>
-                            <td
-                              className={`px-4 py-2.5 text-right font-semibold tabular-nums ${
-                                isTransfer
-                                  ? 'text-slate-500'
-                                  : isIncome
-                                    ? 'text-emerald-600 dark:text-emerald-400'
-                                    : 'text-slate-700'
-                              }`}
-                            >
-                              {isTransfer ? '' : isIncome ? '+' : '−'}
-                              {formatMoney(fromAmount(t.amount), t.currency)}
-                            </td>
-                            <td className="px-4 py-2.5">
-                              {isTransfer ? (
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <Badge tone="brand">Transfer</Badge>
-                                  <span className="text-xs text-slate-500">
-                                    {t.accountName ?? '—'} → {t.transferAccountName ?? '—'}
+                            <td className="px-4 py-3.5">
+                              <span className="flex min-w-0 items-center gap-2 font-semibold text-slate-900">
+                                <span className="truncate">{t.payee || (isTransfer ? 'Transfer' : '—')}</span>
+                                {!isTransfer && t.budgetItemId && billItemIds.has(t.budgetItemId) && (
+                                  <span className="shrink-0 rounded-[5px] border border-slate-200 px-1.5 py-px text-[9.5px] font-bold uppercase tracking-[0.05em] text-slate-500">
+                                    Bill
                                   </span>
-                                </div>
+                                )}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3.5">
+                              {isTransfer ? (
+                                <Badge tone="brand">Transfer</Badge>
                               ) : t.isSplit ? (
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <Badge tone="violet">Split</Badge>
@@ -770,13 +828,18 @@ export function TransactionsPage() {
                                       .join(' · ')}
                                   </span>
                                 </div>
-                              ) : canEnterData ? (
+                              ) : assigningId === t.id && canEnterData ? (
                                 <select
+                                  autoFocus
                                   value={t.budgetItemId ?? ''}
                                   disabled={savingId === t.id}
                                   aria-label={`Assign ${t.payee || 'transaction'}`}
-                                  onChange={(e) => assign(t.id, e.target.value || null)}
-                                  className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
+                                  onChange={(e) => {
+                                    assign(t.id, e.target.value || null)
+                                    setAssigningId(null)
+                                  }}
+                                  onBlur={() => setAssigningId(null)}
+                                  className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50"
                                 >
                                   <option value="">Unassigned</option>
                                   {optionGroups.map((g) => (
@@ -789,15 +852,72 @@ export function TransactionsPage() {
                                     </optgroup>
                                   ))}
                                 </select>
+                              ) : t.budgetItemId ? (
+                                // Assigned — a tint pill with a category colour dot (text stays --ink).
+                                (() => {
+                                  const hue = itemHue[t.budgetItemId]
+                                  const pill = (
+                                    <>
+                                      <span
+                                        className="h-[7px] w-[7px] shrink-0 rounded-full"
+                                        style={{ background: dotColor(hue) }}
+                                        aria-hidden
+                                      />
+                                      <span className="truncate">{t.budgetItemName}</span>
+                                    </>
+                                  )
+                                  return canEnterData ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setAssigningId(t.id)}
+                                      aria-label={`Reassign ${t.payee || 'transaction'}`}
+                                      className="inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1 text-[12.5px] font-semibold text-slate-900"
+                                      style={{ background: tintColor(hue) }}
+                                    >
+                                      {pill}
+                                    </button>
+                                  ) : (
+                                    <span
+                                      className="inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1 text-[12.5px] font-semibold text-slate-900"
+                                      style={{ background: tintColor(hue) }}
+                                    >
+                                      {pill}
+                                    </span>
+                                  )
+                                })()
+                              ) : canEnterData ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setAssigningId(t.id)}
+                                  aria-label={`Assign ${t.payee || 'transaction'}`}
+                                  className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-slate-400 px-3 py-1 text-[12.5px] font-semibold text-slate-500 transition hover:border-brand-600 hover:text-brand-700"
+                                >
+                                  + Assign
+                                </button>
                               ) : (
-                                <span className="text-sm text-slate-600">
-                                  {t.budgetItemName ?? 'Unassigned'}
-                                </span>
+                                <span className="text-sm text-slate-600">Unassigned</span>
                               )}
                             </td>
-                            <td className="px-4 py-2.5 text-right">
+                            <td className="truncate px-4 py-3.5 text-sm text-slate-500">
+                              {isTransfer
+                                ? `${t.accountName ?? '—'} → ${t.transferAccountName ?? '—'}`
+                                : t.accountName ?? '—'}
+                            </td>
+                            <td
+                              className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold tabular-nums ${
+                                isTransfer
+                                  ? 'text-slate-500'
+                                  : isIncome
+                                    ? 'text-brand-700 dark:text-brand-200'
+                                    : 'text-slate-900'
+                              }`}
+                            >
+                              {isTransfer ? '' : isIncome ? '+' : '−'}
+                              {formatMoney(fromAmount(t.amount), t.currency)}
+                            </td>
+                            <td className="px-4 py-3.5 text-right">
                               {canEnterData && (
-                              <div className="flex justify-end gap-1">
+                              <div className="flex justify-end gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
                                 {!isTransfer && (
                                   <>
                                     <button
@@ -838,7 +958,7 @@ export function TransactionsPage() {
                       </tr>
                       {splitting && (
                         <tr className="bg-violet-50/40">
-                          <td colSpan={5} className="px-4 py-4">
+                          <td colSpan={6} className="px-4 py-4">
                             <div className="space-y-3">
                               <div className="flex items-center justify-between">
                                 <h4 className="text-sm font-semibold text-slate-700">
@@ -969,6 +1089,7 @@ export function TransactionsPage() {
               </table>
               </div>
             </Card>
+            )}
           </>
         )}
     </AppShell>

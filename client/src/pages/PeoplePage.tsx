@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import { AppShell } from '../components/AppShell'
-import { Badge, Button, Card, EmptyState, ErrorBanner, Input, PageHeader, Select, SegmentedControl } from '../components/ui'
+import { Badge, Button, Card, EmptyState, ErrorBanner, Input, Select, SegmentedControl } from '../components/ui'
+import { Hero } from '../components/Hero'
+import { Modal } from '../components/Modal'
 import { MembersIcon, CopyIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { useHousehold } from '../features/HouseholdContext'
@@ -37,7 +39,15 @@ function parseAmount(input: string): number | null {
 }
 
 function sharePct(share: number): string {
-  return `${(share * 100).toFixed(1)}%`
+  return `${Math.round(share * 100)}%`
+}
+
+/** Up to two initials for a person's avatar (first + last word). */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
 /**
@@ -60,7 +70,8 @@ export function PeoplePage() {
   const [error, setError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
 
-  // Add-a-person form.
+  // Add-a-person form (in a modal).
+  const [showAdd, setShowAdd] = useState(false)
   const [name, setName] = useState('')
   const [income, setIncome] = useState('')
   const [savings, setSavings] = useState('')
@@ -129,6 +140,17 @@ export function PeoplePage() {
   const myMembership = useMemo(() => memberships.find((m) => m.isSelf) ?? null, [memberships])
   const myUnlinked = myMembership !== null && !myMembership.memberId
 
+  // Hero figures — the household's combined monthly income, its headcount, and
+  // what the people have spent so far this month.
+  const combinedIncomeMinor = useMemo(
+    () => members.reduce((s, m) => s + fromAmount(m.netMonthlyIncome), 0),
+    [members],
+  )
+  const sharedSpentMinor = useMemo(
+    () => spending.reduce((s, sp) => s + fromAmount(sp.spent), 0),
+    [spending],
+  )
+
   function accountName(id: string | null): string {
     if (!id) return '—'
     return accounts.find((a) => a.id === id)?.name ?? '—'
@@ -162,6 +184,7 @@ export function PeoplePage() {
       setName('')
       setIncome('')
       setSavings('')
+      setShowAdd(false)
     } catch {
       setError('Could not add that person.')
     } finally {
@@ -332,114 +355,84 @@ export function PeoplePage() {
   }
 
   return (
-    <AppShell active="people">
-      <PageHeader
-        title="People"
-        subtitle="Everyone in your budget. Add a person to track their income and share of costs — and, when you're ready, invite them to sign in with their own access level."
+    <AppShell active="people" title="People">
+      <Hero
+        eyebrow="Combined income"
+        amount={formatMoney(combinedIncomeMinor, CURRENCY)}
+        amountLabel={`Combined income: ${formatMoney(combinedIncomeMinor, CURRENCY)}`}
+        tiles={[
+          { label: 'People', value: `${members.length}` },
+          { label: 'Shared this month', value: formatMoney(sharedSpentMinor, CURRENCY) },
+        ]}
       />
 
-      {error && <ErrorBanner>{error}</ErrorBanner>}
-
-      {canWrite && (
-        <Card className="p-4">
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">Add a person</h2>
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-1 flex-col gap-1 text-xs font-medium text-slate-500">
-              Name
-              <Input
-                type="text"
-                value={name}
-                placeholder="First name"
-                aria-label="Person name"
-                onChange={(e) => setName(e.target.value)}
-                className="min-w-32"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Net monthly income
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={income}
-                placeholder="0,00"
-                aria-label="Net monthly income"
-                onChange={(e) => setIncome(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') addMember()
-                }}
-                className="w-36 text-right tabular-nums"
-              />
-            </label>
-            {accounts.length > 0 && (
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Savings account
-                <Select
-                  value={savings}
-                  aria-label="Savings account"
-                  onChange={(e) => setSavings(e.target.value)}
-                  className="w-40"
-                >
-                  <option value="">None</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-            )}
-            <Button onClick={addMember} disabled={adding} aria-label="Add person">
-              Add
-            </Button>
-          </div>
-        </Card>
-      )}
+      {error && !showAdd && !inviteOpen && <ErrorBanner>{error}</ErrorBanner>}
 
       {loading && <p className="text-slate-500">Loading…</p>}
 
-      {!loading && members.length === 0 && (
-        <EmptyState
-          icon={<MembersIcon className="h-6 w-6" />}
-          title="Budgeting on your own?"
-          description="You don’t need anyone else to use ZeroBudget. If you share money with a partner or housemate, add them here to split shared costs, divide savings, and give them their own sign-in."
-        />
-      )}
+      {!loading && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="text-base font-bold tracking-[-0.01em] text-slate-900">Your household</h2>
+            {canWrite && (
+              <Button onClick={() => { setError(null); setShowAdd(true) }} aria-label="Add person">
+                <span aria-hidden className="text-base leading-none">+</span> Add person
+              </Button>
+            )}
+          </div>
 
-      {members.length > 0 && (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                  <th className="px-4 py-2 font-medium">Person</th>
-                  <th className="px-4 py-2 text-right font-medium">Net monthly income</th>
-                  <th className="px-4 py-2 text-right font-medium">Income share</th>
-                  <th className="px-4 py-2 text-right font-medium">Spent</th>
-                  <th className="px-4 py-2 font-medium">Savings</th>
-                  <th className="px-4 py-2 font-medium">Sign-in &amp; access</th>
-                  <th className="px-4 py-2" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {members.map((m) => {
-                  const editing = editingId === m.id
-                  const login = membershipByMember.get(m.id)
-                  return (
-                    <tr key={m.id} className="hover:bg-slate-50 align-top">
-                      <td className="px-4 py-2.5 font-medium text-slate-700">
-                        {editing ? (
-                          <input
-                            type="text"
-                            value={eName}
-                            aria-label={`Name for ${m.name}`}
-                            onChange={(e) => setEName(e.target.value)}
-                            className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
-                          />
-                        ) : (
-                          m.name
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">
+          {members.length === 0 ? (
+            <EmptyState
+              icon={<MembersIcon className="h-6 w-6" />}
+              title="Budgeting on your own?"
+              description="You don’t need anyone else to use AllotJar. If you share money with a partner or housemate, add them here to split shared costs, divide savings, and give them their own sign-in."
+            />
+          ) : (
+            <Card className="overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[820px] table-fixed text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-left text-[11px] font-bold uppercase tracking-[0.06em] text-slate-500">
+                      <th className="w-[27%] px-4 py-3 font-bold">Person</th>
+                      <th className="w-[12%] px-4 py-3 text-right font-bold">Income</th>
+                      <th className="w-[10%] px-4 py-3 text-right font-bold">Share</th>
+                      <th className="w-[11%] px-4 py-3 text-right font-bold">Spent</th>
+                      <th className="w-[16%] px-4 py-3 font-bold">Savings</th>
+                      <th className="w-[24%] px-4 py-3 font-bold">Sign-in &amp; access</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {members.map((m) => {
+                      const editing = editingId === m.id
+                      const login = membershipByMember.get(m.id)
+                      const isSelf = myMembership?.memberId === m.id
+                      return (
+                        <tr key={m.id} className="group align-middle hover:bg-slate-50">
+                          <td className="px-4 py-4 font-medium text-slate-700">
+                            {editing ? (
+                              <input
+                                type="text"
+                                value={eName}
+                                aria-label={`Name for ${m.name}`}
+                                onChange={(e) => setEName(e.target.value)}
+                                className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                              />
+                            ) : (
+                              <div className="flex items-center gap-3">
+                                <span
+                                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs font-bold text-white"
+                                  aria-hidden
+                                >
+                                  {initials(m.name)}
+                                </span>
+                                <div className="min-w-0">
+                                  <div className="truncate font-semibold text-slate-900">{m.name}</div>
+                                  {isSelf && <div className="text-xs text-slate-500">You</div>}
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                      <td className="px-4 py-4 text-right font-medium tabular-nums text-slate-900">
                         {editing ? (
                           <input
                             type="text"
@@ -447,17 +440,17 @@ export function PeoplePage() {
                             value={eIncome}
                             aria-label={`Net monthly income for ${m.name}`}
                             onChange={(e) => setEIncome(e.target.value)}
-                            className="w-32 rounded-md border border-slate-300 px-2 py-1 text-right text-sm tabular-nums"
+                            className="w-full rounded-md border border-slate-300 px-2 py-1 text-right text-sm tabular-nums"
                           />
                         ) : (
                           formatMoney(fromAmount(m.netMonthlyIncome), CURRENCY)
                         )}
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-500">{sharePct(m.incomeSharePct)}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">
+                      <td className="px-4 py-4 text-right tabular-nums text-slate-500">{sharePct(m.incomeSharePct)}</td>
+                      <td className="px-4 py-4 text-right tabular-nums text-slate-700">
                         {formatMoney(fromAmount(memberSpent(m.id)), CURRENCY)}
                       </td>
-                      <td className="px-4 py-2.5 text-slate-500">
+                      <td className="px-4 py-4 text-slate-500">
                         {editing ? (
                           <select
                             value={eSavings}
@@ -476,141 +469,207 @@ export function PeoplePage() {
                           accountName(m.personalSavingsAccountId)
                         )}
                       </td>
-                      <td className="px-4 py-2.5">
-                        {login ? (
-                          <div className="flex flex-col gap-1">
-                            <span className="text-slate-700">{login.email}</span>
-                            <div className="flex flex-wrap items-center gap-2">
-                              {login.status === MembershipStatus.Invited && <Badge tone="amber">Invited</Badge>}
-                              {canAccess && !login.isOwner && !login.isSelf ? (
-                                <select
-                                  value={String(login.role)}
-                                  aria-label={`Access level for ${m.name}`}
-                                  disabled={savingId === login.id}
-                                  onChange={(e) => changeRole(login.id, Number(e.target.value))}
-                                  className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600"
-                                >
-                                  {GRANTABLE_ROLES.map((r) => (
-                                    <option key={r} value={r}>
-                                      {HOUSEHOLD_ROLE_LABELS[r]}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <Badge tone={login.isOwner ? 'brand' : 'neutral'}>{HOUSEHOLD_ROLE_LABELS[login.role]}</Badge>
-                              )}
-                              {canAccess && !login.isOwner && !login.isSelf && (
+                      <td className="px-4 py-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            {login ? (
+                              <div className="flex flex-col gap-1.5">
+                                <span className="break-all text-[13px] font-medium text-brand-700 dark:text-brand-200">{login.email}</span>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {login.status === MembershipStatus.Invited && <Badge tone="amber">Invited</Badge>}
+                                  {canAccess && !login.isOwner && !login.isSelf ? (
+                                    <select
+                                      value={String(login.role)}
+                                      aria-label={`Access level for ${m.name}`}
+                                      disabled={savingId === login.id}
+                                      onChange={(e) => changeRole(login.id, Number(e.target.value))}
+                                      className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600"
+                                    >
+                                      {GRANTABLE_ROLES.map((r) => (
+                                        <option key={r} value={r}>
+                                          {HOUSEHOLD_ROLE_LABELS[r]}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : login.isOwner ? (
+                                    <Badge tone="brand">{HOUSEHOLD_ROLE_LABELS[login.role]}</Badge>
+                                  ) : (
+                                    <span className="inline-flex items-center rounded-full border border-slate-300 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                                      {HOUSEHOLD_ROLE_LABELS[login.role]}
+                                    </span>
+                                  )}
+                                  {canAccess && !login.isOwner && !login.isSelf && (
+                                    <button
+                                      type="button"
+                                      onClick={() => revoke(login.id)}
+                                      disabled={savingId === login.id}
+                                      aria-label={`Remove sign-in for ${m.name}`}
+                                      className="rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                                    >
+                                      Remove
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ) : canAccess ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                {myUnlinked && (
+                                  <button
+                                    type="button"
+                                    onClick={() => myMembership && linkLoginToPerson(myMembership.id, m.id)}
+                                    disabled={savingId === myMembership?.id}
+                                    title="Connect your sign-in to this person"
+                                    className="rounded-full bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                                  >
+                                    This is me
+                                  </button>
+                                )}
                                 <button
                                   type="button"
-                                  onClick={() => revoke(login.id)}
-                                  disabled={savingId === login.id}
-                                  aria-label={`Remove sign-in for ${m.name}`}
-                                  className="rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                                  onClick={() => openInviteFor(m.id)}
+                                  className="rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:border-slate-400 hover:text-slate-700"
                                 >
-                                  Remove
+                                  Invite to sign in
                                 </button>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-500">No sign-in</span>
+                            )}
+                          </div>
+
+                          {/* Row edit / delete — revealed on hover (Save / Cancel while editing). */}
+                          {canWrite && (
+                            <div className={`shrink-0 items-center gap-1 ${editing ? 'flex' : 'hidden group-hover:flex'}`}>
+                              {editing ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => saveEdit(m.id)}
+                                    disabled={savingId === m.id}
+                                    aria-label={`Save ${m.name}`}
+                                    className="rounded-md bg-brand-600 px-2 py-1 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingId(null)}
+                                    aria-label="Cancel edit"
+                                    className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => startEdit(m)}
+                                    aria-label={`Edit ${m.name}`}
+                                    title="Edit person"
+                                    className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                  >
+                                    ✎
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => archive(m.id)}
+                                    disabled={savingId === m.id}
+                                    aria-label={`Archive ${m.name}`}
+                                    title="Archive person"
+                                    className="rounded-md px-2 py-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                                  >
+                                    ✕
+                                  </button>
+                                </>
                               )}
                             </div>
-                          </div>
-                        ) : canAccess ? (
-                          <div className="flex flex-wrap items-center gap-2">
-                            {myUnlinked && (
-                              <button
-                                type="button"
-                                onClick={() => myMembership && linkLoginToPerson(myMembership.id, m.id)}
-                                disabled={savingId === myMembership?.id}
-                                title="Connect your sign-in to this person"
-                                className="rounded-md bg-brand-600 px-2 py-1 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
-                              >
-                                This is me
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => openInviteFor(m.id)}
-                              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                            >
-                              Invite to sign in
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-slate-400">No sign-in</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-right">
-                        {canWrite && (
-                          <div className="flex justify-end gap-1">
-                            {editing ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => saveEdit(m.id)}
-                                  disabled={savingId === m.id}
-                                  aria-label={`Save ${m.name}`}
-                                  className="rounded-md bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-                                >
-                                  Save
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingId(null)}
-                                  aria-label="Cancel edit"
-                                  className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
-                                >
-                                  Cancel
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => startEdit(m)}
-                                  aria-label={`Edit ${m.name}`}
-                                  title="Edit person"
-                                  className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                                >
-                                  ✎
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => archive(m.id)}
-                                  disabled={savingId === m.id}
-                                  aria-label={`Archive ${m.name}`}
-                                  title="Archive person"
-                                  className="rounded-md px-2 py-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
-                                >
-                                  ✕
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
                 })}
-              </tbody>
-            </table>
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </section>
+      )}
+
+      {/* Add a person — a modal (mounted only while open so the focus trap engages). */}
+      {showAdd && canWrite && (
+        <Modal title="Add a person" onClose={() => setShowAdd(false)}>
+          {error && (
+            <div className="mb-3">
+              <ErrorBanner>{error}</ErrorBanner>
+            </div>
+          )}
+          <div className="space-y-3">
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Name
+              <Input
+                type="text"
+                value={name}
+                placeholder="First name"
+                aria-label="Person name"
+                onChange={(e) => setName(e.target.value)}
+                className="w-full"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Net monthly income
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={income}
+                placeholder="0.00"
+                aria-label="Net monthly income"
+                onChange={(e) => setIncome(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') addMember()
+                }}
+                className="w-full text-right tabular-nums"
+              />
+            </label>
+            {accounts.length > 0 && (
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Savings account
+                <Select value={savings} aria-label="Savings account" onChange={(e) => setSavings(e.target.value)} className="w-full">
+                  <option value="">None</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="ghost" onClick={() => setShowAdd(false)} aria-label="Cancel add person">
+                Cancel
+              </Button>
+              <Button onClick={addMember} disabled={adding} aria-label="Add person">
+                Add person
+              </Button>
+            </div>
           </div>
-        </Card>
+        </Modal>
       )}
 
       {/* Invite form — opened from a person's "Invite to sign in", owner-only. */}
       {canAccess && inviteOpen && (
-        <Card as="section" className="p-5" aria-labelledby="invite-heading">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 id="invite-heading" className="text-sm font-semibold text-slate-700">
-              Invite {members.find((p) => p.id === invitePersonId)?.name ?? 'someone'} to sign in
-            </h2>
-            <button
-              type="button"
-              onClick={() => setInviteOpen(false)}
-              className="text-xs font-medium text-slate-500 hover:text-slate-700"
-            >
-              Cancel
-            </button>
-          </div>
-
+        <Modal
+          title={`Invite ${members.find((p) => p.id === invitePersonId)?.name ?? 'someone'} to sign in`}
+          onClose={() => setInviteOpen(false)}
+          size="lg"
+        >
+          {error && (
+            <div className="mb-3">
+              <ErrorBanner>{error}</ErrorBanner>
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
               Email
@@ -695,7 +754,7 @@ export function PeoplePage() {
               </div>
             </div>
           )}
-        </Card>
+        </Modal>
       )}
 
       {/* Sign-ins not tied to a budget person — so their access is never hidden. */}

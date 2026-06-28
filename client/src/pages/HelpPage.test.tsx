@@ -26,7 +26,7 @@ describe('HelpPage', () => {
     renderPage()
 
     expect(screen.getByRole('heading', { name: 'Help & guide' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Zero-based budgeting in a nutshell' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Zero-based budgeting' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Transactions' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Accounts' })).toBeInTheDocument()
 

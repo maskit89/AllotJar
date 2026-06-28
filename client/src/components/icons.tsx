@@ -34,7 +34,7 @@ export function LogoMark({ className = 'h-8 w-8' }: { className?: string }) {
         textAnchor="middle"
         fontSize="13"
         fontWeight="700"
-        fontFamily="Inter, ui-sans-serif, system-ui, sans-serif"
+        fontFamily="'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif"
         fill="#ffffff"
       >
         €

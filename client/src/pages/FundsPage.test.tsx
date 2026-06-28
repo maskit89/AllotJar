@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, SinkingFundDto } from '../types'
@@ -73,7 +73,7 @@ describe('FundsPage', () => {
     )
   })
 
-  it('lists funds with status and balances', { timeout: 15000 }, async () => {
+  it('lists funds as jars with their balances and funded percentage', { timeout: 15000 }, async () => {
     fundsData = [
       fund(),
       fund({ id: 'f2', name: 'Holiday', kind: 0, targetAmount: 1000, currentBalance: -40, requiredMonthlyContribution: 0, status: 'Overspent', targetDate: null, projectedFullyFundedDate: null }),
@@ -83,21 +83,23 @@ describe('FundsPage', () => {
 
     expect(await screen.findByText('Home insurance', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Holiday')).toBeInTheDocument()
-    expect(screen.getByText('On track')).toBeInTheDocument()
-    expect(screen.getByText('Overspent')).toBeInTheDocument()
-    expect(screen.getByText(/120,00/)).toBeInTheDocument()
+    // Each jar shows its balance and a funded-percentage pill (120 of 300 = 40%).
+    expect(screen.getByText(/120.00/)).toBeInTheDocument()
+    expect(screen.getByText('40%')).toBeInTheDocument()
   })
 
-  it('adds a fund', { timeout: 15000 }, async () => {
+  it('adds a fund from the New jar modal', { timeout: 15000 }, async () => {
     fundsData = []
     mockPost.mockResolvedValue({ data: fund({ id: 'f9', name: 'Vacation', kind: 0, targetAmount: 1200, status: 'OnTrack' }) })
     const user = userEvent.setup()
 
     renderPage()
 
-    await user.type(await screen.findByLabelText('Fund name', {}, { timeout: 5000 }), 'Vacation')
-    await user.type(screen.getByLabelText('Target amount'), '1200')
-    await user.click(screen.getByRole('button', { name: 'Add fund' }))
+    await user.click(await screen.findByRole('button', { name: 'New jar' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(dialog.getByLabelText('Fund name'), 'Vacation')
+    await user.type(dialog.getByLabelText('Target amount'), '1200')
+    await user.click(dialog.getByRole('button', { name: 'Add fund' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(
@@ -108,7 +110,7 @@ describe('FundsPage', () => {
     expect(await screen.findByText('Vacation', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
-  it('archives a fund', { timeout: 15000 }, async () => {
+  it('archives a fund from its edit modal', { timeout: 15000 }, async () => {
     fundsData = [
       fund(),
       fund({ id: 'f2', name: 'Holiday', kind: 0 }),
@@ -118,7 +120,9 @@ describe('FundsPage', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Archive Home insurance', {}, { timeout: 5000 }))
+    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.click(dialog.getByRole('button', { name: 'Archive Home insurance' }))
 
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/sinkingfunds/f1/archive', { archived: true }),

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, AllocationProfileDto, AllocationResultDto } from '../types'
@@ -127,13 +127,13 @@ describe('AllocationPage', () => {
 
     renderPage()
 
-    expect(await screen.findByText('June 2026', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText(/8\.411,61/)).toBeInTheDocument() // pool
+    expect(await screen.findByText('How June is allocated', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText(/8,411\.61/)).toBeInTheDocument() // pool (hero)
     expect(screen.getByText('Pocket money')).toBeInTheDocument()
-    expect(screen.getByText('To savings')).toBeInTheDocument()
+    expect(screen.getByText('To savings')).toBeInTheDocument() // hero tile
     // 1.259,14 appears in both the step breakdown and Chris's surplus card.
-    expect(screen.getAllByText(/1\.259,14/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/847,47/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/1,259\.14/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/847\.47/).length).toBeGreaterThan(0)
   })
 
   it('saves a new profile from the setup form', { timeout: 15000 }, async () => {
@@ -143,9 +143,11 @@ describe('AllocationPage', () => {
 
     renderPage()
 
-    await user.selectOptions(await screen.findByLabelText('Source account', {}, { timeout: 5000 }), 'acc0')
-    await user.type(screen.getByLabelText('Pocket money per member'), '250')
-    await user.click(screen.getByRole('button', { name: 'Save allocation settings' }))
+    await user.click(await screen.findByRole('button', { name: 'Set up allocation' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.selectOptions(dialog.getByLabelText('Source account'), 'acc0')
+    await user.type(dialog.getByLabelText('Pocket money per member'), '250')
+    await user.click(dialog.getByRole('button', { name: 'Save allocation settings' }))
 
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith(

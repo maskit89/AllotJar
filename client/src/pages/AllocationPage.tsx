@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
-import { Badge, Button, Card, EmptyState, ErrorBanner, Input, PageHeader, Select, SegmentedControl } from '../components/ui'
+import { Button, Card, EmptyState, ErrorBanner, Input, Select, SegmentedControl } from '../components/ui'
+import { Hero } from '../components/Hero'
+import { Modal } from '../components/Modal'
 import { AllocationIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { useHousehold } from '../features/HouseholdContext'
 import { api } from '../lib/api'
 import { bucketCount, EVENTS, track } from '../analytics'
 import type { AccountDto, AllocationProfileDto, AllocationResultDto, BudgetMonthDto } from '../types'
-import { AllocationRuleType, ALLOCATION_RULE_LABELS, SplitMethod } from '../types'
+import { AllocationRuleType, SplitMethod } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
 
 interface RuleSpec {
@@ -16,6 +18,14 @@ interface RuleSpec {
   type: number
   split: number
   fixedAmountPerMember: number
+}
+
+/** Friendly, design-matching names for each allocation step. */
+const STEP_LABEL: Record<number, string> = {
+  [AllocationRuleType.FundEnvelopes]: 'Cover shared costs',
+  [AllocationRuleType.FundSinkingFunds]: 'Fund the jars',
+  [AllocationRuleType.FixedPerMember]: 'Pocket money',
+  [AllocationRuleType.SplitRemainderToMembers]: 'Split remainder to savings',
 }
 
 function standardRules(costSplit: number, pocketAmount: number, savingsSplit: number): RuleSpec[] {
@@ -45,7 +55,8 @@ export function AllocationPage() {
   const [busy, setBusy] = useState(false)
   const [committed, setCommitted] = useState<number | null>(null)
 
-  // Setup/edit form.
+  // Setup/edit form (in a modal).
+  const [showSettings, setShowSettings] = useState(false)
   const [sourceAccountId, setSourceAccountId] = useState('')
   const [pocket, setPocket] = useState('')
   const [split, setSplit] = useState<number>(SplitMethod.Equal)
@@ -121,6 +132,7 @@ export function AllocationPage() {
       setProfile(data)
       track(EVENTS.allocationPreviewed, { split })
       await loadPreview(period.year, period.month)
+      setShowSettings(false)
     } catch {
       setError('Could not save the allocation profile.')
     } finally {
@@ -144,20 +156,22 @@ export function AllocationPage() {
     }
   }, [period])
 
-  const monthLabel = useMemo(
-    () => new Date(period.year, period.month - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }),
+  const monthName = useMemo(
+    () => new Date(period.year, period.month - 1, 1).toLocaleDateString('en-GB', { month: 'long' }),
     [period],
   )
+
+  // Hero figures — the pooled income, what goes to shared costs, what goes to savings.
+  const stepTotal = (type: number) =>
+    fromAmount(preview?.steps.find((s) => s.type === type)?.total ?? 0)
+  const sharedCostsMinor = stepTotal(AllocationRuleType.FundEnvelopes)
+  const toSavingsMinor = stepTotal(AllocationRuleType.SplitRemainderToMembers)
 
   // Allocation only makes sense once the budget is shared. A solo user who reaches
   // this route directly gets a friendly nudge to add members rather than an empty engine.
   if (!householdLoading && !isShared) {
     return (
-      <AppShell active="allocation">
-        <PageHeader
-          title="Income allocation"
-          subtitle="Pool everyone’s income, cover the shared costs, then split what’s left into each person’s savings."
-        />
+      <AppShell active="allocation" title="Income allocation">
         <EmptyState
           icon={<AllocationIcon className="h-6 w-6" />}
           title="Add people first"
@@ -170,194 +184,206 @@ export function AllocationPage() {
   }
 
   return (
-    <AppShell active="allocation">
-      <PageHeader
-        title="Income allocation"
-        subtitle="Pool everyone’s income, cover the shared costs, then split what’s left into each person’s savings — previewed before anything moves."
-      />
+    <AppShell active="allocation" title="Income allocation">
+      {profile && preview && (
+        <Hero
+          eyebrow="Income to allocate"
+          amount={formatMoney(fromAmount(preview.pool), CURRENCY)}
+          amountLabel={`Income to allocate: ${formatMoney(fromAmount(preview.pool), CURRENCY)}`}
+          tiles={[
+            { label: 'Shared costs', value: formatMoney(sharedCostsMinor, CURRENCY) },
+            { label: 'To savings', value: formatMoney(toSavingsMinor, CURRENCY) },
+          ]}
+        />
+      )}
 
-      {error && <ErrorBanner>{error}</ErrorBanner>}
+      {error && !showSettings && <ErrorBanner>{error}</ErrorBanner>}
       {loading && <p className="text-slate-500">Loading…</p>}
 
-      {!loading && (
-        <>
-          {/* Setup / settings. Editing the profile is Admin+. */}
+      {!loading && !profile && (
+        <EmptyState
+          icon={<AllocationIcon className="h-6 w-6" />}
+          title="No allocation set up yet"
+          description="Choose where shared costs come from and how to split them, then save — we’ll show you the monthly breakdown."
+        >
           {canWrite && (
-          <Card className="p-4">
-            <h2 className="mb-3 text-sm font-semibold text-slate-700">
-              {profile ? 'Allocation settings' : 'Set up allocation'}
-            </h2>
-            <div className="flex flex-wrap items-end gap-4">
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Pay shared costs from
-                <Select
-                  value={sourceAccountId}
-                  aria-label="Source account"
-                  onChange={(e) => setSourceAccountId(e.target.value)}
-                  className="w-48"
+            <Button onClick={() => { setError(null); setShowSettings(true) }} aria-label="Set up allocation">
+              Set up allocation
+            </Button>
+          )}
+        </EmptyState>
+      )}
+
+      {!loading && profile && preview && (
+        <Card as="section" className="px-6 py-[22px]">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">How {monthName} is allocated</h2>
+            <div className="flex items-center gap-2">
+              {canWrite && (
+                <Button variant="ghost" size="sm" onClick={() => { setError(null); setShowSettings(true) }} aria-label="Allocation settings">
+                  Settings
+                </Button>
+              )}
+              {canEnterData && (
+                <Button onClick={commit} disabled={busy} aria-label="Commit allocation">
+                  Allocate {monthName}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {committed !== null && (
+            <div
+              role="status"
+              className="mb-4 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
+            >
+              Allocated — created {committed} savings transfer{committed === 1 ? '' : 's'}.
+            </div>
+          )}
+
+          {/* The waterfall — each step and the amount it moves (terminal row highlighted). */}
+          <ol>
+            {preview.steps.map((step, i) => {
+              const terminal = step.type === AllocationRuleType.SplitRemainderToMembers
+              const perEach =
+                step.type === AllocationRuleType.FixedPerMember ? step.perMember[0]?.amount : undefined
+              return (
+                <li
+                  key={i}
+                  className={`flex items-center justify-between gap-3 px-4 py-3.5 ${
+                    i > 0 ? 'border-t border-slate-100' : ''
+                  } ${terminal ? 'rounded-lg bg-brand-50 dark:bg-brand-500/10' : ''}`}
                 >
-                  <option value="">Choose an account…</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </Select>
-              </label>
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-brand-600" aria-hidden />
+                    <span className="text-sm font-medium text-slate-700">{STEP_LABEL[step.type] ?? 'Step'}</span>
+                    {perEach !== undefined && perEach > 0 && (
+                      <span className="text-sm text-slate-500">· {formatMoney(fromAmount(perEach), CURRENCY)} each</span>
+                    )}
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-900">
+                    {formatMoney(fromAmount(step.total), CURRENCY)}
+                  </span>
+                </li>
+              )
+            })}
+          </ol>
+
+          {/* Each person's surplus → their savings. */}
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {preview.members.map((m) => (
+              <div key={m.memberId} className="rounded-xl border border-slate-200/70 p-4">
+                <p className="text-sm font-semibold text-slate-800">{m.name}</p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Savings {formatMoney(fromAmount(m.savingsBalance), CURRENCY)} → saves
+                </p>
+                <p
+                  className={`text-xl font-bold tabular-nums ${
+                    m.residual < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-brand-700 dark:text-brand-200'
+                  }`}
+                >
+                  {formatMoney(fromAmount(m.residual), CURRENCY)}
+                </p>
+                <p className="text-xs tabular-nums text-slate-500">
+                  New balance {formatMoney(fromAmount(m.savingsBalance + m.residual), CURRENCY)}
+                </p>
+                {!m.savingsAccountId && (
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                    No savings account set — won’t transfer on commit.
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Allocation settings — a modal (mounted only while open so the focus trap engages). */}
+      {showSettings && canWrite && (
+        <Modal title={profile ? 'Allocation settings' : 'Set up allocation'} onClose={() => setShowSettings(false)} size="lg">
+          {error && (
+            <div className="mb-3">
+              <ErrorBanner>{error}</ErrorBanner>
+            </div>
+          )}
+          <div className="space-y-4">
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Pay shared costs from
+              <Select
+                value={sourceAccountId}
+                aria-label="Source account"
+                onChange={(e) => setSourceAccountId(e.target.value)}
+                className="w-full"
+              >
+                <option value="">Choose an account…</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Pocket money (each)
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={pocket}
+                placeholder="0.00"
+                aria-label="Pocket money per member"
+                onChange={(e) => setPocket(e.target.value)}
+                className="w-40 text-right tabular-nums"
+              />
+            </label>
+            <div className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Split shared costs
+              <SegmentedControl
+                value={String(split)}
+                ariaLabel="Split method"
+                onChange={(v) => setSplit(Number(v))}
+                options={[
+                  { value: String(SplitMethod.Equal), label: 'Equally' },
+                  { value: String(SplitMethod.ByIncomeRatio), label: 'By income' },
+                ]}
+              />
+            </div>
+            <div className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Send savings to
+              <SegmentedControl
+                value={String(savingsSplit)}
+                ariaLabel="Savings split method"
+                onChange={(v) => setSavingsSplit(Number(v))}
+                options={[
+                  { value: String(SplitMethod.BalanceTilt), label: 'Balance' },
+                  { value: String(SplitMethod.Equal), label: 'Equally' },
+                  { value: String(SplitMethod.ByIncomeRatio), label: 'By income' },
+                ]}
+              />
+            </div>
+            {savingsSplit === SplitMethod.BalanceTilt && (
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Pocket money (each)
+                Balance lean (0–100)
                 <Input
                   type="text"
-                  inputMode="decimal"
-                  value={pocket}
-                  placeholder="0,00"
-                  aria-label="Pocket money per member"
-                  onChange={(e) => setPocket(e.target.value)}
-                  className="w-32 text-right tabular-nums"
+                  inputMode="numeric"
+                  value={lean}
+                  placeholder="25"
+                  aria-label="Balance lean percent"
+                  onChange={(e) => setLean(e.target.value)}
+                  className="w-24 text-right tabular-nums"
                 />
               </label>
-              <div className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Split shared costs
-                <SegmentedControl
-                  value={String(split)}
-                  ariaLabel="Split method"
-                  onChange={(v) => setSplit(Number(v))}
-                  options={[
-                    { value: String(SplitMethod.Equal), label: 'Equally' },
-                    { value: String(SplitMethod.ByIncomeRatio), label: 'By income' },
-                  ]}
-                />
-              </div>
-              <div className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Send savings to
-                <SegmentedControl
-                  value={String(savingsSplit)}
-                  ariaLabel="Savings split method"
-                  onChange={(v) => setSavingsSplit(Number(v))}
-                  options={[
-                    { value: String(SplitMethod.BalanceTilt), label: 'Balance' },
-                    { value: String(SplitMethod.Equal), label: 'Equally' },
-                    { value: String(SplitMethod.ByIncomeRatio), label: 'By income' },
-                  ]}
-                />
-              </div>
-              {savingsSplit === SplitMethod.BalanceTilt && (
-                <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                  Balance lean (0–100)
-                  <Input
-                    type="text"
-                    inputMode="numeric"
-                    value={lean}
-                    placeholder="25"
-                    aria-label="Balance lean percent"
-                    onChange={(e) => setLean(e.target.value)}
-                    className="w-24 text-right tabular-nums"
-                  />
-                </label>
-              )}
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="ghost" onClick={() => setShowSettings(false)} aria-label="Cancel settings">
+                Cancel
+              </Button>
               <Button onClick={saveProfile} disabled={busy} aria-label="Save allocation settings">
                 {profile ? 'Save' : 'Set up'}
               </Button>
             </div>
-          </Card>
-          )}
-
-          {!profile && (
-            <EmptyState
-              icon={<AllocationIcon className="h-6 w-6" />}
-              title="No allocation set up yet"
-              description="Choose where shared costs come from and how to split them, then save — we’ll show you the monthly breakdown."
-            />
-          )}
-
-          {profile && preview && (
-            <Card className="space-y-4 p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-800">{monthLabel}</h2>
-                  <p className="text-sm text-slate-500">
-                    Pool{' '}
-                    <span className="font-semibold tabular-nums text-slate-800">
-                      {formatMoney(fromAmount(preview.pool), CURRENCY)}
-                    </span>{' '}
-                    net income
-                  </p>
-                </div>
-                {canEnterData && (
-                  <Button onClick={commit} disabled={busy} aria-label="Commit allocation">
-                    Allocate {monthLabel}
-                  </Button>
-                )}
-              </div>
-
-              {committed !== null && (
-                <div
-                  role="status"
-                  className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
-                >
-                  Allocated — created {committed} savings transfer{committed === 1 ? '' : 's'}.
-                </div>
-              )}
-
-              {/* The waterfall: each step and its per-member split (the provenance). */}
-              <ol className="space-y-2">
-                {preview.steps.map((step, i) => {
-                  const terminal = step.type === AllocationRuleType.SplitRemainderToMembers
-                  return (
-                    <li
-                      key={i}
-                      className={`flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 ${
-                        terminal ? 'bg-brand-50 dark:bg-brand-500/10' : 'bg-slate-50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Badge tone={terminal ? 'brand' : 'neutral'}>{ALLOCATION_RULE_LABELS[step.type] ?? 'Step'}</Badge>
-                        <span className="text-sm font-medium text-slate-700">
-                          {terminal ? 'to savings' : formatMoney(fromAmount(step.total), CURRENCY)}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                        {step.perMember.map((m) => (
-                          <span key={m.memberId} className="tabular-nums">
-                            {m.name} {terminal ? '+' : '−'}
-                            {formatMoney(fromAmount(m.amount), CURRENCY)}
-                          </span>
-                        ))}
-                      </div>
-                    </li>
-                  )
-                })}
-              </ol>
-
-              {/* Each member's surplus → their savings. */}
-              <div className="grid gap-3 sm:grid-cols-2">
-                {preview.members.map((m) => (
-                  <div key={m.memberId} className="rounded-xl border border-slate-200/70 p-3">
-                    <p className="text-sm font-semibold text-slate-800">{m.name}</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Savings {formatMoney(fromAmount(m.savingsBalance), CURRENCY)} → saves
-                    </p>
-                    <p
-                      className={`text-xl font-bold tabular-nums ${
-                        m.residual < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-brand-700 dark:text-brand-200'
-                      }`}
-                    >
-                      {formatMoney(fromAmount(m.residual), CURRENCY)}
-                    </p>
-                    <p className="text-xs tabular-nums text-slate-500">
-                      New balance {formatMoney(fromAmount(m.savingsBalance + m.residual), CURRENCY)}
-                    </p>
-                    {!m.savingsAccountId && (
-                      <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-                        No savings account set — won’t transfer on commit.
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
-        </>
+          </div>
+        </Modal>
       )}
     </AppShell>
   )

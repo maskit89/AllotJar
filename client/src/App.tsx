@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import type { JSX } from 'react'
 import { useAuth } from './auth/AuthContext'
 import { useFeatures } from './features/FeatureContext'
+import { MonthProvider } from './features/MonthContext'
 import { LoginPage } from './pages/LoginPage'
 import { AcceptInvitePage } from './pages/AcceptInvitePage'
 import { AccountPage } from './pages/AccountPage'
@@ -9,6 +10,7 @@ import { PeoplePage } from './pages/PeoplePage'
 import { DashboardPage } from './pages/DashboardPage'
 import { TransactionsPage } from './pages/TransactionsPage'
 import { AccountsPage } from './pages/AccountsPage'
+import { AccountDetailPage } from './pages/AccountDetailPage'
 import { FundsPage } from './pages/FundsPage'
 import { AllocationPage } from './pages/AllocationPage'
 import { ReportsPage } from './pages/ReportsPage'
@@ -40,7 +42,7 @@ export default function App() {
   const features = useFeatures()
 
   return (
-    <>
+    <MonthProvider>
       <Routes>
         <Route
           path="/login"
@@ -71,6 +73,16 @@ export default function App() {
             element={
               <RequireAuth>
                 <AccountsPage />
+              </RequireAuth>
+            }
+          />
+        )}
+        {features.accounts && (
+          <Route
+            path="/accounts/:id"
+            element={
+              <RequireAuth>
+                <AccountDetailPage />
               </RequireAuth>
             }
           />
@@ -147,6 +159,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       {isAuthenticated && <Onboarding />}
-    </>
+    </MonthProvider>
   )
 }

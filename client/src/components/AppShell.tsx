@@ -1,41 +1,174 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { AppNav, type NavKey } from './AppNav'
-import { HouseholdSwitcher } from './HouseholdSwitcher'
-import { CloseIcon, HelpIcon, LogoMark, LogoutIcon, MenuIcon, SettingsIcon } from './icons'
-import { ThemeToggle } from './ThemeToggle'
+import { JarLogo } from './Jar'
+import { TopBar } from './TopBar'
+import { LogoutIcon, SettingsIcon } from './icons'
 import { EVENTS, track } from '../analytics'
 
+/** Two-letter initials from a display name (or the email's first letter). */
+function initialsOf(name: string, email: string | null): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  const initials = words.slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('')
+  return initials || email?.trim().charAt(0).toUpperCase() || '?'
+}
+
 /**
- * The shared dashboard chrome: a fixed left sidebar for primary navigation and a
- * top header for the user/profile/settings. The sidebar is always visible on
- * large screens and collapses behind a hamburger (an off-canvas drawer) on
- * smaller ones. Every authenticated page renders its content inside one, so the
- * layout, width and chrome stay consistent.
+ * The user chip + dropdown menu pinned to the sidebar (and the avatar on the
+ * mobile top bar). Since the redesign's clean top bar leaves no room for them,
+ * this is where Account settings, household switching, and Sign out live. Opens
+ * upward in the sidebar, downward on mobile.
+ */
+function UserMenu({ compact = false }: { compact?: boolean }) {
+  const { email, displayName, preferredCurrency, households, switchHousehold, logout } = useAuth()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const name = displayName || email || ''
+  const initials = initialsOf(name, email)
+  const householdLabel = households.find((h) => h.isActive)?.label ?? 'Personal'
+  const multi = households.length > 1
+  const avatar = (
+    <span
+      className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-brand-600 text-[13px] font-semibold text-white"
+      aria-hidden
+    >
+      {initials}
+    </span>
+  )
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Account menu"
+        className={`flex items-center gap-[11px] rounded-xl text-left transition hover:bg-slate-100 ${
+          compact ? 'p-0.5' : 'w-full p-2'
+        }`}
+      >
+        {avatar}
+        {!compact && (
+          <span className="min-w-0">
+            {name && <span className="block truncate text-[13.5px] font-semibold text-slate-900">{name}</span>}
+            <span className="block truncate text-[11.5px] text-slate-500">
+              {preferredCurrency} · {householdLabel}
+            </span>
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className={`absolute z-30 w-56 rounded-xl border border-slate-200 bg-surface p-1.5 shadow-card ${
+            compact ? 'right-0 top-full mt-2' : 'bottom-full left-0 mb-2'
+          }`}
+        >
+          {multi && (
+            <>
+              <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Household
+              </p>
+              {households.map((h) => (
+                <button
+                  key={h.ownerId}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    if (!h.isActive) void switchHousehold(h.ownerId)
+                    setOpen(false)
+                  }}
+                  className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-sm transition hover:bg-slate-100 ${
+                    h.isActive ? 'font-semibold text-brand-700 dark:text-brand-200' : 'text-slate-700'
+                  }`}
+                >
+                  <span className="truncate">{h.label}</span>
+                  {h.isActive && <span aria-hidden>✓</span>}
+                </button>
+              ))}
+              <div className="my-1 border-t border-slate-100" />
+            </>
+          )}
+          <Link
+            to="/account"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 transition hover:bg-slate-100"
+          >
+            <SettingsIcon className="h-4 w-4 text-slate-500" />
+            Account settings
+          </Link>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              track(EVENTS.logout)
+              logout()
+            }}
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 transition hover:bg-slate-100"
+          >
+            <LogoutIcon className="h-4 w-4 text-slate-500" />
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The shared dashboard chrome, redesigned to the screenshots: a desktop left
+ * sidebar (jar logo · primary nav · user-chip menu) that collapses below 900px
+ * into a horizontal top bar with scrollable nav pills + the user menu. The
+ * content column opens with the shared TopBar (month navigator + Zero-based pill
+ * + theme toggle) — every authenticated page renders its hero/content beneath it.
  */
 export function AppShell({
   active,
-  maxWidth = '5xl',
+  title,
   children,
 }: {
   active?: NavKey
+  /**
+   * The page's accessible name. Rendered as a visually-hidden `<h1>` so every
+   * screen exposes exactly one top-level heading for assistive tech and the
+   * skip-link target — the redesign's visual header is the TopBar, not an on-page
+   * title. Pages that already render their own visible `<h1>` (e.g. Help) omit it.
+   */
+  title?: string
+  // Kept for call-site compatibility; the redesign uses a single 1180px column.
   maxWidth?: '4xl' | '5xl'
   children: ReactNode
 }) {
-  const { email, logout, canWrite, canEnterData, isReadOnly } = useAuth()
-  const [navOpen, setNavOpen] = useState(false)
-  // Only Limited/Read-only roles are restricted; Owner/Admin have full write access.
+  const { canWrite, canEnterData, isReadOnly } = useAuth()
   const accessBanner = isReadOnly
     ? 'You have read-only access — you can view everything but cannot make changes.'
     : !canWrite && canEnterData
       ? 'You have limited access — you can record transactions, mark bills paid and run allocation, but not change the budget structure or settings.'
       : null
-  const width = maxWidth === '4xl' ? 'max-w-4xl' : 'max-w-5xl'
-  const initial = email?.trim().charAt(0).toUpperCase() || '?'
 
   return (
-    <div className="min-h-full bg-slate-50">
+    <div className="min-h-screen min-[900px]:flex">
       {/* Bypass Blocks (2.4.1): a keyboard skip link to the main content. */}
       <a
         href="#main-content"
@@ -44,106 +177,43 @@ export function AppShell({
         Skip to main content
       </a>
 
-      {/* Mobile backdrop — tap to dismiss the drawer. */}
-      {navOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
-          aria-hidden
-          onClick={() => setNavOpen(false)}
-        />
-      )}
-
-      {/* Sidebar: a fixed drawer that slides in on mobile, pinned on desktop. */}
+      {/* Desktop sidebar (≥900px). */}
       <aside
         data-tour="sidebar"
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200 bg-surface transition-transform duration-200 ease-out lg:translate-x-0 ${
-          navOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className="sticky top-0 hidden h-screen w-[230px] shrink-0 flex-col gap-1 self-stretch overflow-y-auto border-r border-slate-200 bg-surface-2 px-[18px] py-6 min-[900px]:flex"
       >
-        <div className="flex h-16 items-center gap-2 border-b border-slate-200 px-5">
-          <LogoMark className="h-8 w-8 text-brand-600" />
-          <span className="text-lg font-extrabold tracking-tight text-slate-800">ZeroBudget</span>
-          <button
-            type="button"
-            onClick={() => setNavOpen(false)}
-            aria-label="Close menu"
-            className="ml-auto rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-600 lg:hidden"
-          >
-            <CloseIcon className="h-5 w-5" />
-          </button>
+        <div className="flex items-center gap-[11px] px-2 pb-[22px]">
+          <JarLogo />
+          <span className="text-lg font-bold tracking-[-0.02em] text-slate-900">AllotJar</span>
         </div>
-        <AppNav active={active} onNavigate={() => setNavOpen(false)} />
+
+        <AppNav active={active} variant="sidebar" />
+
+        <div className="mt-auto border-t border-slate-200 pt-[14px]">
+          <UserMenu />
+        </div>
       </aside>
 
-      {/* Content column, offset past the sidebar on desktop. */}
-      <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-slate-200 bg-surface/80 px-4 backdrop-blur sm:px-6">
-          <button
-            type="button"
-            onClick={() => setNavOpen(true)}
-            aria-label="Open menu"
-            className="rounded-md p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 lg:hidden"
-          >
-            <MenuIcon className="h-6 w-6" />
-          </button>
+      {/* Mobile top bar (<900px): logo + scrollable nav pills + user menu. */}
+      <header className="flex items-center gap-3 border-b border-slate-200 bg-surface-2 px-3.5 py-3 min-[900px]:hidden">
+        <div className="flex shrink-0 items-center gap-2">
+          <JarLogo compact />
+          <span className="text-base font-bold tracking-[-0.02em] text-slate-900">AllotJar</span>
+        </div>
+        <AppNav active={active} variant="topbar" />
+        <UserMenu compact />
+      </header>
 
-          <HouseholdSwitcher />
-
-          <div className="ml-auto flex items-center gap-2 sm:gap-3">
-            <ThemeToggle />
-            <Link
-              to="/help"
-              data-tour="help"
-              aria-label="Help & guide"
-              title="Help & guide"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-600"
-            >
-              <HelpIcon className="h-5 w-5" />
-            </Link>
-            <Link
-              to="/account"
-              aria-label="Account settings"
-              title="Account settings"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-600"
-            >
-              <SettingsIcon className="h-5 w-5" />
-            </Link>
-
-            <div className="hidden h-6 w-px bg-slate-200 sm:block" />
-
-            <div className="flex items-center gap-2">
-              <span
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-100 text-sm font-bold text-brand-700 dark:bg-brand-500/20 dark:text-brand-200"
-                aria-hidden
-              >
-                {initial}
-              </span>
-              {email && (
-                <span className="hidden max-w-[12rem] truncate text-sm text-slate-500 sm:block">
-                  {email}
-                </span>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                track(EVENTS.logout)
-                logout()
-              }}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 sm:px-3"
-            >
-              <LogoutIcon className="h-4 w-4" />
-              <span className="hidden sm:inline">Sign out</span>
-            </button>
-          </div>
-        </header>
-
+      {/* Content column. */}
+      <div className="flex min-w-0 flex-1 flex-col">
         <main
           id="main-content"
           tabIndex={-1}
-          className={`mx-auto ${width} space-y-6 px-4 py-8 focus:outline-none sm:px-6 lg:px-8`}
+          className="mx-auto flex w-full max-w-[1180px] flex-col gap-[22px] px-[clamp(16px,4.5vw,38px)] pb-11 pt-[clamp(18px,3.4vw,30px)] focus:outline-none"
         >
+          {title && <h1 className="sr-only">{title}</h1>}
+          <TopBar />
+
           {accessBanner && (
             <div
               role="status"

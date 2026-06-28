@@ -106,10 +106,12 @@ describe('TransactionsPage manual sheet', () => {
 
     renderPage()
 
-    await user.type(await screen.findByLabelText('Transaction payee', {}, { timeout: 5000 }), 'Tesco')
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(screen.getByLabelText('Transaction payee'), 'Tesco')
     await user.type(screen.getByLabelText('Transaction amount'), '12,50')
     await user.selectOptions(screen.getByLabelText('Assign transaction to'), 'i-rent')
-    await user.click(screen.getByRole('button', { name: 'Add transaction' }))
+    await user.click(dialog.getByRole('button', { name: 'Add transaction' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(
@@ -129,14 +131,13 @@ describe('TransactionsPage manual sheet', () => {
 
     renderPage()
 
-    await user.type(await screen.findByLabelText('Transaction payee', {}, { timeout: 5000 }), 'Tesco')
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(screen.getByLabelText('Transaction payee'), 'Tesco')
     await user.type(screen.getByLabelText('Transaction amount'), '12,50')
     // The account select appears once accounts have loaded.
-    await user.selectOptions(
-      await screen.findByLabelText('Transaction account', {}, { timeout: 5000 }),
-      'a1',
-    )
-    await user.click(screen.getByRole('button', { name: 'Add transaction' }))
+    await user.selectOptions(await screen.findByLabelText('Transaction account', {}, { timeout: 5000 }), 'a1')
+    await user.click(dialog.getByRole('button', { name: 'Add transaction' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(
@@ -144,7 +145,7 @@ describe('TransactionsPage manual sheet', () => {
         expect.objectContaining({ payee: 'Tesco', accountId: 'a1' }),
       ),
     )
-    // The posted account shows under the payee in the table (not the add-form option).
+    // The posted account shows in its column in the register (not the modal option).
     const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
     expect(table.getByText('Everyday')).toBeInTheDocument()
   })
@@ -165,7 +166,8 @@ describe('TransactionsPage manual sheet', () => {
 
     renderPage()
 
-    // The Transaction/Transfer toggle appears once 2+ accounts have loaded.
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    // The Transaction/Transfer toggle appears in the modal once 2+ accounts have loaded.
     await user.click(await screen.findByRole('button', { name: 'Transfer' }, { timeout: 5000 }))
     await user.type(screen.getByLabelText('Transfer amount'), '50')
     await user.selectOptions(screen.getByLabelText('Transfer from account'), 'a1')
@@ -189,6 +191,7 @@ describe('TransactionsPage manual sheet', () => {
 
     renderPage()
 
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
     await user.click(await screen.findByRole('button', { name: 'Transfer' }, { timeout: 5000 }))
     await user.type(screen.getByLabelText('Transfer amount'), '50')
     await user.selectOptions(screen.getByLabelText('Transfer from account'), 'a1')
@@ -208,14 +211,13 @@ describe('TransactionsPage manual sheet', () => {
 
     renderPage()
 
-    await user.type(await screen.findByLabelText('Transaction payee', {}, { timeout: 5000 }), 'Pharmacy')
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(screen.getByLabelText('Transaction payee'), 'Pharmacy')
     await user.type(screen.getByLabelText('Transaction amount'), '12,50')
     // The member select appears once members have loaded.
-    await user.selectOptions(
-      await screen.findByLabelText('Transaction member', {}, { timeout: 5000 }),
-      'mem-chris',
-    )
-    await user.click(screen.getByRole('button', { name: 'Add transaction' }))
+    await user.selectOptions(await screen.findByLabelText('Transaction member', {}, { timeout: 5000 }), 'mem-chris')
+    await user.click(dialog.getByRole('button', { name: 'Add transaction' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(
@@ -223,9 +225,8 @@ describe('TransactionsPage manual sheet', () => {
         expect.objectContaining({ payee: 'Pharmacy', memberId: 'mem-chris' }),
       ),
     )
-    // The attributed member shows under the payee in the table.
-    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
-    expect(table.getByText('Chris')).toBeInTheDocument()
+    // The member isn't a register column in the redesign, so just confirm the row landed.
+    expect(await screen.findByText('Pharmacy', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
   it('rejects a non-positive amount without calling the API', { timeout: 15000 }, async () => {
@@ -234,8 +235,10 @@ describe('TransactionsPage manual sheet', () => {
 
     renderPage()
 
-    await user.type(await screen.findByLabelText('Transaction amount', {}, { timeout: 5000 }), '0')
-    await user.click(screen.getByRole('button', { name: 'Add transaction' }))
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(screen.getByLabelText('Transaction amount'), '0')
+    await user.click(dialog.getByRole('button', { name: 'Add transaction' }))
 
     expect(await screen.findByText(/valid amount/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(mockPost).not.toHaveBeenCalled()
@@ -337,41 +340,25 @@ describe('TransactionsPage manual sheet', () => {
     expect(mockPut).not.toHaveBeenCalled()
   })
 
-  it('filters transactions by payee search', { timeout: 15000 }, async () => {
-    mockLoad([tx(), { ...tx(), id: 't2', payee: 'Shell' }])
-    const user = userEvent.setup()
-
-    renderPage()
-
-    await screen.findByText('Tesco', {}, { timeout: 5000 })
-    expect(screen.getByText('Shell')).toBeInTheDocument()
-
-    await user.type(screen.getByLabelText('Search transactions'), 'tes')
-
-    await waitFor(() => expect(screen.queryByText('Shell')).not.toBeInTheDocument())
-    expect(screen.getByText('Tesco')).toBeInTheDocument()
-  })
-
-  it('filters the list by type (external transactions vs transfers)', { timeout: 15000 }, async () => {
+  it('filters the register to just the unassigned transactions', { timeout: 15000 }, async () => {
     mockLoad([
-      tx(), // Tesco — external expense (type 0)
-      { ...tx(), id: 't2', payee: 'Move to savings', type: 2, accountName: 'Everyday', transferAccountName: 'Savings' },
+      tx(), // Tesco — unassigned (budgetItemId null)
+      { ...tx(), id: 't2', payee: 'Rent payment', budgetItemId: 'i-rent', budgetItemName: 'Rent' },
     ])
     const user = userEvent.setup()
 
     renderPage()
 
     await screen.findByText('Tesco', {}, { timeout: 5000 })
-    expect(screen.getByText('Move to savings')).toBeInTheDocument()
+    expect(screen.getByText('Rent payment')).toBeInTheDocument()
 
-    // Transfers only — the external transaction drops out.
-    await user.click(screen.getByRole('button', { name: 'Transfers' }))
-    await waitFor(() => expect(screen.queryByText('Tesco')).not.toBeInTheDocument())
-    expect(screen.getByText('Move to savings')).toBeInTheDocument()
-
-    // Transactions only — the transfer drops out.
-    await user.click(screen.getByRole('button', { name: 'Transactions' }))
-    await waitFor(() => expect(screen.queryByText('Move to savings')).not.toBeInTheDocument())
+    // Unassigned only — the already-assigned transaction drops out.
+    await user.click(screen.getByRole('button', { name: 'Unassigned' }))
+    await waitFor(() => expect(screen.queryByText('Rent payment')).not.toBeInTheDocument())
     expect(screen.getByText('Tesco')).toBeInTheDocument()
+
+    // Back to All — both return.
+    await user.click(screen.getByRole('button', { name: 'All' }))
+    expect(await screen.findByText('Rent payment', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 })
