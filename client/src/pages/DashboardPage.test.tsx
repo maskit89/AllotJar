@@ -21,6 +21,7 @@ vi.mock('../lib/api', () => ({
 
 import { DashboardPage } from './DashboardPage'
 import { AuthProvider } from '../auth/AuthContext'
+import { MonthProvider } from '../features/MonthContext'
 
 // Income(Take-home Pay 3000) at the top + Housing(Rent 1100). Remaining = 1900.
 function budget(): BudgetMonthDto {
@@ -65,7 +66,9 @@ function renderPage() {
   return render(
     <MemoryRouter>
       <AuthProvider>
-        <DashboardPage />
+        <MonthProvider>
+          <DashboardPage />
+        </MonthProvider>
       </AuthProvider>
     </MemoryRouter>,
   )
@@ -399,7 +402,9 @@ describe('DashboardPage optimistic editing', () => {
     render(
       <MemoryRouter>
         <AuthProvider>
-          <DashboardPage today={new Date(2026, 5, 20)} />
+          <MonthProvider>
+            <DashboardPage today={new Date(2026, 5, 20)} />
+          </MonthProvider>
         </AuthProvider>
       </MemoryRouter>,
     )

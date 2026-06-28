@@ -40,18 +40,18 @@ import { hueForIndex } from '../lib/categoryColors'
 import { CategoryAccordion } from '../components/CategoryAccordion'
 import { FundGroup } from '../components/FundGroup'
 import { IncomeGroup } from '../components/IncomeGroup'
+import { useMonth } from '../features/MonthContext'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
 
-const now = new Date()
-
 export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // Building/editing the budget (groups, lines, months) needs Admin+ (canWrite).
   const { canWrite } = useAuth()
-  const [view, setView] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 })
+  // The viewed month comes from the app-wide top bar (MonthContext).
+  const { year, month: monthNum } = useMonth()
   const [month, setMonth] = useState<MonthVM | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -72,7 +72,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     setError(null)
     setNotFound(false)
     api
-      .get<BudgetMonthDto>(`/budget/${view.year}/${view.month}`)
+      .get<BudgetMonthDto>(`/budget/${year}/${monthNum}`)
       .then(({ data }) => {
         if (!cancelled) setMonth(fromDto(data))
       })
@@ -88,7 +88,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     return () => {
       cancelled = true
     }
-  }, [view])
+  }, [year, monthNum])
 
   const refreshMonths = useCallback(() => {
     api
@@ -117,22 +117,9 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   }, [])
 
   const hasPrevBudget = useMemo(
-    () =>
-      months.some(
-        (m) => m.year < view.year || (m.year === view.year && m.month < view.month),
-      ),
-    [months, view],
+    () => months.some((m) => m.year < year || (m.year === year && m.month < monthNum)),
+    [months, year, monthNum],
   )
-
-  const goToMonth = useCallback((year: number, month: number) => setView({ year, month }), [])
-  const goPrev = useCallback(() => {
-    track(EVENTS.monthNavigated, { direction: 'prev' })
-    setView((v) => (v.month === 1 ? { year: v.year - 1, month: 12 } : { ...v, month: v.month - 1 }))
-  }, [])
-  const goNext = useCallback(() => {
-    track(EVENTS.monthNavigated, { direction: 'next' })
-    setView((v) => (v.month === 12 ? { year: v.year + 1, month: 1 } : { ...v, month: v.month + 1 }))
-  }, [])
 
   // Create the viewed month — copying the previous month's plan, or blank.
   const createMonth = useCallback(
@@ -141,8 +128,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setError(null)
       try {
         const { data } = await api.post<BudgetMonthDto>('/budget', {
-          year: view.year,
-          month: view.month,
+          year,
+          month: monthNum,
           copyFromPrevious,
         })
         setMonth(fromDto(data))
@@ -155,7 +142,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         setCreating(false)
       }
     },
-    [view, refreshMonths],
+    [year, monthNum, refreshMonths],
   )
 
   // Create the viewed month from a quick-start template.
@@ -165,8 +152,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setError(null)
       try {
         const { data } = await api.post<BudgetMonthDto>('/budget', {
-          year: view.year,
-          month: view.month,
+          year,
+          month: monthNum,
           copyFromPrevious: false,
           templateKey,
         })
@@ -180,7 +167,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         setCreating(false)
       }
     },
-    [view, refreshMonths],
+    [year, monthNum, refreshMonths],
   )
 
   // Optimistic commit: apply the edit locally and recompute the banner instantly
@@ -472,45 +459,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   }
 
   return (
-    <AppShell active="budget" maxWidth="4xl">
-        {/* Page heading + month navigator — always visible so you can move between / create months. */}
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Budget</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Give every euro a job until “Remaining to Budget” reaches €0.00.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={goPrev}
-              aria-label="Previous month"
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-            >
-              ◀
-            </button>
-            <h2 className="min-w-40 text-center text-lg font-semibold tabular-nums text-slate-800">
-              {MONTH_NAMES[view.month - 1]} {view.year}
-            </h2>
-            <button
-              type="button"
-              onClick={goNext}
-              aria-label="Next month"
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-            >
-              ▶
-            </button>
-            <button
-              type="button"
-              onClick={() => goToMonth(now.getFullYear(), now.getMonth() + 1)}
-              className="ml-1 rounded-lg px-2.5 py-1.5 text-sm font-medium text-brand-700 transition hover:bg-brand-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
-            >
-              This month
-            </button>
-          </div>
-        </div>
-
+    <AppShell active="budget">
         {loading && <p className="text-slate-500">Loading your budget…</p>}
 
         {error && (
@@ -522,7 +471,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         {notFound && !loading && !canWrite && (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-surface px-6 py-12 text-center shadow-card">
             <p className="text-slate-600">
-              No budget for {MONTH_NAMES[view.month - 1]} {view.year} yet.
+              No budget for {MONTH_NAMES[monthNum - 1]} {year} yet.
             </p>
             <p className="mt-1 text-sm text-slate-500">
               Ask an admin or the owner to set this month up.
@@ -533,7 +482,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         {notFound && !loading && canWrite && (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-surface px-6 py-12 text-center shadow-card">
             <p className="text-slate-600">
-              No budget for {MONTH_NAMES[view.month - 1]} {view.year} yet.
+              No budget for {MONTH_NAMES[monthNum - 1]} {year} yet.
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-3">
               {hasPrevBudget && (

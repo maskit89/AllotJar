@@ -3,7 +3,7 @@ import { useFeatures } from '../features/FeatureContext'
 import { useHousehold } from '../features/HouseholdContext'
 import { EVENTS, track } from '../analytics'
 
-export type NavKey = 'budget' | 'transactions' | 'accounts' | 'funds' | 'people' | 'allocation' | 'reports'
+export type NavKey = 'budget' | 'transactions' | 'accounts' | 'funds' | 'people' | 'allocation' | 'reports' | 'help'
 
 /**
  * The primary navigation. On the desktop sidebar (`variant="sidebar"`) it's a
@@ -29,13 +29,14 @@ export function AppNav({
   const { isShared } = useHousehold()
 
   const items: { key: NavKey; to: string; label: string; show: boolean }[] = [
-    { key: 'budget', to: '/', label: 'Dashboard', show: true },
+    { key: 'budget', to: '/', label: 'Budget', show: true },
     { key: 'transactions', to: '/transactions', label: 'Transactions', show: true },
     { key: 'accounts', to: '/accounts', label: 'Accounts', show: features.accounts },
     { key: 'funds', to: '/funds', label: 'Funds', show: features.sinkingFunds },
+    { key: 'reports', to: '/reports', label: 'Reports', show: features.reports },
     { key: 'people', to: '/people', label: 'People', show: features.householdAllocation },
     { key: 'allocation', to: '/allocation', label: 'Allocation', show: features.householdAllocation && isShared },
-    { key: 'reports', to: '/reports', label: 'Reports', show: features.reports },
+    { key: 'help', to: '/help', label: 'Help', show: true },
   ]
 
   const onClick = (to: string) => {
@@ -80,6 +81,7 @@ export function AppNav({
             to={i.to}
             onClick={() => onClick(i.to)}
             aria-current={isActive ? 'page' : undefined}
+            data-tour={i.key === 'help' ? 'help' : undefined}
             className={`flex items-center gap-[11px] rounded-[11px] px-[11px] py-[9px] text-sm transition ${
               isActive
                 ? 'bg-brand-50 font-semibold text-brand-700 dark:bg-brand-500/15 dark:text-brand-200'
