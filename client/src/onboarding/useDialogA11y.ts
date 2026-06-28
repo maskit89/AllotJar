@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -6,10 +6,18 @@ const FOCUSABLE =
 /**
  * Modal-dialog keyboard behaviour: focus the dialog on open, trap Tab inside it,
  * close on Escape, and restore focus to whatever was focused before. Used by the
- * welcome dialog and the spotlight tour so both meet the keyboard expectations
- * for `role="dialog" aria-modal="true"`.
+ * welcome dialog, the spotlight tour and the redesign's Modal so they meet the
+ * keyboard expectations for `role="dialog" aria-modal="true"`.
+ *
+ * `onClose` is read through a ref so the effect runs only on open/close — not on
+ * every render. (A caller passing an inline `onClose` would otherwise re-run the
+ * effect each keystroke, re-focusing the first field and stealing focus from a
+ * form input mid-typing.)
  */
 export function useDialogA11y(ref: RefObject<HTMLElement | null>, onClose: () => void) {
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
   useEffect(() => {
     const node = ref.current
     if (!node) return
@@ -26,7 +34,7 @@ export function useDialogA11y(ref: RefObject<HTMLElement | null>, onClose: () =>
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         e.stopPropagation()
-        onClose()
+        onCloseRef.current()
         return
       }
       if (e.key !== 'Tab' || !node) return
@@ -54,5 +62,8 @@ export function useDialogA11y(ref: RefObject<HTMLElement | null>, onClose: () =>
       node.removeEventListener('keydown', onKeyDown)
       previouslyFocused?.focus?.()
     }
-  }, [ref, onClose])
+    // Intentionally only `ref`: onClose is read via the ref above so typing in a
+    // dialog form field doesn't re-run this effect and steal focus.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ref])
 }
