@@ -40,7 +40,7 @@ describe('Onboarding', () => {
 
   it('auto-opens the welcome dialog for a brand-new user', async () => {
     renderApp()
-    expect(await screen.findByRole('heading', { name: 'Welcome to ZeroBudget' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Welcome to AllotJar' })).toBeInTheDocument()
   })
 
   it('walks from welcome through the tour to the checklist', async () => {
@@ -63,7 +63,7 @@ describe('Onboarding', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
 
     expect(await screen.findByRole('region', { name: 'Getting started' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Welcome to ZeroBudget' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Welcome to AllotJar' })).not.toBeInTheDocument()
 
     const raw = localStorage.getItem('zbb.onboarding:me@test.app')
     expect(raw && JSON.parse(raw).welcomeSeen).toBe(true)
@@ -72,7 +72,7 @@ describe('Onboarding', () => {
     unmount()
     renderApp()
     await waitFor(() =>
-      expect(screen.queryByRole('heading', { name: 'Welcome to ZeroBudget' })).not.toBeInTheDocument(),
+      expect(screen.queryByRole('heading', { name: 'Welcome to AllotJar' })).not.toBeInTheDocument(),
     )
   })
 
