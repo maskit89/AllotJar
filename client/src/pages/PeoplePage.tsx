@@ -392,14 +392,13 @@ export function PeoplePage() {
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[820px] table-fixed text-sm">
                   <thead>
-                    <tr className="border-b border-slate-100 text-left text-[11px] font-bold uppercase tracking-[0.05em] text-slate-500">
-                      <th className="w-[23%] px-4 py-3 font-bold">Person</th>
+                    <tr className="border-b border-slate-100 text-left text-[11px] font-bold uppercase tracking-[0.06em] text-slate-500">
+                      <th className="w-[27%] px-4 py-3 font-bold">Person</th>
                       <th className="w-[12%] px-4 py-3 text-right font-bold">Income</th>
-                      <th className="w-[9%] px-4 py-3 text-right font-bold">Share</th>
-                      <th className="w-[12%] px-4 py-3 text-right font-bold">Spent</th>
-                      <th className="w-[15%] px-4 py-3 font-bold">Savings</th>
-                      <th className="w-[22%] px-4 py-3 font-bold">Sign-in &amp; access</th>
-                      <th className="w-[7%] px-4 py-3" />
+                      <th className="w-[10%] px-4 py-3 text-right font-bold">Share</th>
+                      <th className="w-[11%] px-4 py-3 text-right font-bold">Spent</th>
+                      <th className="w-[16%] px-4 py-3 font-bold">Savings</th>
+                      <th className="w-[24%] px-4 py-3 font-bold">Sign-in &amp; access</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -408,8 +407,8 @@ export function PeoplePage() {
                       const login = membershipByMember.get(m.id)
                       const isSelf = myMembership?.memberId === m.id
                       return (
-                        <tr key={m.id} className="align-top hover:bg-slate-50">
-                          <td className="px-4 py-3 font-medium text-slate-700">
+                        <tr key={m.id} className="group align-middle hover:bg-slate-50">
+                          <td className="px-4 py-4 font-medium text-slate-700">
                             {editing ? (
                               <input
                                 type="text"
@@ -433,7 +432,7 @@ export function PeoplePage() {
                               </div>
                             )}
                           </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">
+                      <td className="px-4 py-4 text-right font-medium tabular-nums text-slate-900">
                         {editing ? (
                           <input
                             type="text"
@@ -441,17 +440,17 @@ export function PeoplePage() {
                             value={eIncome}
                             aria-label={`Net monthly income for ${m.name}`}
                             onChange={(e) => setEIncome(e.target.value)}
-                            className="w-32 rounded-md border border-slate-300 px-2 py-1 text-right text-sm tabular-nums"
+                            className="w-full rounded-md border border-slate-300 px-2 py-1 text-right text-sm tabular-nums"
                           />
                         ) : (
                           formatMoney(fromAmount(m.netMonthlyIncome), CURRENCY)
                         )}
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-500">{sharePct(m.incomeSharePct)}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">
+                      <td className="px-4 py-4 text-right tabular-nums text-slate-500">{sharePct(m.incomeSharePct)}</td>
+                      <td className="px-4 py-4 text-right tabular-nums text-slate-700">
                         {formatMoney(fromAmount(memberSpent(m.id)), CURRENCY)}
                       </td>
-                      <td className="px-4 py-2.5 text-slate-500">
+                      <td className="px-4 py-4 text-slate-500">
                         {editing ? (
                           <select
                             value={eSavings}
@@ -470,115 +469,123 @@ export function PeoplePage() {
                           accountName(m.personalSavingsAccountId)
                         )}
                       </td>
-                      <td className="px-4 py-2.5">
-                        {login ? (
-                          <div className="flex flex-col gap-1">
-                            <span className="break-words text-slate-700">{login.email}</span>
-                            <div className="flex flex-wrap items-center gap-2">
-                              {login.status === MembershipStatus.Invited && <Badge tone="amber">Invited</Badge>}
-                              {canAccess && !login.isOwner && !login.isSelf ? (
-                                <select
-                                  value={String(login.role)}
-                                  aria-label={`Access level for ${m.name}`}
-                                  disabled={savingId === login.id}
-                                  onChange={(e) => changeRole(login.id, Number(e.target.value))}
-                                  className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600"
-                                >
-                                  {GRANTABLE_ROLES.map((r) => (
-                                    <option key={r} value={r}>
-                                      {HOUSEHOLD_ROLE_LABELS[r]}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <Badge tone={login.isOwner ? 'brand' : 'neutral'}>{HOUSEHOLD_ROLE_LABELS[login.role]}</Badge>
-                              )}
-                              {canAccess && !login.isOwner && !login.isSelf && (
+                      <td className="px-4 py-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            {login ? (
+                              <div className="flex flex-col gap-1.5">
+                                <span className="break-all text-[13px] font-medium text-brand-700 dark:text-brand-200">{login.email}</span>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {login.status === MembershipStatus.Invited && <Badge tone="amber">Invited</Badge>}
+                                  {canAccess && !login.isOwner && !login.isSelf ? (
+                                    <select
+                                      value={String(login.role)}
+                                      aria-label={`Access level for ${m.name}`}
+                                      disabled={savingId === login.id}
+                                      onChange={(e) => changeRole(login.id, Number(e.target.value))}
+                                      className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600"
+                                    >
+                                      {GRANTABLE_ROLES.map((r) => (
+                                        <option key={r} value={r}>
+                                          {HOUSEHOLD_ROLE_LABELS[r]}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : login.isOwner ? (
+                                    <Badge tone="brand">{HOUSEHOLD_ROLE_LABELS[login.role]}</Badge>
+                                  ) : (
+                                    <span className="inline-flex items-center rounded-full border border-slate-300 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                                      {HOUSEHOLD_ROLE_LABELS[login.role]}
+                                    </span>
+                                  )}
+                                  {canAccess && !login.isOwner && !login.isSelf && (
+                                    <button
+                                      type="button"
+                                      onClick={() => revoke(login.id)}
+                                      disabled={savingId === login.id}
+                                      aria-label={`Remove sign-in for ${m.name}`}
+                                      className="rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                                    >
+                                      Remove
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ) : canAccess ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                {myUnlinked && (
+                                  <button
+                                    type="button"
+                                    onClick={() => myMembership && linkLoginToPerson(myMembership.id, m.id)}
+                                    disabled={savingId === myMembership?.id}
+                                    title="Connect your sign-in to this person"
+                                    className="rounded-full bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                                  >
+                                    This is me
+                                  </button>
+                                )}
                                 <button
                                   type="button"
-                                  onClick={() => revoke(login.id)}
-                                  disabled={savingId === login.id}
-                                  aria-label={`Remove sign-in for ${m.name}`}
-                                  className="rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                                  onClick={() => openInviteFor(m.id)}
+                                  className="rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:border-slate-400 hover:text-slate-700"
                                 >
-                                  Remove
+                                  Invite to sign in
                                 </button>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-400">No sign-in</span>
+                            )}
+                          </div>
+
+                          {/* Row edit / delete — revealed on hover (Save / Cancel while editing). */}
+                          {canWrite && (
+                            <div className={`shrink-0 items-center gap-1 ${editing ? 'flex' : 'hidden group-hover:flex'}`}>
+                              {editing ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => saveEdit(m.id)}
+                                    disabled={savingId === m.id}
+                                    aria-label={`Save ${m.name}`}
+                                    className="rounded-md bg-brand-600 px-2 py-1 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingId(null)}
+                                    aria-label="Cancel edit"
+                                    className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => startEdit(m)}
+                                    aria-label={`Edit ${m.name}`}
+                                    title="Edit person"
+                                    className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                  >
+                                    ✎
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => archive(m.id)}
+                                    disabled={savingId === m.id}
+                                    aria-label={`Archive ${m.name}`}
+                                    title="Archive person"
+                                    className="rounded-md px-2 py-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                                  >
+                                    ✕
+                                  </button>
+                                </>
                               )}
                             </div>
-                          </div>
-                        ) : canAccess ? (
-                          <div className="flex flex-wrap items-center gap-2">
-                            {myUnlinked && (
-                              <button
-                                type="button"
-                                onClick={() => myMembership && linkLoginToPerson(myMembership.id, m.id)}
-                                disabled={savingId === myMembership?.id}
-                                title="Connect your sign-in to this person"
-                                className="rounded-md bg-brand-600 px-2 py-1 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
-                              >
-                                This is me
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => openInviteFor(m.id)}
-                              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                            >
-                              Invite to sign in
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-slate-400">No sign-in</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-right">
-                        {canWrite && (
-                          <div className="flex justify-end gap-1">
-                            {editing ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => saveEdit(m.id)}
-                                  disabled={savingId === m.id}
-                                  aria-label={`Save ${m.name}`}
-                                  className="rounded-md bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-                                >
-                                  Save
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingId(null)}
-                                  aria-label="Cancel edit"
-                                  className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
-                                >
-                                  Cancel
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => startEdit(m)}
-                                  aria-label={`Edit ${m.name}`}
-                                  title="Edit person"
-                                  className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                                >
-                                  ✎
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => archive(m.id)}
-                                  disabled={savingId === m.id}
-                                  aria-label={`Archive ${m.name}`}
-                                  title="Archive person"
-                                  className="rounded-md px-2 py-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
-                                >
-                                  ✕
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
