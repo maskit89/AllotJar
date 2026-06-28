@@ -12,6 +12,8 @@ import type {
 import {
   billAlerts,
   billsSummary,
+  categoryActual,
+  categoryPlanned,
   fromDto,
   findItem,
   isFund,
@@ -32,7 +34,7 @@ import {
   withReorderedItems,
   type MonthVM,
 } from '../budgetModel'
-import { formatMoney, fromAmount, toAmount, type Minor } from '../lib/money'
+import { formatMoney, fromAmount, sumMinor, toAmount, type Minor } from '../lib/money'
 import { Hero, EveryEuroBadge } from '../components/Hero'
 import { Card } from '../components/ui'
 import { Jar } from '../components/Jar'
@@ -650,32 +652,48 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                   onAddItem={addItem}
                 />
               ))}
-              {month.categories
-                .filter((c) => c.kind === 'expense')
-                .map((category, i, arr) => (
-                  <CategoryAccordion
-                    key={category.id}
-                    category={category}
-                    currency={month.currency}
-                    savingItemId={savingItemId}
-                    monthYear={month.year}
-                    monthNumber={month.month}
-                    today={today}
-                    isFirst={i === 0}
-                    isLast={i === arr.length - 1}
-                    hue={hueForIndex(i)}
-                    onCommitItem={commitItem}
-                    onSetBill={setBill}
-                    onSetPaid={setPaid}
-                    onRenameItem={renameItem}
-                    onDeleteItem={deleteItem}
-                    onAddItem={addItem}
-                    onRenameCategory={renameCategory}
-                    onDeleteCategory={deleteCategory}
-                    onMove={moveCategory}
-                    onReorderItems={reorderItems}
-                  />
-                ))}
+              {/* "Everyday spending" panel — all expense groups in one card. */}
+              {(() => {
+                const expense = month.categories.filter((c) => c.kind === 'expense')
+                if (expense.length === 0) return null
+                const spent = sumMinor(expense.map(categoryActual))
+                const planned = sumMinor(expense.map(categoryPlanned))
+                return (
+                  <Card className="px-6 py-[22px]">
+                    <div className="mb-1.5 flex items-baseline justify-between gap-3">
+                      <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Everyday spending</h2>
+                      <div className="text-[13px] tabular-nums text-slate-500">
+                        {formatMoney(spent, month.currency)}{' '}
+                        <span className="opacity-55">of {formatMoney(planned, month.currency)}</span>
+                      </div>
+                    </div>
+                    {expense.map((category, i, arr) => (
+                      <CategoryAccordion
+                        key={category.id}
+                        category={category}
+                        currency={month.currency}
+                        savingItemId={savingItemId}
+                        monthYear={month.year}
+                        monthNumber={month.month}
+                        today={today}
+                        isFirst={i === 0}
+                        isLast={i === arr.length - 1}
+                        hue={hueForIndex(i)}
+                        onCommitItem={commitItem}
+                        onSetBill={setBill}
+                        onSetPaid={setPaid}
+                        onRenameItem={renameItem}
+                        onDeleteItem={deleteItem}
+                        onAddItem={addItem}
+                        onRenameCategory={renameCategory}
+                        onDeleteCategory={deleteCategory}
+                        onMove={moveCategory}
+                        onReorderItems={reorderItems}
+                      />
+                    ))}
+                  </Card>
+                )
+              })()}
 
               {/* Sinking funds render below expenses; their balances roll over. */}
               {month.categories.filter(isFund).map((category) => (

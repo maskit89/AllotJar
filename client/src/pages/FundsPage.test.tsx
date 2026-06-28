@@ -85,7 +85,7 @@ describe('FundsPage', () => {
     expect(screen.getByText('Holiday')).toBeInTheDocument()
     expect(screen.getByText('On track')).toBeInTheDocument()
     expect(screen.getByText('Overspent')).toBeInTheDocument()
-    expect(screen.getByText(/120,00/)).toBeInTheDocument()
+    expect(screen.getByText(/120.00/)).toBeInTheDocument()
   })
 
   it('adds a fund', { timeout: 15000 }, async () => {

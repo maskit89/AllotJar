@@ -128,12 +128,12 @@ describe('AllocationPage', () => {
     renderPage()
 
     expect(await screen.findByText('June 2026', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText(/8\.411,61/)).toBeInTheDocument() // pool
+    expect(screen.getByText(/8,411\.61/)).toBeInTheDocument() // pool
     expect(screen.getByText('Pocket money')).toBeInTheDocument()
     expect(screen.getByText('To savings')).toBeInTheDocument()
     // 1.259,14 appears in both the step breakdown and Chris's surplus card.
-    expect(screen.getAllByText(/1\.259,14/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/847,47/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/1,259\.14/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/847\.47/).length).toBeGreaterThan(0)
   })
 
   it('saves a new profile from the setup form', { timeout: 15000 }, async () => {

@@ -131,7 +131,7 @@ describe('DashboardPage optimistic editing', () => {
 
     // The failure surfaces and the field reverts to its pre-edit value.
     expect(await screen.findByText(/reverted to the previous value/, {}, { timeout: 5000 })).toBeInTheDocument()
-    await waitFor(() => expect(input.value).toBe('1100'), { timeout: 5000 })
+    await waitFor(() => expect(input.value).toBe('1,100.00'), { timeout: 5000 })
   })
 
   it('adds an income source and reconciles from the server response', { timeout: 15000 }, async () => {
@@ -321,8 +321,8 @@ describe('DashboardPage optimistic editing', () => {
     renderPage()
 
     expect(await screen.findByDisplayValue('Car', {}, { timeout: 5000 })).toBeInTheDocument()
-    // The fund's available balance (170,00 €) is shown, rolled over across months.
-    expect(screen.getByText('170,00 €')).toBeInTheDocument()
+    // The fund's available balance (€170.00) is shown, rolled over across months.
+    expect(screen.getByText('€170.00')).toBeInTheDocument()
   })
 
   it('creates a fund group when the kind is set to Fund', { timeout: 15000 }, async () => {

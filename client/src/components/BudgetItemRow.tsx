@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { BillStatus, ItemVM } from '../budgetModel'
 import { itemRemaining } from '../budgetModel'
-import { currencySymbol, formatMoney, parseMinor, toEditString, type Minor } from '../lib/money'
+import { currencySymbol, formatMoney, formatPlain, parseMinor, toEditString, type Minor } from '../lib/money'
 import { hueColor, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { useAuth } from '../auth/AuthContext'
 
@@ -25,20 +25,21 @@ interface Props {
   isFirst?: boolean
   isLast?: boolean
   /**
-   * For a fund line: the rolled-over available balance. When set, the last column
-   * shows this (the fund's running balance) instead of the single-month remaining.
+   * For a fund line: the rolled-over available balance. When set, the row renders
+   * the fund grid (Available column) instead of the everyday-spending layout.
    */
   availableMinor?: Minor | null
-  /** When set, a thin spent/planned progress bar (track = tint, fill = hue) is drawn under the row. */
+  /** The category hue — colours the spent/planned bar, the dot and the Bill tag. */
   hue?: CategoryHue
 }
 
 /**
- * A single budget line: an (optionally) editable name, an inline-editable
- * planned amount parsed straight to integer minor units (no floating point),
- * its (read-only, transaction-derived) actual + remaining, and an optional
- * delete. Commits on blur or Enter (Escape reverts), only when the value
- * actually changed and is valid.
+ * A single budget line. Expense lines render the redesign's "Everyday spending"
+ * layout — name (+ Bill tag), a spent/planned progress bar, and a right-aligned
+ * "€X left" over "€spent of €planned" with the planned amount inline-editable.
+ * Fund lines keep the grid with a rolled-over Available column. The planned
+ * amount is parsed straight to integer minor units; commits on blur/Enter
+ * (Escape reverts) only when it actually changed and is valid.
  */
 export function BudgetItemRow({
   item,
@@ -54,12 +55,15 @@ export function BudgetItemRow({
   isLast = false,
   availableMinor,
   billStatus,
-  hue,
+  hue = 'indigo',
 }: Props) {
   // Structural edits need Admin+ (canWrite); marking a bill paid is day-to-day (canEnterData).
   const { canWrite, canEnterData } = useAuth()
   const [name, setName] = useState(item.name)
   const [draft, setDraft] = useState(toEditString(item.plannedMinor))
+  // The planned field shows a formatted "1,100.00" at rest and the raw editable
+  // value while focused, so it reads like the design but stays easy to edit.
+  const [plannedFocused, setPlannedFocused] = useState(false)
   const [billEditing, setBillEditing] = useState(false)
   const [billDraft, setBillDraft] = useState(item.dueDay?.toString() ?? '')
 
@@ -105,88 +109,166 @@ export function BudgetItemRow({
 
   const remaining = itemRemaining(item)
   const overspent = remaining < 0
-  // A fund line shows its rolled-over available balance instead of the remaining.
   const showAvailable = availableMinor !== undefined && availableMinor !== null
   const fundOverdrawn = showAvailable && (availableMinor as Minor) < 0
+
+  const savingDot = saving && (
+    <span
+      className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-brand-500"
+      title="Saving…"
+      aria-label="Saving"
+    />
+  )
+
+  // The editable line name (or static text when read-only).
+  const nameEl =
+    canWrite && onRename ? (
+      <input
+        type="text"
+        value={name}
+        aria-label={`Rename ${item.name}`}
+        onChange={(e) => setName(e.target.value)}
+        onBlur={commitName}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+          if (e.key === 'Escape') setName(item.name)
+        }}
+        className="min-w-0 max-w-[14rem] rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-sm font-semibold text-slate-900 hover:border-slate-200 focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+      />
+    ) : (
+      <span className="px-1.5 text-sm font-semibold text-slate-900">{item.name}</span>
+    )
+
+  const reorder = canWrite && onMove && (
+    <div className="flex shrink-0 flex-col opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+      <button
+        type="button"
+        onClick={() => onMove(item.id, -1)}
+        disabled={isFirst}
+        aria-label={`Move ${item.name} up`}
+        title="Move line up"
+        className="flex h-3.5 w-4 items-center justify-center text-[10px] leading-none text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:hover:text-slate-400"
+      >
+        ▲
+      </button>
+      <button
+        type="button"
+        onClick={() => onMove(item.id, 1)}
+        disabled={isLast}
+        aria-label={`Move ${item.name} down`}
+        title="Move line down"
+        className="flex h-3.5 w-4 items-center justify-center text-[10px] leading-none text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:hover:text-slate-400"
+      >
+        ▼
+      </button>
+    </div>
+  )
+
+  const deleteBtn = canWrite && onDelete && (
+    <button
+      type="button"
+      onClick={() => onDelete(item.id)}
+      aria-label={`Delete ${item.name}`}
+      title="Delete line"
+      className="shrink-0 rounded-md px-1.5 py-1 text-slate-400 opacity-0 transition hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100 focus:opacity-100"
+    >
+      ✕
+    </button>
+  )
+
+  // ---- Fund line: the grid with a rolled-over Available column --------------
+  if (showAvailable) {
+    return (
+      <div className="grid grid-cols-12 items-center gap-2 px-4 py-2.5 hover:bg-slate-50">
+        <div className="col-span-5 flex items-center gap-1">
+          {nameEl}
+          {savingDot}
+        </div>
+        <div className="col-span-2 flex items-center justify-end">
+          <span className="mr-1 text-slate-500">{currencySymbol(currency)}</span>
+          {canWrite ? (
+            <input
+              type="text"
+              inputMode="decimal"
+              value={draft}
+              aria-label={`Planned amount for ${item.name}`}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitPlanned}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                if (e.key === 'Escape') setDraft(toEditString(item.plannedMinor))
+              }}
+              className="w-20 rounded-lg border border-transparent bg-transparent px-2 py-1 text-right text-sm font-medium tabular-nums text-slate-800 transition hover:bg-slate-100 focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+            />
+          ) : (
+            <span className="w-20 px-2 py-1 text-right text-sm font-medium tabular-nums text-slate-800">
+              {toEditString(item.plannedMinor)}
+            </span>
+          )}
+        </div>
+        <div className="col-span-2 text-right text-sm tabular-nums text-slate-500">
+          {formatMoney(item.actualMinor, currency)}
+        </div>
+        <div
+          className={`col-span-2 text-right text-sm font-semibold tabular-nums ${
+            fundOverdrawn ? 'text-rose-600 dark:text-rose-400' : 'text-brand-700 dark:text-brand-200'
+          }`}
+          title="Available in this fund (rolled over from previous months)"
+        >
+          {formatMoney(availableMinor as Minor, currency)}
+        </div>
+        <div className="col-span-1 flex justify-end">{deleteBtn}</div>
+      </div>
+    )
+  }
+
+  // ---- Expense line: the "Everyday spending" layout ------------------------
+  const barPct =
+    item.plannedMinor > 0 ? Math.min(100, Math.max(0, Math.round((item.actualMinor / item.plannedMinor) * 100))) : 0
   const overdue = billStatus === 'overdue'
   const dueSoon = billStatus === 'due-soon'
-  const billPillClass = overdue
-    ? 'bg-rose-100 text-rose-700 ring-1 ring-rose-300 hover:bg-rose-200 dark:bg-rose-500/15 dark:text-rose-200 dark:ring-rose-500/40 dark:hover:bg-rose-500/25'
-    : dueSoon
-      ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300 hover:bg-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:ring-amber-500/40 dark:hover:bg-amber-500/25'
-      : 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:hover:bg-amber-500/25'
   const billTitle = overdue
     ? `Overdue — was due on day ${item.dueDay}`
     : dueSoon
       ? `Due soon — day ${item.dueDay}`
       : `Bill due on day ${item.dueDay}`
-  // Non-interactive pill colours (no hover) for when the due day isn't editable.
-  const billPillStatic = overdue
-    ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-200'
+  // The Bill tag carries the category hue (overdue/due-soon override to rose/amber).
+  const billTagStyle = overdue
+    ? { color: 'var(--color-rose-600)', background: 'color-mix(in srgb, var(--color-rose-600) 14%, transparent)' }
     : dueSoon
-      ? 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200'
-      : 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200'
-
-  // The thin spent/planned bar (expense lines only — funds show Available instead).
-  const showBar = hue !== undefined && !showAvailable && item.plannedMinor > 0
-  const barPct = showBar
-    ? Math.min(100, Math.max(0, Math.round((item.actualMinor / item.plannedMinor) * 100)))
-    : 0
+      ? { color: 'var(--color-amber-700)', background: 'color-mix(in srgb, var(--color-amber-700) 14%, transparent)' }
+      : { color: hueColor(hue), background: hueTint(hue) }
+  const billTagClass = 'shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.05em]'
 
   return (
-    <div className="px-4 py-2 hover:bg-slate-50">
-    <div className="grid grid-cols-12 items-center gap-2">
-      <div className="col-span-4 flex items-center gap-1">
-        {canWrite && onMove && (
-          <div className="flex shrink-0 flex-col">
-            <button
-              type="button"
-              onClick={() => onMove(item.id, -1)}
-              disabled={isFirst}
-              aria-label={`Move ${item.name} up`}
-              title="Move line up"
-              className="flex h-5 w-5 items-center justify-center text-[11px] leading-none text-slate-500 hover:text-slate-700 disabled:opacity-30 disabled:hover:text-slate-500"
-            >
-              ▲
-            </button>
-            <button
-              type="button"
-              onClick={() => onMove(item.id, 1)}
-              disabled={isLast}
-              aria-label={`Move ${item.name} down`}
-              title="Move line down"
-              className="flex h-5 w-5 items-center justify-center text-[11px] leading-none text-slate-500 hover:text-slate-700 disabled:opacity-30 disabled:hover:text-slate-500"
-            >
-              ▼
-            </button>
-          </div>
-        )}
-        {canWrite && onRename ? (
-          <input
-            type="text"
-            value={name}
-            aria-label={`Rename ${item.name}`}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={commitName}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-              if (e.key === 'Escape') setName(item.name)
-            }}
-            className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 text-sm font-medium text-slate-700 hover:border-slate-200 focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-          />
-        ) : (
-          <span className="min-w-0 flex-1 truncate px-2 text-sm font-medium text-slate-700">{item.name}</span>
-        )}
-        {saving && (
-          <span
-            className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500"
-            title="Saving…"
-            aria-label="Saving"
-          />
-        )}
+    <div className="group flex items-center gap-4 py-2.5">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          {reorder}
+          {nameEl}
+          {savingDot}
 
-        {(item.dueDay !== null || (canWrite && onSetBill)) &&
-          (canWrite && onSetBill && billEditing ? (
+          {/* Bill tag / due-day editor / add-bill, preserving the bill controls. */}
+          {item.dueDay !== null && !billEditing ? (
+            canWrite && onSetBill ? (
+              <button
+                type="button"
+                onClick={() => setBillEditing(true)}
+                aria-label={`Edit due day for ${item.name}`}
+                title={billTitle}
+                className={billTagClass}
+                style={billTagStyle}
+              >
+                Bill
+              </button>
+            ) : (
+              <span title={billTitle} className={billTagClass} style={billTagStyle}>
+                Bill
+              </span>
+            )
+          ) : null}
+
+          {canWrite && onSetBill && billEditing && (
             <span className="flex shrink-0 items-center gap-0.5">
               <input
                 type="number"
@@ -208,7 +290,7 @@ export function BudgetItemRow({
                 type="button"
                 onClick={commitBill}
                 aria-label={`Save due day for ${item.name}`}
-                className="inline-flex h-6 w-6 items-center justify-center rounded text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400"
+                className="inline-flex h-6 w-6 items-center justify-center rounded text-brand-700 hover:bg-brand-50 dark:text-brand-200"
               >
                 ✓
               </button>
@@ -224,132 +306,89 @@ export function BudgetItemRow({
                 </button>
               )}
             </span>
-          ) : item.dueDay !== null ? (
-            <span className="flex shrink-0 items-center gap-1.5">
-              {canWrite && onSetBill ? (
-                <button
-                  type="button"
-                  onClick={() => setBillEditing(true)}
-                  aria-label={`Edit due day for ${item.name}`}
-                  title={billTitle}
-                  className={`inline-flex min-h-6 items-center rounded px-1.5 text-[11px] font-medium tabular-nums ${billPillClass}`}
-                >
-                  {overdue ? '⚠' : '📅'} {item.dueDay}
-                </button>
-              ) : (
-                <span
-                  title={billTitle}
-                  className={`inline-flex min-h-6 items-center rounded px-1.5 text-[11px] font-medium tabular-nums ${billPillStatic}`}
-                >
-                  {overdue ? '⚠' : '📅'} {item.dueDay}
-                </span>
-              )}
-              {canEnterData && onSetPaid && (
-                <button
-                  type="button"
-                  onClick={() => onSetPaid(item.id, !item.isPaid)}
-                  aria-pressed={item.isPaid}
-                  aria-label={`Mark ${item.name} paid`}
-                  title={item.isPaid ? 'Paid' : 'Mark as paid'}
-                  className={`inline-flex min-h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium ${
-                    item.isPaid
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
-                  }`}
-                >
-                  <span aria-hidden>{item.isPaid ? '☑' : '☐'}</span>
-                  Paid
-                </button>
-              )}
-            </span>
-          ) : canWrite && onSetBill ? (
+          )}
+
+          {item.dueDay === null && canWrite && onSetBill && !billEditing && (
             <button
               type="button"
               onClick={() => setBillEditing(true)}
               aria-label={`Add a due date to ${item.name}`}
               title="Track as a bill"
-              className="inline-flex min-h-6 shrink-0 items-center rounded px-1.5 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-600"
+              className="shrink-0 rounded px-1.5 text-xs text-slate-400 opacity-0 transition hover:bg-slate-100 hover:text-slate-600 group-hover:opacity-100 focus:opacity-100"
             >
               📅
             </button>
-          ) : null)}
-      </div>
+          )}
 
-      <div className="col-span-3 flex items-center justify-end">
-        <span className="mr-1 text-slate-500">{currencySymbol(currency)}</span>
-        {canWrite ? (
-          <input
-            type="text"
-            inputMode="decimal"
-            value={draft}
-            aria-label={`Planned amount for ${item.name}`}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commitPlanned}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-              if (e.key === 'Escape') setDraft(toEditString(item.plannedMinor))
-            }}
-            className="w-24 rounded-lg border border-transparent bg-transparent px-2 py-1 text-right text-sm font-medium tabular-nums text-slate-800 transition hover:bg-slate-100 focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-          />
-        ) : (
-          <span className="w-24 px-2 py-1 text-right text-sm font-medium tabular-nums text-slate-800">
-            {toEditString(item.plannedMinor)}
-          </span>
-        )}
-      </div>
-
-      <div className="col-span-2 flex items-center justify-end">
-        <span
-          className="text-sm tabular-nums text-slate-500"
-          title="Total of the transactions assigned to this line"
-        >
-          {formatMoney(item.actualMinor, currency)}
-        </span>
-      </div>
-
-      {showAvailable ? (
-        <div
-          className={`col-span-2 text-right text-sm font-semibold tabular-nums ${
-            fundOverdrawn ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'
-          }`}
-          title="Available in this fund (rolled over from previous months)"
-        >
-          {formatMoney(availableMinor as Minor, currency)}
+          {item.dueDay !== null && canEnterData && onSetPaid && (
+            <button
+              type="button"
+              onClick={() => onSetPaid(item.id, !item.isPaid)}
+              aria-pressed={item.isPaid}
+              aria-label={`Mark ${item.name} paid`}
+              title={item.isPaid ? 'Paid' : 'Mark as paid'}
+              className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 text-[11px] font-medium ${
+                item.isPaid
+                  ? 'text-brand-700 dark:text-brand-200'
+                  : 'text-slate-400 opacity-0 transition hover:bg-slate-100 hover:text-slate-700 group-hover:opacity-100 focus:opacity-100'
+              }`}
+            >
+              <span aria-hidden>{item.isPaid ? '☑' : '☐'}</span>
+              Paid
+            </button>
+          )}
         </div>
-      ) : (
+
+        {/* Spent / planned bar (track = hue tint, fill = hue). */}
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: hueTint(hue) }} aria-hidden>
+          <div className="h-full rounded-full" style={{ width: `${barPct}%`, background: hueColor(hue) }} />
+        </div>
+      </div>
+
+      <div className="min-w-[124px] text-right">
         <div
-          className={`col-span-2 text-right text-sm tabular-nums ${
-            overspent ? 'font-semibold text-rose-600 dark:text-rose-400' : 'font-medium text-slate-500'
+          className={`text-sm font-semibold tabular-nums ${
+            overspent ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900'
           }`}
         >
-          {formatMoney(remaining, currency)}
+          {formatMoney(remaining, currency)} <span className="text-[11.5px] font-medium text-slate-500">left</span>
         </div>
-      )}
-
-      <div className="col-span-1 flex justify-end">
-        {canWrite && onDelete && (
-          <button
-            type="button"
-            onClick={() => onDelete(item.id)}
-            aria-label={`Delete ${item.name}`}
-            title="Delete line"
-            className="rounded-md px-1.5 py-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
-          >
-            ✕
-          </button>
-        )}
+        <div className="mt-0.5 text-right text-[11.5px] tabular-nums text-slate-500">
+          {formatMoney(item.actualMinor, currency)} of {currencySymbol(currency)}{canWrite ? (
+            <input
+              type="text"
+              inputMode="decimal"
+              value={plannedFocused ? draft : formatPlain(item.plannedMinor)}
+              aria-label={`Planned amount for ${item.name}`}
+              onChange={(e) => {
+                setPlannedFocused(true)
+                setDraft(e.target.value)
+              }}
+              onFocus={() => {
+                setDraft(toEditString(item.plannedMinor))
+                setPlannedFocused(true)
+              }}
+              onBlur={() => {
+                setPlannedFocused(false)
+                commitPlanned()
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                if (e.key === 'Escape') {
+                  setDraft(toEditString(item.plannedMinor))
+                  ;(e.target as HTMLInputElement).blur()
+                }
+              }}
+              size={Math.max(4, (plannedFocused ? draft : formatPlain(item.plannedMinor)).length)}
+              className="rounded border border-transparent bg-transparent text-[11.5px] tabular-nums text-slate-500 transition hover:border-slate-300 focus:border-brand-500 focus:bg-surface focus:text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-500/30"
+            />
+          ) : (
+            formatPlain(item.plannedMinor)
+          )}
+        </div>
       </div>
-    </div>
 
-    {showBar && (
-      <div
-        className="mt-1.5 h-1.5 overflow-hidden rounded-full"
-        style={{ background: hueTint(hue as CategoryHue) }}
-        aria-hidden
-      >
-        <div className="h-full rounded-full" style={{ width: `${barPct}%`, background: hueColor(hue as CategoryHue) }} />
-      </div>
-    )}
+      {deleteBtn}
     </div>
   )
 }

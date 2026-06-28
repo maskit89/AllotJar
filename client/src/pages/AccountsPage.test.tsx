@@ -56,7 +56,7 @@ describe('AccountsPage', () => {
     // The credit card's type badge shows on its card (the add-form select also lists it).
     expect(screen.getAllByText('Credit card').length).toBeGreaterThan(0)
     // Net across the two accounts (250 + (−75) = 175) is the hero's Total balance.
-    expect(screen.getByText(/175,00/)).toBeInTheDocument()
+    expect(screen.getByText(/175.00/)).toBeInTheDocument()
   })
 
   it('adds an account', { timeout: 15000 }, async () => {

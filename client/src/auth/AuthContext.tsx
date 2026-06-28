@@ -67,7 +67,9 @@ const CURRENCY_KEY = 'zbb.currency'
 const FORMAT_KEY = 'zbb.numberFormat'
 
 const DEFAULT_CURRENCY = 'EUR'
-const DEFAULT_FORMAT = 'dot-comma'
+// The design's canonical money format (en-GB: €1,234.56). Users can still pick
+// dot-comma / space-comma in preferences; this is only the no-preference default.
+const DEFAULT_FORMAT = 'comma-dot'
 
 function storedRole(): number {
   const raw = localStorage.getItem(ROLE_KEY)
