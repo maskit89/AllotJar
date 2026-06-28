@@ -307,7 +307,7 @@ export function ReportsPage() {
                         <div className="mb-1 flex items-center justify-between text-xs">
                           <span className="font-medium text-slate-600">
                             {c.name}
-                            {c.kind === 'Fund' && (
+                            {c.kind === 'Savings' && (
                               <span className="ml-1 rounded bg-violet-100 px-1 py-0.5 text-[10px] font-semibold text-violet-700">
                                 Fund
                               </span>
@@ -360,7 +360,7 @@ export function ReportsPage() {
                         <div className="mb-1 flex items-center justify-between text-xs">
                           <span className="font-medium text-slate-600">
                             {c.name}
-                            {c.kind === 'Fund' && (
+                            {c.kind === 'Savings' && (
                               <span className="ml-1 rounded bg-violet-100 px-1 py-0.5 text-[10px] font-semibold text-violet-700">
                                 Fund
                               </span>

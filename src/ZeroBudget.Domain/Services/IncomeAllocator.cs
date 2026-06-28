@@ -37,7 +37,7 @@ public static class IncomeAllocator
             switch (rule.Type)
             {
                 case AllocationRuleType.FundEnvelopes:
-                case AllocationRuleType.FundSinkingFunds:
+                case AllocationRuleType.FundJars:
                 {
                     var shares = Split(members, rule.ResolvedTotal, rule.Split, totalNet);
                     foreach (var s in shares)

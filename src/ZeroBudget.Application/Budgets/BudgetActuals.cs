@@ -15,9 +15,9 @@ namespace ZeroBudget.Application.Budgets;
 /// transactions reads zero. Computing at read time keeps a single, deterministic
 /// source of truth that can never drift.
 ///
-/// It also derives each fund line's rolling <see cref="BudgetItem.FundAvailable"/>
+/// It also derives each fund line's rolling <see cref="BudgetItem.SavingsAvailable"/>
 /// balance — the sum of every contribution (planned) minus every spend (actual)
-/// for that <see cref="BudgetItem.FundId"/> across all months up to and including
+/// for that <see cref="BudgetItem.SavingsId"/> across all months up to and including
 /// the viewed one — so a sinking fund's balance carries over month to month.
 /// </summary>
 public static class BudgetActuals
@@ -81,33 +81,33 @@ public static class BudgetActuals
             item.ActualAmount = whole + fromSplits;
         }
 
-        await ApplyFundBalancesAsync(db, ownerId, month, cancellationToken);
+        await ApplySavingsBalancesAsync(db, ownerId, month, cancellationToken);
     }
 
     /// <summary>
-    /// Sets <see cref="BudgetItem.FundAvailable"/> on each of the viewed month's fund
+    /// Sets <see cref="BudgetItem.SavingsAvailable"/> on each of the viewed month's fund
     /// lines to the fund's running balance: every contribution (planned) minus every
-    /// spend (actual) for that <see cref="BudgetItem.FundId"/>, across all of the
+    /// spend (actual) for that <see cref="BudgetItem.SavingsId"/>, across all of the
     /// user's months up to and including this one. Unspent fund money therefore rolls
     /// over instead of resetting each month.
     /// </summary>
-    private static async Task ApplyFundBalancesAsync(
+    private static async Task ApplySavingsBalancesAsync(
         IApplicationDbContext db,
         string ownerId,
         BudgetMonth month,
         CancellationToken cancellationToken)
     {
-        var fundItems = month.Categories
-            .Where(c => c.Kind == CategoryKind.Fund)
+        var savingsItems = month.Categories
+            .Where(c => c.Kind == CategoryKind.Savings)
             .SelectMany(c => c.Items)
-            .Where(i => i.FundId != null)
+            .Where(i => i.SavingsId != null)
             .ToList();
-        if (fundItems.Count == 0)
+        if (savingsItems.Count == 0)
         {
             return;
         }
 
-        var fundIds = fundItems.Select(i => i.FundId!.Value).Distinct().ToList();
+        var savingsIds = savingsItems.Select(i => i.SavingsId!.Value).Distinct().ToList();
 
         // Every monthly instance of these funds up to and including the viewed month.
         var lines = await (
@@ -115,13 +115,13 @@ public static class BudgetActuals
             join c in db.BudgetCategories on i.BudgetCategoryId equals c.Id
             join m in db.BudgetMonths on c.BudgetMonthId equals m.Id
             where m.OwnerId == ownerId
-                  && c.Kind == CategoryKind.Fund
-                  && i.FundId != null
-                  && fundIds.Contains(i.FundId.Value)
+                  && c.Kind == CategoryKind.Savings
+                  && i.SavingsId != null
+                  && savingsIds.Contains(i.SavingsId.Value)
                   && (m.Year < month.Year || (m.Year == month.Year && m.Month <= month.Month))
             select new
             {
-                FundId = i.FundId!.Value,
+                SavingsId = i.SavingsId!.Value,
                 ItemId = i.Id,
                 i.PlannedAmount,
             })
@@ -153,20 +153,20 @@ public static class BudgetActuals
             .ToDictionary(g => g.Key, g => g.Sum(x => x.Total));
 
         // Net per fund: contributions (planned) minus spending (actual), all months ≤ now.
-        var balanceByFund = new Dictionary<Guid, decimal>();
+        var balanceBySavings = new Dictionary<Guid, decimal>();
         foreach (var line in lines)
         {
             var whole = txByItem.TryGetValue(line.ItemId, out var w) ? w : 0m;
             var split = splitByItem.TryGetValue(line.ItemId, out var sp) ? sp : 0m;
             var spent = whole + split;
 
-            balanceByFund.TryGetValue(line.FundId, out var running);
-            balanceByFund[line.FundId] = running + line.PlannedAmount - spent;
+            balanceBySavings.TryGetValue(line.SavingsId, out var running);
+            balanceBySavings[line.SavingsId] = running + line.PlannedAmount - spent;
         }
 
-        foreach (var item in fundItems)
+        foreach (var item in savingsItems)
         {
-            item.FundAvailable = balanceByFund.TryGetValue(item.FundId!.Value, out var bal) ? bal : 0m;
+            item.SavingsAvailable = balanceBySavings.TryGetValue(item.SavingsId!.Value, out var bal) ? bal : 0m;
         }
     }
 }

@@ -3,7 +3,7 @@ import { useFeatures } from '../features/FeatureContext'
 import { useHousehold } from '../features/HouseholdContext'
 import { EVENTS, track } from '../analytics'
 
-export type NavKey = 'budget' | 'transactions' | 'accounts' | 'funds' | 'people' | 'allocation' | 'reports' | 'help'
+export type NavKey = 'budget' | 'transactions' | 'accounts' | 'jars' | 'people' | 'allocation' | 'reports' | 'help'
 
 /**
  * The primary navigation. On the desktop sidebar (`variant="sidebar"`) it's a
@@ -32,7 +32,7 @@ export function AppNav({
     { key: 'budget', to: '/', label: 'Budget', show: true },
     { key: 'transactions', to: '/transactions', label: 'Transactions', show: true },
     { key: 'accounts', to: '/accounts', label: 'Accounts', show: features.accounts },
-    { key: 'funds', to: '/funds', label: 'Funds', show: features.sinkingFunds },
+    { key: 'jars', to: '/jars', label: 'Jars', show: features.jars },
     { key: 'reports', to: '/reports', label: 'Reports', show: features.reports },
     { key: 'people', to: '/people', label: 'People', show: features.householdAllocation },
     { key: 'allocation', to: '/allocation', label: 'Allocation', show: features.householdAllocation && isShared },

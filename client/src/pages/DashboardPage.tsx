@@ -7,7 +7,7 @@ import type {
   BudgetMonthDto,
   BudgetMonthSummaryDto,
   BudgetTemplateDto,
-  SinkingFundDto,
+  JarDto,
 } from '../types'
 import {
   billAlerts,
@@ -16,7 +16,7 @@ import {
   categoryPlanned,
   fromDto,
   findItem,
-  isFund,
+  isSavings,
   isIncome,
   monthPlanned,
   remainingToBudget,
@@ -40,7 +40,7 @@ import { Card } from '../components/ui'
 import { Jar } from '../components/Jar'
 import { hueForIndex } from '../lib/categoryColors'
 import { CategoryAccordion } from '../components/CategoryAccordion'
-import { FundGroup } from '../components/FundGroup'
+import { SavingsGroup } from '../components/SavingsGroup'
 import { IncomeGroup } from '../components/IncomeGroup'
 import { useMonth } from '../features/MonthContext'
 
@@ -61,12 +61,12 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   const [error, setError] = useState<string | null>(null)
   const [savingItemId, setSavingItemId] = useState<string | null>(null)
   const [newCategoryName, setNewCategoryName] = useState('')
-  const [newCategoryIsFund, setNewCategoryIsFund] = useState(false)
+  const [newCategoryIsSavings, setNewCategoryIsSavings] = useState(false)
   const [addingGroup, setAddingGroup] = useState(false)
   const [months, setMonths] = useState<BudgetMonthSummaryDto[]>([])
   const [templates, setTemplates] = useState<BudgetTemplateDto[]>([])
-  // The "Your jars" shelf — the household's sinking funds, with goal progress.
-  const [funds, setFunds] = useState<SinkingFundDto[]>([])
+  // The "Your jars" shelf — the household's jars, with goal progress.
+  const [jars, setJars] = useState<JarDto[]>([])
 
   // Load the viewed month whenever it changes; a 404 means "no budget yet".
   useEffect(() => {
@@ -114,8 +114,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // non-array (or a failed fetch) leaves the shelf empty rather than throwing.
   useEffect(() => {
     api
-      .get<SinkingFundDto[]>('/sinkingfunds')
-      .then(({ data }) => setFunds(Array.isArray(data) ? data : []))
+      .get<JarDto[]>('/jars')
+      .then(({ data }) => setJars(Array.isArray(data) ? data : []))
       .catch(() => {})
   }, [])
 
@@ -286,7 +286,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           displayOrder: Number.MAX_SAFE_INTEGER,
           plannedMinor: 0,
           actualMinor: 0,
-          fundAvailableMinor: null,
+          savingsAvailableMinor: null,
           dueDay: null,
           isPaid: false,
         }),
@@ -331,7 +331,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
 
   // Add an expense or fund category group. Temp group shown instantly, then reconciled.
   const addCategory = useCallback(
-    async (name: string, asFund: boolean) => {
+    async (name: string, asSavings: boolean) => {
       if (!month) return
 
       const snapshot = month
@@ -341,7 +341,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         withNewCategory(month, {
           id: tempId,
           name,
-          kind: asFund ? 'fund' : 'expense',
+          kind: asSavings ? 'savings' : 'expense',
           displayOrder: Number.MAX_SAFE_INTEGER,
           items: [],
         }),
@@ -351,12 +351,12 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         const { data } = await api.post<BudgetMonthDto>('/budget/categories', {
           budgetMonthId: month.id,
           name,
-          isFund: asFund,
+          isSavings: asSavings,
         })
         setMonth(fromDto(data)) // reconcile temp group -> real server group
       } catch {
         setMonth(snapshot)
-        setError(`Could not add that ${asFund ? 'fund group' : 'group'} — reverted.`)
+        setError(`Could not add that ${asSavings ? 'savings group' : 'group'} — reverted.`)
       }
     },
     [month],
@@ -457,7 +457,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   function submitNewCategory() {
     const trimmed = newCategoryName.trim()
     if (trimmed === '') return
-    addCategory(trimmed, newCategoryIsFund)
+    addCategory(trimmed, newCategoryIsSavings)
     setNewCategoryName('')
     setAddingGroup(false)
   }
@@ -544,7 +544,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           const remainingMinor = remainingToBudget(month)
           const balanced = remainingMinor === 0
           const over = remainingMinor < 0
-          const totalSavedMinor = funds.reduce((s, f) => s + fromAmount(f.currentBalance), 0)
+          const totalSavedMinor = jars.reduce((s, f) => s + fromAmount(f.currentBalance), 0)
           return (
           <>
             <Hero
@@ -599,8 +599,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
               )
             })()}
 
-            {/* "Your jars" shelf — the sinking funds drawn as jars, the signature metaphor. */}
-            {funds.length > 0 && (
+            {/* "Your jars" shelf — the jars drawn as jars, the signature metaphor. */}
+            {jars.length > 0 && (
               <Card className="p-6">
                 <div className="flex items-baseline justify-between gap-3">
                   <h2 className="text-base font-bold tracking-[-0.01em] text-slate-900">Your jars</h2>
@@ -609,7 +609,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                   </span>
                 </div>
                 <div className="mt-[22px] grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(116px,1fr))]">
-                  {funds.map((f, i) => {
+                  {jars.map((f, i) => {
                     const avail = fromAmount(f.currentBalance)
                     const target = fromAmount(f.targetAmount)
                     const pct = target > 0 ? (avail / target) * 100 : 0
@@ -697,9 +697,9 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                 )
               })()}
 
-              {/* Sinking funds render below expenses; their balances roll over. */}
-              {month.categories.filter(isFund).map((category) => (
-                <FundGroup
+              {/* Jars render below expenses; their balances roll over. */}
+              {month.categories.filter(isSavings).map((category) => (
+                <SavingsGroup
                   key={category.id}
                   category={category}
                   currency={month.currency}
@@ -722,8 +722,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                       autoFocus
                       value={newCategoryName}
                       placeholder={
-                        newCategoryIsFund
-                          ? 'Add a fund group (e.g. Sinking Funds, Savings)…'
+                        newCategoryIsSavings
+                          ? 'Add a savings group (e.g. Travel, Big purchases)…'
                           : 'Add a category group (e.g. Subscriptions, Insurance)…'
                       }
                       aria-label="New category group name"
@@ -738,13 +738,13 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                       className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
                     />
                     <select
-                      value={newCategoryIsFund ? 'fund' : 'expense'}
+                      value={newCategoryIsSavings ? 'savings' : 'expense'}
                       aria-label="New group kind"
-                      onChange={(e) => setNewCategoryIsFund(e.target.value === 'fund')}
+                      onChange={(e) => setNewCategoryIsSavings(e.target.value === 'savings')}
                       className="rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-600 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
                     >
                       <option value="expense">Expense</option>
-                      <option value="fund">Fund</option>
+                      <option value="savings">Savings</option>
                     </select>
                     <button
                       type="button"

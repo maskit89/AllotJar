@@ -55,7 +55,7 @@ export function WelcomeDialog() {
         <ul className="mt-4 space-y-1.5 text-sm text-slate-600">
           <Bullet>Plan a month and assign your income</Bullet>
           <Bullet>Track real spending against each line</Bullet>
-          <Bullet>Save toward goals with funds</Bullet>
+          <Bullet>Save toward goals with jars</Bullet>
         </ul>
 
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

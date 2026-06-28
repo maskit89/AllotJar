@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using ZeroBudget.Application.Accounts.Dtos;
 using ZeroBudget.Application.Common.Exceptions;
 using ZeroBudget.Application.Common.Interfaces;
-using ZeroBudget.Application.SinkingFunds;
+using ZeroBudget.Application.Jars;
 
 namespace ZeroBudget.Application.Accounts.Queries.GetAccountReconciliation;
 
@@ -39,13 +39,13 @@ public class GetAccountReconciliationQueryHandler
 
         await AccountBalances.ApplyAsync(_db, userId, accounts, cancellationToken);
 
-        var funds = await _db.SinkingFunds
+        var funds = await _db.Jars
             .AsNoTracking()
             .Where(f => f.OwnerId == userId && !f.IsArchived && f.FundingAccountId != null)
             .Select(f => new { f.Id, f.OpeningBalance, FundingAccountId = f.FundingAccountId!.Value })
             .ToListAsync(cancellationToken);
 
-        var tracked = await FundBalances.ComputeAsync(_db, userId, cancellationToken);
+        var tracked = await JarBalances.ComputeAsync(_db, userId, cancellationToken);
 
         return accounts
             .Select(a =>
@@ -57,8 +57,8 @@ public class GetAccountReconciliationQueryHandler
                     AccountId = a.Id,
                     AccountName = a.Name,
                     CurrentBalance = a.CurrentBalance,
-                    BackedFundsTotal = backedTotal,
-                    BackedFundCount = backed.Count,
+                    BackedJarsTotal = backedTotal,
+                    BackedJarCount = backed.Count,
                     Float = a.CurrentBalance - backedTotal,
                 };
             })

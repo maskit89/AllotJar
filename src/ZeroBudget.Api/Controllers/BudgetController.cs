@@ -119,7 +119,7 @@ public class BudgetController : ControllerBase
         AddBudgetCategoryRequest request,
         CancellationToken ct)
     {
-        var kind = request.IsFund ? CategoryKind.Fund : CategoryKind.Expense;
+        var kind = request.IsSavings ? CategoryKind.Savings : CategoryKind.Expense;
         var result = await _mediator.Send(
             new AddBudgetCategoryCommand(request.BudgetMonthId, request.Name, kind), ct);
         return Ok(result);
@@ -261,8 +261,8 @@ public record SetBudgetItemBillRequest(int? DueDay);
 /// <summary>Request body for marking a bill paid/unpaid (the id comes from the route).</summary>
 public record SetBudgetItemPaidRequest(bool IsPaid);
 
-/// <summary>Request body for creating a category group (a fund group when IsFund is true).</summary>
-public record AddBudgetCategoryRequest(Guid BudgetMonthId, string Name, bool IsFund = false);
+/// <summary>Request body for creating a category group (a fund group when IsSavings is true).</summary>
+public record AddBudgetCategoryRequest(Guid BudgetMonthId, string Name, bool IsSavings = false);
 
 /// <summary>Request body for renaming a category group (the id comes from the route).</summary>
 public record RenameBudgetCategoryRequest(string Name);

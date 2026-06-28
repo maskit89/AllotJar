@@ -8,10 +8,10 @@ export interface BudgetItemDto {
   /** Spent (or, for income, received) — always derived from the line's assigned transactions. */
   actualAmount: number
   remaining: number
-  /** Sinking-fund identity for a fund line; null for ordinary lines. */
-  fundId: string | null
-  /** For a fund line, the running available balance (rolled over from prior months); null otherwise. */
-  fundAvailable: number | null
+  /** Savings identity for a savings line; null for ordinary lines. */
+  savingsId: string | null
+  /** For a savings line, the running available balance (rolled over from prior months); null otherwise. */
+  savingsAvailable: number | null
   /** Day of the month (1–31) this bill is due; null when the line isn't a bill. */
   dueDay: number | null
   /** Whether this month's instance of the bill has been paid. */
@@ -21,7 +21,7 @@ export interface BudgetItemDto {
 export interface BudgetCategoryDto {
   id: string
   name: string
-  kind: 'Income' | 'Expense' | 'Fund'
+  kind: 'Income' | 'Expense' | 'Savings'
   displayOrder: number
   totalPlanned: number
   totalActual: number
@@ -177,9 +177,9 @@ export interface AccountReconciliationDto {
   accountId: string
   accountName: string
   currentBalance: number
-  backedFundsTotal: number
-  backedFundCount: number
-  /** CurrentBalance − BackedFundsTotal: unallocated float (or shortfall when negative). */
+  backedJarsTotal: number
+  backedJarCount: number
+  /** CurrentBalance − BackedJarsTotal: unallocated float (or shortfall when negative). */
   float: number
 }
 
@@ -215,7 +215,7 @@ export interface AnnualMonthDto {
 
 export interface AnnualCategoryDto {
   name: string
-  /** "Expense" or "Fund". */
+  /** "Expense" or "Savings". */
   kind: string
   /** Total actual spending for this category across the year. */
   total: number
@@ -237,7 +237,7 @@ export interface AnnualSummaryDto {
 
 export interface BudgetTemplateGroupDto {
   name: string
-  kind: 'Income' | 'Expense' | 'Fund'
+  kind: 'Income' | 'Expense' | 'Savings'
   lines: string[]
 }
 
@@ -248,10 +248,10 @@ export interface BudgetTemplateDto {
   groups: BudgetTemplateGroupDto[]
 }
 
-// Matches Domain.Enums.FundKind (serialized as a number).
-export const FundKind = { Annual: 0, Commitment: 1, Goal: 2 } as const
+// Matches Domain.Enums.JarKind (serialized as a number).
+export const JarKind = { Annual: 0, Commitment: 1, Goal: 2 } as const
 
-export const FUND_KIND_LABELS: Record<number, string> = {
+export const JAR_KIND_LABELS: Record<number, string> = {
   0: 'Annual',
   1: 'Commitment',
   2: 'Goal',
@@ -267,10 +267,10 @@ export const ACCRUAL_METHOD_LABELS: Record<number, string> = {
   3: 'Daily rate',
 }
 
-export interface SinkingFundDto {
+export interface JarDto {
   id: string
   name: string
-  /** Numeric FundKind. */
+  /** Numeric JarKind. */
   kind: number
   targetAmount: number
   /** ISO date (yyyy-MM-dd) or null. */
@@ -315,14 +315,14 @@ export interface MemberSpendingDto {
 // Matches Domain.Enums.AllocationRuleType (serialized as a number).
 export const AllocationRuleType = {
   FundEnvelopes: 0,
-  FundSinkingFunds: 1,
+  FundJars: 1,
   FixedPerMember: 2,
   SplitRemainderToMembers: 3,
 } as const
 
 export const ALLOCATION_RULE_LABELS: Record<number, string> = {
   0: 'Living costs',
-  1: 'Sinking funds',
+  1: 'Jars',
   2: 'Pocket money',
   3: 'To savings',
 }
@@ -378,7 +378,7 @@ export interface MemberAllocationDto {
 export interface AllocationResultDto {
   pool: number
   envelopesTotal: number
-  fundsTotal: number
+  jarsTotal: number
   steps: AllocationStepDto[]
   members: MemberAllocationDto[]
   transfersCreated: number
@@ -390,7 +390,7 @@ export interface FeatureFlags {
   multiCurrency: boolean
   camtImport: boolean
   reports: boolean
-  sinkingFunds: boolean
+  jars: boolean
   householdAllocation: boolean
   /** GA4 usage analytics. Off unless explicitly enabled server-side AND a measurement ID is built in. */
   analytics: boolean

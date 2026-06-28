@@ -5,7 +5,7 @@ import {
   billStatus,
   fromDto,
   findItem,
-  isFund,
+  isSavings,
   itemRemaining,
   categoryPlanned,
   monthPlanned,
@@ -179,23 +179,23 @@ describe('budgetModel selectors', () => {
     const d = dto()
     d.categories.push({
       id: 'f1',
-      name: 'Funds',
-      kind: 'Fund',
+      name: 'Jars',
+      kind: 'Savings',
       displayOrder: 0,
       totalPlanned: 100,
       totalActual: 0,
       items: [
         {
           id: 'car', name: 'Car', displayOrder: 0, plannedAmount: 100, actualAmount: 30,
-          remaining: 70, fundId: 'fund-car', fundAvailable: 170,
+          remaining: 70, savingsId: 'fund-car', savingsAvailable: 170,
         },
       ],
     })
     const vm = fromDto(d)
 
-    const fund = vm.categories.find(isFund)!
-    expect(fund.kind).toBe('fund')
-    expect(fund.items[0].fundAvailableMinor).toBe(fromAmount(170)) // rolled-over balance
+    const fund = vm.categories.find(isSavings)!
+    expect(fund.kind).toBe('savings')
+    expect(fund.items[0].savingsAvailableMinor).toBe(fromAmount(170)) // rolled-over balance
     // The 100 contribution joins the 1300 of expenses in the planned pool.
     expect(monthPlanned(vm)).toBe(fromAmount(1400))
     expect(remainingToBudget(vm)).toBe(fromAmount(1600))
@@ -233,7 +233,7 @@ describe('budgetModel selectors', () => {
 describe('bill reminders', () => {
   const item = (dueDay: number | null, isPaid = false): ItemVM => ({
     id: 'x', name: 'Rent', displayOrder: 0, plannedMinor: 0, actualMinor: 0,
-    fundAvailableMinor: null, dueDay, isPaid,
+    savingsAvailableMinor: null, dueDay, isPaid,
   })
   // Mid-June 2026 — the month under test is 2026-06.
   const today = new Date(2026, 5, 15)

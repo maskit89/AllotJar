@@ -5,7 +5,7 @@
 import type { BudgetMonthDto } from './types'
 import { fromAmount, sumMinor, type Minor } from './lib/money'
 
-export type CategoryKind = 'income' | 'expense' | 'fund'
+export type CategoryKind = 'income' | 'expense' | 'savings'
 
 export interface ItemVM {
   id: string
@@ -15,7 +15,7 @@ export interface ItemVM {
   /** Spent (or, for income, received) — always derived from the line's assigned transactions. */
   actualMinor: Minor
   /** For a fund line, the rolled-over available balance (minor units); null otherwise. */
-  fundAvailableMinor: Minor | null
+  savingsAvailableMinor: Minor | null
   /** Day of the month (1–31) this bill is due; null when the line isn't a bill. */
   dueDay: number | null
   /** Whether this month's bill has been paid. */
@@ -50,7 +50,7 @@ export function fromDto(dto: BudgetMonthDto): MonthVM {
     categories: dto.categories.map((c) => ({
       id: c.id,
       name: c.name,
-      kind: c.kind === 'Income' ? 'income' : c.kind === 'Fund' ? 'fund' : 'expense',
+      kind: c.kind === 'Income' ? 'income' : c.kind === 'Savings' ? 'savings' : 'expense',
       displayOrder: c.displayOrder,
       items: c.items.map((i) => ({
         id: i.id,
@@ -58,7 +58,7 @@ export function fromDto(dto: BudgetMonthDto): MonthVM {
         displayOrder: i.displayOrder,
         plannedMinor: fromAmount(i.plannedAmount),
         actualMinor: fromAmount(i.actualAmount),
-        fundAvailableMinor: i.fundAvailable == null ? null : fromAmount(i.fundAvailable),
+        savingsAvailableMinor: i.savingsAvailable == null ? null : fromAmount(i.savingsAvailable),
         dueDay: i.dueDay ?? null,
         isPaid: i.isPaid ?? false,
       })),
@@ -73,7 +73,7 @@ export function fromDto(dto: BudgetMonthDto): MonthVM {
 
 export const isIncome = (c: CategoryVM): boolean => c.kind === 'income'
 
-export const isFund = (c: CategoryVM): boolean => c.kind === 'fund'
+export const isSavings = (c: CategoryVM): boolean => c.kind === 'savings'
 
 export const itemRemaining = (i: ItemVM): Minor => i.plannedMinor - i.actualMinor
 
@@ -277,7 +277,7 @@ export function withReorderedItems(m: MonthVM, categoryId: string, orderedItemId
 export function withReorderedExpenseCategories(m: MonthVM, orderedExpenseIds: string[]): MonthVM {
   const byId = new Map(m.categories.map((c) => [c.id, c]))
   const income = m.categories.filter(isIncome)
-  const funds = m.categories.filter(isFund)
+  const funds = m.categories.filter(isSavings)
   const expense = orderedExpenseIds
     .map((id) => byId.get(id))
     .filter((c): c is CategoryVM => c !== undefined)

@@ -27,7 +27,7 @@ public class AccountReconciliationTests
             .Options);
 
     [Fact]
-    public async Task Reconciles_AccountBalance_AgainstBackedFundBalances()
+    public async Task Reconciles_AccountBalance_AgainstBackedJarBalances()
     {
         await using var db = NewContext();
 
@@ -41,7 +41,7 @@ public class AccountReconciliationTests
 
         // The account holds 1000. A fund it backs has opening 200 + a 100 contribution = 300.
         var fundId = Guid.NewGuid();
-        db.SinkingFunds.Add(new SinkingFund
+        db.Jars.Add(new Jar
         {
             Id = fundId, OwnerId = "user-1", Name = "Holiday", TargetAmount = 1000m,
             Accrual = AccrualMethod.TargetByDate, OpeningBalance = 200m, FundingAccountId = account.Id,
@@ -51,7 +51,7 @@ public class AccountReconciliationTests
             OwnerId = "user-1", Year = 2026, Month = 6, BaseCurrency = CurrencyCode.Eur,
             Categories = new List<BudgetCategory>
             {
-                new() { Name = "Funds", Kind = CategoryKind.Fund, Items = new List<BudgetItem> { new() { Name = "Holiday", FundId = fundId, PlannedAmount = 100m } } },
+                new() { Name = "Funds", Kind = CategoryKind.Savings, Items = new List<BudgetItem> { new() { Name = "Holiday", SavingsId = fundId, PlannedAmount = 100m } } },
             },
         });
         db.SaveChanges();
@@ -61,8 +61,8 @@ public class AccountReconciliationTests
 
         var recon = result.Single();
         recon.CurrentBalance.Should().Be(1000m);
-        recon.BackedFundsTotal.Should().Be(300m); // opening 200 + contribution 100
-        recon.BackedFundCount.Should().Be(1);
+        recon.BackedJarsTotal.Should().Be(300m); // opening 200 + contribution 100
+        recon.BackedJarCount.Should().Be(1);
         recon.Float.Should().Be(700m); // 1000 − 300
     }
 
@@ -77,7 +77,7 @@ public class AccountReconciliationTests
             .Handle(new GetAccountReconciliationQuery(), CancellationToken.None);
 
         var recon = result.Single();
-        recon.BackedFundCount.Should().Be(0);
+        recon.BackedJarCount.Should().Be(0);
         recon.Float.Should().Be(50m);
     }
 }

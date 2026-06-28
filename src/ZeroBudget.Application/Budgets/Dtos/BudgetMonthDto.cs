@@ -25,7 +25,7 @@ public class BudgetCategoryDto
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>"Income", "Expense" or "Fund" — drives where/how the group renders.</summary>
+    /// <summary>"Income", "Expense" or "Savings" — drives where/how the group renders.</summary>
     public string Kind { get; set; } = "Expense";
 
     public int DisplayOrder { get; set; }
@@ -44,13 +44,13 @@ public class BudgetItemDto
     public decimal Remaining { get; set; }
 
     /// <summary>The sinking-fund identity for a fund line; null for ordinary lines.</summary>
-    public Guid? FundId { get; set; }
+    public Guid? SavingsId { get; set; }
 
     /// <summary>
     /// For a fund line, the running available balance (rolled over from prior months);
     /// null for non-fund lines.
     /// </summary>
-    public decimal? FundAvailable { get; set; }
+    public decimal? SavingsAvailable { get; set; }
 
     /// <summary>The day of the month (1–31) this bill is due; null when it isn't a bill.</summary>
     public int? DueDay { get; set; }

@@ -51,7 +51,7 @@ public class BudgetTemplatesTests
 
         dto.Categories.Should().Contain(c => c.Kind == "Income");
         dto.Categories.Should().Contain(c => c.Name == "Housing" && c.Kind == "Expense");
-        dto.Categories.Should().Contain(c => c.Kind == "Fund"); // Savings (Emergency Fund)
+        dto.Categories.Should().Contain(c => c.Kind == "Savings"); // Savings (Emergency Fund)
         dto.Categories.SelectMany(c => c.Items).Should().OnlyContain(i => i.PlannedAmount == 0m);
         dto.RemainingToBudget.Should().Be(0m); // nothing planned yet
     }
@@ -68,11 +68,11 @@ public class BudgetTemplatesTests
 
         var fundLines = await db.BudgetItems
             .Include(i => i.BudgetCategory)
-            .Where(i => i.BudgetCategory.Kind == CategoryKind.Fund)
+            .Where(i => i.BudgetCategory.Kind == CategoryKind.Savings)
             .ToListAsync();
 
         fundLines.Should().NotBeEmpty();
-        fundLines.Should().OnlyContain(i => i.FundId != null);
+        fundLines.Should().OnlyContain(i => i.SavingsId != null);
     }
 
     [Fact]

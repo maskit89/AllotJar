@@ -8,7 +8,7 @@ public class AllocationResultDto
 {
     public decimal Pool { get; set; }
     public decimal EnvelopesTotal { get; set; }
-    public decimal FundsTotal { get; set; }
+    public decimal JarsTotal { get; set; }
     public IReadOnlyList<AllocationStepDto> Steps { get; set; } = Array.Empty<AllocationStepDto>();
     public IReadOnlyList<MemberAllocationDto> Members { get; set; } = Array.Empty<MemberAllocationDto>();
 
@@ -45,11 +45,11 @@ public class MemberAllocationDto
 
 public static class AllocationResultMapping
 {
-    public static AllocationResultDto ToDto(this AllocationResult r, decimal envelopesTotal, decimal fundsTotal, int transfersCreated = 0) => new()
+    public static AllocationResultDto ToDto(this AllocationResult r, decimal envelopesTotal, decimal jarsTotal, int transfersCreated = 0) => new()
     {
         Pool = r.Pool,
         EnvelopesTotal = envelopesTotal,
-        FundsTotal = fundsTotal,
+        JarsTotal = jarsTotal,
         TransfersCreated = transfersCreated,
         Steps = r.Steps
             .Select(s => new AllocationStepDto

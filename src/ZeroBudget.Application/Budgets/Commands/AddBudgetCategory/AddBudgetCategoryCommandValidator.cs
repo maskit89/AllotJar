@@ -16,7 +16,7 @@ public class AddBudgetCategoryCommandValidator : AbstractValidator<AddBudgetCate
 
         // Only expense and fund groups are user-created; the income group is seeded.
         RuleFor(x => x.Kind)
-            .Must(k => k == CategoryKind.Expense || k == CategoryKind.Fund)
+            .Must(k => k == CategoryKind.Expense || k == CategoryKind.Savings)
             .WithMessage("A group can only be an expense or a fund group.");
     }
 }

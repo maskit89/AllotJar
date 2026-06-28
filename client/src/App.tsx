@@ -11,7 +11,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { TransactionsPage } from './pages/TransactionsPage'
 import { AccountsPage } from './pages/AccountsPage'
 import { AccountDetailPage } from './pages/AccountDetailPage'
-import { FundsPage } from './pages/FundsPage'
+import { JarsPage } from './pages/JarsPage'
 import { AllocationPage } from './pages/AllocationPage'
 import { ReportsPage } from './pages/ReportsPage'
 import { ImportPage } from './pages/ImportPage'
@@ -87,12 +87,12 @@ export default function App() {
             }
           />
         )}
-        {features.sinkingFunds && (
+        {features.jars && (
           <Route
-            path="/funds"
+            path="/jars"
             element={
               <RequireAuth>
-                <FundsPage />
+                <JarsPage />
               </RequireAuth>
             }
           />

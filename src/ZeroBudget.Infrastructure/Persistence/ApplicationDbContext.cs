@@ -26,7 +26,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<TransactionSplit> TransactionSplits => Set<TransactionSplit>();
     public DbSet<Account> Accounts => Set<Account>();
-    public DbSet<SinkingFund> SinkingFunds => Set<SinkingFund>();
+    public DbSet<Jar> Jars => Set<Jar>();
     public DbSet<HouseholdMember> HouseholdMembers => Set<HouseholdMember>();
     public DbSet<HouseholdMembership> HouseholdMemberships => Set<HouseholdMembership>();
     public DbSet<AllocationProfile> AllocationProfiles => Set<AllocationProfile>();

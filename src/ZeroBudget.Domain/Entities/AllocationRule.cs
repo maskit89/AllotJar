@@ -5,7 +5,7 @@ namespace ZeroBudget.Domain.Entities;
 
 /// <summary>
 /// One step in an <see cref="AllocationProfile"/>'s waterfall. The amount for
-/// <see cref="AllocationRuleType.FundEnvelopes"/> / <see cref="AllocationRuleType.FundSinkingFunds"/>
+/// <see cref="AllocationRuleType.FundEnvelopes"/> / <see cref="AllocationRuleType.FundJars"/>
 /// is derived live from the month's budget (not stored); <see cref="FixedAmountPerMember"/>
 /// applies to <see cref="AllocationRuleType.FixedPerMember"/>.
 /// </summary>

@@ -7,7 +7,7 @@ import type { Page, Route } from '@playwright/test'
  */
 
 // Every feature flag on, so role/flag-gated UI renders for the scans.
-export const FLAGS = { accounts: true, multiCurrency: true, camtImport: true, reports: true, sinkingFunds: true, householdAllocation: true, householdAccess: true }
+export const FLAGS = { accounts: true, multiCurrency: true, camtImport: true, reports: true, jars: true, householdAllocation: true, householdAccess: true }
 
 // The current login (Owner) for /auth/me, so role-gated UI resolves to full access.
 function meResponse() {
@@ -37,7 +37,7 @@ function memberSpending() {
 
 // A couple of sinking funds so the /funds page renders cards, badges and progress
 // bars (incl. an overspent one).
-function sinkingFunds() {
+function jars() {
   return [
     { id: 'f1', name: 'Home insurance', kind: 1, targetAmount: 300, targetDate: '2026-12-01', coverStart: null, coverEnd: null, accrual: 0, recurAnnually: true, openingBalance: 0, openingAsOf: null, fundingAccountId: null, isArchived: false, currentBalance: 120, requiredMonthlyContribution: 25, projectedFullyFundedDate: '2026-11-01', status: 'OnTrack' },
     { id: 'f2', name: 'Holiday', kind: 0, targetAmount: 1000, targetDate: null, coverStart: null, coverEnd: null, accrual: 1, recurAnnually: false, openingBalance: 0, openingAsOf: null, fundingAccountId: null, isArchived: false, currentBalance: -40, requiredMonthlyContribution: 0, projectedFullyFundedDate: null, status: 'Overspent' },
@@ -61,15 +61,15 @@ function budgetMonth(year: number, month: number) {
     categories: [
       {
         id: 'inc', name: 'Income', kind: 'Income', displayOrder: 0, totalPlanned: 3000, totalActual: 3000,
-        items: [{ id: 'i-pay', name: 'Take-home Pay', displayOrder: 0, plannedAmount: 3000, actualAmount: 3000, remaining: 0, fundId: null, fundAvailable: null, dueDay: null, isPaid: false }],
+        items: [{ id: 'i-pay', name: 'Take-home Pay', displayOrder: 0, plannedAmount: 3000, actualAmount: 3000, remaining: 0, savingsId: null, savingsAvailable: null, dueDay: null, isPaid: false }],
       },
       {
         id: 'c1', name: 'Housing', kind: 'Expense', displayOrder: 0, totalPlanned: 1100, totalActual: 200,
-        items: [{ id: 'i-rent', name: 'Rent', displayOrder: 0, plannedAmount: 1100, actualAmount: 200, remaining: 900, fundId: null, fundAvailable: null, dueDay: 1, isPaid: false }],
+        items: [{ id: 'i-rent', name: 'Rent', displayOrder: 0, plannedAmount: 1100, actualAmount: 200, remaining: 900, savingsId: null, savingsAvailable: null, dueDay: 1, isPaid: false }],
       },
       {
-        id: 'f1', name: 'Sinking Funds', kind: 'Fund', displayOrder: 1, totalPlanned: 200, totalActual: 0,
-        items: [{ id: 'i-car', name: 'Car', displayOrder: 0, plannedAmount: 200, actualAmount: 0, remaining: 200, fundId: 'fund-car', fundAvailable: 600, dueDay: null, isPaid: false }],
+        id: 'f1', name: 'Sinking Funds', kind: 'Savings', displayOrder: 1, totalPlanned: 200, totalActual: 0,
+        items: [{ id: 'i-car', name: 'Car', displayOrder: 0, plannedAmount: 200, actualAmount: 0, remaining: 200, savingsId: 'fund-car', savingsAvailable: 600, dueDay: null, isPaid: false }],
       },
     ],
   }
@@ -89,7 +89,7 @@ function allocationProfile() {
 
 function allocationPreview() {
   return {
-    pool: 8411.61, envelopesTotal: 3641, fundsTotal: 2164, transfersCreated: 0,
+    pool: 8411.61, envelopesTotal: 3641, jarsTotal: 2164, transfersCreated: 0,
     steps: [
       { type: 0, total: 3641, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1820.5 }, { memberId: 'm2', name: 'Liza', amount: 1820.5 }] },
       { type: 3, total: 2106.61, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1259.14 }, { memberId: 'm2', name: 'Liza', amount: 847.47 }] },
@@ -110,7 +110,7 @@ function accountsList() {
 
 function accountReconciliation() {
   return [
-    { accountId: 'acc1', accountName: 'Savings Joint', currentBalance: 5000, backedFundsTotal: 3000, backedFundCount: 2, float: 2000 },
+    { accountId: 'acc1', accountName: 'Savings Joint', currentBalance: 5000, backedJarsTotal: 3000, backedJarCount: 2, float: 2000 },
   ]
 }
 
@@ -178,7 +178,7 @@ function annualSummary(year: number) {
     categories: [
       { name: 'Housing', kind: 'Expense', averagePerMonth: 1100, total: 3300 },
       { name: 'Groceries', kind: 'Expense', averagePerMonth: 400, total: 1200 },
-      { name: 'Car', kind: 'Fund', averagePerMonth: 200, total: 600 },
+      { name: 'Car', kind: 'Savings', averagePerMonth: 200, total: 600 },
     ],
   }
 }
@@ -205,7 +205,7 @@ export async function mockApi(route: Route) {
   }
   if (path === '/accounts') return json(accountsList())
   if (path === '/accounts/reconciliation') return json(accountReconciliation())
-  if (path === '/sinkingfunds') return json(sinkingFunds())
+  if (path === '/jars') return json(jars())
   if (path === '/members') return json(householdMembers())
   if (path === '/members/spending') return json(memberSpending())
   if (path === '/allocation/profile') return json(allocationProfile())
@@ -256,4 +256,4 @@ export async function authedSetup(page: Page, theme: 'light' | 'dark') {
 }
 
 /** The authenticated routes that render an AppShell page, for full-app scans. */
-export const AUTHED_ROUTES = ['/', '/transactions', '/accounts', '/funds', '/people', '/allocation', '/reports', '/import', '/help', '/account']
+export const AUTHED_ROUTES = ['/', '/transactions', '/accounts', '/jars', '/people', '/allocation', '/reports', '/import', '/help', '/account']

@@ -6,7 +6,7 @@ namespace ZeroBudget.Application.Budgets.Commands.AddBudgetCategory;
 
 /// <summary>
 /// Creates a new high-level group in a month — an expense group (e.g. "Housing",
-/// "Subscriptions") or a <see cref="CategoryKind.Fund"/> group of sinking funds.
+/// "Subscriptions") or a <see cref="CategoryKind.Savings"/> group of sinking funds.
 /// Income groups are not created this way — a budget has the single Income group
 /// seeded with it. Returns the recomputed month.
 /// </summary>

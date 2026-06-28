@@ -32,7 +32,7 @@ public class AnnualCategoryDto
 {
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>"Expense" or "Fund".</summary>
+    /// <summary>"Expense" or "Savings".</summary>
     public string Kind { get; set; } = string.Empty;
 
     /// <summary>Total actual spending for this category across the year.</summary>
