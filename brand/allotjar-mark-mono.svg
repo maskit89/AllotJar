@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 84" width="256" height="336" fill="none" style="color:#15201B" role="img" aria-label="AllotJar">
+  <path d="M17 19L17 25C17 30 9 31 9 39L9 66A13 13 0 0 0 22 79L42 79A13 13 0 0 0 55 66L55 39C55 31 47 30 47 25L47 19Z" fill="currentColor"></path>
+  <rect x="13" y="14.5" width="38" height="5" rx="2.5" fill="currentColor"></rect>
+  <rect x="15" y="3.5" width="34" height="12.5" rx="3.5" fill="currentColor"></rect>
+</svg>

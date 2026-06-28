@@ -56,6 +56,14 @@
   --color-cat-teal: #1f8a8a;
   --color-cat-indigo: #4c5bc4;
   --color-cat-rose: #b14a66;
+
+  /* Brand-mark tokens (see brand/README §6): the theme-aware logo SVG fills its
+     jar body with --accent and its lid + coin fill with --gold. Referenced only
+     via inline var() in the mark, so they live here (not @theme) to survive
+     tree-shaking. --accent brightens for dark surfaces (see .dark); --gold flips
+     with --color-gold automatically. */
+  --accent: var(--color-brand-600);
+  --gold: var(--color-gold);
 }
 
 /* Enables `dark:` utilities to key off a `.dark` class on <html>. */
@@ -80,6 +88,8 @@
   --color-brand-500: #5fc093;
 
   --color-gold: #e8c36a;
+  /* The brand mark's green brightens on dark surfaces so the jar still reads. */
+  --accent: var(--color-brand-500);
 
   --color-cat-emerald: #4fc08d;
   --color-cat-amber: #d9a441;

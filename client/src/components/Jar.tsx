@@ -1,37 +1,25 @@
 import { hueColor, hueTint, type CategoryHue } from '../lib/categoryColors'
 
 /**
- * The AllotJar brand mark — a miniature brass-lidded jar, partly filled with the
- * brand green. Two sizes: the desktop sidebar (default) and the compact mobile
- * top bar. Decorative; the adjacent "AllotJar" wordmark carries the name.
+ * The AllotJar brand mark — the theme-aware coin-jar SVG from brand/README §6:
+ * a green jar body (`--accent`) with a gold lid + coin fill (`--gold`), so it
+ * follows light/dark automatically. One shared body path (viewBox 0 0 64 84) at
+ * three sizes — compact (mobile top bar), default (sidebar), lg (auth). Decorative;
+ * the adjacent "AllotJar" wordmark carries the name.
  */
 export function JarLogo({ compact = false, lg = false }: { compact?: boolean; lg?: boolean }) {
-  const s = lg
-    ? { w: 52, h: 56, lidL: 14, lidW: 24, lidH: 8, lidR: 4, bodyTop: 10, bodyR: 14 }
-    : compact
-      ? { w: 26, h: 28, lidL: 7, lidW: 12, lidH: 4, lidR: 2, bodyTop: 5, bodyR: 7 }
-      : { w: 30, h: 32, lidL: 8, lidW: 14, lidH: 5, lidR: 3, bodyTop: 6, bodyR: 8 }
+  const { w, h } = lg ? { w: 52, h: 68 } : compact ? { w: 26, h: 34 } : { w: 30, h: 39 }
   return (
-    <div className="relative shrink-0" style={{ width: s.w, height: s.h }} aria-hidden>
-      <div
-        className="absolute top-0"
-        style={{
-          left: s.lidL,
-          width: s.lidW,
-          height: s.lidH,
-          borderRadius: s.lidR,
-          background: 'linear-gradient(180deg, rgba(255,255,255,.4), rgba(0,0,0,.08)), var(--color-gold)',
-        }}
+    <svg width={w} height={h} viewBox="0 0 64 84" fill="none" className="shrink-0" aria-hidden>
+      <path
+        d="M17 19L17 25C17 30 9 31 9 39L9 66A13 13 0 0 0 22 79L42 79A13 13 0 0 0 55 66L55 39C55 31 47 30 47 25L47 19Z"
+        fill="var(--accent)"
       />
-      <div
-        className="absolute bottom-0 bg-brand-600/15"
-        style={{ left: 3, right: 3, top: s.bodyTop, borderRadius: s.bodyR }}
-      />
-      <div
-        className="absolute bottom-0 h-[60%] bg-brand-600"
-        style={{ left: 3, right: 3, borderRadius: `1px 1px ${s.bodyR}px ${s.bodyR}px` }}
-      />
-    </div>
+      <path d="M9 48Q32 45 55 48L55 66A13 13 0 0 1 42 79L22 79A13 13 0 0 1 9 66Z" fill="var(--gold)" />
+      <rect x="13" y="14.5" width="38" height="5" rx="2.5" fill="var(--gold)" />
+      <rect x="15" y="3.5" width="34" height="12.5" rx="3.5" fill="var(--gold)" />
+      <rect x="16.5" y="4.8" width="31" height="2.6" rx="1.3" fill="#ffffff" opacity=".28" />
+    </svg>
   )
 }
 
