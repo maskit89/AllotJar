@@ -83,8 +83,6 @@ export function FundsPage() {
     }
   }, [])
 
-  const accountName = (id: string | null) => (id ? accounts.find((a) => a.id === id)?.name ?? null : null)
-
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }))
 
