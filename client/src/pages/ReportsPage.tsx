@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AppShell } from '../components/AppShell'
-import { Card, EmptyState, ErrorBanner, PageHeader } from '../components/ui'
+import { Card, EmptyState, ErrorBanner } from '../components/ui'
 import { Hero } from '../components/Hero'
 import { ReportsIcon } from '../components/icons'
 import { api } from '../lib/api'
@@ -124,12 +124,7 @@ export function ReportsPage() {
   const savingsRate = latestReceivedMinor > 0 ? Math.round((savedThisMonthMinor / latestReceivedMinor) * 100) : 0
 
   return (
-    <AppShell active="reports" maxWidth="4xl">
-        <PageHeader
-          title="Reports"
-          subtitle="How your spending and income have tracked over your most recent months."
-        />
-
+    <AppShell active="reports">
         {loading && <p className="text-slate-500">Loading your reports…</p>}
 
         {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -155,9 +150,9 @@ export function ReportsPage() {
             />
 
             {/* Income vs spending — a column per month (income solid, spent ghost). */}
-            <Card as="section" className="p-5">
+            <Card as="section" className="px-6 py-[22px]">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <h3 className="text-sm font-semibold text-slate-700">Income vs spending</h3>
+                <h3 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Income vs spending</h3>
                 <div className="flex gap-4 text-xs text-slate-500">
                   <span className="flex items-center gap-1.5">
                     <span className="h-2.5 w-2.5 rounded-sm" style={{ background: 'var(--color-brand-600)' }} /> Income
@@ -211,9 +206,9 @@ export function ReportsPage() {
 
             {/* Whole-year overview, with its own year navigator. */}
             {annual?.months && annual.months.length > 0 && (
-              <Card as="section" className="p-5">
+              <Card as="section" className="px-6 py-[22px]">
                 <div className="mb-4 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-700">Annual overview</h3>
+                  <h3 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Annual overview</h3>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -296,8 +291,8 @@ export function ReportsPage() {
 
             {/* Average monthly spend per category across the year (the workbook's AVERAGE column). */}
             {annual?.categories && annual.categories.length > 0 && (
-              <Card as="section" className="p-5">
-                <h3 className="mb-1 text-sm font-semibold text-slate-700">
+              <Card as="section" className="px-6 py-[22px]">
+                <h3 className="mb-1 text-[15px] font-bold tracking-[-0.01em] text-slate-900">
                   Average monthly spending by category
                 </h3>
                 <p className="mb-4 text-xs text-slate-500">
@@ -335,9 +330,9 @@ export function ReportsPage() {
             )}
 
             {/* Spending by category for the chosen month. */}
-            <Card as="section" className="p-5">
+            <Card as="section" className="px-6 py-[22px]">
               <div className="mb-4 flex items-center justify-between gap-3">
-                <h3 className="text-sm font-semibold text-slate-700">Spending by category</h3>
+                <h3 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Spending by category</h3>
                 <select
                   aria-label="Breakdown month"
                   value={breakdownKey ?? ''}
