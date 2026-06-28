@@ -55,7 +55,8 @@ describe('parseMinor', () => {
 describe('formatting', () => {
   it('formats with the budget currency', () => {
     // Non-breaking spaces vary by runtime; assert on the meaningful parts.
-    expect(formatMoney(11_000_000, 'EUR')).toContain('1.100,00')
+    // The app default is en-GB (€ prefix, comma grouping, dot decimal).
+    expect(formatMoney(11_000_000, 'EUR')).toContain('1,100.00')
     expect(formatMoney(11_000_000, 'EUR')).toContain('€')
     expect(formatMoney(4550, 'GBP')).toContain('£')
   })
@@ -69,8 +70,8 @@ describe('formatting', () => {
 describe('setMoneyFormat — money-display preference', () => {
   const minor = fromAmount(1234.56)
 
-  // Reset to the app default so test order can't leak the active format into other suites.
-  afterEach(() => setMoneyFormat('dot-comma'))
+  // Reset to the app default (en-GB / comma-dot) so test order can't leak the active format.
+  afterEach(() => setMoneyFormat('comma-dot'))
 
   it('renders dot-grouping, comma-decimal (de-DE)', () => {
     setMoneyFormat('dot-comma')
@@ -90,11 +91,11 @@ describe('setMoneyFormat — money-display preference', () => {
     expect(out).not.toContain(',234') // grouping is not a comma
   })
 
-  it('falls back to the default for an unknown/blank format', () => {
+  it('falls back to the default (en-GB) for an unknown/blank format', () => {
     setMoneyFormat('not-a-real-format')
-    expect(formatMoney(minor, 'EUR')).toContain('1.234,56')
+    expect(formatMoney(minor, 'EUR')).toContain('1,234.56')
     setMoneyFormat(null)
-    expect(formatMoney(minor, 'EUR')).toContain('1.234,56')
+    expect(formatMoney(minor, 'EUR')).toContain('1,234.56')
   })
 
   it('keeps the currency symbol independent of the chosen number format', () => {

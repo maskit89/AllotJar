@@ -17,7 +17,7 @@ export function LoginPage() {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [currency, setCurrency] = useState('EUR')
-  const [numberFormat, setNumberFormat] = useState('dot-comma')
+  const [numberFormat, setNumberFormat] = useState('comma-dot')
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)

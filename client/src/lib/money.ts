@@ -68,9 +68,10 @@ export const CURRENCY_OPTIONS: { value: string; label: string }[] = [
   { value: 'PLN', label: 'Polish złoty (zł)' },
 ]
 
-// The active display locale. Defaults to de-DE so rendering is unchanged until the
-// signed-in user's preference is applied (see setMoneyFormat / AuthContext).
-const DEFAULT_LOCALE = 'de-DE'
+// The active display locale. Defaults to en-GB — the design's canonical money
+// format (€1,234.56: € prefix, comma grouping, dot decimal) — until the signed-in
+// user's own preference is applied (see setMoneyFormat / AuthContext).
+const DEFAULT_LOCALE = 'en-GB'
 let activeLocale = DEFAULT_LOCALE
 
 /**
