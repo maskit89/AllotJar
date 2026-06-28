@@ -49,12 +49,15 @@ export function Jar({
   pct,
   size = 'shelf',
   label,
+  showPct = true,
 }: {
   hue: CategoryHue
   /** 0–100; clamped. */
   pct: number
   size?: 'shelf' | 'card'
   label?: string
+  /** Render the percentage inside the jar. Off on the Funds cards, where a pill carries it. */
+  showPct?: boolean
 }) {
   const clamped = Math.max(0, Math.min(100, Math.round(pct)))
   const color = hueColor(hue)
@@ -96,12 +99,14 @@ export function Jar({
         }}
       >
         <div className="absolute inset-x-0 bottom-0" style={{ height: `${clamped}%`, background: color }} />
-        <div
-          className="absolute inset-x-0 text-center font-bold text-slate-900"
-          style={{ top: m.pctTop, fontSize: m.pctSize }}
-        >
-          {clamped}%
-        </div>
+        {showPct && (
+          <div
+            className="absolute inset-x-0 text-center font-bold text-slate-900"
+            style={{ top: m.pctTop, fontSize: m.pctSize }}
+          >
+            {clamped}%
+          </div>
+        )}
       </div>
     </div>
   )
