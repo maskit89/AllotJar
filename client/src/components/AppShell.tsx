@@ -86,7 +86,7 @@ function UserMenu({ compact = false }: { compact?: boolean }) {
         >
           {multi && (
             <>
-              <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 Household
               </p>
               {households.map((h) => (
@@ -145,9 +145,17 @@ function UserMenu({ compact = false }: { compact?: boolean }) {
  */
 export function AppShell({
   active,
+  title,
   children,
 }: {
   active?: NavKey
+  /**
+   * The page's accessible name. Rendered as a visually-hidden `<h1>` so every
+   * screen exposes exactly one top-level heading for assistive tech and the
+   * skip-link target — the redesign's visual header is the TopBar, not an on-page
+   * title. Pages that already render their own visible `<h1>` (e.g. Help) omit it.
+   */
+  title?: string
   // Kept for call-site compatibility; the redesign uses a single 1180px column.
   maxWidth?: '4xl' | '5xl'
   children: ReactNode
@@ -203,6 +211,7 @@ export function AppShell({
           tabIndex={-1}
           className="mx-auto flex w-full max-w-[1180px] flex-col gap-[22px] px-[clamp(16px,4.5vw,38px)] pb-11 pt-[clamp(18px,3.4vw,30px)] focus:outline-none"
         >
+          {title && <h1 className="sr-only">{title}</h1>}
           <TopBar />
 
           {accessBanner && (

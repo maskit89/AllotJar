@@ -463,7 +463,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   }
 
   return (
-    <AppShell active="budget">
+    <AppShell active="budget" title="Budget">
         {loading && <p className="text-slate-500">Loading your budget…</p>}
 
         {error && (
@@ -664,9 +664,9 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                   <Card className="px-6 py-[22px]">
                     <div className="mb-1.5 flex items-baseline justify-between gap-3">
                       <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Everyday spending</h2>
-                      <div className="text-[13px] tabular-nums text-slate-500">
+                      <div className="text-[13px] tabular-nums text-slate-700">
                         {formatMoney(spent, month.currency)}{' '}
-                        <span className="opacity-55">of {formatMoney(planned, month.currency)}</span>
+                        <span className="text-slate-500">of {formatMoney(planned, month.currency)}</span>
                       </div>
                     </div>
                     {expense.map((category, i, arr) => (
@@ -771,7 +771,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                     type="button"
                     onClick={() => setAddingGroup(true)}
                     aria-label="Add a group"
-                    className="rounded-lg px-2 py-1.5 text-sm font-semibold text-slate-400 transition hover:text-brand-700"
+                    className="rounded-lg px-2 py-1.5 text-sm font-semibold text-slate-500 transition hover:text-brand-700"
                   >
                     + Add group
                   </button>

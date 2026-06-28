@@ -237,13 +237,16 @@ export function BudgetItemRow({
     : dueSoon
       ? `Due soon — day ${item.dueDay}`
       : `Bill due on day ${item.dueDay}`
-  // The Bill tag carries the category hue (overdue/due-soon override to rose/amber).
-  const billTagStyle = overdue
-    ? { color: 'var(--color-rose-600)', background: 'color-mix(in srgb, var(--color-rose-600) 14%, transparent)' }
+  // The Bill tag: urgent states use dark-aware rose/amber tones; a normal bill uses
+  // ink text on the category-hue tint. (The cat hues are graphics-tuned — too light as
+  // small text — and an inline rose/amber dark-red would fail contrast on the dark tint.)
+  const billUrgentTone = overdue
+    ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300'
     : dueSoon
-      ? { color: 'var(--color-amber-700)', background: 'color-mix(in srgb, var(--color-amber-700) 14%, transparent)' }
-      : { color: hueColor(hue), background: hueTint(hue) }
-  const billTagClass = 'shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.05em]'
+      ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'
+      : null
+  const billTagClass = `shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.05em] ${billUrgentTone ?? ''}`
+  const billTagStyle = billUrgentTone ? undefined : { color: 'var(--color-slate-900)', background: hueTint(hue) }
 
   return (
     <div className="group relative flex items-center gap-[18px] py-2.5">
@@ -363,7 +366,7 @@ export function BudgetItemRow({
           {canWrite ? (
             editingPlanned ? (
               <span className="inline-flex items-center">
-                <span className="text-slate-400">{currencySymbol(currency)}</span>
+                <span className="text-slate-500">{currencySymbol(currency)}</span>
                 <input
                   type="text"
                   inputMode="decimal"

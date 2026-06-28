@@ -124,7 +124,7 @@ export function ReportsPage() {
   const savingsRate = latestReceivedMinor > 0 ? Math.round((savedThisMonthMinor / latestReceivedMinor) * 100) : 0
 
   return (
-    <AppShell active="reports">
+    <AppShell active="reports" title="Reports">
         {loading && <p className="text-slate-500">Loading your reports…</p>}
 
         {error && <ErrorBanner>{error}</ErrorBanner>}

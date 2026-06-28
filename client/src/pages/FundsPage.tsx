@@ -190,7 +190,7 @@ export function FundsPage() {
   const editingFund = editingId ? funds.find((f) => f.id === editingId) ?? null : null
 
   return (
-    <AppShell active="funds">
+    <AppShell active="funds" title="Sinking funds">
       <Hero
         eyebrow="Total saved"
         amount={formatMoney(totalSavedMinor, CURRENCY)}
@@ -403,7 +403,7 @@ function FundCard({
         <div className="flex items-start justify-between gap-2">
           <h3 className="truncate text-[15px] font-semibold text-slate-900">{fund.name}</h3>
           {targetMinor > 0 && (
-            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-500">
+            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-600">
               {pct}%
             </span>
           )}

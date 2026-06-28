@@ -171,7 +171,7 @@ export function AllocationPage() {
   // this route directly gets a friendly nudge to add members rather than an empty engine.
   if (!householdLoading && !isShared) {
     return (
-      <AppShell active="allocation">
+      <AppShell active="allocation" title="Income allocation">
         <EmptyState
           icon={<AllocationIcon className="h-6 w-6" />}
           title="Add people first"
@@ -184,7 +184,7 @@ export function AllocationPage() {
   }
 
   return (
-    <AppShell active="allocation">
+    <AppShell active="allocation" title="Income allocation">
       {profile && preview && (
         <Hero
           eyebrow="Income to allocate"
@@ -258,7 +258,7 @@ export function AllocationPage() {
                     <span className="h-2 w-2 shrink-0 rounded-full bg-brand-600" aria-hidden />
                     <span className="text-sm font-medium text-slate-700">{STEP_LABEL[step.type] ?? 'Step'}</span>
                     {perEach !== undefined && perEach > 0 && (
-                      <span className="text-sm text-slate-400">· {formatMoney(fromAmount(perEach), CURRENCY)} each</span>
+                      <span className="text-sm text-slate-500">· {formatMoney(fromAmount(perEach), CURRENCY)} each</span>
                     )}
                   </div>
                   <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-900">

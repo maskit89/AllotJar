@@ -355,7 +355,7 @@ export function PeoplePage() {
   }
 
   return (
-    <AppShell active="people">
+    <AppShell active="people" title="People">
       <Hero
         eyebrow="Combined income"
         amount={formatMoney(combinedIncomeMinor, CURRENCY)}
@@ -533,7 +533,7 @@ export function PeoplePage() {
                                 </button>
                               </div>
                             ) : (
-                              <span className="text-xs text-slate-400">No sign-in</span>
+                              <span className="text-xs text-slate-500">No sign-in</span>
                             )}
                           </div>
 

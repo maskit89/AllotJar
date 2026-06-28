@@ -45,9 +45,9 @@ export function IncomeGroup({
     <Card className="px-6 py-[22px]">
       <div className="mb-1.5 flex items-baseline justify-between gap-3">
         <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">{category.name}</h2>
-        <div className="text-[13px] tabular-nums text-slate-500">
+        <div className="text-[13px] tabular-nums text-slate-700">
           {formatMoney(categoryActual(category), currency)}{' '}
-          <span className="opacity-55">of {formatMoney(categoryPlanned(category), currency)}</span>
+          <span className="text-slate-500">of {formatMoney(categoryPlanned(category), currency)}</span>
         </div>
       </div>
 

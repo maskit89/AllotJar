@@ -84,7 +84,7 @@ export function AccountDetailPage() {
         : hueTint(h)
 
   return (
-    <AppShell active="accounts">
+    <AppShell active="accounts" title={account?.name ?? 'Account'}>
       <Link to="/accounts" className="text-sm font-medium text-slate-500 transition hover:text-slate-900">
         ‹ Accounts
       </Link>

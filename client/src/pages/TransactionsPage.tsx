@@ -391,7 +391,7 @@ export function TransactionsPage() {
   }, [transactions, filter])
 
   return (
-    <AppShell active="transactions">
+    <AppShell active="transactions" title="Transactions">
         <Hero
           eyebrow={`Money in · ${monthLabel}`}
           amount={`+${formatMoney(moneyInMinor, currency)}`}

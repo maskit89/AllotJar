@@ -90,7 +90,7 @@ export function IncomeLineRow({ item, currency, saving, onRename, onCommitPlanne
           {canWrite ? (
             editingPlanned ? (
               <span className="inline-flex items-center">
-                <span className="text-slate-400">{currencySymbol(currency)}</span>
+                <span className="text-slate-500">{currencySymbol(currency)}</span>
                 <input
                   type="text"
                   inputMode="decimal"

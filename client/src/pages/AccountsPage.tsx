@@ -175,7 +175,7 @@ export function AccountsPage() {
   )
 
   return (
-    <AppShell active="accounts">
+    <AppShell active="accounts" title="Accounts">
       <Hero
         eyebrow="Total balance"
         amount={formatMoney(netMinor, CURRENCY)}

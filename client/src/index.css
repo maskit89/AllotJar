@@ -112,7 +112,7 @@ body,
 
 body {
   margin: 0;
-  background-color: #f4f6f3; /* --bg (reference app background) */
+  background-color: #fafcfa; /* --bg (reference app background); light enough that muted slate-500 text on it clears WCAG AA */
   color: #15201b; /* --ink */
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;

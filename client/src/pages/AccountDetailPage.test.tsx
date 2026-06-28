@@ -53,8 +53,8 @@ describe('AccountDetailPage', () => {
 
     renderPage()
 
-    // The hero shows the account name (eyebrow) + its balance + a Transactions tile.
-    expect(await screen.findByText('Everyday Current', {}, { timeout: 5000 })).toBeInTheDocument()
+    // The account name shows as the page heading (sr-only h1) and the hero eyebrow.
+    expect((await screen.findAllByText('Everyday Current', {}, { timeout: 5000 })).length).toBeGreaterThan(0)
     expect(screen.getByText(/2,140\.00/)).toBeInTheDocument()
     // Only this account's transactions are listed.
     expect(screen.getByText('Vodafone')).toBeInTheDocument()
