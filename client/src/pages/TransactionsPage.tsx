@@ -20,6 +20,14 @@ function today(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** ISO date (yyyy-MM-dd) -> the register's compact "Jun 20" (the year lives in the top bar). */
+function shortDate(iso: string): string {
+  const [, m, d] = iso.split('-').map(Number)
+  return m && d ? `${SHORT_MONTHS[m - 1]} ${d}` : iso
+}
+
 export function TransactionsPage() {
   const features = useFeatures()
   // Recording/editing transactions is day-to-day entry (Limited+); importing needs Admin+.
@@ -683,15 +691,15 @@ export function TransactionsPage() {
             ) : (
             <Card className="overflow-hidden">
               <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-sm">
+              <table className="w-full min-w-[720px] table-fixed text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 text-left text-[11px] font-bold uppercase tracking-[0.05em] text-slate-500">
-                    <th className="px-4 py-3 font-bold">Date</th>
+                    <th className="w-[84px] px-4 py-3 font-bold">Date</th>
                     <th className="px-4 py-3 font-bold">Payee</th>
-                    <th className="px-4 py-3 font-bold">Category</th>
-                    <th className="px-4 py-3 font-bold">Account</th>
-                    <th className="px-4 py-3 text-right font-bold">Amount</th>
-                    <th className="px-4 py-3" />
+                    <th className="w-[184px] px-4 py-3 font-bold">Category</th>
+                    <th className="w-[148px] px-4 py-3 font-bold">Account</th>
+                    <th className="w-[128px] px-4 py-3 text-right font-bold">Amount</th>
+                    <th className="w-[80px] px-4 py-3" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -790,12 +798,14 @@ export function TransactionsPage() {
                           </td>
                         ) : (
                           <>
-                            <td className="px-4 py-3.5 tabular-nums text-slate-500">{t.date}</td>
+                            <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-slate-500">
+                              {shortDate(t.date)}
+                            </td>
                             <td className="px-4 py-3.5">
-                              <span className="inline-flex items-center gap-2 font-semibold text-slate-900">
-                                {t.payee || (isTransfer ? 'Transfer' : '—')}
+                              <span className="flex min-w-0 items-center gap-2 font-semibold text-slate-900">
+                                <span className="truncate">{t.payee || (isTransfer ? 'Transfer' : '—')}</span>
                                 {!isTransfer && t.budgetItemId && billItemIds.has(t.budgetItemId) && (
-                                  <span className="rounded-[5px] border border-slate-200 px-1.5 py-px text-[9.5px] font-bold uppercase tracking-[0.05em] text-slate-500">
+                                  <span className="shrink-0 rounded-[5px] border border-slate-200 px-1.5 py-px text-[9.5px] font-bold uppercase tracking-[0.05em] text-slate-500">
                                     Bill
                                   </span>
                                 )}
@@ -888,7 +898,7 @@ export function TransactionsPage() {
                                 <span className="text-sm text-slate-600">Unassigned</span>
                               )}
                             </td>
-                            <td className="px-4 py-3.5 text-sm text-slate-500">
+                            <td className="truncate px-4 py-3.5 text-sm text-slate-500">
                               {isTransfer
                                 ? `${t.accountName ?? '—'} → ${t.transferAccountName ?? '—'}`
                                 : t.accountName ?? '—'}
