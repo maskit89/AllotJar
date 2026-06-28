@@ -62,6 +62,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   const [savingItemId, setSavingItemId] = useState<string | null>(null)
   const [newCategoryName, setNewCategoryName] = useState('')
   const [newCategoryIsFund, setNewCategoryIsFund] = useState(false)
+  const [addingGroup, setAddingGroup] = useState(false)
   const [months, setMonths] = useState<BudgetMonthSummaryDto[]>([])
   const [templates, setTemplates] = useState<BudgetTemplateDto[]>([])
   // The "Your jars" shelf — the household's sinking funds, with goal progress.
@@ -458,6 +459,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     if (trimmed === '') return
     addCategory(trimmed, newCategoryIsFund)
     setNewCategoryName('')
+    setAddingGroup(false)
   }
 
   return (
@@ -711,43 +713,69 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                 />
               ))}
 
-              {/* Add a new expense or fund group (EveryDollar "Add Group"). */}
-              {canWrite && (
-              <div className="flex items-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-surface/60 px-4 py-3">
-                <input
-                  type="text"
-                  value={newCategoryName}
-                  placeholder={
-                    newCategoryIsFund
-                      ? 'Add a fund group (e.g. Sinking Funds, Savings)…'
-                      : 'Add a category group (e.g. Subscriptions, Insurance)…'
-                  }
-                  aria-label="New category group name"
-                  onChange={(e) => setNewCategoryName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') submitNewCategory()
-                  }}
-                  className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                />
-                <select
-                  value={newCategoryIsFund ? 'fund' : 'expense'}
-                  aria-label="New group kind"
-                  onChange={(e) => setNewCategoryIsFund(e.target.value === 'fund')}
-                  className="rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-600 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                >
-                  <option value="expense">Expense</option>
-                  <option value="fund">Fund</option>
-                </select>
-                <button
-                  type="button"
-                  onClick={submitNewCategory}
-                  aria-label="Add category group"
-                  className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700"
-                >
-                  + Add group
-                </button>
-              </div>
-              )}
+              {/* Add a new expense or fund group — a quiet reveal to match the clean panel. */}
+              {canWrite &&
+                (addingGroup ? (
+                  <div className="flex items-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-surface/60 px-4 py-3">
+                    <input
+                      type="text"
+                      autoFocus
+                      value={newCategoryName}
+                      placeholder={
+                        newCategoryIsFund
+                          ? 'Add a fund group (e.g. Sinking Funds, Savings)…'
+                          : 'Add a category group (e.g. Subscriptions, Insurance)…'
+                      }
+                      aria-label="New category group name"
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') submitNewCategory()
+                        if (e.key === 'Escape') {
+                          setNewCategoryName('')
+                          setAddingGroup(false)
+                        }
+                      }}
+                      className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    />
+                    <select
+                      value={newCategoryIsFund ? 'fund' : 'expense'}
+                      aria-label="New group kind"
+                      onChange={(e) => setNewCategoryIsFund(e.target.value === 'fund')}
+                      className="rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-600 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    >
+                      <option value="expense">Expense</option>
+                      <option value="fund">Fund</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={submitNewCategory}
+                      aria-label="Add category group"
+                      className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700"
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewCategoryName('')
+                        setAddingGroup(false)
+                      }}
+                      aria-label="Cancel adding group"
+                      className="rounded-lg px-2 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-100"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setAddingGroup(true)}
+                    aria-label="Add a group"
+                    className="rounded-lg px-2 py-1.5 text-sm font-semibold text-slate-400 transition hover:text-brand-700"
+                  >
+                    + Add group
+                  </button>
+                ))}
             </div>
           </>
           )

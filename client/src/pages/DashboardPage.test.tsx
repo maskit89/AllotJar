@@ -203,8 +203,8 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
-    const input = await screen.findByLabelText('New category group name', {}, { timeout: 5000 })
-    await user.type(input, 'Subscriptions')
+    await user.click(await screen.findByRole('button', { name: 'Add a group' }, { timeout: 5000 }))
+    await user.type(await screen.findByLabelText('New category group name', {}, { timeout: 5000 }), 'Subscriptions')
     await user.click(screen.getByRole('button', { name: 'Add category group' }))
 
     await waitFor(() =>
@@ -338,8 +338,8 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
-    const input = await screen.findByLabelText('New category group name', {}, { timeout: 5000 })
-    await user.type(input, 'Sinking Funds')
+    await user.click(await screen.findByRole('button', { name: 'Add a group' }, { timeout: 5000 }))
+    await user.type(await screen.findByLabelText('New category group name', {}, { timeout: 5000 }), 'Sinking Funds')
     await user.selectOptions(screen.getByLabelText('New group kind'), 'fund')
     await user.click(screen.getByRole('button', { name: 'Add category group' }))
 
