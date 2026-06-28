@@ -11,8 +11,8 @@ public enum AllocationRuleType
     /// <summary>Fund the month's shared living envelopes (sum of Expense-category planned).</summary>
     FundEnvelopes = 0,
 
-    /// <summary>Fund the month's sinking-fund contributions (sum of Fund-category planned).</summary>
-    FundSinkingFunds = 1,
+    /// <summary>Fund the month's jar contributions (sum of Savings-category planned).</summary>
+    FundJars = 1,
 
     /// <summary>A fixed amount each member keeps/pays (e.g. pocket money).</summary>
     FixedPerMember = 2,

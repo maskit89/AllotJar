@@ -1,10 +1,10 @@
 namespace ZeroBudget.Domain.Enums;
 
 /// <summary>
-/// The flavour of a <see cref="Entities.SinkingFund"/>, mirroring the three
+/// The flavour of a <see cref="Entities.Jar"/>, mirroring the three
 /// sinking-fund systems in the household spreadsheet.
 /// </summary>
-public enum FundKind
+public enum JarKind
 {
     /// <summary>Irregular / annual discretionary cost (maintenance, gifts, holiday).</summary>
     Annual = 0,

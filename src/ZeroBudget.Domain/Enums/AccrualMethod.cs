@@ -1,7 +1,7 @@
 namespace ZeroBudget.Domain.Enums;
 
 /// <summary>
-/// How a <see cref="Entities.SinkingFund"/>'s required monthly contribution is
+/// How a <see cref="Entities.Jar"/>'s required monthly contribution is
 /// computed. The default, <see cref="TargetByDate"/>, is self-correcting: an
 /// under-funded month raises next month's required amount automatically.
 /// </summary>

@@ -4,25 +4,25 @@ using ZeroBudget.Domain.Enums;
 namespace ZeroBudget.Domain.Services;
 
 /// <summary>
-/// Pure (no I/O) calculator for a <see cref="SinkingFund"/>'s required monthly
+/// Pure (no I/O) calculator for a <see cref="Jar"/>'s required monthly
 /// contribution and for prorating an opening balance. Kept dependency-free so it can
 /// be unit-tested directly against the figures in the source spreadsheet.
 ///
 /// All results round to 2 decimal places half-away-from-zero to match Excel's ROUND,
 /// so the app reconciles to the spreadsheet to the cent.
 /// </summary>
-public static class FundAccrualCalculator
+public static class JarAccrualCalculator
 {
     private static decimal Round2(decimal value) => Math.Round(value, 2, MidpointRounding.AwayFromZero);
 
     /// <summary>
-    /// The amount to put into the fund this month, per its <see cref="SinkingFund.Accrual"/>.
+    /// The amount to put into the fund this month, per its <see cref="Jar.Accrual"/>.
     /// <paramref name="currentBalance"/> is used by <see cref="AccrualMethod.TargetByDate"/>;
     /// <paramref name="monthlyPool"/> and <paramref name="poolTargetTotal"/> by
     /// <see cref="AccrualMethod.ProportionalPool"/>.
     /// </summary>
     public static decimal RequiredMonthlyContribution(
-        SinkingFund fund,
+        Jar fund,
         DateOnly asOf,
         decimal currentBalance = 0m,
         decimal monthlyPool = 0m,
@@ -37,7 +37,7 @@ public static class FundAccrualCalculator
         };
 
     /// <summary>Target ÷ cover-period months (÷ 12 when no cover window is set).</summary>
-    public static decimal StraightLine(SinkingFund fund)
+    public static decimal StraightLine(Jar fund)
     {
         var months = CoverMonths(fund) ?? 12;
         if (months <= 0)
@@ -52,7 +52,7 @@ public static class FundAccrualCalculator
     /// (Target − balance) ÷ whole months until the target date, floored at one month.
     /// Returns 0 once the fund is fully funded. With no target date, falls back to ÷ 12.
     /// </summary>
-    public static decimal TargetByDate(SinkingFund fund, DateOnly asOf, decimal currentBalance)
+    public static decimal TargetByDate(Jar fund, DateOnly asOf, decimal currentBalance)
     {
         var remaining = fund.TargetAmount - currentBalance;
         if (remaining <= 0m)
@@ -103,7 +103,7 @@ public static class FundAccrualCalculator
     private static int MonthsBetween(DateOnly from, DateOnly to)
         => ((to.Year * 12) + to.Month) - ((from.Year * 12) + from.Month);
 
-    private static int? CoverMonths(SinkingFund fund)
+    private static int? CoverMonths(Jar fund)
     {
         if (fund.CoverStart is { } start && fund.CoverEnd is { } end)
         {

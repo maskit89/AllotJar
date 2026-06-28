@@ -26,6 +26,6 @@ public class PreviewIncomeAllocationQueryHandler
         var plan = await AllocationPlanner.PlanAsync(
             _db, userId, request.Year, request.Month, request.ProfileId, cancellationToken);
 
-        return plan.Result.ToDto(plan.EnvelopesTotal, plan.FundsTotal);
+        return plan.Result.ToDto(plan.EnvelopesTotal, plan.JarsTotal);
     }
 }

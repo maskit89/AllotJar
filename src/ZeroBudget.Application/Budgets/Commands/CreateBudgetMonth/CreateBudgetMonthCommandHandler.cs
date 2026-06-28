@@ -4,7 +4,7 @@ using ZeroBudget.Application.Budgets.Dtos;
 using ZeroBudget.Application.Budgets.Templates;
 using ZeroBudget.Application.Common.Exceptions;
 using ZeroBudget.Application.Common.Interfaces;
-using ZeroBudget.Application.SinkingFunds;
+using ZeroBudget.Application.Jars;
 using ZeroBudget.Domain.Entities;
 using ZeroBudget.Domain.Enums;
 using ZeroBudget.Domain.Services;
@@ -56,7 +56,7 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         // amount. Funds without a target (e.g. legacy/auto-created) keep the copied value
         // so existing budgets are unaffected; ProportionalPool funds wait for the pool
         // (allocation engine, a later slice) and are left to copy for now.
-        var seededFunds = (await _db.SinkingFunds
+        var seededFunds = (await _db.Jars
             .AsNoTracking()
             .Where(f => f.OwnerId == userId && !f.IsArchived && f.TargetAmount > 0m
                         && f.Accrual != AccrualMethod.ProportionalPool)
@@ -64,7 +64,7 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
             .ToDictionary(f => f.Id);
 
         var fundTrackedBalances = seededFunds.Count > 0
-            ? await FundBalances.ComputeAsync(_db, userId, cancellationToken)
+            ? await JarBalances.ComputeAsync(_db, userId, cancellationToken)
             : new Dictionary<Guid, decimal>();
 
         var seedAsOf = new DateOnly(request.Year, request.Month, 1);
@@ -107,7 +107,7 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                                 PlannedAmount = 0m,
                                 DisplayOrder = li,
                                 // Fund lines need a stable id so their balance can roll over.
-                                FundId = g.Kind == CategoryKind.Fund ? Guid.NewGuid() : null,
+                                SavingsId = g.Kind == CategoryKind.Savings ? Guid.NewGuid() : null,
                             })
                             .ToList(),
                     };
@@ -131,13 +131,13 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                             Name = i.Name,
                             // Fund lines with a configured target are seeded at the
                             // calculated required contribution; everything else copies.
-                            PlannedAmount = i.FundId is { } fid && seededFunds.TryGetValue(fid, out var fund)
-                                ? FundAccrualCalculator.RequiredMonthlyContribution(
+                            PlannedAmount = i.SavingsId is { } fid && seededFunds.TryGetValue(fid, out var fund)
+                                ? JarAccrualCalculator.RequiredMonthlyContribution(
                                     fund, seedAsOf, fund.OpeningBalance + fundTrackedBalances.GetValueOrDefault(fid))
                                 : i.PlannedAmount,
                             DisplayOrder = i.DisplayOrder,
                             // Keep the fund's identity so its balance rolls over.
-                            FundId = i.FundId,
+                            SavingsId = i.SavingsId,
                             // Bills recur, so the due day carries; paid resets (new month).
                             DueDay = i.DueDay,
                         })

@@ -47,7 +47,7 @@ public class BudgetMonth : BaseEntity
     /// <summary>
     /// Sum of every planned amount across the non-income groups — i.e. how much
     /// income has been given a job. This includes <see cref="CategoryKind.Expense"/>
-    /// spending and <see cref="CategoryKind.Fund"/> contributions (putting money into
+    /// spending and <see cref="CategoryKind.Savings"/> contributions (putting money into
     /// a sinking fund is giving it a job too), so the budget only balances once funds
     /// are funded. Income lines are excluded so they are never counted as spending.
     /// </summary>

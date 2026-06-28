@@ -5,11 +5,11 @@ using ZeroBudget.Domain.Enums;
 
 namespace ZeroBudget.Infrastructure.Persistence.Configurations;
 
-public class SinkingFundConfiguration : IEntityTypeConfiguration<SinkingFund>
+public class JarConfiguration : IEntityTypeConfiguration<Jar>
 {
-    public void Configure(EntityTypeBuilder<SinkingFund> builder)
+    public void Configure(EntityTypeBuilder<Jar> builder)
     {
-        builder.ToTable("SinkingFunds");
+        builder.ToTable("Jars");
         builder.HasKey(f => f.Id);
 
         builder.Property(f => f.OwnerId)

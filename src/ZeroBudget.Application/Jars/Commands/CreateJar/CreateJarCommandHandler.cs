@@ -1,31 +1,31 @@
 using MediatR;
 using ZeroBudget.Application.Common.Exceptions;
 using ZeroBudget.Application.Common.Interfaces;
-using ZeroBudget.Application.SinkingFunds.Dtos;
+using ZeroBudget.Application.Jars.Dtos;
 using ZeroBudget.Domain.Entities;
 using ZeroBudget.Domain.Services;
 
-namespace ZeroBudget.Application.SinkingFunds.Commands.CreateSinkingFund;
+namespace ZeroBudget.Application.Jars.Commands.CreateJar;
 
-public class CreateSinkingFundCommandHandler
-    : IRequestHandler<CreateSinkingFundCommand, SinkingFundDto>
+public class CreateJarCommandHandler
+    : IRequestHandler<CreateJarCommand, JarDto>
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
 
-    public CreateSinkingFundCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public CreateJarCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
     {
         _db = db;
         _currentUser = currentUser;
     }
 
-    public async Task<SinkingFundDto> Handle(
-        CreateSinkingFundCommand request, CancellationToken cancellationToken)
+    public async Task<JarDto> Handle(
+        CreateJarCommand request, CancellationToken cancellationToken)
     {
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
-        var fund = new SinkingFund
+        var fund = new Jar
         {
             OwnerId = userId,
             Name = request.Name.Trim(),
@@ -41,13 +41,13 @@ public class CreateSinkingFundCommandHandler
             FundingAccountId = request.FundingAccountId,
         };
 
-        _db.SinkingFunds.Add(fund);
+        _db.Jars.Add(fund);
         await _db.SaveChangesAsync(cancellationToken);
 
         // A brand-new fund has no contribution lines yet, so its balance is its opening.
         var asOf = DateOnly.FromDateTime(DateTime.UtcNow);
         var balance = fund.OpeningBalance;
-        var required = FundAccrualCalculator.RequiredMonthlyContribution(fund, asOf, balance);
+        var required = JarAccrualCalculator.RequiredMonthlyContribution(fund, asOf, balance);
         return fund.ToDto(balance, required, asOf);
     }
 }

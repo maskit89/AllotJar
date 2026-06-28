@@ -9,7 +9,7 @@ namespace ZeroBudget.Application.Allocation;
 /// <summary>
 /// Shared read-side for preview and commit: loads the owner's allocation profile and
 /// active members, resolves the month's shared-obligation totals from the budget
-/// (Expense-category planned → envelopes, Fund-category planned → sinking funds), and
+/// (Expense-category planned → envelopes, Savings-category planned → jars), and
 /// runs the pure <see cref="IncomeAllocator"/>. No writes.
 /// </summary>
 public static class AllocationPlanner
@@ -40,13 +40,13 @@ public static class AllocationPlanner
             join bm in db.BudgetMonths on c.BudgetMonthId equals bm.Id
             where bm.OwnerId == ownerId && bm.Year == year && bm.Month == month
                   && !c.ExcludeFromAllocation
-                  && (c.Kind == CategoryKind.Expense || c.Kind == CategoryKind.Fund)
+                  && (c.Kind == CategoryKind.Expense || c.Kind == CategoryKind.Savings)
             group i by c.Kind into g
             select new { Kind = g.Key, Total = g.Sum(x => x.PlannedAmount) })
             .ToListAsync(ct);
 
         var envelopes = totals.Where(t => t.Kind == CategoryKind.Expense).Sum(t => t.Total);
-        var funds = totals.Where(t => t.Kind == CategoryKind.Fund).Sum(t => t.Total);
+        var funds = totals.Where(t => t.Kind == CategoryKind.Savings).Sum(t => t.Total);
 
         var savingsBalances = await SavingsBalancesAsync(db, ownerId, members, year, month, ct);
 
@@ -63,7 +63,7 @@ public static class AllocationPlanner
                 ResolvedTotal: r.Type switch
                 {
                     AllocationRuleType.FundEnvelopes => envelopes,
-                    AllocationRuleType.FundSinkingFunds => funds,
+                    AllocationRuleType.FundJars => funds,
                     _ => 0m,
                 }))
             .ToList();
@@ -124,4 +124,4 @@ public static class AllocationPlanner
     }
 }
 
-public record AllocationPlan(AllocationResult Result, AllocationProfile? Profile, decimal EnvelopesTotal, decimal FundsTotal);
+public record AllocationPlan(AllocationResult Result, AllocationProfile? Profile, decimal EnvelopesTotal, decimal JarsTotal);

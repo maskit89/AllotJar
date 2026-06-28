@@ -16,7 +16,7 @@ public interface IApplicationDbContext
     DbSet<Transaction> Transactions { get; }
     DbSet<TransactionSplit> TransactionSplits { get; }
     DbSet<Account> Accounts { get; }
-    DbSet<SinkingFund> SinkingFunds { get; }
+    DbSet<Jar> Jars { get; }
     DbSet<HouseholdMember> HouseholdMembers { get; }
     DbSet<HouseholdMembership> HouseholdMemberships { get; }
     DbSet<AllocationProfile> AllocationProfiles { get; }

@@ -1,14 +1,15 @@
 using FluentValidation;
 
-namespace ZeroBudget.Application.SinkingFunds.Commands.CreateSinkingFund;
+namespace ZeroBudget.Application.Jars.Commands.UpdateJar;
 
-public class CreateSinkingFundCommandValidator : AbstractValidator<CreateSinkingFundCommand>
+public class UpdateJarCommandValidator : AbstractValidator<UpdateJarCommand>
 {
-    // Mirrors the decimal(18,4) range used elsewhere (e.g. account opening balance).
     private const decimal MaxAmount = 99_999_999_999_999.9999m;
 
-    public CreateSinkingFundCommandValidator()
+    public UpdateJarCommandValidator()
     {
+        RuleFor(x => x.Id).NotEmpty();
+
         RuleFor(x => x.Name)
             .NotEmpty().WithMessage("A fund needs a name.")
             .MaximumLength(120);
@@ -24,7 +25,6 @@ public class CreateSinkingFundCommandValidator : AbstractValidator<CreateSinking
             .InclusiveBetween(-MaxAmount, MaxAmount)
             .WithMessage("Opening balance is out of range.");
 
-        // When both cover dates are given the window must be positive.
         RuleFor(x => x.CoverEnd)
             .GreaterThan(x => x.CoverStart!.Value)
             .When(x => x.CoverStart.HasValue && x.CoverEnd.HasValue)

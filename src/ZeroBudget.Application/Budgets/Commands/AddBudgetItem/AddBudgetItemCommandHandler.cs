@@ -52,7 +52,7 @@ public class AddBudgetItemCommandHandler : IRequestHandler<AddBudgetItemCommand,
             DisplayOrder = nextOrder,
             // A line in a Fund group is a sinking fund — give it a stable id so its
             // balance can roll over across months.
-            FundId = category.Kind == CategoryKind.Fund ? Guid.NewGuid() : null,
+            SavingsId = category.Kind == CategoryKind.Savings ? Guid.NewGuid() : null,
         });
 
         await _db.SaveChangesAsync(cancellationToken);

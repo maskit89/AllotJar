@@ -1,13 +1,13 @@
 using MediatR;
-using ZeroBudget.Application.SinkingFunds.Dtos;
+using ZeroBudget.Application.Jars.Dtos;
 using ZeroBudget.Domain.Enums;
 
-namespace ZeroBudget.Application.SinkingFunds.Commands.CreateSinkingFund;
+namespace ZeroBudget.Application.Jars.Commands.CreateJar;
 
 /// <summary>Defines a new sinking fund. Returns it with its derived figures.</summary>
-public record CreateSinkingFundCommand(
+public record CreateJarCommand(
     string Name,
-    FundKind Kind,
+    JarKind Kind,
     decimal TargetAmount,
     DateOnly? TargetDate,
     DateOnly? CoverStart,
@@ -16,4 +16,4 @@ public record CreateSinkingFundCommand(
     bool RecurAnnually,
     decimal OpeningBalance,
     DateOnly? OpeningAsOf,
-    Guid? FundingAccountId) : IRequest<SinkingFundDto>;
+    Guid? FundingAccountId) : IRequest<JarDto>;

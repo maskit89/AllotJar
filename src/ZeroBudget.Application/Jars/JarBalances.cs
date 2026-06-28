@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ZeroBudget.Application.Common.Interfaces;
 using ZeroBudget.Domain.Enums;
 
-namespace ZeroBudget.Application.SinkingFunds;
+namespace ZeroBudget.Application.Jars;
 
 /// <summary>
 /// Rolls up the tracked balance of every sinking fund for a user: the sum of all
@@ -10,11 +10,11 @@ namespace ZeroBudget.Application.SinkingFunds;
 /// every month. Callers add the fund's <c>OpeningBalance</c> to get its full balance.
 ///
 /// This is the cross-month, no-ceiling counterpart to
-/// <c>BudgetActuals.ApplyFundBalancesAsync</c> (which is scoped to a viewed month for
+/// <c>BudgetActuals.ApplySavingsBalancesAsync</c> (which is scoped to a viewed month for
 /// the budget grid). Spending is the fund line's assigned expense transactions and
 /// split slices (at FX).
 /// </summary>
-public static class FundBalances
+public static class JarBalances
 {
     public static async Task<Dictionary<Guid, decimal>> ComputeAsync(
         IApplicationDbContext db, string ownerId, CancellationToken cancellationToken)
@@ -24,11 +24,11 @@ public static class FundBalances
             join c in db.BudgetCategories on i.BudgetCategoryId equals c.Id
             join m in db.BudgetMonths on c.BudgetMonthId equals m.Id
             where m.OwnerId == ownerId
-                  && c.Kind == CategoryKind.Fund
-                  && i.FundId != null
+                  && c.Kind == CategoryKind.Savings
+                  && i.SavingsId != null
             select new
             {
-                FundId = i.FundId!.Value,
+                SavingsId = i.SavingsId!.Value,
                 ItemId = i.Id,
                 i.PlannedAmount,
             })
@@ -63,17 +63,17 @@ public static class FundBalances
             .GroupBy(x => x.ItemId)
             .ToDictionary(g => g.Key, g => g.Sum(x => x.Total));
 
-        var balanceByFund = new Dictionary<Guid, decimal>();
+        var balanceByJar = new Dictionary<Guid, decimal>();
         foreach (var line in lines)
         {
             var whole = txByItem.TryGetValue(line.ItemId, out var w) ? w : 0m;
             var split = splitByItem.TryGetValue(line.ItemId, out var sp) ? sp : 0m;
             var spent = whole + split;
 
-            balanceByFund.TryGetValue(line.FundId, out var running);
-            balanceByFund[line.FundId] = running + line.PlannedAmount - spent;
+            balanceByJar.TryGetValue(line.SavingsId, out var running);
+            balanceByJar[line.SavingsId] = running + line.PlannedAmount - spent;
         }
 
-        return balanceByFund;
+        return balanceByJar;
     }
 }

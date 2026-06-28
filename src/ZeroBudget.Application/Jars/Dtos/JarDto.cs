@@ -1,18 +1,18 @@
 using ZeroBudget.Domain.Entities;
 using ZeroBudget.Domain.Enums;
 
-namespace ZeroBudget.Application.SinkingFunds.Dtos;
+namespace ZeroBudget.Application.Jars.Dtos;
 
 /// <summary>
 /// A sinking fund with its read-time-derived figures (balance, required monthly
 /// contribution, projection and status). Enum fields are serialised as their numeric
 /// value, mirroring <see cref="AccountType"/>.
 /// </summary>
-public class SinkingFundDto
+public class JarDto
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
-    public FundKind Kind { get; set; }
+    public JarKind Kind { get; set; }
     public decimal TargetAmount { get; set; }
     public DateOnly? TargetDate { get; set; }
     public DateOnly? CoverStart { get; set; }
@@ -37,10 +37,10 @@ public class SinkingFundDto
     public string Status { get; set; } = "OnTrack";
 }
 
-public static class SinkingFundMapping
+public static class JarMapping
 {
-    public static SinkingFundDto ToDto(
-        this SinkingFund f, decimal currentBalance, decimal requiredMonthly, DateOnly asOf)
+    public static JarDto ToDto(
+        this Jar f, decimal currentBalance, decimal requiredMonthly, DateOnly asOf)
     {
         var remaining = f.TargetAmount > 0m ? Math.Max(0m, f.TargetAmount - currentBalance) : 0m;
 
@@ -73,7 +73,7 @@ public static class SinkingFundMapping
             projected = asOf.AddMonths(monthsNeeded);
         }
 
-        return new SinkingFundDto
+        return new JarDto
         {
             Id = f.Id,
             Name = f.Name,

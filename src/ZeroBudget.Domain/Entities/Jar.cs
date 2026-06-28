@@ -8,22 +8,22 @@ namespace ZeroBudget.Domain.Entities;
 /// little each month and spent against over time (e.g. "Home Insurance €300/yr",
 /// "Yearly Holiday €4000"). It owns the fund's <see cref="TargetAmount"/>, due date
 /// and <see cref="AccrualMethod"/>; each month's contribution to it is an ordinary
-/// <see cref="BudgetItem"/> in a <see cref="CategoryKind.Fund"/> group whose
-/// <see cref="BudgetItem.FundId"/> equals this fund's <see cref="BaseEntity.Id"/>.
+/// <see cref="BudgetItem"/> in a <see cref="CategoryKind.Savings"/> group whose
+/// <see cref="BudgetItem.SavingsId"/> equals this fund's <see cref="BaseEntity.Id"/>.
 ///
 /// The running balance is NOT stored here — it is derived at read time as
 /// <see cref="OpeningBalance"/> plus every contribution minus every spend across all
 /// months (see ZeroBudget.Application.Budgets.BudgetActuals), so it rolls over without
 /// drifting. This entity holds only the fund's definition.
 /// </summary>
-public class SinkingFund : BaseEntity
+public class Jar : BaseEntity
 {
     /// <summary>Identity user id that owns this fund (the household).</summary>
     public string OwnerId { get; set; } = string.Empty;
 
     public string Name { get; set; } = string.Empty;
 
-    public FundKind Kind { get; set; } = FundKind.Annual;
+    public JarKind Kind { get; set; } = JarKind.Annual;
 
     /// <summary>The amount to accumulate (spreadsheet col B). Mapped to decimal(18,4).</summary>
     public decimal TargetAmount { get; set; }

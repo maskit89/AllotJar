@@ -356,7 +356,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         setMonth(fromDto(data)) // reconcile temp group -> real server group
       } catch {
         setMonth(snapshot)
-        setError(`Could not add that ${asFund ? 'fund group' : 'group'} — reverted.`)
+        setError(`Could not add that ${asFund ? 'savings group' : 'group'} — reverted.`)
       }
     },
     [month],
@@ -723,7 +723,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                       value={newCategoryName}
                       placeholder={
                         newCategoryIsFund
-                          ? 'Add a fund group (e.g. Sinking Funds, Savings)…'
+                          ? 'Add a savings group (e.g. Travel, Big purchases)…'
                           : 'Add a category group (e.g. Subscriptions, Insurance)…'
                       }
                       aria-label="New category group name"
@@ -744,7 +744,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                       className="rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-600 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
                     >
                       <option value="expense">Expense</option>
-                      <option value="fund">Fund</option>
+                      <option value="fund">Savings</option>
                     </select>
                     <button
                       type="button"

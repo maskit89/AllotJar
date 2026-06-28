@@ -28,7 +28,7 @@ public static class BudgetMonthMapping
             {
                 CategoryKind.Income => 0,
                 CategoryKind.Expense => 1,
-                _ => 2, // Fund
+                _ => 2, // Savings
             })
             .ThenBy(c => c.DisplayOrder)
             .Select(c => new BudgetCategoryDto
@@ -49,8 +49,8 @@ public static class BudgetMonthMapping
                         PlannedAmount = i.PlannedAmount,
                         ActualAmount = i.ActualAmount,
                         Remaining = i.Remaining,
-                        FundId = i.FundId,
-                        FundAvailable = i.FundAvailable,
+                        SavingsId = i.SavingsId,
+                        SavingsAvailable = i.SavingsAvailable,
                         DueDay = i.DueDay,
                         IsPaid = i.IsPaid
                     })

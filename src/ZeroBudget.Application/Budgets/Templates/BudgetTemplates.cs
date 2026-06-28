@@ -31,7 +31,7 @@ public static class BudgetTemplates
                 new BudgetTemplateGroup("Food", CategoryKind.Expense, new[] { "Groceries", "Restaurants" }),
                 new BudgetTemplateGroup("Transport", CategoryKind.Expense, new[] { "Fuel", "Public Transport", "Car Insurance" }),
                 new BudgetTemplateGroup("Lifestyle", CategoryKind.Expense, new[] { "Subscriptions", "Clothing", "Personal Care" }),
-                new BudgetTemplateGroup("Savings", CategoryKind.Fund, new[] { "Emergency Fund" }),
+                new BudgetTemplateGroup("Savings", CategoryKind.Savings, new[] { "Emergency Fund" }),
             }),
         new BudgetTemplate(
             "student",
@@ -43,7 +43,7 @@ public static class BudgetTemplates
                 new BudgetTemplateGroup("Living", CategoryKind.Expense, new[] { "Rent", "Groceries", "Phone" }),
                 new BudgetTemplateGroup("Study", CategoryKind.Expense, new[] { "Books & Supplies", "Course Fees" }),
                 new BudgetTemplateGroup("Social", CategoryKind.Expense, new[] { "Eating Out", "Entertainment" }),
-                new BudgetTemplateGroup("Savings", CategoryKind.Fund, new[] { "Rainy Day Fund" }),
+                new BudgetTemplateGroup("Savings", CategoryKind.Savings, new[] { "Rainy Day Fund" }),
             }),
         new BudgetTemplate(
             "family",
@@ -57,7 +57,7 @@ public static class BudgetTemplates
                 new BudgetTemplateGroup("Transport", CategoryKind.Expense, new[] { "Fuel", "Public Transport", "Car Insurance" }),
                 new BudgetTemplateGroup("Children", CategoryKind.Expense, new[] { "Childcare", "School", "Activities" }),
                 new BudgetTemplateGroup("Lifestyle", CategoryKind.Expense, new[] { "Subscriptions", "Clothing", "Personal Care" }),
-                new BudgetTemplateGroup("Funds", CategoryKind.Fund, new[] { "Emergency Fund", "Holiday", "Christmas" }),
+                new BudgetTemplateGroup("Savings", CategoryKind.Savings, new[] { "Emergency Fund", "Holiday", "Christmas" }),
             }),
     };
 

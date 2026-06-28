@@ -27,12 +27,12 @@ public class BudgetItem : BaseEntity
     public decimal ActualAmount { get; set; }
 
     /// <summary>
-    /// For a line in a <see cref="CategoryKind.Fund"/> group: a stable id shared by
+    /// For a line in a <see cref="CategoryKind.Savings"/> group: a stable id shared by
     /// every month's instance of the same sinking fund, so its balance can roll over.
     /// Generated when the fund line is first created and preserved when a month is
     /// copied. Null for ordinary income/expense lines.
     /// </summary>
-    public Guid? FundId { get; set; }
+    public Guid? SavingsId { get; set; }
 
     /// <summary>
     /// Transient (not persisted): for a fund line, the running available balance of
@@ -41,7 +41,7 @@ public class BudgetItem : BaseEntity
     /// non-fund lines. Derived at read time (see
     /// ZeroBudget.Application.Budgets.BudgetActuals).
     /// </summary>
-    public decimal? FundAvailable { get; set; }
+    public decimal? SavingsAvailable { get; set; }
 
     /// <summary>
     /// The day of the month (1–31) this line is due, when it is tracked as a bill.
