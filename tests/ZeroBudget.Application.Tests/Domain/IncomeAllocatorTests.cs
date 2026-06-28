@@ -26,7 +26,7 @@ public class IncomeAllocatorTests
         var rules = new List<AllocationRuleInput>
         {
             new(0, AllocationRuleType.FundEnvelopes, SplitMethod.Equal, 0m, ResolvedTotal: 3641m),
-            new(1, AllocationRuleType.FundSinkingFunds, SplitMethod.Equal, 0m, ResolvedTotal: 2164m),
+            new(1, AllocationRuleType.FundJars, SplitMethod.Equal, 0m, ResolvedTotal: 2164m),
             new(2, AllocationRuleType.FixedPerMember, SplitMethod.Equal, FixedAmountPerMember: 250m, ResolvedTotal: 0m),
             new(3, AllocationRuleType.SplitRemainderToMembers, SplitMethod.Equal, 0m, 0m),
         };
@@ -68,7 +68,7 @@ public class IncomeAllocatorTests
         var rules = new List<AllocationRuleInput>
         {
             new(0, AllocationRuleType.FundEnvelopes, SplitMethod.Equal, 0m, ResolvedTotal: 3641m),
-            new(1, AllocationRuleType.FundSinkingFunds, SplitMethod.Equal, 0m, ResolvedTotal: 2164m),
+            new(1, AllocationRuleType.FundJars, SplitMethod.Equal, 0m, ResolvedTotal: 2164m),
             new(2, AllocationRuleType.FixedPerMember, SplitMethod.Equal, FixedAmountPerMember: 250m, ResolvedTotal: 0m),
             new(3, AllocationRuleType.SplitRemainderToMembers, SplitMethod.BalanceTilt, 0m, 0m),
         };
@@ -99,7 +99,7 @@ public class IncomeAllocatorTests
         var rules = new List<AllocationRuleInput>
         {
             new(0, AllocationRuleType.FundEnvelopes, SplitMethod.Equal, 0m, ResolvedTotal: 3641m),
-            new(1, AllocationRuleType.FundSinkingFunds, SplitMethod.Equal, 0m, ResolvedTotal: 2164m),
+            new(1, AllocationRuleType.FundJars, SplitMethod.Equal, 0m, ResolvedTotal: 2164m),
             new(2, AllocationRuleType.FixedPerMember, SplitMethod.Equal, FixedAmountPerMember: 250m, ResolvedTotal: 0m),
             new(3, AllocationRuleType.SplitRemainderToMembers, SplitMethod.BalanceTilt, 0m, 0m),
         };

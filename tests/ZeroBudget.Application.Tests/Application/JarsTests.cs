@@ -4,10 +4,10 @@ using Xunit;
 using ZeroBudget.Application.Budgets.Commands.CreateBudgetMonth;
 using ZeroBudget.Application.Common.Exceptions;
 using ZeroBudget.Application.Common.Interfaces;
-using ZeroBudget.Application.SinkingFunds.Commands.ArchiveSinkingFund;
-using ZeroBudget.Application.SinkingFunds.Commands.CreateSinkingFund;
-using ZeroBudget.Application.SinkingFunds.Commands.UpdateSinkingFund;
-using ZeroBudget.Application.SinkingFunds.Queries.GetSinkingFunds;
+using ZeroBudget.Application.Jars.Commands.ArchiveJar;
+using ZeroBudget.Application.Jars.Commands.CreateJar;
+using ZeroBudget.Application.Jars.Commands.UpdateJar;
+using ZeroBudget.Application.Jars.Queries.GetJars;
 using ZeroBudget.Domain.Entities;
 using ZeroBudget.Domain.Enums;
 using ZeroBudget.Domain.ValueObjects;
@@ -20,7 +20,7 @@ namespace ZeroBudget.Application.Tests.Application;
 /// balance/required/status, and seeding a new month's contribution from the accrual
 /// calculator.
 /// </summary>
-public class SinkingFundsTests
+public class JarsTests
 {
     private sealed class CurrentUserStub(string? userId) : ICurrentUser
     {
@@ -32,24 +32,24 @@ public class SinkingFundsTests
             .UseInMemoryDatabase($"zbb-funds2-{Guid.NewGuid()}")
             .Options);
 
-    private static SinkingFund SeedFund(
+    private static Jar SeedFund(
         ApplicationDbContext db, string ownerId, Guid id, decimal target,
         AccrualMethod accrual = AccrualMethod.TargetByDate, DateOnly? targetDate = null,
         decimal opening = 0m, bool archived = false)
     {
-        var fund = new SinkingFund
+        var fund = new Jar
         {
             Id = id,
             OwnerId = ownerId,
             Name = "Holiday",
-            Kind = FundKind.Annual,
+            Kind = JarKind.Annual,
             TargetAmount = target,
             Accrual = accrual,
             TargetDate = targetDate,
             OpeningBalance = opening,
             IsArchived = archived,
         };
-        db.SinkingFunds.Add(fund);
+        db.Jars.Add(fund);
         db.SaveChanges();
         return fund;
     }
@@ -62,7 +62,7 @@ public class SinkingFundsTests
         var line = new BudgetItem
         {
             Name = "Holiday",
-            FundId = fundId,
+            SavingsId = fundId,
             PlannedAmount = planned,
         };
         db.BudgetMonths.Add(new BudgetMonth
@@ -73,7 +73,7 @@ public class SinkingFundsTests
             BaseCurrency = CurrencyCode.Eur,
             Categories = new List<BudgetCategory>
             {
-                new() { Name = "Funds", Kind = CategoryKind.Fund, Items = new List<BudgetItem> { line } },
+                new() { Name = "Funds", Kind = CategoryKind.Savings, Items = new List<BudgetItem> { line } },
             },
         });
         db.SaveChanges();
@@ -98,10 +98,10 @@ public class SinkingFundsTests
     public async Task Create_PersistsOwnerAndFields()
     {
         await using var db = NewContext();
-        var handler = new CreateSinkingFundCommandHandler(db, new CurrentUserStub("user-1"));
+        var handler = new CreateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
-        var dto = await handler.Handle(new CreateSinkingFundCommand(
-            "Home Insurance", FundKind.Commitment, 300m, null, null, null,
+        var dto = await handler.Handle(new CreateJarCommand(
+            "Home Insurance", JarKind.Commitment, 300m, null, null, null,
             AccrualMethod.StraightLine, RecurAnnually: true, OpeningBalance: 0m,
             OpeningAsOf: null, FundingAccountId: null), CancellationToken.None);
 
@@ -109,7 +109,7 @@ public class SinkingFundsTests
         dto.RequiredMonthlyContribution.Should().Be(25.00m);   // 300 / 12
         dto.CurrentBalance.Should().Be(0m);
 
-        var stored = await db.SinkingFunds.SingleAsync();
+        var stored = await db.Jars.SingleAsync();
         stored.OwnerId.Should().Be("user-1");
         stored.RecurAnnually.Should().BeTrue();
     }
@@ -122,12 +122,12 @@ public class SinkingFundsTests
         SeedFund(db, "user-1", Guid.NewGuid(), 300m, archived: true);
         SeedFund(db, "user-2", Guid.NewGuid(), 300m);
 
-        var handler = new GetSinkingFundsQueryHandler(db, new CurrentUserStub("user-1"));
+        var handler = new GetJarsQueryHandler(db, new CurrentUserStub("user-1"));
 
-        var active = await handler.Handle(new GetSinkingFundsQuery(), CancellationToken.None);
+        var active = await handler.Handle(new GetJarsQuery(), CancellationToken.None);
         active.Should().ContainSingle().Which.IsArchived.Should().BeFalse();
 
-        var all = await handler.Handle(new GetSinkingFundsQuery(IncludeArchived: true), CancellationToken.None);
+        var all = await handler.Handle(new GetJarsQuery(IncludeArchived: true), CancellationToken.None);
         all.Should().HaveCount(2);
     }
 
@@ -139,8 +139,8 @@ public class SinkingFundsTests
         SeedFund(db, "user-1", fundId, target: 1000m, opening: 50m);
         SeedFundLine(db, "user-1", fundId, 2026, 6, planned: 100m, spent: 30m);
 
-        var handler = new GetSinkingFundsQueryHandler(db, new CurrentUserStub("user-1"));
-        var funds = await handler.Handle(new GetSinkingFundsQuery(), CancellationToken.None);
+        var handler = new GetJarsQueryHandler(db, new CurrentUserStub("user-1"));
+        var funds = await handler.Handle(new GetJarsQuery(), CancellationToken.None);
 
         funds.Single().CurrentBalance.Should().Be(120m); // 50 + 100 − 30
     }
@@ -153,9 +153,9 @@ public class SinkingFundsTests
         SeedFund(db, "user-1", fundId, target: 1200m,
             accrual: AccrualMethod.TargetByDate, targetDate: new DateOnly(2026, 11, 1), opening: 200m);
 
-        var handler = new GetSinkingFundsQueryHandler(db, new CurrentUserStub("user-1"));
+        var handler = new GetJarsQueryHandler(db, new CurrentUserStub("user-1"));
         var funds = await handler.Handle(
-            new GetSinkingFundsQuery(AsOf: new DateOnly(2026, 1, 1)), CancellationToken.None);
+            new GetJarsQuery(AsOf: new DateOnly(2026, 1, 1)), CancellationToken.None);
 
         // (1200 − 200) / 10 months = 100.00
         funds.Single().RequiredMonthlyContribution.Should().Be(100.00m);
@@ -167,8 +167,8 @@ public class SinkingFundsTests
         await using var db = NewContext();
         SeedFund(db, "user-1", Guid.NewGuid(), target: 100m, opening: 100m);
 
-        var funds = await new GetSinkingFundsQueryHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new GetSinkingFundsQuery(), CancellationToken.None);
+        var funds = await new GetJarsQueryHandler(db, new CurrentUserStub("user-1"))
+            .Handle(new GetJarsQuery(), CancellationToken.None);
 
         funds.Single().Status.Should().Be("FullyFunded");
     }
@@ -181,8 +181,8 @@ public class SinkingFundsTests
         SeedFund(db, "user-1", fundId, target: 100m, opening: 0m);
         SeedFundLine(db, "user-1", fundId, 2026, 6, planned: 10m, spent: 50m); // 0 + 10 − 50 = −40
 
-        var funds = await new GetSinkingFundsQueryHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new GetSinkingFundsQuery(), CancellationToken.None);
+        var funds = await new GetJarsQueryHandler(db, new CurrentUserStub("user-1"))
+            .Handle(new GetJarsQuery(), CancellationToken.None);
 
         funds.Single().Status.Should().Be("Overspent");
     }
@@ -194,9 +194,9 @@ public class SinkingFundsTests
         var fundId = Guid.NewGuid();
         SeedFund(db, "user-1", fundId, target: 300m);
 
-        var dto = await new UpdateSinkingFundCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new UpdateSinkingFundCommand(
-                fundId, "Renamed", FundKind.Goal, 500m, null, null, null,
+        var dto = await new UpdateJarCommandHandler(db, new CurrentUserStub("user-1"))
+            .Handle(new UpdateJarCommand(
+                fundId, "Renamed", JarKind.Goal, 500m, null, null, null,
                 AccrualMethod.StraightLine, false, 0m, null, null), CancellationToken.None);
 
         dto.Name.Should().Be("Renamed");
@@ -208,10 +208,10 @@ public class SinkingFundsTests
     public async Task Update_Throws_WhenMissing()
     {
         await using var db = NewContext();
-        var handler = new UpdateSinkingFundCommandHandler(db, new CurrentUserStub("user-1"));
+        var handler = new UpdateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
-            new UpdateSinkingFundCommand(Guid.NewGuid(), "X", FundKind.Annual, 1m, null, null, null,
+            new UpdateJarCommand(Guid.NewGuid(), "X", JarKind.Annual, 1m, null, null, null,
                 AccrualMethod.TargetByDate, false, 0m, null, null), CancellationToken.None));
     }
 
@@ -222,10 +222,10 @@ public class SinkingFundsTests
         var fundId = Guid.NewGuid();
         SeedFund(db, "user-1", fundId, target: 300m);
 
-        var handler = new UpdateSinkingFundCommandHandler(db, new CurrentUserStub("user-2"));
+        var handler = new UpdateJarCommandHandler(db, new CurrentUserStub("user-2"));
 
         await Assert.ThrowsAsync<ForbiddenAccessException>(() => handler.Handle(
-            new UpdateSinkingFundCommand(fundId, "X", FundKind.Annual, 1m, null, null, null,
+            new UpdateJarCommand(fundId, "X", JarKind.Annual, 1m, null, null, null,
                 AccrualMethod.TargetByDate, false, 0m, null, null), CancellationToken.None));
     }
 
@@ -236,11 +236,11 @@ public class SinkingFundsTests
         var fundId = Guid.NewGuid();
         SeedFund(db, "user-1", fundId, target: 300m);
 
-        await new ArchiveSinkingFundCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new ArchiveSinkingFundCommand(fundId), CancellationToken.None);
+        await new ArchiveJarCommandHandler(db, new CurrentUserStub("user-1"))
+            .Handle(new ArchiveJarCommand(fundId), CancellationToken.None);
 
-        var active = await new GetSinkingFundsQueryHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new GetSinkingFundsQuery(), CancellationToken.None);
+        var active = await new GetJarsQueryHandler(db, new CurrentUserStub("user-1"))
+            .Handle(new GetJarsQuery(), CancellationToken.None);
         active.Should().BeEmpty();
     }
 
@@ -259,7 +259,7 @@ public class SinkingFundsTests
 
         var juneLine = await db.BudgetItems
             .Include(i => i.BudgetCategory).ThenInclude(c => c.BudgetMonth)
-            .SingleAsync(i => i.FundId == fundId && i.BudgetCategory.BudgetMonth.Month == 6);
+            .SingleAsync(i => i.SavingsId == fundId && i.BudgetCategory.BudgetMonth.Month == 6);
 
         // Balance entering June = 200; remaining 1000 over 6 months (Jun→Dec) = 166.67.
         juneLine.PlannedAmount.Should().Be(166.67m);
@@ -278,7 +278,7 @@ public class SinkingFundsTests
 
         var juneLine = await db.BudgetItems
             .Include(i => i.BudgetCategory).ThenInclude(c => c.BudgetMonth)
-            .SingleAsync(i => i.FundId == fundId && i.BudgetCategory.BudgetMonth.Month == 6);
+            .SingleAsync(i => i.SavingsId == fundId && i.BudgetCategory.BudgetMonth.Month == 6);
 
         juneLine.PlannedAmount.Should().Be(200m); // copied, not recomputed
     }
@@ -286,18 +286,18 @@ public class SinkingFundsTests
     [Fact]
     public void Validator_RejectsEmptyName_NegativeTarget_AndBadCoverWindow()
     {
-        var validator = new CreateSinkingFundCommandValidator();
+        var validator = new CreateJarCommandValidator();
 
-        validator.Validate(new CreateSinkingFundCommand(
-            "", FundKind.Annual, 100m, null, null, null,
+        validator.Validate(new CreateJarCommand(
+            "", JarKind.Annual, 100m, null, null, null,
             AccrualMethod.TargetByDate, false, 0m, null, null)).IsValid.Should().BeFalse();
 
-        validator.Validate(new CreateSinkingFundCommand(
-            "X", FundKind.Annual, -1m, null, null, null,
+        validator.Validate(new CreateJarCommand(
+            "X", JarKind.Annual, -1m, null, null, null,
             AccrualMethod.TargetByDate, false, 0m, null, null)).IsValid.Should().BeFalse();
 
-        validator.Validate(new CreateSinkingFundCommand(
-            "X", FundKind.Annual, 100m, null,
+        validator.Validate(new CreateJarCommand(
+            "X", JarKind.Annual, 100m, null,
             new DateOnly(2026, 6, 1), new DateOnly(2026, 1, 1),
             AccrualMethod.StraightLine, false, 0m, null, null)).IsValid.Should().BeFalse();
     }

@@ -308,9 +308,6 @@ namespace ZeroBudget.Infrastructure.Persistence.Migrations
                     b.Property<int?>("DueDay")
                         .HasColumnType("int");
 
-                    b.Property<Guid?>("FundId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<bool>("IsPaid")
                         .HasColumnType("bit");
 
@@ -323,11 +320,14 @@ namespace ZeroBudget.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 4)
                         .HasColumnType("decimal(18,4)");
 
+                    b.Property<Guid?>("SavingsId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.HasKey("Id");
 
                     b.HasIndex("BudgetCategoryId");
 
-                    b.HasIndex("FundId");
+                    b.HasIndex("SavingsId");
 
                     b.ToTable("BudgetItems", (string)null);
                 });
@@ -463,46 +463,7 @@ namespace ZeroBudget.Infrastructure.Persistence.Migrations
                     b.ToTable("HouseholdMemberships", (string)null);
                 });
 
-            modelBuilder.Entity("ZeroBudget.Domain.Entities.RefreshToken", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime>("ExpiresUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("ReplacedByTokenHash")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<DateTime?>("RevokedUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("TokenHash")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(450)
-                        .HasColumnType("nvarchar(450)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TokenHash")
-                        .IsUnique();
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("RefreshTokens", (string)null);
-                });
-
-            modelBuilder.Entity("ZeroBudget.Domain.Entities.SinkingFund", b =>
+            modelBuilder.Entity("ZeroBudget.Domain.Entities.Jar", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -559,7 +520,46 @@ namespace ZeroBudget.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("OwnerId");
 
-                    b.ToTable("SinkingFunds", (string)null);
+                    b.ToTable("Jars", (string)null);
+                });
+
+            modelBuilder.Entity("ZeroBudget.Domain.Entities.RefreshToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ReplacedByTokenHash")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("RevokedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("RefreshTokens", (string)null);
                 });
 
             modelBuilder.Entity("ZeroBudget.Domain.Entities.Transaction", b =>
@@ -846,9 +846,9 @@ namespace ZeroBudget.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("ZeroBudget.Domain.Entities.SinkingFund", null)
+                    b.HasOne("ZeroBudget.Domain.Entities.Jar", null)
                         .WithMany()
-                        .HasForeignKey("FundId")
+                        .HasForeignKey("SavingsId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("BudgetCategory");

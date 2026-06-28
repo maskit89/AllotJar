@@ -21,7 +21,7 @@ export const TOUR_STEPS: TourStep[] = [
     body: (
       <>
         Everything lives in this sidebar — your monthly <strong>Dashboard</strong>, the{' '}
-        <strong>Transactions</strong> register, savings <strong>Funds</strong> and{' '}
+        <strong>Transactions</strong> register, <strong>Jars</strong> and{' '}
         <strong>Reports</strong>. You can always get back here.
       </>
     ),

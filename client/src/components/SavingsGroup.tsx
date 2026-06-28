@@ -24,7 +24,7 @@ interface Props {
  * total, then each fund as a name + funding bar with its rolled-over **Available**
  * balance and an inline-editable monthly contribution.
  */
-export function FundGroup({
+export function SavingsGroup({
   category,
   currency,
   savingItemId,
@@ -131,7 +131,7 @@ export function FundGroup({
           onCommit={onCommitItem}
           onRename={onRenameItem}
           onDelete={onDeleteItem}
-          availableMinor={item.fundAvailableMinor}
+          availableMinor={item.savingsAvailableMinor}
         />
       ))}
       {category.items.length === 0 && (

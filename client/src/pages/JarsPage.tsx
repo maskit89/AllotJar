@@ -4,21 +4,21 @@ import { Button, Card, EmptyState, ErrorBanner, Input, Select } from '../compone
 import { Hero } from '../components/Hero'
 import { Modal } from '../components/Modal'
 import { Jar } from '../components/Jar'
-import { FundsIcon } from '../components/icons'
+import { JarsIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
-import type { AccountDto, SinkingFundDto } from '../types'
+import type { AccountDto, JarDto } from '../types'
 import {
   AccrualMethod,
   ACCRUAL_METHOD_LABELS,
-  FundKind,
-  FUND_KIND_LABELS,
+  JarKind,
+  JAR_KIND_LABELS,
 } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
 
-const KIND_OPTIONS = Object.entries(FUND_KIND_LABELS).map(([value, label]) => ({ value: Number(value), label }))
+const KIND_OPTIONS = Object.entries(JAR_KIND_LABELS).map(([value, label]) => ({ value: Number(value), label }))
 const ACCRUAL_OPTIONS = Object.entries(ACCRUAL_METHOD_LABELS).map(([value, label]) => ({ value: Number(value), label }))
 
 /** Parse a non-negative amount string into a wire decimal; '' → 0; null when invalid. */
@@ -41,7 +41,7 @@ interface FormState {
 
 const BLANK_FORM: FormState = {
   name: '',
-  kind: FundKind.Annual,
+  kind: JarKind.Annual,
   target: '',
   targetDate: '',
   accrual: AccrualMethod.TargetByDate,
@@ -50,11 +50,11 @@ const BLANK_FORM: FormState = {
   fundingAccountId: '',
 }
 
-export function FundsPage() {
-  // Managing sinking funds needs Admin+ (canWrite); others see them read-only.
+export function JarsPage() {
+  // Managing jars needs Admin+ (canWrite); others see them read-only.
   const { canWrite, preferredCurrency } = useAuth()
   const CURRENCY = preferredCurrency
-  const [funds, setFunds] = useState<SinkingFundDto[]>([])
+  const [jars, setJars] = useState<JarDto[]>([])
   const [accounts, setAccounts] = useState<AccountDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -68,15 +68,15 @@ export function FundsPage() {
     let cancelled = false
     setLoading(true)
     Promise.all([
-      api.get<SinkingFundDto[]>('/sinkingfunds'),
+      api.get<JarDto[]>('/jars'),
       api.get<AccountDto[]>('/accounts').catch(() => ({ data: [] })),
     ])
       .then(([f, acc]) => {
         if (cancelled) return
-        setFunds(f.data)
+        setJars(f.data)
         setAccounts(Array.isArray(acc?.data) ? acc.data : [])
       })
-      .catch(() => !cancelled && setError('Could not load your sinking funds.'))
+      .catch(() => !cancelled && setError('Could not load your jars.'))
       .finally(() => !cancelled && setLoading(false))
     return () => {
       cancelled = true
@@ -100,7 +100,7 @@ export function FundsPage() {
     setShowForm(true)
   }
 
-  function startEdit(f: SinkingFundDto) {
+  function startEdit(f: JarDto) {
     setEditingId(f.id)
     setForm({
       name: f.name,
@@ -118,7 +118,7 @@ export function FundsPage() {
 
   const submit = useCallback(async () => {
     if (form.name.trim() === '') {
-      setError('Give the fund a name.')
+      setError('Give the jar a name.')
       return
     }
     const targetAmount = parseAmount(form.target)
@@ -146,33 +146,33 @@ export function FundsPage() {
     setError(null)
     try {
       if (editingId) {
-        const { data } = await api.put<SinkingFundDto>(`/sinkingfunds/${editingId}`, body)
-        setFunds((prev) => prev.map((f) => (f.id === editingId ? data : f)))
+        const { data } = await api.put<JarDto>(`/jars/${editingId}`, body)
+        setJars((prev) => prev.map((f) => (f.id === editingId ? data : f)))
         track(EVENTS.fundEdited, { kind: form.kind })
       } else {
-        const { data } = await api.post<SinkingFundDto>('/sinkingfunds', body)
-        setFunds((prev) => [...prev, data])
+        const { data } = await api.post<JarDto>('/jars', body)
+        setJars((prev) => [...prev, data])
         track(EVENTS.fundCreated, { kind: form.kind })
       }
       closeForm()
     } catch {
-      setError(editingId ? 'Could not save that fund.' : 'Could not add that fund.')
+      setError(editingId ? 'Could not save that jar.' : 'Could not add that jar.')
     } finally {
       setSaving(false)
     }
   }, [form, editingId, closeForm])
 
   const archive = useCallback(
-    async (f: SinkingFundDto) => {
+    async (f: JarDto) => {
       setSaving(true)
       setError(null)
       try {
-        await api.put(`/sinkingfunds/${f.id}/archive`, { archived: true })
-        setFunds((prev) => prev.filter((x) => x.id !== f.id))
+        await api.put(`/jars/${f.id}/archive`, { archived: true })
+        setJars((prev) => prev.filter((x) => x.id !== f.id))
         track(EVENTS.fundArchived)
         closeForm()
       } catch {
-        setError('Could not archive that fund.')
+        setError('Could not archive that jar.')
       } finally {
         setSaving(false)
       }
@@ -181,23 +181,23 @@ export function FundsPage() {
   )
 
   // Hero totals — what's saved across the jars, the monthly contribution they need.
-  const totalSavedMinor = useMemo(() => funds.reduce((s, f) => s + fromAmount(f.currentBalance), 0), [funds])
+  const totalSavedMinor = useMemo(() => jars.reduce((s, f) => s + fromAmount(f.currentBalance), 0), [jars])
   const monthlyMinor = useMemo(
-    () => funds.reduce((s, f) => s + fromAmount(f.requiredMonthlyContribution), 0),
-    [funds],
+    () => jars.reduce((s, f) => s + fromAmount(f.requiredMonthlyContribution), 0),
+    [jars],
   )
 
-  const editingFund = editingId ? funds.find((f) => f.id === editingId) ?? null : null
+  const editingJar = editingId ? jars.find((f) => f.id === editingId) ?? null : null
 
   return (
-    <AppShell active="funds" title="Sinking funds">
+    <AppShell active="jars" title="Jars">
       <Hero
         eyebrow="Total saved"
         amount={formatMoney(totalSavedMinor, CURRENCY)}
         amountLabel={`Total saved: ${formatMoney(totalSavedMinor, CURRENCY)}`}
         tiles={[
           { label: 'Monthly', value: `+${formatMoney(monthlyMinor, CURRENCY)}` },
-          { label: 'Active jars', value: `${funds.length}` },
+          { label: 'Active jars', value: `${jars.length}` },
         ]}
       />
 
@@ -205,10 +205,10 @@ export function FundsPage() {
 
       {loading && <p className="text-slate-500">Loading…</p>}
 
-      {!loading && funds.length === 0 ? (
+      {!loading && jars.length === 0 ? (
         <EmptyState
-          icon={<FundsIcon className="h-6 w-6" />}
-          title="No sinking funds yet"
+          icon={<JarsIcon className="h-6 w-6" />}
+          title="No jars yet"
           description="Add a jar — give it a target and a date, and we'll work out what to set aside each month."
         >
           {canWrite && (
@@ -229,10 +229,10 @@ export function FundsPage() {
               )}
             </div>
             <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
-              {funds.map((f, i) => (
-                <FundCard
+              {jars.map((f, i) => (
+                <JarCard
                   key={f.id}
-                  fund={f}
+                  jar={f}
                   hue={hueForIndex(i)}
                   currency={CURRENCY}
                   onEdit={() => startEdit(f)}
@@ -259,7 +259,7 @@ export function FundsPage() {
                 type="text"
                 value={form.name}
                 placeholder="e.g. Home insurance"
-                aria-label="Fund name"
+                aria-label="Jar name"
                 onChange={(e) => set('name', e.target.value)}
                 className="w-full"
               />
@@ -267,7 +267,7 @@ export function FundsPage() {
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
                 Kind
-                <Select value={form.kind} aria-label="Fund kind" onChange={(e) => set('kind', Number(e.target.value))} className="w-full">
+                <Select value={form.kind} aria-label="Jar kind" onChange={(e) => set('kind', Number(e.target.value))} className="w-full">
                   {KIND_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
@@ -349,12 +349,12 @@ export function FundsPage() {
               Renews yearly
             </label>
             <div className="flex items-center justify-between gap-2 pt-1">
-              {editingFund ? (
+              {editingJar ? (
                 <button
                   type="button"
-                  onClick={() => archive(editingFund)}
+                  onClick={() => archive(editingJar)}
                   disabled={saving}
-                  aria-label={`Archive ${editingFund.name}`}
+                  aria-label={`Archive ${editingJar.name}`}
                   className="rounded-lg px-2 py-1.5 text-sm font-semibold text-slate-500 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
                 >
                   Archive jar
@@ -366,8 +366,8 @@ export function FundsPage() {
                 <Button variant="ghost" onClick={closeForm} aria-label="Cancel edit">
                   Cancel
                 </Button>
-                <Button onClick={submit} disabled={saving} aria-label={editingId ? 'Save fund' : 'Add fund'}>
-                  {editingId ? 'Save' : 'Add fund'}
+                <Button onClick={submit} disabled={saving} aria-label={editingId ? 'Save jar' : 'Add jar'}>
+                  {editingId ? 'Save' : 'Add jar'}
                 </Button>
               </div>
             </div>
@@ -378,30 +378,30 @@ export function FundsPage() {
   )
 }
 
-function FundCard({
-  fund,
+function JarCard({
+  jar,
   hue,
   currency,
   onEdit,
   canManage,
 }: {
-  fund: SinkingFundDto
+  jar: JarDto
   hue: CategoryHue
   currency: string
   onEdit: () => void
   canManage: boolean
 }) {
-  const balanceMinor = fromAmount(fund.currentBalance)
-  const targetMinor = fromAmount(fund.targetAmount)
+  const balanceMinor = fromAmount(jar.currentBalance)
+  const targetMinor = fromAmount(jar.targetAmount)
   const pct = targetMinor > 0 ? Math.min(100, Math.max(0, Math.round((balanceMinor / targetMinor) * 100))) : 0
-  const monthlyMinor = fromAmount(fund.requiredMonthlyContribution)
+  const monthlyMinor = fromAmount(jar.requiredMonthlyContribution)
 
   return (
     <Card className="flex gap-4 p-5">
-      <Jar hue={hue} pct={pct} size="card" showPct={false} label={`${fund.name}: ${pct}% funded`} />
+      <Jar hue={hue} pct={pct} size="card" showPct={false} label={`${jar.name}: ${pct}% funded`} />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-start justify-between gap-2">
-          <h3 className="truncate text-[15px] font-semibold text-slate-900">{fund.name}</h3>
+          <h3 className="truncate text-[15px] font-semibold text-slate-900">{jar.name}</h3>
           {targetMinor > 0 && (
             <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-600">
               {pct}%
@@ -416,7 +416,7 @@ function FundCard({
 
         <div
           role="progressbar"
-          aria-label={`${fund.name} funding progress`}
+          aria-label={`${jar.name} funding progress`}
           aria-valuenow={pct}
           aria-valuemin={0}
           aria-valuemax={100}
@@ -434,7 +434,7 @@ function FundCard({
             <button
               type="button"
               onClick={onEdit}
-              aria-label={`Edit ${fund.name}`}
+              aria-label={`Edit ${jar.name}`}
               className="text-[12.5px] font-semibold text-slate-500 transition hover:text-brand-700 dark:hover:text-brand-200"
             >
               Edit

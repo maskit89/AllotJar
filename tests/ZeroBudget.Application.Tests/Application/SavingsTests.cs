@@ -18,7 +18,7 @@ namespace ZeroBudget.Application.Tests.Application;
 /// Contributions (planned) count as budgeted money; spending (actual) draws the
 /// balance down; the available balance rolls over month to month.
 /// </summary>
-public class FundsTests
+public class SavingsTests
 {
     private sealed class CurrentUserStub(string? userId) : ICurrentUser
     {
@@ -27,7 +27,7 @@ public class FundsTests
 
     private static ApplicationDbContext NewContext() =>
         new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-funds-{Guid.NewGuid()}")
+            .UseInMemoryDatabase($"zbb-savings-{Guid.NewGuid()}")
             .Options);
 
     private static BudgetMonth NewMonth(string ownerId, int year, int month) => new()
@@ -49,10 +49,10 @@ public class FundsTests
         may.Categories.Add(new BudgetCategory
         {
             Name = "Funds",
-            Kind = CategoryKind.Fund,
+            Kind = CategoryKind.Savings,
             Items = new List<BudgetItem>
             {
-                new() { Name = "Car", FundId = fundId, PlannedAmount = 100m },
+                new() { Name = "Car", SavingsId = fundId, PlannedAmount = 100m },
             },
         });
 
@@ -61,13 +61,13 @@ public class FundsTests
         var juneCar = new BudgetItem
         {
             Name = "Car",
-            FundId = fundId,
+            SavingsId = fundId,
             PlannedAmount = 100m,
         };
         june.Categories.Add(new BudgetCategory
         {
             Name = "Funds",
-            Kind = CategoryKind.Fund,
+            Kind = CategoryKind.Savings,
             Items = new List<BudgetItem> { juneCar },
         });
 
@@ -86,9 +86,9 @@ public class FundsTests
         var handler = new GetBudgetMonthQueryHandler(db, new CurrentUserStub("user-1"));
         var dto = await handler.Handle(new GetBudgetMonthQuery(2026, 6), CancellationToken.None);
 
-        var car = dto.Categories.Single(c => c.Kind == "Fund").Items.Single(i => i.Name == "Car");
+        var car = dto.Categories.Single(c => c.Kind == "Savings").Items.Single(i => i.Name == "Car");
         car.ActualAmount.Should().Be(30m);   // this month's spend
-        car.FundAvailable.Should().Be(170m); // rolled-over available balance
+        car.SavingsAvailable.Should().Be(170m); // rolled-over available balance
     }
 
     [Fact]
@@ -100,15 +100,15 @@ public class FundsTests
         var june = NewMonth("user-1", 2026, 6);
         june.Categories.Add(new BudgetCategory
         {
-            Name = "Funds", Kind = CategoryKind.Fund,
-            Items = new List<BudgetItem> { new() { Name = "Car", FundId = fundId, PlannedAmount = 100m } },
+            Name = "Funds", Kind = CategoryKind.Savings,
+            Items = new List<BudgetItem> { new() { Name = "Car", SavingsId = fundId, PlannedAmount = 100m } },
         });
         // A FUTURE month's contribution must not leak into June's balance.
         var july = NewMonth("user-1", 2026, 7);
         july.Categories.Add(new BudgetCategory
         {
-            Name = "Funds", Kind = CategoryKind.Fund,
-            Items = new List<BudgetItem> { new() { Name = "Car", FundId = fundId, PlannedAmount = 100m } },
+            Name = "Funds", Kind = CategoryKind.Savings,
+            Items = new List<BudgetItem> { new() { Name = "Car", SavingsId = fundId, PlannedAmount = 100m } },
         });
         db.BudgetMonths.AddRange(june, july);
         await db.SaveChangesAsync();
@@ -116,7 +116,7 @@ public class FundsTests
         var handler = new GetBudgetMonthQueryHandler(db, new CurrentUserStub("user-1"));
         var dto = await handler.Handle(new GetBudgetMonthQuery(2026, 6), CancellationToken.None);
 
-        dto.Categories.Single(c => c.Kind == "Fund").Items.Single().FundAvailable.Should().Be(100m);
+        dto.Categories.Single(c => c.Kind == "Savings").Items.Single().SavingsAvailable.Should().Be(100m);
     }
 
     [Fact]
@@ -131,8 +131,8 @@ public class FundsTests
         });
         month.Categories.Add(new BudgetCategory
         {
-            Name = "Funds", Kind = CategoryKind.Fund,
-            Items = new List<BudgetItem> { new() { Name = "Car", FundId = Guid.NewGuid(), PlannedAmount = 100m } },
+            Name = "Funds", Kind = CategoryKind.Savings,
+            Items = new List<BudgetItem> { new() { Name = "Car", SavingsId = Guid.NewGuid(), PlannedAmount = 100m } },
         });
         db.BudgetMonths.Add(month);
         await db.SaveChangesAsync();
@@ -155,9 +155,9 @@ public class FundsTests
 
         var handler = new AddBudgetCategoryCommandHandler(db, new CurrentUserStub("user-1"));
         var dto = await handler.Handle(
-            new AddBudgetCategoryCommand(month.Id, "Sinking Funds", CategoryKind.Fund), CancellationToken.None);
+            new AddBudgetCategoryCommand(month.Id, "Sinking Funds", CategoryKind.Savings), CancellationToken.None);
 
-        dto.Categories.Should().ContainSingle(c => c.Kind == "Fund" && c.Name == "Sinking Funds");
+        dto.Categories.Should().ContainSingle(c => c.Kind == "Savings" && c.Name == "Sinking Funds");
     }
 
     [Fact]
@@ -165,7 +165,7 @@ public class FundsTests
     {
         await using var db = NewContext();
         var month = NewMonth("user-1", 2026, 6);
-        var funds = new BudgetCategory { Name = "Funds", Kind = CategoryKind.Fund };
+        var funds = new BudgetCategory { Name = "Funds", Kind = CategoryKind.Savings };
         month.Categories.Add(funds);
         db.BudgetMonths.Add(month);
         await db.SaveChangesAsync();
@@ -174,7 +174,7 @@ public class FundsTests
         await handler.Handle(new AddBudgetItemCommand(funds.Id, "Holiday", 50m), CancellationToken.None);
 
         var line = await db.BudgetItems.SingleAsync(i => i.Name == "Holiday");
-        line.FundId.Should().NotBeNull();
+        line.SavingsId.Should().NotBeNull();
     }
 
     [Fact]
@@ -190,7 +190,7 @@ public class FundsTests
         var handler = new AddBudgetItemCommandHandler(db, new CurrentUserStub("user-1"));
         await handler.Handle(new AddBudgetItemCommand(expenses.Id, "Rent", 800m), CancellationToken.None);
 
-        (await db.BudgetItems.SingleAsync(i => i.Name == "Rent")).FundId.Should().BeNull();
+        (await db.BudgetItems.SingleAsync(i => i.Name == "Rent")).SavingsId.Should().BeNull();
     }
 
     [Fact]
@@ -201,8 +201,8 @@ public class FundsTests
         var may = NewMonth("user-1", 2026, 5);
         may.Categories.Add(new BudgetCategory
         {
-            Name = "Funds", Kind = CategoryKind.Fund,
-            Items = new List<BudgetItem> { new() { Name = "Car", FundId = fundId, PlannedAmount = 100m } },
+            Name = "Funds", Kind = CategoryKind.Savings,
+            Items = new List<BudgetItem> { new() { Name = "Car", SavingsId = fundId, PlannedAmount = 100m } },
         });
         db.BudgetMonths.Add(may);
         await db.SaveChangesAsync();
@@ -213,7 +213,7 @@ public class FundsTests
         var juneCar = await db.BudgetItems
             .Include(i => i.BudgetCategory).ThenInclude(c => c.BudgetMonth)
             .SingleAsync(i => i.Name == "Car" && i.BudgetCategory.BudgetMonth.Month == 6);
-        juneCar.FundId.Should().Be(fundId);
+        juneCar.SavingsId.Should().Be(fundId);
     }
 
     [Fact]

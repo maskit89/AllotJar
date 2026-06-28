@@ -353,12 +353,12 @@ export function AccountsPage() {
         </section>
       )}
 
-      {reconciliation.some((r) => r.backedFundCount > 0) && (
+      {reconciliation.some((r) => r.backedJarCount > 0) && (
         <Card className="overflow-hidden">
           <div className="border-b border-slate-100 bg-slate-50 px-4 py-2.5">
-            <h2 className="text-sm font-semibold text-slate-700">Fund reconciliation</h2>
+            <h2 className="text-sm font-semibold text-slate-700">Jar reconciliation</h2>
             <p className="text-xs text-slate-500">
-              Each account’s balance against the sinking funds it holds — the float is what’s not yet earmarked.
+              Each account’s balance against the jars it holds — the float is what’s not yet earmarked.
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -367,18 +367,18 @@ export function AccountsPage() {
                 <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                   <th className="px-4 py-2 font-medium">Account</th>
                   <th className="px-4 py-2 text-right font-medium">Balance</th>
-                  <th className="px-4 py-2 text-right font-medium">In funds</th>
+                  <th className="px-4 py-2 text-right font-medium">In jars</th>
                   <th className="px-4 py-2 text-right font-medium">Float</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {reconciliation
-                  .filter((r) => r.backedFundCount > 0)
+                  .filter((r) => r.backedJarCount > 0)
                   .map((r) => (
                     <tr key={r.accountId} className="hover:bg-slate-50">
                       <td className="px-4 py-2.5 font-medium text-slate-700">{r.accountName}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{formatMoney(fromAmount(r.currentBalance), CURRENCY)}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-500">{formatMoney(fromAmount(r.backedFundsTotal), CURRENCY)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-500">{formatMoney(fromAmount(r.backedJarsTotal), CURRENCY)}</td>
                       <td className={`px-4 py-2.5 text-right font-semibold tabular-nums ${fromAmount(r.float) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800'}`}>
                         {formatMoney(fromAmount(r.float), CURRENCY)}
                       </td>

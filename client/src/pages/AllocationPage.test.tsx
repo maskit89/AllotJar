@@ -43,7 +43,7 @@ function preview(transfersCreated = 0): AllocationResultDto {
   return {
     pool: 8411.61,
     envelopesTotal: 3641,
-    fundsTotal: 2164,
+    jarsTotal: 2164,
     transfersCreated,
     steps: [
       { type: 0, total: 3641, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1820.5 }, { memberId: 'm2', name: 'Liza', amount: 1820.5 }] },

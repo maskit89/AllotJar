@@ -337,7 +337,7 @@ export function TransactionsPage() {
     let fundIdx = 0
     for (const c of month.categories) {
       const hue: CategoryHue | 'income' =
-        c.kind === 'Income' ? 'income' : c.kind === 'Fund' ? hueForIndex(fundIdx++) : hueForIndex(expenseIdx++)
+        c.kind === 'Income' ? 'income' : c.kind === 'Savings' ? hueForIndex(fundIdx++) : hueForIndex(expenseIdx++)
       for (const it of c.items) map[it.id] = hue
     }
     return map

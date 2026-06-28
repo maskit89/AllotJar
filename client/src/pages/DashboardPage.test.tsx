@@ -218,7 +218,7 @@ describe('DashboardPage optimistic editing', () => {
       expect(mockPost).toHaveBeenCalledWith('/budget/categories', {
         budgetMonthId: 'm1',
         name: 'Subscriptions',
-        isFund: false,
+        isSavings: false,
       }),
     )
     expect(await screen.findByDisplayValue('Subscriptions', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -313,11 +313,11 @@ describe('DashboardPage optimistic editing', () => {
   it('renders a fund group with its rolled-over Available balance', { timeout: 15000 }, async () => {
     const b = budget()
     b.categories.push({
-      id: 'funds', name: 'Sinking Funds', kind: 'Fund', displayOrder: 0, totalPlanned: 100, totalActual: 0,
+      id: 'jars', name: 'Sinking Funds', kind: 'Savings', displayOrder: 0, totalPlanned: 100, totalActual: 0,
       items: [
         {
           id: 'i-car', name: 'Car', displayOrder: 0, plannedAmount: 100, actualAmount: 30,
-          remaining: 70, fundId: 'fund-car', fundAvailable: 170,
+          remaining: 70, savingsId: 'fund-car', savingsAvailable: 170,
         },
       ],
     })
@@ -338,7 +338,7 @@ describe('DashboardPage optimistic editing', () => {
     )
     const withFunds = budget()
     withFunds.categories.push({
-      id: 'funds', name: 'Sinking Funds', kind: 'Fund', displayOrder: 0, totalPlanned: 0, totalActual: 0, items: [],
+      id: 'jars', name: 'Sinking Funds', kind: 'Savings', displayOrder: 0, totalPlanned: 0, totalActual: 0, items: [],
     })
     mockPost.mockResolvedValue({ data: withFunds })
     const user = userEvent.setup()
@@ -347,14 +347,14 @@ describe('DashboardPage optimistic editing', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Add a group' }, { timeout: 5000 }))
     await user.type(await screen.findByLabelText('New category group name', {}, { timeout: 5000 }), 'Sinking Funds')
-    await user.selectOptions(screen.getByLabelText('New group kind'), 'fund')
+    await user.selectOptions(screen.getByLabelText('New group kind'), 'savings')
     await user.click(screen.getByRole('button', { name: 'Add category group' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/budget/categories', {
         budgetMonthId: 'm1',
         name: 'Sinking Funds',
-        isFund: true,
+        isSavings: true,
       }),
     )
   })

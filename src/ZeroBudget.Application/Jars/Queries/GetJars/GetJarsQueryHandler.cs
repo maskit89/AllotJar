@@ -27,20 +27,20 @@ public class GetJarsQueryHandler
 
         var asOf = request.AsOf ?? DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var funds = await _db.Jars
+        var jars = await _db.Jars
             .AsNoTracking()
             .Where(f => f.OwnerId == userId && (request.IncludeArchived || !f.IsArchived))
             .OrderBy(f => f.Name)
             .ToListAsync(cancellationToken);
 
-        if (funds.Count == 0)
+        if (jars.Count == 0)
         {
             return Array.Empty<JarDto>();
         }
 
         var tracked = await JarBalances.ComputeAsync(_db, userId, cancellationToken);
 
-        return funds
+        return jars
             .Select(f =>
             {
                 var balance = f.OpeningBalance + tracked.GetValueOrDefault(f.Id);

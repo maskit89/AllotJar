@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import type { AccountDto, SinkingFundDto } from '../types'
+import type { AccountDto, JarDto } from '../types'
 
 const { mockGet, mockPut, mockPost } = vi.hoisted(() => ({
   mockGet: vi.fn(),
@@ -16,10 +16,10 @@ vi.mock('../lib/api', () => ({
   setToken: vi.fn(),
 }))
 
-import { FundsPage } from './FundsPage'
+import { JarsPage } from './JarsPage'
 import { AuthProvider } from '../auth/AuthContext'
 
-function fund(over: Partial<SinkingFundDto> = {}): SinkingFundDto {
+function fund(over: Partial<JarDto> = {}): JarDto {
   return {
     id: 'f1',
     name: 'Home insurance',
@@ -48,19 +48,19 @@ const accountsData: AccountDto[] = [
   { id: 'acc1', name: 'Joint Current', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0 },
 ]
 
-let fundsData: SinkingFundDto[] = []
+let fundsData: JarDto[] = []
 
 function renderPage() {
   return render(
     <MemoryRouter>
       <AuthProvider>
-        <FundsPage />
+        <JarsPage />
       </AuthProvider>
     </MemoryRouter>,
   )
 }
 
-describe('FundsPage', () => {
+describe('JarsPage', () => {
   beforeEach(() => {
     mockGet.mockReset()
     mockPut.mockReset()
@@ -97,13 +97,13 @@ describe('FundsPage', () => {
 
     await user.click(await screen.findByRole('button', { name: 'New jar' }, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.type(dialog.getByLabelText('Fund name'), 'Vacation')
+    await user.type(dialog.getByLabelText('Jar name'), 'Vacation')
     await user.type(dialog.getByLabelText('Target amount'), '1200')
-    await user.click(dialog.getByRole('button', { name: 'Add fund' }))
+    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(
-        '/sinkingfunds',
+        '/jars',
         expect.objectContaining({ name: 'Vacation', targetAmount: 1200, kind: 0, accrual: 1 }),
       ),
     )
@@ -125,7 +125,7 @@ describe('FundsPage', () => {
     await user.click(dialog.getByRole('button', { name: 'Archive Home insurance' }))
 
     await waitFor(() =>
-      expect(mockPut).toHaveBeenCalledWith('/sinkingfunds/f1/archive', { archived: true }),
+      expect(mockPut).toHaveBeenCalledWith('/jars/f1/archive', { archived: true }),
     )
     await waitFor(() => expect(screen.queryByText('Home insurance')).not.toBeInTheDocument())
   })
@@ -135,6 +135,6 @@ describe('FundsPage', () => {
 
     renderPage()
 
-    expect(await screen.findByText(/No sinking funds yet/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText(/No jars yet/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
 })

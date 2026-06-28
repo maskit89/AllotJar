@@ -12,7 +12,7 @@ const ALL_ON: FeatureFlags = {
   multiCurrency: true,
   camtImport: true,
   reports: true,
-  sinkingFunds: true,
+  jars: true,
   householdAllocation: true,
   analytics: false,
   householdAccess: true,

@@ -23,7 +23,7 @@ interface RuleSpec {
 /** Friendly, design-matching names for each allocation step. */
 const STEP_LABEL: Record<number, string> = {
   [AllocationRuleType.FundEnvelopes]: 'Cover shared costs',
-  [AllocationRuleType.FundSinkingFunds]: 'Fund the jars',
+  [AllocationRuleType.FundJars]: 'Fund the jars',
   [AllocationRuleType.FixedPerMember]: 'Pocket money',
   [AllocationRuleType.SplitRemainderToMembers]: 'Split remainder to savings',
 }
@@ -31,7 +31,7 @@ const STEP_LABEL: Record<number, string> = {
 function standardRules(costSplit: number, pocketAmount: number, savingsSplit: number): RuleSpec[] {
   return [
     { order: 0, type: AllocationRuleType.FundEnvelopes, split: costSplit, fixedAmountPerMember: 0 },
-    { order: 1, type: AllocationRuleType.FundSinkingFunds, split: costSplit, fixedAmountPerMember: 0 },
+    { order: 1, type: AllocationRuleType.FundJars, split: costSplit, fixedAmountPerMember: 0 },
     { order: 2, type: AllocationRuleType.FixedPerMember, split: SplitMethod.Equal, fixedAmountPerMember: pocketAmount },
     { order: 3, type: AllocationRuleType.SplitRemainderToMembers, split: savingsSplit, fixedAmountPerMember: 0 },
   ]

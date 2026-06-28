@@ -55,7 +55,7 @@ public class AllocationTests
             Categories = new List<BudgetCategory>
             {
                 new() { Name = "Living", Kind = CategoryKind.Expense, Items = new List<BudgetItem> { new() { Name = "Living", PlannedAmount = envelopes } } },
-                new() { Name = "Funds", Kind = CategoryKind.Fund, Items = new List<BudgetItem> { new() { Name = "Funds", FundId = Guid.NewGuid(), PlannedAmount = funds } } },
+                new() { Name = "Funds", Kind = CategoryKind.Savings, Items = new List<BudgetItem> { new() { Name = "Funds", SavingsId = Guid.NewGuid(), PlannedAmount = funds } } },
             },
         });
         db.SaveChanges();
@@ -64,7 +64,7 @@ public class AllocationTests
     private static List<AllocationRuleSpec> StandardRules() => new()
     {
         new(0, AllocationRuleType.FundEnvelopes, SplitMethod.Equal, 0m),
-        new(1, AllocationRuleType.FundSinkingFunds, SplitMethod.Equal, 0m),
+        new(1, AllocationRuleType.FundJars, SplitMethod.Equal, 0m),
         new(2, AllocationRuleType.FixedPerMember, SplitMethod.Equal, 250m),
         new(3, AllocationRuleType.SplitRemainderToMembers, SplitMethod.Equal, 0m),
     };
@@ -80,7 +80,7 @@ public class AllocationTests
 
         created.Rules.Should().HaveCount(4);
         created.Rules.Select(r => r.Type).Should().ContainInOrder(
-            AllocationRuleType.FundEnvelopes, AllocationRuleType.FundSinkingFunds,
+            AllocationRuleType.FundEnvelopes, AllocationRuleType.FundJars,
             AllocationRuleType.FixedPerMember, AllocationRuleType.SplitRemainderToMembers);
 
         var fetched = await new GetAllocationProfileQueryHandler(db, user)
@@ -105,7 +105,7 @@ public class AllocationTests
 
         result.Pool.Should().Be(8411.61m);
         result.EnvelopesTotal.Should().Be(3641m);
-        result.FundsTotal.Should().Be(2164m);
+        result.JarsTotal.Should().Be(2164m);
         result.Members.Single(m => m.Name == "Chris").Residual.Should().Be(1259.14m);
         result.Members.Single(m => m.Name == "Liza").Residual.Should().Be(847.47m);
     }
@@ -128,7 +128,7 @@ public class AllocationTests
             Categories = new List<BudgetCategory>
             {
                 new() { Name = "Living", Kind = CategoryKind.Expense, Items = new List<BudgetItem> { new() { Name = "Living", PlannedAmount = 3641m } } },
-                new() { Name = "Funds", Kind = CategoryKind.Fund, Items = new List<BudgetItem> { new() { Name = "Funds", FundId = Guid.NewGuid(), PlannedAmount = 2164m } } },
+                new() { Name = "Funds", Kind = CategoryKind.Savings, Items = new List<BudgetItem> { new() { Name = "Funds", SavingsId = Guid.NewGuid(), PlannedAmount = 2164m } } },
                 new() { Name = "Personal Savings", Kind = CategoryKind.Expense, ExcludeFromAllocation = true, Items = new List<BudgetItem> { new() { Name = "Surplus", PlannedAmount = 9999m } } },
             },
         });
@@ -137,7 +137,7 @@ public class AllocationTests
         var rules = new List<AllocationRuleSpec>
         {
             new(0, AllocationRuleType.FundEnvelopes, SplitMethod.Equal, 0m),
-            new(1, AllocationRuleType.FundSinkingFunds, SplitMethod.Equal, 0m),
+            new(1, AllocationRuleType.FundJars, SplitMethod.Equal, 0m),
             new(2, AllocationRuleType.FixedPerMember, SplitMethod.Equal, 250m),
             new(3, AllocationRuleType.SplitRemainderToMembers, SplitMethod.BalanceTilt, 0m),
         };
@@ -149,7 +149,7 @@ public class AllocationTests
 
         // The flagged 9999 category is ignored, so obligations are just the real costs.
         result.EnvelopesTotal.Should().Be(3641m);
-        result.FundsTotal.Should().Be(2164m);
+        result.JarsTotal.Should().Be(2164m);
 
         var chris = result.Members.Single(m => m.Name == "Chris");
         var liza = result.Members.Single(m => m.Name == "Liza");

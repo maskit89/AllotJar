@@ -49,7 +49,7 @@ export function apiEndpointTemplate(url: string | undefined): string {
  */
 const ALLOWED_PARAM_KEYS: ReadonlySet<string> = new Set([
   'method', // login method, etc.
-  'line_type', // 'income' | 'expense' | 'fund'
+  'line_type', // 'income' | 'expense' | 'savings'
   'direction', // 'prev' | 'next'
   'report_type', // 'trends' | 'annual' | 'breakdown'
   'destination', // a redacted route template for nav clicks

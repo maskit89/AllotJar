@@ -90,7 +90,7 @@ export function AccountsIcon({ className }: { className?: string }) {
 }
 
 /** Funds — a target / bullseye (saving toward a goal). */
-export function FundsIcon({ className }: { className?: string }) {
+export function JarsIcon({ className }: { className?: string }) {
   return (
     <Base className={className}>
       <circle cx="12" cy="12" r="8" />
