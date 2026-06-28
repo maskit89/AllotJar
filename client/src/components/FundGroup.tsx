@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { CategoryVM } from '../budgetModel'
-import { categoryPlanned } from '../budgetModel'
+import { categoryActual, categoryPlanned } from '../budgetModel'
 import { formatMoney, type Minor } from '../lib/money'
 import { BudgetItemRow } from './BudgetItemRow'
-import { Badge } from './ui'
+import { Card } from './ui'
 import { useAuth } from '../auth/AuthContext'
 
 interface Props {
@@ -19,10 +19,10 @@ interface Props {
 }
 
 /**
- * A group of sinking funds. Like a category group, but each line shows its
- * rolled-over **Available** balance (what's accumulated across months) instead of
- * a single month's remaining. The "Planned" column is the monthly contribution and
- * the "Spent" column draws the balance down.
+ * A group of sinking funds, in the same clean card style as the Income / Everyday
+ * spending panels: a header (violet dot marks it as a fund) with the spent / planned
+ * total, then each fund as a name + funding bar with its rolled-over **Available**
+ * balance and an inline-editable monthly contribution.
  */
 export function FundGroup({
   category,
@@ -37,10 +37,10 @@ export function FundGroup({
 }: Props) {
   // Fund-group structure needs Admin+; rows self-gate internally.
   const { canWrite } = useAuth()
-  const [open, setOpen] = useState(true)
   const [name, setName] = useState(category.name)
   const [newItemName, setNewItemName] = useState('')
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [adding, setAdding] = useState(false)
 
   useEffect(() => setName(category.name), [category.name])
 
@@ -58,21 +58,14 @@ export function FundGroup({
     if (trimmed === '') return
     onAddItem(category.id, trimmed)
     setNewItemName('')
+    setAdding(false)
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-violet-200 bg-surface shadow-card dark:border-violet-500/30">
-      <div className="flex items-center justify-between gap-2 bg-violet-50/40 px-5 py-4 dark:bg-violet-500/10">
-        <div className="flex flex-1 items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setOpen((o) => !o)}
-            aria-label={open ? `Collapse ${category.name}` : `Expand ${category.name}`}
-            className={`text-violet-400 transition-transform hover:text-violet-600 ${open ? 'rotate-90' : ''}`}
-          >
-            ▶
-          </button>
-          <Badge tone="violet">Fund</Badge>
+    <Card className="group/grp px-6 py-[22px]">
+      <div className="mb-1.5 flex items-baseline justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="h-[9px] w-[9px] shrink-0 rounded-[3px] bg-violet-500" aria-hidden />
           {canWrite ? (
             <input
               type="text"
@@ -84,27 +77,20 @@ export function FundGroup({
                 if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
                 if (e.key === 'Escape') setName(category.name)
               }}
-              className="rounded-md border border-transparent bg-transparent px-2 py-1 text-base font-semibold text-slate-800 hover:border-violet-200 focus:border-violet-500 focus:bg-surface focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+              className="min-w-0 rounded border border-transparent bg-transparent px-1 text-[15px] font-bold tracking-[-0.01em] text-slate-900 hover:border-slate-200 focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-2 focus:ring-brand-500/30"
             />
           ) : (
-            <span className="px-2 py-1 text-base font-semibold text-slate-800">{category.name}</span>
+            <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">{category.name}</h2>
           )}
-          <Badge>{category.items.length}</Badge>
-        </div>
 
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold tabular-nums text-slate-600">
-            {formatMoney(categoryPlanned(category), currency)}
-          </span>
           {canWrite &&
             (confirmingDelete ? (
-              <span className="flex items-center gap-1 text-xs">
-                <span className="text-slate-500">Delete group?</span>
+              <span className="flex items-center gap-1 text-[11px]">
                 <button
                   type="button"
                   onClick={() => onDeleteCategory(category.id)}
                   aria-label={`Confirm delete ${category.name}`}
-                  className="rounded-md bg-rose-600 px-2 py-1 font-semibold text-white hover:bg-rose-700"
+                  className="rounded bg-rose-600 px-1.5 py-0.5 font-semibold text-white hover:bg-rose-700"
                 >
                   Delete
                 </button>
@@ -112,7 +98,7 @@ export function FundGroup({
                   type="button"
                   onClick={() => setConfirmingDelete(false)}
                   aria-label="Cancel delete"
-                  className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100"
+                  className="rounded px-1.5 py-0.5 text-slate-500 hover:bg-slate-100"
                 >
                   Cancel
                 </button>
@@ -123,71 +109,74 @@ export function FundGroup({
                 onClick={() => setConfirmingDelete(true)}
                 aria-label={`Delete group ${category.name}`}
                 title="Delete group"
-                className="rounded-md px-1.5 py-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                className="shrink-0 rounded px-1 text-slate-400 opacity-0 transition hover:text-rose-600 group-hover/grp:opacity-100 focus:opacity-100"
               >
                 🗑
               </button>
             ))}
         </div>
+
+        <div className="shrink-0 text-[13px] tabular-nums text-slate-700">
+          {formatMoney(categoryActual(category), currency)}{' '}
+          <span className="text-slate-500">of {formatMoney(categoryPlanned(category), currency)}</span>
+        </div>
       </div>
 
-      {open && (
-        <div className="border-t border-violet-100 dark:border-violet-500/20">
-          <div className="overflow-x-auto">
-          <div className="min-w-[40rem]">
-          <div className="grid grid-cols-12 gap-2 bg-slate-50 px-4 py-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-            <div className="col-span-4">Fund</div>
-            <div className="col-span-3 text-right">Planned</div>
-            <div className="col-span-2 text-right">Spent</div>
-            <div className="col-span-2 text-right">Available</div>
-            <div className="col-span-1" />
-          </div>
-
-          <div className="divide-y divide-slate-100">
-            {category.items.map((item) => (
-              <BudgetItemRow
-                key={item.id}
-                item={item}
-                currency={currency}
-                saving={savingItemId === item.id}
-                onCommit={onCommitItem}
-                onRename={onRenameItem}
-                onDelete={onDeleteItem}
-                availableMinor={item.fundAvailableMinor}
-              />
-            ))}
-            {category.items.length === 0 && (
-              <p className="px-4 py-3 text-sm text-slate-500">No funds yet — add one below.</p>
-            )}
-          </div>
-          </div>
-          </div>
-
-          {canWrite && (
-            <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/50 px-4 py-2.5">
-              <input
-                type="text"
-                value={newItemName}
-                placeholder="Add a fund (e.g. Car, Holiday, Christmas)…"
-                aria-label={`Add a fund to ${category.name}`}
-                onChange={(e) => setNewItemName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') submitNewItem()
-                }}
-                className="flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
-              />
-              <button
-                type="button"
-                onClick={submitNewItem}
-                aria-label={`Add fund to ${category.name}`}
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-surface"
-              >
-                + Add
-              </button>
-            </div>
-          )}
-        </div>
+      {category.items.map((item) => (
+        <BudgetItemRow
+          key={item.id}
+          item={item}
+          currency={currency}
+          saving={savingItemId === item.id}
+          onCommit={onCommitItem}
+          onRename={onRenameItem}
+          onDelete={onDeleteItem}
+          availableMinor={item.fundAvailableMinor}
+        />
+      ))}
+      {category.items.length === 0 && (
+        <p className="py-2.5 text-sm text-slate-500">No savings goals yet — add one below.</p>
       )}
-    </div>
+
+      {canWrite &&
+        (adding ? (
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              type="text"
+              autoFocus
+              value={newItemName}
+              placeholder="Add a savings goal (e.g. Car, Holiday, Christmas)…"
+              aria-label={`Add a savings goal to ${category.name}`}
+              onChange={(e) => setNewItemName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitNewItem()
+                if (e.key === 'Escape') {
+                  setNewItemName('')
+                  setAdding(false)
+                }
+              }}
+              onBlur={() => !newItemName.trim() && setAdding(false)}
+              className="flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+            />
+            <button
+              type="button"
+              onClick={submitNewItem}
+              aria-label={`Add a savings goal to ${category.name}`}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-surface"
+            >
+              Add
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            aria-label={`Add a savings goal to ${category.name}`}
+            className="mt-1 rounded px-1 py-1 text-xs font-semibold text-slate-500 opacity-0 transition hover:text-brand-700 group-hover/grp:opacity-100 focus:opacity-100"
+          >
+            + Add a savings goal
+          </button>
+        ))}
+    </Card>
   )
 }

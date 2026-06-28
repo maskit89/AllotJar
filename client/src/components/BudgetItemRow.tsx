@@ -112,6 +112,9 @@ export function BudgetItemRow({
   const overspent = remaining < 0
   const showAvailable = availableMinor !== undefined && availableMinor !== null
   const fundOverdrawn = showAvailable && (availableMinor as Minor) < 0
+  // The progress bar fills to spent / planned for this line.
+  const barPct =
+    item.plannedMinor > 0 ? Math.min(100, Math.max(0, Math.round((item.actualMinor / item.plannedMinor) * 100))) : 0
 
   const savingDot = saving && (
     <span
@@ -167,69 +170,97 @@ export function BudgetItemRow({
     </div>
   )
 
-  // The fund-line delete sits in its grid; the expense-line delete (below) floats
-  // in the right gutter so the amounts stay flush-right like the design.
-  const deleteBtn = canWrite && onDelete && (
-    <button
-      type="button"
-      onClick={() => onDelete(item.id)}
-      aria-label={`Delete ${item.name}`}
-      title="Delete line"
-      className="shrink-0 rounded-md px-1.5 py-1 text-slate-400 opacity-0 transition hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100 focus:opacity-100"
-    >
-      ✕
-    </button>
+  // The planned amount — clean "€X" text that turns into an input on click. Shared
+  // by the expense and fund line layouts so they read the same.
+  const plannedEditor = canWrite ? (
+    editingPlanned ? (
+      <span className="inline-flex items-center">
+        <span className="text-slate-500">{currencySymbol(currency)}</span>
+        <input
+          type="text"
+          inputMode="decimal"
+          autoFocus
+          value={draft}
+          aria-label={`Planned amount for ${item.name}`}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            setEditingPlanned(false)
+            commitPlanned()
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+            if (e.key === 'Escape') {
+              setDraft(toEditString(item.plannedMinor))
+              setEditingPlanned(false)
+            }
+          }}
+          size={Math.max(3, draft.length)}
+          className="rounded border border-brand-500 bg-surface px-1 text-right text-[11.5px] tabular-nums text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-500/30"
+        />
+      </span>
+    ) : (
+      <button
+        type="button"
+        aria-label={`Planned amount for ${item.name}`}
+        onClick={() => {
+          setDraft(toEditString(item.plannedMinor))
+          setEditingPlanned(true)
+        }}
+        className="rounded px-0.5 font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+      >
+        {formatMoney(item.plannedMinor, currency)}
+      </button>
+    )
+  ) : (
+    formatMoney(item.plannedMinor, currency)
   )
 
-  // ---- Fund line: the grid with a rolled-over Available column --------------
+  // ---- Fund line: name + funding bar, with the rolled-over Available balance ----
   if (showAvailable) {
     return (
-      <div className="grid grid-cols-12 items-center gap-2 px-4 py-2.5 hover:bg-slate-50">
-        <div className="col-span-5 flex items-center gap-1">
-          {nameEl}
-          {savingDot}
+      <div className="group relative flex items-center gap-[18px] py-2.5">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            {nameEl}
+            {savingDot}
+          </div>
+          {/* Funding bar: spent of this month's contribution (violet marks a fund). */}
+          <div className="ml-1.5 mt-2 h-1.5 overflow-hidden rounded-full bg-violet-100 dark:bg-violet-500/20" aria-hidden>
+            <div className="h-full rounded-full bg-violet-500" style={{ width: `${barPct}%` }} />
+          </div>
         </div>
-        <div className="col-span-2 flex items-center justify-end">
-          <span className="mr-1 text-slate-500">{currencySymbol(currency)}</span>
-          {canWrite ? (
-            <input
-              type="text"
-              inputMode="decimal"
-              value={draft}
-              aria-label={`Planned amount for ${item.name}`}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={commitPlanned}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                if (e.key === 'Escape') setDraft(toEditString(item.plannedMinor))
-              }}
-              className="w-20 rounded-lg border border-transparent bg-transparent px-2 py-1 text-right text-sm font-medium tabular-nums text-slate-800 transition hover:bg-slate-100 focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-            />
-          ) : (
-            <span className="w-20 px-2 py-1 text-right text-sm font-medium tabular-nums text-slate-800">
-              {toEditString(item.plannedMinor)}
-            </span>
-          )}
+
+        <div className="min-w-[118px] text-right">
+          <div
+            className={`text-sm font-semibold tabular-nums ${
+              fundOverdrawn ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900'
+            }`}
+            title="Available in this savings goal (rolled over from previous months)"
+          >
+            <span>{formatMoney(availableMinor as Minor, currency)}</span>{' '}
+            <span className="text-[11.5px] font-medium text-slate-500">avail.</span>
+          </div>
+          <div className="mt-0.5 text-[11.5px] tabular-nums text-slate-500">
+            {formatMoney(item.actualMinor, currency)} of {plannedEditor}
+          </div>
         </div>
-        <div className="col-span-2 text-right text-sm tabular-nums text-slate-500">
-          {formatMoney(item.actualMinor, currency)}
-        </div>
-        <div
-          className={`col-span-2 text-right text-sm font-semibold tabular-nums ${
-            fundOverdrawn ? 'text-rose-600 dark:text-rose-400' : 'text-brand-700 dark:text-brand-200'
-          }`}
-          title="Available in this fund (rolled over from previous months)"
-        >
-          {formatMoney(availableMinor as Minor, currency)}
-        </div>
-        <div className="col-span-1 flex justify-end">{deleteBtn}</div>
+
+        {canWrite && onDelete && (
+          <button
+            type="button"
+            onClick={() => onDelete(item.id)}
+            aria-label={`Delete ${item.name}`}
+            title="Delete line"
+            className="absolute -right-5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-[11px] text-slate-400 opacity-0 transition hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100 focus:opacity-100"
+          >
+            ✕
+          </button>
+        )}
       </div>
     )
   }
 
   // ---- Expense line: the "Everyday spending" layout ------------------------
-  const barPct =
-    item.plannedMinor > 0 ? Math.min(100, Math.max(0, Math.round((item.actualMinor / item.plannedMinor) * 100))) : 0
   const overdue = billStatus === 'overdue'
   const dueSoon = billStatus === 'due-soon'
   const billTitle = overdue
@@ -362,49 +393,7 @@ export function BudgetItemRow({
           {formatMoney(remaining, currency)} <span className="text-[11.5px] font-medium text-slate-500">left</span>
         </div>
         <div className="mt-0.5 text-[11.5px] tabular-nums text-slate-500">
-          {formatMoney(item.actualMinor, currency)} of{' '}
-          {canWrite ? (
-            editingPlanned ? (
-              <span className="inline-flex items-center">
-                <span className="text-slate-500">{currencySymbol(currency)}</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  autoFocus
-                  value={draft}
-                  aria-label={`Planned amount for ${item.name}`}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onBlur={() => {
-                    setEditingPlanned(false)
-                    commitPlanned()
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                    if (e.key === 'Escape') {
-                      setDraft(toEditString(item.plannedMinor))
-                      setEditingPlanned(false)
-                    }
-                  }}
-                  size={Math.max(3, draft.length)}
-                  className="rounded border border-brand-500 bg-surface px-1 text-right text-[11.5px] tabular-nums text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-500/30"
-                />
-              </span>
-            ) : (
-              <button
-                type="button"
-                aria-label={`Planned amount for ${item.name}`}
-                onClick={() => {
-                  setDraft(toEditString(item.plannedMinor))
-                  setEditingPlanned(true)
-                }}
-                className="rounded px-0.5 font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-              >
-                {formatMoney(item.plannedMinor, currency)}
-              </button>
-            )
-          ) : (
-            formatMoney(item.plannedMinor, currency)
-          )}
+          {formatMoney(item.actualMinor, currency)} of {plannedEditor}
         </div>
       </div>
 
