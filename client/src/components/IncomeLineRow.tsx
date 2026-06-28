@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ItemVM } from '../budgetModel'
-import { currencySymbol, formatMoney, formatPlain, parseMinor, toEditString, type Minor } from '../lib/money'
+import { currencySymbol, formatMoney, parseMinor, toEditString, type Minor } from '../lib/money'
 import { hueColor, hueTint } from '../lib/categoryColors'
 import { useAuth } from '../auth/AuthContext'
 
@@ -24,7 +24,8 @@ export function IncomeLineRow({ item, currency, saving, onRename, onCommitPlanne
   const { canWrite } = useAuth()
   const [name, setName] = useState(item.name)
   const [draft, setDraft] = useState(toEditString(item.plannedMinor))
-  const [focused, setFocused] = useState(false)
+  // The planned amount reads as clean "€X" text and only becomes an input on click.
+  const [editingPlanned, setEditingPlanned] = useState(false)
 
   useEffect(() => setName(item.name), [item.name])
   useEffect(() => setDraft(toEditString(item.plannedMinor)), [item.plannedMinor])
@@ -52,7 +53,7 @@ export function IncomeLineRow({ item, currency, saving, onRename, onCommitPlanne
     item.plannedMinor > 0 ? Math.min(100, Math.max(0, Math.round((item.actualMinor / item.plannedMinor) * 100))) : 0
 
   return (
-    <div className="group flex items-center gap-4 py-2.5">
+    <div className="group relative flex items-center gap-[18px] py-2.5">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           {canWrite ? (
@@ -79,43 +80,54 @@ export function IncomeLineRow({ item, currency, saving, onRename, onCommitPlanne
             />
           )}
         </div>
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: hueTint('emerald') }} aria-hidden>
+        <div className="ml-1.5 mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: hueTint('emerald') }} aria-hidden>
           <div className="h-full rounded-full" style={{ width: `${pct}%`, background: hueColor('emerald') }} />
         </div>
       </div>
 
-      <div className="min-w-[124px] text-right">
+      <div className="min-w-[118px] text-right">
         <div className="text-sm font-semibold tabular-nums text-slate-900">
-          {currencySymbol(currency)}{canWrite ? (
-            <input
-              type="text"
-              inputMode="decimal"
-              value={focused ? draft : formatPlain(item.plannedMinor)}
-              aria-label={`Planned amount for ${item.name}`}
-              onChange={(e) => {
-                setFocused(true)
-                setDraft(e.target.value)
-              }}
-              onFocus={() => {
-                setDraft(toEditString(item.plannedMinor))
-                setFocused(true)
-              }}
-              onBlur={() => {
-                setFocused(false)
-                commitPlanned()
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                if (e.key === 'Escape') {
+          {canWrite ? (
+            editingPlanned ? (
+              <span className="inline-flex items-center">
+                <span className="text-slate-400">{currencySymbol(currency)}</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  autoFocus
+                  value={draft}
+                  aria-label={`Planned amount for ${item.name}`}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onBlur={() => {
+                    setEditingPlanned(false)
+                    commitPlanned()
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                    if (e.key === 'Escape') {
+                      setDraft(toEditString(item.plannedMinor))
+                      setEditingPlanned(false)
+                    }
+                  }}
+                  size={Math.max(3, draft.length)}
+                  className="rounded border border-brand-500 bg-surface px-1 text-right text-sm font-semibold tabular-nums text-slate-900 focus:outline-none focus:ring-1 focus:ring-brand-500/30"
+                />
+              </span>
+            ) : (
+              <button
+                type="button"
+                aria-label={`Planned amount for ${item.name}`}
+                onClick={() => {
                   setDraft(toEditString(item.plannedMinor))
-                  ;(e.target as HTMLInputElement).blur()
-                }
-              }}
-              size={Math.max(4, (focused ? draft : formatPlain(item.plannedMinor)).length)}
-              className="rounded border border-transparent bg-transparent text-sm font-semibold tabular-nums text-slate-900 transition hover:border-slate-300 focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-1 focus:ring-brand-500/30"
-            />
+                  setEditingPlanned(true)
+                }}
+                className="rounded px-0.5 transition hover:bg-slate-100"
+              >
+                {formatMoney(item.plannedMinor, currency)}
+              </button>
+            )
           ) : (
-            formatPlain(item.plannedMinor)
+            formatMoney(item.plannedMinor, currency)
           )}
         </div>
         <div className="mt-0.5 text-[11.5px] tabular-nums text-slate-500">
@@ -129,7 +141,7 @@ export function IncomeLineRow({ item, currency, saving, onRename, onCommitPlanne
           onClick={() => onDelete(item.id)}
           aria-label={`Delete ${item.name}`}
           title="Delete income source"
-          className="shrink-0 rounded-md px-1.5 py-1 text-slate-400 opacity-0 transition hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100 focus:opacity-100"
+          className="absolute -right-5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-[11px] text-slate-400 opacity-0 transition hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100 focus:opacity-100"
         >
           ✕
         </button>

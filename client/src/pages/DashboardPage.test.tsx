@@ -90,6 +90,8 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
+    // The planned amount reads as clean text; click it to reveal the editor.
+    fireEvent.click(await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 }))
     const input = (await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })) as HTMLInputElement
     // Set the planned amount to €3.000 and commit on blur. The dashboard fires
     // three loads on mount (/budget/{y}/{m}, /budget/months, /budget/templates);
@@ -124,14 +126,19 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
+    await user.click(await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 }))
     const input = (await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })) as HTMLInputElement
     await user.clear(input)
     await user.type(input, '3000')
     await user.tab()
 
-    // The failure surfaces and the field reverts to its pre-edit value.
+    // The failure surfaces and the planned amount reverts to its pre-edit value —
+    // the editor closes, so the at-rest "€1,100.00" control shows the rollback.
     expect(await screen.findByText(/reverted to the previous value/, {}, { timeout: 5000 })).toBeInTheDocument()
-    await waitFor(() => expect(input.value).toBe('1,100.00'), { timeout: 5000 })
+    await waitFor(
+      () => expect(screen.getByLabelText('Planned amount for Rent')).toHaveTextContent('1,100.00'),
+      { timeout: 5000 },
+    )
   })
 
   it('adds an income source and reconciles from the server response', { timeout: 15000 }, async () => {

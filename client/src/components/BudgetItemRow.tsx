@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { BillStatus, ItemVM } from '../budgetModel'
 import { itemRemaining } from '../budgetModel'
-import { currencySymbol, formatMoney, formatPlain, parseMinor, toEditString, type Minor } from '../lib/money'
+import { currencySymbol, formatMoney, parseMinor, toEditString, type Minor } from '../lib/money'
 import { hueColor, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { useAuth } from '../auth/AuthContext'
 
@@ -61,9 +61,10 @@ export function BudgetItemRow({
   const { canWrite, canEnterData } = useAuth()
   const [name, setName] = useState(item.name)
   const [draft, setDraft] = useState(toEditString(item.plannedMinor))
-  // The planned field shows a formatted "1,100.00" at rest and the raw editable
-  // value while focused, so it reads like the design but stays easy to edit.
-  const [plannedFocused, setPlannedFocused] = useState(false)
+  // The planned amount reads as clean "€spent of €planned" text (matching the
+  // design) and only becomes an input once clicked — so the row never carries a
+  // ragged inline field at rest.
+  const [editingPlanned, setEditingPlanned] = useState(false)
   const [billEditing, setBillEditing] = useState(false)
   const [billDraft, setBillDraft] = useState(item.dueDay?.toString() ?? '')
 
@@ -139,8 +140,10 @@ export function BudgetItemRow({
       <span className="px-1.5 text-sm font-semibold text-slate-900">{item.name}</span>
     )
 
+  // Reorder ▲▼ float in the card's left gutter so they never push the line name
+  // out of alignment with its bar; they fade in on hover/focus.
   const reorder = canWrite && onMove && (
-    <div className="flex shrink-0 flex-col opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+    <div className="absolute -left-5 top-1/2 flex -translate-y-1/2 flex-col opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
       <button
         type="button"
         onClick={() => onMove(item.id, -1)}
@@ -164,6 +167,8 @@ export function BudgetItemRow({
     </div>
   )
 
+  // The fund-line delete sits in its grid; the expense-line delete (below) floats
+  // in the right gutter so the amounts stay flush-right like the design.
   const deleteBtn = canWrite && onDelete && (
     <button
       type="button"
@@ -241,10 +246,10 @@ export function BudgetItemRow({
   const billTagClass = 'shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.05em]'
 
   return (
-    <div className="group flex items-center gap-4 py-2.5">
+    <div className="group relative flex items-center gap-[18px] py-2.5">
+      {reorder}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          {reorder}
           {nameEl}
           {savingDot}
 
@@ -339,13 +344,13 @@ export function BudgetItemRow({
           )}
         </div>
 
-        {/* Spent / planned bar (track = hue tint, fill = hue). */}
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: hueTint(hue) }} aria-hidden>
+        {/* Spent / planned bar (track = hue tint, fill = hue) — aligned with the name. */}
+        <div className="ml-1.5 mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: hueTint(hue) }} aria-hidden>
           <div className="h-full rounded-full" style={{ width: `${barPct}%`, background: hueColor(hue) }} />
         </div>
       </div>
 
-      <div className="min-w-[124px] text-right">
+      <div className="min-w-[118px] text-right">
         <div
           className={`text-sm font-semibold tabular-nums ${
             overspent ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900'
@@ -353,42 +358,64 @@ export function BudgetItemRow({
         >
           {formatMoney(remaining, currency)} <span className="text-[11.5px] font-medium text-slate-500">left</span>
         </div>
-        <div className="mt-0.5 text-right text-[11.5px] tabular-nums text-slate-500">
-          {formatMoney(item.actualMinor, currency)} of {currencySymbol(currency)}{canWrite ? (
-            <input
-              type="text"
-              inputMode="decimal"
-              value={plannedFocused ? draft : formatPlain(item.plannedMinor)}
-              aria-label={`Planned amount for ${item.name}`}
-              onChange={(e) => {
-                setPlannedFocused(true)
-                setDraft(e.target.value)
-              }}
-              onFocus={() => {
-                setDraft(toEditString(item.plannedMinor))
-                setPlannedFocused(true)
-              }}
-              onBlur={() => {
-                setPlannedFocused(false)
-                commitPlanned()
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                if (e.key === 'Escape') {
+        <div className="mt-0.5 text-[11.5px] tabular-nums text-slate-500">
+          {formatMoney(item.actualMinor, currency)} of{' '}
+          {canWrite ? (
+            editingPlanned ? (
+              <span className="inline-flex items-center">
+                <span className="text-slate-400">{currencySymbol(currency)}</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  autoFocus
+                  value={draft}
+                  aria-label={`Planned amount for ${item.name}`}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onBlur={() => {
+                    setEditingPlanned(false)
+                    commitPlanned()
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                    if (e.key === 'Escape') {
+                      setDraft(toEditString(item.plannedMinor))
+                      setEditingPlanned(false)
+                    }
+                  }}
+                  size={Math.max(3, draft.length)}
+                  className="rounded border border-brand-500 bg-surface px-1 text-right text-[11.5px] tabular-nums text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-500/30"
+                />
+              </span>
+            ) : (
+              <button
+                type="button"
+                aria-label={`Planned amount for ${item.name}`}
+                onClick={() => {
                   setDraft(toEditString(item.plannedMinor))
-                  ;(e.target as HTMLInputElement).blur()
-                }
-              }}
-              size={Math.max(4, (plannedFocused ? draft : formatPlain(item.plannedMinor)).length)}
-              className="rounded border border-transparent bg-transparent text-[11.5px] tabular-nums text-slate-500 transition hover:border-slate-300 focus:border-brand-500 focus:bg-surface focus:text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-500/30"
-            />
+                  setEditingPlanned(true)
+                }}
+                className="rounded px-0.5 font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+              >
+                {formatMoney(item.plannedMinor, currency)}
+              </button>
+            )
           ) : (
-            formatPlain(item.plannedMinor)
+            formatMoney(item.plannedMinor, currency)
           )}
         </div>
       </div>
 
-      {deleteBtn}
+      {canWrite && onDelete && (
+        <button
+          type="button"
+          onClick={() => onDelete(item.id)}
+          aria-label={`Delete ${item.name}`}
+          title="Delete line"
+          className="absolute -right-5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-[11px] text-slate-400 opacity-0 transition hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100 focus:opacity-100"
+        >
+          ✕
+        </button>
+      )}
     </div>
   )
 }
