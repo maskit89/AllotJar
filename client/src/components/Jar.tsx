@@ -5,10 +5,12 @@ import { hueColor, hueTint, type CategoryHue } from '../lib/categoryColors'
  * brand green. Two sizes: the desktop sidebar (default) and the compact mobile
  * top bar. Decorative; the adjacent "allotjar" wordmark carries the name.
  */
-export function JarLogo({ compact = false }: { compact?: boolean }) {
-  const s = compact
-    ? { w: 26, h: 28, lidL: 7, lidW: 12, lidH: 4, lidR: 2, bodyTop: 5, bodyR: 7 }
-    : { w: 30, h: 32, lidL: 8, lidW: 14, lidH: 5, lidR: 3, bodyTop: 6, bodyR: 8 }
+export function JarLogo({ compact = false, lg = false }: { compact?: boolean; lg?: boolean }) {
+  const s = lg
+    ? { w: 52, h: 56, lidL: 14, lidW: 24, lidH: 8, lidR: 4, bodyTop: 10, bodyR: 14 }
+    : compact
+      ? { w: 26, h: 28, lidL: 7, lidW: 12, lidH: 4, lidR: 2, bodyTop: 5, bodyR: 7 }
+      : { w: 30, h: 32, lidL: 8, lidW: 14, lidH: 5, lidR: 3, bodyTop: 6, bodyR: 8 }
   return (
     <div className="relative shrink-0" style={{ width: s.w, height: s.h }} aria-hidden>
       <div

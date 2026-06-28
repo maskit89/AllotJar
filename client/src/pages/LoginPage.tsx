@@ -2,7 +2,8 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import axios from 'axios'
-import { LogoMark } from '../components/icons'
+import { JarLogo } from '../components/Jar'
+import { ThemeToggle } from '../components/ThemeToggle'
 import { Button, Card, Input, SegmentedControl, Select } from '../components/ui'
 import { CURRENCY_OPTIONS, NUMBER_FORMAT_OPTIONS } from '../lib/money'
 import { EVENTS, track } from '../analytics'
@@ -63,11 +64,14 @@ export function LoginPage() {
   const registering = mode === 'register'
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-slate-50 px-4 py-12">
+    <div className="relative flex min-h-full items-center justify-center bg-slate-50 px-4 py-12">
+      <div className="absolute right-4 top-4">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center text-center">
-          <LogoMark className="h-12 w-12 text-brand-600" />
-          <h1 className="mt-3 text-2xl font-bold tracking-tight text-slate-900">ZeroBudget</h1>
+          <JarLogo lg />
+          <h1 className="mt-3 text-[26px] font-bold tracking-tight text-slate-900">AllotJar</h1>
           <p className="mt-1 text-sm text-slate-500">Zero-based budgeting, built for Europe.</p>
         </div>
 

@@ -48,7 +48,7 @@ describe('AcceptInvitePage', () => {
     renderAt('/accept-invite?code=ABC123')
 
     await user.type(await screen.findByLabelText('Password'), 'password123')
-    await user.click(screen.getByRole('button', { name: 'Join the household' }))
+    await user.click(screen.getByRole('button', { name: 'Accept invite' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(
