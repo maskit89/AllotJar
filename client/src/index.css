@@ -1,9 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
 /* Design tokens. Tailwind v4 reads theme from CSS, so no JS config. */
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
   /* Brand accent — the AllotJar redesign "calm fintech" green (reference palette).
      600 is the solid accent (white text clears AA at 6.4:1); 700 is the hover/press.

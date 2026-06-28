@@ -3,7 +3,7 @@ import { hueColor, hueTint, type CategoryHue } from '../lib/categoryColors'
 /**
  * The AllotJar brand mark — a miniature brass-lidded jar, partly filled with the
  * brand green. Two sizes: the desktop sidebar (default) and the compact mobile
- * top bar. Decorative; the adjacent "allotjar" wordmark carries the name.
+ * top bar. Decorative; the adjacent "AllotJar" wordmark carries the name.
  */
 export function JarLogo({ compact = false, lg = false }: { compact?: boolean; lg?: boolean }) {
   const s = lg

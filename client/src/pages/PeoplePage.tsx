@@ -385,21 +385,21 @@ export function PeoplePage() {
             <EmptyState
               icon={<MembersIcon className="h-6 w-6" />}
               title="Budgeting on your own?"
-              description="You don’t need anyone else to use ZeroBudget. If you share money with a partner or housemate, add them here to split shared costs, divide savings, and give them their own sign-in."
+              description="You don’t need anyone else to use AllotJar. If you share money with a partner or housemate, add them here to split shared costs, divide savings, and give them their own sign-in."
             />
           ) : (
             <Card className="overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[820px] table-fixed text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-left text-[11px] font-bold uppercase tracking-[0.05em] text-slate-500">
-                      <th className="px-4 py-3 font-bold">Person</th>
-                      <th className="px-4 py-3 text-right font-bold">Income</th>
-                      <th className="px-4 py-3 text-right font-bold">Share</th>
-                      <th className="px-4 py-3 text-right font-bold">Spent</th>
-                      <th className="px-4 py-3 font-bold">Savings</th>
-                      <th className="px-4 py-3 font-bold">Sign-in &amp; access</th>
-                      <th className="px-4 py-3" />
+                      <th className="w-[23%] px-4 py-3 font-bold">Person</th>
+                      <th className="w-[12%] px-4 py-3 text-right font-bold">Income</th>
+                      <th className="w-[9%] px-4 py-3 text-right font-bold">Share</th>
+                      <th className="w-[12%] px-4 py-3 text-right font-bold">Spent</th>
+                      <th className="w-[15%] px-4 py-3 font-bold">Savings</th>
+                      <th className="w-[22%] px-4 py-3 font-bold">Sign-in &amp; access</th>
+                      <th className="w-[7%] px-4 py-3" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -473,7 +473,7 @@ export function PeoplePage() {
                       <td className="px-4 py-2.5">
                         {login ? (
                           <div className="flex flex-col gap-1">
-                            <span className="text-slate-700">{login.email}</span>
+                            <span className="break-words text-slate-700">{login.email}</span>
                             <div className="flex flex-wrap items-center gap-2">
                               {login.status === MembershipStatus.Invited && <Badge tone="amber">Invited</Badge>}
                               {canAccess && !login.isOwner && !login.isSelf ? (

@@ -323,13 +323,13 @@ export function AccountsPage() {
                       <div className="mt-1 text-xs text-slate-500">Opening {formatMoney(fromAmount(a.openingBalance), CURRENCY)}</div>
                     </div>
                     {canWrite && (
-                      <div className="relative z-10 mt-auto flex justify-end gap-1 pt-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                      <div className="absolute bottom-3 right-3 z-10 flex gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
                         <button
                           type="button"
                           onClick={() => startEdit(a)}
                           aria-label={`Edit ${a.name}`}
                           title="Edit account"
-                          className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                          className="rounded-md bg-surface/80 px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                         >
                           ✎
                         </button>
@@ -339,7 +339,7 @@ export function AccountsPage() {
                           disabled={savingId === a.id}
                           aria-label={`Delete ${a.name}`}
                           title="Delete account"
-                          className="rounded-md px-2 py-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                          className="rounded-md bg-surface/80 px-2 py-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
                         >
                           ✕
                         </button>
