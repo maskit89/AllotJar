@@ -24,6 +24,20 @@ describe('transactions helpers', () => {
     expect(buildItemOptions(null)).toEqual([])
   })
 
+  it('offers expense AND savings lines for an expense, but only income for income', () => {
+    const m = {
+      categories: [
+        { kind: 'Income', name: 'Pay', items: [{ id: 'inc', name: 'Salary' }] },
+        { kind: 'Expense', name: 'Food', items: [{ id: 'exp', name: 'Groceries' }] },
+        { kind: 'Savings', name: 'Personal Savings', items: [{ id: 'sav', name: 'Chris' }] },
+      ],
+    } as unknown as BudgetMonthDto
+    // An expense (type 0) can be assigned to expense or savings lines — not income.
+    expect(buildItemOptions(m, 0).map((g) => g.category)).toEqual(['Food', 'Personal Savings'])
+    // Income (type 1) is restricted to income lines.
+    expect(buildItemOptions(m, 1).map((g) => g.category)).toEqual(['Pay'])
+  })
+
   it('labels transaction direction', () => {
     expect(transactionTypeLabel(0)).toBe('Expense')
     expect(transactionTypeLabel(1)).toBe('Income')
