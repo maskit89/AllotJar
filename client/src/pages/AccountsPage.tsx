@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
-import { Badge, Button, Card, EmptyState, ErrorBanner, Input, PageHeader, Select } from '../components/ui'
+import { Button, Card, EmptyState, ErrorBanner, Input, Select } from '../components/ui'
 import { Hero } from '../components/Hero'
+import { Modal } from '../components/Modal'
 import { AccountsIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
@@ -10,15 +12,6 @@ import type { AccountDto, AccountReconciliationDto } from '../types'
 import { ACCOUNT_TYPE_LABELS, AccountType } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
 import { hueColor, hueForAccountType, hueTint } from '../lib/categoryColors'
-
-// Account type -> Badge tone (the redesign's account hues mapped to ui Badge tones).
-const TYPE_TONE: Record<number, 'violet' | 'brand' | 'amber' | 'rose' | 'teal'> = {
-  [AccountType.Current]: 'violet',
-  [AccountType.Savings]: 'brand',
-  [AccountType.Cash]: 'amber',
-  [AccountType.CreditCard]: 'rose',
-  [AccountType.Other]: 'teal',
-}
 
 const TYPE_OPTIONS = Object.entries(ACCOUNT_TYPE_LABELS).map(([value, label]) => ({
   value: Number(value),
@@ -37,8 +30,6 @@ function parseSignedAmount(input: string): number | null {
 
 export function AccountsPage() {
   // Managing accounts needs Admin+ (canWrite); others get a read-only register.
-  // The household's home currency drives the app-wide label and the new-account default;
-  // an account may still hold a different currency, which is shown in its own currency.
   const { canWrite, preferredCurrency } = useAuth()
   const CURRENCY = preferredCurrency
   const [accounts, setAccounts] = useState<AccountDto[]>([])
@@ -47,13 +38,14 @@ export function AccountsPage() {
   const [error, setError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
 
-  // Add-account form.
+  // Add-account modal.
+  const [showAdd, setShowAdd] = useState(false)
   const [name, setName] = useState('')
   const [type, setType] = useState<number>(AccountType.Current)
   const [opening, setOpening] = useState('')
   const [adding, setAdding] = useState(false)
 
-  // Inline edit.
+  // Inline (in-card) edit.
   const [editingId, setEditingId] = useState<string | null>(null)
   const [eName, setEName] = useState('')
   const [eType, setEType] = useState<number>(AccountType.Current)
@@ -108,12 +100,13 @@ export function AccountsPage() {
       track(EVENTS.accountCreated, { kind: ACCOUNT_TYPE_LABELS[type] ?? 'unknown' })
       setName('')
       setOpening('')
+      setShowAdd(false)
     } catch {
       setError('Could not add that account.')
     } finally {
       setAdding(false)
     }
-  }, [name, type, opening])
+  }, [name, type, opening, CURRENCY])
 
   function startEdit(a: AccountDto) {
     setEditingId(a.id)
@@ -166,8 +159,8 @@ export function AccountsPage() {
     }
   }, [])
 
-  // Net balance across all accounts (single-currency), plus the hero's split of
-  // what you hold (positive balances) vs what you owe (negative ones).
+  // Net balance across all accounts, plus the hero's split of what you hold
+  // (positive balances) vs what you owe (negative ones).
   const netMinor = useMemo(
     () => accounts.reduce((sum, a) => sum + fromAmount(a.currentBalance), 0),
     [accounts],
@@ -183,29 +176,27 @@ export function AccountsPage() {
 
   return (
     <AppShell active="accounts">
-        <PageHeader
-          title="Accounts"
-          subtitle="Where your money actually sits. Each balance is your opening balance plus every transaction assigned to the account — so the register stays the source of truth."
-        />
+      <Hero
+        eyebrow="Total balance"
+        amount={formatMoney(netMinor, CURRENCY)}
+        amountLabel={`Total balance: ${formatMoney(netMinor, CURRENCY)}`}
+        tiles={[
+          { label: 'Available', value: formatMoney(availableMinor, CURRENCY) },
+          { label: 'Owed', value: formatMoney(-owedMinor, CURRENCY) },
+        ]}
+      />
 
-        <Hero
-          eyebrow="Total balance"
-          amount={formatMoney(netMinor, CURRENCY)}
-          amountLabel={`Total balance: ${formatMoney(netMinor, CURRENCY)}`}
-          tiles={[
-            { label: 'Available', value: formatMoney(availableMinor, CURRENCY) },
-            { label: 'Owed', value: formatMoney(-owedMinor, CURRENCY) },
-          ]}
-        />
+      {error && !showAdd && <ErrorBanner>{error}</ErrorBanner>}
 
-        {error && <ErrorBanner>{error}</ErrorBanner>}
-
-        {/* Add-account form. Hidden unless you can manage accounts. */}
-        {canWrite && (
-        <Card className="p-4">
-          <h3 className="mb-3 text-sm font-semibold text-slate-700">Add an account</h3>
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-1 flex-col gap-1 text-xs font-medium text-slate-500">
+      {showAdd && canWrite && (
+        <Modal title="Add an account" onClose={() => setShowAdd(false)}>
+          {error && (
+            <div className="mb-3">
+              <ErrorBanner>{error}</ErrorBanner>
+            </div>
+          )}
+          <div className="space-y-3">
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
               Name
               <Input
                 type="text"
@@ -213,92 +204,90 @@ export function AccountsPage() {
                 placeholder="e.g. Everyday current"
                 aria-label="Account name"
                 onChange={(e) => setName(e.target.value)}
-                className="min-w-32"
+                className="w-full"
               />
             </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Type
-              <Select
-                value={type}
-                aria-label="Account type"
-                onChange={(e) => setType(Number(e.target.value))}
-              >
-                {TYPE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </Select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Opening balance
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={opening}
-                placeholder="0,00"
-                aria-label="Opening balance"
-                onChange={(e) => setOpening(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') addAccount()
-                }}
-                className="w-32 text-right tabular-nums"
-              />
-            </label>
-            <Button onClick={addAccount} disabled={adding} aria-label="Add account">
-              Add
-            </Button>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Type
+                <Select value={type} aria-label="Account type" onChange={(e) => setType(Number(e.target.value))} className="w-full">
+                  {TYPE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Opening balance
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={opening}
+                  placeholder="0.00"
+                  aria-label="Opening balance"
+                  onChange={(e) => setOpening(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') addAccount()
+                  }}
+                  className="w-full text-right tabular-nums"
+                />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="ghost" onClick={() => setShowAdd(false)}>
+                Cancel
+              </Button>
+              <Button onClick={addAccount} disabled={adding} aria-label="Add account">
+                Add account
+              </Button>
+            </div>
           </div>
-        </Card>
-        )}
+        </Modal>
+      )}
 
-        {loading && <p className="text-slate-500">Loading…</p>}
+      {loading && <p className="text-slate-500">Loading…</p>}
 
-        {!loading && accounts.length === 0 && (
-          <EmptyState
-            icon={<AccountsIcon className="h-6 w-6" />}
-            title="No accounts yet"
-            description="Add one above, then tag transactions to it to track its balance."
-          />
-        )}
-
-        {accounts.length > 0 && (
-          <section className="space-y-3">
+      {!loading && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="text-base font-bold tracking-[-0.01em] text-slate-900">Your accounts</h2>
+            {canWrite && (
+              <Button
+                onClick={() => {
+                  setError(null)
+                  setShowAdd(true)
+                }}
+                aria-label="Add account"
+              >
+                <span aria-hidden className="text-base leading-none">+</span> Add account
+              </Button>
+            )}
+          </div>
+
+          {accounts.length === 0 ? (
+            <EmptyState
+              icon={<AccountsIcon className="h-6 w-6" />}
+              title="No accounts yet"
+              description="Use + Add account, then tag transactions to it to track its balance."
+            />
+          ) : (
             <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
               {accounts.map((a) => {
-                const editing = editingId === a.id
                 const balanceMinor = fromAmount(a.currentBalance)
                 const hue = hueForAccountType(a.type)
-                if (editing) {
+                if (editingId === a.id) {
                   return (
                     <Card key={a.id} className="flex flex-col gap-3 p-5">
-                      <Input
-                        type="text"
-                        value={eName}
-                        aria-label={`Name for ${a.name}`}
-                        onChange={(e) => setEName(e.target.value)}
-                        className="w-full"
-                      />
-                      <Select
-                        value={eType}
-                        aria-label={`Type for ${a.name}`}
-                        onChange={(e) => setEType(Number(e.target.value))}
-                      >
+                      <Input type="text" value={eName} aria-label={`Name for ${a.name}`} onChange={(e) => setEName(e.target.value)} className="w-full" />
+                      <Select value={eType} aria-label={`Type for ${a.name}`} onChange={(e) => setEType(Number(e.target.value))}>
                         {TYPE_OPTIONS.map((o) => (
                           <option key={o.value} value={o.value}>
                             {o.label}
                           </option>
                         ))}
                       </Select>
-                      <Input
-                        type="text"
-                        inputMode="decimal"
-                        value={eOpening}
-                        aria-label={`Opening balance for ${a.name}`}
-                        onChange={(e) => setEOpening(e.target.value)}
-                        className="w-full text-right tabular-nums"
-                      />
+                      <Input type="text" inputMode="decimal" value={eOpening} aria-label={`Opening balance for ${a.name}`} onChange={(e) => setEOpening(e.target.value)} className="w-full text-right tabular-nums" />
                       <div className="flex justify-end gap-2">
                         <Button size="sm" onClick={() => saveEdit(a.id)} disabled={savingId === a.id} aria-label={`Save ${a.name}`}>
                           Save
@@ -311,32 +300,30 @@ export function AccountsPage() {
                   )
                 }
                 return (
-                  <Card key={a.id} className="flex flex-col gap-3 p-5">
+                  <Card key={a.id} className="group relative flex flex-col gap-3 p-5 transition hover:shadow-hero">
+                    {/* Overlay link makes the whole card open the account detail. */}
+                    <Link
+                      to={`/accounts/${a.id}`}
+                      aria-label={`View ${a.name}`}
+                      className="absolute inset-0 rounded-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
+                    />
                     <div className="flex items-start justify-between gap-2">
-                      <div
-                        className="flex h-12 w-12 items-center justify-center rounded-2xl"
-                        style={{ background: hueTint(hue) }}
-                        aria-hidden
-                      >
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: hueTint(hue) }} aria-hidden>
                         <span className="h-5 w-5 rounded-lg" style={{ background: hueColor(hue) }} />
                       </div>
-                      <Badge tone={TYPE_TONE[a.type] ?? 'teal'}>{ACCOUNT_TYPE_LABELS[a.type] ?? 'Other'}</Badge>
+                      <span className="rounded-full border border-slate-200 px-2.5 py-0.5 text-xs font-medium text-slate-500">
+                        {ACCOUNT_TYPE_LABELS[a.type] ?? 'Other'}
+                      </span>
                     </div>
                     <div>
                       <div className="text-[14.5px] font-semibold text-slate-900">{a.name}</div>
-                      <div
-                        className={`mt-0.5 text-[25px] font-bold tabular-nums ${
-                          balanceMinor < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900'
-                        }`}
-                      >
+                      <div className={`mt-0.5 text-[25px] font-bold tabular-nums ${balanceMinor < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900'}`}>
                         {formatMoney(balanceMinor, CURRENCY)}
                       </div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        Opening {formatMoney(fromAmount(a.openingBalance), CURRENCY)}
-                      </div>
+                      <div className="mt-1 text-xs text-slate-500">Opening {formatMoney(fromAmount(a.openingBalance), CURRENCY)}</div>
                     </div>
                     {canWrite && (
-                      <div className="mt-auto flex justify-end gap-1 pt-1">
+                      <div className="relative z-10 mt-auto flex justify-end gap-1 pt-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
                         <button
                           type="button"
                           onClick={() => startEdit(a)}
@@ -362,18 +349,19 @@ export function AccountsPage() {
                 )
               })}
             </div>
-          </section>
-        )}
+          )}
+        </section>
+      )}
 
-        {reconciliation.some((r) => r.backedFundCount > 0) && (
-          <Card className="overflow-hidden">
-            <div className="border-b border-slate-100 bg-slate-50 px-4 py-2.5">
-              <h2 className="text-sm font-semibold text-slate-700">Fund reconciliation</h2>
-              <p className="text-xs text-slate-500">
-                Each account’s balance against the sinking funds it holds — the float is what’s not yet earmarked.
-              </p>
-            </div>
-            <div className="overflow-x-auto">
+      {reconciliation.some((r) => r.backedFundCount > 0) && (
+        <Card className="overflow-hidden">
+          <div className="border-b border-slate-100 bg-slate-50 px-4 py-2.5">
+            <h2 className="text-sm font-semibold text-slate-700">Fund reconciliation</h2>
+            <p className="text-xs text-slate-500">
+              Each account’s balance against the sinking funds it holds — the float is what’s not yet earmarked.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
@@ -389,26 +377,18 @@ export function AccountsPage() {
                   .map((r) => (
                     <tr key={r.accountId} className="hover:bg-slate-50">
                       <td className="px-4 py-2.5 font-medium text-slate-700">{r.accountName}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">
-                        {formatMoney(fromAmount(r.currentBalance), CURRENCY)}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-500">
-                        {formatMoney(fromAmount(r.backedFundsTotal), CURRENCY)}
-                      </td>
-                      <td
-                        className={`px-4 py-2.5 text-right font-semibold tabular-nums ${
-                          fromAmount(r.float) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800'
-                        }`}
-                      >
+                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{formatMoney(fromAmount(r.currentBalance), CURRENCY)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-500">{formatMoney(fromAmount(r.backedFundsTotal), CURRENCY)}</td>
+                      <td className={`px-4 py-2.5 text-right font-semibold tabular-nums ${fromAmount(r.float) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800'}`}>
                         {formatMoney(fromAmount(r.float), CURRENCY)}
                       </td>
                     </tr>
                   ))}
               </tbody>
             </table>
-            </div>
-          </Card>
-        )}
+          </div>
+        </Card>
+      )}
     </AppShell>
   )
 }

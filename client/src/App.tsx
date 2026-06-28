@@ -10,6 +10,7 @@ import { PeoplePage } from './pages/PeoplePage'
 import { DashboardPage } from './pages/DashboardPage'
 import { TransactionsPage } from './pages/TransactionsPage'
 import { AccountsPage } from './pages/AccountsPage'
+import { AccountDetailPage } from './pages/AccountDetailPage'
 import { FundsPage } from './pages/FundsPage'
 import { AllocationPage } from './pages/AllocationPage'
 import { ReportsPage } from './pages/ReportsPage'
@@ -72,6 +73,16 @@ export default function App() {
             element={
               <RequireAuth>
                 <AccountsPage />
+              </RequireAuth>
+            }
+          />
+        )}
+        {features.accounts && (
+          <Route
+            path="/accounts/:id"
+            element={
+              <RequireAuth>
+                <AccountDetailPage />
               </RequireAuth>
             }
           />

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto } from '../types'
@@ -68,10 +68,12 @@ describe('AccountsPage', () => {
 
     renderPage()
 
-    await user.type(await screen.findByLabelText('Account name', {}, { timeout: 5000 }), 'Wallet')
+    await user.click(await screen.findByRole('button', { name: 'Add account' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(screen.getByLabelText('Account name'), 'Wallet')
     await user.selectOptions(screen.getByLabelText('Account type'), '2')
     await user.type(screen.getByLabelText('Opening balance'), '40')
-    await user.click(screen.getByRole('button', { name: 'Add account' }))
+    await user.click(dialog.getByRole('button', { name: 'Add account' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(
