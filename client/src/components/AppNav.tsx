@@ -81,7 +81,7 @@ export function AppNav({
             to={i.to}
             onClick={() => onClick(i.to)}
             aria-current={isActive ? 'page' : undefined}
-            data-tour={i.key === 'help' ? 'help' : undefined}
+            data-tour={i.key === 'help' ? 'help' : `nav-${i.key}`}
             className={`flex items-center gap-[11px] rounded-[11px] px-[11px] py-[9px] text-sm transition ${
               isActive
                 ? 'bg-brand-50 font-semibold text-brand-700 dark:bg-brand-500/15 dark:text-brand-200'

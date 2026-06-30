@@ -14,7 +14,7 @@ export function TopBar() {
     'flex h-[34px] w-[34px] items-center justify-center rounded-[10px] border border-slate-200 bg-surface text-[15px] text-slate-500 transition hover:border-brand-600 hover:text-slate-900 active:scale-95'
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
+    <div data-tour="topbar" className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex items-center gap-3">
         <button type="button" aria-label="Previous month" onClick={goPrev} className={arrow}>
           ‹
