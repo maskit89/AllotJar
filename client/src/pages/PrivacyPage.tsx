@@ -16,7 +16,7 @@ export function PrivacyPage() {
 
       <h2>Who we are</h2>
       <p>
-        AllotJar is operated by <strong>[OPERATOR LEGAL NAME]</strong>, an individual based in
+        AllotJar is operated by Christopher Muscat, an individual based in
         Malta (“we”, “us”, “our”). For the purposes of the EU General Data Protection Regulation
         (GDPR), we are the data controller for the personal data described below. You can reach us
         about any privacy matter at <a href="mailto:privacy@allotjar.com">privacy@allotjar.com</a>.

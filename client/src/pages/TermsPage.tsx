@@ -17,7 +17,7 @@ export function TermsPage() {
 
       <h2>1. Who we are</h2>
       <p>
-        The Service is operated by <strong>[OPERATOR LEGAL NAME]</strong>, an individual based in
+        The Service is operated by Christopher Muscat, an individual based in
         Malta (“we”, “us”, “our”). You can contact us at{' '}
         <a href="mailto:privacy@allotjar.com">privacy@allotjar.com</a>.
       </p>
