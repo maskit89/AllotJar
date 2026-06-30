@@ -52,12 +52,10 @@ internal sealed record BudgetSheetData(
 /// </summary>
 internal sealed record FundSeed(
     string Name,
-    FundKind Kind,
     string Category,
     decimal TargetAmount,
     decimal MonthlyContribution,
     decimal Opening,
     AccrualMethod Accrual,
     DateOnly? CoverStart,
-    DateOnly? CoverEnd,
-    bool RecurAnnually);
+    DateOnly? CoverEnd);

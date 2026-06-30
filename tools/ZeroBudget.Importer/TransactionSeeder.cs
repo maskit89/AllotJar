@@ -79,12 +79,12 @@ internal static class TransactionSeeder
             l => l.Code.ToUpperInvariant(), l => l.Name, StringComparer.OrdinalIgnoreCase);
 
         // Fund names grouped for the payee-matched "guess the jar" attribution.
-        var yearlyByCategory = reference.Funds.Where(f => f.Kind == FundKind.Annual)
+        var yearlyByCategory = reference.Funds.Where(f => f.Accrual == AccrualMethod.ProportionalPool)
             .GroupBy(f => f.Category)
             .ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.Select(f => f.Name).ToList(),
                 StringComparer.OrdinalIgnoreCase);
         var monthlyNames = (IReadOnlyList<string>)reference.Funds
-            .Where(f => f.Kind == FundKind.Commitment).Select(f => f.Name).ToList();
+            .Where(f => f.Accrual == AccrualMethod.StraightLine).Select(f => f.Name).ToList();
 
         // Idempotent re-import: clear this owner's transactions first.
         await db.TransactionSplits.Where(s => s.Transaction.OwnerId == owner).ExecuteDeleteAsync();
