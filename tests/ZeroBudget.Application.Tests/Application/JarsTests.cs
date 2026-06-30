@@ -42,7 +42,7 @@ public class JarsTests
             Id = id,
             OwnerId = ownerId,
             Name = "Holiday",
-            Kind = JarKind.Annual,
+            Kind = JarKind.Recurring,
             TargetAmount = target,
             Accrual = accrual,
             TargetDate = targetDate,
@@ -101,8 +101,8 @@ public class JarsTests
         var handler = new CreateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         var dto = await handler.Handle(new CreateJarCommand(
-            "Home Insurance", JarKind.Commitment, 300m, null, null, null,
-            AccrualMethod.StraightLine, RecurAnnually: true, OpeningBalance: 0m,
+            "Home Insurance", JarKind.Recurring, 300m, null, null, null,
+            AccrualMethod.StraightLine, OpeningBalance: 0m,
             OpeningAsOf: null, FundingAccountId: null), CancellationToken.None);
 
         dto.Name.Should().Be("Home Insurance");
@@ -197,7 +197,7 @@ public class JarsTests
         var dto = await new UpdateJarCommandHandler(db, new CurrentUserStub("user-1"))
             .Handle(new UpdateJarCommand(
                 fundId, "Renamed", JarKind.Goal, 500m, null, null, null,
-                AccrualMethod.StraightLine, false, 0m, null, null), CancellationToken.None);
+                AccrualMethod.StraightLine, 0m, null, null), CancellationToken.None);
 
         dto.Name.Should().Be("Renamed");
         dto.TargetAmount.Should().Be(500m);
@@ -211,8 +211,8 @@ public class JarsTests
         var handler = new UpdateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
-            new UpdateJarCommand(Guid.NewGuid(), "X", JarKind.Annual, 1m, null, null, null,
-                AccrualMethod.TargetByDate, false, 0m, null, null), CancellationToken.None));
+            new UpdateJarCommand(Guid.NewGuid(), "X", JarKind.Recurring, 1m, null, null, null,
+                AccrualMethod.TargetByDate, 0m, null, null), CancellationToken.None));
     }
 
     [Fact]
@@ -225,8 +225,8 @@ public class JarsTests
         var handler = new UpdateJarCommandHandler(db, new CurrentUserStub("user-2"));
 
         await Assert.ThrowsAsync<ForbiddenAccessException>(() => handler.Handle(
-            new UpdateJarCommand(fundId, "X", JarKind.Annual, 1m, null, null, null,
-                AccrualMethod.TargetByDate, false, 0m, null, null), CancellationToken.None));
+            new UpdateJarCommand(fundId, "X", JarKind.Recurring, 1m, null, null, null,
+                AccrualMethod.TargetByDate, 0m, null, null), CancellationToken.None));
     }
 
     [Fact]
@@ -289,16 +289,16 @@ public class JarsTests
         var validator = new CreateJarCommandValidator();
 
         validator.Validate(new CreateJarCommand(
-            "", JarKind.Annual, 100m, null, null, null,
-            AccrualMethod.TargetByDate, false, 0m, null, null)).IsValid.Should().BeFalse();
+            "", JarKind.Recurring, 100m, null, null, null,
+            AccrualMethod.TargetByDate, 0m, null, null)).IsValid.Should().BeFalse();
 
         validator.Validate(new CreateJarCommand(
-            "X", JarKind.Annual, -1m, null, null, null,
-            AccrualMethod.TargetByDate, false, 0m, null, null)).IsValid.Should().BeFalse();
+            "X", JarKind.Recurring, -1m, null, null, null,
+            AccrualMethod.TargetByDate, 0m, null, null)).IsValid.Should().BeFalse();
 
         validator.Validate(new CreateJarCommand(
-            "X", JarKind.Annual, 100m, null,
+            "X", JarKind.Recurring, 100m, null,
             new DateOnly(2026, 6, 1), new DateOnly(2026, 1, 1),
-            AccrualMethod.StraightLine, false, 0m, null, null)).IsValid.Should().BeFalse();
+            AccrualMethod.StraightLine, 0m, null, null)).IsValid.Should().BeFalse();
     }
 }

@@ -13,7 +13,6 @@ public record CreateJarCommand(
     DateOnly? CoverStart,
     DateOnly? CoverEnd,
     AccrualMethod Accrual,
-    bool RecurAnnually,
     decimal OpeningBalance,
     DateOnly? OpeningAsOf,
     Guid? FundingAccountId) : IRequest<JarDto>;
