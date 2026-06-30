@@ -69,15 +69,13 @@ internal static class ReferenceReader
 
             yield return new FundSeed(
                 Name: name,
-                Kind: FundKind.Annual,
                 Category: Str(ws, $"C{r}"),
                 TargetAmount: Num(ws, $"B{r}"),
                 MonthlyContribution: Num(ws, $"F{r}"),
                 Opening: Num(ws, $"J{r}"),
                 Accrual: AccrualMethod.ProportionalPool,
                 CoverStart: null,
-                CoverEnd: null,
-                RecurAnnually: true);
+                CoverEnd: null);
         }
     }
 
@@ -96,15 +94,13 @@ internal static class ReferenceReader
             var monthly = Num(ws, $"C{r}");
             yield return new FundSeed(
                 Name: name,
-                Kind: FundKind.Commitment,
                 Category: "Monthly Commitment",
                 TargetAmount: yearly > 0m ? yearly : Math.Round(monthly * 12m, 4),
                 MonthlyContribution: monthly,
                 Opening: Num(ws, $"H{r}"),
                 Accrual: AccrualMethod.StraightLine,
                 CoverStart: DateOrNull(ws, $"E{r}"),
-                CoverEnd: DateOrNull(ws, $"F{r}"),
-                RecurAnnually: true);
+                CoverEnd: DateOrNull(ws, $"F{r}"));
         }
     }
 

@@ -3,7 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ZeroBudget.Application.Accounts.Commands.CreateAccount;
 using ZeroBudget.Application.Household.Commands.CreateHouseholdMember;
-using ZeroBudget.Application.SinkingFunds.Commands.CreateSinkingFund;
+using ZeroBudget.Application.Jars.Commands.CreateJar;
+using ZeroBudget.Domain.Enums;
 using ZeroBudget.Infrastructure.Persistence;
 
 namespace ZeroBudget.Importer;
@@ -75,15 +76,14 @@ internal static class ImportRunner
         // 3) Sinking funds with their targets, accrual method and 2026 opening balances.
         foreach (var f in data.Funds)
         {
-            await sender.Send(new CreateSinkingFundCommand(
+            await sender.Send(new CreateJarCommand(
                 Name: f.Name,
-                Kind: f.Kind,
+                Kind: JarKind.Recurring,
                 TargetAmount: f.TargetAmount,
                 TargetDate: null,
                 CoverStart: f.CoverStart,
                 CoverEnd: f.CoverEnd,
                 Accrual: f.Accrual,
-                RecurAnnually: f.RecurAnnually,
                 OpeningBalance: f.Opening,
                 OpeningAsOf: OpeningAsOf,
                 FundingAccountId: null));
@@ -98,7 +98,7 @@ internal static class ImportRunner
     {
         var accounts = await db.Accounts.AsNoTracking().Where(a => a.OwnerId == owner).ToListAsync();
         var members = await db.HouseholdMembers.AsNoTracking().Where(m => m.OwnerId == owner).ToListAsync();
-        var funds = await db.SinkingFunds.AsNoTracking().Where(f => f.OwnerId == owner).ToListAsync();
+        var funds = await db.Jars.AsNoTracking().Where(f => f.OwnerId == owner).ToListAsync();
 
         Console.WriteLine();
         Console.WriteLine("VERIFY (database read-back vs parsed sheet)");
@@ -138,7 +138,7 @@ internal static class ImportRunner
         await db.BudgetItems.Where(i => i.BudgetCategory.BudgetMonth.OwnerId == owner).ExecuteDeleteAsync();
         await db.BudgetCategories.Where(c => c.BudgetMonth.OwnerId == owner).ExecuteDeleteAsync();
         var months = await db.BudgetMonths.Where(m => m.OwnerId == owner).ExecuteDeleteAsync();
-        var funds = await db.SinkingFunds.Where(f => f.OwnerId == owner).ExecuteDeleteAsync();
+        var funds = await db.Jars.Where(f => f.OwnerId == owner).ExecuteDeleteAsync();
         var members = await db.HouseholdMembers.Where(m => m.OwnerId == owner).ExecuteDeleteAsync();
         var accounts = await db.Accounts.Where(a => a.OwnerId == owner).ExecuteDeleteAsync();
 

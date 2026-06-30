@@ -10,7 +10,7 @@ namespace ZeroBudget.Importer;
 /// <summary>
 /// Phase 2a — the budget scaffolding. Creates the 12 (identical-planned) 2026 budget
 /// months that mirror the spreadsheet's monthly plan, building the entities directly so
-/// fund lines can carry the right <see cref="BudgetItem.FundId"/> (= the SinkingFund id,
+/// fund lines can carry the right <see cref="BudgetItem.SavingsId"/> (= the Jar id,
 /// which the high-level AddBudgetItem command cannot set). Planned amounts come straight
 /// from the sheet so the budget reconciles exactly. Per month:
 ///   Income            — a salary line per member (net monthly income);
@@ -42,8 +42,8 @@ internal static class BudgetSeeder
         var owner = user.Id;
         currentUser.UserId = owner;
 
-        // Fund lines link to the SinkingFunds created in the reference phase, matched by name.
-        var fundIdByName = await db.SinkingFunds.AsNoTracking()
+        // Fund lines link to the Jars created in the reference phase, matched by name.
+        var fundIdByName = await db.Jars.AsNoTracking()
             .Where(f => f.OwnerId == owner)
             .ToDictionaryAsync(f => f.Name, f => f.Id, StringComparer.OrdinalIgnoreCase);
 
@@ -64,7 +64,7 @@ internal static class BudgetSeeder
         }
         if (missing.Count > 0)
         {
-            Console.Error.WriteLine("Refusing to commit: some fund lines have no matching SinkingFund (see above).");
+            Console.Error.WriteLine("Refusing to commit: some fund lines have no matching Jar (see above).");
             return 2;
         }
 
@@ -93,7 +93,7 @@ internal static class BudgetSeeder
                         Name = line.Name,
                         PlannedAmount = line.Planned,
                         DisplayOrder = li,
-                        FundId = line.FundId,
+                        SavingsId = line.FundId,
                     }).ToList(),
                 }).ToList(),
             });
@@ -127,18 +127,18 @@ internal static class BudgetSeeder
             members.Select(m => new LinePlan(m.Name, budget.SurplusByMember.GetValueOrDefault(m.Name), null)).ToList(),
             ExcludeFromAllocation: true);
 
-        var yearly = FundCategory("Yearly Funds", reference, FundKind.Annual, fundIdByName, missing);
-        var monthly = FundCategory("Monthly Commitments", reference, FundKind.Commitment, fundIdByName, missing);
+        var yearly = FundCategory("Yearly Funds", reference, AccrualMethod.ProportionalPool, fundIdByName, missing);
+        var monthly = FundCategory("Monthly Commitments", reference, AccrualMethod.StraightLine, fundIdByName, missing);
 
         return new[] { income, living, pocket, savings, yearly, monthly };
     }
 
     private static CategoryPlan FundCategory(
-        string name, ReferenceData reference, FundKind kind,
+        string name, ReferenceData reference, AccrualMethod accrual,
         IReadOnlyDictionary<string, Guid> fundIdByName, List<string> missing)
     {
         var lines = new List<LinePlan>();
-        foreach (var f in reference.Funds.Where(f => f.Kind == kind))
+        foreach (var f in reference.Funds.Where(f => f.Accrual == accrual))
         {
             if (!fundIdByName.TryGetValue(f.Name, out var id))
             {
@@ -147,7 +147,7 @@ internal static class BudgetSeeder
             }
             lines.Add(new LinePlan(f.Name, f.MonthlyContribution, id));
         }
-        return new CategoryPlan(name, CategoryKind.Fund, lines);
+        return new CategoryPlan(name, CategoryKind.Savings, lines);
     }
 
     // --- Output / verification ---------------------------------------------
@@ -165,7 +165,7 @@ internal static class BudgetSeeder
         Console.WriteLine($"  {"TOTAL planned outflow",-22} {outflow,25:#,##0.00}");
         Console.WriteLine($"  {"Remaining to budget",-22} {income - outflow,25:#,##0.00}");
         if (missing.Count > 0)
-            Console.WriteLine($"  !! {missing.Count} fund line(s) without a matching SinkingFund: {string.Join(", ", missing)}");
+            Console.WriteLine($"  !! {missing.Count} fund line(s) without a matching Jar: {string.Join(", ", missing)}");
     }
 
     private static async Task<bool> VerifyAsync(ApplicationDbContext db, string owner, IReadOnlyList<CategoryPlan> plan)
@@ -186,7 +186,7 @@ internal static class BudgetSeeder
         var dbOutflow = months.Sum(m => m.Categories.Where(c => c.Kind != CategoryKind.Income).Sum(c => c.Items.Sum(i => i.PlannedAmount)));
         ok &= Money("Σ planned income (×12)", dbIncome, perMonthIncome * 12);
         ok &= Money("Σ planned outflow (×12)", dbOutflow, perMonthOutflow * 12);
-        var fundLines = months.Sum(m => m.Categories.Where(c => c.Kind == CategoryKind.Fund).Sum(c => c.Items.Count(i => i.FundId != null)));
+        var fundLines = months.Sum(m => m.Categories.Where(c => c.Kind == CategoryKind.Savings).Sum(c => c.Items.Count(i => i.SavingsId != null)));
         ok &= Row("Fund lines linked (×12)", fundLines, 41 * 12);
 
         Console.WriteLine();

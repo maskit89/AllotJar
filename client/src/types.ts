@@ -249,12 +249,11 @@ export interface BudgetTemplateDto {
 }
 
 // Matches Domain.Enums.JarKind (serialized as a number).
-export const JarKind = { Annual: 0, Commitment: 1, Goal: 2 } as const
+export const JarKind = { Recurring: 0, Goal: 1 } as const
 
 export const JAR_KIND_LABELS: Record<number, string> = {
-  0: 'Annual',
-  1: 'Commitment',
-  2: 'Goal',
+  0: 'Recurring',
+  1: 'Goal',
 }
 
 // Matches Domain.Enums.AccrualMethod (serialized as a number).

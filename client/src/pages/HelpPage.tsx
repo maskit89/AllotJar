@@ -55,29 +55,31 @@ export function HelpPage() {
         <HelpCard hueIndex={0} title="Zero-based budgeting">
           <p>
             Give every euro a job until <strong>Remaining to budget</strong> reaches{' '}
-            <strong>€0.00</strong> — assign all your income across spending lines and jars before the month
-            begins.
+            <strong>€0.00</strong> — assign all your income across spending lines, savings and jars before the
+            month begins. <strong>Spent</strong> fills in automatically from your transactions, so there's
+            nothing to total by hand.
           </p>
         </HelpCard>
 
-        <HelpCard hueIndex={4} title="Jars (sinking funds)">
+        <HelpCard hueIndex={1} title="Months & appearance">
           <p>
-            Set money aside each month for big or irregular costs — car, holiday, Christmas. A jar's balance
-            rolls over month to month, and we work out the contribution it needs.
-          </p>
-        </HelpCard>
-
-        <HelpCard hueIndex={1} title="Bills & due dates">
-          <p>
-            Flag a line as a bill with a due day and AllotJar tracks what's due or overdue, with a Paid
-            checkbox for the current month.
+            The bar at the top of every page is the <strong>month picker</strong> — use the ‹ › arrows to plan
+            any month, and every screen follows along. The <strong>light/dark</strong> toggle is on the right.
           </p>
         </HelpCard>
 
         <HelpCard hueIndex={2} title="Transactions">
           <p>
-            Log spending and assign each one to a budget line; unassigned items are flagged. Split one across
-            several lines, and repeat payees categorise themselves.
+            Log spending and assign each one to a budget line — that's what fills the <strong>Spent</strong>{' '}
+            column. Unassigned items are flagged, you can split one receipt across several lines, and repeat
+            payees categorise themselves.
+          </p>
+        </HelpCard>
+
+        <HelpCard hueIndex={3} title="Bills & due dates">
+          <p>
+            Flag a line as a bill with a due day and AllotJar tracks what's due or overdue, with a Paid
+            checkbox for the current month.
           </p>
         </HelpCard>
 
@@ -88,21 +90,38 @@ export function HelpPage() {
           </p>
         </HelpCard>
 
-        <HelpCard hueIndex={0} title="Reports">
+        <HelpCard hueIndex={0} title="Saving with jars">
+          <p>
+            Jars are for big or irregular costs — car, holiday, Christmas. Give a jar a target and a date and
+            we work out what to set aside each month and show it filling up. Budget that monthly amount in your{' '}
+            <strong>Savings</strong> group, whose balance rolls over month to month.
+          </p>
+        </HelpCard>
+
+        <HelpCard hueIndex={1} title="Reports">
           <p>
             See income vs spending over recent months, a category breakdown for any month, and an annual
             overview of what you earned, spent and saved.
           </p>
         </HelpCard>
 
-        <HelpCard hueIndex={1} title="People & allocation">
+        <HelpCard hueIndex={2} title="People & allocation">
           <p>
             Add the people you share money with, then pool everyone's income, cover the shared costs, and split
-            what's left into each person's savings — previewed before anything moves.
+            what's left into each person's savings — previewed before anything moves. On your own, it stays out
+            of the way until you add someone.
           </p>
         </HelpCard>
 
-        <HelpCard hueIndex={2} title="Good to know">
+        <HelpCard hueIndex={3} title="Your account">
+          <p>
+            Open the menu under your name (bottom of the sidebar) for <strong>Account settings</strong> — your
+            display name, preferred currency and number format, and changing your password. If you belong to
+            more than one household, switch between them there too.
+          </p>
+        </HelpCard>
+
+        <HelpCard hueIndex={4} title="Good to know">
           <ul className="ml-4 list-disc space-y-1">
             <li>Inline editing everywhere: click, type, Enter to save, Escape to cancel.</li>
             <li>Deleting a line or account never deletes its transactions.</li>

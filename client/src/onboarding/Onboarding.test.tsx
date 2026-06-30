@@ -47,11 +47,18 @@ describe('Onboarding', () => {
     renderApp()
     fireEvent.click(await screen.findByRole('button', { name: 'Take the tour' }))
 
+    // First step, then the zero-based goal a couple of steps in.
     expect(await screen.findByRole('heading', { name: 'Find your way around' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    expect(await screen.findByRole('heading', { name: /Pick the month/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     expect(await screen.findByRole('heading', { name: 'Give every euro a job' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+
+    // Advance through the remaining page-by-page steps until the final one.
+    let guard = 20
+    while (screen.queryByRole('button', { name: 'Next' }) && guard-- > 0) {
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    }
     expect(await screen.findByRole('heading', { name: /You're all set/ })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Finish' }))

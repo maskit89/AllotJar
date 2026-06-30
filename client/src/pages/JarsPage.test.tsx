@@ -23,7 +23,7 @@ function fund(over: Partial<JarDto> = {}): JarDto {
   return {
     id: 'f1',
     name: 'Home insurance',
-    kind: 1,
+    kind: 0,
     targetAmount: 300,
     targetDate: '2026-12-01',
     coverStart: null,
@@ -108,6 +108,22 @@ describe('JarsPage', () => {
       ),
     )
     expect(await screen.findByText('Vacation', {}, { timeout: 5000 })).toBeInTheDocument()
+  })
+
+  it('offers Recurring/Goal as the jar Type and drops the renews checkbox', { timeout: 15000 }, async () => {
+    fundsData = []
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'New jar' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+
+    const type = dialog.getByLabelText('Jar type')
+    expect(within(type).getByRole('option', { name: 'Recurring' })).toBeInTheDocument()
+    expect(within(type).getByRole('option', { name: 'Goal' })).toBeInTheDocument()
+    // The renewal bit is now derived from Type, so the standalone checkbox is gone.
+    expect(dialog.queryByLabelText('Renews each year')).not.toBeInTheDocument()
   })
 
   it('archives a fund from its edit modal', { timeout: 15000 }, async () => {

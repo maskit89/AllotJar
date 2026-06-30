@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using ZeroBudget.Application.Common.Exceptions;
 using ZeroBudget.Application.Common.Interfaces;
 using ZeroBudget.Application.Jars.Dtos;
+using ZeroBudget.Domain.Enums;
 using ZeroBudget.Domain.Services;
 
 namespace ZeroBudget.Application.Jars.Commands.UpdateJar;
@@ -41,7 +42,8 @@ public class UpdateJarCommandHandler
         fund.CoverStart = request.CoverStart;
         fund.CoverEnd = request.CoverEnd;
         fund.Accrual = request.Accrual;
-        fund.RecurAnnually = request.RecurAnnually;
+        // A jar's type IS its renewal bit: Recurring renews, Goal is one-and-done.
+        fund.RecurAnnually = request.Kind == JarKind.Recurring;
         fund.OpeningBalance = request.OpeningBalance;
         fund.OpeningAsOf = request.OpeningAsOf;
         fund.FundingAccountId = request.FundingAccountId;
