@@ -43,14 +43,14 @@ internal static class ReconcileReport
         checks.Add(new Check("Members: Σ net monthly", memberTotal, Oracle("Future Savings", "C5")));
 
         // --- Yearly (proportional-pool) funds ------------------------------
-        var yearly = data.Funds.Where(f => f.Kind == Domain.Enums.FundKind.Annual).ToList();
+        var yearly = data.Funds.Where(f => f.Accrual == Domain.Enums.AccrualMethod.ProportionalPool).ToList();
         PrintFundTable("YEARLY EXPENSES — discretionary sinking funds (proportional-pool)", yearly);
         checks.Add(new Check("Yearly: Σ target",  yearly.Sum(f => f.TargetAmount),        Oracle("Yearly Expenses", "B29")));
         checks.Add(new Check("Yearly: Σ monthly", yearly.Sum(f => f.MonthlyContribution), Oracle("Yearly Expenses", "F29")));
         checks.Add(new Check("Yearly: Σ opening", yearly.Sum(f => f.Opening),             Oracle("Yearly Expenses", "J29")));
 
         // --- Monthly (straight-line) commitment funds ----------------------
-        var monthly = data.Funds.Where(f => f.Kind == Domain.Enums.FundKind.Commitment).ToList();
+        var monthly = data.Funds.Where(f => f.Accrual == Domain.Enums.AccrualMethod.StraightLine).ToList();
         PrintFundTable("MONTHLY EXPENSES — commitment sinking funds (straight-line)", monthly);
         checks.Add(new Check("Monthly: Σ monthly", monthly.Sum(f => f.MonthlyContribution), Oracle("Monthly Expenses", "C22")));
         checks.Add(new Check("Monthly: Σ opening", monthly.Sum(f => f.Opening),             Oracle("Monthly Expenses", "H22")));

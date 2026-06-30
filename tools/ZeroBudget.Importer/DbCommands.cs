@@ -12,8 +12,8 @@ internal static class DbCommands
     /// <summary>
     /// Convert the "Living Costs" expense category into accumulating sinking funds, from the given
     /// month onward (leaving earlier months as monthly expenses so no untracked history inflates the
-    /// jars). Per distinct line a no-target <see cref="SinkingFund"/> is created, every monthly line
-    /// from the start month on is linked to it, and the category flips to <see cref="CategoryKind.Fund"/>.
+    /// jars). Per distinct line a no-target <see cref="Jar"/> is created, every monthly line
+    /// from the start month on is linked to it, and the category flips to <see cref="CategoryKind.Savings"/>.
     /// Idempotent-ish: refuses if those categories are already Funds. Dry-run unless <paramref name="commit"/>.
     /// </summary>
     public static async Task<int> ConvertLivingCostsToFunds(
@@ -48,7 +48,7 @@ internal static class DbCommands
         }
 
         // Safety: don't run twice (would double-create funds).
-        var alreadyFund = categories.Count(c => c.Kind == CategoryKind.Fund);
+        var alreadyFund = categories.Count(c => c.Kind == CategoryKind.Savings);
         if (alreadyFund > 0)
         {
             Console.Error.WriteLine(
@@ -72,32 +72,32 @@ internal static class DbCommands
             Console.WriteLine($"    • {n}");
         }
 
-        var fundByName = new Dictionary<string, SinkingFund>(StringComparer.Ordinal);
+        var fundByName = new Dictionary<string, Jar>(StringComparer.Ordinal);
         foreach (var name in lineNames)
         {
-            var fund = new SinkingFund
+            var fund = new Jar
             {
                 OwnerId = owner,
                 Name = name,
-                Kind = FundKind.Annual,
+                Kind = JarKind.Recurring,
                 TargetAmount = 0m,                  // open-ended pool: no target, just accumulates
                 TargetDate = null,
                 Accrual = AccrualMethod.ProportionalPool,
                 OpeningBalance = 0m,
             };
             fundByName[name] = fund;
-            db.SinkingFunds.Add(fund);
+            db.Jars.Add(fund);
         }
 
         var linesLinked = 0;
         foreach (var cat in categories)
         {
-            cat.Kind = CategoryKind.Fund;
+            cat.Kind = CategoryKind.Savings;
             foreach (var item in cat.Items)
             {
-                if (item.FundId is null && fundByName.TryGetValue(item.Name, out var fund))
+                if (item.SavingsId is null && fundByName.TryGetValue(item.Name, out var fund))
                 {
-                    item.FundId = fund.Id;
+                    item.SavingsId = fund.Id;
                     linesLinked++;
                 }
             }
@@ -157,7 +157,7 @@ internal static class DbCommands
         Console.WriteLine("Existing data for this owner:");
         Console.WriteLine($"  Accounts          : {await db.Accounts.CountAsync(a => a.OwnerId == owner)}");
         Console.WriteLine($"  Household members  : {await db.HouseholdMembers.CountAsync(m => m.OwnerId == owner)}");
-        Console.WriteLine($"  Sinking funds      : {await db.SinkingFunds.CountAsync(f => f.OwnerId == owner)}");
+        Console.WriteLine($"  Sinking funds      : {await db.Jars.CountAsync(f => f.OwnerId == owner)}");
         Console.WriteLine($"  Budget months      : {await db.BudgetMonths.CountAsync(m => m.OwnerId == owner)}");
         Console.WriteLine($"  Transactions       : {await db.Transactions.CountAsync(t => t.OwnerId == owner)}");
         Console.WriteLine($"  Allocation profiles: {await db.AllocationProfiles.CountAsync(p => p.OwnerId == owner)}");
