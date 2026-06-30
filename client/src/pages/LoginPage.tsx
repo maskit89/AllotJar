@@ -212,7 +212,27 @@ export function LoginPage() {
                     onChange={(e) => setAcceptedTerms(e.target.checked)}
                     className="mt-0.5 h-4 w-4 rounded border-slate-400 text-brand-600 focus:ring-2 focus:ring-brand-500/40"
                   />
-                  <span>I agree to the Terms of Service and Privacy Policy.</span>
+                  <span>
+                    I agree to the{' '}
+                    <a
+                      href="/terms"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-brand-600 underline hover:text-brand-700 dark:text-brand-500"
+                    >
+                      Terms of Service
+                    </a>{' '}
+                    and{' '}
+                    <a
+                      href="/privacy"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-brand-600 underline hover:text-brand-700 dark:text-brand-500"
+                    >
+                      Privacy Policy
+                    </a>
+                    .
+                  </span>
                 </label>
               </>
             )}
