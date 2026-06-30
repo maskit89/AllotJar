@@ -47,7 +47,7 @@ public class JarsController : ControllerBase
     {
         var result = await _mediator.Send(new CreateJarCommand(
             request.Name, request.Kind, request.TargetAmount, request.TargetDate,
-            request.CoverStart, request.CoverEnd, request.Accrual, request.RecurAnnually,
+            request.CoverStart, request.CoverEnd, request.Accrual,
             request.OpeningBalance, request.OpeningAsOf, request.FundingAccountId), ct);
         return CreatedAtAction(nameof(List), new { }, result);
     }
@@ -62,7 +62,7 @@ public class JarsController : ControllerBase
     {
         var result = await _mediator.Send(new UpdateJarCommand(
             id, request.Name, request.Kind, request.TargetAmount, request.TargetDate,
-            request.CoverStart, request.CoverEnd, request.Accrual, request.RecurAnnually,
+            request.CoverStart, request.CoverEnd, request.Accrual,
             request.OpeningBalance, request.OpeningAsOf, request.FundingAccountId), ct);
         return Ok(result);
     }
@@ -88,7 +88,6 @@ public record CreateJarRequest(
     DateOnly? CoverStart,
     DateOnly? CoverEnd,
     AccrualMethod Accrual,
-    bool RecurAnnually,
     decimal OpeningBalance,
     DateOnly? OpeningAsOf,
     Guid? FundingAccountId);
@@ -102,7 +101,6 @@ public record UpdateJarRequest(
     DateOnly? CoverStart,
     DateOnly? CoverEnd,
     AccrualMethod Accrual,
-    bool RecurAnnually,
     decimal OpeningBalance,
     DateOnly? OpeningAsOf,
     Guid? FundingAccountId);

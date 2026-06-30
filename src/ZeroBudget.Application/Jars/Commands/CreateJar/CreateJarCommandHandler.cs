@@ -3,6 +3,7 @@ using ZeroBudget.Application.Common.Exceptions;
 using ZeroBudget.Application.Common.Interfaces;
 using ZeroBudget.Application.Jars.Dtos;
 using ZeroBudget.Domain.Entities;
+using ZeroBudget.Domain.Enums;
 using ZeroBudget.Domain.Services;
 
 namespace ZeroBudget.Application.Jars.Commands.CreateJar;
@@ -35,7 +36,8 @@ public class CreateJarCommandHandler
             CoverStart = request.CoverStart,
             CoverEnd = request.CoverEnd,
             Accrual = request.Accrual,
-            RecurAnnually = request.RecurAnnually,
+            // A jar's type IS its renewal bit: Recurring renews, Goal is one-and-done.
+            RecurAnnually = request.Kind == JarKind.Recurring,
             OpeningBalance = request.OpeningBalance,
             OpeningAsOf = request.OpeningAsOf,
             FundingAccountId = request.FundingAccountId,

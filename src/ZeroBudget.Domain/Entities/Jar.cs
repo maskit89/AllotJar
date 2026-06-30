@@ -23,7 +23,7 @@ public class Jar : BaseEntity
 
     public string Name { get; set; } = string.Empty;
 
-    public JarKind Kind { get; set; } = JarKind.Annual;
+    public JarKind Kind { get; set; } = JarKind.Recurring;
 
     /// <summary>The amount to accumulate (spreadsheet col B). Mapped to decimal(18,4).</summary>
     public decimal TargetAmount { get; set; }
@@ -40,7 +40,11 @@ public class Jar : BaseEntity
     /// <summary>How the required monthly contribution is computed. Defaults to <see cref="AccrualMethod.TargetByDate"/>.</summary>
     public AccrualMethod Accrual { get; set; } = AccrualMethod.TargetByDate;
 
-    /// <summary>True for a fund that renews each cycle (e.g. insurance) rather than ending at its target date.</summary>
+    /// <summary>
+    /// True when the jar renews each cycle rather than ending at its target. Derived from
+    /// <see cref="Kind"/> (Recurring ⇒ true, Goal ⇒ false) by the create/update handlers,
+    /// so it is never set independently of the jar's type.
+    /// </summary>
     public bool RecurAnnually { get; set; }
 
     /// <summary>

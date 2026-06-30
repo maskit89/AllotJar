@@ -14,7 +14,6 @@ public record UpdateJarCommand(
     DateOnly? CoverStart,
     DateOnly? CoverEnd,
     AccrualMethod Accrual,
-    bool RecurAnnually,
     decimal OpeningBalance,
     DateOnly? OpeningAsOf,
     Guid? FundingAccountId) : IRequest<JarDto>;

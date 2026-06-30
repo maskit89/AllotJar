@@ -35,18 +35,16 @@ interface FormState {
   targetDate: string
   accrual: number
   opening: string
-  recurAnnually: boolean
   fundingAccountId: string
 }
 
 const BLANK_FORM: FormState = {
   name: '',
-  kind: JarKind.Annual,
+  kind: JarKind.Recurring,
   target: '',
   targetDate: '',
   accrual: AccrualMethod.TargetByDate,
   opening: '',
-  recurAnnually: false,
   fundingAccountId: '',
 }
 
@@ -109,7 +107,6 @@ export function JarsPage() {
       targetDate: f.targetDate ?? '',
       accrual: f.accrual,
       opening: toEditString(fromAmount(f.openingBalance)),
-      recurAnnually: f.recurAnnually,
       fundingAccountId: f.fundingAccountId ?? '',
     })
     setError(null)
@@ -136,7 +133,6 @@ export function JarsPage() {
       coverStart: null,
       coverEnd: null,
       accrual: form.accrual,
-      recurAnnually: form.recurAnnually,
       openingBalance,
       openingAsOf: null,
       fundingAccountId: form.fundingAccountId || null,
@@ -266,8 +262,8 @@ export function JarsPage() {
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Kind
-                <Select value={form.kind} aria-label="Jar kind" onChange={(e) => set('kind', Number(e.target.value))} className="w-full">
+                Type
+                <Select value={form.kind} aria-label="Jar type" onChange={(e) => set('kind', Number(e.target.value))} className="w-full">
                   {KIND_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
@@ -338,16 +334,6 @@ export function JarsPage() {
                 </label>
               )}
             </div>
-            <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
-              <input
-                type="checkbox"
-                checked={form.recurAnnually}
-                aria-label="Renews each year"
-                onChange={(e) => set('recurAnnually', e.target.checked)}
-                className="h-4 w-4 rounded border-slate-400"
-              />
-              Renews yearly
-            </label>
             <div className="flex items-center justify-between gap-2 pt-1">
               {editingJar ? (
                 <button
