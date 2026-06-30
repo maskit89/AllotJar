@@ -3,9 +3,11 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import axios from 'axios'
 import { JarLogo } from '../components/Jar'
+import { BetaBanner } from '../components/BetaBanner'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { Button, Card, Input, SegmentedControl, Select } from '../components/ui'
 import { CURRENCY_OPTIONS, NUMBER_FORMAT_OPTIONS } from '../lib/money'
+import { IS_BETA } from '../lib/env'
 import { EVENTS, track } from '../analytics'
 
 export function LoginPage() {
@@ -25,6 +27,8 @@ export function LoginPage() {
   const [currency, setCurrency] = useState('EUR')
   const [numberFormat, setNumberFormat] = useState('comma-dot')
   const [acceptedTerms, setAcceptedTerms] = useState(false)
+  // Beta builds require a separate acknowledgment that data may be lost (see BetaBanner).
+  const [acceptedBeta, setAcceptedBeta] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -69,7 +73,9 @@ export function LoginPage() {
   const registering = mode === 'register'
 
   return (
-    <div className="relative flex min-h-full items-center justify-center bg-slate-50 px-4 py-12">
+    <>
+      <BetaBanner />
+      <div className="relative flex min-h-full items-center justify-center bg-slate-50 px-4 py-12">
       <div className="absolute right-4 top-4">
         <ThemeToggle />
       </div>
@@ -234,6 +240,22 @@ export function LoginPage() {
                     .
                   </span>
                 </label>
+
+                {IS_BETA && (
+                  <label className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100">
+                    <input
+                      type="checkbox"
+                      required
+                      checked={acceptedBeta}
+                      onChange={(e) => setAcceptedBeta(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-amber-400 text-amber-600 focus:ring-2 focus:ring-amber-500/40"
+                    />
+                    <span>
+                      I understand AllotJar is in <strong className="font-semibold">beta</strong> and under
+                      active development, and that my data may be reset or permanently lost.
+                    </span>
+                  </label>
+                )}
               </>
             )}
 
@@ -251,6 +273,7 @@ export function LoginPage() {
 
         <p className="mt-6 text-center text-xs text-slate-500">Give every euro a job.</p>
       </div>
-    </div>
+      </div>
+    </>
   )
 }
