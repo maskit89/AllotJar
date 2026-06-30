@@ -160,7 +160,9 @@ export function LandingPage() {
       {/* ---- Hero ---- */}
       <section className="mx-auto grid max-w-6xl items-center gap-10 px-5 pb-10 pt-8 lg:grid-cols-2 lg:pb-16 lg:pt-14">
         <div>
-          <p className="mb-3 text-sm font-semibold uppercase tracking-[0.08em] text-brand-600">
+          {/* brand-600 stays deep green in dark (it backs white-text buttons), so
+              brighten the accent text to brand-500 (#5fc093) for AA contrast there. */}
+          <p className="mb-3 text-sm font-semibold uppercase tracking-[0.08em] text-brand-600 dark:text-brand-500">
             Zero-based budgeting · built for Europe
           </p>
           <h1 className="text-4xl font-extrabold leading-[1.08] tracking-[-0.03em] text-slate-900 sm:text-5xl">
