@@ -105,11 +105,13 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByText('Step 1 of').waitFor()
       await expectNoViolations(page)
 
-      // Advance to the final (centred) step and scan again.
-      await tour.getByRole('button', { name: 'Next' }).click()
-      await tour.getByRole('button', { name: 'Next' }).click()
-      await tour.getByRole('button', { name: 'Next' }).click()
-      await page.getByText('Step 4 of').waitFor()
+      // Advance through every page-by-page step to the final (centred) one.
+      for (let i = 0; i < 20; i++) {
+        const next = tour.getByRole('button', { name: 'Next' })
+        if (!(await next.isVisible())) break
+        await next.click()
+      }
+      await tour.getByRole('button', { name: 'Finish' }).waitFor()
       await expectNoViolations(page)
 
       // Finish → the getting-started checklist appears in the corner.
