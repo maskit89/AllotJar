@@ -291,7 +291,13 @@ export function LandingPage() {
           <p className="text-sm text-slate-500">
             © {new Date().getFullYear()} AllotJar · Give every euro a job.
           </p>
-          <nav className="flex items-center gap-4 text-sm" aria-label="Footer">
+          <nav className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm" aria-label="Footer">
+            <a href="/privacy" className="font-medium text-slate-600 hover:text-slate-900">
+              Privacy
+            </a>
+            <a href="/terms" className="font-medium text-slate-600 hover:text-slate-900">
+              Terms
+            </a>
             <a href="/login" className="font-medium text-slate-600 hover:text-slate-900">
               Sign in
             </a>
