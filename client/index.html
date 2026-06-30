@@ -8,11 +8,60 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/brand/png/allotjar-app-icon-180.png" />
     <meta name="theme-color" content="#1F6B4D" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AllotJar — Zero-based budgeting</title>
+    <title>AllotJar — Zero-Based Budgeting App for Europe</title>
     <meta
       name="description"
-      content="AllotJar — zero-based budgeting, built for Europe. Give every euro a job."
+      content="AllotJar is a zero-based budgeting app built for Europe. Give every euro a job, save with sinking-fund jars, track every account and budget with your household — in euros, the way you write them."
     />
+    <link rel="canonical" href="https://www.allotjar.com/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
+    <!-- Open Graph (Facebook, LinkedIn, Slack, iMessage, …). These are read from the
+         served HTML by non-JS scrapers, so they live here, not in the SPA. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="AllotJar" />
+    <meta property="og:title" content="AllotJar — Zero-Based Budgeting App for Europe" />
+    <meta
+      property="og:description"
+      content="Give every euro a job. AllotJar is a zero-based budgeting app for Europe — sinking-fund jars, multi-account tracking and household sharing."
+    />
+    <meta property="og:url" content="https://www.allotjar.com/" />
+    <meta property="og:image" content="https://www.allotjar.com/og/allotjar-og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="AllotJar — give every euro a job" />
+    <meta property="og:locale" content="en_GB" />
+
+    <!-- Twitter / X card. -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="AllotJar — Zero-Based Budgeting App for Europe" />
+    <meta
+      name="twitter:description"
+      content="Give every euro a job. A zero-based budgeting app built for Europe."
+    />
+    <meta name="twitter:image" content="https://www.allotjar.com/og/allotjar-og.png" />
+    <meta name="twitter:image:alt" content="AllotJar — give every euro a job" />
+
+    <!-- Structured data: a SoftwareApplication so search engines can show a rich
+         result. A JSON-LD data block is not executable script, so the strict CSP
+         `script-src 'self'` does not block it. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "AllotJar",
+        "applicationCategory": "FinanceApplication",
+        "applicationSubCategory": "Budgeting",
+        "operatingSystem": "Web",
+        "url": "https://www.allotjar.com/",
+        "description": "AllotJar is a zero-based budgeting app built for Europe. Give every euro a job, save with sinking-fund jars, track every account and budget with your household.",
+        "image": "https://www.allotjar.com/og/allotjar-og.png",
+        "inLanguage": "en",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+        "publisher": { "@type": "Organization", "name": "AllotJar", "url": "https://www.allotjar.com/" }
+      }
+    </script>
+
     <!-- External (not inline) so a strict CSP `script-src 'self'` covers it; still
          render-blocking in <head>, so the theme is applied before first paint. -->
     <script src="/theme-init.js"></script>

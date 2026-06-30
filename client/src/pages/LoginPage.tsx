@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import axios from 'axios'
 import { JarLogo } from '../components/Jar'
@@ -11,8 +11,13 @@ import { EVENTS, track } from '../analytics'
 export function LoginPage() {
   const { login, register } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+  // Deep links from the landing page ("Create your free account" → /login?register=1)
+  // open straight on the registration tab.
+  const [mode, setMode] = useState<'login' | 'register'>(
+    searchParams.has('register') ? 'register' : 'login',
+  )
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [firstName, setFirstName] = useState('')

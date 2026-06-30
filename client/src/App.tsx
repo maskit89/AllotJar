@@ -4,6 +4,7 @@ import { useAuth } from './auth/AuthContext'
 import { useFeatures } from './features/FeatureContext'
 import { MonthProvider } from './features/MonthContext'
 import { LoginPage } from './pages/LoginPage'
+import { LandingPage } from './pages/LandingPage'
 import { AcceptInvitePage } from './pages/AcceptInvitePage'
 import { AccountPage } from './pages/AccountPage'
 import { PeoplePage } from './pages/PeoplePage'
@@ -54,9 +55,10 @@ export default function App() {
         <Route
           path="/"
           element={
-            <RequireAuth>
-              <DashboardPage />
-            </RequireAuth>
+            // The root is the public marketing landing page for anonymous visitors
+            // and the dashboard for signed-in users. Show the splash while we're
+            // still restoring the session so authed users don't flash the landing.
+            bootstrapping ? <AuthSplash /> : isAuthenticated ? <DashboardPage /> : <LandingPage />
           }
         />
         <Route
