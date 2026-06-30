@@ -1,0 +1,18 @@
+# AllotJar — https://www.allotjar.com
+# The marketing landing page and login are crawlable; the app itself sits behind
+# authentication, so its routes are kept out of the index.
+User-agent: *
+Allow: /
+
+Disallow: /account
+Disallow: /accounts
+Disallow: /transactions
+Disallow: /reports
+Disallow: /jars
+Disallow: /people
+Disallow: /allocation
+Disallow: /import
+Disallow: /help
+Disallow: /accept-invite
+
+Sitemap: https://www.allotjar.com/sitemap.xml
