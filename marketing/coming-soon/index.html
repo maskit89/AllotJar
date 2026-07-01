@@ -57,8 +57,38 @@
         <span class="wordmark">Allot<span class="jar">Jar</span></span>
       </div>
 
+      <!-- Realistic "showpiece" mark (brand/README §2), a copy of brand/allotjar-mark.svg.
+           Decorative: the lockup above already names the brand, so alt="". -->
+      <img class="hero-jar" src="/jar-mark.svg" alt="" />
+
       <p class="eyebrow">Coming soon</p>
-      <h1>Give every euro a job.</h1>
+      <!-- The currency word cycles through every supported currency (CSS-only, since the
+           _headers CSP is script-src 'none'). Keep this list in sync with CURRENCY_NOUNS
+           in client/src/lib/money.ts — one entry per DISTINCT noun, euro first. -->
+      <h1>
+        Give every<br />
+        <span class="rotator" aria-hidden="true">
+          <span class="rot-size">koruna</span>
+          <span class="rot rot-lead" style="animation-delay: 0s">euro</span>
+          <span class="rot" style="animation-delay: 1.3s">pound</span>
+          <span class="rot" style="animation-delay: 2.6s">dollar</span>
+          <span class="rot" style="animation-delay: 3.9s">franc</span>
+          <span class="rot" style="animation-delay: 5.2s">yen</span>
+          <span class="rot" style="animation-delay: 6.5s">rupee</span>
+          <span class="rot" style="animation-delay: 7.8s">krona</span>
+          <span class="rot" style="animation-delay: 9.1s">krone</span>
+          <span class="rot" style="animation-delay: 10.4s">złoty</span>
+          <span class="rot" style="animation-delay: 11.7s">koruna</span>
+          <span class="rot" style="animation-delay: 13s">forint</span>
+          <span class="rot" style="animation-delay: 14.3s">leu</span>
+          <span class="rot" style="animation-delay: 15.6s">rand</span>
+          <span class="rot" style="animation-delay: 16.9s">real</span>
+          <span class="rot" style="animation-delay: 18.2s">peso</span>
+          <span class="rot" style="animation-delay: 19.5s">dirham</span>
+          <span class="rot" style="animation-delay: 20.8s">riyal</span>
+          <span class="rot" style="animation-delay: 22.1s">lira</span>
+        </span><span class="sr-only">euro</span> a job.
+      </h1>
       <p class="lede">
         AllotJar is a zero-based budgeting app built for Europe — plan each month to zero, save for
         the big stuff with sinking-fund jars, and budget together as a household. We're putting on

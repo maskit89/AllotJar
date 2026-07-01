@@ -56,13 +56,22 @@ main {
   display: inline-flex;
   align-items: center;
   gap: 13px;
-  margin-bottom: 34px;
+  margin-bottom: 14px;
 }
 
 .lockup svg {
   width: 50px;
   height: auto;
   flex-shrink: 0;
+}
+
+/* ---- Realistic hero jar (a copy of brand/allotjar-mark.svg) ---- */
+.hero-jar {
+  display: block;
+  width: clamp(120px, 24vw, 168px);
+  height: auto;
+  margin: 0 auto 18px;
+  filter: drop-shadow(0 16px 28px rgba(0, 0, 0, 0.32));
 }
 
 .wordmark {
@@ -97,6 +106,52 @@ h1 {
   font-weight: 800;
   letter-spacing: -0.03em;
   line-height: 1.05;
+}
+
+/* ---- Rotating currency word (CSS-only carousel; no JS, per the strict CSP) ----
+   The words stack in one slot sized to the widest ("koruna") so "a job." never
+   shifts; each fades+slides in on a staggered delay. Order/list mirrors the
+   distinct nouns in client/src/lib/money.ts. */
+.rotator {
+  position: relative;
+  display: inline-block;
+  text-align: center;
+}
+
+.rot-size {
+  visibility: hidden;
+}
+
+.rot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  white-space: nowrap;
+  color: var(--gold-bright);
+  opacity: 0;
+  animation: roll 23.4s infinite;
+}
+
+@keyframes roll {
+  0% { opacity: 0; transform: translateY(0.2em); }
+  0.5% { opacity: 1; transform: translateY(0); }
+  5% { opacity: 1; transform: translateY(0); }
+  5.55% { opacity: 0; transform: translateY(-0.2em); }
+  100% { opacity: 0; }
+}
+
+/* Visually hidden, but read by screen readers so the heading says "…euro a job." */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .lede {
@@ -157,5 +212,12 @@ footer a {
 @media (prefers-reduced-motion: reduce) {
   .cta {
     transition: none;
+  }
+  /* Freeze the carousel on the lead word rather than animating. */
+  .rot {
+    animation: none;
+  }
+  .rot-lead {
+    opacity: 1;
   }
 }
