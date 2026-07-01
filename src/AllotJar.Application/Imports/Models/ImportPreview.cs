@@ -19,6 +19,8 @@ public record ImportCandidate(
 /// <summary>
 /// The result of previewing an import: the de-duplicated candidate rows plus the counts the
 /// UI shows (how many were parsed, how many are new, how many were already imported).
+/// <see cref="Layout"/> is populated only for a generic-CSV preview, so the UI can render the
+/// column-mapping controls (and reflect the mapping that produced these rows).
 /// </summary>
 public record ImportPreviewResult(
     int TotalEntries,
@@ -26,4 +28,5 @@ public record ImportPreviewResult(
     int SkippedDuplicates,
     int Credits,
     int Debits,
-    IReadOnlyList<ImportCandidate> Items);
+    IReadOnlyList<ImportCandidate> Items,
+    CsvLayout? Layout = null);

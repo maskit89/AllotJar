@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -21,6 +22,9 @@ namespace AllotJar.Api.Controllers;
 public class ImportController : ControllerBase
 {
     private readonly ISender _mediator;
+
+    // The generic-CSV column mapping arrives as a JSON form field; accept camelCase from the SPA.
+    private static readonly JsonSerializerOptions MappingJsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     public ImportController(ISender mediator)
     {
@@ -87,6 +91,8 @@ public class ImportController : ControllerBase
     public async Task<ActionResult<ImportPreviewResult>> Preview(
         IFormFile file,
         [FromForm] StatementFormat format,
+        [FromForm] string? mapping,
+        [FromForm] string? defaultCurrency,
         CancellationToken ct)
     {
         if (file is null || file.Length == 0)
@@ -98,7 +104,22 @@ public class ImportController : ControllerBase
         using var reader = new StreamReader(file.OpenReadStream(), Encoding.UTF8);
         var content = await reader.ReadToEndAsync(ct);
 
-        var result = await _mediator.Send(new PreviewImportCommand(content, format), ct);
+        // Generic CSV carries a user-confirmed column mapping (absent on the first upload → auto-detect).
+        CsvMapping? csvMapping = null;
+        if (!string.IsNullOrWhiteSpace(mapping))
+        {
+            try
+            {
+                csvMapping = JsonSerializer.Deserialize<CsvMapping>(mapping, MappingJsonOptions);
+            }
+            catch (JsonException)
+            {
+                return BadRequest(new { error = "The column mapping was not valid." });
+            }
+        }
+
+        var result = await _mediator.Send(
+            new PreviewImportCommand(content, format, csvMapping, defaultCurrency), ct);
         return Ok(result);
     }
 

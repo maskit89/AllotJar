@@ -128,6 +128,31 @@ export interface ImportCandidate {
   likelyTransfer: boolean
 }
 
+/** How the amount column writes decimals. Matches the server CsvDecimalStyle enum. */
+export type CsvDecimalStyle = 0 | 1 | 2 // Auto | Dot | Comma
+
+/** User-confirmed column mapping for a generic bank-CSV import (column values are 0-based indices). */
+export interface CsvMapping {
+  delimiter: string
+  hasHeader: boolean
+  dateColumn: number
+  amountColumn: number
+  descriptionColumn: number
+  currencyColumn: number | null
+  /** e.g. "dd/MM/yyyy"; null = auto-detect a common format. */
+  dateFormat: string | null
+  decimalStyle: CsvDecimalStyle
+  /** Stamped on rows with no currency column (the user's home currency). */
+  defaultCurrency: string | null
+}
+
+/** The layout the server detected from an uploaded CSV, for the mapping UI. */
+export interface CsvLayout {
+  columns: string[]
+  sampleRows: string[][]
+  suggested: CsvMapping
+}
+
 /** The de-duplicated candidate rows plus the counts the review UI shows. */
 export interface ImportPreviewResult {
   totalEntries: number
@@ -136,6 +161,8 @@ export interface ImportPreviewResult {
   credits: number
   debits: number
   items: ImportCandidate[]
+  /** Present only for a generic-CSV preview — the detected/used column mapping. */
+  layout?: CsvLayout | null
 }
 
 /** One slice of a split import row sent to the commit endpoint. */

@@ -11,4 +11,11 @@ public enum StatementFormat
 
     /// <summary>HSBC personal-banking "transaction history" CSV (Date, Details, Amount).</summary>
     HsbcCsv = 1,
+
+    /// <summary>
+    /// A generic bank-CSV export with a user-confirmed column mapping (date, signed amount,
+    /// description, optional currency). For banks without a dedicated adapter — see
+    /// <see cref="Common.Interfaces.ICsvImporter"/> and <see cref="CsvMapping"/>.
+    /// </summary>
+    GenericCsv = 2,
 }
