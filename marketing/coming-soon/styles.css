@@ -1,0 +1,161 @@
+/* AllotJar — "coming soon" one-pager.
+   Self-contained: brand hero gradient + tokens straight from brand/README.md §3.
+   No inline styles or scripts, so the CSP in _headers can stay strict. */
+
+:root {
+  --green-deep: #114a32;
+  --green: #1a6347;
+  --green-light: #247e58;
+  --green-bright: #5fc093; /* dark-surface accent (the "Jar" wordmark) */
+  --gold: #d7a93e;
+  --gold-bright: #e8c36a;
+  --cream: #fbf7ee;
+  --paper: #f4f6f3;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 22px;
+  font-family: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--paper);
+  background: linear-gradient(135deg, var(--green-deep), var(--green) 45%, var(--green-light));
+  /* A soft gold glow top-right, echoing the coins/lid. */
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+.glow {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(60% 50% at 78% 8%, rgba(231, 195, 106, 0.16), transparent 70%);
+}
+
+main {
+  position: relative;
+  width: 100%;
+  max-width: 620px;
+  text-align: center;
+}
+
+/* ---- Logo lockup ---- */
+.lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 34px;
+}
+
+.lockup svg {
+  width: 50px;
+  height: auto;
+  flex-shrink: 0;
+}
+
+.wordmark {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.wordmark .jar {
+  color: var(--green-bright);
+}
+
+/* ---- Eyebrow pill ---- */
+.eyebrow {
+  display: inline-block;
+  margin-bottom: 22px;
+  padding: 6px 14px;
+  border: 1px solid rgba(231, 195, 106, 0.4);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold-bright);
+  background: rgba(231, 195, 106, 0.08);
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2.4rem, 7vw, 3.5rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+.lede {
+  margin: 20px auto 0;
+  max-width: 30rem;
+  font-size: clamp(1rem, 2.6vw, 1.15rem);
+  line-height: 1.6;
+  color: rgba(244, 246, 243, 0.84);
+}
+
+/* ---- CTA ---- */
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 34px;
+  padding: 13px 26px;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-decoration: none;
+  color: #2a1c00;
+  background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+}
+
+.cta:focus-visible {
+  outline: 3px solid var(--gold-bright);
+  outline-offset: 3px;
+}
+
+/* ---- Disclaimer ---- */
+.notice {
+  margin: 30px auto 0;
+  max-width: 30rem;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: rgba(244, 246, 243, 0.62);
+}
+
+/* ---- Footer ---- */
+footer {
+  margin-top: 52px;
+  font-size: 0.8rem;
+  color: rgba(244, 246, 243, 0.55);
+}
+
+footer a {
+  color: rgba(244, 246, 243, 0.8);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cta {
+    transition: none;
+  }
+}
