@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Button } from '../components/ui'
+import { useAuth } from '../auth/AuthContext'
+import { currencyNoun } from '../lib/money'
 import { useOnboarding } from './OnboardingContext'
-import { TOUR_STEPS } from './tourSteps'
+import { buildTourSteps } from './tourSteps'
 import { useDialogA11y } from './useDialogA11y'
 
 interface Box {
@@ -72,7 +74,9 @@ function tooltipStyle(box: Box | null): CSSProperties {
  */
 export function SpotlightTour() {
   const { tourStep, totalTourSteps, nextTourStep, prevTourStep, endTour } = useOnboarding()
-  const step = TOUR_STEPS[tourStep]
+  const { preferredCurrency } = useAuth()
+  const steps = useMemo(() => buildTourSteps(currencyNoun(preferredCurrency)), [preferredCurrency])
+  const step = steps[tourStep]
   const dialogRef = useRef<HTMLDivElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const [box, setBox] = useState<Box | null>(null)
@@ -179,7 +183,7 @@ export function SpotlightTour() {
         </div>
 
         <div className="mt-4 flex justify-center gap-1.5" aria-hidden="true">
-          {TOUR_STEPS.map((s, i) => (
+          {steps.map((s, i) => (
             <span
               key={s.id}
               className={`h-1.5 rounded-full transition-all ${

@@ -8,7 +8,9 @@ describe('LandingPage', () => {
   it('renders a single H1 carrying the brand promise', () => {
     render(<LandingPage />)
     const h1 = screen.getByRole('heading', { level: 1 })
-    expect(h1).toHaveTextContent(/give every euro a job/i)
+    // The currency noun follows the visitor's locale (euro by default), so assert
+    // the invariant shape rather than a specific word.
+    expect(h1).toHaveTextContent(/give every \S+ a job/i)
   })
 
   it('points the primary CTAs at the registration tab', () => {
@@ -26,6 +28,6 @@ describe('LandingPage', () => {
   it('includes FAQ content for long-tail search', () => {
     render(<LandingPage />)
     expect(screen.getByText(/what is zero-based budgeting/i)).toBeInTheDocument()
-    expect(screen.getByText(/Is AllotJar built for Europe\?/i)).toBeInTheDocument()
+    expect(screen.getByText(/Can I use AllotJar outside Europe\?/i)).toBeInTheDocument()
   })
 })

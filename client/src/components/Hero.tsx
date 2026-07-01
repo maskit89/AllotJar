@@ -10,7 +10,8 @@ export interface HeroTile {
  * The unified gradient hero every screen opens with, so the app reads as one
  * product: a dark-green band carrying an uppercase eyebrow, the single big
  * **gold** number for the screen, an optional footnote (the Budget "every euro
- * has a job" check), and up to two dark-glass stat tiles on the right.
+ * has a job" check — the noun follows the user's currency), and up to two
+ * dark-glass stat tiles on the right.
  *
  * The number is real text styled with `.gold-number` (the metallic clip
  * gradient) — screen readers still read it, so `amountLabel` is only needed when
@@ -66,10 +67,11 @@ export function Hero({
 }
 
 /**
- * The Budget hero's gold "every euro has a job" badge — a filled gold disc with a
- * dark CSS checkmark, beside the label. Shown only when the budget is balanced.
+ * The Budget hero's gold "balanced" badge — a filled gold disc with a dark CSS
+ * checkmark, beside the label. Shown only when the budget is balanced; the caller
+ * passes the currency-aware "Every <noun> has a job" text.
  */
-export function EveryEuroBadge({ children = 'Every euro has a job' }: { children?: ReactNode }) {
+export function BalancedBadge({ children = 'Every unit has a job' }: { children?: ReactNode }) {
   return (
     <span className="inline-flex items-center gap-2.5 rounded-full bg-black/[0.18] px-[15px] py-2 text-[13.5px] font-semibold">
       <span className="relative h-[17px] w-[17px] shrink-0 rounded-full bg-gold" aria-hidden>

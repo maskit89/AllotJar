@@ -1,0 +1,6 @@
+@AllotJar.Api_HostAddress = http://localhost:5029
+
+GET {{AllotJar.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

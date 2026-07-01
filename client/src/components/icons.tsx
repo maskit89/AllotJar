@@ -23,7 +23,7 @@ function Base({ className = 'h-5 w-5', children }: { className?: string; childre
   )
 }
 
-/** The ZeroBudget brand mark: a filled rounded badge with a euro glyph. */
+/** The AllotJar brand mark: a filled rounded badge with a euro glyph. */
 export function LogoMark({ className = 'h-8 w-8' }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true">

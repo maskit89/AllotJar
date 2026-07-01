@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { CommitImportItem, ImportPreviewResult, ImportStatementResult } from '../types'
+import type { CommitImportItem, CsvMapping, ImportPreviewResult, ImportStatementResult } from '../types'
 // Import the leaf modules directly (not the analytics barrel) to avoid an import cycle:
 // the barrel pulls in the provider, which depends back on this api module.
 import { track } from '../analytics/analytics'
@@ -7,7 +7,7 @@ import { EVENTS } from '../analytics/events'
 import { apiEndpointTemplate } from '../analytics/redact'
 
 /** Wire value of StatementFormat on the server. */
-export type StatementFormat = 'HsbcCsv' | 'Camt053'
+export type StatementFormat = 'HsbcCsv' | 'Camt053' | 'GenericCsv'
 
 // The access token lives in memory only — never localStorage — so a successful XSS can't read a
 // durable credential. The long-lived session sits in an HttpOnly refresh cookie the JS can't touch.
@@ -99,10 +99,17 @@ api.interceptors.response.use(
 )
 
 /** Parse a statement and get the not-yet-imported rows to review — nothing is saved yet. */
-export async function previewImport(file: File, format: StatementFormat): Promise<ImportPreviewResult> {
+export async function previewImport(
+  file: File,
+  format: StatementFormat,
+  opts?: { mapping?: CsvMapping | null; defaultCurrency?: string },
+): Promise<ImportPreviewResult> {
   const form = new FormData()
   form.append('file', file)
   form.append('format', format)
+  // Generic CSV: send the confirmed column mapping (omit on the first upload → server auto-detects).
+  if (opts?.mapping) form.append('mapping', JSON.stringify(opts.mapping))
+  if (opts?.defaultCurrency) form.append('defaultCurrency', opts.defaultCurrency)
   const { data } = await api.post<ImportPreviewResult>('/import/preview', form)
   return data
 }

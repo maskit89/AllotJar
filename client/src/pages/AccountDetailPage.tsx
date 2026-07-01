@@ -8,14 +8,9 @@ import { api } from '../lib/api'
 import type { AccountDto, BudgetMonthDto, TransactionDto } from '../types'
 import { ACCOUNT_TYPE_LABELS, TransactionType } from '../types'
 import { formatMoney, fromAmount } from '../lib/money'
+import { shortDate } from '../lib/dates'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { transactionTypeLabel } from '../lib/transactions'
-
-const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const shortDate = (iso: string) => {
-  const [, m, d] = iso.split('-').map(Number)
-  return m && d ? `${SHORT_MONTHS[m - 1]} ${d}` : iso
-}
 
 /**
  * A single account's detail — reached by clicking an account card. A back link,

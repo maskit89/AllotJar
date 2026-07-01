@@ -61,7 +61,7 @@ const html = `<!doctype html>
     <div class="left">
       <div class="brand">${reversedLockup}</div>
       <h1>Give every<br />euro a job.</h1>
-      <p class="sub">Zero-based budgeting, built for Europe.</p>
+      <p class="sub">Zero-based budgeting, in your currency.</p>
       <span class="url">allotjar.com</span>
     </div>
     <div class="right">${realisticMark}</div>

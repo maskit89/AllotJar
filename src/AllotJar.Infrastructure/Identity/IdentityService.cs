@@ -1,0 +1,98 @@
+using Microsoft.AspNetCore.Identity;
+using AllotJar.Application.Common.Interfaces;
+
+namespace AllotJar.Infrastructure.Identity;
+
+/// <summary>
+/// <see cref="IIdentityService"/> backed by ASP.NET Core Identity's <see cref="UserManager{TUser}"/>.
+/// Keeps the Identity dependency in Infrastructure while Application handlers work against the
+/// abstraction.
+/// </summary>
+public class IdentityService : IIdentityService
+{
+    // A throwaway hash verified on the unknown-email path so that path costs roughly the same as a
+    // real password check (PBKDF2), denying an attacker a timing signal to enumerate accounts.
+    private static readonly string DummyPasswordHash =
+        new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "timing-equalizer");
+
+    private readonly UserManager<ApplicationUser> _userManager;
+
+    public IdentityService(UserManager<ApplicationUser> userManager)
+    {
+        _userManager = userManager;
+    }
+
+    public async Task<bool> EmailExistsAsync(string email) =>
+        await _userManager.FindByEmailAsync(email) is not null;
+
+    public async Task<UserAccount?> FindByEmailAsync(string email)
+    {
+        var user = await _userManager.FindByEmailAsync(email);
+        return user is null ? null : new UserAccount(user.Id, user.Email!, user.DisplayName);
+    }
+
+    public async Task<UserAccount?> FindByIdAsync(string userId)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        return user is null ? null : new UserAccount(user.Id, user.Email!, user.DisplayName);
+    }
+
+    public async Task<CreateUserResult> CreateUserAsync(string email, string password, string? displayName)
+    {
+        var user = new ApplicationUser { UserName = email, Email = email, DisplayName = displayName };
+        var result = await _userManager.CreateAsync(user, password);
+        return result.Succeeded
+            ? CreateUserResult.Success(user.Id)
+            : CreateUserResult.Failure(result.Errors.Select(e => e.Description));
+    }
+
+    public async Task<IReadOnlyList<string>> ChangePasswordAsync(
+        string userId, string currentPassword, string newPassword)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null)
+        {
+            return new[] { "User not found." };
+        }
+
+        var result = await _userManager.ChangePasswordAsync(user, currentPassword, newPassword);
+        return result.Succeeded ? Array.Empty<string>() : result.Errors.Select(e => e.Description).ToArray();
+    }
+
+    public async Task<CredentialCheckResult> CheckCredentialsAsync(string email, string password)
+    {
+        var user = await _userManager.FindByEmailAsync(email);
+        if (user is null)
+        {
+            // Spend roughly the same time as a real verify so timing can't reveal that the email
+            // is unknown, then report the same generic failure as a wrong password.
+            _userManager.PasswordHasher.VerifyHashedPassword(new ApplicationUser(), DummyPasswordHash, password);
+            return CredentialCheckResult.Invalid;
+        }
+
+        // Self-heal: pre-existing logins were created before lockout was enabled. Without this their
+        // failed-attempt count would never lock them, so opt every login in on first sign-in.
+        if (!await _userManager.GetLockoutEnabledAsync(user))
+        {
+            await _userManager.SetLockoutEnabledAsync(user, true);
+        }
+
+        if (await _userManager.IsLockedOutAsync(user))
+        {
+            return CredentialCheckResult.LockedOut;
+        }
+
+        if (!await _userManager.CheckPasswordAsync(user, password))
+        {
+            // Count the failure; Identity locks the account once it crosses MaxFailedAccessAttempts.
+            await _userManager.AccessFailedAsync(user);
+            return await _userManager.IsLockedOutAsync(user)
+                ? CredentialCheckResult.LockedOut
+                : CredentialCheckResult.Invalid;
+        }
+
+        await _userManager.ResetAccessFailedCountAsync(user);
+        var stamp = await _userManager.GetSecurityStampAsync(user);
+        return CredentialCheckResult.Success(user.Id, user.Email!, user.DisplayName, stamp);
+    }
+}
