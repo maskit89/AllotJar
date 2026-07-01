@@ -27,7 +27,8 @@ public class ImportPreviewCommitTests
             .Options);
 
     private static PreviewImportCommandHandler NewPreview(ApplicationDbContext db, string userId) =>
-        new(db, new CurrentUserStub(userId), new IStatementParser[] { new HsbcCsvStatementParser() });
+        new(db, new CurrentUserStub(userId), new IStatementParser[] { new HsbcCsvStatementParser() },
+            new GenericCsvImporter());
 
     private static CommitImportCommandHandler NewCommit(ApplicationDbContext db, string userId) =>
         new(db, new CurrentUserStub(userId), new FakeExchangeRateProvider());
@@ -125,6 +126,29 @@ public class ImportPreviewCommitTests
         result.Debits.Should().Be(5);
         result.Items.Should().OnlyContain(i => i.Reference.StartsWith("hsbc:"));
         (await db.Transactions.CountAsync()).Should().Be(0); // nothing persisted by a preview
+    }
+
+    [Fact]
+    public async Task Preview_GenericCsv_DetectsLayout_AndStampsTheDefaultCurrency()
+    {
+        await using var db = NewContext();
+        const string csv =
+            "Date,Description,Amount\n" +
+            "2026-06-20,TESCO,-42.50\n" +
+            "2026-06-21,SALARY,2500.00\n";
+        var command = new PreviewImportCommand(csv, StatementFormat.GenericCsv, Mapping: null, DefaultCurrency: "GBP");
+
+        var result = await NewPreview(db, "user-1").Handle(command, CancellationToken.None);
+
+        // The detected layout is echoed back for the mapping UI, with the home currency injected.
+        result.Layout.Should().NotBeNull();
+        result.Layout!.Columns.Should().Contain("Amount");
+        result.Layout.Suggested.DefaultCurrency.Should().Be("GBP");
+
+        // Rows parsed, stamped with the default currency, and given a csv: idempotency key.
+        result.Items.Should().HaveCount(2);
+        result.Items.Should().OnlyContain(i => i.Currency == "GBP");
+        result.Items.Should().OnlyContain(i => i.Reference.StartsWith("csv:"));
     }
 
     [Fact]

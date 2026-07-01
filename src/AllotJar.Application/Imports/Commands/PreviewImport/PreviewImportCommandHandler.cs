@@ -12,15 +12,18 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
     private readonly IReadOnlyCollection<IStatementParser> _parsers;
+    private readonly ICsvImporter _csv;
 
     public PreviewImportCommandHandler(
         IApplicationDbContext db,
         ICurrentUser currentUser,
-        IEnumerable<IStatementParser> parsers)
+        IEnumerable<IStatementParser> parsers,
+        ICsvImporter csv)
     {
         _db = db;
         _currentUser = currentUser;
         _parsers = parsers.ToList();
+        _csv = csv;
     }
 
     public async Task<ImportPreviewResult> Handle(PreviewImportCommand request, CancellationToken cancellationToken)
@@ -28,9 +31,24 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
-        var parser = _parsers.FirstOrDefault(p => p.Format == request.Format)
-            ?? throw new NotFoundException($"No statement parser is registered for format '{request.Format}'.");
-        var statement = parser.Parse(request.Content);
+        // Generic CSV needs a column mapping, so it goes through ICsvImporter rather than a fixed
+        // IStatementParser: auto-detect on the first upload, then reuse the user's confirmed mapping.
+        ParsedStatement statement;
+        CsvLayout? layout = null;
+        if (request.Format == StatementFormat.GenericCsv)
+        {
+            var detected = _csv.Detect(request.Content);
+            var defaultCurrency = request.Mapping?.DefaultCurrency ?? request.DefaultCurrency;
+            var mapping = (request.Mapping ?? detected.Suggested) with { DefaultCurrency = defaultCurrency };
+            statement = _csv.Parse(request.Content, mapping);
+            layout = detected with { Suggested = mapping };
+        }
+        else
+        {
+            var parser = _parsers.FirstOrDefault(p => p.Format == request.Format)
+                ?? throw new NotFoundException($"No statement parser is registered for format '{request.Format}'.");
+            statement = parser.Parse(request.Content);
+        }
 
         // Drop rows we've already imported (idempotency mirrors the commit step).
         var existing = await _db.Transactions
@@ -80,6 +98,7 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
             SkippedDuplicates: skipped,
             Credits: items.Count(i => i.IsCredit),
             Debits: items.Count(i => !i.IsCredit),
-            Items: items);
+            Items: items,
+            Layout: layout);
     }
 }

@@ -39,6 +39,9 @@ public static class DependencyInjection
         services.AddScoped<IStatementParser, Camt053StatementParser>();
         services.AddScoped<IStatementParser, HsbcCsvStatementParser>();
 
+        // Generic bank-CSV import (user-confirmed column mapping) — see ICsvImporter.
+        services.AddScoped<ICsvImporter, GenericCsvImporter>();
+
         // FX rates via the free, key-less Frankfurter (ECB) API.
         services.AddHttpClient<IExchangeRateProvider, FrankfurterExchangeRateProvider>(client =>
         {
