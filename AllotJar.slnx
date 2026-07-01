@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AllotJar.Api/AllotJar.Api.csproj" />
+    <Project Path="src/AllotJar.Application/AllotJar.Application.csproj" />
+    <Project Path="src/AllotJar.Domain/AllotJar.Domain.csproj" />
+    <Project Path="src/AllotJar.Infrastructure/AllotJar.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AllotJar.Application.Tests/AllotJar.Application.Tests.csproj" />
+  </Folder>
+</Solution>

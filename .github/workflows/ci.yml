@@ -19,14 +19,14 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore
-        run: dotnet restore ZeroBudget.slnx
+        run: dotnet restore AllotJar.slnx
 
       - name: Build
-        run: dotnet build ZeroBudget.slnx --no-restore -c Release
+        run: dotnet build AllotJar.slnx --no-restore -c Release
 
       # Tests use the EF Core in-memory provider, so no SQL Server is needed.
       - name: Test
-        run: dotnet test ZeroBudget.slnx --no-build -c Release --verbosity normal
+        run: dotnet test AllotJar.slnx --no-build -c Release --verbosity normal
 
   frontend:
     name: frontend
@@ -97,13 +97,13 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore
-        run: dotnet restore ZeroBudget.slnx
+        run: dotnet restore AllotJar.slnx
 
       # `dotnet list --vulnerable` always exits 0, so detect advisories from its output.
       - name: NuGet vulnerable packages
         run: |
           set -o pipefail
-          dotnet list ZeroBudget.slnx package --vulnerable --include-transitive 2>&1 | tee nuget-audit.txt
+          dotnet list AllotJar.slnx package --vulnerable --include-transitive 2>&1 | tee nuget-audit.txt
           if grep -q "has the following vulnerable packages" nuget-audit.txt; then
             echo "::error::Vulnerable NuGet packages found — see the log above."
             exit 1

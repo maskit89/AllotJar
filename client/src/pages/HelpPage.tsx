@@ -6,7 +6,7 @@ import { EVENTS, track } from '../analytics'
 import { useAnalytics } from '../analytics/AnalyticsProvider'
 import { hueColor, hueForIndex, hueTint } from '../lib/categoryColors'
 
-const GUIDE_URL = 'https://github.com/maskit89/ZeroBudget/blob/main/docs/USER_GUIDE.md'
+const GUIDE_URL = 'https://github.com/maskit89/AllotJar/blob/main/docs/USER_GUIDE.md'
 
 /** A topic card — a hue-tinted icon tile, a title, and a short explanation. */
 function HelpCard({
