@@ -13,16 +13,26 @@ public static class UserPreferences
     /// <summary>The application's home currency when the user hasn't chosen one.</summary>
     public const string DefaultCurrency = "EUR";
 
-    /// <summary>The money format applied when the user hasn't chosen one (matches the historical de-DE rendering).</summary>
-    public const string DefaultNumberFormat = "dot-comma";
+    /// <summary>
+    /// The money format applied when the user hasn't chosen one. "comma-dot" (en-GB
+    /// "1,234.56") is the app's neutral default — it matches the frontend fallback and
+    /// the design's canonical rendering, and reads naturally the world over rather than
+    /// assuming a European style. Registration always supplies an explicit choice, so
+    /// this only backs the rare blank case.
+    /// </summary>
+    public const string DefaultNumberFormat = "comma-dot";
 
     /// <summary>
     /// The money grouping/decimal styles the UI can render. Keys are stable; the client
-    /// maps each to a locale (dot-comma → de-DE "1.234,56", comma-dot → en-GB "1,234.56",
-    /// space-comma → fr-FR "1 234,56").
+    /// maps each to a locale (comma-dot → en-GB "1,234.56", dot-comma → de-DE "1.234,56",
+    /// space-comma → fr-FR "1 234,56", apostrophe → de-CH "1'234.56", lakh → en-IN
+    /// "1,23,456.78"). Keep this in sync with client/src/lib/money.ts NUMBER_FORMAT_OPTIONS.
     /// </summary>
     public static readonly IReadOnlySet<string> NumberFormats =
-        new HashSet<string>(StringComparer.Ordinal) { "dot-comma", "comma-dot", "space-comma" };
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "comma-dot", "dot-comma", "space-comma", "apostrophe", "lakh",
+        };
 
     /// <summary>
     /// Returns the canonical ISO 4217 code, or <c>null</c> if the supplied code is invalid.

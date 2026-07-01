@@ -36,6 +36,8 @@ public class UserPreferencesTests
     [InlineData("dot-comma")]
     [InlineData("comma-dot")]
     [InlineData("space-comma")]
+    [InlineData("apostrophe")]
+    [InlineData("lakh")]
     public void NormalizeNumberFormat_AcceptsSupportedKeys(string input)
     {
         Assert.Equal(input, UserPreferences.NormalizeNumberFormat(input));

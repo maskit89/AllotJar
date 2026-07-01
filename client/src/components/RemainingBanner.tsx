@@ -1,4 +1,4 @@
-import { formatMoney, type Minor } from '../lib/money'
+import { currencyNoun, formatMoney, type Minor } from '../lib/money'
 
 interface Props {
   totalIncomeMinor: Minor
@@ -9,9 +9,9 @@ interface Props {
 
 /**
  * The reactive ZBB banner. It re-renders from integer minor units every time a
- * planned amount changes, so the user watches the pool move toward the €0.00
+ * planned amount changes, so the user watches the pool move toward the zero
  * goal in real time — exactly, with no floating-point drift.
- *   == 0  -> green  "Every Euro has a job"
+ *   == 0  -> green  "Every euro has a job" (noun follows the user's currency)
  *   > 0   -> amber  "money still to assign"
  *   < 0   -> red    "over-budgeted"
  */
@@ -25,7 +25,7 @@ export function RemainingBanner({
   const over = remainingMinor < 0
 
   const tone = balanced
-    ? { bar: 'bg-emerald-600', ring: 'ring-emerald-200', label: 'Every Euro has a job 🎉' }
+    ? { bar: 'bg-emerald-600', ring: 'ring-emerald-200', label: `Every ${currencyNoun(currency)} has a job 🎉` }
     : over
       ? { bar: 'bg-rose-600', ring: 'ring-rose-200', label: 'Over-budgeted — trim a category' }
       : { bar: 'bg-amber-800', ring: 'ring-amber-300', label: 'Still to assign' }

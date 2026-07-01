@@ -6,7 +6,7 @@ import { JarLogo } from '../components/Jar'
 import { BetaBanner } from '../components/BetaBanner'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { Button, Card, Input, SegmentedControl, Select } from '../components/ui'
-import { CURRENCY_OPTIONS, NUMBER_FORMAT_OPTIONS } from '../lib/money'
+import { CURRENCY_OPTIONS, NUMBER_FORMAT_OPTIONS, currencyNoun, detectLocaleDefaults } from '../lib/money'
 import { IS_BETA } from '../lib/env'
 import { EVENTS, track } from '../analytics'
 
@@ -24,8 +24,11 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
-  const [currency, setCurrency] = useState('EUR')
-  const [numberFormat, setNumberFormat] = useState('comma-dot')
+  // A welcoming first guess from the visitor's browser locale (fully overridable
+  // below); euro / comma-dot stays the fallback. Computed once.
+  const [localeDefaults] = useState(detectLocaleDefaults)
+  const [currency, setCurrency] = useState(localeDefaults.currency)
+  const [numberFormat, setNumberFormat] = useState<string>(localeDefaults.numberFormat)
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   // Beta builds require a separate acknowledgment that data may be lost (see BetaBanner).
   const [acceptedBeta, setAcceptedBeta] = useState(false)
@@ -85,7 +88,7 @@ export function LoginPage() {
           <h1 className="mt-3 text-[26px] font-extrabold tracking-[-0.035em] text-slate-900">
             Allot<span style={{ color: 'var(--accent)' }}>Jar</span>
           </h1>
-          <p className="mt-1 text-sm text-slate-500">Zero-based budgeting, built for Europe.</p>
+          <p className="mt-1 text-sm text-slate-500">Zero-based budgeting, in your currency.</p>
         </div>
 
         <Card className="p-8">
@@ -147,7 +150,7 @@ export function LoginPage() {
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.eu"
+                placeholder="you@example.com"
                 className="w-full"
               />
             </div>
@@ -271,7 +274,9 @@ export function LoginPage() {
           </form>
         </Card>
 
-        <p className="mt-6 text-center text-xs text-slate-500">Give every euro a job.</p>
+        <p className="mt-6 text-center text-xs text-slate-500">
+          Give every {currencyNoun(localeDefaults.currency)} a job.
+        </p>
       </div>
       </div>
     </>

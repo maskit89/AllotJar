@@ -2,6 +2,8 @@ import { useRef, type ReactNode } from 'react'
 import { Button } from '../components/ui'
 import { CheckIcon, CloseIcon } from '../components/icons'
 import { JarLogo } from '../components/Jar'
+import { useAuth } from '../auth/AuthContext'
+import { currencyNoun } from '../lib/money'
 import { useOnboarding } from './OnboardingContext'
 import { useDialogA11y } from './useDialogA11y'
 
@@ -17,6 +19,7 @@ function Bullet({ children }: { children: ReactNode }) {
 /** The first-run welcome. Auto-opens once; offers the tour or a clean skip. */
 export function WelcomeDialog() {
   const { startTour, dismissWelcome } = useOnboarding()
+  const { preferredCurrency } = useAuth()
   const ref = useRef<HTMLDivElement>(null)
   useDialogA11y(ref, dismissWelcome)
 
@@ -48,8 +51,8 @@ export function WelcomeDialog() {
         </h2>
         <p id="zb-welcome-body" className="mt-2 text-sm leading-relaxed text-slate-600">
           AllotJar is a <strong>zero-based</strong> budget — every month you give{' '}
-          <strong>every euro a job</strong> before you spend it. Setting up your first month takes a few
-          minutes. Want a quick 60-second tour to see how it fits together?
+          <strong>every {currencyNoun(preferredCurrency)} a job</strong> before you spend it. Setting up
+          your first month takes a few minutes. Want a quick 60-second tour to see how it fits together?
         </p>
 
         <ul className="mt-4 space-y-1.5 text-sm text-slate-600">

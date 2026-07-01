@@ -75,7 +75,7 @@ export function AcceptInvitePage() {
           <h1 className="mt-3 text-[26px] font-extrabold tracking-[-0.035em] text-slate-900">
             Allot<span style={{ color: 'var(--accent)' }}>Jar</span>
           </h1>
-          <p className="mt-1 text-sm text-slate-500">Zero-based budgeting, built for Europe.</p>
+          <p className="mt-1 text-sm text-slate-500">Zero-based budgeting, in your currency.</p>
         </div>
 
         <Card className="p-8">
