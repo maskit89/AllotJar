@@ -47,8 +47,42 @@ body {
 main {
   position: relative;
   width: 100%;
-  max-width: 620px;
+  max-width: 1060px;
   text-align: center;
+}
+
+/* ---- Landscape split: text column on the left, hero jar on the right ---- */
+.split {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(30px, 5vw, 68px);
+  text-align: left;
+}
+
+.intro {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 33rem;
+}
+
+.hero {
+  flex: 0 0 auto;
+}
+
+/* Stack on narrow screens: text on top, jar below (keeps it away from the logo). */
+@media (max-width: 820px) {
+  .split {
+    flex-direction: column;
+    text-align: center;
+    gap: 8px;
+  }
+  .intro {
+    order: 1;
+  }
+  .hero {
+    order: 2;
+  }
 }
 
 /* ---- Logo lockup ---- */
@@ -68,10 +102,15 @@ main {
 /* ---- Realistic hero jar (a copy of brand/allotjar-mark.svg) ---- */
 .hero-jar {
   display: block;
-  width: clamp(120px, 24vw, 168px);
+  width: clamp(210px, 23vw, 300px);
   height: auto;
-  margin: 0 auto 18px;
-  filter: drop-shadow(0 16px 28px rgba(0, 0, 0, 0.32));
+  filter: drop-shadow(0 22px 36px rgba(0, 0, 0, 0.34));
+}
+
+@media (max-width: 820px) {
+  .hero-jar {
+    width: clamp(150px, 44vw, 210px);
+  }
 }
 
 .wordmark {
@@ -155,8 +194,8 @@ h1 {
 }
 
 .lede {
-  margin: 20px auto 0;
-  max-width: 30rem;
+  margin: 20px 0 0;
+  max-width: 100%;
   font-size: clamp(1rem, 2.6vw, 1.15rem);
   line-height: 1.6;
   color: rgba(244, 246, 243, 0.84);
@@ -191,8 +230,8 @@ h1 {
 
 /* ---- Disclaimer ---- */
 .notice {
-  margin: 30px auto 0;
-  max-width: 30rem;
+  margin: 30px 0 0;
+  max-width: 100%;
   font-size: 0.82rem;
   line-height: 1.55;
   color: rgba(244, 246, 243, 0.62);
