@@ -2,26 +2,29 @@
 // Run with `node scripts/make-og-image.mjs` from the client/ directory; the PNG is
 // committed as a static asset, so this is NOT part of the production build.
 //
+// Brand rule (brand/README §2): the OG card is a large feature moment, so it uses
+// the **realistic** mark (`allotjar-mark.svg`) as the showpiece and the ready-made
+// **reversed lockup** (`allotjar-lockup-reversed.svg`) for the brand row — both read
+// straight from brand/, never hand-drawn. The gradient + gold pill use brand tokens.
+//
 // Uses the Playwright Chromium that the a11y e2e tests already depend on. If the
 // browser binary is missing, run `npx playwright install chromium` first.
 
 import { chromium } from '@playwright/test'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
+const here = path.dirname(fileURLToPath(import.meta.url))
+const brandDir = path.resolve(here, '..', '..', 'brand')
 const outDir = path.join(process.cwd(), 'public', 'og')
 const outFile = path.join(outDir, 'allotjar-og.png')
 
-// The brand coin-jar mark (viewBox 0 0 64 84), drawn for the dark hero gradient:
-// brighter green body + gold lid and coin fill.
-const jar = `
-<svg width="250" height="328" viewBox="0 0 64 84" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M17 19L17 25C17 30 9 31 9 39L9 66A13 13 0 0 0 22 79L42 79A13 13 0 0 0 55 66L55 39C55 31 47 30 47 25L47 19Z" fill="#2e8b63"/>
-  <path d="M9 48Q32 45 55 48L55 66A13 13 0 0 1 42 79L22 79A13 13 0 0 1 9 66Z" fill="#e8c36a"/>
-  <rect x="13" y="14.5" width="38" height="5" rx="2.5" fill="#e8c36a"/>
-  <rect x="15" y="3.5" width="34" height="12.5" rx="3.5" fill="#e8c36a"/>
-  <rect x="16.5" y="4.8" width="31" height="2.6" rx="1.3" fill="#ffffff" opacity=".28"/>
-</svg>`
+// Pull the actual production brand assets — do not redraw the jar here.
+const [realisticMark, reversedLockup] = await Promise.all([
+  readFile(path.join(brandDir, 'allotjar-mark.svg'), 'utf8'),
+  readFile(path.join(brandDir, 'allotjar-lockup-reversed.svg'), 'utf8'),
+])
 
 const html = `<!doctype html>
 <html>
@@ -34,37 +37,34 @@ const html = `<!doctype html>
         width: 1200px; height: 630px; overflow: hidden;
         font-family: 'Hanken Grotesk', system-ui, sans-serif;
         color: #fff;
-        background: linear-gradient(135deg, #114a32, #1a6347 45%, #247e58);
+        /* Brand hero gradient — tokens: deep #15533A → green #1C6B49 → light #2C8059. */
+        background: linear-gradient(135deg, #15533A, #1C6B49 45%, #2C8059);
         display: flex; align-items: center; gap: 56px; padding: 96px;
       }
-      .left { flex: 1; }
-      .brand { display: flex; align-items: center; gap: 16px; margin-bottom: 40px; }
-      .brand-mark {
-        width: 56px; height: 73px; display: flex; align-items: center; justify-content: center;
-      }
-      .brand-mark svg { width: 56px; height: 73px; }
-      .wordmark { font-size: 40px; font-weight: 800; letter-spacing: -0.03em; }
-      .wordmark .jar { color: #e8c36a; }
+      .left { flex: 1; min-width: 0; }
+      /* Reversed lockup (flat mark + "AllotJar" wordmark, paper + #5FC093). */
+      .brand { margin-bottom: 40px; }
+      .brand svg { height: 46px; width: auto; display: block; }
       h1 { font-size: 92px; font-weight: 800; line-height: 1.02; letter-spacing: -0.035em; }
       .sub { margin-top: 28px; font-size: 34px; font-weight: 500; color: rgba(255,255,255,0.86); }
       .url {
         margin-top: 44px; display: inline-block; font-size: 26px; font-weight: 700;
-        color: #114a32; background: #e8c36a; padding: 12px 22px; border-radius: 999px;
+        color: #15533A; background: #D7A93E; padding: 12px 22px; border-radius: 999px;
       }
-      .right { flex-shrink: 0; filter: drop-shadow(0 24px 48px rgba(0,0,0,0.32)); }
+      /* Realistic mark — the showpiece. Sized by height so the drop coin + cast
+         shadow (viewBox 0 -13 64 101) stay in frame; CSS overrides its width/height. */
+      .right { flex-shrink: 0; filter: drop-shadow(0 22px 44px rgba(0,0,0,0.34)); }
+      .right svg { height: 404px; width: auto; display: block; }
     </style>
   </head>
   <body>
     <div class="left">
-      <div class="brand">
-        <span class="brand-mark">${jar.replace('width="250" height="328"', 'width="56" height="73"')}</span>
-        <span class="wordmark">Allot<span class="jar">Jar</span></span>
-      </div>
+      <div class="brand">${reversedLockup}</div>
       <h1>Give every<br />euro a job.</h1>
       <p class="sub">Zero-based budgeting, in your currency.</p>
       <span class="url">allotjar.com</span>
     </div>
-    <div class="right">${jar}</div>
+    <div class="right">${realisticMark}</div>
   </body>
 </html>`
 
@@ -73,7 +73,7 @@ try {
   await mkdir(outDir, { recursive: true })
   const page = await browser.newPage({ viewport: { width: 1200, height: 630 }, deviceScaleFactor: 1 })
   await page.setContent(html, { waitUntil: 'networkidle' })
-  await page.waitForTimeout(400) // let the web font paint
+  await page.waitForTimeout(400) // let the web font paint (wordmark + drop-coin €)
   await page.screenshot({ path: outFile })
   console.log(`og image written: ${outFile}`)
 } finally {
