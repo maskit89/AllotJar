@@ -34,8 +34,8 @@ import {
   withReorderedItems,
   type MonthVM,
 } from '../budgetModel'
-import { formatMoney, fromAmount, sumMinor, toAmount, type Minor } from '../lib/money'
-import { Hero, EveryEuroBadge } from '../components/Hero'
+import { currencyNoun, formatMoney, fromAmount, sumMinor, toAmount, type Minor } from '../lib/money'
+import { Hero, BalancedBadge } from '../components/Hero'
 import { Card } from '../components/ui'
 import { Jar } from '../components/Jar'
 import { hueForIndex } from '../lib/categoryColors'
@@ -558,7 +558,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
               ]}
               footnote={
                 balanced ? (
-                  <EveryEuroBadge>Every euro has a job</EveryEuroBadge>
+                  <BalancedBadge>Every {currencyNoun(month.currency)} has a job</BalancedBadge>
                 ) : (
                   <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13.5px] font-medium">
                     {over

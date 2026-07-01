@@ -61,7 +61,7 @@ const html = `<!doctype html>
         <span class="wordmark">Allot<span class="jar">Jar</span></span>
       </div>
       <h1>Give every<br />euro a job.</h1>
-      <p class="sub">Zero-based budgeting, built for Europe.</p>
+      <p class="sub">Zero-based budgeting, in your currency.</p>
       <span class="url">allotjar.com</span>
     </div>
     <div class="right">${jar}</div>

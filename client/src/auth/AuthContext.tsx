@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api, getToken, setToken } from '../lib/api'
-import { setMoneyFormat } from '../lib/money'
+import { setMoneyFormat, DEFAULT_CURRENCY_CODE, DEFAULT_FORMAT_KEY } from '../lib/money'
 import { HouseholdRole, type AuthResponse, type HouseholdSummary, type MeResponse, type PreferencesResponse } from '../types'
 
 /** What the sign-up form collects. */
@@ -66,10 +66,11 @@ const NAME_KEY = 'zbb.displayName'
 const CURRENCY_KEY = 'zbb.currency'
 const FORMAT_KEY = 'zbb.numberFormat'
 
-const DEFAULT_CURRENCY = 'EUR'
-// The design's canonical money format (en-GB: €1,234.56). Users can still pick
-// dot-comma / space-comma in preferences; this is only the no-preference default.
-const DEFAULT_FORMAT = 'comma-dot'
+// The app-wide neutral fallbacks, shared with the backend default and the sign-up
+// form (see lib/money.ts). Only used when a user has no stored preference — every
+// registered user picks their own currency + money format.
+const DEFAULT_CURRENCY = DEFAULT_CURRENCY_CODE
+const DEFAULT_FORMAT = DEFAULT_FORMAT_KEY
 
 function storedRole(): number {
   const raw = localStorage.getItem(ROLE_KEY)

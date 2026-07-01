@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAuth } from '../auth/AuthContext'
-import { TOUR_STEPS } from './tourSteps'
+import { TOUR_STEP_COUNT } from './tourSteps'
 import { EVENTS, track } from '../analytics'
 
 type Phase = 'idle' | 'welcome' | 'tour'
@@ -51,7 +51,7 @@ interface OnboardingApi {
 const NOOP: OnboardingApi = {
   phase: 'idle',
   tourStep: 0,
-  totalTourSteps: TOUR_STEPS.length,
+  totalTourSteps: TOUR_STEP_COUNT,
   checklistVisible: false,
   startTour() {},
   nextTourStep() {},
@@ -126,7 +126,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   }, [persist])
 
   const nextTourStep = useCallback(() => {
-    setTourStep((s) => Math.min(s + 1, TOUR_STEPS.length - 1))
+    setTourStep((s) => Math.min(s + 1, TOUR_STEP_COUNT - 1))
   }, [])
 
   const prevTourStep = useCallback(() => {
@@ -149,7 +149,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const value: OnboardingApi = {
     phase,
     tourStep,
-    totalTourSteps: TOUR_STEPS.length,
+    totalTourSteps: TOUR_STEP_COUNT,
     checklistVisible: !record.checklistDismissed,
     startTour,
     nextTourStep,

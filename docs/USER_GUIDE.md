@@ -1,6 +1,6 @@
 # AllotJar — User Guide
 
-AllotJar is a zero-based budgeting app for Europe: every euro of income gets a job before the month starts. This guide walks through every page of the app, what each control does, and how the numbers behind them are calculated.
+AllotJar is a zero-based budgeting app crafted in Europe and at home anywhere: every unit of your income gets a job before the month starts, in whatever currency you budget. This guide walks through every page of the app, what each control does, and how the numbers behind them are calculated.
 
 ---
 
@@ -43,11 +43,11 @@ AllotJar is a zero-based budgeting app for Europe: every euro of income gets a j
 
 ## 1. The idea: zero-based budgeting
 
-In a zero-based budget you don't just track spending after the fact — you **assign every euro a job before you spend it**. Each month:
+In a zero-based budget you don't just track spending after the fact — you **assign every part of your income a job before you spend it**. Each month:
 
 1. Enter the income you expect.
 2. Assign all of it across your spending lines (Rent, Groceries, …), your savings goals, and your jars.
-3. The goal is **Remaining to Budget = €0.00** — no money left unassigned, none over-assigned.
+3. The goal is **Remaining to Budget = 0** — no money left unassigned, none over-assigned.
 4. During the month, record what you actually spend; AllotJar compares it to the plan for you.
 
 AllotJar's big banner tracks that goal live as you type.
@@ -94,7 +94,7 @@ The large coloured banner shows **Income**, **Assigned**, and the difference —
 | Colour | Meaning |
 |---|---|
 | 🟡 Amber — "Still to assign" | Income not yet given a job. Keep assigning. |
-| 🟢 Green — "Every Euro has a job 🎉" | Exactly €0.00 left. The budget is balanced. |
+| 🟢 Green — "Every [currency] has a job 🎉" | Nothing left to assign (the banner names your currency). The budget is balanced. |
 | 🔴 Red — "Over-budgeted — trim a category" | You've planned more than you earn. Reduce something. |
 
 **How it works:** Income = the sum of your income lines' *planned* amounts. Assigned = the sum of every expense line *and* every savings contribution. Putting money into a savings line counts as giving it a job, so the budget only balances once your savings are funded too.
@@ -156,7 +156,7 @@ The register of real money movements.
 
 ### Adding a transaction
 
-Use the **Add a transaction** form: date, payee, amount, type (**Expense** or **Income**), optionally assign it to a budget line right away, and — if you use [Accounts](#5-accounts) — the account it happened on. Amounts accept European decimal commas ("12,50").
+Use the **Add a transaction** form: date, payee, amount, type (**Expense** or **Income**), optionally assign it to a budget line right away, and — if you use [Accounts](#5-accounts) — the account it happened on. Amounts accept a decimal point or comma ("12.50" or "12,50"), and tolerate thousands separators.
 
 If you don't pick a budget line, AllotJar quietly fills one in for you: it assigns the new transaction to the same line as your **most recent earlier transaction with the same description**. So once you've categorised "REWE" or your landlord once, repeat payees sort themselves — with no rules to set up. Whatever it can't match is left *Unassigned* for you to place.
 
@@ -209,7 +209,7 @@ For each jar you set:
 
 From this AllotJar works out the **monthly contribution** the jar needs and shows each jar as a **progress bar** toward its target. The page header totals your **Total saved**, the combined **monthly** set-aside, and the number of **active jars**.
 
-**Jars and the Budget page work together:** the jar tells you *what to set aside each month*; you budget that amount as a contribution on a **Savings** line so it counts toward giving every euro a job. Edit a jar to change its target or date, or **archive** it when the goal is done (archiving never touches your transactions).
+**Jars and the Budget page work together:** the jar tells you *what to set aside each month*; you budget that amount as a contribution on a **Savings** line so it counts toward a balanced, zero-based month. Edit a jar to change its target or date, or **archive** it when the goal is done (archiving never touches your transactions).
 
 ## 7. Reports
 
