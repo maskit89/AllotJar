@@ -148,39 +148,38 @@ h1 {
 }
 
 /* ---- Rotating currency word (CSS-only carousel; no JS, per the strict CSP) ----
-   The words stack in one slot sized to the widest ("koruna") so "a job." never
-   shifts; each fades in (via colour alpha — see the .rot note) on a staggered
-   delay. Order/list mirrors the distinct nouns in client/src/lib/money.ts. */
+   A slot-machine: the words sit in a vertical track inside a one-line-tall,
+   overflow-hidden window, so exactly ONE is ever in view. Clipping (geometry) —
+   not opacity/colour timing — is what guarantees the other words can't pile up
+   (they overlapped into a gold block on first paint with the fade approach). The
+   track's width = the widest word, so "a job." never shifts. Order mirrors the
+   distinct nouns in client/src/lib/money.ts. */
 .rotator {
-  position: relative;
   display: inline-block;
-  text-align: center;
+  overflow: hidden;
+  height: 1.16em;
+  vertical-align: bottom;
+  color: var(--gold-bright);
 }
 
-.rot-size {
-  visibility: hidden;
+.rot-track {
+  display: block;
+  animation: roll 27s steps(18) infinite;
 }
 
-.rot {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
+.rot-track > span {
+  display: block;
+  height: 1.16em;
+  line-height: 1.16;
   white-space: nowrap;
-  /* Fade via the colour's ALPHA channel, not opacity/transform. Those promote the
-     word to a composited layer, where Safari/WebKit can paint a still-loading web
-     font as empty boxes (tofu). Colour animates on the normal paint layer, so the
-     glyphs always render (worst case a brief fallback-font flash, never boxes). */
-  color: rgba(232, 195, 106, 0);
-  animation: roll 23.4s infinite;
 }
 
 @keyframes roll {
-  0% { color: rgba(232, 195, 106, 0); }
-  0.6% { color: rgba(232, 195, 106, 1); }
-  5% { color: rgba(232, 195, 106, 1); }
-  5.5% { color: rgba(232, 195, 106, 0); }
-  100% { color: rgba(232, 195, 106, 0); }
+  /* Scroll the track by MARGIN (a paint/layout property), not transform. transform
+     would composite the track, and Safari can paint a still-loading web font as
+     boxes on a composited layer. Margin keeps the text on the normal paint layer. */
+  from { margin-top: 0; }
+  to { margin-top: -20.88em; } /* 18 words × 1.16em */
 }
 
 /* Visually hidden, but read by screen readers so the heading says "…euro a job." */
@@ -255,11 +254,8 @@ footer a {
   .cta {
     transition: none;
   }
-  /* Freeze the carousel on the lead word rather than animating. */
-  .rot {
+  /* Freeze the carousel on the first word (track at rest shows "euro"). */
+  .rot-track {
     animation: none;
-  }
-  .rot-lead {
-    color: var(--gold-bright);
   }
 }
