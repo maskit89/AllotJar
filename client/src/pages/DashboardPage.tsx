@@ -641,7 +641,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
             )}
 
             <div className="space-y-3">
-              {/* Income groups always render first (EveryDollar style). */}
+              {/* Income groups always render first. */}
               {month.categories.filter(isIncome).map((category) => (
                 <IncomeGroup
                   key={category.id}

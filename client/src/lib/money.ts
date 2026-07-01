@@ -95,7 +95,7 @@ export const CURRENCY_OPTIONS: { value: string; label: string }[] = [
 
 /**
  * The singular noun for a currency, used by the "give every ___ a job" tagline so
- * it speaks the signed-in user's money ("every dollar", "every rupee"). Covers every
+ * it speaks the signed-in user's money ("every euro", "every rupee"). Covers every
  * code in CURRENCY_OPTIONS; anything else falls back to a neutral "unit". EUR → "euro"
  * keeps euro as the default voice (see the anonymous landing + logged-out surfaces).
  */

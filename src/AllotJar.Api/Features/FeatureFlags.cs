@@ -1,9 +1,9 @@
 namespace AllotJar.Api.Features;
 
 /// <summary>
-/// Toggles for the features that go beyond the EveryDollar core. All default ON, so
+/// Toggles for the features that go beyond core zero-based budgeting. All default ON, so
 /// the app ships with everything; turning one OFF (via the "Features" config section)
-/// hides it and 404s its endpoints — a "pure EveryDollar" mode.
+/// hides it and 404s its endpoints — a stripped-back, core-budgeting mode.
 /// </summary>
 public class FeatureFlags
 {
@@ -12,7 +12,7 @@ public class FeatureFlags
     /// <summary>Accounts &amp; derived balances (YNAB-style register).</summary>
     public bool Accounts { get; set; } = true;
 
-    /// <summary>Foreign-currency transactions and FX (EveryDollar is USD-only).</summary>
+    /// <summary>Foreign-currency transactions and FX.</summary>
     public bool MultiCurrency { get; set; } = true;
 
     /// <summary>CAMT.053 SEPA statement import.</summary>
