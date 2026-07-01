@@ -1,4 +1,4 @@
-# ZeroBudget 💶
+# AllotJar 💶
 
 A **Zero-Based Budgeting** (ZBB) web application for the European market. Every
 Euro of income is given a job until **"Remaining to Budget" reaches €0.00**.
@@ -25,15 +25,15 @@ Euro of income is given a job until **"Remaining to Budget" reaches €0.00**.
 ## Solution layout
 
 ```
-ZeroBudget/
-├─ ZeroBudget.slnx
+AllotJar/
+├─ AllotJar.slnx
 ├─ src/
-│  ├─ ZeroBudget.Domain          # Entities + pure ZBB calculation logic (no deps)
-│  ├─ ZeroBudget.Application     # CQRS (MediatR), DTOs, abstractions, validation
-│  ├─ ZeroBudget.Infrastructure  # EF Core DbContext, Identity, JWT, migrations
-│  └─ ZeroBudget.Api             # Controllers, auth endpoints, DI, Swagger
+│  ├─ AllotJar.Domain          # Entities + pure ZBB calculation logic (no deps)
+│  ├─ AllotJar.Application     # CQRS (MediatR), DTOs, abstractions, validation
+│  ├─ AllotJar.Infrastructure  # EF Core DbContext, Identity, JWT, migrations
+│  └─ AllotJar.Api             # Controllers, auth endpoints, DI, Swagger
 ├─ tests/
-│  └─ ZeroBudget.Application.Tests  # xUnit: ZBB math + handler behaviour
+│  └─ AllotJar.Application.Tests  # xUnit: ZBB math + handler behaviour
 └─ client/                       # Vite + React + TS + Tailwind dashboard
 ```
 
@@ -82,7 +82,7 @@ on every edit so the banner updates dynamically. It handles zero/absent income
 gracefully (it simply returns the negated total planned, never dividing).
 
 A line's **`ActualAmount`** is likewise never authored directly — it is always derived
-at read time (see `ZeroBudget.Application.Budgets.BudgetActuals`) from the transactions
+at read time (see `AllotJar.Application.Budgets.BudgetActuals`) from the transactions
 assigned to the line: whole transactions of the line's own kind (income lines roll up
 income, expense/fund lines roll up expenses) plus any split slices. A line with no
 transactions reads zero. There is no manual entry — recomputing from the register every
@@ -246,7 +246,7 @@ The Reports page renders these as plain CSS bar charts (no charting library).
 
 ## Feature flags
 
-Four capabilities sit behind flags (`src/ZeroBudget.Api/Features/FeatureFlags.cs`),
+Four capabilities sit behind flags (`src/AllotJar.Api/Features/FeatureFlags.cs`),
 all **default ON**: `Accounts`, `MultiCurrency`, `CamtImport`, `Reports`.
 `Accounts` and `Reports` toggle a whole page (nav link + routes + endpoints).
 `MultiCurrency` and `CamtImport` now gate **dormant, backend-only** capabilities
@@ -266,12 +266,12 @@ later without rework. Turning the page flags OFF gives a "pure EveryDollar" mode
 ## Running the backend
 
 **Prerequisites:** .NET 10 SDK and SQL Server (LocalDB works out of the box on
-Windows). The connection string is in `src/ZeroBudget.Api/appsettings.json`.
+Windows). The connection string is in `src/AllotJar.Api/appsettings.json`.
 
 ```bash
 # from the repo root
 dotnet build
-dotnet run --project src/ZeroBudget.Api --launch-profile http
+dotnet run --project src/AllotJar.Api --launch-profile http
 ```
 
 - API: <http://localhost:5029>
@@ -282,13 +282,13 @@ dotnet run --project src/ZeroBudget.Api --launch-profile http
 
 ```bash
 dotnet ef migrations add <Name> \
-  --project src/ZeroBudget.Infrastructure \
-  --startup-project src/ZeroBudget.Api \
+  --project src/AllotJar.Infrastructure \
+  --startup-project src/AllotJar.Api \
   --output-dir Persistence/Migrations
 
 dotnet ef database update \
-  --project src/ZeroBudget.Infrastructure \
-  --startup-project src/ZeroBudget.Api
+  --project src/AllotJar.Infrastructure \
+  --startup-project src/AllotJar.Api
 ```
 
 The first migration `InitialCreate` creates the Identity tables plus
@@ -363,6 +363,6 @@ Help page. Both suites run in CI on every push and PR.
   32 bytes (HS256 needs ≥ 256 bits). Supply it once via user-secrets (or the
   `Jwt__Key` environment variable in deployment):
 ```
-dotnet user-secrets set "Jwt:Key" "<a long random secret, 32+ bytes>" --project src/ZeroBudget.Api
+dotnet user-secrets set "Jwt:Key" "<a long random secret, 32+ bytes>" --project src/AllotJar.Api
 ```
   Generate one quickly, e.g. `node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"`.

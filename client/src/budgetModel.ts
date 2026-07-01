@@ -66,7 +66,7 @@ export function fromDto(dto: BudgetMonthDto): MonthVM {
   }
 }
 
-// --- Derived selectors (mirror ZeroBudget.Domain) ---------------------------
+// --- Derived selectors (mirror AllotJar.Domain) ---------------------------
 // These are the single source of truth for the UI's totals. Because they sum
 // integers, an optimistic edit recomputes the exact same numbers the server
 // would return — the banner can never drift.

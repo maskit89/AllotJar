@@ -51,7 +51,7 @@ jobs:
 
       - name: Publish API
         run: >
-          dotnet publish src/ZeroBudget.Api/ZeroBudget.Api.csproj
+          dotnet publish src/AllotJar.Api/AllotJar.Api.csproj
           -c Release -r win-x64 --no-self-contained -o publish/api
 
       - name: Build SPA

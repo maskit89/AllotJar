@@ -1,4 +1,4 @@
-// Mirrors the API DTOs (ZeroBudget.Application.Budgets.Dtos).
+// Mirrors the API DTOs (AllotJar.Application.Budgets.Dtos).
 
 export interface BudgetItemDto {
   id: string
