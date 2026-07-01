@@ -252,7 +252,7 @@ all **default ON**: `Accounts`, `MultiCurrency`, `CamtImport`, `Reports`.
 `MultiCurrency` and `CamtImport` now gate **dormant, backend-only** capabilities
 (the single-currency UI and the removal of the import button mean they have no
 user-facing surface today) — they remain so those features can be switched back on
-later without rework. Turning the page flags OFF gives a "pure EveryDollar" mode.
+later without rework. Turning the page flags OFF gives a stripped-back, core-budgeting-only mode.
 
 - `GET /api/features` exposes the current flags. It's **anonymous** (non-sensitive),
   so the SPA reads it before deciding which nav links, routes and controls to show.

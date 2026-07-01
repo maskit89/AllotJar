@@ -70,7 +70,7 @@ describe('AppNav (feature flags)', () => {
 
     renderNav()
 
-    // The core EveryDollar items always show…
+    // The core budgeting items always show…
     expect(await screen.findByText('Budget', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Transactions')).toBeInTheDocument()
     // …while the disabled differentiators are removed once the flags load.

@@ -33,7 +33,7 @@ builder.Services.AddAuthorization();
 // Liveness probe (no DB dependency) consumed by the deploy pipeline's smoke test.
 builder.Services.AddHealthChecks();
 
-// Feature toggles for the beyond-EveryDollar features (all default ON).
+// Feature toggles for the features beyond core zero-based budgeting (all default ON).
 builder.Services.Configure<FeatureFlags>(builder.Configuration.GetSection(FeatureFlags.SectionName));
 
 // CORS for the Vite dev server (configurable via Cors:AllowedOrigins).

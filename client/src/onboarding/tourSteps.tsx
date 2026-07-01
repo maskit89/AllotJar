@@ -19,7 +19,7 @@ export interface TourStep {
  * by a feature flag, or no budget yet), so the tour works in any app state.
  *
  * A builder rather than a constant so the zero-based step can speak the user's
- * currency ("give every dollar a job"); `noun` is the singular money-noun from
+ * currency ("give every euro a job"); `noun` is the singular money-noun from
  * currencyNoun(). Step count is invariant to the noun — see TOUR_STEP_COUNT.
  */
 export function buildTourSteps(noun: string): TourStep[] {
