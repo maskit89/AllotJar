@@ -53,10 +53,13 @@ main {
 
 /* ---- Logo lockup ---- */
 .lockup {
-  display: inline-flex;
+  /* Block-level + centred so it takes its own line — the eyebrow pill then sits
+     on the line below (both are otherwise inline-level and would sit side by side). */
+  display: flex;
+  justify-content: center;
   align-items: center;
   gap: 13px;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
 .lockup svg {
