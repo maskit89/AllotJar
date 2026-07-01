@@ -11,9 +11,15 @@ step, no framework — just `index.html`, `styles.css` and two assets.
 | `index.html` | The page. Inline brand mark + Hanken Grotesk wordmark, brand hero gradient. |
 | `styles.css` | All styling (external so the CSP needs no `'unsafe-inline'`). |
 | `favicon.svg` | Browser-tab icon (copied from `brand/`). |
+| `jar-mark.svg` | Realistic hero jar shown on the page (copied from `brand/allotjar-mark.svg`). |
 | `og.png` | 1200×630 social-share image (copied from `client/public/og/`). |
 | `_headers` | Cloudflare Pages security headers (CSP, X-Frame-Options, …). |
 | `robots.txt` | Allows indexing of the coming-soon page. |
+
+> The headline cycles a currency word ("give every euro / dollar / rupee … a job")
+> as a CSS-only animation (the CSP forbids JS). Its word list is hardcoded in
+> `index.html`; keep it in sync with `CURRENCY_NOUNS` in `client/src/lib/money.ts`
+> (one entry per distinct noun, euro first) if the app's currency set changes.
 
 ## Before you deploy
 
