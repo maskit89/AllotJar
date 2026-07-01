@@ -22,7 +22,7 @@ public static class BudgetMonthMapping
         RemainingToBudget = month.RemainingToBudget,
         IsBalanced = month.IsBalanced,
         Categories = month.Categories
-            // Income groups render first (like EveryDollar), then expense groups,
+            // Income groups render first, then expense groups,
             // then funds at the bottom; the user's display order applies within each kind.
             .OrderBy(c => c.Kind switch
             {

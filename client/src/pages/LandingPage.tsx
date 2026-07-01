@@ -130,7 +130,7 @@ const FAQS: Faq[] = [
     a: 'Absolutely. AllotJar was crafted in Europe and stays euro-friendly, but it works anywhere — pick your currency and the number format you actually write (1,234.56 or 1.234,56), from dollars and pounds to rupees, francs and more. Your budget reads the way you do.',
   },
   {
-    q: 'How is it different from EveryDollar?',
+    q: 'What makes AllotJar different?',
     a: 'AllotJar brings the proven zero-based method to a modern tool with sinking-fund jars, multi-account tracking and household sharing built in — in whatever currency you budget.',
   },
   {

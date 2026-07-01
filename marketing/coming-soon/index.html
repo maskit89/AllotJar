@@ -39,41 +39,74 @@
   <body>
     <div class="glow" aria-hidden="true"></div>
     <main>
-      <!-- Brand lockup: the reversed (cream + gold) jar for dark surfaces, per brand/README.md. -->
-      <div class="lockup">
-        <svg viewBox="0 0 64 84" role="img" aria-label="AllotJar logo">
-          <path
-            d="M17 19L17 25C17 30 9 31 9 39L9 66A13 13 0 0 0 22 79L42 79A13 13 0 0 0 55 66L55 39C55 31 47 30 47 25L47 19Z"
-            fill="#FBF7EE"
-          />
-          <path
-            d="M9 48Q32 45 55 48L55 66A13 13 0 0 1 42 79L22 79A13 13 0 0 1 9 66Z"
-            fill="#D7A93E"
-          />
-          <rect x="13" y="14.5" width="38" height="5" rx="2.5" fill="#D7A93E" />
-          <rect x="15" y="3.5" width="34" height="12.5" rx="3.5" fill="#D7A93E" />
-          <rect x="16.5" y="4.8" width="31" height="2.6" rx="1.3" fill="#ffffff" opacity=".28" />
-        </svg>
-        <span class="wordmark">Allot<span class="jar">Jar</span></span>
+      <!-- Landscape layout: the text column on the left, the realistic hero jar on
+           the right, so the small lockup logo and the big jar never stack. -->
+      <div class="split">
+        <div class="intro">
+          <!-- Brand lockup: the reversed (cream + gold) jar for dark surfaces, per brand/README.md. -->
+          <div class="lockup">
+            <svg viewBox="0 0 64 84" role="img" aria-label="AllotJar logo">
+              <path d="M17 19L17 25C17 30 9 31 9 39L9 66A13 13 0 0 0 22 79L42 79A13 13 0 0 0 55 66L55 39C55 31 47 30 47 25L47 19Z" fill="#FBF7EE" />
+              <path d="M9 48Q32 45 55 48L55 66A13 13 0 0 1 42 79L22 79A13 13 0 0 1 9 66Z" fill="#D7A93E" />
+              <rect x="13" y="14.5" width="38" height="5" rx="2.5" fill="#D7A93E" />
+              <rect x="15" y="3.5" width="34" height="12.5" rx="3.5" fill="#D7A93E" />
+              <rect x="16.5" y="4.8" width="31" height="2.6" rx="1.3" fill="#ffffff" opacity=".28" />
+            </svg>
+            <span class="wordmark">Allot<span class="jar">Jar</span></span>
+          </div>
+
+          <p class="eyebrow">Coming soon</p>
+
+          <!-- The currency word cycles through every supported currency (CSS-only, since the
+               _headers CSP is script-src 'none'). Keep this list in sync with CURRENCY_NOUNS
+               in client/src/lib/money.ts — one entry per DISTINCT noun, euro first. -->
+          <h1>
+            Give every<br />
+            <span class="rotator" aria-hidden="true">
+              <span class="rot-size">koruna</span>
+              <span class="rot rot-lead" style="animation-delay: 0s">euro</span>
+              <span class="rot" style="animation-delay: 1.3s">pound</span>
+              <span class="rot" style="animation-delay: 2.6s">dollar</span>
+              <span class="rot" style="animation-delay: 3.9s">franc</span>
+              <span class="rot" style="animation-delay: 5.2s">yen</span>
+              <span class="rot" style="animation-delay: 6.5s">rupee</span>
+              <span class="rot" style="animation-delay: 7.8s">krona</span>
+              <span class="rot" style="animation-delay: 9.1s">krone</span>
+              <span class="rot" style="animation-delay: 10.4s">złoty</span>
+              <span class="rot" style="animation-delay: 11.7s">koruna</span>
+              <span class="rot" style="animation-delay: 13s">forint</span>
+              <span class="rot" style="animation-delay: 14.3s">leu</span>
+              <span class="rot" style="animation-delay: 15.6s">rand</span>
+              <span class="rot" style="animation-delay: 16.9s">real</span>
+              <span class="rot" style="animation-delay: 18.2s">peso</span>
+              <span class="rot" style="animation-delay: 19.5s">dirham</span>
+              <span class="rot" style="animation-delay: 20.8s">riyal</span>
+              <span class="rot" style="animation-delay: 22.1s">lira</span>
+            </span><span class="sr-only">euro</span> a job.
+          </h1>
+
+          <p class="lede">
+            A zero-based budgeting app built for Europe — plan each month to zero, save for the big
+            stuff with sinking-fund jars, and budget together as a household.
+          </p>
+
+          <!-- Change this address to your preferred inbox (see README). -->
+          <a class="cta" href="mailto:hello@allotjar.com?subject=AllotJar%20early%20access">
+            Request early access →
+          </a>
+
+          <p class="notice">
+            AllotJar is under active development. A private beta is open to invited testers; during
+            the beta, features may change and data can be reset as we build.
+          </p>
+        </div>
+
+        <!-- Realistic "showpiece" mark (brand/README §2), a copy of brand/allotjar-mark.svg.
+             Decorative: the lockup already names the brand, so alt="". -->
+        <div class="hero">
+          <img class="hero-jar" src="/jar-mark.svg" alt="" />
+        </div>
       </div>
-
-      <p class="eyebrow">Coming soon</p>
-      <h1>Give every euro a job.</h1>
-      <p class="lede">
-        AllotJar is a zero-based budgeting app built for Europe — plan each month to zero, save for
-        the big stuff with sinking-fund jars, and budget together as a household. We're putting on
-        the finishing touches.
-      </p>
-
-      <!-- Change this address to your preferred inbox (see README). -->
-      <a class="cta" href="mailto:hello@allotjar.com?subject=AllotJar%20early%20access">
-        Request early access →
-      </a>
-
-      <p class="notice">
-        AllotJar is under active development. A private beta is open to invited testers; during the
-        beta, features may change and data can be reset as we build.
-      </p>
 
       <footer>
         © 2026 AllotJar · Give every euro a job. ·

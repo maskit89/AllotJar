@@ -306,7 +306,7 @@ The Reports page renders these as plain CSS bar charts (no charting library).
 
 ## Feature flags
 
-Capabilities beyond the EveryDollar core sit behind flags
+Capabilities beyond core zero-based budgeting sit behind flags
 (`src/AllotJar.Api/Features/FeatureFlags.cs`):
 
 | Flag | Default | What it gates |
@@ -324,7 +324,7 @@ Capabilities beyond the EveryDollar core sit behind flags
   so the SPA reads it before deciding which nav links, routes and controls to show.
 - `[FeatureGate(nameof(...))]` is an action filter that **404s** a disabled feature's
   endpoints, so a flagged-off feature can't be reached even though the UI already hides
-  it. Turning the page flags off gives a "pure EveryDollar" mode.
+  it. Turning the page flags off gives a stripped-back, core-budgeting-only mode.
 
 ---
 

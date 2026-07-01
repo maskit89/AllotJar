@@ -410,7 +410,7 @@ export interface AllocationResultDto {
   transfersCreated: number
 }
 
-/** Toggles for the beyond-EveryDollar features (from GET /api/features). */
+/** Toggles for the features beyond core zero-based budgeting (from GET /api/features). */
 export interface FeatureFlags {
   accounts: boolean
   multiCurrency: boolean
