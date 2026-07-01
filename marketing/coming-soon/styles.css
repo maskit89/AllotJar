@@ -149,8 +149,8 @@ h1 {
 
 /* ---- Rotating currency word (CSS-only carousel; no JS, per the strict CSP) ----
    The words stack in one slot sized to the widest ("koruna") so "a job." never
-   shifts; each fades+slides in on a staggered delay. Order/list mirrors the
-   distinct nouns in client/src/lib/money.ts. */
+   shifts; each fades in (via colour alpha — see the .rot note) on a staggered
+   delay. Order/list mirrors the distinct nouns in client/src/lib/money.ts. */
 .rotator {
   position: relative;
   display: inline-block;
@@ -167,17 +167,20 @@ h1 {
   right: 0;
   top: 0;
   white-space: nowrap;
-  color: var(--gold-bright);
-  opacity: 0;
+  /* Fade via the colour's ALPHA channel, not opacity/transform. Those promote the
+     word to a composited layer, where Safari/WebKit can paint a still-loading web
+     font as empty boxes (tofu). Colour animates on the normal paint layer, so the
+     glyphs always render (worst case a brief fallback-font flash, never boxes). */
+  color: rgba(232, 195, 106, 0);
   animation: roll 23.4s infinite;
 }
 
 @keyframes roll {
-  0% { opacity: 0; transform: translateY(0.2em); }
-  0.5% { opacity: 1; transform: translateY(0); }
-  5% { opacity: 1; transform: translateY(0); }
-  5.55% { opacity: 0; transform: translateY(-0.2em); }
-  100% { opacity: 0; }
+  0% { color: rgba(232, 195, 106, 0); }
+  0.6% { color: rgba(232, 195, 106, 1); }
+  5% { color: rgba(232, 195, 106, 1); }
+  5.5% { color: rgba(232, 195, 106, 0); }
+  100% { color: rgba(232, 195, 106, 0); }
 }
 
 /* Visually hidden, but read by screen readers so the heading says "…euro a job." */
@@ -257,6 +260,6 @@ footer a {
     animation: none;
   }
   .rot-lead {
-    opacity: 1;
+    color: var(--gold-bright);
   }
 }
