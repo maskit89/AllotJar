@@ -63,7 +63,7 @@ main {
 .intro {
   flex: 1 1 0;
   min-width: 0;
-  max-width: 33rem;
+  max-width: 30rem;
 }
 
 .hero {
@@ -102,7 +102,7 @@ main {
 /* ---- Realistic hero jar (a copy of brand/allotjar-mark.svg) ---- */
 .hero-jar {
   display: block;
-  width: clamp(210px, 23vw, 300px);
+  width: clamp(200px, 22vw, 280px);
   height: auto;
   filter: drop-shadow(0 22px 36px rgba(0, 0, 0, 0.34));
 }
