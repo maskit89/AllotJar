@@ -157,7 +157,8 @@ export function AllocationPage() {
   }, [period])
 
   const monthName = useMemo(
-    () => new Date(period.year, period.month - 1, 1).toLocaleDateString('en-GB', { month: 'long' }),
+    // undefined locale = the visitor's browser locale (e.g. "June" / "Juni").
+    () => new Date(period.year, period.month - 1, 1).toLocaleDateString(undefined, { month: 'long' }),
     [period],
   )
 

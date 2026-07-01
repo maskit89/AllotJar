@@ -68,6 +68,14 @@ describe('formatting', () => {
     expect(formatMoney(4550, 'GBP')).toContain('£')
   })
 
+  it("uses each currency's natural fraction digits", () => {
+    // JPY has no minor unit — whole yen, no decimals.
+    expect(formatMoney(fromAmount(1234), 'JPY')).toContain('1,234')
+    expect(formatMoney(fromAmount(1234), 'JPY')).not.toContain('1,234.0')
+    // Kuwaiti dinar has three.
+    expect(formatMoney(fromAmount(1234.567), 'KWD')).toContain('1,234.567')
+  })
+
   it('produces a plain editable string', () => {
     expect(toEditString(11_005_000)).toBe('1100.5')
     expect(toEditString(11_000_000)).toBe('1100')
