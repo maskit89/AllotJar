@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { JarLogo, Jar } from '../components/Jar'
+import { BetaBanner } from '../components/BetaBanner'
 import {
   DashboardIcon,
   JarsIcon,
@@ -138,6 +139,7 @@ const FAQS: Faq[] = [
 export function LandingPage() {
   return (
     <div className="min-h-full">
+      <BetaBanner />
       {/* ---- Header ---- */}
       <header className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5">
         <a href="/" className="flex items-center gap-2.5" aria-label="AllotJar home">

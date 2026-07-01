@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { AppNav, type NavKey } from './AppNav'
+import { BetaBanner } from './BetaBanner'
 import { JarLogo } from './Jar'
 import { TopBar } from './TopBar'
 import { LogoutIcon, SettingsIcon } from './icons'
@@ -210,6 +211,7 @@ export function AppShell({
 
       {/* Content column. */}
       <div className="flex min-w-0 flex-1 flex-col">
+        <BetaBanner />
         <main
           id="main-content"
           tabIndex={-1}

@@ -3,15 +3,26 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 
-const { mockGet, mockPost } = vi.hoisted(() => ({
+const { mockGet, mockPost, envState } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockPost: vi.fn(),
+  envState: { isBeta: false },
 }))
 
 vi.mock('../lib/api', () => ({
   api: { get: mockGet, post: mockPost },
   getToken: () => null,
   setToken: vi.fn(),
+}))
+
+// Build-time env flag — default off so the existing single-checkbox tests are unaffected.
+vi.mock('../lib/env', () => ({
+  get IS_BETA() {
+    return envState.isBeta
+  },
+  get APP_ENV() {
+    return envState.isBeta ? 'beta' : undefined
+  },
 }))
 
 import { LoginPage } from './LoginPage'
@@ -30,6 +41,7 @@ function renderPage() {
 describe('LoginPage', () => {
   beforeEach(() => {
     localStorage.clear()
+    envState.isBeta = false
     mockGet.mockReset()
     mockPost.mockReset()
     mockGet.mockResolvedValue({
@@ -84,6 +96,51 @@ describe('LoginPage', () => {
         numberFormat: 'comma-dot',
         acceptedTerms: true,
       }),
+    )
+  })
+
+  it('adds a required data-loss acknowledgment when registering in the beta build', async () => {
+    envState.isBeta = true
+    mockPost.mockResolvedValue({
+      data: {
+        token: 'tok',
+        expiresAtUtc: '2030-01-01T00:00:00Z',
+        userId: 'u1',
+        email: 'new@x.com',
+        role: 0,
+        displayName: 'New User',
+      },
+    })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    // The beta build shows a second checkbox: the data-loss acknowledgment.
+    expect(
+      screen.getByText(/my data may be reset or permanently lost/i),
+    ).toBeInTheDocument()
+    const checkboxes = screen.getAllByRole('checkbox')
+    expect(checkboxes).toHaveLength(2)
+    expect((checkboxes[1] as HTMLInputElement).required).toBe(true)
+
+    await user.type(screen.getByLabelText('First name'), 'New')
+    await user.type(screen.getByLabelText('Last name'), 'User')
+    await user.type(screen.getByLabelText('Email'), 'new@x.com')
+    await user.type(screen.getByLabelText('Password'), 'password123')
+    await user.click(checkboxes[0])
+    await user.click(checkboxes[1])
+
+    const submit = screen
+      .getAllByRole('button', { name: 'Create account' })
+      .find((b) => (b as HTMLButtonElement).type === 'submit')!
+    await user.click(submit)
+
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith(
+        '/auth/register',
+        expect.objectContaining({ email: 'new@x.com', acceptedTerms: true }),
+      ),
     )
   })
 })
