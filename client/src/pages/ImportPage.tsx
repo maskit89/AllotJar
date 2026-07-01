@@ -17,6 +17,7 @@ import type {
 import { TransactionType } from '../types'
 import { buildItemOptions, type ItemOptionGroup } from '../lib/transactions'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount } from '../lib/money'
+import { formatDate } from '../lib/dates'
 
 type Format = 'hsbc' | 'camt'
 type Phase = 'upload' | 'review' | 'done'
@@ -509,7 +510,7 @@ export function ImportPage() {
                             className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                           />
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-500">{r.date}</td>
+                        <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-500">{formatDate(r.date)}</td>
                         <td className="px-3 py-2 font-medium text-slate-700">
                           {r.payee}
                           {r.likelyTransfer && !r.isTransfer && (

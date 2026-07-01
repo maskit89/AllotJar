@@ -13,19 +13,12 @@ import { EVENTS, track } from '../analytics'
 import type { AccountDto, BudgetMonthDto, HouseholdMemberDto, TransactionDto } from '../types'
 import { TransactionType } from '../types'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount } from '../lib/money'
+import { shortDate } from '../lib/dates'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { buildItemOptions, transactionTypeLabel } from '../lib/transactions'
 
 function today(): string {
   return new Date().toISOString().slice(0, 10)
-}
-
-const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-/** ISO date (yyyy-MM-dd) -> the register's compact "Jun 20" (the year lives in the top bar). */
-function shortDate(iso: string): string {
-  const [, m, d] = iso.split('-').map(Number)
-  return m && d ? `${SHORT_MONTHS[m - 1]} ${d}` : iso
 }
 
 export function TransactionsPage() {

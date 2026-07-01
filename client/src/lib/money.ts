@@ -216,12 +216,9 @@ function formatterFor(currency: string): Intl.NumberFormat {
   const key = `${activeLocale}:${currency}`
   let fmt = formatters.get(key)
   if (!fmt) {
-    fmt = new Intl.NumberFormat(activeLocale, {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })
+    // No fixed fraction digits — each currency uses its own ISO minor-unit count:
+    // 2 for EUR/USD/GBP, 0 for JPY ("¥1,234", not "¥1,234.00"), 3 for KWD/BHD.
+    fmt = new Intl.NumberFormat(activeLocale, { style: 'currency', currency })
     formatters.set(key, fmt)
   }
   return fmt
