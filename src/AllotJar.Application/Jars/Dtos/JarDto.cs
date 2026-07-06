@@ -1,5 +1,6 @@
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.Services;
 
 namespace AllotJar.Application.Jars.Dtos;
 
@@ -18,7 +19,9 @@ public class JarDto
     public DateOnly? CoverStart { get; set; }
     public DateOnly? CoverEnd { get; set; }
     public AccrualMethod Accrual { get; set; }
-    public bool RecurAnnually { get; set; }
+
+    /// <summary>A Recurring jar's cycle length in months (its date rolls forward by this); null for Goals.</summary>
+    public int? RecurMonths { get; set; }
     public decimal OpeningBalance { get; set; }
     public DateOnly? OpeningAsOf { get; set; }
     public Guid? FundingAccountId { get; set; }
@@ -44,6 +47,10 @@ public static class JarMapping
     {
         var remaining = f.TargetAmount > 0m ? Math.Max(0m, f.TargetAmount - currentBalance) : 0m;
 
+        // Recurrence-adjusted: a Recurring jar's passed date has already rolled
+        // forward here, so "Behind" below can only ever describe a Goal.
+        var effectiveDue = JarAccrualCalculator.EffectiveTargetDate(f, asOf);
+
         string status;
         if (currentBalance < 0m)
         {
@@ -57,7 +64,7 @@ public static class JarMapping
         {
             status = "FullyFunded";
         }
-        else if (f.TargetDate is { } due && due < asOf)
+        else if (effectiveDue is { } due && due < asOf)
         {
             status = "Behind";
         }
@@ -79,11 +86,13 @@ public static class JarMapping
             Name = f.Name,
             Kind = f.Kind,
             TargetAmount = f.TargetAmount,
-            TargetDate = f.TargetDate,
+            // The recurrence-adjusted date, so a Recurring jar never displays (or
+            // prefills an edit form with) a stale, already-passed cycle date.
+            TargetDate = effectiveDue,
             CoverStart = f.CoverStart,
             CoverEnd = f.CoverEnd,
             Accrual = f.Accrual,
-            RecurAnnually = f.RecurAnnually,
+            RecurMonths = f.RecurMonths,
             OpeningBalance = f.OpeningBalance,
             OpeningAsOf = f.OpeningAsOf,
             FundingAccountId = f.FundingAccountId,

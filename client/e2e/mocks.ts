@@ -39,8 +39,8 @@ function memberSpending() {
 // bars (incl. an overspent one).
 function jars() {
   return [
-    { id: 'f1', name: 'Home insurance', kind: 0, targetAmount: 300, targetDate: '2026-12-01', coverStart: null, coverEnd: null, accrual: 0, recurAnnually: true, openingBalance: 0, openingAsOf: null, fundingAccountId: null, isArchived: false, currentBalance: 120, requiredMonthlyContribution: 25, projectedFullyFundedDate: '2026-11-01', status: 'OnTrack' },
-    { id: 'f2', name: 'Holiday', kind: 1, targetAmount: 1000, targetDate: null, coverStart: null, coverEnd: null, accrual: 1, recurAnnually: false, openingBalance: 0, openingAsOf: null, fundingAccountId: null, isArchived: false, currentBalance: -40, requiredMonthlyContribution: 0, projectedFullyFundedDate: null, status: 'Overspent' },
+    { id: 'f1', name: 'Home insurance', kind: 0, targetAmount: 300, targetDate: '2026-12-01', coverStart: null, coverEnd: null, accrual: 0, recurMonths: 12, openingBalance: 0, openingAsOf: null, fundingAccountId: null, isArchived: false, currentBalance: 120, requiredMonthlyContribution: 25, projectedFullyFundedDate: '2026-11-01', status: 'OnTrack' },
+    { id: 'f2', name: 'Holiday', kind: 1, targetAmount: 1000, targetDate: null, coverStart: null, coverEnd: null, accrual: 1, recurMonths: null, openingBalance: 0, openingAsOf: null, fundingAccountId: null, isArchived: false, currentBalance: -40, requiredMonthlyContribution: 0, projectedFullyFundedDate: null, status: 'Overspent' },
   ]
 }
 

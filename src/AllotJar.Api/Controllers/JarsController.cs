@@ -48,7 +48,8 @@ public class JarsController : ControllerBase
         var result = await _mediator.Send(new CreateJarCommand(
             request.Name, request.Kind, request.TargetAmount, request.TargetDate,
             request.CoverStart, request.CoverEnd, request.Accrual,
-            request.OpeningBalance, request.OpeningAsOf, request.FundingAccountId), ct);
+            request.OpeningBalance, request.OpeningAsOf, request.FundingAccountId,
+            request.RecurMonths), ct);
         return CreatedAtAction(nameof(List), new { }, result);
     }
 
@@ -63,7 +64,8 @@ public class JarsController : ControllerBase
         var result = await _mediator.Send(new UpdateJarCommand(
             id, request.Name, request.Kind, request.TargetAmount, request.TargetDate,
             request.CoverStart, request.CoverEnd, request.Accrual,
-            request.OpeningBalance, request.OpeningAsOf, request.FundingAccountId), ct);
+            request.OpeningBalance, request.OpeningAsOf, request.FundingAccountId,
+            request.RecurMonths), ct);
         return Ok(result);
     }
 
@@ -90,7 +92,8 @@ public record CreateJarRequest(
     AccrualMethod Accrual,
     decimal OpeningBalance,
     DateOnly? OpeningAsOf,
-    Guid? FundingAccountId);
+    Guid? FundingAccountId,
+    int? RecurMonths = null);
 
 /// <summary>Request body for editing a sinking fund (the id comes from the route).</summary>
 public record UpdateJarRequest(
@@ -103,7 +106,8 @@ public record UpdateJarRequest(
     AccrualMethod Accrual,
     decimal OpeningBalance,
     DateOnly? OpeningAsOf,
-    Guid? FundingAccountId);
+    Guid? FundingAccountId,
+    int? RecurMonths = null);
 
 /// <summary>Request body for archiving/restoring a sinking fund.</summary>
 public record ArchiveJarRequest(bool Archived = true);

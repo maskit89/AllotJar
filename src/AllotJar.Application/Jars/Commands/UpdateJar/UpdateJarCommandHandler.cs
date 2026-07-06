@@ -42,8 +42,9 @@ public class UpdateJarCommandHandler
         fund.CoverStart = request.CoverStart;
         fund.CoverEnd = request.CoverEnd;
         fund.Accrual = request.Accrual;
-        // A jar's type IS its renewal bit: Recurring renews, Goal is one-and-done.
-        fund.RecurAnnually = request.Kind == JarKind.Recurring;
+        // Recurring jars carry their cycle length (yearly unless told otherwise);
+        // Goals are one-and-done and never roll.
+        fund.RecurMonths = request.Kind == JarKind.Recurring ? request.RecurMonths ?? 12 : null;
         fund.OpeningBalance = request.OpeningBalance;
         fund.OpeningAsOf = request.OpeningAsOf;
         fund.FundingAccountId = request.FundingAccountId;
