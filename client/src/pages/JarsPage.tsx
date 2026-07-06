@@ -61,6 +61,12 @@ export function JarsPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(BLANK_FORM)
+  // The jar behind the edit modal — one lookup shared by submit (echoing stored
+  // fields) and the footer's Archive affordance.
+  const editingJar = useMemo(
+    () => (editingId ? jars.find((f) => f.id === editingId) ?? null : null),
+    [editingId, jars],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -128,17 +134,16 @@ export function JarsPage() {
     // The form doesn't surface the cover window or opening as-of, so on edit the
     // jar's stored values are echoed back rather than wiped — importer-set cover
     // windows survive an unrelated rename (PUT replaces the whole resource).
-    const editing = editingId ? jars.find((f) => f.id === editingId) : undefined
     const body = {
       name: form.name.trim(),
       kind: form.kind,
       targetAmount,
       targetDate: form.targetDate || null,
-      coverStart: editing?.coverStart ?? null,
-      coverEnd: editing?.coverEnd ?? null,
+      coverStart: editingJar?.coverStart ?? null,
+      coverEnd: editingJar?.coverEnd ?? null,
       accrual: form.accrual,
       openingBalance,
-      openingAsOf: editing?.openingAsOf ?? null,
+      openingAsOf: editingJar?.openingAsOf ?? null,
       fundingAccountId: form.fundingAccountId || null,
     }
 
@@ -160,7 +165,7 @@ export function JarsPage() {
     } finally {
       setSaving(false)
     }
-  }, [form, editingId, jars, closeForm])
+  }, [form, editingId, editingJar, closeForm])
 
   const archive = useCallback(
     async (f: JarDto) => {
@@ -186,8 +191,6 @@ export function JarsPage() {
     () => jars.reduce((s, f) => s + fromAmount(f.requiredMonthlyContribution), 0),
     [jars],
   )
-
-  const editingJar = editingId ? jars.find((f) => f.id === editingId) ?? null : null
 
   return (
     <AppShell active="jars" title="Jars">

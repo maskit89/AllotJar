@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Budgets.Dtos;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Jars;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 
@@ -44,17 +45,12 @@ public class AddBudgetItemCommandHandler : IRequestHandler<AddBudgetItemCommand,
 
         var nextOrder = category.Items.Count == 0 ? 0 : category.Items.Max(i => i.DisplayOrder) + 1;
 
-        // A line in a Savings group is a jar's monthly contribution. SavingsId is an
-        // enforced FK to Jars.Id, so the line must be backed by a real jar (created
-        // here, shaped later on the Jars page) — never a bare Guid, which violates
-        // the constraint on SQL Server and leaves a line no jar can follow.
-        Guid? savingsId = null;
-        if (category.Kind == CategoryKind.Savings)
-        {
-            var jar = Jar.ForSavingsLine(userId, request.Name.Trim());
-            _db.Jars.Add(jar);
-            savingsId = jar.Id;
-        }
+        // A line in a Savings group is a jar's monthly contribution — backed by a
+        // real jar (created here, shaped later on the Jars page), never a bare Guid,
+        // which would violate the SavingsId FK on SQL Server.
+        var savingsId = category.Kind == CategoryKind.Savings
+            ? SavingsLines.AddBackingJar(_db, userId, request.Name.Trim()).Id
+            : (Guid?)null;
 
         _db.BudgetItems.Add(new BudgetItem
         {

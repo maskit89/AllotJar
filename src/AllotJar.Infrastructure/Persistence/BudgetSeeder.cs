@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Jars;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 
@@ -28,8 +29,7 @@ public static class BudgetSeeder
         // The starter savings line is a real jar from day one — SavingsId is an
         // enforced FK to Jars.Id, and the jar is what makes the line's balance roll
         // over (and gives the Jars page something to show a brand-new user).
-        var emergencyFund = Jar.ForSavingsLine(ownerId, "Emergency Fund");
-        db.Jars.Add(emergencyFund);
+        var emergencyFund = SavingsLines.AddBackingJar(db, ownerId, "Emergency Fund");
 
         var budget = new BudgetMonth
         {

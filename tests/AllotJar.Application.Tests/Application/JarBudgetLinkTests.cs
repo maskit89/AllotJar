@@ -190,10 +190,14 @@ public class JarBudgetLinkTests
 
         var lines = db.BudgetItems.Where(i => i.SavingsId == dto.Id).ToList();
         lines.Should().HaveCount(2);
-        // No target date → open-ended remaining ÷ 12 = 100/mo in both months.
-        lines.Should().OnlyContain(l => l.PlannedAmount == 100m && l.Name == "New Sofa");
-        // The returned balance reflects the contributions just planned.
-        dto.CurrentBalance.Should().Be(200m);
+        lines.Should().OnlyContain(l => l.Name == "New Sofa");
+        // Each month is planned the way month creation would have seeded it — the
+        // open-ended remaining ÷ 12, with earlier plantings folded in:
+        // month 1 = 1200/12 = 100; month 2 = (1200−100)/12 = 91.67.
+        lines.Select(l => l.PlannedAmount).Order().Should().Equal(91.67m, 100m);
+        // The DTO reports what the Jars page will derive from those rows.
+        dto.CurrentBalance.Should().Be(191.67m);
+        dto.RequiredMonthlyContribution.Should().Be(84.03m); // (1200 − 191.67) / 12
     }
 
     [Fact]
