@@ -167,6 +167,17 @@ export function HelpIcon({ className }: { className?: string }) {
   )
 }
 
+/** Info — an "i" in a circle. Pairs with a short explanatory popover. */
+export function InfoIcon({ className }: { className?: string }) {
+  return (
+    <Base className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5" />
+      <circle cx="12" cy="7.9" r="0.6" fill="currentColor" stroke="none" />
+    </Base>
+  )
+}
+
 /** Sign out — an arrow leaving a container. */
 export function LogoutIcon({ className }: { className?: string }) {
   return (
