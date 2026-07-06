@@ -44,15 +44,25 @@ public class AddBudgetItemCommandHandler : IRequestHandler<AddBudgetItemCommand,
 
         var nextOrder = category.Items.Count == 0 ? 0 : category.Items.Max(i => i.DisplayOrder) + 1;
 
+        // A line in a Savings group is a jar's monthly contribution. SavingsId is an
+        // enforced FK to Jars.Id, so the line must be backed by a real jar (created
+        // here, shaped later on the Jars page) — never a bare Guid, which violates
+        // the constraint on SQL Server and leaves a line no jar can follow.
+        Guid? savingsId = null;
+        if (category.Kind == CategoryKind.Savings)
+        {
+            var jar = Jar.ForSavingsLine(userId, request.Name.Trim());
+            _db.Jars.Add(jar);
+            savingsId = jar.Id;
+        }
+
         _db.BudgetItems.Add(new BudgetItem
         {
             BudgetCategoryId = category.Id,
             Name = request.Name.Trim(),
             PlannedAmount = request.PlannedAmount,
             DisplayOrder = nextOrder,
-            // A line in a Fund group is a sinking fund — give it a stable id so its
-            // balance can roll over across months.
-            SavingsId = category.Kind == CategoryKind.Savings ? Guid.NewGuid() : null,
+            SavingsId = savingsId,
         });
 
         await _db.SaveChangesAsync(cancellationToken);

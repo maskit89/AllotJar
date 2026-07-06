@@ -51,19 +51,22 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                 .ThenByDescending(m => m.Month)
             .FirstOrDefaultAsync(cancellationToken);
 
-        // Sinking-fund contributions are seeded from the accrual calculator rather than
-        // copied flat: any fund with a configured target gets this month's required
-        // amount. Funds without a target (e.g. legacy/auto-created) keep the copied value
-        // so existing budgets are unaffected; ProportionalPool funds wait for the pool
-        // (allocation engine, a later slice) and are left to copy for now.
-        var seededFunds = (await _db.Jars
+        // Every active jar takes part in month creation: funds with a configured target
+        // get this month's required contribution seeded from the accrual calculator
+        // (ProportionalPool funds wait for the pool — allocation engine, a later slice —
+        // and copy flat); and any jar without a line in the new month gets one appended,
+        // so a jar created on the Jars page starts filling without a manual budget step.
+        var activeJars = (await _db.Jars
             .AsNoTracking()
-            .Where(f => f.OwnerId == userId && !f.IsArchived && f.TargetAmount > 0m
-                        && f.Accrual != AccrualMethod.ProportionalPool)
+            .Where(f => f.OwnerId == userId && !f.IsArchived)
             .ToListAsync(cancellationToken))
             .ToDictionary(f => f.Id);
 
-        var fundTrackedBalances = seededFunds.Count > 0
+        var seededFunds = activeJars.Values
+            .Where(f => f.TargetAmount > 0m && f.Accrual != AccrualMethod.ProportionalPool)
+            .ToDictionary(f => f.Id);
+
+        var fundTrackedBalances = activeJars.Count > 0
             ? await JarBalances.ComputeAsync(_db, userId, cancellationToken)
             : new Dictionary<Guid, decimal>();
 
@@ -106,8 +109,12 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                                 Name = line,
                                 PlannedAmount = 0m,
                                 DisplayOrder = li,
-                                // Fund lines need a stable id so their balance can roll over.
-                                SavingsId = g.Kind == CategoryKind.Savings ? Guid.NewGuid() : null,
+                                // A template savings line is backed by a real jar —
+                                // SavingsId is an enforced FK to Jars.Id, and the jar
+                                // is what makes the line's balance roll over.
+                                SavingsId = g.Kind == CategoryKind.Savings
+                                    ? CreateJarFor(line, userId)
+                                    : null,
                             })
                             .ToList(),
                     };
@@ -154,6 +161,8 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
             };
         }
 
+        EnsureJarLines(budget, activeJars.Values, fundTrackedBalances, seedAsOf);
+
         _db.BudgetMonths.Add(budget);
         await _db.SaveChangesAsync(cancellationToken);
 
@@ -166,5 +175,71 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         await BudgetActuals.ApplyAsync(_db, userId, month, cancellationToken);
 
         return month.ToDto();
+    }
+
+    /// <summary>A new jar backing a template savings line; returns its id for the line's FK.</summary>
+    private Guid CreateJarFor(string lineName, string userId)
+    {
+        var jar = Jar.ForSavingsLine(userId, lineName);
+        _db.Jars.Add(jar);
+        return jar.Id;
+    }
+
+    /// <summary>
+    /// Appends a contribution line for every active jar the new month doesn't already
+    /// carry (copied months carry last month's lines; template/blank months carry none),
+    /// so what the Jars page promises — "we work out what to set aside each month" —
+    /// actually lands in the budget. Lines join the first Savings group, which is
+    /// created when the month has none.
+    /// </summary>
+    private static void EnsureJarLines(
+        BudgetMonth budget,
+        IEnumerable<Jar> activeJars,
+        IReadOnlyDictionary<Guid, decimal> trackedBalances,
+        DateOnly seedAsOf)
+    {
+        var represented = budget.Categories
+            .SelectMany(c => c.Items)
+            .Where(i => i.SavingsId is not null)
+            .Select(i => i.SavingsId!.Value)
+            .ToHashSet();
+
+        var missing = activeJars
+            .Where(f => !represented.Contains(f.Id))
+            .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (missing.Count == 0)
+        {
+            return;
+        }
+
+        var savings = budget.Categories
+            .Where(c => c.Kind == CategoryKind.Savings)
+            .OrderBy(c => c.DisplayOrder)
+            .FirstOrDefault();
+        if (savings is null)
+        {
+            savings = new BudgetCategory
+            {
+                Name = "Savings",
+                Kind = CategoryKind.Savings,
+                // Display order is contiguous per kind, and this is the first Savings group.
+                DisplayOrder = 0,
+            };
+            budget.Categories.Add(savings);
+        }
+
+        var nextOrder = savings.Items.Count == 0 ? 0 : savings.Items.Max(i => i.DisplayOrder) + 1;
+        foreach (var jar in missing)
+        {
+            savings.Items.Add(new BudgetItem
+            {
+                Name = jar.Name,
+                PlannedAmount = JarAccrualCalculator.RequiredMonthlyContribution(
+                    jar, seedAsOf, jar.OpeningBalance + trackedBalances.GetValueOrDefault(jar.Id)),
+                DisplayOrder = nextOrder++,
+                SavingsId = jar.Id,
+            });
+        }
     }
 }

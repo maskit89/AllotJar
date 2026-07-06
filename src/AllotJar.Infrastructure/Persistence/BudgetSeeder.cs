@@ -25,6 +25,12 @@ public static class BudgetSeeder
             return;
         }
 
+        // The starter savings line is a real jar from day one — SavingsId is an
+        // enforced FK to Jars.Id, and the jar is what makes the line's balance roll
+        // over (and gives the Jars page something to show a brand-new user).
+        var emergencyFund = Jar.ForSavingsLine(ownerId, "Emergency Fund");
+        db.Jars.Add(emergencyFund);
+
         var budget = new BudgetMonth
         {
             OwnerId = ownerId,
@@ -75,10 +81,19 @@ public static class BudgetSeeder
                 new()
                 {
                     Name = "Savings",
-                    DisplayOrder = 3,
+                    // Savings kind (not the Expense default): the line rolls over
+                    // month-to-month and surfaces as a jar.
+                    Kind = CategoryKind.Savings,
+                    DisplayOrder = 0,
                     Items = new List<BudgetItem>
                     {
-                        new() { Name = "Emergency Fund", PlannedAmount = 250.00m, DisplayOrder = 0 },
+                        new()
+                        {
+                            Name = "Emergency Fund",
+                            PlannedAmount = 250.00m,
+                            DisplayOrder = 0,
+                            SavingsId = emergencyFund.Id,
+                        },
                     }
                 }
             }

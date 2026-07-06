@@ -125,16 +125,20 @@ export function JarsPage() {
       return
     }
 
+    // The form doesn't surface the cover window or opening as-of, so on edit the
+    // jar's stored values are echoed back rather than wiped — importer-set cover
+    // windows survive an unrelated rename (PUT replaces the whole resource).
+    const editing = editingId ? jars.find((f) => f.id === editingId) : undefined
     const body = {
       name: form.name.trim(),
       kind: form.kind,
       targetAmount,
       targetDate: form.targetDate || null,
-      coverStart: null,
-      coverEnd: null,
+      coverStart: editing?.coverStart ?? null,
+      coverEnd: editing?.coverEnd ?? null,
       accrual: form.accrual,
       openingBalance,
-      openingAsOf: null,
+      openingAsOf: editing?.openingAsOf ?? null,
       fundingAccountId: form.fundingAccountId || null,
     }
 
@@ -156,7 +160,7 @@ export function JarsPage() {
     } finally {
       setSaving(false)
     }
-  }, [form, editingId, closeForm])
+  }, [form, editingId, jars, closeForm])
 
   const archive = useCallback(
     async (f: JarDto) => {
@@ -294,7 +298,10 @@ export function JarsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Saved so far
+                {/* At creation the opening IS what's saved so far; once contributions
+                    are recorded on top of it, calling it "saved so far" invites
+                    retyping the card's live balance — which would double-count. */}
+                {editingId ? 'Opening balance' : 'Saved so far'}
                 <Input
                   type="text"
                   inputMode="decimal"
@@ -304,6 +311,11 @@ export function JarsPage() {
                   onChange={(e) => set('opening', e.target.value)}
                   className="w-full text-right tabular-nums"
                 />
+                {editingId && (
+                  <span className="text-[11px] font-normal text-slate-400">
+                    Before tracking began — the card shows the live total.
+                  </span>
+                )}
               </label>
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
                 Target date
