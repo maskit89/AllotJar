@@ -4,6 +4,7 @@ import { Button, Card, EmptyState, ErrorBanner, Input, Select } from '../compone
 import { Hero } from '../components/Hero'
 import { Modal } from '../components/Modal'
 import { Jar } from '../components/Jar'
+import { InfoHint } from '../components/InfoHint'
 import { JarsIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
@@ -261,16 +262,26 @@ export function JarsPage() {
               />
             </label>
             <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Type
-                <Select value={form.kind} aria-label="Jar type" onChange={(e) => set('kind', Number(e.target.value))} className="w-full">
+              <div className="flex flex-col gap-1">
+                <span className="flex items-center gap-1 text-xs font-medium text-slate-500">
+                  <label htmlFor="jar-type">Type</label>
+                  <InfoHint label="About jar types">
+                    <span className="block font-semibold text-slate-700">Recurring</span>
+                    Refills every cycle — for smoothed regular costs and annual sinking funds
+                    (insurance, road tax, holiday, gifts).
+                    <span className="mt-2 block font-semibold text-slate-700">Goal</span>
+                    A one-off savings target — once it&rsquo;s funded, it&rsquo;s done (new kitchen,
+                    sofa, wedding).
+                  </InfoHint>
+                </span>
+                <Select id="jar-type" value={form.kind} aria-label="Jar type" onChange={(e) => set('kind', Number(e.target.value))} className="w-full">
                   {KIND_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>
                   ))}
                 </Select>
-              </label>
+              </div>
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
                 Accrual
                 <Select value={form.accrual} aria-label="Accrual method" onChange={(e) => set('accrual', Number(e.target.value))} className="w-full">
