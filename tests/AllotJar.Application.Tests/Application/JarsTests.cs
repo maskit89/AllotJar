@@ -111,7 +111,7 @@ public class JarsTests
 
         var stored = await db.Jars.SingleAsync();
         stored.OwnerId.Should().Be("user-1");
-        stored.RecurAnnually.Should().BeTrue();
+        stored.RecurMonths.Should().Be(12); // Recurring defaults to a yearly cycle
     }
 
     [Fact]

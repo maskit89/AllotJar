@@ -16,4 +16,5 @@ public record UpdateJarCommand(
     AccrualMethod Accrual,
     decimal OpeningBalance,
     DateOnly? OpeningAsOf,
-    Guid? FundingAccountId) : IRequest<JarDto>;
+    Guid? FundingAccountId,
+    int? RecurMonths = null) : IRequest<JarDto>;

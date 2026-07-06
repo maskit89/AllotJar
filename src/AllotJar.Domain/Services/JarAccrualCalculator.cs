@@ -49,8 +49,9 @@ public static class JarAccrualCalculator
     }
 
     /// <summary>
-    /// (Target − balance) ÷ whole months until the target date, floored at one month.
-    /// Returns 0 once the jar is fully funded. With no target date, falls back to ÷ 12.
+    /// (Target − balance) ÷ whole months until the (recurrence-adjusted) target date,
+    /// floored at one month. Returns 0 once the jar is fully funded. With no target
+    /// date, falls back to ÷ 12.
     /// </summary>
     public static decimal TargetByDate(Jar jar, DateOnly asOf, decimal currentBalance)
     {
@@ -60,13 +61,40 @@ public static class JarAccrualCalculator
             return 0m;
         }
 
-        var months = jar.TargetDate is { } due ? MonthsBetween(asOf, due) : 12;
+        var months = EffectiveTargetDate(jar, asOf) is { } due ? MonthsBetween(asOf, due) : 12;
         if (months < 1)
         {
             months = 1;
         }
 
         return Round2(remaining / months);
+    }
+
+    /// <summary>
+    /// The jar's target date with recurrence applied: a <see cref="JarKind.Recurring"/>
+    /// jar's date that has passed rolls forward by <see cref="Jar.RecurMonths"/> until
+    /// it is on or after <paramref name="asOf"/> — the jar re-arms each cycle instead
+    /// of going stale (a missed cycle simply spreads over the next one). Goal dates
+    /// never roll: a past-due Goal stays past-due and reads as Behind.
+    /// </summary>
+    public static DateOnly? EffectiveTargetDate(Jar jar, DateOnly asOf)
+    {
+        if (jar.TargetDate is not { } due)
+        {
+            return null;
+        }
+
+        if (jar.Kind != JarKind.Recurring || jar.RecurMonths is not { } step || step < 1)
+        {
+            return due;
+        }
+
+        while (due < asOf)
+        {
+            due = due.AddMonths(step);
+        }
+
+        return due;
     }
 
     /// <summary>(jarTarget ÷ Σ pooled targets) × the fixed monthly pool. Returns 0 if the pool total is non-positive.</summary>

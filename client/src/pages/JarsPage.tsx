@@ -13,14 +13,14 @@ import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categor
 import type { AccountDto, JarDto } from '../types'
 import {
   AccrualMethod,
-  ACCRUAL_METHOD_LABELS,
   JarKind,
   JAR_KIND_LABELS,
+  RECUR_MONTHS_OPTIONS,
 } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import { formatDate } from '../lib/dates'
 
 const KIND_OPTIONS = Object.entries(JAR_KIND_LABELS).map(([value, label]) => ({ value: Number(value), label }))
-const ACCRUAL_OPTIONS = Object.entries(ACCRUAL_METHOD_LABELS).map(([value, label]) => ({ value: Number(value), label }))
 
 /** Parse a non-negative amount string into a wire decimal; '' → 0; null when invalid. */
 function parseAmount(input: string): number | null {
@@ -29,12 +29,19 @@ function parseAmount(input: string): number | null {
   return minor === null ? null : toAmount(minor)
 }
 
+/** Whole calendar months from today to an ISO date (yyyy-MM-dd) — day-of-month ignored, like the server. */
+function monthsFromNow(iso: string): number {
+  const now = new Date()
+  const [y, m] = iso.split('-').map(Number)
+  return (y - now.getFullYear()) * 12 + (m - (now.getMonth() + 1))
+}
+
 interface FormState {
   name: string
   kind: number
   target: string
   targetDate: string
-  accrual: number
+  recurMonths: number
   opening: string
   fundingAccountId: string
 }
@@ -44,7 +51,7 @@ const BLANK_FORM: FormState = {
   kind: JarKind.Recurring,
   target: '',
   targetDate: '',
-  accrual: AccrualMethod.TargetByDate,
+  recurMonths: 12,
   opening: '',
   fundingAccountId: '',
 }
@@ -68,6 +75,27 @@ export function JarsPage() {
     () => (editingId ? jars.find((f) => f.id === editingId) ?? null : null),
     [editingId, jars],
   )
+  // One deliberate step between "Archive jar" and it actually happening.
+  const [confirmArchive, setConfirmArchive] = useState(false)
+
+  // Live preview of the monthly set-aside, mirroring the server's by-target-date
+  // math (remaining ÷ whole months, floored at one). Hidden while the target
+  // doesn't parse or is 0, and for imported jars on other accrual methods, where
+  // this math wouldn't match the server's figure.
+  const preview = useMemo(() => {
+    if (editingJar && editingJar.accrual !== AccrualMethod.TargetByDate) return null
+    const targetMinor = form.target.trim() === '' ? 0 : parseMinor(form.target)
+    if (targetMinor === null || targetMinor <= 0) return null
+    const baseMinor = editingJar
+      ? fromAmount(editingJar.currentBalance)
+      : form.opening.trim() === ''
+        ? 0
+        : parseMinor(form.opening) ?? 0
+    const remaining = targetMinor - baseMinor
+    if (remaining <= 0) return 0
+    const months = form.targetDate ? Math.max(1, monthsFromNow(form.targetDate)) : 12
+    return Math.round(remaining / months)
+  }, [form.target, form.opening, form.targetDate, editingJar])
 
   useEffect(() => {
     let cancelled = false
@@ -96,6 +124,7 @@ export function JarsPage() {
     setShowForm(false)
     setEditingId(null)
     setForm(BLANK_FORM)
+    setConfirmArchive(false)
   }, [])
 
   function openAdd() {
@@ -112,7 +141,7 @@ export function JarsPage() {
       kind: f.kind,
       target: toEditString(fromAmount(f.targetAmount)),
       targetDate: f.targetDate ?? '',
-      accrual: f.accrual,
+      recurMonths: f.recurMonths ?? 12,
       opening: toEditString(fromAmount(f.openingBalance)),
       fundingAccountId: f.fundingAccountId ?? '',
     })
@@ -131,10 +160,30 @@ export function JarsPage() {
       setError('Enter valid amounts.')
       return
     }
+    // A recurring jar rolls its date forward each cycle, so it needs a date (and a
+    // real target) to roll — mirrors the server's validation, but caught here with
+    // friendlier wording.
+    if (form.kind === JarKind.Recurring) {
+      if (targetAmount <= 0) {
+        setError('Give the recurring jar a target amount.')
+        return
+      }
+      if (!form.targetDate) {
+        setError('Give the recurring jar its next due date.')
+        return
+      }
+    }
+    // A brand-new jar due in the past would demand its whole remainder this month
+    // (months-to-date floors at one) — almost never what was meant.
+    if (!editingId && form.targetDate && monthsFromNow(form.targetDate) < 0) {
+      setError('The date has already passed — pick an upcoming one.')
+      return
+    }
 
-    // The form doesn't surface the cover window or opening as-of, so on edit the
-    // jar's stored values are echoed back rather than wiped — importer-set cover
-    // windows survive an unrelated rename (PUT replaces the whole resource).
+    // The form doesn't surface the cover window, opening as-of or accrual method, so
+    // on edit the jar's stored values are echoed back rather than wiped — importer-set
+    // cover windows and StraightLine/DailyRate accruals survive an unrelated rename
+    // (PUT replaces the whole resource). New jars save by target date.
     const body = {
       name: form.name.trim(),
       kind: form.kind,
@@ -142,10 +191,11 @@ export function JarsPage() {
       targetDate: form.targetDate || null,
       coverStart: editingJar?.coverStart ?? null,
       coverEnd: editingJar?.coverEnd ?? null,
-      accrual: form.accrual,
+      accrual: editingJar?.accrual ?? AccrualMethod.TargetByDate,
       openingBalance,
       openingAsOf: editingJar?.openingAsOf ?? null,
       fundingAccountId: form.fundingAccountId || null,
+      recurMonths: form.kind === JarKind.Recurring ? form.recurMonths : null,
     }
 
     setSaving(true)
@@ -268,37 +318,27 @@ export function JarsPage() {
                 className="w-full"
               />
             </label>
+            <div className="flex flex-col gap-1">
+              <span className="flex items-center gap-1 text-xs font-medium text-slate-500">
+                <label htmlFor="jar-type">Type</label>
+                <InfoHint label="About jar types">
+                  <span className="block font-semibold text-slate-700">Recurring</span>
+                  Saves toward a due date, then repeats: when the date passes, it rolls
+                  forward a cycle and keeps going (insurance, road tax, holiday).
+                  <span className="mt-2 block font-semibold text-slate-700">Goal</span>
+                  A one-off savings target — once it&rsquo;s funded, it&rsquo;s done (new kitchen,
+                  sofa, wedding).
+                </InfoHint>
+              </span>
+              <Select id="jar-type" value={form.kind} aria-label="Jar type" onChange={(e) => set('kind', Number(e.target.value))} className="w-full">
+                {KIND_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1">
-                <span className="flex items-center gap-1 text-xs font-medium text-slate-500">
-                  <label htmlFor="jar-type">Type</label>
-                  <InfoHint label="About jar types">
-                    <span className="block font-semibold text-slate-700">Recurring</span>
-                    Refills every cycle — for smoothed regular costs and annual sinking funds
-                    (insurance, road tax, holiday, gifts).
-                    <span className="mt-2 block font-semibold text-slate-700">Goal</span>
-                    A one-off savings target — once it&rsquo;s funded, it&rsquo;s done (new kitchen,
-                    sofa, wedding).
-                  </InfoHint>
-                </span>
-                <Select id="jar-type" value={form.kind} aria-label="Jar type" onChange={(e) => set('kind', Number(e.target.value))} className="w-full">
-                  {KIND_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Accrual
-                <Select value={form.accrual} aria-label="Accrual method" onChange={(e) => set('accrual', Number(e.target.value))} className="w-full">
-                  {ACCRUAL_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
-              </label>
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
                 Target
                 <Input
@@ -331,45 +371,92 @@ export function JarsPage() {
                   </span>
                 )}
               </label>
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Target date
-                <Input
-                  type="date"
-                  value={form.targetDate}
-                  aria-label="Target date"
-                  onChange={(e) => set('targetDate', e.target.value)}
-                  className="w-full"
-                />
-              </label>
-              {accounts.length > 0 && (
+              {form.kind === JarKind.Recurring ? (
+                <>
+                  <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                    Next due
+                    <Input
+                      type="date"
+                      value={form.targetDate}
+                      aria-label="Next due date"
+                      onChange={(e) => set('targetDate', e.target.value)}
+                      className="w-full"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                    Repeats
+                    <Select
+                      value={form.recurMonths}
+                      aria-label="Repeat cycle"
+                      onChange={(e) => set('recurMonths', Number(e.target.value))}
+                      className="w-full"
+                    >
+                      {RECUR_MONTHS_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                </>
+              ) : (
                 <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                  Held in
-                  <Select
-                    value={form.fundingAccountId}
-                    aria-label="Funding account"
-                    onChange={(e) => set('fundingAccountId', e.target.value)}
+                  Target date (optional)
+                  <Input
+                    type="date"
+                    value={form.targetDate}
+                    aria-label="Target date"
+                    onChange={(e) => set('targetDate', e.target.value)}
                     className="w-full"
-                  >
-                    <option value="">No account</option>
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </Select>
+                  />
                 </label>
               )}
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Held in
+                <Select
+                  value={form.fundingAccountId}
+                  aria-label="Funding account"
+                  onChange={(e) => set('fundingAccountId', e.target.value)}
+                  disabled={accounts.length === 0}
+                  className="w-full"
+                >
+                  <option value="">{accounts.length === 0 ? 'No accounts yet' : 'No account'}</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
             </div>
+            {preview !== null && (
+              <p
+                aria-live="polite"
+                className="rounded-lg bg-slate-100 px-3 py-2 text-[12.5px] font-medium tabular-nums text-slate-600"
+              >
+                Sets aside <span className="font-bold text-slate-900">≈ {formatMoney(preview, CURRENCY)}/mo</span>
+                {form.targetDate
+                  ? form.kind === JarKind.Recurring
+                    ? ` until ${formatDate(form.targetDate)}, then the date rolls forward and it keeps going`
+                    : ` until ${formatDate(form.targetDate)}`
+                  : ' (no date — the remainder spreads over 12 months)'}
+              </p>
+            )}
             <div className="flex items-center justify-between gap-2 pt-1">
               {editingJar ? (
+                // Two clicks to archive: the first arms the button, the second acts.
                 <button
                   type="button"
-                  onClick={() => archive(editingJar)}
+                  onClick={() => (confirmArchive ? archive(editingJar) : setConfirmArchive(true))}
                   disabled={saving}
-                  aria-label={`Archive ${editingJar.name}`}
-                  className="rounded-lg px-2 py-1.5 text-sm font-semibold text-slate-500 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                  aria-label={confirmArchive ? `Confirm archive ${editingJar.name}` : `Archive ${editingJar.name}`}
+                  className={`rounded-lg px-2 py-1.5 text-sm font-semibold transition disabled:opacity-50 ${
+                    confirmArchive
+                      ? 'bg-rose-50 text-rose-600 hover:bg-rose-100'
+                      : 'text-slate-500 hover:bg-rose-50 hover:text-rose-600'
+                  }`}
                 >
-                  Archive jar
+                  {confirmArchive ? 'Really archive?' : 'Archive jar'}
                 </button>
               ) : (
                 <span />
