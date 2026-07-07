@@ -73,7 +73,12 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         }
 
         var rows = lines.Select(l => SplitLine(l, mapping.Delimiter)).ToList();
-        var dataRows = mapping.HasHeader ? rows.Skip(1) : rows;
+        var dataRows = (mapping.HasHeader ? rows.Skip(1) : rows).ToList();
+
+        // Lock ONE date format for the whole file. Trying formats per row would read an
+        // ambiguous "03/04/2026" as dd/MM on some rows and MM/dd on others in the same file —
+        // inconsistent dates AND unstable idempotency references.
+        var dateFormat = mapping.DateFormat ?? ResolveDateFormat(dataRows, mapping.DateColumn);
 
         var entries = new List<ParsedStatementEntry>();
         var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -81,7 +86,7 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         foreach (var row in dataRows)
         {
             if (!TryCell(row, mapping.DateColumn, out var dateCell) ||
-                !TryParseDate(dateCell, mapping.DateFormat, out var date))
+                !TryParseDate(dateCell, dateFormat, out var date))
             {
                 continue; // header remnant, blank, or a totals footer — not a transaction
             }
@@ -96,6 +101,13 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             TryCell(row, mapping.DescriptionColumn, out var descCell);
             var description = Normalize(descCell);
 
+            // Display payee: surface just the merchant when the cell is an HSBC-style packed
+            // Details blob. The idempotency signature stays on the RAW cell text, so references
+            // from earlier imports of the same file still match.
+            var payee = HsbcCsvStatementParser.TryCleanDetails(description, out var cleaned)
+                ? cleaned
+                : description;
+
             var currency = ResolveCurrency(row, mapping);
 
             var signature = string.Create(CultureInfo.InvariantCulture,
@@ -109,7 +121,7 @@ public sealed partial class GenericCsvImporter : ICsvImporter
                 Currency: currency,
                 IsCredit: signed > 0m,
                 BookingDate: date,
-                Payee: description,
+                Payee: payee,
                 Reference: $"csv:{hash}#{index}"));
         }
 
@@ -199,6 +211,38 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             if (CurrencyCode().IsMatch(code)) return code;
         }
         return string.IsNullOrWhiteSpace(mapping.DefaultCurrency) ? "EUR" : mapping.DefaultCurrency.Trim().ToUpperInvariant();
+    }
+
+    /// <summary>
+    /// Pick the single date format that parses the most rows of the file (ties resolved by the
+    /// <see cref="DateFormats"/> preference order — ISO first, dd/MM before MM/dd). Null when no
+    /// row parses under any format, in which case the row loop skips everything and the caller's
+    /// "no transactions found" error explains it.
+    /// </summary>
+    private static string? ResolveDateFormat(List<List<string>> dataRows, int dateColumn)
+    {
+        var cells = dataRows
+            .Select(r => dateColumn >= 0 && dateColumn < r.Count ? r[dateColumn].Trim() : string.Empty)
+            .Where(c => c.Length > 0)
+            .ToList();
+        if (cells.Count == 0)
+        {
+            return null;
+        }
+
+        string? best = null;
+        var bestHits = 0;
+        foreach (var format in DateFormats)
+        {
+            var hits = cells.Count(c =>
+                DateOnly.TryParseExact(c, format, CultureInfo.InvariantCulture, DateTimeStyles.None, out _));
+            if (hits > bestHits)
+            {
+                best = format;
+                bestHits = hits;
+            }
+        }
+        return best;
     }
 
     // --- Parsing primitives --------------------------------------------------

@@ -16,6 +16,23 @@ public class Camt053StatementParser : IStatementParser
 {
     public StatementFormat Format => StatementFormat.Camt053;
 
+    /// <summary>
+    /// Sniff whether the content is a CAMT.053 statement: an XML document that names the
+    /// camt.053 namespace or carries the bank-to-customer-statement element. Cheap and
+    /// string-based — no XML parse — so it's safe to probe arbitrary uploads with.
+    /// </summary>
+    public bool CanParse(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return false;
+        }
+        var head = content.AsSpan().TrimStart();
+        return head.StartsWith("<", StringComparison.Ordinal)
+            && (content.Contains("camt.053", StringComparison.OrdinalIgnoreCase)
+                || content.Contains("BkToCstmrStmt", StringComparison.Ordinal));
+    }
+
     public ParsedStatement Parse(string content)
     {
         XDocument doc;

@@ -192,6 +192,124 @@ public class ImportPreviewCommitTests
         second.Items.Should().NotContain(i => i.Reference == taken.Reference);
     }
 
+    // --- Format sniffing (a "generic" upload of a known format) ----------------
+
+    [Fact]
+    public async Task Preview_GenericUpload_OfHsbcContent_IsRoutedToTheHsbcParser()
+    {
+        await using var db = NewContext();
+        var command = new PreviewImportCommand(HsbcCsvSamples.Mixed, StatementFormat.GenericCsv);
+
+        var result = await NewPreview(db, "user-1").Handle(command, CancellationToken.None);
+
+        // Same file, same path: clean payees, hsbc: references, no column-mapping UI.
+        result.DetectedFormat.Should().Be(nameof(StatementFormat.HsbcCsv));
+        result.Layout.Should().BeNull();
+        result.Items.Should().OnlyContain(i => i.Reference.StartsWith("hsbc:"));
+        result.Items.Should().Contain(i => i.Payee == "AUTOMARKET SER STATION");
+    }
+
+    [Fact]
+    public async Task Preview_GenericUpload_SkipsRowsAlreadyImportedThroughTheHsbcFormat()
+    {
+        await using var db = NewContext();
+        // Import the statement through the dedicated HSBC path first...
+        var first = await NewPreview(db, "user-1").Handle(Preview(), CancellationToken.None);
+        await NewCommit(db, "user-1").Handle(
+            new CommitImportCommand(null, ToCommitItems(first)), CancellationToken.None);
+
+        // ...then upload the SAME file again with the format dropdown left on "generic".
+        var second = await NewPreview(db, "user-1").Handle(
+            new PreviewImportCommand(HsbcCsvSamples.Mixed, StatementFormat.GenericCsv), CancellationToken.None);
+
+        // Sniffing routes it back to the HSBC parser, so every row is recognised as imported.
+        second.NewCount.Should().Be(0);
+        second.SkippedDuplicates.Should().Be(6);
+    }
+
+    [Fact]
+    public async Task Preview_ConfirmedMapping_StaysOnTheGenericPath()
+    {
+        await using var db = NewContext();
+        // Once the user has confirmed a column mapping they are explicitly in the generic flow —
+        // don't yank the mapping UI out from under them mid-review.
+        var mapping = new CsvMapping(',', HasHeader: false, DateColumn: 0, AmountColumn: 2,
+            DescriptionColumn: 1, CurrencyColumn: null, DateFormat: null,
+            DecimalStyle: CsvDecimalStyle.Auto, DefaultCurrency: "EUR");
+        var command = new PreviewImportCommand(HsbcCsvSamples.Mixed, StatementFormat.GenericCsv, mapping);
+
+        var result = await NewPreview(db, "user-1").Handle(command, CancellationToken.None);
+
+        result.DetectedFormat.Should().Be(nameof(StatementFormat.GenericCsv));
+        result.Layout.Should().NotBeNull();
+        result.Items.Should().OnlyContain(i => i.Reference.StartsWith("csv:"));
+    }
+
+    // --- Possible duplicates (content-level hint) -------------------------------
+
+    [Fact]
+    public async Task Preview_FlagsPossibleDuplicates_ThatMatchAnExistingTransaction()
+    {
+        await using var db = NewContext();
+        db.Transactions.AddRange(
+            // Same amount + payee as the AUTOMARKET row (booked 17/06), one day apart → flagged.
+            new Transaction
+            {
+                OwnerId = "user-1", Payee = "AUTOMARKET SER STATION", Amount = 35.00m,
+                Date = new DateOnly(2026, 6, 18), Type = TransactionType.Expense,
+            },
+            // Same amount + payee as PLANET PLAY RESTAURA but weeks away → NOT flagged.
+            new Transaction
+            {
+                OwnerId = "user-1", Payee = "PLANET PLAY RESTAURA", Amount = 67.75m,
+                Date = new DateOnly(2026, 5, 1), Type = TransactionType.Expense,
+            });
+        await db.SaveChangesAsync();
+
+        var result = await NewPreview(db, "user-1").Handle(Preview(), CancellationToken.None);
+
+        result.Items.Single(i => i.Payee == "AUTOMARKET SER STATION").PossibleDuplicate.Should().BeTrue();
+        result.Items.Single(i => i.Payee == "PLANET PLAY RESTAURA").PossibleDuplicate.Should().BeFalse();
+        result.Items.Single(i => i.Payee == "4 PILLARS").PossibleDuplicate.Should().BeFalse();
+        // A hint only — flagged rows still come back as importable candidates.
+        result.NewCount.Should().Be(6);
+    }
+
+    [Fact]
+    public async Task Preview_PossibleDuplicate_MatchesWhenOnePayeeContainsTheOther()
+    {
+        await using var db = NewContext();
+        // An earlier import through the raw generic path stored the whole packed blob as the
+        // payee; the clean HSBC payee is contained in it, so the hint still fires.
+        db.Transactions.Add(new Transaction
+        {
+            OwnerId = "user-1",
+            Payee = "AUTOMARKET SER STATION * 17/06/2026 •••• •••• •••• 7406 -35.00 EUR",
+            Amount = 35.00m, Date = new DateOnly(2026, 6, 19), Type = TransactionType.Expense,
+        });
+        await db.SaveChangesAsync();
+
+        var result = await NewPreview(db, "user-1").Handle(Preview(), CancellationToken.None);
+
+        result.Items.Single(i => i.Payee == "AUTOMARKET SER STATION").PossibleDuplicate.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Preview_PossibleDuplicate_IgnoresOtherUsersTransactions()
+    {
+        await using var db = NewContext();
+        db.Transactions.Add(new Transaction
+        {
+            OwnerId = "user-2", Payee = "AUTOMARKET SER STATION", Amount = 35.00m,
+            Date = new DateOnly(2026, 6, 17), Type = TransactionType.Expense,
+        });
+        await db.SaveChangesAsync();
+
+        var result = await NewPreview(db, "user-1").Handle(Preview(), CancellationToken.None);
+
+        result.Items.Single(i => i.Payee == "AUTOMARKET SER STATION").PossibleDuplicate.Should().BeFalse();
+    }
+
     // --- Commit ---------------------------------------------------------------
 
     [Fact]

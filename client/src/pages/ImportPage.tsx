@@ -27,9 +27,9 @@ type Phase = 'upload' | 'review' | 'done'
 
 const FORMATS: Record<Format, { label: string; accept: string; hint: string; wire: StatementFormat }> = {
   generic: {
-    label: 'Bank CSV (any bank)',
+    label: 'Bank CSV (auto-detect)',
     accept: '.csv,text/csv',
-    hint: "Most banks' CSV export. After upload you'll confirm which columns are the date, amount and description.",
+    hint: "Most banks' CSV export. Known formats (like the HSBC transaction history) are recognised automatically; otherwise you'll confirm which columns are the date, amount and description.",
     wire: 'GenericCsv',
   },
   hsbc: {
@@ -44,6 +44,12 @@ const FORMATS: Record<Format, { label: string; accept: string; hint: string; wir
     hint: 'An ISO 20022 SEPA bank-to-customer statement.',
     wire: 'Camt053',
   },
+}
+
+/** Human names for the parser the server actually used, keyed by the wire StatementFormat. */
+const DETECTED_FORMAT_LABELS: Record<string, string> = {
+  HsbcCsv: 'an HSBC transaction history export',
+  Camt053: 'a CAMT.053 statement',
 }
 
 /** Date-format presets for the generic-CSV mapping (value is the .NET format, or '' = auto-detect). */
@@ -75,6 +81,8 @@ interface ReviewRow {
   splits: SplitDraft[] | null
   /** Heuristic hint from the preview. */
   likelyTransfer: boolean
+  /** Content-level hint that an existing transaction already matches this row; unticked by default. */
+  possibleDuplicate: boolean
   /** When true, the row is a transfer to/from `transferAccountId` instead of income/spending. */
   isTransfer: boolean
   transferAccountId: string
@@ -174,6 +182,7 @@ export function ImportPage() {
 
   const expenseGroups = useMemo(() => buildItemOptions(month, TransactionType.Expense), [month])
   const includedCount = useMemo(() => rows.filter((r) => r.include).length, [rows])
+  const possibleDuplicateCount = useMemo(() => rows.filter((r) => r.possibleDuplicate).length, [rows])
   const importAccount = accounts.find((a) => a.id === accountId) ?? null
   const otherAccounts = accounts.filter((a) => a.id !== accountId)
   // A transfer needs an import account plus another account to move to/from.
@@ -200,11 +209,13 @@ export function ImportPage() {
         amount: c.amount,
         currency: c.currency,
         isCredit: c.isCredit,
-        include: true,
+        // Rows that look already-imported start unticked — the user opts them back in.
+        include: !c.possibleDuplicate,
         budgetItemId: resolveSuggestion(c, month),
         memberId: '',
         splits: null,
         likelyTransfer: c.likelyTransfer,
+        possibleDuplicate: c.possibleDuplicate ?? false,
         isTransfer: false,
         transferAccountId: '',
       })),
@@ -473,8 +484,16 @@ export function ImportPage() {
             {preview.newCount === 1 ? '' : 's'} to review
             {preview.skippedDuplicates > 0 &&
               ` — ${preview.skippedDuplicates} already imported (skipped)`}
+            {possibleDuplicateCount > 0 &&
+              ` — ${possibleDuplicateCount} possible duplicate${possibleDuplicateCount === 1 ? '' : 's'} unticked`}
             . Categorise them (split a row, or mark a transfer), untick any you don't want, then import.
           </p>
+          {format === 'generic' && preview.detectedFormat && DETECTED_FORMAT_LABELS[preview.detectedFormat] && (
+            <p className="-mt-3 text-xs text-slate-500">
+              We recognised this file as {DETECTED_FORMAT_LABELS[preview.detectedFormat]} and read it with the
+              dedicated importer, so payees and duplicate detection stay consistent.
+            </p>
+          )}
           {importAccount && (
             <p className="-mt-3 text-xs text-slate-500">
               Importing into <span className="font-medium text-slate-700">{importAccount.name}</span>.
@@ -681,6 +700,11 @@ export function ImportPage() {
                         <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-500">{formatDate(r.date)}</td>
                         <td className="px-3 py-2 font-medium text-slate-700">
                           {r.payee}
+                          {r.possibleDuplicate && (
+                            <span className="block text-xs font-normal text-amber-700 dark:text-amber-400">
+                              Possibly already imported
+                            </span>
+                          )}
                           {r.likelyTransfer && !r.isTransfer && (
                             <span className="block text-xs font-normal text-amber-700 dark:text-amber-400">
                               Looks like a transfer

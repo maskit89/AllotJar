@@ -108,6 +108,80 @@ public class GenericCsvImporterTests
     }
 
     [Fact]
+    public void Parse_locks_one_date_format_for_the_whole_file()
+    {
+        // "06/01/2026" is ambiguous (6 Jan dd/MM or 1 Jun MM/dd) but "06/15/2026" only parses as
+        // MM/dd — so the WHOLE file must be read as MM/dd. Per-row trying would split the file
+        // across two calendars (and destabilise the idempotency references).
+        const string usCsv =
+            "06/01/2026,COFFEE SHOP,-3.50\n" +
+            "06/15/2026,FUEL STATION,-50.00\n";
+        var mapping = new CsvMapping(',', HasHeader: false, DateColumn: 0, AmountColumn: 2,
+            DescriptionColumn: 1, CurrencyColumn: null, DateFormat: null, DecimalStyle: CsvDecimalStyle.Auto, DefaultCurrency: "USD");
+
+        var statement = _importer.Parse(usCsv, mapping);
+
+        Assert.Equal(2, statement.Entries.Count);
+        Assert.Equal(new DateOnly(2026, 6, 1), statement.Entries[0].BookingDate);
+        Assert.Equal(new DateOnly(2026, 6, 15), statement.Entries[1].BookingDate);
+
+        // And the choice is deterministic: re-parsing yields identical references.
+        var again = _importer.Parse(usCsv, mapping);
+        Assert.Equal(
+            statement.Entries.Select(e => e.Reference),
+            again.Entries.Select(e => e.Reference));
+    }
+
+    [Fact]
+    public void Parse_an_explicit_date_format_still_wins_over_the_file_scan()
+    {
+        const string csv = "06/01/2026,COFFEE SHOP,-3.50\n";
+        var mapping = new CsvMapping(',', HasHeader: false, DateColumn: 0, AmountColumn: 2,
+            DescriptionColumn: 1, CurrencyColumn: null, DateFormat: "dd/MM/yyyy", DecimalStyle: CsvDecimalStyle.Auto, DefaultCurrency: "EUR");
+
+        var statement = _importer.Parse(csv, mapping);
+
+        Assert.Equal(new DateOnly(2026, 1, 6), statement.Entries.Single().BookingDate);
+    }
+
+    [Fact]
+    public void Parse_cleans_hsbc_style_description_blobs_into_the_merchant_name()
+    {
+        // A generic export whose description cell carries HSBC's packed Details shape — the payee
+        // shown to the user is just the merchant, not the date/card-mask/amount noise.
+        const string csv =
+            "19/06/2026,AUTOMARKET SER STATION  * 17/06/2026 •••• •••• •••• 7406 -35.00 EUR,-35.00\n" +
+            "20/06/2026,PLAIN DESCRIPTION,-12.00\n";
+        var mapping = new CsvMapping(',', HasHeader: false, DateColumn: 0, AmountColumn: 2,
+            DescriptionColumn: 1, CurrencyColumn: null, DateFormat: null, DecimalStyle: CsvDecimalStyle.Auto, DefaultCurrency: "EUR");
+
+        var statement = _importer.Parse(csv, mapping);
+
+        Assert.Equal("AUTOMARKET SER STATION", statement.Entries[0].Payee);
+        Assert.Equal("PLAIN DESCRIPTION", statement.Entries[1].Payee); // untouched
+    }
+
+    [Fact]
+    public void Parse_keys_references_on_the_raw_description_not_the_cleaned_payee()
+    {
+        // Two same-day, same-amount rows whose raw cells differ only in the packed tail: they
+        // clean to the SAME payee but must keep DISTINCT first-occurrence references — proof the
+        // idempotency signature reads the raw cell (backwards-compatible with earlier imports).
+        const string csv =
+            "19/06/2026,MERCHANT A * 17/06/2026 •••• •••• •••• 7406 -35.00 EUR,-35.00\n" +
+            "19/06/2026,MERCHANT A * 18/06/2026 •••• •••• •••• 9999 -35.00 EUR,-35.00\n";
+        var mapping = new CsvMapping(',', HasHeader: false, DateColumn: 0, AmountColumn: 2,
+            DescriptionColumn: 1, CurrencyColumn: null, DateFormat: null, DecimalStyle: CsvDecimalStyle.Auto, DefaultCurrency: "EUR");
+
+        var statement = _importer.Parse(csv, mapping);
+
+        Assert.Equal("MERCHANT A", statement.Entries[0].Payee);
+        Assert.Equal("MERCHANT A", statement.Entries[1].Payee);
+        Assert.NotEqual(statement.Entries[0].Reference, statement.Entries[1].Reference);
+        Assert.All(statement.Entries, e => Assert.EndsWith("#0", e.Reference)); // distinct signatures, not #0/#1
+    }
+
+    [Fact]
     public void Parse_throws_when_nothing_usable_is_found()
     {
         const string junk = "just,some,headers\nand,no,dates\n";

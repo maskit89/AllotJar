@@ -4,11 +4,20 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Models;
 using AllotJar.Application.Transactions;
+using AllotJar.Domain.Enums;
 
 namespace AllotJar.Application.Imports.Commands.PreviewImport;
 
 public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand, ImportPreviewResult>
 {
+    /// <summary>
+    /// How many days apart a candidate and an existing transaction may book and still count as
+    /// the same purchase for the possible-duplicate hint. Covers the purchase-date vs
+    /// posting-date drift between statement formats (a card purchase typically posts 1–3 days
+    /// later) without flagging genuinely-recurring charges (weekly/monthly repeats sit further apart).
+    /// </summary>
+    private const int PossibleDuplicateWindowDays = 4;
+
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
     private readonly IReadOnlyCollection<IStatementParser> _parsers;
@@ -31,17 +40,30 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
-        // Generic CSV needs a column mapping, so it goes through ICsvImporter rather than a fixed
-        // IStatementParser: auto-detect on the first upload, then reuse the user's confirmed mapping.
+        // Route the upload to a parser. A "generic" first upload is sniffed against the dedicated
+        // adapters first: the same file must always take the same code path, otherwise the payee
+        // text and the idempotency references drift between imports and re-imports duplicate.
         ParsedStatement statement;
         CsvLayout? layout = null;
+        var detectedFormat = request.Format;
         if (request.Format == StatementFormat.GenericCsv)
         {
-            var detected = _csv.Detect(request.Content);
-            var defaultCurrency = request.Mapping?.DefaultCurrency ?? request.DefaultCurrency;
-            var mapping = (request.Mapping ?? detected.Suggested) with { DefaultCurrency = defaultCurrency };
-            statement = _csv.Parse(request.Content, mapping);
-            layout = detected with { Suggested = mapping };
+            var sniffed = request.Mapping is null
+                ? _parsers.FirstOrDefault(p => p.CanParse(request.Content))
+                : null; // the user already confirmed a column mapping — stay generic
+            if (sniffed is not null)
+            {
+                statement = sniffed.Parse(request.Content);
+                detectedFormat = sniffed.Format;
+            }
+            else
+            {
+                var detected = _csv.Detect(request.Content);
+                var defaultCurrency = request.Mapping?.DefaultCurrency ?? request.DefaultCurrency;
+                var mapping = (request.Mapping ?? detected.Suggested) with { DefaultCurrency = defaultCurrency };
+                statement = _csv.Parse(request.Content, mapping);
+                layout = detected with { Suggested = mapping };
+            }
         }
         else
         {
@@ -62,6 +84,10 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
             .ToList();
         var skipped = statement.Entries.Count - fresh.Count;
 
+        // Content-level duplicate hints for the rows whose reference did NOT match (e.g. the same
+        // statement previously imported through a different format or column mapping).
+        var possibleDuplicates = await FindPossibleDuplicatesAsync(userId, fresh, cancellationToken);
+
         // Suggest a budget line per row from the user's past categorisations (no writes).
         var suggestions = await AutoCategorizer.BuildSuggestionsAsync(
             _db, userId, new HashSet<Guid>(), cancellationToken);
@@ -74,7 +100,7 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
                 .Select(i => new { i.Id, i.Name })
                 .ToDictionaryAsync(x => x.Id, x => x.Name, cancellationToken);
 
-        var items = fresh.Select(e =>
+        var items = fresh.Select((e, index) =>
         {
             Guid? suggestedId = suggestions.TryGetValue(AutoCategorizer.NormalizeKey(e.Payee), out var id)
                 ? id
@@ -89,7 +115,8 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
                 IsCredit: e.IsCredit,
                 SuggestedBudgetItemId: suggestedId,
                 SuggestedBudgetItemName: suggestedName,
-                LikelyTransfer: TransferHeuristic.IsLikelyTransfer(e.Payee));
+                LikelyTransfer: TransferHeuristic.IsLikelyTransfer(e.Payee),
+                PossibleDuplicate: possibleDuplicates.Contains(index));
         }).ToList();
 
         return new ImportPreviewResult(
@@ -99,6 +126,72 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
             Credits: items.Count(i => i.IsCredit),
             Debits: items.Count(i => !i.IsCredit),
             Items: items,
-            Layout: layout);
+            Layout: layout,
+            DetectedFormat: detectedFormat.ToString());
     }
+
+    /// <summary>
+    /// Indexes (into <paramref name="fresh"/>) of candidates that look like a transaction the user
+    /// already has: same amount, compatible direction, booked within
+    /// <see cref="PossibleDuplicateWindowDays"/> days, and a matching payee (equal after
+    /// normalization, or one containing the other — a raw bank blob contains the clean merchant).
+    /// A hint only: the UI unticks these by default and lets the user decide.
+    /// </summary>
+    private async Task<HashSet<int>> FindPossibleDuplicatesAsync(
+        string userId, IReadOnlyList<ParsedStatementEntry> fresh, CancellationToken cancellationToken)
+    {
+        var flagged = new HashSet<int>();
+        if (fresh.Count == 0)
+        {
+            return flagged;
+        }
+
+        var from = fresh.Min(e => e.BookingDate).AddDays(-PossibleDuplicateWindowDays);
+        var to = fresh.Max(e => e.BookingDate).AddDays(PossibleDuplicateWindowDays);
+        var nearby = await _db.Transactions
+            .Where(t => t.OwnerId == userId && t.Date >= from && t.Date <= to)
+            .Select(t => new { t.Date, t.Amount, t.Type, t.Payee })
+            .ToListAsync(cancellationToken);
+        if (nearby.Count == 0)
+        {
+            return flagged;
+        }
+
+        var byAmount = nearby
+            .GroupBy(t => t.Amount)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        for (var i = 0; i < fresh.Count; i++)
+        {
+            var e = fresh[i];
+            var candidateKey = AutoCategorizer.NormalizeKey(e.Payee);
+            if (candidateKey.Length == 0 || !byAmount.TryGetValue(e.Amount, out var sameAmount))
+            {
+                continue;
+            }
+
+            var isDuplicate = sameAmount.Any(t =>
+                Math.Abs(t.Date.DayNumber - e.BookingDate.DayNumber) <= PossibleDuplicateWindowDays
+                && DirectionMatches(t.Type, e.IsCredit)
+                && PayeesMatch(candidateKey, AutoCategorizer.NormalizeKey(t.Payee)));
+            if (isDuplicate)
+            {
+                flagged.Add(i);
+            }
+        }
+
+        return flagged;
+    }
+
+    /// <summary>A credit could already exist as Income, a debit as Expense; a Transfer books either way.</summary>
+    private static bool DirectionMatches(TransactionType existing, bool isCredit) => existing switch
+    {
+        TransactionType.Transfer => true,
+        TransactionType.Income => isCredit,
+        _ => !isCredit,
+    };
+
+    private static bool PayeesMatch(string a, string b) =>
+        a.Length > 0 && b.Length > 0
+        && (a.Contains(b, StringComparison.Ordinal) || b.Contains(a, StringComparison.Ordinal));
 }

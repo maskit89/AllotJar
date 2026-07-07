@@ -287,6 +287,64 @@ describe('ImportPage', () => {
     expect(mockCommit).not.toHaveBeenCalled()
   })
 
+  it('unticks possible duplicates by default, badges them, and keeps them out of the commit', { timeout: 15000 }, async () => {
+    const dupPreview = preview()
+    dupPreview.items[1] = { ...dupPreview.items[1], possibleDuplicate: true } // WOLT
+    mockPreview.mockResolvedValue(dupPreview)
+    const user = userEvent.setup()
+    renderPage()
+    await goToReview(user)
+
+    // Badged, counted in the summary, and unticked by default.
+    expect(screen.getByText('Possibly already imported')).toBeInTheDocument()
+    expect(screen.getByText(/1 possible duplicate unticked/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Include WOLT on 2026-06-15')).not.toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Import 1 transaction' }))
+
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
+    const [, items] = mockCommit.mock.calls[0]
+    expect(items).toHaveLength(1)
+    expect(items[0]).toEqual(expect.objectContaining({ payee: 'AUTOMARKET' }))
+  })
+
+  it('a possible duplicate can be ticked back in and committed', { timeout: 15000 }, async () => {
+    const dupPreview = preview()
+    dupPreview.items[1] = { ...dupPreview.items[1], possibleDuplicate: true } // WOLT
+    mockPreview.mockResolvedValue(dupPreview)
+    const user = userEvent.setup()
+    renderPage()
+    await goToReview(user)
+
+    await user.click(screen.getByLabelText('Include WOLT on 2026-06-15')) // opt back in
+    await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
+
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
+    const [, items] = mockCommit.mock.calls[0]
+    expect(items).toHaveLength(2)
+  })
+
+  it('explains when a generic upload was recognised as a known bank format', { timeout: 15000 }, async () => {
+    mockPreview.mockResolvedValue({ ...preview(), detectedFormat: 'HsbcCsv' })
+    const user = userEvent.setup()
+    renderPage()
+    await goToReview(user)
+
+    expect(screen.getByText(/recognised this file as an HSBC transaction history export/)).toBeInTheDocument()
+  })
+
+  it('shows no recognised-format notice when the generic path was used', { timeout: 15000 }, async () => {
+    mockPreview.mockResolvedValue({ ...csvPreview(), detectedFormat: 'GenericCsv' })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+    await screen.findByText('TESCO')
+
+    expect(screen.queryByText(/recognised this file as/)).not.toBeInTheDocument()
+  })
+
   it('shows the server error message when the preview fails', { timeout: 15000 }, async () => {
     mockPreview.mockRejectedValue({ response: { data: { title: 'No transactions were found.' } } })
     const user = userEvent.setup()
