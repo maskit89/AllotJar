@@ -15,6 +15,10 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:4173',
     trace: 'on-first-retry',
+    // The app's prefers-reduced-motion block (index.css) collapses CSS transitions to ~0ms.
+    // Without it, axe can scan mid-transition under CI contention and report phantom
+    // colour-contrast blends (seen on the login mode toggle) — flaky, not real.
+    contextOptions: { reducedMotion: 'reduce' },
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
