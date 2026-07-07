@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SQL Server integration tests. Deliberately NOT part of AllotJar.slnx (like
+    tools/AllotJar.Importer): the `backend` CI job runs `dotnet test AllotJar.slnx`
+    with no database, so it must not discover these. They are built and run only by
+    the dedicated `integration` job, which provides an mssql service container.
+
+    These exist because the unit suite uses the EF in-memory provider, which does not
+    enforce foreign keys — that hid a production crash where BudgetItems.SavingsId
+    (an enforced FK to Jars.Id) was written with a bare Guid.NewGuid() (fixed in #142).
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentAssertions" Version="7.2.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.8" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AllotJar.Application\AllotJar.Application.csproj" />
+    <ProjectReference Include="..\..\src\AllotJar.Domain\AllotJar.Domain.csproj" />
+    <ProjectReference Include="..\..\src\AllotJar.Infrastructure\AllotJar.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>
