@@ -126,6 +126,12 @@ export interface ImportCandidate {
   suggestedBudgetItemName: string | null
   /** Heuristic hint that this row is a transfer between the user's own accounts, not income/spending. */
   likelyTransfer: boolean
+  /**
+   * Content-level hint that an existing transaction already matches this row (same amount and
+   * payee, booked within a few days) even though its idempotency reference didn't — e.g. the
+   * same statement previously imported through a different format. Unticked by default.
+   */
+  possibleDuplicate?: boolean
 }
 
 /** How the amount column writes decimals. Matches the server CsvDecimalStyle enum. */
@@ -163,6 +169,12 @@ export interface ImportPreviewResult {
   items: ImportCandidate[]
   /** Present only for a generic-CSV preview — the detected/used column mapping. */
   layout?: CsvLayout | null
+  /**
+   * The parser that actually read the file ("HsbcCsv", "Camt053", "GenericCsv"). A "generic"
+   * upload that sniffs as a known bank export is routed to its dedicated adapter so the same
+   * file always yields the same payees and idempotency references.
+   */
+  detectedFormat?: string
 }
 
 /** One slice of a split import row sent to the commit endpoint. */

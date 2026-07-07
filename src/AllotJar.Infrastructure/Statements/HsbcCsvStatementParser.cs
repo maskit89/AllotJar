@@ -36,6 +36,52 @@ public partial class HsbcCsvStatementParser : IStatementParser
     [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
     private static partial Regex WhitespaceRun();
 
+    /// <summary>
+    /// Sniff whether the content is an HSBC transaction-history CSV: comma-separated rows whose
+    /// first column is a dd/MM/yyyy date and whose Details column carries the packed
+    /// "&lt;description&gt; &lt;purchase date&gt; &lt;card mask&gt; &lt;amount&gt; &lt;CCY&gt;" shape. Requires most data
+    /// rows (≥80% of the first 50) to match, so a generic CSV that merely contains dates won't
+    /// be misrouted here.
+    /// </summary>
+    public bool CanParse(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return false;
+        }
+
+        int dataRows = 0, detailRows = 0;
+        foreach (var rawLine in content.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r');
+            if (line.Length == 0)
+            {
+                continue;
+            }
+
+            // Sniffing is stricter than Parse: exactly the 3-column Date,Details,Amount shape.
+            // A wider export that merely embeds HSBC-like narratives must fall through to the
+            // generic mapping UI instead of being hijacked with the wrong amount column.
+            var fields = SplitCsvLine(line);
+            if (fields.Count != 3 || !TryParseDate(fields[0], out _))
+            {
+                continue; // header, footer or blank
+            }
+
+            dataRows++;
+            if (DetailsPattern().IsMatch(fields[1].Trim()))
+            {
+                detailRows++;
+            }
+            if (dataRows >= 50)
+            {
+                break; // a sample is plenty — don't scan a 10 MB file twice
+            }
+        }
+
+        return dataRows > 0 && detailRows * 5 >= dataRows * 4; // ≥ 80%
+    }
+
     public ParsedStatement Parse(string content)
     {
         if (string.IsNullOrWhiteSpace(content))
@@ -123,6 +169,19 @@ public partial class HsbcCsvStatementParser : IStatementParser
         var currency = match.Groups["ccy"].Value.ToUpperInvariant();
 
         return (description, purchaseDate, last4, currency);
+    }
+
+    /// <summary>
+    /// Shared cleaner: pull just the merchant description out of an HSBC-style packed Details
+    /// blob ("&lt;description&gt; &lt;purchase date&gt; &lt;card mask&gt; &lt;amount&gt; &lt;CCY&gt;"). Used by the generic
+    /// CSV importer too, so a stray HSBC-shaped description cell still surfaces a clean payee.
+    /// Returns false (and an empty description) when the text isn't in that shape.
+    /// </summary>
+    internal static bool TryCleanDetails(string text, out string description)
+    {
+        var match = DetailsPattern().Match(text);
+        description = match.Success ? Normalize(match.Groups["desc"].Value) : string.Empty;
+        return match.Success && description.Length > 0;
     }
 
     /// <summary>First 128 bits of SHA-256 over the signature, as 32 lowercase hex chars.</summary>
