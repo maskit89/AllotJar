@@ -102,6 +102,9 @@ await BackfillMembershipsAsync(app);
 // Ensure every household has the owner as member #1, so a household is never "0 members".
 await BackfillOwnerMembersAsync(app);
 
+// Repair pre-#142 starter budgets whose "Savings" group defaulted to Expense (idempotent).
+await BackfillStarterSavingsKindAsync(app);
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -193,6 +196,23 @@ static async Task BackfillOwnerMembersAsync(WebApplication app)
     catch (Exception ex)
     {
         logger.LogWarning(ex, "Owner-member backfill failed; continuing startup.");
+    }
+}
+
+// Converts pre-#142 starter "Savings" groups that defaulted to Expense-kind into real, jar-backed
+// savings envelopes. Idempotent and non-fatal: households already on the correct shape are untouched.
+static async Task BackfillStarterSavingsKindAsync(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        await StarterSavingsKindSeeder.BackfillAsync(db);
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Starter savings-kind backfill failed; continuing startup.");
     }
 }
 
