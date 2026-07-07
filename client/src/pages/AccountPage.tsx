@@ -18,11 +18,50 @@ export function AccountPage() {
     lastName,
     preferredCurrency,
     numberFormat,
+    households,
+    ownsHousehold,
+    startOwnBudget,
+    leaveHousehold,
     changePassword,
     updatePreferences,
   } = useAuth()
   const { isShared, members, loading: householdLoading } = useHousehold()
   const navigate = useNavigate()
+
+  // The household currently in view. When it's one the user joined (not their own), they can
+  // leave it; when they don't own a household at all, they can start one.
+  const activeHousehold = households.find((h) => h.isActive)
+  const viewingJoined = activeHousehold ? !activeHousehold.isOwn : false
+
+  const [startBusy, setStartBusy] = useState(false)
+  const [startError, setStartError] = useState<string | null>(null)
+  const [confirmLeave, setConfirmLeave] = useState(false)
+  const [leaveBusy, setLeaveBusy] = useState(false)
+  const [leaveError, setLeaveError] = useState<string | null>(null)
+
+  async function onStartOwnBudget() {
+    setStartError(null)
+    setStartBusy(true)
+    try {
+      await startOwnBudget()
+    } catch {
+      setStartError('Could not start your budget. Please try again.')
+      setStartBusy(false)
+    }
+    // On success the app re-bootstraps (full navigation), so no need to reset busy.
+  }
+
+  async function onLeaveHousehold() {
+    if (!activeHousehold) return
+    setLeaveError(null)
+    setLeaveBusy(true)
+    try {
+      await leaveHousehold(activeHousehold.ownerId)
+    } catch {
+      setLeaveError('Could not leave this household. Please try again.')
+      setLeaveBusy(false)
+    }
+  }
 
   // --- Preferences (name + money display) ---
   const [pfFirst, setPfFirst] = useState(firstName ?? '')
@@ -127,6 +166,25 @@ export function AccountPage() {
         </dl>
       </Card>
 
+      {/* Members who only ever joined someone else's household can start a budget of their own. */}
+      {!ownsHousehold && (
+        <Card className="p-5">
+          <h2 className="mb-1 text-sm font-semibold text-slate-700">Your own budget</h2>
+          <p className="mb-4 text-sm text-slate-500">
+            You’re a member of a shared household. Want a budget of your own too? We’ll set one up and
+            you can switch between them anytime — the shared budget stays exactly as it is.
+          </p>
+          {startError && (
+            <div className="mb-3">
+              <ErrorBanner>{startError}</ErrorBanner>
+            </div>
+          )}
+          <Button onClick={onStartOwnBudget} disabled={startBusy}>
+            {startBusy ? 'Setting up…' : 'Start my own budget'}
+          </Button>
+        </Card>
+      )}
+
       {!householdLoading && (
         <Card className="p-5">
           <h2 className="mb-1 text-sm font-semibold text-slate-700">Sharing</h2>
@@ -152,6 +210,50 @@ export function AccountPage() {
               </p>
               <Button onClick={() => navigate('/people')}>Share this budget</Button>
             </>
+          )}
+        </Card>
+      )}
+
+      {/* Self-service "leave" for a household the user joined (never their own). */}
+      {viewingJoined && (
+        <Card className="p-5">
+          <h2 className="mb-1 text-sm font-semibold text-slate-700">Leave this household</h2>
+          <p className="mb-4 text-sm text-slate-500">
+            Remove your access to {activeHousehold?.label ?? 'this household'}. You’ll no longer see its
+            budget, and the owner isn’t needed to do this. You can be invited back anytime.
+          </p>
+          {leaveError && (
+            <div className="mb-3">
+              <ErrorBanner>{leaveError}</ErrorBanner>
+            </div>
+          )}
+          {confirmLeave ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium text-slate-700">Are you sure?</span>
+              <Button variant="danger" onClick={onLeaveHousehold} disabled={leaveBusy}>
+                {leaveBusy ? 'Leaving…' : 'Yes, leave'}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setLeaveError(null)
+                  setConfirmLeave(false)
+                }}
+                disabled={leaveBusy}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setLeaveError(null)
+                setConfirmLeave(true)
+              }}
+            >
+              Leave household
+            </Button>
           )}
         </Card>
       )}

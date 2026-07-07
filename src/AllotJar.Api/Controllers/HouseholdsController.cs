@@ -71,4 +71,99 @@ public class HouseholdsController : ControllerBase
 
         return NoContent();
     }
+
+    /// <summary>
+    /// Creates the caller's OWN household — an Owner membership, a starter budget and the owner as
+    /// member #1 — and switches them into it. This is the path for someone who only ever joined
+    /// another household by invite and now wants a budget of their own. Idempotent: if they already
+    /// own a household this simply switches them back into it.
+    /// </summary>
+    [HttpPost("start-own")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> StartOwn(CancellationToken ct)
+    {
+        var userId = _currentUser.UserId;
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null)
+        {
+            return Unauthorized();
+        }
+
+        await HouseholdBootstrap.EnsureOwnHouseholdAsync(_db, user, DateTime.UtcNow, ct);
+
+        // Land them in their own household (null = own).
+        if (user.ActiveOwnerId is not null)
+        {
+            user.ActiveOwnerId = null;
+            await _userManager.UpdateAsync(user);
+        }
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Removes the caller's own access to a household they joined — a self-service "leave", so a
+    /// member never has to ask the owner to remove them. You cannot leave your OWN household (you're
+    /// the owner; there is nothing to leave). If it was the active household, falls back to your own.
+    /// </summary>
+    [HttpPost("leave")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Leave(LeaveHouseholdRequest request, CancellationToken ct)
+    {
+        var userId = _currentUser.UserId;
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        if (request.OwnerId == userId)
+        {
+            return BadRequest(new { error = "You can't leave your own household." });
+        }
+
+        var membership = await _db.HouseholdMemberships.FirstOrDefaultAsync(
+            m => m.UserId == userId && m.OwnerId == request.OwnerId && m.Status == MembershipStatus.Active, ct);
+        if (membership is null)
+        {
+            return NotFound(new { error = "You don't have access to that household." });
+        }
+
+        // Belt-and-braces: the owner's own membership can never match the userId != OwnerId guard
+        // above, but never let a household lose its owner this way.
+        if (membership.Role == HouseholdRole.Owner)
+        {
+            return BadRequest(new { error = "The owner can't leave their own household." });
+        }
+
+        _db.HouseholdMemberships.Remove(membership);
+        await _db.SaveChangesAsync(ct);
+
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is not null)
+        {
+            // Never strand them in an empty, un-seeded "own" household: a member who only ever
+            // joined others has no own budget, and after leaving the resolver would drop them into
+            // a blank one. Guarantee a real starter budget to land in. Idempotent — a no-op for a
+            // user who already owns a household.
+            await HouseholdBootstrap.EnsureOwnHouseholdAsync(_db, user, DateTime.UtcNow, ct);
+
+            // If they were viewing the household they just left, drop back to their own.
+            if (user.ActiveOwnerId == request.OwnerId)
+            {
+                user.ActiveOwnerId = null;
+                await _userManager.UpdateAsync(user);
+            }
+        }
+
+        return NoContent();
+    }
 }

@@ -11,8 +11,18 @@ export const FLAGS = { accounts: true, multiCurrency: true, camtImport: true, re
 
 // The current login (Owner) for /auth/me, so role-gated UI resolves to full access.
 // needsConsent stays false so the blocking consent prompt never occludes the scanned pages.
+// A single own household so the account page reads as an owner (no "start your own budget" card).
 function meResponse() {
-  return { userId: 'u1', email: 'e2e@allotjar.app', displayName: 'Chris', role: 0, ownerId: 'u1', memberId: null, needsConsent: false }
+  return {
+    userId: 'u1',
+    email: 'e2e@allotjar.app',
+    displayName: 'Chris',
+    role: 0,
+    ownerId: 'u1',
+    memberId: null,
+    needsConsent: false,
+    households: [{ ownerId: 'u1', label: 'Your household', role: 0, isActive: true, isOwn: true }],
+  }
 }
 
 // A representative access list so the /access table renders both status badges (Active +

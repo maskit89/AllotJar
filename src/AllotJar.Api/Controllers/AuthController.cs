@@ -9,7 +9,6 @@ using AllotJar.Api.Contracts.Auth;
 using AllotJar.Application.Auth.Commands.Login;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.HouseholdAccess.Commands.AcceptInvite;
-using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Identity;
 using AllotJar.Infrastructure.Persistence;
@@ -100,25 +99,10 @@ public class AuthController : ControllerBase
             return BadRequest(new { errors = result.Errors.Select(e => e.Description) });
         }
 
-        // The new user owns their own household, and gets a starter budget to look at.
-        var now = DateTime.UtcNow;
-        _db.HouseholdMemberships.Add(new HouseholdMembership
-        {
-            OwnerId = user.Id,
-            UserId = user.Id,
-            Role = HouseholdRole.Owner,
-            Status = MembershipStatus.Active,
-            InvitedEmail = user.Email!,
-            DisplayName = user.DisplayName,
-            CreatedUtc = now,
-        });
-        await _db.SaveChangesAsync(ct);
-        await BudgetSeeder.SeedDefaultMonthAsync(_db, user.Id, now.Year, now.Month, ct);
-
+        // The new user owns their own household (Owner membership + starter budget + owner member).
         // The owner is themselves member #1, so a household is never "0 members": solo is a
         // household of one, shared is two or more.
-        await OwnerMemberSeeder.EnsureOwnerMemberAsync(
-            _db, user.Id, OwnerMemberSeeder.ResolveOwnerName(firstName, user.DisplayName, user.Email), ct);
+        await HouseholdBootstrap.EnsureOwnHouseholdAsync(_db, user, DateTime.UtcNow, ct);
 
         await IssueRefreshCookieAsync(user.Id, ct);
         return Ok(await BuildResponseAsync(user, ct));

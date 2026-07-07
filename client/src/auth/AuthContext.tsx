@@ -48,12 +48,18 @@ interface AuthState {
   households: HouseholdSummary[]
   /** OwnerId of the household currently being viewed. */
   activeOwnerId: string | null
+  /** True once this login owns a household of its own (false for members who only joined others). */
+  ownsHousehold: boolean
   /** True for invite-created logins that haven't accepted the terms yet (blocks the app until they do). */
   needsConsent: boolean
   /** Records the login's own terms acceptance and unblocks the app. */
   confirmConsent: () => Promise<void>
   /** Switch the active household and re-bootstrap the app into it. */
   switchHousehold: (ownerId: string) => Promise<void>
+  /** Create the login's own household (Owner + starter budget) and re-bootstrap into it. */
+  startOwnBudget: () => Promise<void>
+  /** Leave a household the login joined, then re-bootstrap into whatever remains active. */
+  leaveHousehold: (ownerId: string) => Promise<void>
   login: (email: string, password: string) => Promise<void>
   register: (input: RegisterInput) => Promise<void>
   acceptInvite: (token: string, password: string, displayName?: string, acceptedTerms?: boolean) => Promise<void>
@@ -234,6 +240,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.assign('/')
   }
 
+  async function startOwnBudget() {
+    await api.post('/households/start-own')
+    // The server made the new own household active — re-bootstrap into it, greeting them.
+    window.location.assign('/?started=1')
+  }
+
+  async function leaveHousehold(ownerId: string) {
+    await api.post('/households/leave', { ownerId })
+    // Active household may have changed; re-bootstrap so every screen re-scopes.
+    window.location.assign('/')
+  }
+
   async function updatePreferences(input: PreferencesInput) {
     const { data } = await api.put<PreferencesResponse>('/auth/preferences', input)
     setFirstName(data.firstName)
@@ -285,9 +303,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       bootstrapping,
       households,
       activeOwnerId,
+      ownsHousehold: households.some((h) => h.isOwn),
       needsConsent,
       confirmConsent,
       switchHousehold,
+      startOwnBudget,
+      leaveHousehold,
       login,
       register,
       acceptInvite,
