@@ -50,6 +50,30 @@ for (const theme of ['light', 'dark'] as const) {
       await expectNoViolations(page)
     })
 
+    test('jar add + edit modal has no WCAG A/AA violations', async ({ page }) => {
+      await authedSetup(page, theme)
+      await page.goto('/jars')
+      await page.getByRole('heading', { level: 1 }).first().waitFor()
+
+      // New-jar modal — Recurring by default, so Next due + Repeats render.
+      await page.getByRole('button', { name: 'New jar' }).click()
+      const dialog = page.getByRole('dialog')
+      await dialog.getByLabel('Next due date').waitFor()
+      await expectNoViolations(page)
+
+      // Switch to Goal → the conditional fields swap to an optional target date.
+      // Exact match: "Jar type" would otherwise also catch the "About jar types" info button.
+      await dialog.getByLabel('Jar type', { exact: true }).selectOption('1')
+      await dialog.getByLabel('Target date').waitFor()
+      await expectNoViolations(page)
+
+      // Edit an existing jar (opening-balance hint, two-step Archive affordance).
+      await dialog.getByRole('button', { name: 'Cancel edit' }).click()
+      await page.getByRole('button', { name: 'Edit Home insurance' }).click()
+      await page.getByRole('dialog').getByRole('button', { name: 'Archive Home insurance' }).waitFor()
+      await expectNoViolations(page)
+    })
+
     test('login has no WCAG A/AA violations', async ({ page }) => {
       // Signed out: no token, so the login page renders.
       await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)

@@ -35,8 +35,9 @@ import {
   type MonthVM,
 } from '../budgetModel'
 import { currencyNoun, formatMoney, fromAmount, sumMinor, toAmount, type Minor } from '../lib/money'
+import { jarStatusChip } from '../lib/jarStatus'
 import { Hero, BalancedBadge } from '../components/Hero'
-import { Card } from '../components/ui'
+import { Badge, Card } from '../components/ui'
 import { Jar } from '../components/Jar'
 import { hueForIndex } from '../lib/categoryColors'
 import { CategoryAccordion } from '../components/CategoryAccordion'
@@ -614,6 +615,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                     const target = fromAmount(f.targetAmount)
                     const pct = target > 0 ? (avail / target) * 100 : 0
                     const monthly = fromAmount(f.requiredMonthlyContribution)
+                    const chip = jarStatusChip(f.status)
                     return (
                       <div key={f.id} className="flex flex-col items-center gap-3">
                         <Jar
@@ -627,10 +629,18 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                           <div className="text-[13.5px] font-bold tabular-nums text-slate-900">
                             {formatMoney(avail, month.currency)}
                           </div>
-                          {monthly > 0 && (
-                            <div className="mt-px text-[11.5px] font-semibold tabular-nums text-brand-700 dark:text-brand-200">
-                              +{formatMoney(monthly, month.currency)}/mo
+                          {/* One status-aware line: an attention/funded chip wins, else the
+                              monthly set-aside — so the shelf never contradicts the Jars page. */}
+                          {chip ? (
+                            <div className="mt-1 flex justify-center">
+                              <Badge tone={chip.tone}>{chip.label}</Badge>
                             </div>
+                          ) : (
+                            monthly > 0 && (
+                              <div className="mt-px text-[11.5px] font-semibold tabular-nums text-brand-700 dark:text-brand-200">
+                                +{formatMoney(monthly, month.currency)}/mo
+                              </div>
+                            )
                           )}
                         </div>
                       </div>
