@@ -49,7 +49,7 @@ function AuthedLoginRedirect() {
 }
 
 export default function App() {
-  const { isAuthenticated, bootstrapping } = useAuth()
+  const { isAuthenticated, bootstrapping, needsConsent } = useAuth()
   const features = useFeatures()
 
   return (
@@ -173,8 +173,9 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      {isAuthenticated && <Onboarding />}
-      {/* Blocks invite-created logins until they accept the terms themselves (layered above onboarding). */}
+      {/* Onboarding waits for consent, so its focus-trapped welcome dialog can never sit
+          (keyboard-unreachable) underneath the blocking consent prompt. */}
+      {isAuthenticated && !needsConsent && <Onboarding />}
       {isAuthenticated && <ConsentModal />}
     </MonthProvider>
   )

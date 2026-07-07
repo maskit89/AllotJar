@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 
 const { mockGet, mockPost } = vi.hoisted(() => ({
   mockGet: vi.fn(),
@@ -31,11 +32,13 @@ function me(needsConsent: boolean) {
   }
 }
 
-function renderModal() {
+function renderModal(path = '/') {
   return render(
-    <AuthProvider>
-      <ConsentModal />
-    </AuthProvider>,
+    <MemoryRouter initialEntries={[path]}>
+      <AuthProvider>
+        <ConsentModal />
+      </AuthProvider>
+    </MemoryRouter>,
   )
 }
 
@@ -76,5 +79,13 @@ describe('ConsentModal', () => {
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
     // No close/dismiss affordance: agreeing or leaving are the only exits.
     expect(screen.queryByRole('button', { name: /close|dismiss/i })).not.toBeInTheDocument()
+  })
+
+  it('never covers the legal pages it links to', async () => {
+    mockGet.mockResolvedValue(me(true))
+    renderModal('/terms')
+
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/auth/me'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })

@@ -14,4 +14,10 @@ describe('safeInternalPath', () => {
     expect(safeInternalPath('')).toBeNull()
     expect(safeInternalPath(null)).toBeNull()
   })
+
+  it('rejects control characters that URL parsers strip (would re-open scheme-relative escapes)', () => {
+    expect(safeInternalPath('/\t/evil.example')).toBeNull()
+    expect(safeInternalPath('/\n/evil.example')).toBeNull()
+    expect(safeInternalPath('/\r/evil.example')).toBeNull()
+  })
 })

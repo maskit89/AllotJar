@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { JarLogo } from './Jar'
 import { Button } from './ui'
@@ -12,10 +13,13 @@ import { Button } from './ui'
  */
 export function ConsentModal() {
   const { needsConsent, confirmConsent, logout } = useAuth()
+  const { pathname } = useLocation()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(false)
 
   if (!needsConsent) return null
+  // The prompt links to the legal pages — never cover the very text being consented to.
+  if (pathname === '/terms' || pathname === '/privacy') return null
 
   async function onAgree() {
     setBusy(true)
