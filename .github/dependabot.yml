@@ -12,6 +12,14 @@ updates:
     groups:
       dotnet-minor-patch:
         update-types: ["minor", "patch"]
+    # FluentAssertions 8+ and MediatR 13+ moved to a commercial licence; this project
+    # deliberately stays on the free lines (7.2.0 / 12.4.1). Ignore those majors so
+    # Dependabot stops re-raising them (see closed PRs #91 and #92).
+    ignore:
+      - dependency-name: "FluentAssertions"
+        versions: [">=8.0.0"]
+      - dependency-name: "MediatR"
+        versions: [">=13.0.0"]
 
   - package-ecosystem: "npm"
     directory: "/client"

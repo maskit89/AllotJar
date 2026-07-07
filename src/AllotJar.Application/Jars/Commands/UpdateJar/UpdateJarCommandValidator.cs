@@ -25,6 +25,15 @@ public class UpdateJarCommandValidator : AbstractValidator<UpdateJarCommand>
             .InclusiveBetween(-MaxAmount, MaxAmount)
             .WithMessage("Opening balance is out of range.");
 
+        // The recurrence cycle, when set, is bounded. Whether a Recurring jar *must*
+        // carry a date and target is a form concern (the New-jar form collects them) —
+        // the server stays permissive so imported and legacy jars (open-ended pools,
+        // date-less recurring funds) remain editable.
+        RuleFor(x => x.RecurMonths)
+            .InclusiveBetween(1, 120)
+            .When(x => x.RecurMonths.HasValue)
+            .WithMessage("Repeat cycle must be between 1 and 120 months.");
+
         RuleFor(x => x.CoverEnd)
             .GreaterThan(x => x.CoverStart!.Value)
             .When(x => x.CoverStart.HasValue && x.CoverEnd.HasValue)
