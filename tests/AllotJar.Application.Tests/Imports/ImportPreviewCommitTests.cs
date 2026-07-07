@@ -9,6 +9,7 @@ using AllotJar.Application.Imports.Models;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.ValueObjects;
 using AllotJar.Infrastructure.Persistence;
 using AllotJar.Infrastructure.Statements;
 
@@ -26,8 +27,10 @@ public class ImportPreviewCommitTests
             .UseInMemoryDatabase($"zbb-prevcommit-{Guid.NewGuid()}")
             .Options);
 
+    // Both parsers, in DI registration order — sniffing must pick the right one, not the only one.
     private static PreviewImportCommandHandler NewPreview(ApplicationDbContext db, string userId) =>
-        new(db, new CurrentUserStub(userId), new IStatementParser[] { new HsbcCsvStatementParser() },
+        new(db, new CurrentUserStub(userId),
+            new IStatementParser[] { new Camt053StatementParser(), new HsbcCsvStatementParser() },
             new GenericCsvImporter());
 
     private static CommitImportCommandHandler NewCommit(ApplicationDbContext db, string userId) =>
@@ -292,6 +295,51 @@ public class ImportPreviewCommitTests
         var result = await NewPreview(db, "user-1").Handle(Preview(), CancellationToken.None);
 
         result.Items.Single(i => i.Payee == "AUTOMARKET SER STATION").PossibleDuplicate.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(2026, 6, 21, true)]  // exactly 4 days after the 17/06 booking — inside the window
+    [InlineData(2026, 6, 22, false)] // 5 days — outside
+    public async Task Preview_PossibleDuplicate_WindowBoundary(int y, int m, int d, bool flagged)
+    {
+        await using var db = NewContext();
+        db.Transactions.Add(new Transaction
+        {
+            OwnerId = "user-1", Payee = "AUTOMARKET SER STATION", Amount = 35.00m,
+            Date = new DateOnly(y, m, d), Type = TransactionType.Expense,
+        });
+        await db.SaveChangesAsync();
+
+        var result = await NewPreview(db, "user-1").Handle(Preview(), CancellationToken.None);
+
+        result.Items.Single(i => i.Payee == "AUTOMARKET SER STATION")
+            .PossibleDuplicate.Should().Be(flagged);
+    }
+
+    [Fact]
+    public async Task Preview_PossibleDuplicate_RequiresMatchingDirectionAndCurrency()
+    {
+        await using var db = NewContext();
+        db.Transactions.AddRange(
+            // Same amount/payee/date as the AUTOMARKET debit, but recorded as Income → no match.
+            new Transaction
+            {
+                OwnerId = "user-1", Payee = "AUTOMARKET SER STATION", Amount = 35.00m,
+                Date = new DateOnly(2026, 6, 17), Type = TransactionType.Income,
+            },
+            // Same everything as the PLANET PLAY debit, but a different currency → no match.
+            new Transaction
+            {
+                OwnerId = "user-1", Payee = "PLANET PLAY RESTAURA", Amount = 67.75m,
+                Date = new DateOnly(2026, 6, 15), Type = TransactionType.Expense,
+                Currency = CurrencyCode.From("GBP"),
+            });
+        await db.SaveChangesAsync();
+
+        var result = await NewPreview(db, "user-1").Handle(Preview(), CancellationToken.None);
+
+        result.Items.Single(i => i.Payee == "AUTOMARKET SER STATION").PossibleDuplicate.Should().BeFalse();
+        result.Items.Single(i => i.Payee == "PLANET PLAY RESTAURA").PossibleDuplicate.Should().BeFalse();
     }
 
     [Fact]

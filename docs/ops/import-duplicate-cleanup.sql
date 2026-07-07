@@ -75,6 +75,11 @@ ORDER BY OwnerId, DuplicateDate, Amount;
    STEP 2 — DELETE the duplicates found above. Runs in a transaction that
    ROLLS BACK by default; change the last line to COMMIT after verifying the
    deleted count equals the row count from STEP 1.
+
+   ⚠ SCOPE: with @Email left NULL this deletes for EVERY owner in the database.
+   Set @Email unless you have reviewed STEP 1 for all owners. Run STEP 2 in the
+   SAME batch as the DECLAREs at the top (@OwnerId/@WindowDays go out of scope
+   if you highlight-and-run only this block).
    --------------------------------------------------------------------------- */
 -- BEGIN TRANSACTION;
 --

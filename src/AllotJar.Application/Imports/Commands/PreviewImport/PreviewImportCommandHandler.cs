@@ -150,7 +150,7 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
         var to = fresh.Max(e => e.BookingDate).AddDays(PossibleDuplicateWindowDays);
         var nearby = await _db.Transactions
             .Where(t => t.OwnerId == userId && t.Date >= from && t.Date <= to)
-            .Select(t => new { t.Date, t.Amount, t.Type, t.Payee })
+            .Select(t => new { t.Date, t.Amount, t.Type, t.Payee, t.Currency })
             .ToListAsync(cancellationToken);
         if (nearby.Count == 0)
         {
@@ -173,6 +173,7 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
             var isDuplicate = sameAmount.Any(t =>
                 Math.Abs(t.Date.DayNumber - e.BookingDate.DayNumber) <= PossibleDuplicateWindowDays
                 && DirectionMatches(t.Type, e.IsCredit)
+                && string.Equals(t.Currency.Value, e.Currency, StringComparison.OrdinalIgnoreCase)
                 && PayeesMatch(candidateKey, AutoCategorizer.NormalizeKey(t.Payee)));
             if (isDuplicate)
             {

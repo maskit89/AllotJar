@@ -59,10 +59,13 @@ public partial class HsbcCsvStatementParser : IStatementParser
                 continue;
             }
 
+            // Sniffing is stricter than Parse: exactly the 3-column Date,Details,Amount shape.
+            // A wider export that merely embeds HSBC-like narratives must fall through to the
+            // generic mapping UI instead of being hijacked with the wrong amount column.
             var fields = SplitCsvLine(line);
-            if (fields.Count < 3 || !TryParseDate(fields[0], out _))
+            if (fields.Count != 3 || !TryParseDate(fields[0], out _))
             {
-                continue; // header, footer or blank — same skip rule as Parse
+                continue; // header, footer or blank
             }
 
             dataRows++;

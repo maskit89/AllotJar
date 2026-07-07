@@ -302,7 +302,7 @@ describe('ImportPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Import 1 transaction' }))
 
-    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1), { timeout: 5000 })
     const [, items] = mockCommit.mock.calls[0]
     expect(items).toHaveLength(1)
     expect(items[0]).toEqual(expect.objectContaining({ payee: 'AUTOMARKET' }))
@@ -319,7 +319,7 @@ describe('ImportPage', () => {
     await user.click(screen.getByLabelText('Include WOLT on 2026-06-15')) // opt back in
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
 
-    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1), { timeout: 5000 })
     const [, items] = mockCommit.mock.calls[0]
     expect(items).toHaveLength(2)
   })

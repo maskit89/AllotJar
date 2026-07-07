@@ -485,7 +485,7 @@ export function ImportPage() {
             {preview.skippedDuplicates > 0 &&
               ` — ${preview.skippedDuplicates} already imported (skipped)`}
             {possibleDuplicateCount > 0 &&
-              ` — ${possibleDuplicateCount} possible duplicate${possibleDuplicateCount === 1 ? '' : 's'} unticked`}
+              ` — ${possibleDuplicateCount} possible duplicate${possibleDuplicateCount === 1 ? '' : 's'} unticked (tick to include)`}
             . Categorise them (split a row, or mark a transfer), untick any you don't want, then import.
           </p>
           {format === 'generic' && preview.detectedFormat && DETECTED_FORMAT_LABELS[preview.detectedFormat] && (
@@ -687,7 +687,18 @@ export function ImportPage() {
                   const open = splitOpen === r.reference
                   return (
                     <Fragment key={r.reference}>
-                      <tr className={r.include ? 'hover:bg-slate-50' : 'opacity-50'}>
+                      {/* A flagged-but-unticked row needs its badge readable (an opacity-dimmed
+                          row drops the amber text below AA contrast), so it gets an attention
+                          tint instead of the excluded-row fade. */}
+                      <tr
+                        className={
+                          r.include
+                            ? 'hover:bg-slate-50'
+                            : r.possibleDuplicate
+                              ? 'bg-amber-50/70 dark:bg-amber-500/10'
+                              : 'opacity-50'
+                        }
+                      >
                         <td className="px-3 py-2">
                           <input
                             type="checkbox"

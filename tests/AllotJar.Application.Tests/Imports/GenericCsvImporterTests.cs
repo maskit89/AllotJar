@@ -182,6 +182,22 @@ public class GenericCsvImporterTests
     }
 
     [Fact]
+    public void Parse_references_are_stable_across_releases()
+    {
+        // GOLDEN VALUES: production BankReferences bake in exactly this signature composition
+        // (date|signed amount|UPPER raw description, SHA-256/128, per-signature occurrence).
+        // If this test breaks, a re-import of any previously-imported file will DUPLICATE every
+        // transaction — do not update the expected strings without a data-migration plan.
+        var mapping = _importer.Detect(CommaCsv).Suggested with { DefaultCurrency = "GBP" };
+        var statement = _importer.Parse(CommaCsv, mapping);
+
+        // SHA-256("2026-06-20|-42.5|TESCO STORES"), first 128 bits; the identical second row
+        // shares the signature and takes occurrence #1.
+        Assert.Equal("csv:8babbc80a18fc258834cd1bbd3e3c7fb#0", statement.Entries[0].Reference);
+        Assert.Equal("csv:8babbc80a18fc258834cd1bbd3e3c7fb#1", statement.Entries[1].Reference);
+    }
+
+    [Fact]
     public void Parse_throws_when_nothing_usable_is_found()
     {
         const string junk = "just,some,headers\nand,no,dates\n";
