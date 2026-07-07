@@ -48,11 +48,15 @@ interface AuthState {
   households: HouseholdSummary[]
   /** OwnerId of the household currently being viewed. */
   activeOwnerId: string | null
+  /** True for invite-created logins that haven't accepted the terms yet (blocks the app until they do). */
+  needsConsent: boolean
+  /** Records the login's own terms acceptance and unblocks the app. */
+  confirmConsent: () => Promise<void>
   /** Switch the active household and re-bootstrap the app into it. */
   switchHousehold: (ownerId: string) => Promise<void>
   login: (email: string, password: string) => Promise<void>
   register: (input: RegisterInput) => Promise<void>
-  acceptInvite: (token: string, password: string, displayName?: string) => Promise<void>
+  acceptInvite: (token: string, password: string, displayName?: string, acceptedTerms?: boolean) => Promise<void>
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>
   updatePreferences: (input: PreferencesInput) => Promise<void>
   logout: () => void
@@ -93,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<number>(storedRole())
   const [households, setHouseholds] = useState<HouseholdSummary[]>([])
   const [activeOwnerId, setActiveOwnerId] = useState<string | null>(null)
+  const [needsConsent, setNeedsConsent] = useState(false)
   // No in-memory access token on a cold load ⇒ try to restore the session from the refresh cookie.
   const [bootstrapping, setBootstrapping] = useState<boolean>(!getToken())
 
@@ -174,6 +179,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLastName(data.lastName ?? null)
         setHouseholds(Array.isArray(data.households) ? data.households : [])
         setActiveOwnerId(typeof data.ownerId === 'string' ? data.ownerId : null)
+        setNeedsConsent(data.needsConsent === true)
         applyPrefs(data.preferredCurrency, data.numberFormat)
         localStorage.setItem(ROLE_KEY, String(data.role))
       })
@@ -198,13 +204,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     applyPrefs(input.preferredCurrency, input.numberFormat)
   }
 
-  async function acceptInvite(inviteToken: string, password: string, displayName?: string) {
+  async function acceptInvite(
+    inviteToken: string,
+    password: string,
+    displayName?: string,
+    acceptedTerms?: boolean,
+  ) {
     const { data } = await api.post<AuthResponse>('/auth/accept-invite', {
       token: inviteToken,
       password,
       displayName,
+      acceptedTerms: acceptedTerms === true,
     })
     apply(data)
+  }
+
+  async function confirmConsent() {
+    await api.post('/auth/consent')
+    setNeedsConsent(false)
   }
 
   async function changePassword(currentPassword: string, newPassword: string) {
@@ -237,6 +254,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setRole(HouseholdRole.Owner)
     setHouseholds([])
     setActiveOwnerId(null)
+    setNeedsConsent(false)
     applyPrefs(DEFAULT_CURRENCY, DEFAULT_FORMAT)
     localStorage.removeItem(EMAIL_KEY)
     localStorage.removeItem(ROLE_KEY)
@@ -267,6 +285,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       bootstrapping,
       households,
       activeOwnerId,
+      needsConsent,
+      confirmConsent,
       switchHousehold,
       login,
       register,
@@ -275,7 +295,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updatePreferences,
       logout,
     }),
-    [token, email, displayName, firstName, lastName, preferredCurrency, numberFormat, role, bootstrapping, households, activeOwnerId],
+    [token, email, displayName, firstName, lastName, preferredCurrency, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

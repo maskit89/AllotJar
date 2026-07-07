@@ -93,6 +93,7 @@ export function PeoplePage() {
   const [iTempPassword, setITempPassword] = useState('')
   const [inviting, setInviting] = useState(false)
   const [inviteLink, setInviteLink] = useState<string | null>(null)
+  const [directCreatedEmail, setDirectCreatedEmail] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
   const canAccess = features.householdAccess && canManageHousehold
@@ -251,6 +252,7 @@ export function PeoplePage() {
     setInvitePersonId(personId)
     setInviteOpen(true)
     setInviteLink(null)
+    setDirectCreatedEmail(null)
     setCopied(false)
     const person = members.find((p) => p.id === personId)
     setIName(person?.name ?? '')
@@ -271,10 +273,12 @@ export function PeoplePage() {
     setInviting(true)
     setError(null)
     setInviteLink(null)
+    setDirectCreatedEmail(null)
     setCopied(false)
     try {
+      const email = iEmail.trim()
       const { data } = await api.post<InviteResultDto>('/access/invite', {
-        email: iEmail.trim(),
+        email,
         role: iRole,
         method: iMethod === 'direct' ? InviteMethod.Direct : InviteMethod.Link,
         tempPassword: iMethod === 'direct' ? iTempPassword : null,
@@ -282,6 +286,7 @@ export function PeoplePage() {
         memberId: invitePersonId || null,
       })
       if (data.inviteToken) setInviteLink(inviteLinkFor(data.inviteToken))
+      else setDirectCreatedEmail(email)
       track(EVENTS.memberInvited, { method: iMethod })
       await reloadAll()
       setIEmail('')
@@ -752,6 +757,20 @@ export function PeoplePage() {
                   {copied ? 'Copied' : 'Copy'}
                 </Button>
               </div>
+            </div>
+          )}
+
+          {directCreatedEmail && (
+            <div
+              role="status"
+              className="mt-4 rounded-lg border border-brand-200 bg-brand-50 p-4 dark:border-brand-500/30 dark:bg-brand-500/10"
+            >
+              <p className="text-sm font-medium text-brand-800 dark:text-brand-200">Login created</p>
+              <p className="mt-1 text-xs text-brand-700/80 dark:text-brand-200/80">
+                <span className="font-medium">{directCreatedEmail}</span> can sign in now with the temporary
+                password you set — share it with them privately. They’ll accept the terms on their first
+                sign-in, and can change the password from Account settings.
+              </p>
             </div>
           )}
         </Modal>

@@ -25,7 +25,7 @@ const now = new Date()
  */
 export function GettingStartedChecklist() {
   const { dismissChecklist } = useOnboarding()
-  const { preferredCurrency } = useAuth()
+  const { preferredCurrency, households } = useAuth()
   const noun = currencyNoun(preferredCurrency)
   const location = useLocation()
   const [open, setOpen] = useState(true)
@@ -67,6 +67,12 @@ export function GettingStartedChecklist() {
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [refresh])
+
+  // The checklist walks an OWNER through building their first month. Someone viewing a household
+  // they joined would see it pre-ticked (or nagging about a budget that isn't theirs) — skip it.
+  // (After the hooks above, so hook order stays stable when the household list loads in.)
+  const activeHousehold = households.find((h) => h.isActive)
+  if (activeHousehold && !activeHousehold.isOwn) return null
 
   const steps = [
     { id: 'month', label: 'Create your first month', hint: 'Copy last month, start blank, or pick a template.', to: '/', done: progress.monthExists },

@@ -37,13 +37,32 @@ public class IdentityService : IIdentityService
         return user is null ? null : new UserAccount(user.Id, user.Email!, user.DisplayName);
     }
 
-    public async Task<CreateUserResult> CreateUserAsync(string email, string password, string? displayName)
+    public async Task<CreateUserResult> CreateUserAsync(
+        string email, string password, string? displayName, bool consented = false)
     {
-        var user = new ApplicationUser { UserName = email, Email = email, DisplayName = displayName };
+        var user = new ApplicationUser
+        {
+            UserName = email,
+            Email = email,
+            DisplayName = displayName,
+            ConsentedUtc = consented ? DateTime.UtcNow : null,
+        };
         var result = await _userManager.CreateAsync(user, password);
         return result.Succeeded
             ? CreateUserResult.Success(user.Id)
             : CreateUserResult.Failure(result.Errors.Select(e => e.Description));
+    }
+
+    public async Task SetActiveHouseholdAsync(string userId, string? ownerId)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null || user.ActiveOwnerId == ownerId)
+        {
+            return;
+        }
+
+        user.ActiveOwnerId = ownerId;
+        await _userManager.UpdateAsync(user);
     }
 
     public async Task<IReadOnlyList<string>> ChangePasswordAsync(

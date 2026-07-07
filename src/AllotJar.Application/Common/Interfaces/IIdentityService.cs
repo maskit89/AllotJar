@@ -12,7 +12,15 @@ public interface IIdentityService
 
     Task<UserAccount?> FindByIdAsync(string userId);
 
-    Task<CreateUserResult> CreateUserAsync(string email, string password, string? displayName);
+    /// <summary>
+    /// Creates a login. <paramref name="consented"/> records terms acceptance and must be true only
+    /// when the person themselves accepted (e.g. redeeming an invite link) — never when an owner
+    /// creates the login on their behalf; those consent on their first sign-in instead.
+    /// </summary>
+    Task<CreateUserResult> CreateUserAsync(string email, string password, string? displayName, bool consented = false);
+
+    /// <summary>Persists which household the login acts in (null = their own). No-op for unknown users.</summary>
+    Task SetActiveHouseholdAsync(string userId, string? ownerId);
 
     Task<IReadOnlyList<string>> ChangePasswordAsync(string userId, string currentPassword, string newPassword);
 

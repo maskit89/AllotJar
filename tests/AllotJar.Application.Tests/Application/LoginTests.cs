@@ -30,8 +30,10 @@ public class LoginTests
         public Task<bool> EmailExistsAsync(string email) => Task.FromResult(false);
         public Task<UserAccount?> FindByEmailAsync(string email) => Task.FromResult<UserAccount?>(null);
         public Task<UserAccount?> FindByIdAsync(string userId) => Task.FromResult<UserAccount?>(null);
-        public Task<CreateUserResult> CreateUserAsync(string email, string password, string? displayName) =>
+        public Task<CreateUserResult> CreateUserAsync(
+            string email, string password, string? displayName, bool consented = false) =>
             Task.FromResult(CreateUserResult.Success("x"));
+        public Task SetActiveHouseholdAsync(string userId, string? ownerId) => Task.CompletedTask;
         public Task<IReadOnlyList<string>> ChangePasswordAsync(string userId, string current, string next) =>
             Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
     }

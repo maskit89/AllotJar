@@ -19,9 +19,15 @@ function Bullet({ children }: { children: ReactNode }) {
 /** The first-run welcome. Auto-opens once; offers the tour or a clean skip. */
 export function WelcomeDialog() {
   const { startTour, dismissWelcome } = useOnboarding()
-  const { preferredCurrency } = useAuth()
+  const { preferredCurrency, households } = useAuth()
   const ref = useRef<HTMLDivElement>(null)
   useDialogA11y(ref, dismissWelcome)
+
+  // Someone who arrived via a household invite is looking at a budget that already exists —
+  // greet them as a member joining it, not as an owner about to set one up.
+  const activeHousehold = households.find((h) => h.isActive)
+  const joined = activeHousehold ? !activeHousehold.isOwn : false
+  const noun = currencyNoun(preferredCurrency)
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -49,16 +55,34 @@ export function WelcomeDialog() {
         <h2 id="zb-welcome-title" className="mt-4 text-2xl font-bold tracking-tight text-slate-900">
           Welcome to AllotJar
         </h2>
-        <p id="zb-welcome-body" className="mt-2 text-sm leading-relaxed text-slate-600">
-          AllotJar is a <strong>zero-based</strong> budget — every month you give{' '}
-          <strong>every {currencyNoun(preferredCurrency)} a job</strong> before you spend it. Setting up
-          your first month takes a few minutes. Want a quick 60-second tour to see how it fits together?
-        </p>
+        {joined ? (
+          <p id="zb-welcome-body" className="mt-2 text-sm leading-relaxed text-slate-600">
+            You’ve joined a shared household budget. AllotJar is <strong>zero-based</strong> — the
+            household gives <strong>every {noun} a job</strong> before spending it, and you’re now part
+            of that plan. Want a quick 60-second tour to see how it fits together?
+          </p>
+        ) : (
+          <p id="zb-welcome-body" className="mt-2 text-sm leading-relaxed text-slate-600">
+            AllotJar is a <strong>zero-based</strong> budget — every month you give{' '}
+            <strong>every {noun} a job</strong> before you spend it. Setting up your first month takes a
+            few minutes. Want a quick 60-second tour to see how it fits together?
+          </p>
+        )}
 
         <ul className="mt-4 space-y-1.5 text-sm text-slate-600">
-          <Bullet>Plan a month and assign your income</Bullet>
-          <Bullet>Track real spending against each line</Bullet>
-          <Bullet>Save toward goals with jars</Bullet>
+          {joined ? (
+            <>
+              <Bullet>See the month’s plan and where money goes</Bullet>
+              <Bullet>Record spending as it happens</Bullet>
+              <Bullet>Watch jars fill toward shared goals</Bullet>
+            </>
+          ) : (
+            <>
+              <Bullet>Plan a month and assign your income</Bullet>
+              <Bullet>Track real spending against each line</Bullet>
+              <Bullet>Save toward goals with jars</Bullet>
+            </>
+          )}
         </ul>
 
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

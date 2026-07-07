@@ -8,6 +8,7 @@ import { ThemeToggle } from '../components/ThemeToggle'
 import { Button, Card, Input, SegmentedControl, Select } from '../components/ui'
 import { CURRENCY_OPTIONS, NUMBER_FORMAT_OPTIONS, currencyNoun, detectLocaleDefaults } from '../lib/money'
 import { IS_BETA } from '../lib/env'
+import { safeInternalPath } from '../lib/returnUrl'
 import { EVENTS, track } from '../analytics'
 
 export function LoginPage() {
@@ -20,6 +21,8 @@ export function LoginPage() {
   const [mode, setMode] = useState<'login' | 'register'>(
     searchParams.has('register') ? 'register' : 'login',
   )
+  // Where to go after signing in (e.g. back to an invite link) — internal paths only.
+  const returnUrl = safeInternalPath(searchParams.get('returnUrl'))
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [firstName, setFirstName] = useState('')
@@ -59,7 +62,7 @@ export function LoginPage() {
         })
       }
       track(mode === 'login' ? EVENTS.login : EVENTS.signUp, { method: 'password' })
-      navigate('/', { replace: true })
+      navigate(returnUrl ?? '/', { replace: true })
     } catch (err) {
       track(EVENTS.loginFailed, { method: 'password' })
       if (axios.isAxiosError(err)) {

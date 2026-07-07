@@ -56,9 +56,14 @@ public class AcceptInviteCommandHandler : IRequestHandler<AcceptInviteCommand, A
             }
 
             membership.UserId = userId;
-            Activate(membership, me.DisplayName ?? request.DisplayName);
+            var joinedName = me.DisplayName ?? request.DisplayName;
+            Activate(membership, joinedName);
             await _db.SaveChangesAsync(cancellationToken);
-            return new AcceptInviteResult(userId, me.Email, membership.Role);
+
+            // Land the accepter in the household they just joined — otherwise the app resolves
+            // back to their own budget and the join looks like it did nothing.
+            await _identity.SetActiveHouseholdAsync(userId, membership.OwnerId);
+            return new AcceptInviteResult(userId, me.Email, membership.Role, joinedName);
         }
 
         // Path B — anonymous accept. An existing account must sign in first (then accept as Path A).
@@ -72,8 +77,16 @@ public class AcceptInviteCommandHandler : IRequestHandler<AcceptInviteCommand, A
             throw Invalid("Password", "Choose a password of at least 8 characters.");
         }
 
+        // A new login is being created for the invitee, so they must accept the terms themselves —
+        // registration requires the same. (A signed-in accepter consented when they registered.)
+        if (!request.AcceptedTerms)
+        {
+            throw Invalid("AcceptedTerms", "Please accept the terms and privacy policy to create your login.");
+        }
+
         var displayName = request.DisplayName ?? membership.DisplayName;
-        var created = await _identity.CreateUserAsync(membership.InvitedEmail, request.Password, displayName);
+        var created = await _identity.CreateUserAsync(
+            membership.InvitedEmail, request.Password, displayName, consented: true);
         if (!created.Succeeded)
         {
             throw new ValidationException(new Dictionary<string, string[]> { ["Password"] = created.Errors.ToArray() });
@@ -82,7 +95,11 @@ public class AcceptInviteCommandHandler : IRequestHandler<AcceptInviteCommand, A
         membership.UserId = created.UserId;
         Activate(membership, displayName);
         await _db.SaveChangesAsync(cancellationToken);
-        return new AcceptInviteResult(created.UserId!, membership.InvitedEmail, membership.Role);
+
+        // Their only household is the one they just joined; make that explicit so it stays their
+        // landing household even if they later start a budget of their own.
+        await _identity.SetActiveHouseholdAsync(created.UserId!, membership.OwnerId);
+        return new AcceptInviteResult(created.UserId!, membership.InvitedEmail, membership.Role, displayName);
     }
 
     private static void Activate(HouseholdMembership membership, string? displayName)
