@@ -17,7 +17,7 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.8")
+                .HasAnnotation("ProductVersion", "10.0.9")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -500,7 +500,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TransferAccountId");
 
-                    b.HasIndex("OwnerId", "BankReference");
+                    b.HasIndex("OwnerId", "BankReference")
+                        .IsUnique()
+                        .HasFilter("[BankReference] IS NOT NULL");
 
                     b.ToTable("Transactions", (string)null);
                 });

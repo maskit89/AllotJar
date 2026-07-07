@@ -52,13 +52,31 @@ const DETECTED_FORMAT_LABELS: Record<string, string> = {
   Camt053: 'a CAMT.053 statement',
 }
 
-/** Date-format presets for the generic-CSV mapping (value is the .NET format, or '' = auto-detect). */
+/**
+ * Date-format presets for the generic-CSV mapping (value is the .NET format, or '' = auto-detect).
+ * Mirrors the server's GenericCsvImporter.DateFormats: after an auto-detect scan the server pins
+ * the format it actually applied into the echoed mapping, and the select must be able to SHOW
+ * whichever one that was — an unrepresentable value would render as a blank selection.
+ */
 const DATE_FORMAT_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'Auto-detect' },
   { value: 'yyyy-MM-dd', label: 'YYYY-MM-DD' },
+  { value: 'yyyy/MM/dd', label: 'YYYY/MM/DD' },
   { value: 'dd/MM/yyyy', label: 'DD/MM/YYYY' },
   { value: 'MM/dd/yyyy', label: 'MM/DD/YYYY' },
   { value: 'dd.MM.yyyy', label: 'DD.MM.YYYY' },
+  { value: 'd/M/yyyy', label: 'D/M/YYYY' },
+  { value: 'M/d/yyyy', label: 'M/D/YYYY' },
+  { value: 'dd-MM-yyyy', label: 'DD-MM-YYYY' },
+  { value: 'yyyyMMdd', label: 'YYYYMMDD' },
+  { value: 'dd MMM yyyy', label: 'DD MON YYYY' },
+  { value: 'MMM d, yyyy', label: 'MON D, YYYY' },
+  { value: 'dd/MM/yy', label: 'DD/MM/YY' },
+  { value: 'MM/dd/yy', label: 'MM/DD/YY' },
+  { value: 'd/M/yy', label: 'D/M/YY' },
+  { value: 'M/d/yy', label: 'M/D/YY' },
+  { value: 'dd.MM.yy', label: 'DD.MM.YY' },
+  { value: 'dd-MM-yy', label: 'DD-MM-YY' },
 ]
 
 interface SplitDraft {

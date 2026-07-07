@@ -22,10 +22,14 @@ public sealed partial class GenericCsvImporter : ICsvImporter
 
     // Tried in order when a row's date format isn't pinned. ISO first; dd/MM before MM/dd (the app's
     // European roots) — an ambiguous "03/04/2026" is why the UI also offers an explicit format.
+    // Two-digit-year variants sit AFTER their four-digit peers: TryParseExact is length-strict, so
+    // they can never steal a match from a four-digit file — they only rescue "12/03/26"-style exports
+    // that previously failed the whole file.
     private static readonly string[] DateFormats =
     {
         "yyyy-MM-dd", "yyyy/MM/dd", "dd/MM/yyyy", "MM/dd/yyyy", "dd.MM.yyyy",
         "d/M/yyyy", "M/d/yyyy", "dd-MM-yyyy", "yyyyMMdd", "dd MMM yyyy", "MMM d, yyyy",
+        "dd/MM/yy", "MM/dd/yy", "d/M/yy", "M/d/yy", "dd.MM.yy", "dd-MM-yy",
     };
 
     [GeneratedRegex(@"^[A-Za-z]{3}$", RegexOptions.CultureInvariant)]
@@ -131,7 +135,9 @@ public sealed partial class GenericCsvImporter : ICsvImporter
                 "No transactions were found — check that the date and amount columns are mapped correctly.");
         }
 
-        return new ParsedStatement(Iban: null, Entries: entries);
+        // Echo the format that was actually applied, so the UI can show it and pin it for
+        // re-scans/re-imports — auto-detection is file-relative and must not stay invisible.
+        return new ParsedStatement(Iban: null, Entries: entries, ResolvedDateFormat: dateFormat);
     }
 
     // --- Detection helpers ---------------------------------------------------
@@ -249,8 +255,11 @@ public sealed partial class GenericCsvImporter : ICsvImporter
 
     private static List<string> NonEmptyLines(string content) =>
         (content ?? string.Empty)
-            .Split('\n')
-            .Select(l => l.TrimEnd('\r'))
+            // A UTF-8 BOM that survived decoding would corrupt the first cell (and its reference).
+            .TrimStart('\uFEFF')
+            // Split on BOTH \n and \r: handles CRLF (the empties are filtered), LF, and the rare
+            // bare-CR (classic Mac) export that would otherwise collapse into one giant line.
+            .Split('\n', '\r')
             .Where(l => l.Trim().Length > 0)
             .ToList();
 
@@ -309,8 +318,18 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         }
 
         var t = cleaned.ToString();
+        // Sign may lead ("-35.00") or trail ("35.00-", the SAP/DATEV convention some EU banks use).
         var signNegative = t.StartsWith('-');
         t = t.TrimStart('+', '-');
+        if (t.EndsWith('-'))
+        {
+            signNegative = true;
+            t = t.TrimEnd('-');
+        }
+        else
+        {
+            t = t.TrimEnd('+');
+        }
         if (t.Length == 0 || t.IndexOfAny(new[] { '+', '-' }) >= 0) return false; // a stray inner sign is not a number
 
         var normalized = style switch

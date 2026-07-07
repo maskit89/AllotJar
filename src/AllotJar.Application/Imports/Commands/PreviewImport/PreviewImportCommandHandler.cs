@@ -62,6 +62,13 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
                 var defaultCurrency = request.Mapping?.DefaultCurrency ?? request.DefaultCurrency;
                 var mapping = (request.Mapping ?? detected.Suggested) with { DefaultCurrency = defaultCurrency };
                 statement = _csv.Parse(request.Content, mapping);
+                // Pin the date format that was ACTUALLY applied into the echoed mapping. Auto-detection
+                // is file-relative (an overlapping re-export can resolve ambiguous dates differently),
+                // so the UI must be able to show it — and re-scans/re-imports should reuse it.
+                if (mapping.DateFormat is null && statement.ResolvedDateFormat is not null)
+                {
+                    mapping = mapping with { DateFormat = statement.ResolvedDateFormat };
+                }
                 layout = detected with { Suggested = mapping };
             }
         }

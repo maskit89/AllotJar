@@ -51,9 +51,8 @@ public partial class HsbcCsvStatementParser : IStatementParser
         }
 
         int dataRows = 0, detailRows = 0;
-        foreach (var rawLine in content.Split('\n'))
+        foreach (var line in SplitLines(content))
         {
-            var line = rawLine.TrimEnd('\r');
             if (line.Length == 0)
             {
                 continue;
@@ -93,9 +92,8 @@ public partial class HsbcCsvStatementParser : IStatementParser
         // Per-signature occurrence counter, so the Nth identical row gets a distinct reference.
         var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
 
-        foreach (var rawLine in content.Split('\n'))
+        foreach (var line in SplitLines(content))
         {
-            var line = rawLine.TrimEnd('\r');
             if (line.Length == 0)
             {
                 continue;
@@ -110,14 +108,36 @@ public partial class HsbcCsvStatementParser : IStatementParser
             }
 
             var details = fields[1].Trim();
+            // Column 3 first — the shape every previously-imported row parsed with, so its
+            // signature (and idempotency reference) must never change. Only when it is unusable:
             if (!TryParseSignedAmount(fields[2], out var signedAmount))
             {
-                // Fall back to the amount embedded in Details if column 3 is unusable.
-                var inlineMatch = DetailsPattern().Match(details);
-                if (!inlineMatch.Success || !TryParseSignedAmount(inlineMatch.Groups["amt"].Value, out signedAmount))
+                if (fields.Count > 3 && TryParseSignedAmount(fields[^1], out var wideAmount))
                 {
-                    continue; // no amount we can trust — not a transaction we can import
+                    // HSBC only quotes fields containing thousands separators, so an unquoted
+                    // comma inside the merchant text ("PAYPAL *TEMU, INC …") splits Details
+                    // apart. When the LAST field parses as the amount, stitch the middle back
+                    // together instead of dropping the row.
+                    details = string.Join(",", fields.Skip(1).Take(fields.Count - 2)).Trim();
+                    signedAmount = wideAmount;
                 }
+                else
+                {
+                    // Fall back to the amount embedded in Details if column 3 is unusable.
+                    var inlineMatch = DetailsPattern().Match(details);
+                    if (!inlineMatch.Success || !TryParseSignedAmount(inlineMatch.Groups["amt"].Value, out signedAmount))
+                    {
+                        continue; // no amount we can trust — not a transaction we can import
+                    }
+                }
+            }
+
+            if (signedAmount == 0m)
+            {
+                // A 0.00 row (fee reversal, informational marker) can never become a transaction —
+                // the app rejects zero amounts everywhere — so skip it here rather than letting it
+                // fail the whole commit later. The generic importer does the same.
+                continue;
             }
 
             var (description, purchaseDate, last4, currency) = ParseDetails(details, postingDate);
@@ -200,6 +220,13 @@ public partial class HsbcCsvStatementParser : IStatementParser
 
     private static bool TryParseSignedAmount(string value, out decimal amount) =>
         decimal.TryParse(value.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out amount);
+
+    /// <summary>
+    /// Statement lines with the leading BOM stripped, split on both \n and \r so CRLF, LF and
+    /// bare-CR files all yield rows (the empties between a CRLF pair are skipped by callers).
+    /// </summary>
+    private static string[] SplitLines(string content) =>
+        content.TrimStart('\uFEFF').Split('\n', '\r');
 
     /// <summary>
     /// Minimal RFC-4180 line splitter: most rows are plain, but rows with thousands separators are
