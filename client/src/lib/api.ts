@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { CommitImportItem, CsvMapping, ImportPreviewResult, ImportStatementResult } from '../types'
+import type { AuthResponse, CommitImportItem, CsvMapping, ImportPreviewResult, ImportStatementResult } from '../types'
 // Import the leaf modules directly (not the analytics barrel) to avoid an import cycle:
 // the barrel pulls in the provider, which depends back on this api module.
 import { track } from '../analytics/analytics'
@@ -42,27 +42,38 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Single-flight refresh: many requests may 401 at once when the access token expires; they all wait
-// on one /auth/refresh call rather than stampeding it.
-let refreshing: Promise<string | null> | null = null
-function refreshAccessToken(): Promise<string | null> {
-  if (!refreshing) {
-    refreshing = api
-      .post<{ token?: string }>('/auth/refresh')
+// Single-flight session refresh, shared by the 401 interceptor below and the AuthContext cold-load
+// bootstrap. Several callers can want to refresh at once: a burst of requests 401 together when the
+// access token expires, and — critically — React StrictMode double-invokes the bootstrap effect in
+// dev, firing it twice on a cold load. Each /auth/refresh rotates the HttpOnly refresh cookie, so a
+// second concurrent call would present the just-rotated token and trip the server's reuse detection,
+// which burns EVERY refresh token (random dev/e2e sign-outs). One shared in-flight promise means the
+// cookie is presented and rotated exactly once no matter how many callers race.
+let sessionRefresh: Promise<AuthResponse | null> | null = null
+
+/**
+ * Restore the session from the HttpOnly refresh cookie, storing the new in-memory access token.
+ * Concurrent callers share a single in-flight /auth/refresh POST. Resolves to the auth payload, or
+ * null if the session can't be refreshed (cookie missing/expired/revoked).
+ */
+export function refreshSession(): Promise<AuthResponse | null> {
+  if (!sessionRefresh) {
+    sessionRefresh = api
+      .post<AuthResponse>('/auth/refresh')
       .then((res) => {
-        const token = res?.data?.token ?? null
-        setToken(token)
-        return token
+        const data = res?.data?.token ? res.data : null
+        setToken(data?.token ?? null)
+        return data
       })
       .catch(() => {
         setToken(null)
         return null
       })
       .finally(() => {
-        refreshing = null
+        sessionRefresh = null
       })
   }
-  return refreshing
+  return sessionRefresh
 }
 
 // On a 401 from a normal API call, transparently refresh the access token (via the HttpOnly cookie)
@@ -78,10 +89,10 @@ api.interceptors.response.use(
 
     if (status === 401 && original && !original.__retried && !isAuthEndpoint) {
       original.__retried = true
-      const token = await refreshAccessToken()
-      if (token) {
+      const session = await refreshSession()
+      if (session?.token) {
         original.headers = original.headers ?? {}
-        original.headers.Authorization = `Bearer ${token}`
+        original.headers.Authorization = `Bearer ${session.token}`
         return api(original)
       }
       // Refresh failed — the session is genuinely over.

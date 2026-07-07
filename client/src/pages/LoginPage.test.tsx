@@ -13,6 +13,8 @@ vi.mock('../lib/api', () => ({
   api: { get: mockGet, post: mockPost },
   getToken: () => null,
   setToken: vi.fn(),
+  // Signed-out cold-load bootstrap: no cookie session to restore, so the sign-in form renders.
+  refreshSession: () => Promise.resolve(null),
 }))
 
 // Build-time env flag — default off so the existing single-checkbox tests are unaffected.

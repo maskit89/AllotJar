@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { api, getToken, setToken } from '../lib/api'
+import { api, getToken, setToken, refreshSession } from '../lib/api'
 import { setMoneyFormat, DEFAULT_CURRENCY_CODE, DEFAULT_FORMAT_KEY } from '../lib/money'
 import { HouseholdRole, type AuthResponse, type HouseholdSummary, type MeResponse, type PreferencesResponse } from '../types'
 
@@ -106,21 +106,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Cold load: the access token lives in memory, so it's gone after a refresh — but the HttpOnly
   // refresh cookie may still be valid. Try once to restore the session before showing sign-in.
+  // Uses the shared single-flight refreshSession() (lib/api.ts) rather than POSTing directly: React
+  // StrictMode double-invokes this effect in dev, and two /auth/refresh calls racing the same cookie
+  // would trip server-side reuse detection and burn every refresh token. Single-flight ⇒ one POST.
   useEffect(() => {
     if (getToken()) {
       setBootstrapping(false)
       return
     }
     let cancelled = false
-    const request = api.post<AuthResponse>('/auth/refresh')
-    // Guard against a non-promise (e.g. an incomplete test mock) so the provider never throws.
-    if (!request || typeof request.then !== 'function') {
-      setBootstrapping(false)
-      return
-    }
-    request
-      .then((res) => {
-        if (!cancelled && res?.data?.token) apply(res.data)
+    // refreshSession() never rejects (it swallows request errors); .catch only guards an apply() throw.
+    refreshSession()
+      .then((data) => {
+        if (!cancelled && data?.token) apply(data)
       })
       .catch(() => {})
       .finally(() => {
