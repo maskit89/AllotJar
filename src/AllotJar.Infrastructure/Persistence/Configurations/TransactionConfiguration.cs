@@ -65,7 +65,13 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         builder.HasIndex(t => t.OwnerId);
         builder.HasIndex(t => t.MemberId);
 
-        // Speeds up the dedup lookup on re-import.
-        builder.HasIndex(t => new { t.OwnerId, t.BankReference });
+        // The dedup BACKSTOP, not just a lookup accelerator: the import handlers skip references
+        // they've already seen, but that check is per-request memory — two overlapping commits
+        // (double-click, two devices, two household logins) would each pass it and double-insert.
+        // Unique-filtered, the database refuses the second insert and the commit handler recovers
+        // by skipping the collided rows. Manual transactions (no reference) are exempt.
+        builder.HasIndex(t => new { t.OwnerId, t.BankReference })
+            .IsUnique()
+            .HasFilter("[BankReference] IS NOT NULL");
     }
 }

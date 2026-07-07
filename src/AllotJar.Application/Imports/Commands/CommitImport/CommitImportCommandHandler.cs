@@ -164,7 +164,59 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         if (created.Count > 0)
         {
             await FxRateResolver.ApplyAsync(_db, _exchangeRates, userId, created, cancellationToken);
-            await _db.SaveChangesAsync(cancellationToken);
+
+            // The dedup snapshot above is per-request memory; a CONCURRENT commit (double-click,
+            // second device, another login in the household) can insert the same references after
+            // we read it. The unique (OwnerId, BankReference) index turns that race into a
+            // DbUpdateException here — recover by dropping the collided rows and saving the rest.
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    await _db.SaveChangesAsync(cancellationToken);
+                    break;
+                }
+                catch (DbUpdateException ex) when (attempt < 3 && IsReferenceCollision(ex))
+                {
+                    var refs = created
+                        .Where(t => t.BankReference != null)
+                        .Select(t => t.BankReference!)
+                        .ToList();
+                    var taken = await _db.Transactions
+                        .AsNoTracking()
+                        .Where(t => t.OwnerId == userId && t.BankReference != null && refs.Contains(t.BankReference))
+                        .Select(t => t.BankReference!)
+                        .ToListAsync(cancellationToken);
+                    // Case-insensitive: the DB index compares with the column's CI collation, so a
+                    // case-variant reference blocks the insert — the recovery match must agree or
+                    // it would rethrow instead of skipping.
+                    var takenSet = new HashSet<string>(taken, StringComparer.OrdinalIgnoreCase);
+
+                    var collided = created
+                        .Where(t => t.BankReference is string r && takenSet.Contains(r))
+                        .ToList();
+                    if (collided.Count == 0)
+                    {
+                        throw; // not actually our collision — surface the real error
+                    }
+
+                    foreach (var row in collided)
+                    {
+                        _db.Transactions.Remove(row); // an Added entity: Remove detaches it
+                        created.Remove(row);
+                        imported--;
+                        skipped++;
+                        if (row.Type == TransactionType.Transfer) transfers--;
+                        else if (row.Type == TransactionType.Income) credits--;
+                        else debits--;
+                    }
+
+                    if (created.Count == 0)
+                    {
+                        break; // everything we had was already imported by the other commit
+                    }
+                }
+            }
         }
 
         return new ImportStatementResult(
@@ -177,6 +229,13 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             AutoCategorized: 0,
             Transfers: transfers);
     }
+
+    /// <summary>
+    /// True when the save failed on the unique (OwnerId, BankReference) dedup index. Matched by
+    /// index name in the provider's message so the Application layer needs no SqlClient reference.
+    /// </summary>
+    private static bool IsReferenceCollision(DbUpdateException ex) =>
+        ex.InnerException?.Message.Contains("IX_Transactions_OwnerId_BankReference", StringComparison.Ordinal) == true;
 
     private async Task EnsureAccountOwnedAsync(Guid? accountId, string userId, CancellationToken ct)
     {
