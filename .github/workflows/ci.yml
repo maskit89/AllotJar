@@ -11,7 +11,7 @@ jobs:
     name: backend
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -51,7 +51,7 @@ jobs:
       # secret — it only ever reaches this ephemeral container. Encrypt=False skips TLS.
       INTEGRATION_TEST_CONNECTION: 'Server=localhost,1433;Database=AllotJar_IntegrationTests;User Id=sa;Password=AllotJar!Str0ngP4ss;TrustServerCertificate=True;Encrypt=False'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -76,7 +76,7 @@ jobs:
       run:
         working-directory: client
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -103,7 +103,7 @@ jobs:
       run:
         working-directory: client
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -130,7 +130,7 @@ jobs:
     name: security-scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
