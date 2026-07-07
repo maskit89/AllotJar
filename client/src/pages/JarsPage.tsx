@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AppShell } from '../components/AppShell'
-import { Button, Card, EmptyState, ErrorBanner, Input, Select } from '../components/ui'
+import { Badge, Button, Card, EmptyState, ErrorBanner, Input, Select } from '../components/ui'
 import { Hero } from '../components/Hero'
 import { Modal } from '../components/Modal'
 import { Jar } from '../components/Jar'
@@ -19,6 +19,7 @@ import {
 } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
 import { formatDate } from '../lib/dates'
+import { jarPaceLabel, jarStatusChip } from '../lib/jarStatus'
 
 const KIND_OPTIONS = Object.entries(JAR_KIND_LABELS).map(([value, label]) => ({ value: Number(value), label }))
 
@@ -404,7 +405,7 @@ export function JarsPage() {
                   className="w-full text-right tabular-nums"
                 />
                 {editingId && (
-                  <span className="text-[11px] font-normal text-slate-400">
+                  <span className="text-[11px] font-normal text-slate-500">
                     Before tracking began — the card shows the live total.
                   </span>
                 )}
@@ -465,7 +466,7 @@ export function JarsPage() {
                   ))}
                 </Select>
                 {accounts.length === 0 && (
-                  <span className="text-[11px] font-normal text-slate-400">
+                  <span className="text-[11px] font-normal text-slate-500">
                     Add accounts to earmark a jar&rsquo;s cash.
                   </span>
                 )}
@@ -535,7 +536,7 @@ function JarCard({
   const balanceMinor = fromAmount(jar.currentBalance)
   const targetMinor = fromAmount(jar.targetAmount)
   const pct = targetMinor > 0 ? Math.min(100, Math.max(0, Math.round((balanceMinor / targetMinor) * 100))) : 0
-  const monthlyMinor = fromAmount(jar.requiredMonthlyContribution)
+  const chip = jarStatusChip(jar.status)
 
   return (
     <Card className="flex gap-4 p-5">
@@ -543,11 +544,15 @@ function JarCard({
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-start justify-between gap-2">
           <h3 className="truncate text-[15px] font-semibold text-slate-900">{jar.name}</h3>
-          {targetMinor > 0 && (
-            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-600">
-              {pct}%
-            </span>
-          )}
+          <div className="flex shrink-0 items-center gap-1.5">
+            {chip && <Badge tone={chip.tone}>{chip.label}</Badge>}
+            {/* The % pill is redundant next to "Funded"; keep it for every other state. */}
+            {targetMinor > 0 && jar.status !== 'FullyFunded' && (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-600">
+                {pct}%
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="mt-1 flex items-baseline gap-1.5 tabular-nums">
@@ -569,7 +574,7 @@ function JarCard({
 
         <div className="mt-3 flex items-center justify-between gap-2">
           <span className="text-[12.5px] font-medium tabular-nums text-slate-500">
-            {monthlyMinor > 0 ? `+${formatMoney(monthlyMinor, currency)}/mo` : '—'}
+            {jarPaceLabel(jar, currency)}
           </span>
           {canManage && (
             <button
