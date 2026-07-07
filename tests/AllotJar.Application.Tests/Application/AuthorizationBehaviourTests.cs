@@ -39,7 +39,7 @@ public class AuthorizationBehaviourTests
     {
         var behaviour = new AuthorizationBehaviour<TRequest, string>(new RoleStub(role));
         var ran = false;
-        RequestHandlerDelegate<string> next = () => { ran = true; return Task.FromResult("ok"); };
+        RequestHandlerDelegate<string> next = _ => { ran = true; return Task.FromResult("ok"); };
         await behaviour.Handle(request, next, CancellationToken.None);
         return ran;
     }
@@ -48,7 +48,7 @@ public class AuthorizationBehaviourTests
         where TRequest : notnull
     {
         var behaviour = new AuthorizationBehaviour<TRequest, string>(new RoleStub(role));
-        RequestHandlerDelegate<string> next = () => Task.FromResult("ok");
+        RequestHandlerDelegate<string> next = _ => Task.FromResult("ok");
         return () => behaviour.Handle(request, next, CancellationToken.None);
     }
 
