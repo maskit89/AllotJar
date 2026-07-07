@@ -138,7 +138,9 @@ describe('ImportPage', () => {
     // Default format is the generic bank CSV; upload and go to review.
     await user.upload(await screen.findByLabelText('Statement file'), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
-    await screen.findByText('TESCO')
+    // "TESCO" now appears in both the sample-rows table and the review row, so key off the
+    // review row's unique include checkbox.
+    await screen.findByLabelText('Include TESCO on 2026-06-20')
 
     // First preview sent no mapping, just the home currency fallback.
     expect(mockPreview).toHaveBeenCalledWith(expect.any(File), 'GenericCsv', { defaultCurrency: 'EUR' })
@@ -147,10 +149,12 @@ describe('ImportPage', () => {
     expect(screen.getByRole('heading', { name: 'Column mapping' })).toBeInTheDocument()
     expect((screen.getByLabelText('Amount column') as HTMLSelectElement).value).toBe('2')
 
-    // Correct the description column, then re-scan — the confirmed mapping is sent.
+    // Editing a column marks the mapping dirty: the re-scan button becomes the primary
+    // "Apply changes" action and Import is blocked until the file is re-scanned.
     await user.selectOptions(screen.getByLabelText('Description column'), '3')
+    expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeDisabled()
     mockPreview.mockClear()
-    await user.click(screen.getByRole('button', { name: 'Re-scan with this mapping' }))
+    await user.click(screen.getByRole('button', { name: 'Apply changes & re-scan' }))
 
     await waitFor(() => expect(mockPreview).toHaveBeenCalled())
     const [, wire, opts] = mockPreview.mock.calls[0]
@@ -340,9 +344,80 @@ describe('ImportPage', () => {
 
     await user.upload(await screen.findByLabelText('Statement file'), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
-    await screen.findByText('TESCO')
+    await screen.findByLabelText('Include TESCO on 2026-06-20')
 
     expect(screen.queryByText(/recognised this file as/)).not.toBeInTheDocument()
+  })
+
+  it('shows real money sums (not counts) on the success screen', { timeout: 15000 }, async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await goToReview(user) // AUTOMARKET 35 (debit), WOLT 80.90 (debit) — both EUR
+    mockCommit.mockResolvedValue({ ...committed(), imported: 2, credits: 0, debits: 2 })
+
+    await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
+    await screen.findByText('Import complete')
+
+    // "Money out" is the summed amount, not the count "2".
+    const moneyOut = screen.getByText('Money out').closest('div')!
+    expect(moneyOut).toHaveTextContent('€115.90')
+    const moneyIn = screen.getByText('Money in').closest('div')!
+    expect(moneyIn).toHaveTextContent('€0.00')
+  })
+
+  it('blocks import until an edited mapping is re-scanned, keeping categorisation across the re-scan', { timeout: 15000 }, async () => {
+    const user = userEvent.setup()
+    mockPreview.mockResolvedValue(csvPreview())
+    renderPage()
+
+    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+    await screen.findByLabelText('Include TESCO on 2026-06-20')
+
+    // Categorise TESCO, then edit the mapping — import must block and warn until a re-scan.
+    await user.selectOptions(screen.getByLabelText('Category for TESCO on 2026-06-20'), 'bi1')
+    await user.selectOptions(screen.getByLabelText('Description column'), '3')
+    expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeDisabled()
+    expect(screen.getByText(/changed the column mapping/)).toBeInTheDocument()
+
+    // Re-scan returns the same rows (unchanged references) → the category is preserved and import unblocks.
+    mockPreview.mockResolvedValue(csvPreview())
+    await user.click(screen.getByRole('button', { name: 'Apply changes & re-scan' }))
+
+    await waitFor(() =>
+      expect((screen.getByLabelText('Category for TESCO on 2026-06-20') as HTMLSelectElement).value).toBe('bi1'),
+    )
+    expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeEnabled()
+  })
+
+  it('shows an all-caught-up message when every row was already imported', { timeout: 15000 }, async () => {
+    mockPreview.mockResolvedValue({ ...preview(), newCount: 0, skippedDuplicates: 3, items: [] })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+
+    expect(await screen.findByText('You’re all caught up')).toBeInTheDocument()
+    expect(screen.getByText(/all 3 were skipped as duplicates/)).toBeInTheDocument()
+    // No review grid / commit button — just the friendly summary + a way to start over.
+    expect(screen.queryByRole('button', { name: /Import \d+ transaction/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Import another file' })).toBeInTheDocument()
+  })
+
+  it('reports the date format it read for a generic CSV', { timeout: 15000 }, async () => {
+    // The server pins the resolved format into the echoed mapping (I1).
+    const pinned = csvPreview()
+    pinned.layout!.suggested.dateFormat = 'yyyy-MM-dd'
+    mockPreview.mockResolvedValue(pinned)
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+    await screen.findByLabelText('Include TESCO on 2026-06-20')
+
+    expect(screen.getByText(/We read your dates as/)).toHaveTextContent('YYYY-MM-DD')
   })
 
   it('shows the server error message when the preview fails', { timeout: 15000 }, async () => {

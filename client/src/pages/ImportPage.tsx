@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Fragment, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { Badge, Button, Card, ErrorBanner, Input, PageHeader, Select } from '../components/ui'
@@ -126,6 +126,29 @@ function resolveSuggestion(c: ImportCandidate, month: BudgetMonthDto | null): st
   return ''
 }
 
+/** The label for a .NET date format, for the "we read your dates as …" readout. */
+function dateFormatLabel(format: string | null | undefined): string | null {
+  if (!format) return null
+  return DATE_FORMAT_OPTIONS.find((o) => o.value === format)?.label ?? format
+}
+
+/**
+ * Sum the included rows matching <paramref name="predicate"/>, grouped by currency (a statement is
+ * usually single-currency, but mixed imports must still add up correctly rather than across
+ * currencies). Amounts are accumulated in minor units.
+ */
+function moneyByCurrency(
+  rows: ReviewRow[],
+  predicate: (r: ReviewRow) => boolean,
+): { currency: string; minor: number }[] {
+  const byCurrency = new Map<string, number>()
+  for (const r of rows) {
+    if (!r.include || !predicate(r)) continue
+    byCurrency.set(r.currency, (byCurrency.get(r.currency) ?? 0) + fromAmount(r.amount))
+  }
+  return [...byCurrency.entries()].map(([currency, minor]) => ({ currency, minor }))
+}
+
 /** Validity + remaining-to-allocate for a row's split (in minor units). */
 function splitInfo(row: ReviewRow): { valid: boolean; remainingMinor: number } {
   if (!row.splits) return { valid: true, remainingMinor: 0 }
@@ -173,6 +196,9 @@ export function ImportPage() {
   // Generic-CSV column mapping: the detected layout + the (editable) mapping applied to the preview.
   const [layout, setLayout] = useState<CsvLayout | null>(null)
   const [mapping, setMapping] = useState<CsvMapping | null>(null)
+  // The mapping that produced the CURRENT preview rows. Compared against `mapping` to tell when the
+  // user has edited the mapping but not re-scanned — so we never import a stale parse silently.
+  const [scannedMapping, setScannedMapping] = useState<CsvMapping | null>(null)
   const [splitOpen, setSplitOpen] = useState<string | null>(null)
   const [bulkMember, setBulkMember] = useState('')
   const [bulkCategory, setBulkCategory] = useState('')
@@ -201,6 +227,11 @@ export function ImportPage() {
   const expenseGroups = useMemo(() => buildItemOptions(month, TransactionType.Expense), [month])
   const includedCount = useMemo(() => rows.filter((r) => r.include).length, [rows])
   const possibleDuplicateCount = useMemo(() => rows.filter((r) => r.possibleDuplicate).length, [rows])
+  // The mapping has unsaved edits when it differs from the one that produced the current rows.
+  const mappingDirty = useMemo(
+    () => !!mapping && !!scannedMapping && JSON.stringify(mapping) !== JSON.stringify(scannedMapping),
+    [mapping, scannedMapping],
+  )
   const importAccount = accounts.find((a) => a.id === accountId) ?? null
   const otherAccounts = accounts.filter((a) => a.id !== accountId)
   // A transfer needs an import account plus another account to move to/from.
@@ -217,29 +248,39 @@ export function ImportPage() {
   )
 
   // Fold a preview result into the review state (shared by the first upload and CSV re-scans).
-  function applyPreview(data: ImportPreviewResult) {
+  // On a re-scan, `priorRows` carries the user's per-row work forward for any row whose identity
+  // (reference) is unchanged — the reference encodes date+amount+description, so a matching row is
+  // genuinely the same transaction and its category/split/transfer choices still apply.
+  function applyPreview(data: ImportPreviewResult, priorRows?: ReviewRow[]) {
     setPreview(data)
+    const prior = new Map((priorRows ?? []).map((r) => [r.reference, r]))
     setRows(
-      data.items.map((c) => ({
-        reference: c.reference,
-        date: c.date,
-        payee: c.payee,
-        amount: c.amount,
-        currency: c.currency,
-        isCredit: c.isCredit,
-        // Rows that look already-imported start unticked — the user opts them back in.
-        include: !c.possibleDuplicate,
-        budgetItemId: resolveSuggestion(c, month),
-        memberId: '',
-        splits: null,
-        likelyTransfer: c.likelyTransfer,
-        possibleDuplicate: c.possibleDuplicate ?? false,
-        isTransfer: false,
-        transferAccountId: '',
-      })),
+      data.items.map((c) => {
+        const kept = prior.get(c.reference)
+        return {
+          reference: c.reference,
+          date: c.date,
+          payee: c.payee,
+          amount: c.amount,
+          currency: c.currency,
+          isCredit: c.isCredit,
+          // Rows that look already-imported start unticked — the user opts them back in.
+          include: kept ? kept.include : !c.possibleDuplicate,
+          budgetItemId: kept ? kept.budgetItemId : resolveSuggestion(c, month),
+          memberId: kept ? kept.memberId : '',
+          splits: kept ? kept.splits : null,
+          likelyTransfer: c.likelyTransfer,
+          possibleDuplicate: c.possibleDuplicate ?? false,
+          isTransfer: kept ? kept.isTransfer : false,
+          transferAccountId: kept ? kept.transferAccountId : '',
+        }
+      }),
     )
     setLayout(data.layout ?? null)
-    if (data.layout) setMapping(data.layout.suggested)
+    if (data.layout) {
+      setMapping(data.layout.suggested)
+      setScannedMapping(data.layout.suggested)
+    }
     setSplitOpen(null)
   }
 
@@ -262,14 +303,16 @@ export function ImportPage() {
     }
   }
 
-  // Re-parse the same CSV with the user's corrected column mapping and refresh the preview rows.
+  // Re-parse the same CSV with the user's corrected column mapping and refresh the preview rows,
+  // carrying forward the categorisation the user has already done for rows that survive unchanged.
   async function reScanCsv() {
     if (!file || !mapping) return
     setBusy(true)
     setError(null)
     try {
+      const priorRows = rows
       const data = await previewImport(file, 'GenericCsv', { mapping, defaultCurrency: preferredCurrency })
-      applyPreview(data)
+      applyPreview(data, priorRows)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -380,7 +423,9 @@ export function ImportPage() {
         }
         return { ...base, budgetItemId: r.budgetItemId || null, memberId: r.memberId || null }
       })
-    if (items.length === 0) return
+    // Never commit a stale parse (the Import button is already disabled while dirty; this guards
+    // against any future path that reaches onCommit without that gate).
+    if (items.length === 0 || mappingDirty) return
     setBusy(true)
     setError(null)
     try {
@@ -401,6 +446,7 @@ export function ImportPage() {
     setRows([])
     setLayout(null)
     setMapping(null)
+    setScannedMapping(null)
     setSplitOpen(null)
     setResult(null)
     setError(null)
@@ -461,6 +507,10 @@ export function ImportPage() {
                 Statement file
               </label>
               <input
+                // Remount on format change so the browser clears the previously-chosen filename —
+                // otherwise the input still shows a file that setFile(null) has already dropped,
+                // leaving the submit button dead with no explanation.
+                key={format}
                 id="import-file"
                 type="file"
                 accept={FORMATS[format].accept}
@@ -495,7 +545,32 @@ export function ImportPage() {
         </Card>
       )}
 
-      {canWrite && phase === 'review' && preview && (
+      {/* Everything in the file was already imported — a success, not an empty grid to puzzle over. */}
+      {canWrite && phase === 'review' && preview && rows.length === 0 && (
+        <Card as="section" aria-labelledby="import-caughtup-heading" className="p-6">
+          <h2 id="import-caughtup-heading" className="text-lg font-semibold text-slate-900">
+            You’re all caught up
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Every transaction in this file is already in AllotJar
+            {preview.skippedDuplicates > 0
+              ? ` — all ${preview.skippedDuplicates} were skipped as duplicates.`
+              : '.'}{' '}
+            Nothing new to import.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Button onClick={reset}>Import another file</Button>
+            <Link
+              to="/transactions"
+              className="inline-flex items-center text-sm font-medium text-brand-700 hover:underline dark:text-brand-200"
+            >
+              View transactions →
+            </Link>
+          </div>
+        </Card>
+      )}
+
+      {canWrite && phase === 'review' && preview && rows.length > 0 && (
         <>
           <p className="text-sm text-slate-600">
             <span className="font-semibold text-slate-800">{preview.newCount}</span> new transaction
@@ -506,6 +581,12 @@ export function ImportPage() {
               ` — ${possibleDuplicateCount} possible duplicate${possibleDuplicateCount === 1 ? '' : 's'} unticked (tick to include)`}
             . Categorise them (split a row, or mark a transfer), untick any you don't want, then import.
           </p>
+          {possibleDuplicateCount > 0 && (
+            <p className="-mt-3 text-xs text-slate-500">
+              A row is flagged as a possible duplicate when an existing transaction has the same amount and a
+              similar payee within a few days — tick it to import anyway (e.g. two genuine identical purchases).
+            </p>
+          )}
           {format === 'generic' && preview.detectedFormat && DETECTED_FORMAT_LABELS[preview.detectedFormat] && (
             <p className="-mt-3 text-xs text-slate-500">
               We recognised this file as {DETECTED_FORMAT_LABELS[preview.detectedFormat]} and read it with the
@@ -533,8 +614,48 @@ export function ImportPage() {
                 </h2>
                 <p className="mt-0.5 text-xs text-slate-500">
                   We guessed how to read your file. If the preview below looks off, fix a column and re-scan.
+                  {mapping.dateFormat && (
+                    <>
+                      {' '}We read your dates as{' '}
+                      <span className="font-semibold text-slate-700">{dateFormatLabel(mapping.dateFormat)}</span>
+                      {' '}— change the date format below if that’s wrong.
+                    </>
+                  )}
                 </p>
               </div>
+
+              {/* The first few rows exactly as parsed, so the user can see which column is which.
+                  No dark: overrides — the slate scale is remapped for dark mode in index.css, so
+                  plain slate classes flip automatically (raising the number in a dark: variant would
+                  invert to a light, low-contrast colour — see the review table below). */}
+              {layout.sampleRows.length > 0 && (
+                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                  <table className="w-full text-left text-xs">
+                    <caption className="sr-only">Sample of the uploaded file</caption>
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500">
+                        {layout.columns.map((name, i) => (
+                          <th key={i} scope="col" className="whitespace-nowrap px-3 py-1.5 font-medium">
+                            {name}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {layout.sampleRows.map((row, ri) => (
+                        <tr key={ri}>
+                          {layout.columns.map((_, ci) => (
+                            <td key={ci} className="whitespace-nowrap px-3 py-1.5 tabular-nums text-slate-600">
+                              {row[ci] ?? ''}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <label className="grid gap-1 text-xs font-medium text-slate-500">
                   Date column
@@ -638,9 +759,34 @@ export function ImportPage() {
                   />
                   First row is a header
                 </label>
-                <Button type="button" variant="secondary" size="sm" onClick={reScanCsv} disabled={busy}>
-                  {busy ? 'Re-scanning…' : 'Re-scan with this mapping'}
+                <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                  Column separator
+                  <Select
+                    aria-label="Column separator"
+                    value={mapping.delimiter}
+                    onChange={(e) => setMapping((m) => (m ? { ...m, delimiter: e.target.value } : m))}
+                    className="w-32"
+                  >
+                    <option value=",">Comma ,</option>
+                    <option value=";">Semicolon ;</option>
+                    <option value={'\t'}>Tab</option>
+                    <option value="|">Pipe |</option>
+                  </Select>
+                </label>
+                <Button
+                  type="button"
+                  variant={mappingDirty ? 'primary' : 'secondary'}
+                  size="sm"
+                  onClick={reScanCsv}
+                  disabled={busy}
+                >
+                  {busy ? 'Re-scanning…' : mappingDirty ? 'Apply changes & re-scan' : 'Re-scan with this mapping'}
                 </Button>
+                {mappingDirty && !busy && (
+                  <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                    Re-scan to apply your changes before importing.
+                  </span>
+                )}
               </div>
             </Card>
           )}
@@ -995,9 +1141,15 @@ export function ImportPage() {
               Finish the highlighted rows first — splits must add up, and transfers need an account.
             </p>
           )}
+          {mappingDirty && (
+            <p className="text-sm text-amber-700 dark:text-amber-400">
+              You’ve changed the column mapping. Re-scan to apply it — otherwise the import would use the
+              previous reading of your file.
+            </p>
+          )}
 
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={onCommit} disabled={busy || includedCount === 0 || reviewIncomplete}>
+            <Button onClick={onCommit} disabled={busy || includedCount === 0 || reviewIncomplete || mappingDirty}>
               {busy ? 'Importing…' : `Import ${includedCount} transaction${includedCount === 1 ? '' : 's'}`}
             </Button>
             <Button variant="ghost" onClick={reset} disabled={busy}>
@@ -1016,13 +1168,25 @@ export function ImportPage() {
             {result.imported} transaction{result.imported === 1 ? '' : 's'} added
             {result.skippedDuplicates > 0 && `, ${result.skippedDuplicates} skipped`}.
           </p>
-          <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-            <Stat label="Imported" value={result.imported} />
-            <Stat label="Skipped" value={result.skippedDuplicates} />
-            <Stat label="Money in" value={result.credits} />
-            <Stat label="Money out" value={result.debits} />
-            <Stat label="Transfers" value={result.transfers} />
-          </dl>
+          {(() => {
+            // Money in/out are the actual sums of what was imported (the reviewed rows are still in
+            // state), not transaction counts. Transfers are internal moves, so they stay a count.
+            const moneyIn = moneyByCurrency(rows, (r) => !r.isTransfer && r.isCredit)
+            const moneyOut = moneyByCurrency(rows, (r) => !r.isTransfer && !r.isCredit)
+            const money = (groups: { currency: string; minor: number }[]) =>
+              groups.length === 0
+                ? formatMoney(0, preferredCurrency)
+                : groups.map((g) => formatMoney(g.minor, g.currency)).join(' + ')
+            return (
+              <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                <Stat label="Imported" value={result.imported} />
+                <Stat label="Skipped" value={result.skippedDuplicates} />
+                <Stat label="Money in" value={money(moneyIn)} />
+                <Stat label="Money out" value={money(moneyOut)} />
+                <Stat label="Transfers" value={result.transfers} />
+              </dl>
+            )
+          })()}
           <div className="mt-6">
             <Button onClick={reset}>Import another file</Button>
           </div>
@@ -1032,11 +1196,11 @@ export function ImportPage() {
   )
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="rounded-xl bg-slate-50 px-4 py-3">
       <dt className="text-xs font-medium text-slate-500">{label}</dt>
-      <dd className="mt-0.5 text-2xl font-bold tabular-nums text-slate-900">{value}</dd>
+      <dd className="mt-0.5 break-words text-2xl font-bold tabular-nums text-slate-900">{value}</dd>
     </div>
   )
 }
