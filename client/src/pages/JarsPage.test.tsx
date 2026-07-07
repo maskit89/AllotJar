@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, JarDto } from '../types'
@@ -29,7 +29,7 @@ function fund(over: Partial<JarDto> = {}): JarDto {
     coverStart: null,
     coverEnd: null,
     accrual: 0,
-    recurAnnually: true,
+    recurMonths: 12,
     openingBalance: 0,
     openingAsOf: null,
     fundingAccountId: null,
@@ -99,12 +99,21 @@ describe('JarsPage', () => {
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.type(dialog.getByLabelText('Jar name'), 'Vacation')
     await user.type(dialog.getByLabelText('Target amount'), '1200')
+    // A recurring jar needs its next due date before it can be added.
+    fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: '2027-06-01' } })
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(
         '/jars',
-        expect.objectContaining({ name: 'Vacation', targetAmount: 1200, kind: 0, accrual: 1 }),
+        expect.objectContaining({
+          name: 'Vacation',
+          targetAmount: 1200,
+          kind: 0,
+          accrual: 1,
+          targetDate: '2027-06-01',
+          recurMonths: 12,
+        }),
       ),
     )
     expect(await screen.findByText('Vacation', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -122,8 +131,67 @@ describe('JarsPage', () => {
     const type = dialog.getByLabelText('Jar type')
     expect(within(type).getByRole('option', { name: 'Recurring' })).toBeInTheDocument()
     expect(within(type).getByRole('option', { name: 'Goal' })).toBeInTheDocument()
-    // The renewal bit is now derived from Type, so the standalone checkbox is gone.
+    // The renewal bit is now derived from Type, so the standalone checkbox is gone —
+    // and so is the Accrual dropdown (new jars save by target date).
     expect(dialog.queryByLabelText('Renews each year')).not.toBeInTheDocument()
+    expect(dialog.queryByLabelText('Accrual method')).not.toBeInTheDocument()
+
+    // Recurring shows Next due + Repeats; Goal swaps to an optional target date.
+    expect(dialog.getByLabelText('Next due date')).toBeInTheDocument()
+    expect(dialog.getByLabelText('Repeat cycle')).toBeInTheDocument()
+    await user.selectOptions(dialog.getByLabelText('Jar type'), '1')
+    expect(dialog.queryByLabelText('Repeat cycle')).not.toBeInTheDocument()
+    expect(dialog.getByLabelText('Target date')).toBeInTheDocument()
+  })
+
+  it('previews the monthly set-aside as you type', { timeout: 15000 }, async () => {
+    fundsData = []
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'New jar' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+
+    await user.type(dialog.getByLabelText('Target amount'), '1200')
+    // No date yet: the remainder spreads over 12 months -> 100.00/mo.
+    expect(dialog.getByText(/100\.00/)).toBeInTheDocument()
+    expect(dialog.getByText(/remainder spreads over 12 months/)).toBeInTheDocument()
+  })
+
+  it('blocks a recurring jar without a due date, client-side', { timeout: 15000 }, async () => {
+    fundsData = []
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'New jar' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(dialog.getByLabelText('Jar name'), 'Road tax')
+    await user.type(dialog.getByLabelText('Target amount'), '150')
+    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
+
+    expect(await dialog.findByText('Give the recurring jar its next due date.')).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+  })
+
+  it('lets a legacy date-less recurring jar be edited without inventing a date', { timeout: 15000 }, async () => {
+    // Imported/legacy recurring jars can lack a date/target; the create-only guard
+    // must not block a plain rename on edit (would 400 the server too, pre-fix).
+    fundsData = [fund({ kind: 0, targetDate: null, targetAmount: 0, recurMonths: 12 })]
+    mockPut.mockResolvedValue({ data: fundsData[0] })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.clear(dialog.getByLabelText('Jar name'))
+    await user.type(dialog.getByLabelText('Jar name'), 'Living Costs')
+    await user.click(dialog.getByRole('button', { name: 'Save jar' }))
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/jars/f1', expect.objectContaining({ name: 'Living Costs' })))
+    expect(dialog.queryByText(/needs its next due date/)).not.toBeInTheDocument()
   })
 
   it('echoes the stored cover window and opening as-of when editing', { timeout: 15000 }, async () => {
@@ -181,7 +249,10 @@ describe('JarsPage', () => {
 
     await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    // Archiving takes two clicks: the first arms the button, the second acts.
     await user.click(dialog.getByRole('button', { name: 'Archive Home insurance' }))
+    expect(mockPut).not.toHaveBeenCalled()
+    await user.click(dialog.getByRole('button', { name: 'Confirm archive Home insurance' }))
 
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/jars/f1/archive', { archived: true }),

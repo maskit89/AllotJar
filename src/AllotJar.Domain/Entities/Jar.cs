@@ -41,11 +41,13 @@ public class Jar : BaseEntity
     public AccrualMethod Accrual { get; set; } = AccrualMethod.TargetByDate;
 
     /// <summary>
-    /// True when the jar renews each cycle rather than ending at its target. Derived from
-    /// <see cref="Kind"/> (Recurring ⇒ true, Goal ⇒ false) by the create/update handlers,
-    /// so it is never set independently of the jar's type.
+    /// A Recurring jar's cycle length in months: when its <see cref="TargetDate"/>
+    /// passes, the date rolls forward by this many months and the jar keeps saving
+    /// (see Services.JarAccrualCalculator.EffectiveTargetDate). Null for
+    /// <see cref="JarKind.Goal"/> jars, which end at their target instead of renewing —
+    /// the create/update handlers keep it in lockstep with <see cref="Kind"/>.
     /// </summary>
-    public bool RecurAnnually { get; set; }
+    public int? RecurMonths { get; set; }
 
     /// <summary>
     /// Progress already accumulated before tracked contributions begin — used to seed
@@ -80,6 +82,5 @@ public class Jar : BaseEntity
         Name = name,
         Kind = JarKind.Goal,
         Accrual = AccrualMethod.TargetByDate,
-        RecurAnnually = false,
     };
 }
