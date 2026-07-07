@@ -95,7 +95,7 @@ export function Select({ className = '', children, ...rest }: SelectHTMLAttribut
   )
 }
 
-type BadgeTone = 'neutral' | 'brand' | 'violet' | 'rose' | 'amber' | 'teal'
+export type BadgeTone = 'neutral' | 'brand' | 'violet' | 'rose' | 'amber' | 'teal'
 
 const BADGE_TONES: Record<BadgeTone, string> = {
   // neutral rides the inverted slate ramp, so it needs no `dark:` variant.

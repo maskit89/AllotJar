@@ -283,15 +283,18 @@ export const JAR_KIND_LABELS: Record<number, string> = {
   1: 'Goal',
 }
 
-// Matches Domain.Enums.AccrualMethod (serialized as a number).
+// Matches Domain.Enums.AccrualMethod (serialized as a number). The form no longer
+// offers a choice — new jars are TargetByDate and edits echo the stored method
+// (imported jars may be StraightLine/DailyRate) — but the wire field remains.
 export const AccrualMethod = { StraightLine: 0, TargetByDate: 1, ProportionalPool: 2, DailyRate: 3 } as const
 
-export const ACCRUAL_METHOD_LABELS: Record<number, string> = {
-  0: 'Straight line (÷ 12)',
-  1: 'By target date',
-  2: 'Proportional pool',
-  3: 'Daily rate',
-}
+/** A Recurring jar's cycle length choices for the "Repeats every" select. */
+export const RECUR_MONTHS_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
+  { value: 12, label: 'Yearly' },
+  { value: 6, label: 'Every 6 months' },
+  { value: 3, label: 'Every 3 months' },
+  { value: 1, label: 'Monthly' },
+]
 
 export interface JarDto {
   id: string
@@ -305,7 +308,8 @@ export interface JarDto {
   coverEnd: string | null
   /** Numeric AccrualMethod. */
   accrual: number
-  recurAnnually: boolean
+  /** A Recurring jar's cycle length in months (its date rolls forward by this); null for Goals. */
+  recurMonths: number | null
   openingBalance: number
   openingAsOf: string | null
   fundingAccountId: string | null

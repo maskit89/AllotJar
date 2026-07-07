@@ -37,8 +37,9 @@ public class CreateJarCommandHandler
             CoverStart = request.CoverStart,
             CoverEnd = request.CoverEnd,
             Accrual = request.Accrual,
-            // A jar's type IS its renewal bit: Recurring renews, Goal is one-and-done.
-            RecurAnnually = request.Kind == JarKind.Recurring,
+            // Recurring jars carry their cycle length (yearly unless told otherwise);
+            // Goals are one-and-done and never roll.
+            RecurMonths = request.Kind == JarKind.Recurring ? request.RecurMonths ?? 12 : null,
             OpeningBalance = request.OpeningBalance,
             OpeningAsOf = request.OpeningAsOf,
             FundingAccountId = request.FundingAccountId,

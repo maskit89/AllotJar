@@ -22,6 +22,7 @@ function fromIso(iso: string): Date | null {
 // Intl.DateTimeFormat construction isn't free; cache one per (locale, style).
 const shortFmt = new Map<string, Intl.DateTimeFormat>()
 const fullFmt = new Map<string, Intl.DateTimeFormat>()
+const monthYearFmt = new Map<string, Intl.DateTimeFormat>()
 
 /**
  * Compact register date in the browser locale — "Jun 20" (en-US), "20 Jun" (en-GB),
@@ -53,6 +54,23 @@ export function formatDate(iso: string): string {
   if (!fmt) {
     fmt = new Intl.DateTimeFormat(loc, { dateStyle: 'medium' })
     fullFmt.set(loc, fmt)
+  }
+  return fmt.format(d)
+}
+
+/**
+ * Month and year in the browser locale — "Nov 2026" (en), "Nov. 2026" (de). Used for
+ * forward-looking projections ("full by Nov 2026") where the day would be false
+ * precision. Returns the raw input unchanged if it isn't a parseable ISO date.
+ */
+export function monthYear(iso: string): string {
+  const d = fromIso(iso)
+  if (!d) return iso
+  const loc = dateLocale()
+  let fmt = monthYearFmt.get(loc)
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat(loc, { month: 'short', year: 'numeric' })
+    monthYearFmt.set(loc, fmt)
   }
   return fmt.format(d)
 }
