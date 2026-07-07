@@ -373,8 +373,8 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
 
-                    b.Property<bool>("RecurAnnually")
-                        .HasColumnType("bit");
+                    b.Property<int?>("RecurMonths")
+                        .HasColumnType("int");
 
                     b.Property<decimal>("TargetAmount")
                         .HasPrecision(18, 4)

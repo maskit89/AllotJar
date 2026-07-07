@@ -56,6 +56,9 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         // (ProportionalPool funds wait for the pool — allocation engine, a later slice —
         // and copy flat); and any jar without a line in the new month gets one appended,
         // so a jar created on the Jars page starts filling without a manual budget step.
+        // Recurrence is applied virtually per seed month by the calculator — the stored
+        // date is an anchor and never rewritten here, so seeding a month is deterministic
+        // regardless of creation order.
         var activeJars = (await _db.Jars
             .AsNoTracking()
             .Where(f => f.OwnerId == userId && !f.IsArchived)

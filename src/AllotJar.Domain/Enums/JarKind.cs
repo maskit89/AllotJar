@@ -2,10 +2,11 @@ namespace AllotJar.Domain.Enums;
 
 /// <summary>
 /// What a <see cref="Entities.Jar"/> is for — the single control that configures the
-/// jar's lifecycle. A <see cref="Recurring"/> jar refills every cycle (insurance, road
-/// tax, holiday, gifts); a <see cref="Goal"/> is saved toward once and then done
-/// (kitchen, sofa, wedding). <see cref="Entities.Jar.RecurAnnually"/> is derived from
-/// this (Recurring ⇒ renews, Goal ⇒ does not), so the two never disagree.
+/// jar's lifecycle. A <see cref="Recurring"/> jar saves toward a due date and repeats:
+/// when the date passes it re-arms to the next cycle (insurance, road tax, holiday).
+/// A <see cref="Goal"/> is saved toward once and then done (kitchen, sofa, wedding).
+/// The cycle length lives in <see cref="Entities.Jar.RecurMonths"/> (null for Goals);
+/// the roll itself is <see cref="Services.JarAccrualCalculator.EffectiveTargetDate"/>.
 /// </summary>
 public enum JarKind
 {
