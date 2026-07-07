@@ -28,6 +28,47 @@ jobs:
       - name: Test
         run: dotnet test AllotJar.slnx --no-build -c Release --verbosity normal
 
+  # The `backend` job runs on EF in-memory, which does NOT enforce foreign keys — that
+  # hid a production crash where BudgetItems.SavingsId (an enforced FK to Jars.Id) was
+  # written with a bare Guid.NewGuid() (fixed in #142). This job runs a handful of tests
+  # against a real SQL Server to cover the three crash paths: add a line to a Savings
+  # group, create a month from a starter template, and create a jar. The test project is
+  # deliberately outside AllotJar.slnx so the `backend` job (no database) never runs it.
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: 'AllotJar!Str0ngP4ss'
+        ports:
+          - 1433:1433
+    env:
+      # Throwaway CI database on the service container; the fixture applies the EF Core
+      # migrations to it once, then the tests exercise the SavingsId → Jars FK. Not a
+      # secret — it only ever reaches this ephemeral container. Encrypt=False skips TLS.
+      INTEGRATION_TEST_CONNECTION: 'Server=localhost,1433;Database=AllotJar_IntegrationTests;User Id=sa;Password=AllotJar!Str0ngP4ss;TrustServerCertificate=True;Encrypt=False'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore tests/AllotJar.IntegrationTests/AllotJar.IntegrationTests.csproj
+
+      - name: Build
+        run: dotnet build tests/AllotJar.IntegrationTests/AllotJar.IntegrationTests.csproj --no-restore -c Release
+
+      # The fixture waits for the mssql container to accept queries, applies the
+      # migrations once to one throwaway database, then runs the FK crash-path tests.
+      - name: Test
+        run: dotnet test tests/AllotJar.IntegrationTests/AllotJar.IntegrationTests.csproj --no-build -c Release --verbosity normal
+
   frontend:
     name: frontend
     runs-on: ubuntu-latest
