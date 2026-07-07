@@ -175,6 +175,25 @@ describe('JarsPage', () => {
     expect(mockPost).not.toHaveBeenCalled()
   })
 
+  it('lets a legacy date-less recurring jar be edited without inventing a date', { timeout: 15000 }, async () => {
+    // Imported/legacy recurring jars can lack a date/target; the create-only guard
+    // must not block a plain rename on edit (would 400 the server too, pre-fix).
+    fundsData = [fund({ kind: 0, targetDate: null, targetAmount: 0, recurMonths: 12 })]
+    mockPut.mockResolvedValue({ data: fundsData[0] })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.clear(dialog.getByLabelText('Jar name'))
+    await user.type(dialog.getByLabelText('Jar name'), 'Living Costs')
+    await user.click(dialog.getByRole('button', { name: 'Save jar' }))
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/jars/f1', expect.objectContaining({ name: 'Living Costs' })))
+    expect(dialog.queryByText(/needs its next due date/)).not.toBeInTheDocument()
+  })
+
   it('echoes the stored cover window and opening as-of when editing', { timeout: 15000 }, async () => {
     // The form doesn't surface these fields; an unrelated edit must not wipe them.
     fundsData = [

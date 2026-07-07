@@ -47,8 +47,9 @@ public static class JarMapping
     {
         var remaining = f.TargetAmount > 0m ? Math.Max(0m, f.TargetAmount - currentBalance) : 0m;
 
-        // Recurrence-adjusted: a Recurring jar's passed date has already rolled
-        // forward here, so "Behind" below can only ever describe a Goal.
+        // Recurrence-adjusted: a Recurring jar with a cycle re-arms to its next due
+        // date, so "Behind" below describes a Goal (or a date-less/cycle-less legacy
+        // jar that cannot roll), never a healthy recurring jar.
         var effectiveDue = JarAccrualCalculator.EffectiveTargetDate(f, asOf);
 
         string status;
@@ -86,9 +87,11 @@ public static class JarMapping
             Name = f.Name,
             Kind = f.Kind,
             TargetAmount = f.TargetAmount,
-            // The recurrence-adjusted date, so a Recurring jar never displays (or
-            // prefills an edit form with) a stale, already-passed cycle date.
-            TargetDate = effectiveDue,
+            // The stored anchor, not the rolled date — so an edit round-trips faithfully
+            // (prefill → PUT never silently advances the date), and switching a passed
+            // Recurring jar to a Goal keeps the real date rather than a rolled one it
+            // never chose. Recurrence is applied where it's needed (status, seeding).
+            TargetDate = f.TargetDate,
             CoverStart = f.CoverStart,
             CoverEnd = f.CoverEnd,
             Accrual = f.Accrual,

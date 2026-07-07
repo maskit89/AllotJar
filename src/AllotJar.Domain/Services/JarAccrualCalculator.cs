@@ -72,29 +72,35 @@ public static class JarAccrualCalculator
 
     /// <summary>
     /// The jar's target date with recurrence applied: a <see cref="JarKind.Recurring"/>
-    /// jar's date that has passed rolls forward by <see cref="Jar.RecurMonths"/> until
-    /// it is on or after <paramref name="asOf"/> — the jar re-arms each cycle instead
-    /// of going stale (a missed cycle simply spreads over the next one). Goal dates
-    /// never roll: a past-due Goal stays past-due and reads as Behind.
+    /// jar whose date has passed re-arms to the next cycle on or after
+    /// <paramref name="asOf"/> — a missed cycle simply spreads over the next one. This
+    /// is a pure view over the stored <see cref="Jar.TargetDate"/> (the anchor), never
+    /// persisted: each cycle is jumped from the anchor, so the day-of-month is preserved
+    /// (a 31st-of-the-month bill never drifts to the 28th the way compounding rolls do).
+    /// Goal dates never roll: a past-due Goal stays past-due and reads as Behind.
     /// </summary>
     public static DateOnly? EffectiveTargetDate(Jar jar, DateOnly asOf)
     {
-        if (jar.TargetDate is not { } due)
+        if (jar.TargetDate is not { } anchor)
         {
             return null;
         }
 
-        if (jar.Kind != JarKind.Recurring || jar.RecurMonths is not { } step || step < 1)
+        if (jar.Kind != JarKind.Recurring || jar.RecurMonths is not { } step || step < 1 || anchor >= asOf)
         {
-            return due;
+            return anchor;
         }
 
-        while (due < asOf)
+        // Closed-form: land near the boundary in one jump from the anchor, then nudge
+        // the ≤1 cycle the whole-month estimate can be short (it ignores day-of-month).
+        var cycles = MonthsBetween(anchor, asOf) / step;
+        var next = anchor.AddMonths(cycles * step);
+        while (next < asOf)
         {
-            due = due.AddMonths(step);
+            next = anchor.AddMonths(++cycles * step);
         }
 
-        return due;
+        return next;
     }
 
     /// <summary>(jarTarget ÷ Σ pooled targets) × the fixed monthly pool. Returns 0 if the pool total is non-positive.</summary>
