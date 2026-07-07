@@ -506,6 +506,8 @@ export interface MeResponse {
   preferredCurrency?: string
   numberFormat?: string
   households?: HouseholdSummary[]
+  /** True for invite-created logins that haven't accepted the terms yet (blocking consent prompt). */
+  needsConsent?: boolean
 }
 
 /** The login's current name + money-display preferences (GET via /auth/me, PUT /auth/preferences). */

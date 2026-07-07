@@ -1,6 +1,8 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useSearchParams } from 'react-router-dom'
 import type { JSX } from 'react'
+import { safeInternalPath } from './lib/returnUrl'
 import { useAuth } from './auth/AuthContext'
+import { ConsentModal } from './components/ConsentModal'
 import { useFeatures } from './features/FeatureContext'
 import { MonthProvider } from './features/MonthContext'
 import { LoginPage } from './pages/LoginPage'
@@ -40,8 +42,14 @@ function RequireAuth({ children }: { children: JSX.Element }) {
   return isAuthenticated ? children : <Navigate to="/login" replace />
 }
 
+/** An already-signed-in visit to /login honours ?returnUrl= (e.g. back to an invite link). */
+function AuthedLoginRedirect() {
+  const [params] = useSearchParams()
+  return <Navigate to={safeInternalPath(params.get('returnUrl')) ?? '/'} replace />
+}
+
 export default function App() {
-  const { isAuthenticated, bootstrapping } = useAuth()
+  const { isAuthenticated, bootstrapping, needsConsent } = useAuth()
   const features = useFeatures()
 
   return (
@@ -50,7 +58,7 @@ export default function App() {
         <Route
           path="/login"
           element={
-            bootstrapping ? <AuthSplash /> : isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />
+            bootstrapping ? <AuthSplash /> : isAuthenticated ? <AuthedLoginRedirect /> : <LoginPage />
           }
         />
         <Route path="/accept-invite" element={<AcceptInvitePage />} />
@@ -165,7 +173,10 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      {isAuthenticated && <Onboarding />}
+      {/* Onboarding waits for consent, so its focus-trapped welcome dialog can never sit
+          (keyboard-unreachable) underneath the blocking consent prompt. */}
+      {isAuthenticated && !needsConsent && <Onboarding />}
+      {isAuthenticated && <ConsentModal />}
     </MonthProvider>
   )
 }

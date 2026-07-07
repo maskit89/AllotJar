@@ -30,17 +30,22 @@ export function AcceptInvitePage() {
 
   const [displayName, setDisplayName] = useState('')
   const [password, setPassword] = useState('')
+  const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  // An existing account must sign in before accepting; bounce through /login and come back here.
+  const signInHref = `/login?returnUrl=${encodeURIComponent(`/accept-invite?code=${code}`)}`
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
     setBusy(true)
     try {
-      await acceptInvite(code, password, displayName || undefined)
+      await acceptInvite(code, password, displayName || undefined, acceptedTerms)
       track(EVENTS.inviteAccepted)
-      navigate('/', { replace: true })
+      // The server made the joined household active — land on its dashboard with a welcome note.
+      navigate('/?joined=1', { replace: true })
     } catch (err) {
       setError(extractError(err))
     } finally {
@@ -55,8 +60,9 @@ export function AcceptInvitePage() {
       // No password — the signed-in user joins with their existing login (backend matches by email).
       await api.post('/auth/accept-invite', { token: code })
       track(EVENTS.inviteAccepted)
-      // Full reload so /auth/me picks the new household up in the switcher.
-      window.location.assign('/people')
+      // Full reload so /auth/me picks up the joined household, which the server made active —
+      // the accepter lands in the budget they just joined, not back in their own.
+      window.location.assign('/?joined=1')
     } catch (err) {
       setError(extractError(err))
     } finally {
@@ -145,6 +151,37 @@ export function AcceptInvitePage() {
                     />
                   </div>
 
+                  <label className="flex items-start gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      required
+                      checked={acceptedTerms}
+                      onChange={(e) => setAcceptedTerms(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-slate-400 text-brand-600 focus:ring-2 focus:ring-brand-500/40"
+                    />
+                    <span>
+                      I agree to the{' '}
+                      <a
+                        href="/terms"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-brand-600 underline hover:text-brand-700 dark:text-brand-500"
+                      >
+                        Terms of Service
+                      </a>{' '}
+                      and{' '}
+                      <a
+                        href="/privacy"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-brand-600 underline hover:text-brand-700 dark:text-brand-500"
+                      >
+                        Privacy Policy
+                      </a>
+                      .
+                    </span>
+                  </label>
+
                   {error && (
                     <p role="alert" className="text-sm text-rose-600">
                       {error}
@@ -154,6 +191,17 @@ export function AcceptInvitePage() {
                   <Button type="submit" disabled={busy} className="w-full">
                     {busy ? 'Please wait…' : 'Accept invite'}
                   </Button>
+
+                  <p className="text-center text-sm text-slate-500">
+                    Already have an account?{' '}
+                    <button
+                      type="button"
+                      onClick={() => navigate(signInHref)}
+                      className="font-medium text-brand-600 underline hover:text-brand-700 dark:text-brand-500"
+                    >
+                      Sign in to accept
+                    </button>
+                  </p>
                 </form>
               )}
 

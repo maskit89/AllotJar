@@ -9,7 +9,6 @@ using AllotJar.Api.Contracts.Auth;
 using AllotJar.Application.Auth.Commands.Login;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.HouseholdAccess.Commands.AcceptInvite;
-using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Identity;
 using AllotJar.Infrastructure.Persistence;
@@ -100,25 +99,10 @@ public class AuthController : ControllerBase
             return BadRequest(new { errors = result.Errors.Select(e => e.Description) });
         }
 
-        // The new user owns their own household, and gets a starter budget to look at.
-        var now = DateTime.UtcNow;
-        _db.HouseholdMemberships.Add(new HouseholdMembership
-        {
-            OwnerId = user.Id,
-            UserId = user.Id,
-            Role = HouseholdRole.Owner,
-            Status = MembershipStatus.Active,
-            InvitedEmail = user.Email!,
-            DisplayName = user.DisplayName,
-            CreatedUtc = now,
-        });
-        await _db.SaveChangesAsync(ct);
-        await BudgetSeeder.SeedDefaultMonthAsync(_db, user.Id, now.Year, now.Month, ct);
-
+        // The new user owns their own household (Owner membership + starter budget + owner member).
         // The owner is themselves member #1, so a household is never "0 members": solo is a
         // household of one, shared is two or more.
-        await OwnerMemberSeeder.EnsureOwnerMemberAsync(
-            _db, user.Id, OwnerMemberSeeder.ResolveOwnerName(firstName, user.DisplayName, user.Email), ct);
+        await HouseholdBootstrap.EnsureOwnHouseholdAsync(_db, user, DateTime.UtcNow, ct);
 
         await IssueRefreshCookieAsync(user.Id, ct);
         return Ok(await BuildResponseAsync(user, ct));
@@ -164,13 +148,13 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> AcceptInvite(AcceptInviteRequest request, CancellationToken ct)
     {
         var result = await _mediator.Send(
-            new AcceptInviteCommand(request.Token, request.Password, request.DisplayName), ct);
+            new AcceptInviteCommand(request.Token, request.Password, request.DisplayName, request.AcceptedTerms), ct);
 
         var user = await _userManager.FindByIdAsync(result.UserId);
         var stamp = user is null ? null : await _userManager.GetSecurityStampAsync(user);
         var (token, expiresAt) = _tokenGenerator.Generate(result.UserId, result.Email, stamp);
         await IssueRefreshCookieAsync(result.UserId, ct);
-        return Ok(new AuthResponse(token, expiresAt, result.UserId, result.Email, result.Role, request.DisplayName));
+        return Ok(new AuthResponse(token, expiresAt, result.UserId, result.Email, result.Role, result.DisplayName));
     }
 
     /// <summary>Exchanges the refresh cookie for a fresh access token, rotating the cookie.</summary>
@@ -285,7 +269,44 @@ public class AuthController : ControllerBase
             user.LastName,
             ResolveCurrency(user.PreferredCurrency),
             ResolveNumberFormat(user.NumberFormat),
-            households));
+            households,
+            NeedsConsent: user.ConsentedUtc is null));
+    }
+
+    /// <summary>
+    /// Records the signed-in login's acceptance of the terms + privacy policy. Registration and
+    /// invite-link acceptance record consent up front; this covers logins created FOR someone
+    /// (owner-set temporary password), who consent on their first sign-in instead.
+    /// </summary>
+    [HttpPost("consent")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Consent()
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null)
+        {
+            return Unauthorized();
+        }
+
+        if (user.ConsentedUtc is null)
+        {
+            user.ConsentedUtc = DateTime.UtcNow;
+            var result = await _userManager.UpdateAsync(user);
+            if (!result.Succeeded)
+            {
+                return BadRequest(new { errors = result.Errors.Select(e => e.Description) });
+            }
+        }
+
+        return NoContent();
     }
 
     /// <summary>The households this login can act in (for the switcher), with the active one flagged.</summary>

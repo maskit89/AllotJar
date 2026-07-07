@@ -5,14 +5,16 @@ import tailwindcss from '@tailwindcss/vite'
 
 // During development the React app talks to the .NET API through this proxy,
 // so the browser only ever sees same-origin "/api/..." requests (no CORS,
-// no dev-certificate prompts). The target matches the API's http profile.
+// no dev-certificate prompts). The target matches the API's http profile by
+// default; override with API_PROXY_TARGET to point at a second API instance
+// (e.g. one on :5099) without touching this file.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5029',
+        target: process.env.API_PROXY_TARGET ?? 'http://localhost:5029',
         changeOrigin: true,
       },
     },

@@ -169,4 +169,38 @@ public class SavingsForeignKeyTests
         savings.Items.Single().SavingsId.Should().NotBeNull();
         await AssertEverySavingsLineHasItsJarAsync(owner, reloaded);
     }
+
+    // ---- Crash path 5: "start my own budget" runs the seeder for an existing login ----
+
+    [Fact]
+    public async Task HouseholdBootstrap_StartOwnBudget_SeedsSavingsGroupBackedByAJar()
+    {
+        var owner = NewOwner();
+        await using var db = _fixture.CreateContext();
+        var user = new AllotJar.Infrastructure.Identity.ApplicationUser
+        {
+            Id = owner,
+            UserName = $"{owner}@x.com",
+            Email = $"{owner}@x.com",
+            FirstName = "Sam",
+            DisplayName = "Sam Solo",
+        };
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+
+        var now = DateTime.UtcNow;
+        // Goes through BudgetSeeder → SavingsLines.AddBackingJar, the same enforced-FK write path.
+        var created = await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, now);
+
+        created.Should().BeTrue();
+        var reloaded = await LoadMonthGraphAsync(owner);
+        await AssertEverySavingsLineHasItsJarAsync(owner, reloaded);
+
+        await using var verify = _fixture.CreateContext();
+        (await verify.HouseholdMemberships.AsNoTracking()
+            .SingleAsync(m => m.OwnerId == owner && m.UserId == owner)).Role
+            .Should().Be(HouseholdRole.Owner);
+        (await verify.HouseholdMembers.AsNoTracking().CountAsync(m => m.OwnerId == owner))
+            .Should().Be(1);
+    }
 }
