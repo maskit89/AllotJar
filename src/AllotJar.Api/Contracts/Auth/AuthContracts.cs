@@ -76,3 +76,6 @@ public record HouseholdSummary(string OwnerId, string Label, HouseholdRole Role,
 
 /// <summary>Switches which household the login is acting in (must have access). <c>OwnerId</c> = the target household key.</summary>
 public record SwitchHouseholdRequest(string OwnerId);
+
+/// <summary>Leaves a household the login joined. <c>OwnerId</c> = the household to leave (not the caller's own).</summary>
+public record LeaveHouseholdRequest([Required] string OwnerId);

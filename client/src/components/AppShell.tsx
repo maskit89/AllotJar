@@ -168,14 +168,17 @@ export function AppShell({
       ? 'You have limited access — you can record transactions, mark bills paid and run allocation, but not change the budget structure or settings.'
       : null
 
-  // Accepting an invite lands here with ?joined=1: greet the member in their new household once.
-  // The param is stripped immediately so a refresh doesn't repeat the greeting.
-  const [justJoined, setJustJoined] = useState(
-    () => new URLSearchParams(window.location.search).has('joined'),
-  )
+  // A one-time greeting after a household change: ?joined=1 (accepted an invite) or ?started=1
+  // (started an own budget). The param is stripped immediately so a refresh doesn't repeat it.
+  const [greeting, setGreeting] = useState<'joined' | 'started' | null>(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.has('joined')) return 'joined'
+    if (params.has('started')) return 'started'
+    return null
+  })
   useEffect(() => {
-    if (justJoined) window.history.replaceState(null, '', window.location.pathname)
-  }, [justJoined])
+    if (greeting) window.history.replaceState(window.history.state, '', window.location.pathname)
+  }, [greeting])
 
   return (
     <div className="min-h-screen min-[900px]:flex">
@@ -229,18 +232,19 @@ export function AppShell({
           {title && <h1 className="sr-only">{title}</h1>}
           <TopBar />
 
-          {justJoined && (
+          {greeting && (
             <div
               role="status"
               className="flex items-start justify-between gap-3 rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
             >
               <span>
-                You’ve joined this household — you’re viewing its shared budget now. You can switch
-                households anytime from the account menu.
+                {greeting === 'joined'
+                  ? 'You’ve joined this household — you’re viewing its shared budget now. You can switch households anytime from the account menu.'
+                  : 'Your own budget is ready — you’re viewing it now. You can switch back to the shared household anytime from the account menu.'}
               </span>
               <button
                 type="button"
-                onClick={() => setJustJoined(false)}
+                onClick={() => setGreeting(null)}
                 aria-label="Dismiss"
                 className="shrink-0 rounded-md p-1 text-brand-700 transition hover:bg-brand-100 dark:text-brand-200"
               >

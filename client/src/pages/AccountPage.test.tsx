@@ -20,7 +20,27 @@ import { AccountPage } from './AccountPage'
 import { AuthProvider } from '../auth/AuthContext'
 import { HouseholdProvider } from '../features/HouseholdContext'
 
-const meData = { userId: 'u1', email: 'chris@x.com', displayName: 'Chris', role: 0, ownerId: 'u1', memberId: null }
+// An owner viewing their own household (the common case).
+const ownerMe = {
+  userId: 'u1',
+  email: 'chris@x.com',
+  displayName: 'Chris',
+  role: 0,
+  ownerId: 'u1',
+  memberId: null,
+  households: [{ ownerId: 'u1', label: 'Your household', role: 0, isActive: true, isOwn: true }],
+}
+
+// A member who only joined someone else's household (no own household of their own).
+const joinedMe = {
+  userId: 'u2',
+  email: 'liza@x.com',
+  displayName: 'Liza',
+  role: 2,
+  ownerId: 'owner-1',
+  memberId: null,
+  households: [{ ownerId: 'owner-1', label: 'Chris', role: 2, isActive: true, isOwn: false }],
+}
 
 function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
   return { id: 'm1', name: 'Chris', netMonthlyIncome: 6000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1, ...over }
@@ -28,6 +48,7 @@ function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
 
 // The Sharing card reads /members; everything else (/auth/me) returns the login.
 let membersData: HouseholdMemberDto[] = []
+let meData: typeof ownerMe = ownerMe
 
 function renderPage() {
   return render(
@@ -47,6 +68,7 @@ describe('AccountPage', () => {
     mockPost.mockReset()
     mockPut.mockReset()
     membersData = []
+    meData = ownerMe
     mockGet.mockImplementation((url: string) => {
       if (url === '/members') return Promise.resolve({ data: membersData })
       return Promise.resolve({ data: meData })
@@ -148,5 +170,43 @@ describe('AccountPage', () => {
     expect(await screen.findByText('Manage people →', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText(/shared between 2 people/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Share this budget' })).not.toBeInTheDocument()
+  })
+
+  it('does not offer to start an own budget or leave when you own the household', async () => {
+    meData = ownerMe
+
+    renderPage()
+
+    await screen.findByText('Account') // page rendered
+    expect(screen.queryByRole('button', { name: 'Start my own budget' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Leave household' })).not.toBeInTheDocument()
+  })
+
+  it('lets a member without an own budget start one', async () => {
+    meData = joinedMe
+    mockPost.mockResolvedValue({ data: null })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Start my own budget' }, { timeout: 5000 }))
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/households/start-own'))
+  })
+
+  it('lets a member leave a household they joined, after confirming', async () => {
+    meData = joinedMe
+    mockPost.mockResolvedValue({ data: null })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Leave household' }, { timeout: 5000 }))
+    // A confirm step guards the destructive action.
+    await user.click(screen.getByRole('button', { name: 'Yes, leave' }))
+
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/households/leave', { ownerId: 'owner-1' }),
+    )
   })
 })
