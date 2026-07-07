@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using AllotJar.Api.Features;
 using AllotJar.Application.HouseholdAccess;
 using AllotJar.Application.HouseholdAccess.Commands.ChangeMemberRole;
@@ -41,7 +42,9 @@ public class HouseholdAccessController : ControllerBase
     }
 
     /// <summary>Invites a person (direct temp password or one-time link). Owner-only.</summary>
+    /// <remarks>Rate-limited: direct invites mint logins, so cap the pace like the auth endpoints.</remarks>
     [HttpPost("invite")]
+    [EnableRateLimiting("auth")]
     [ProducesResponseType(typeof(InviteResultDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]

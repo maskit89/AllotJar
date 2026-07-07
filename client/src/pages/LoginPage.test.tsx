@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 const { mockGet, mockPost, envState } = vi.hoisted(() => ({
   mockGet: vi.fn(),
@@ -54,6 +54,42 @@ describe('LoginPage', () => {
     expect(screen.queryByLabelText('First name')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Currency')).not.toBeInTheDocument()
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+  })
+
+  it('returns to a safe internal returnUrl after signing in (e.g. back to an invite link)', async () => {
+    mockPost.mockResolvedValue({
+      data: {
+        token: 'tok',
+        expiresAtUtc: '2030-01-01T00:00:00Z',
+        userId: 'u1',
+        email: 'liza@x.com',
+        role: 0,
+        displayName: null,
+      },
+    })
+    const user = userEvent.setup()
+
+    render(
+      <MemoryRouter initialEntries={['/login?returnUrl=%2Faccept-invite%3Fcode%3DABC123']}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/accept-invite" element={<div>INVITE PROBE</div>} />
+            <Route path="*" element={<div>ELSEWHERE</div>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    await user.type(screen.getByLabelText('Email'), 'liza@x.com')
+    await user.type(screen.getByLabelText('Password'), 'password123')
+    // Both the mode toggle and the submit button are named "Sign in" — take the submit.
+    const submit = screen
+      .getAllByRole('button', { name: 'Sign in' })
+      .find((b) => b.getAttribute('type') === 'submit')!
+    await user.click(submit)
+
+    expect(await screen.findByText('INVITE PROBE', undefined, { timeout: 5000 })).toBeInTheDocument()
   })
 
   it('submits the full profile + preferences when creating an account', async () => {

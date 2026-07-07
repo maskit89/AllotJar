@@ -168,6 +168,15 @@ export function AppShell({
       ? 'You have limited access — you can record transactions, mark bills paid and run allocation, but not change the budget structure or settings.'
       : null
 
+  // Accepting an invite lands here with ?joined=1: greet the member in their new household once.
+  // The param is stripped immediately so a refresh doesn't repeat the greeting.
+  const [justJoined, setJustJoined] = useState(
+    () => new URLSearchParams(window.location.search).has('joined'),
+  )
+  useEffect(() => {
+    if (justJoined) window.history.replaceState(null, '', window.location.pathname)
+  }, [justJoined])
+
   return (
     <div className="min-h-screen min-[900px]:flex">
       {/* Bypass Blocks (2.4.1): a keyboard skip link to the main content. */}
@@ -220,6 +229,25 @@ export function AppShell({
           {title && <h1 className="sr-only">{title}</h1>}
           <TopBar />
 
+          {justJoined && (
+            <div
+              role="status"
+              className="flex items-start justify-between gap-3 rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
+            >
+              <span>
+                You’ve joined this household — you’re viewing its shared budget now. You can switch
+                households anytime from the account menu.
+              </span>
+              <button
+                type="button"
+                onClick={() => setJustJoined(false)}
+                aria-label="Dismiss"
+                className="shrink-0 rounded-md p-1 text-brand-700 transition hover:bg-brand-100 dark:text-brand-200"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           {accessBanner && (
             <div
               role="status"

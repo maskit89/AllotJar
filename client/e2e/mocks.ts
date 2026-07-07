@@ -10,8 +10,9 @@ import type { Page, Route } from '@playwright/test'
 export const FLAGS = { accounts: true, multiCurrency: true, camtImport: true, reports: true, jars: true, householdAllocation: true, householdAccess: true }
 
 // The current login (Owner) for /auth/me, so role-gated UI resolves to full access.
+// needsConsent stays false so the blocking consent prompt never occludes the scanned pages.
 function meResponse() {
-  return { userId: 'u1', email: 'e2e@allotjar.app', displayName: 'Chris', role: 0, ownerId: 'u1', memberId: null }
+  return { userId: 'u1', email: 'e2e@allotjar.app', displayName: 'Chris', role: 0, ownerId: 'u1', memberId: null, needsConsent: false }
 }
 
 // A representative access list so the /access table renders both status badges (Active +

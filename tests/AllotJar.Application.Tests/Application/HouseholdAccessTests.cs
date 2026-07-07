@@ -43,21 +43,32 @@ public class HouseholdAccessTests
     private sealed class FakeIdentity : IIdentityService
     {
         public readonly List<string> CreatedEmails = new();
+        public readonly HashSet<string> ConsentedEmails = new(StringComparer.OrdinalIgnoreCase);
         public readonly HashSet<string> Existing = new(StringComparer.OrdinalIgnoreCase);
         public readonly Dictionary<string, UserAccount> ById = new();
+        /// <summary>userId → the ownerId passed to SetActiveHouseholdAsync (null = own household).</summary>
+        public readonly Dictionary<string, string?> ActiveHouseholds = new();
 
         public Task<bool> EmailExistsAsync(string email) => Task.FromResult(Existing.Contains(email));
         public Task<UserAccount?> FindByEmailAsync(string email) => Task.FromResult<UserAccount?>(null);
         public Task<UserAccount?> FindByIdAsync(string userId) =>
             Task.FromResult(ById.TryGetValue(userId, out var u) ? u : null);
 
-        public Task<CreateUserResult> CreateUserAsync(string email, string password, string? displayName)
+        public Task<CreateUserResult> CreateUserAsync(
+            string email, string password, string? displayName, bool consented = false)
         {
             CreatedEmails.Add(email);
+            if (consented) ConsentedEmails.Add(email);
             Existing.Add(email);
             var id = "user-" + Guid.NewGuid().ToString("N")[..8];
             ById[id] = new UserAccount(id, email, displayName);
             return Task.FromResult(CreateUserResult.Success(id));
+        }
+
+        public Task SetActiveHouseholdAsync(string userId, string? ownerId)
+        {
+            ActiveHouseholds[userId] = ownerId;
+            return Task.CompletedTask;
         }
 
         public Task<IReadOnlyList<string>> ChangePasswordAsync(string userId, string current, string next) =>
@@ -161,17 +172,40 @@ public class HouseholdAccessTests
         var identity = new FakeIdentity();
 
         var handler = new AcceptInviteCommandHandler(db, identity, new AnonymousUserStub());
-        var result = await handler.Handle(new AcceptInviteCommand(token, "password123", "Liza"), default);
+        var result = await handler.Handle(
+            new AcceptInviteCommand(token, "password123", "Liza", AcceptedTerms: true), default);
 
         result.Role.Should().Be(HouseholdRole.Limited);
         result.Email.Should().Be("liza@x.com");
+        result.DisplayName.Should().Be("Liza");
         identity.CreatedEmails.Should().ContainSingle();
+        // The invitee accepted the terms themselves, so consent is recorded on the new login.
+        identity.ConsentedEmails.Should().Contain("liza@x.com");
+        // Their landing household is the one they joined, even if they start their own later.
+        identity.ActiveHouseholds.Should().ContainKey(result.UserId).WhoseValue.Should().Be(OwnerId);
 
         var membership = await db.HouseholdMemberships.SingleAsync();
         membership.Status.Should().Be(MembershipStatus.Active);
         membership.UserId.Should().Be(result.UserId);
         membership.InviteTokenHash.Should().BeNull();
         membership.InviteExpiresUtc.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Accept_invite_creating_a_new_login_requires_accepting_the_terms()
+    {
+        using var db = NewContext();
+        var (membership, token) = PendingInvite("liza@x.com");
+        db.HouseholdMemberships.Add(membership);
+        await db.SaveChangesAsync();
+        var identity = new FakeIdentity();
+
+        var handler = new AcceptInviteCommandHandler(db, identity, new AnonymousUserStub());
+        var act = () => handler.Handle(new AcceptInviteCommand(token, "password123", "Liza"), default);
+
+        await act.Should().ThrowAsync<ValidationException>();
+        identity.CreatedEmails.Should().BeEmpty(); // rejected before any login is created
+        (await db.HouseholdMemberships.SingleAsync()).Status.Should().Be(MembershipStatus.Invited);
     }
 
     [Fact]
@@ -341,7 +375,10 @@ public class HouseholdAccessTests
         var result = await handler.Handle(new AcceptInviteCommand(token, null, null), default);
 
         result.UserId.Should().Be("user-liza");
+        result.DisplayName.Should().Be("Liza"); // the account's stored name, not the invite's
         identity.CreatedEmails.Should().BeEmpty(); // joined with the existing login — no new one
+        // Accepting lands them in the household they joined, not back in their own budget.
+        identity.ActiveHouseholds.Should().ContainKey("user-liza").WhoseValue.Should().Be(OwnerId);
         var saved = await db.HouseholdMemberships.SingleAsync();
         saved.Status.Should().Be(MembershipStatus.Active);
         saved.UserId.Should().Be("user-liza");
