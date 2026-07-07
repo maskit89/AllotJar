@@ -23,7 +23,7 @@ function Base({ className = 'h-5 w-5', children }: { className?: string; childre
   )
 }
 
-/** The ZeroBudget brand mark: a filled rounded badge with a euro glyph. */
+/** The AllotJar brand mark: a filled rounded badge with a euro glyph. */
 export function LogoMark({ className = 'h-8 w-8' }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
@@ -163,6 +163,17 @@ export function HelpIcon({ className }: { className?: string }) {
       <circle cx="12" cy="12" r="9" />
       <path d="M9.6 9.4a2.4 2.4 0 1 1 3.5 2.2c-.9.55-1.4 1-1.4 2" />
       <circle cx="12" cy="16.6" r="0.6" fill="currentColor" stroke="none" />
+    </Base>
+  )
+}
+
+/** Info — an "i" in a circle. Pairs with a short explanatory popover. */
+export function InfoIcon({ className }: { className?: string }) {
+  return (
+    <Base className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5" />
+      <circle cx="12" cy="7.9" r="0.6" fill="currentColor" stroke="none" />
     </Base>
   )
 }

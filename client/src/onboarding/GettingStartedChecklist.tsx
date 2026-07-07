@@ -4,6 +4,8 @@ import { api } from '../lib/api'
 import type { BudgetMonthDto, BudgetMonthSummaryDto, TransactionDto } from '../types'
 import { fromDto, remainingToBudget, totalIncome } from '../budgetModel'
 import { CheckIcon, ChevronDownIcon, CloseIcon } from '../components/icons'
+import { useAuth } from '../auth/AuthContext'
+import { currencyNoun } from '../lib/money'
 import { useOnboarding } from './OnboardingContext'
 
 interface Progress {
@@ -23,6 +25,8 @@ const now = new Date()
  */
 export function GettingStartedChecklist() {
   const { dismissChecklist } = useOnboarding()
+  const { preferredCurrency } = useAuth()
+  const noun = currencyNoun(preferredCurrency)
   const location = useLocation()
   const [open, setOpen] = useState(true)
   const [progress, setProgress] = useState<Progress>(EMPTY)
@@ -67,7 +71,7 @@ export function GettingStartedChecklist() {
   const steps = [
     { id: 'month', label: 'Create your first month', hint: 'Copy last month, start blank, or pick a template.', to: '/', done: progress.monthExists },
     { id: 'income', label: 'Plan your income', hint: 'Add what you expect to earn this month.', to: '/', done: progress.hasIncome },
-    { id: 'balance', label: 'Give every euro a job', hint: 'Assign it all until Remaining is €0.00.', to: '/', done: progress.balanced },
+    { id: 'balance', label: `Give every ${noun} a job`, hint: 'Assign it all until Remaining reaches zero.', to: '/', done: progress.balanced },
     { id: 'tx', label: 'Log your first transaction', hint: 'Record real spending and assign it to a line.', to: '/transactions', done: progress.hasTransaction },
   ]
   const doneCount = steps.filter((s) => s.done).length
@@ -160,7 +164,7 @@ export function GettingStartedChecklist() {
       {allDone && (
         <div className="border-t border-slate-200 px-4 py-3 text-center">
           <p className="text-sm font-semibold text-brand-700 dark:text-brand-200">
-            All set — every euro has a job! 🎉
+            All set — every {noun} has a job! 🎉
           </p>
           <button
             type="button"

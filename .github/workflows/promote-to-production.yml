@@ -1,0 +1,134 @@
+name: Promote to production
+
+# MANUAL promotion to the production (GA) stack. Run it from the Actions tab
+# ("Run workflow"). The `production` environment requires a reviewer, so the
+# deploy job PAUSES until someone approves it — that is the manual gate.
+#
+# It builds its OWN production-flagged SPA (VITE_APP_ENV=production → no beta
+# banner / no data-loss consent), because the beta and GA bundles differ at build
+# time and cannot be the same artifact.
+#
+# PREREQUISITES (one-time, see docs/deployment/staging-prod.md):
+#   * The production IIS stack provisioned on the VPS:
+#       sites/dirs  C:\inetpub\zerobudget-prod\{api,web}
+#       app pools   ZeroBudget-Prod-Api / ZeroBudget-Prod-Web
+#       API bound on 127.0.0.1:5001, its own SQL database + appsettings.Production.json
+#   * Repo secrets PROD_VPS_HOST / PROD_VPS_SSH_USER / PROD_VPS_SSH_KEY /
+#     PROD_VPS_SSH_PORT (may mirror the beta VPS_* secrets if it is the same box).
+#   * The `production` environment configured with required reviewers.
+# Until GA, the public site (allotjar.com / www) is the Cloudflare-Pages
+# "coming soon" page, so this workflow is intentionally not on any auto trigger.
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why are you promoting to production? (recorded in the run)'
+        required: false
+        default: 'Scheduled production release'
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build release (production)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Publish API
+        run: >
+          dotnet publish src/AllotJar.Api/AllotJar.Api.csproj
+          -c Release -r win-x64 --no-self-contained -o publish/api
+
+      - name: Build SPA
+        working-directory: client
+        env:
+          VITE_APP_ENV: production
+          VITE_GA_MEASUREMENT_ID: ${{ vars.VITE_GA_MEASUREMENT_ID }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Assemble release package
+        run: |
+          mkdir -p release/api release/web
+          cp -r publish/api/. release/api/
+          cp -r client/dist/. release/web/
+          cp deploy/web/web.config release/web/web.config
+          cp deploy/Deploy.ps1 release/Deploy.ps1
+          cd release && zip -qr ../release.zip . && cd ..
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-prod
+          path: release.zip
+          retention-days: 7
+
+  deploy:
+    name: deploy to production VPS
+    needs: build
+    runs-on: ubuntu-latest
+    # Required reviewers on this environment = the manual approval gate.
+    environment: production
+    steps:
+      - name: Download release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-prod
+
+      - name: Write SSH key
+        env:
+          KEY: ${{ secrets.PROD_VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Ensure VPS deploy dirs exist
+        env:
+          PORT: ${{ secrets.PROD_VPS_SSH_PORT }}
+          USER: ${{ secrets.PROD_VPS_SSH_USER }}
+          HOST: ${{ secrets.PROD_VPS_HOST }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$PORT" \
+            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "$USER@$HOST" \
+            'powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path C:\deploy\incoming-prod, C:\deploy\staging-prod | Out-Null"'
+
+      - name: Copy release to VPS
+        env:
+          PORT: ${{ secrets.PROD_VPS_SSH_PORT }}
+          USER: ${{ secrets.PROD_VPS_SSH_USER }}
+          HOST: ${{ secrets.PROD_VPS_HOST }}
+        run: |
+          scp -i ~/.ssh/deploy_key -P "$PORT" \
+            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            release.zip "$USER@$HOST:C:/deploy/incoming-prod/release.zip"
+
+      # Deploy.ps1 is parametrised, so the production stack is just a different set
+      # of dirs/pools/health endpoint (the SQL database is never touched by deploy).
+      - name: Extract and deploy on VPS
+        env:
+          PORT: ${{ secrets.PROD_VPS_SSH_PORT }}
+          USER: ${{ secrets.PROD_VPS_SSH_USER }}
+          HOST: ${{ secrets.PROD_VPS_HOST }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$PORT" \
+            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "$USER@$HOST" \
+            'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\staging-prod\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming-prod\release.zip -DestinationPath C:\deploy\staging-prod -Force; & C:\deploy\staging-prod\Deploy.ps1 -ApiDir C:\inetpub\zerobudget-prod\api -WebDir C:\inetpub\zerobudget-prod\web -ApiPool ZeroBudget-Prod-Api -WebPool ZeroBudget-Prod-Web -HealthUrl http://127.0.0.1:5001/health"'

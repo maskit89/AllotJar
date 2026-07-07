@@ -67,6 +67,25 @@ function previewWithTransfer(): ImportPreviewResult {
   }
 }
 
+// A generic-CSV preview: carries the detected column layout so the mapping panel renders.
+function csvPreview(): ImportPreviewResult {
+  return {
+    totalEntries: 2, newCount: 2, skippedDuplicates: 0, credits: 1, debits: 1,
+    items: [
+      { reference: 'csv:a#0', date: '2026-06-20', payee: 'TESCO', amount: 42.5, currency: 'GBP', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: null, likelyTransfer: false },
+      { reference: 'csv:b#0', date: '2026-06-21', payee: 'SALARY', amount: 2500, currency: 'GBP', isCredit: true, suggestedBudgetItemId: null, suggestedBudgetItemName: null, likelyTransfer: false },
+    ],
+    layout: {
+      columns: ['Date', 'Description', 'Amount', 'Currency'],
+      sampleRows: [['2026-06-20', 'TESCO', '-42.50', 'GBP']],
+      suggested: {
+        delimiter: ',', hasHeader: true, dateColumn: 0, amountColumn: 2, descriptionColumn: 1,
+        currencyColumn: 3, dateFormat: null, decimalStyle: 0, defaultCurrency: 'GBP',
+      },
+    },
+  }
+}
+
 function committed(): ImportStatementResult {
   return { totalEntries: 2, imported: 2, skippedDuplicates: 0, credits: 0, debits: 2, iban: null, autoCategorized: 0, transfers: 0 }
 }
@@ -109,6 +128,35 @@ describe('ImportPage', () => {
     expect(await screen.findByRole('heading', { name: 'Import transactions', level: 1 })).toBeInTheDocument()
     expect(screen.getByLabelText('File format')).toBeInTheDocument()
     expect(await screen.findByRole('option', { name: 'HSBC Current' })).toBeInTheDocument()
+  })
+
+  it('generic CSV: shows the mapping panel and re-scans with a corrected mapping', { timeout: 15000 }, async () => {
+    const user = userEvent.setup()
+    mockPreview.mockResolvedValue(csvPreview())
+    renderPage()
+
+    // Default format is the generic bank CSV; upload and go to review.
+    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+    await screen.findByText('TESCO')
+
+    // First preview sent no mapping, just the home currency fallback.
+    expect(mockPreview).toHaveBeenCalledWith(expect.any(File), 'GenericCsv', { defaultCurrency: 'EUR' })
+
+    // The mapping panel is shown, prefilled from the detected layout (amount = column index 2).
+    expect(screen.getByRole('heading', { name: 'Column mapping' })).toBeInTheDocument()
+    expect((screen.getByLabelText('Amount column') as HTMLSelectElement).value).toBe('2')
+
+    // Correct the description column, then re-scan — the confirmed mapping is sent.
+    await user.selectOptions(screen.getByLabelText('Description column'), '3')
+    mockPreview.mockClear()
+    await user.click(screen.getByRole('button', { name: 'Re-scan with this mapping' }))
+
+    await waitFor(() => expect(mockPreview).toHaveBeenCalled())
+    const [, wire, opts] = mockPreview.mock.calls[0]
+    expect(wire).toBe('GenericCsv')
+    expect(opts.mapping.descriptionColumn).toBe(3)
+    expect(opts.defaultCurrency).toBe('EUR')
   })
 
   it('previews, then commits with the suggested category pre-filled', { timeout: 15000 }, async () => {

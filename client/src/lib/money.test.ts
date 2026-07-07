@@ -8,6 +8,9 @@ import {
   toEditString,
   currencySymbol,
   setMoneyFormat,
+  currencyNoun,
+  detectLocaleDefaults,
+  NUMBER_FORMAT_OPTIONS,
 } from './money'
 
 describe('money — integer minor units', () => {
@@ -41,6 +44,10 @@ describe('parseMinor', () => {
     ['2.500,00', 25_000_000], // de-DE: dot grouping, comma decimal
     ['1.234.567,89', 12_345_678_900], // multiple grouping separators
     ['1,234.56', 12_345_600], // en: comma grouping, dot decimal
+    ["1'234.56", 12_345_600], // de-CH: apostrophe grouping, dot decimal
+    ['1’234.56', 12_345_600], // de-CH with a curly apostrophe
+    ['1 234,56', 12_345_600], // fr-FR: space grouping, comma decimal
+    ['1,23,456.78', 1_234_567_800], // en-IN: lakh grouping, dot decimal
   ])('parses %s -> %i', (input, expected) => {
     expect(parseMinor(input)).toBe(expected)
   })
@@ -59,6 +66,14 @@ describe('formatting', () => {
     expect(formatMoney(11_000_000, 'EUR')).toContain('1,100.00')
     expect(formatMoney(11_000_000, 'EUR')).toContain('€')
     expect(formatMoney(4550, 'GBP')).toContain('£')
+  })
+
+  it("uses each currency's natural fraction digits", () => {
+    // JPY has no minor unit — whole yen, no decimals.
+    expect(formatMoney(fromAmount(1234), 'JPY')).toContain('1,234')
+    expect(formatMoney(fromAmount(1234), 'JPY')).not.toContain('1,234.0')
+    // Kuwaiti dinar has three.
+    expect(formatMoney(fromAmount(1234.567), 'KWD')).toContain('1,234.567')
   })
 
   it('produces a plain editable string', () => {
@@ -91,6 +106,20 @@ describe('setMoneyFormat — money-display preference', () => {
     expect(out).not.toContain(',234') // grouping is not a comma
   })
 
+  it('renders apostrophe-grouping, dot-decimal (de-CH)', () => {
+    setMoneyFormat('apostrophe')
+    const out = formatMoney(minor, 'EUR')
+    expect(out).toContain('234.56') // dot decimal
+    expect(out).not.toContain('1,234') // grouping is not a comma
+    expect(out).not.toContain('1.234') // grouping is not a dot
+  })
+
+  it('renders lakh grouping, dot-decimal (en-IN)', () => {
+    setMoneyFormat('lakh')
+    // Lakh grouping only shows above 100,000: 12,34,567.89.
+    expect(formatMoney(fromAmount(1234567.89), 'INR')).toContain('12,34,567.89')
+  })
+
   it('falls back to the default (en-GB) for an unknown/blank format', () => {
     setMoneyFormat('not-a-real-format')
     expect(formatMoney(minor, 'EUR')).toContain('1,234.56')
@@ -102,5 +131,34 @@ describe('setMoneyFormat — money-display preference', () => {
     setMoneyFormat('comma-dot')
     expect(currencySymbol('GBP')).toBe('£')
     expect(currencySymbol('EUR')).toBe('€')
+  })
+})
+
+describe('currencyNoun — the tagline noun', () => {
+  it.each([
+    ['EUR', 'euro'],
+    ['USD', 'dollar'],
+    ['GBP', 'pound'],
+    ['INR', 'rupee'],
+    ['CHF', 'franc'],
+    ['JPY', 'yen'],
+    ['aud', 'dollar'], // case-insensitive
+  ])('maps %s -> %s', (code, noun) => {
+    expect(currencyNoun(code)).toBe(noun)
+  })
+
+  it('falls back to a neutral "unit" for unknown/blank codes', () => {
+    expect(currencyNoun('XYZ')).toBe('unit')
+    expect(currencyNoun('')).toBe('unit')
+    expect(currencyNoun(null)).toBe('unit')
+    expect(currencyNoun(undefined)).toBe('unit')
+  })
+})
+
+describe('detectLocaleDefaults — browser-locale guess', () => {
+  it('returns a supported currency + a known format key', () => {
+    const { currency, numberFormat } = detectLocaleDefaults()
+    expect(currency).toMatch(/^[A-Z]{3}$/)
+    expect(NUMBER_FORMAT_OPTIONS.map((o) => o.value)).toContain(numberFormat)
   })
 })

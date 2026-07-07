@@ -9,6 +9,9 @@ import type {
   AccountDto,
   BudgetMonthDto,
   CommitImportItem,
+  CsvDecimalStyle,
+  CsvLayout,
+  CsvMapping,
   HouseholdMemberDto,
   ImportCandidate,
   ImportPreviewResult,
@@ -17,11 +20,18 @@ import type {
 import { TransactionType } from '../types'
 import { buildItemOptions, type ItemOptionGroup } from '../lib/transactions'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount } from '../lib/money'
+import { formatDate } from '../lib/dates'
 
-type Format = 'hsbc' | 'camt'
+type Format = 'generic' | 'hsbc' | 'camt'
 type Phase = 'upload' | 'review' | 'done'
 
 const FORMATS: Record<Format, { label: string; accept: string; hint: string; wire: StatementFormat }> = {
+  generic: {
+    label: 'Bank CSV (any bank)',
+    accept: '.csv,text/csv',
+    hint: "Most banks' CSV export. After upload you'll confirm which columns are the date, amount and description.",
+    wire: 'GenericCsv',
+  },
   hsbc: {
     label: 'HSBC transaction history (CSV)',
     accept: '.csv,text/csv',
@@ -35,6 +45,15 @@ const FORMATS: Record<Format, { label: string; accept: string; hint: string; wir
     wire: 'Camt053',
   },
 }
+
+/** Date-format presets for the generic-CSV mapping (value is the .NET format, or '' = auto-detect). */
+const DATE_FORMAT_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'Auto-detect' },
+  { value: 'yyyy-MM-dd', label: 'YYYY-MM-DD' },
+  { value: 'dd/MM/yyyy', label: 'DD/MM/YYYY' },
+  { value: 'MM/dd/yyyy', label: 'MM/DD/YYYY' },
+  { value: 'dd.MM.yyyy', label: 'DD.MM.YYYY' },
+]
 
 interface SplitDraft {
   budgetItemId: string
@@ -113,9 +132,9 @@ function CategoryOptions({ groups }: { groups: ItemOptionGroup[] }) {
 
 export function ImportPage() {
   // Importing a statement creates/edits budget structure, so it needs Admin+ (canWrite).
-  const { canWrite } = useAuth()
+  const { canWrite, preferredCurrency } = useAuth()
   const [phase, setPhase] = useState<Phase>('upload')
-  const [format, setFormat] = useState<Format>('hsbc')
+  const [format, setFormat] = useState<Format>('generic')
   const [file, setFile] = useState<File | null>(null)
   const [accountId, setAccountId] = useState('')
 
@@ -125,6 +144,9 @@ export function ImportPage() {
 
   const [preview, setPreview] = useState<ImportPreviewResult | null>(null)
   const [rows, setRows] = useState<ReviewRow[]>([])
+  // Generic-CSV column mapping: the detected layout + the (editable) mapping applied to the preview.
+  const [layout, setLayout] = useState<CsvLayout | null>(null)
+  const [mapping, setMapping] = useState<CsvMapping | null>(null)
   const [splitOpen, setSplitOpen] = useState<string | null>(null)
   const [bulkMember, setBulkMember] = useState('')
   const [bulkCategory, setBulkCategory] = useState('')
@@ -167,34 +189,58 @@ export function ImportPage() {
     [rows],
   )
 
+  // Fold a preview result into the review state (shared by the first upload and CSV re-scans).
+  function applyPreview(data: ImportPreviewResult) {
+    setPreview(data)
+    setRows(
+      data.items.map((c) => ({
+        reference: c.reference,
+        date: c.date,
+        payee: c.payee,
+        amount: c.amount,
+        currency: c.currency,
+        isCredit: c.isCredit,
+        include: true,
+        budgetItemId: resolveSuggestion(c, month),
+        memberId: '',
+        splits: null,
+        likelyTransfer: c.likelyTransfer,
+        isTransfer: false,
+        transferAccountId: '',
+      })),
+    )
+    setLayout(data.layout ?? null)
+    if (data.layout) setMapping(data.layout.suggested)
+    setSplitOpen(null)
+  }
+
   async function onPreview(e: FormEvent) {
     e.preventDefault()
     if (!file) return
     setBusy(true)
     setError(null)
     try {
-      const data = await previewImport(file, FORMATS[format].wire)
-      setPreview(data)
-      setRows(
-        data.items.map((c) => ({
-          reference: c.reference,
-          date: c.date,
-          payee: c.payee,
-          amount: c.amount,
-          currency: c.currency,
-          isCredit: c.isCredit,
-          include: true,
-          budgetItemId: resolveSuggestion(c, month),
-          memberId: '',
-          splits: null,
-          likelyTransfer: c.likelyTransfer,
-          isTransfer: false,
-          transferAccountId: '',
-        })),
-      )
-      setSplitOpen(null)
+      // Generic CSV auto-detects the layout on first upload; send the home currency as the fallback.
+      const opts = format === 'generic' ? { defaultCurrency: preferredCurrency } : undefined
+      const data = await previewImport(file, FORMATS[format].wire, opts)
+      applyPreview(data)
       setPhase('review')
       track(EVENTS.importPreviewed, { row_bucket: bucketCount(data.items.length) })
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Re-parse the same CSV with the user's corrected column mapping and refresh the preview rows.
+  async function reScanCsv() {
+    if (!file || !mapping) return
+    setBusy(true)
+    setError(null)
+    try {
+      const data = await previewImport(file, 'GenericCsv', { mapping, defaultCurrency: preferredCurrency })
+      applyPreview(data)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -324,6 +370,8 @@ export function ImportPage() {
     setFile(null)
     setPreview(null)
     setRows([])
+    setLayout(null)
+    setMapping(null)
     setSplitOpen(null)
     setResult(null)
     setError(null)
@@ -439,6 +487,127 @@ export function ImportPage() {
             </p>
           )}
 
+          {/* Generic-CSV column mapping — confirm/correct what we guessed, then re-scan. */}
+          {format === 'generic' && layout && mapping && (
+            <Card as="section" aria-labelledby="csv-mapping-heading" className="grid gap-4 p-5">
+              <div>
+                <h2 id="csv-mapping-heading" className="text-sm font-bold text-slate-800">
+                  Column mapping
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  We guessed how to read your file. If the preview below looks off, fix a column and re-scan.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <label className="grid gap-1 text-xs font-medium text-slate-500">
+                  Date column
+                  <Select
+                    aria-label="Date column"
+                    value={mapping.dateColumn}
+                    onChange={(e) => setMapping((m) => (m ? { ...m, dateColumn: Number(e.target.value) } : m))}
+                  >
+                    {layout.columns.map((name, i) => (
+                      <option key={i} value={i}>
+                        {name}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+                <label className="grid gap-1 text-xs font-medium text-slate-500">
+                  Amount column (signed)
+                  <Select
+                    aria-label="Amount column"
+                    value={mapping.amountColumn}
+                    onChange={(e) => setMapping((m) => (m ? { ...m, amountColumn: Number(e.target.value) } : m))}
+                  >
+                    {layout.columns.map((name, i) => (
+                      <option key={i} value={i}>
+                        {name}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+                <label className="grid gap-1 text-xs font-medium text-slate-500">
+                  Description column
+                  <Select
+                    aria-label="Description column"
+                    value={mapping.descriptionColumn}
+                    onChange={(e) => setMapping((m) => (m ? { ...m, descriptionColumn: Number(e.target.value) } : m))}
+                  >
+                    {layout.columns.map((name, i) => (
+                      <option key={i} value={i}>
+                        {name}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+                <label className="grid gap-1 text-xs font-medium text-slate-500">
+                  Currency column
+                  <Select
+                    aria-label="Currency column"
+                    value={mapping.currencyColumn ?? ''}
+                    onChange={(e) =>
+                      setMapping((m) =>
+                        m ? { ...m, currencyColumn: e.target.value === '' ? null : Number(e.target.value) } : m,
+                      )
+                    }
+                  >
+                    <option value="">Use {preferredCurrency} for every row</option>
+                    {layout.columns.map((name, i) => (
+                      <option key={i} value={i}>
+                        {name}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+                <label className="grid gap-1 text-xs font-medium text-slate-500">
+                  Date format
+                  <Select
+                    aria-label="Date format"
+                    value={mapping.dateFormat ?? ''}
+                    onChange={(e) =>
+                      setMapping((m) => (m ? { ...m, dateFormat: e.target.value === '' ? null : e.target.value } : m))
+                    }
+                  >
+                    {DATE_FORMAT_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+                <label className="grid gap-1 text-xs font-medium text-slate-500">
+                  Number format
+                  <Select
+                    aria-label="Number format"
+                    value={mapping.decimalStyle}
+                    onChange={(e) =>
+                      setMapping((m) => (m ? { ...m, decimalStyle: Number(e.target.value) as CsvDecimalStyle } : m))
+                    }
+                  >
+                    <option value={0}>Auto-detect</option>
+                    <option value={1}>1,234.56</option>
+                    <option value={2}>1.234,56</option>
+                  </Select>
+                </label>
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={mapping.hasHeader}
+                    onChange={(e) => setMapping((m) => (m ? { ...m, hasHeader: e.target.checked } : m))}
+                    className="h-4 w-4 rounded border-slate-400 text-brand-600 focus:ring-2 focus:ring-brand-500/40"
+                  />
+                  First row is a header
+                </label>
+                <Button type="button" variant="secondary" size="sm" onClick={reScanCsv} disabled={busy}>
+                  {busy ? 'Re-scanning…' : 'Re-scan with this mapping'}
+                </Button>
+              </div>
+            </Card>
+          )}
+
           {/* Bulk actions over the currently-included rows. */}
           <Card className="flex flex-wrap items-end gap-4 p-4">
             <div className="grid gap-1 text-xs font-medium text-slate-500">
@@ -509,7 +678,7 @@ export function ImportPage() {
                             className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                           />
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-500">{r.date}</td>
+                        <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-500">{formatDate(r.date)}</td>
                         <td className="px-3 py-2 font-medium text-slate-700">
                           {r.payee}
                           {r.likelyTransfer && !r.isTransfer && (

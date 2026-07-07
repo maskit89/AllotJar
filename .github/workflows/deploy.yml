@@ -1,21 +1,26 @@
-name: Deploy
+name: Deploy to beta
 
-# Deploys to the production VPS when code lands on main (i.e. after a PR merge).
-# Enable branch protection with the CI checks required so only green code reaches
-# main; this workflow also rebuilds the release, so a broken build never ships.
+# Auto-deploys to the BETA environment (app.allotjar.com) whenever code lands on
+# main (i.e. after a PR merge). Beta is the rolling staging/UAT + public-beta env:
+# the SPA is built with VITE_APP_ENV=beta so it carries the under-construction
+# banner + the registration data-loss acknowledgment.
+#
+# Promotion to PRODUCTION is a separate, manual, approval-gated workflow:
+# .github/workflows/promote-to-production.yml. The public production URL
+# (allotjar.com / www) is the Cloudflare-Pages "coming soon" page until GA.
 on:
   push:
     branches: [main]
   workflow_dispatch: {}
 
-# Never let two deploys run at once.
+# Never let two beta deploys run at once.
 concurrency:
-  group: production-deploy
+  group: beta-deploy
   cancel-in-progress: false
 
 jobs:
   build:
-    name: build release
+    name: build release (beta)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,15 +41,16 @@ jobs:
       # supplies the runtime + ASP.NET Core Module; publish emits the ANCM web.config.
       - name: Publish API
         run: >
-          dotnet publish src/ZeroBudget.Api/ZeroBudget.Api.csproj
+          dotnet publish src/AllotJar.Api/AllotJar.Api.csproj
           -c Release -r win-x64 --no-self-contained -o publish/api
 
       - name: Build SPA
         working-directory: client
-        # VITE_* vars are inlined into the bundle at build time, so the GA measurement ID
-        # must be present here. Set it as a repo Variable (Settings → Secrets and variables
-        # → Actions → Variables). Leaving it empty ships the app with analytics disabled.
+        # VITE_* vars are inlined into the bundle at build time. VITE_APP_ENV=beta
+        # turns on the beta banner + data-loss consent; the GA build sets it to
+        # 'production' (see promote-to-production.yml).
         env:
+          VITE_APP_ENV: beta
           VITE_GA_MEASUREMENT_ID: ${{ vars.VITE_GA_MEASUREMENT_ID }}
         run: |
           npm ci
@@ -67,10 +73,10 @@ jobs:
           retention-days: 7
 
   deploy:
-    name: deploy to VPS
+    name: deploy to beta VPS
     needs: build
     runs-on: ubuntu-latest
-    environment: production   # optional: add required reviewers in repo settings
+    environment: beta
     steps:
       - name: Download release artifact
         uses: actions/download-artifact@v4
@@ -115,6 +121,8 @@ jobs:
             -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             release.zip "$USER@$HOST:C:/deploy/incoming/release.zip"
 
+      # Deploy.ps1 with no args targets the existing IIS stack (C:\inetpub\zerobudget\*,
+      # pools ZeroBudget-Api/-Web) — the same box that is being relabelled as beta.
       - name: Extract and deploy on VPS
         env:
           PORT: ${{ secrets.VPS_SSH_PORT }}

@@ -1,6 +1,6 @@
 # Production deployment — Windows Server (native IIS) runbook
 
-ZeroBudget runs **natively on a Windows Server VPS** (no Docker):
+AllotJar runs **natively on a Windows Server VPS** (no Docker):
 
 | Tier | Host | Notes |
 |------|------|-------|
@@ -33,7 +33,7 @@ The React client already calls the same-origin `/api` prefix, so the proxy needs
 | `deploy/Backup-Database.ps1` | VPS | timestamped `.bak` + retention pruning |
 | `deploy/Register-BackupTask.ps1` | VPS, once | register the daily backup as a Scheduled Task (runs as SYSTEM) |
 | `.github/workflows/deploy.yml` | GitHub Actions | build → SSH-push → deploy on merge to `main` |
-| `src/ZeroBudget.Api/appsettings.Production.json.example` | template | copy to the server, fill in secrets (gitignored) |
+| `src/AllotJar.Api/appsettings.Production.json.example` | template | copy to the server, fill in secrets (gitignored) |
 
 ---
 

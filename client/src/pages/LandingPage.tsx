@@ -1,5 +1,7 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { JarLogo, Jar } from '../components/Jar'
+import { BetaBanner } from '../components/BetaBanner'
+import { currencyNoun, detectLocaleDefaults } from '../lib/money'
 import {
   DashboardIcon,
   JarsIcon,
@@ -14,10 +16,16 @@ import {
  * anonymous visitors (signed-in users get the dashboard instead; see App.tsx).
  *
  * It is intentionally **self-contained and SSR-safe**: it renders to static HTML
- * at build time (scripts/prerender.mjs → renderToStaticMarkup), so it must not use
- * router context, browser globals, state or effects. Navigation is plain `<a>`
- * links to /login, and every CTA is keyboard- and crawler-friendly. The theme
- * (light/dark) is applied before paint by /theme-init.js, so no toggle is needed.
+ * at build time (scripts/prerender.mjs → renderToStaticMarkup), so its *initial*
+ * render must not use router context, browser globals, router state or props.
+ * Navigation is plain `<a>` links to /login, and every CTA is keyboard- and
+ * crawler-friendly. The theme (light/dark) is applied before paint by
+ * /theme-init.js, so no toggle is needed.
+ *
+ * The one browser-only touch is the tagline noun: it initialises to "euro" (so the
+ * prerendered/crawled HTML stays euro-first and on-brand) and a mount-only effect
+ * swaps in the visitor's own currency word — effects never run during
+ * renderToStaticMarkup, so the static output is unaffected.
  */
 
 /** A filled brand CTA rendered as a link (the design-system Button is a <button>). */
@@ -54,7 +62,7 @@ const FEATURES: Feature[] = [
   {
     icon: <DashboardIcon className="h-6 w-6" />,
     title: 'Zero-based budgeting',
-    body: 'Give every euro a job. Plan your income minus expenses down to exactly zero each month, so you always know where your money is going.',
+    body: 'Give every euro, dollar or pound a job. Plan your income minus expenses down to exactly zero each month, so you always know where your money is going.',
   },
   {
     icon: <JarsIcon className="h-6 w-6" />,
@@ -93,7 +101,7 @@ const STEPS: Step[] = [
   {
     n: '1',
     title: 'Plan the month',
-    body: 'Start from a template or last month, then assign every euro of income to a category or a jar until nothing is left unbudgeted.',
+    body: 'Start from a template or last month, then assign all of your income to a category or a jar until nothing is left unbudgeted.',
   },
   {
     n: '2',
@@ -115,15 +123,15 @@ interface Faq {
 const FAQS: Faq[] = [
   {
     q: 'What is zero-based budgeting?',
-    a: 'Zero-based budgeting means giving every euro of income a specific job — spending, saving or paying down debt — until your income minus your plan equals zero. It is one of the simplest, most effective ways to take control of your money.',
+    a: 'Zero-based budgeting means giving every part of your income a specific job — spending, saving or paying down debt — until your income minus your plan equals zero. It is one of the simplest, most effective ways to take control of your money.',
   },
   {
-    q: 'Is AllotJar built for Europe?',
-    a: 'Yes. AllotJar is euro-first and lets you pick the number format you actually use (€1.234,56 or €1,234.56), so your budget reads the way you write it.',
+    q: 'Can I use AllotJar outside Europe?',
+    a: 'Absolutely. AllotJar was crafted in Europe and stays euro-friendly, but it works anywhere — pick your currency and the number format you actually write (1,234.56 or 1.234,56), from dollars and pounds to rupees, francs and more. Your budget reads the way you do.',
   },
   {
-    q: 'How is it different from EveryDollar?',
-    a: 'AllotJar brings the proven zero-based method to a tool designed for European budgeting, with sinking-fund jars, multi-account tracking and household sharing built in.',
+    q: 'What makes AllotJar different?',
+    a: 'AllotJar brings the proven zero-based method to a modern tool with sinking-fund jars, multi-account tracking and household sharing built in — in whatever currency you budget.',
   },
   {
     q: 'Can I share my budget with my partner?',
@@ -131,13 +139,21 @@ const FAQS: Faq[] = [
   },
   {
     q: 'How much does AllotJar cost?',
-    a: 'AllotJar is free to start. Create an account, set up your first month in minutes, and see whether giving every euro a job changes how you feel about money.',
+    a: 'AllotJar is free to start. Create an account, set up your first month in minutes, and see whether zero-based budgeting changes how you feel about money.',
   },
 ]
 
 export function LandingPage() {
+  // Euro-first for the prerendered/crawled HTML; a mount-only effect swaps in the
+  // visitor's own currency word (see the file header for why this is SSR-safe).
+  const [noun, setNoun] = useState('euro')
+  useEffect(() => {
+    setNoun(currencyNoun(detectLocaleDefaults().currency))
+  }, [])
+
   return (
     <div className="min-h-full">
+      <BetaBanner />
       {/* ---- Header ---- */}
       <header className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5">
         <a href="/" className="flex items-center gap-2.5" aria-label="AllotJar home">
@@ -163,15 +179,15 @@ export function LandingPage() {
           {/* brand-600 stays deep green in dark (it backs white-text buttons), so
               brighten the accent text to brand-500 (#5fc093) for AA contrast there. */}
           <p className="mb-3 text-sm font-semibold uppercase tracking-[0.08em] text-brand-600 dark:text-brand-500">
-            Zero-based budgeting · built for Europe
+            Zero-based budgeting · crafted in Europe, at home anywhere
           </p>
           <h1 className="text-4xl font-extrabold leading-[1.08] tracking-[-0.03em] text-slate-900 sm:text-5xl">
-            Give every euro a job.
+            Give every {noun} a job.
           </h1>
           <p className="mt-5 max-w-xl text-lg leading-relaxed text-slate-600">
-            AllotJar is a zero-based budgeting app for Europe. Plan each month to zero, save for the
-            big stuff with sinking-fund jars, and finally feel in control of your money — in euros,
-            the way you write them.
+            AllotJar is a zero-based budgeting app crafted in Europe and at home anywhere. Plan each
+            month to zero, save for the big stuff with sinking-fund jars, and finally feel in control
+            of your money — in your currency, the way you write it.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <CtaPrimary href="/login?register=1">Create your free account</CtaPrimary>
@@ -205,7 +221,7 @@ export function LandingPage() {
             Everything you need to budget with confidence
           </h2>
           <p className="mt-3 text-slate-600">
-            A complete, modern budgeting app — not a spreadsheet — designed around how European
+            A complete, modern budgeting app — not a spreadsheet — designed around how real
             households actually manage money.
           </p>
         </div>
@@ -265,7 +281,7 @@ export function LandingPage() {
       <section className="px-5 py-10">
         <div className="hero-surface mx-auto max-w-4xl rounded-[24px] px-8 py-12 text-center">
           <h2 className="text-3xl font-bold tracking-tight text-white">
-            Ready to give every euro a job?
+            Ready to give every {noun} a job?
           </h2>
           <p className="mx-auto mt-3 max-w-xl text-white/85">
             Set up your first budget in minutes. It’s free to start.
@@ -289,9 +305,15 @@ export function LandingPage() {
             <span className="text-sm font-bold tracking-[-0.02em] text-slate-700">AllotJar</span>
           </div>
           <p className="text-sm text-slate-500">
-            © {new Date().getFullYear()} AllotJar · Give every euro a job.
+            © {new Date().getFullYear()} AllotJar · Give every {noun} a job.
           </p>
-          <nav className="flex items-center gap-4 text-sm" aria-label="Footer">
+          <nav className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm" aria-label="Footer">
+            <a href="/privacy" className="font-medium text-slate-600 hover:text-slate-900">
+              Privacy
+            </a>
+            <a href="/terms" className="font-medium text-slate-600 hover:text-slate-900">
+              Terms
+            </a>
             <a href="/login" className="font-medium text-slate-600 hover:text-slate-900">
               Sign in
             </a>

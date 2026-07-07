@@ -167,6 +167,56 @@ html {
   scroll-padding-top: 5rem;
 }
 
+/* Public legal pages (/privacy, /terms): document-style prose without per-element
+   class noise. Rides the slate ramp + brand tokens, so it flips for dark mode
+   automatically (the .dark block reassigns those variables). */
+.legal-prose {
+  color: var(--color-slate-600);
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+.legal-prose h2 {
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-slate-900);
+}
+.legal-prose h3 {
+  margin-top: 1.25rem;
+  margin-bottom: 0.35rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-slate-800);
+}
+.legal-prose p {
+  margin: 0.75rem 0;
+}
+.legal-prose ul {
+  margin: 0.75rem 0;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+.legal-prose li {
+  margin: 0.35rem 0;
+}
+.legal-prose a {
+  color: var(--color-brand-600);
+  font-weight: 500;
+  text-decoration: underline;
+}
+.legal-prose a:hover {
+  color: var(--color-brand-700);
+}
+.dark .legal-prose a {
+  color: var(--color-brand-500);
+}
+.legal-prose strong {
+  color: var(--color-slate-800);
+  font-weight: 600;
+}
+
 /* WCAG 2.3.3 / respecting prefers-reduced-motion: drop non-essential motion
    (sidebar slide, the "saving" pulse, transitions) for users who ask for it. */
 @media (prefers-reduced-motion: reduce) {

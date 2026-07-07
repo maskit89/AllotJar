@@ -1,4 +1,4 @@
-// Mirrors the API DTOs (ZeroBudget.Application.Budgets.Dtos).
+// Mirrors the API DTOs (AllotJar.Application.Budgets.Dtos).
 
 export interface BudgetItemDto {
   id: string
@@ -128,6 +128,31 @@ export interface ImportCandidate {
   likelyTransfer: boolean
 }
 
+/** How the amount column writes decimals. Matches the server CsvDecimalStyle enum. */
+export type CsvDecimalStyle = 0 | 1 | 2 // Auto | Dot | Comma
+
+/** User-confirmed column mapping for a generic bank-CSV import (column values are 0-based indices). */
+export interface CsvMapping {
+  delimiter: string
+  hasHeader: boolean
+  dateColumn: number
+  amountColumn: number
+  descriptionColumn: number
+  currencyColumn: number | null
+  /** e.g. "dd/MM/yyyy"; null = auto-detect a common format. */
+  dateFormat: string | null
+  decimalStyle: CsvDecimalStyle
+  /** Stamped on rows with no currency column (the user's home currency). */
+  defaultCurrency: string | null
+}
+
+/** The layout the server detected from an uploaded CSV, for the mapping UI. */
+export interface CsvLayout {
+  columns: string[]
+  sampleRows: string[][]
+  suggested: CsvMapping
+}
+
 /** The de-duplicated candidate rows plus the counts the review UI shows. */
 export interface ImportPreviewResult {
   totalEntries: number
@@ -136,6 +161,8 @@ export interface ImportPreviewResult {
   credits: number
   debits: number
   items: ImportCandidate[]
+  /** Present only for a generic-CSV preview — the detected/used column mapping. */
+  layout?: CsvLayout | null
 }
 
 /** One slice of a split import row sent to the commit endpoint. */
@@ -256,15 +283,18 @@ export const JAR_KIND_LABELS: Record<number, string> = {
   1: 'Goal',
 }
 
-// Matches Domain.Enums.AccrualMethod (serialized as a number).
+// Matches Domain.Enums.AccrualMethod (serialized as a number). The form no longer
+// offers a choice — new jars are TargetByDate and edits echo the stored method
+// (imported jars may be StraightLine/DailyRate) — but the wire field remains.
 export const AccrualMethod = { StraightLine: 0, TargetByDate: 1, ProportionalPool: 2, DailyRate: 3 } as const
 
-export const ACCRUAL_METHOD_LABELS: Record<number, string> = {
-  0: 'Straight line (÷ 12)',
-  1: 'By target date',
-  2: 'Proportional pool',
-  3: 'Daily rate',
-}
+/** A Recurring jar's cycle length choices for the "Repeats every" select. */
+export const RECUR_MONTHS_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
+  { value: 12, label: 'Yearly' },
+  { value: 6, label: 'Every 6 months' },
+  { value: 3, label: 'Every 3 months' },
+  { value: 1, label: 'Monthly' },
+]
 
 export interface JarDto {
   id: string
@@ -278,7 +308,8 @@ export interface JarDto {
   coverEnd: string | null
   /** Numeric AccrualMethod. */
   accrual: number
-  recurAnnually: boolean
+  /** A Recurring jar's cycle length in months (its date rolls forward by this); null for Goals. */
+  recurMonths: number | null
   openingBalance: number
   openingAsOf: string | null
   fundingAccountId: string | null
@@ -383,7 +414,7 @@ export interface AllocationResultDto {
   transfersCreated: number
 }
 
-/** Toggles for the beyond-EveryDollar features (from GET /api/features). */
+/** Toggles for the features beyond core zero-based budgeting (from GET /api/features). */
 export interface FeatureFlags {
   accounts: boolean
   multiCurrency: boolean

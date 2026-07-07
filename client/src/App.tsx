@@ -5,6 +5,8 @@ import { useFeatures } from './features/FeatureContext'
 import { MonthProvider } from './features/MonthContext'
 import { LoginPage } from './pages/LoginPage'
 import { LandingPage } from './pages/LandingPage'
+import { PrivacyPage } from './pages/PrivacyPage'
+import { TermsPage } from './pages/TermsPage'
 import { AcceptInvitePage } from './pages/AcceptInvitePage'
 import { AccountPage } from './pages/AccountPage'
 import { PeoplePage } from './pages/PeoplePage'
@@ -52,6 +54,9 @@ export default function App() {
           }
         />
         <Route path="/accept-invite" element={<AcceptInvitePage />} />
+        {/* Public legal pages — crawlable, available signed in or out. */}
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
         <Route
           path="/"
           element={

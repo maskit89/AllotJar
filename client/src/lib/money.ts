@@ -41,32 +41,158 @@ export function toEditString(minor: Minor): string {
 // (a EUR user may still prefer "1,234.56"). Each key maps to a locale that renders it.
 
 /** The money grouping/decimal styles a user can choose. */
-export type NumberFormatKey = 'dot-comma' | 'comma-dot' | 'space-comma'
+export type NumberFormatKey = 'dot-comma' | 'comma-dot' | 'space-comma' | 'apostrophe' | 'lakh'
 
 const FORMAT_LOCALES: Record<NumberFormatKey, string> = {
   'dot-comma': 'de-DE', // 1.234,56
   'comma-dot': 'en-GB', // 1,234.56
   'space-comma': 'fr-FR', // 1 234,56
+  apostrophe: 'de-CH', // 1'234.56  (Switzerland/Liechtenstein)
+  lakh: 'en-IN', // 1,23,456.78  (Indian lakh/crore grouping)
 }
 
 /** Selectable money-format presets for the sign-up + preferences UI (value → worked example). */
 export const NUMBER_FORMAT_OPTIONS: { value: NumberFormatKey; label: string }[] = [
-  { value: 'dot-comma', label: '1.234,56' },
   { value: 'comma-dot', label: '1,234.56' },
+  { value: 'dot-comma', label: '1.234,56' },
   { value: 'space-comma', label: '1 234,56' },
+  { value: 'apostrophe', label: "1'234.56" },
+  { value: 'lakh', label: '1,23,456.78' },
 ]
 
-/** The currencies offered at sign-up and in preferences (ISO code → display label). */
+/**
+ * The currencies offered at sign-up and in preferences (ISO code → display label).
+ * A curated global set — the euro and its European neighbours lead (AllotJar's
+ * home), followed by the major world currencies so anyone, anywhere, finds theirs.
+ * The engine accepts any ISO 4217 code; this is only the picker's shortlist.
+ */
 export const CURRENCY_OPTIONS: { value: string; label: string }[] = [
   { value: 'EUR', label: 'Euro (€)' },
   { value: 'GBP', label: 'British pound (£)' },
   { value: 'USD', label: 'US dollar ($)' },
   { value: 'CHF', label: 'Swiss franc (CHF)' },
+  { value: 'CAD', label: 'Canadian dollar (C$)' },
+  { value: 'AUD', label: 'Australian dollar (A$)' },
+  { value: 'NZD', label: 'New Zealand dollar (NZ$)' },
+  { value: 'JPY', label: 'Japanese yen (¥)' },
+  { value: 'INR', label: 'Indian rupee (₹)' },
+  { value: 'SGD', label: 'Singapore dollar (S$)' },
+  { value: 'HKD', label: 'Hong Kong dollar (HK$)' },
   { value: 'SEK', label: 'Swedish krona (kr)' },
   { value: 'NOK', label: 'Norwegian krone (kr)' },
   { value: 'DKK', label: 'Danish krone (kr)' },
   { value: 'PLN', label: 'Polish złoty (zł)' },
+  { value: 'CZK', label: 'Czech koruna (Kč)' },
+  { value: 'HUF', label: 'Hungarian forint (Ft)' },
+  { value: 'RON', label: 'Romanian leu (lei)' },
+  { value: 'ZAR', label: 'South African rand (R)' },
+  { value: 'BRL', label: 'Brazilian real (R$)' },
+  { value: 'MXN', label: 'Mexican peso (Mex$)' },
+  { value: 'AED', label: 'UAE dirham (AED)' },
+  { value: 'SAR', label: 'Saudi riyal (SAR)' },
+  { value: 'TRY', label: 'Turkish lira (₺)' },
 ]
+
+/**
+ * The singular noun for a currency, used by the "give every ___ a job" tagline so
+ * it speaks the signed-in user's money ("every euro", "every rupee"). Covers every
+ * code in CURRENCY_OPTIONS; anything else falls back to a neutral "unit". EUR → "euro"
+ * keeps euro as the default voice (see the anonymous landing + logged-out surfaces).
+ */
+const CURRENCY_NOUNS: Record<string, string> = {
+  EUR: 'euro',
+  GBP: 'pound',
+  USD: 'dollar',
+  CHF: 'franc',
+  CAD: 'dollar',
+  AUD: 'dollar',
+  NZD: 'dollar',
+  JPY: 'yen',
+  INR: 'rupee',
+  SGD: 'dollar',
+  HKD: 'dollar',
+  SEK: 'krona',
+  NOK: 'krone',
+  DKK: 'krone',
+  PLN: 'złoty',
+  CZK: 'koruna',
+  HUF: 'forint',
+  RON: 'leu',
+  ZAR: 'rand',
+  BRL: 'real',
+  MXN: 'peso',
+  AED: 'dirham',
+  SAR: 'riyal',
+  TRY: 'lira',
+}
+
+/** The singular money-noun for a currency code (e.g. "USD" → "dollar"). Falls back to "unit". */
+export function currencyNoun(currency: string | null | undefined): string {
+  if (!currency) return 'unit'
+  return CURRENCY_NOUNS[currency.trim().toUpperCase()] ?? 'unit'
+}
+
+// --- Browser-locale detection ------------------------------------------------
+// A welcoming first guess for the sign-up form + the anonymous landing tagline:
+// read the visitor's browser locale and pre-select their likely currency + number
+// format. Always fully overridable, and EUR / euro-style stays the fallback so the
+// front door still greets in euros when detection is unavailable or unrecognised.
+
+/** The app's neutral fallbacks, shared by detection + the sign-up form + AuthContext. */
+export const DEFAULT_CURRENCY_CODE = 'EUR'
+export const DEFAULT_FORMAT_KEY: NumberFormatKey = 'comma-dot'
+
+/** Region (ISO 3166 alpha-2) → the currency we offer for it. Unlisted regions fall back to EUR. */
+const REGION_CURRENCY: Record<string, string> = {
+  US: 'USD', GB: 'GBP', CH: 'CHF', LI: 'CHF', CA: 'CAD', AU: 'AUD', NZ: 'NZD',
+  JP: 'JPY', IN: 'INR', SG: 'SGD', HK: 'HKD', SE: 'SEK', NO: 'NOK', DK: 'DKK',
+  PL: 'PLN', CZ: 'CZK', HU: 'HUF', RO: 'RON', ZA: 'ZAR', BR: 'BRL', MX: 'MXN',
+  AE: 'AED', SA: 'SAR', TR: 'TRY',
+}
+
+/** The visitor's region from their browser locale, or null when it can't be determined. */
+function localeRegion(): string | null {
+  if (typeof navigator === 'undefined' || !navigator.language) return null
+  try {
+    const region = new Intl.Locale(navigator.language).maximize().region
+    if (region) return region.toUpperCase()
+  } catch {
+    // Fall through to a plain tag parse.
+  }
+  const parts = navigator.language.split('-')
+  const tail = parts.length > 1 ? parts[parts.length - 1] : null
+  return tail && /^[A-Za-z]{2}$/.test(tail) ? tail.toUpperCase() : null
+}
+
+/** Infer a number-format key from how the browser locale groups a sample number. */
+function localeNumberFormat(region: string | null): NumberFormatKey {
+  // Two regions have a distinctive grouping the separator alone doesn't reveal.
+  if (region === 'IN') return 'lakh'
+  if (region === 'CH' || region === 'LI') return 'apostrophe'
+  if (typeof navigator === 'undefined' || !navigator.language) return DEFAULT_FORMAT_KEY
+  try {
+    const parts = new Intl.NumberFormat(navigator.language).formatToParts(1234567.8)
+    const group = parts.find((p) => p.type === 'group')?.value ?? ','
+    const decimal = parts.find((p) => p.type === 'decimal')?.value ?? '.'
+    if (decimal === ',' && group === '.') return 'dot-comma'
+    if (decimal === ',') return 'space-comma' // fr-style: space (or NBSP) grouping
+    if (group === "'" || group === '’') return 'apostrophe'
+    return 'comma-dot'
+  } catch {
+    return DEFAULT_FORMAT_KEY
+  }
+}
+
+/**
+ * Best-guess currency + number format from the visitor's browser locale, for
+ * pre-filling the sign-up form and the logged-out tagline. SSR-safe (returns the
+ * euro defaults when there's no `navigator`).
+ */
+export function detectLocaleDefaults(): { currency: string; numberFormat: NumberFormatKey } {
+  const region = localeRegion()
+  const currency = (region && REGION_CURRENCY[region]) || DEFAULT_CURRENCY_CODE
+  return { currency, numberFormat: localeNumberFormat(region) }
+}
 
 // The active display locale. Defaults to en-GB — the design's canonical money
 // format (€1,234.56: € prefix, comma grouping, dot decimal) — until the signed-in
@@ -90,12 +216,9 @@ function formatterFor(currency: string): Intl.NumberFormat {
   const key = `${activeLocale}:${currency}`
   let fmt = formatters.get(key)
   if (!fmt) {
-    fmt = new Intl.NumberFormat(activeLocale, {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })
+    // No fixed fraction digits — each currency uses its own ISO minor-unit count:
+    // 2 for EUR/USD/GBP, 0 for JPY ("¥1,234", not "¥1,234.00"), 3 for KWD/BHD.
+    fmt = new Intl.NumberFormat(activeLocale, { style: 'currency', currency })
     formatters.set(key, fmt)
   }
   return fmt
@@ -139,7 +262,11 @@ export function currencySymbol(currency: string): string {
  * is rounded half-up to scale 4.
  */
 export function parseMinor(input: string): Minor | null {
-  let trimmed = input.trim()
+  // Strip unambiguous grouping separators first — spaces (fr-FR "1 234,56"),
+  // apostrophes (de-CH "1'234.56", straight or curly). Neither is ever a decimal
+  // separator, so removing them can't change the value; only ',' and '.' remain
+  // ambiguous and are resolved below.
+  let trimmed = input.trim().replace(/[\s'’]/g, '')
 
   const lastComma = trimmed.lastIndexOf(',')
   const lastDot = trimmed.lastIndexOf('.')

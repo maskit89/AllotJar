@@ -21,7 +21,9 @@ for (const theme of ['light', 'dark'] as const) {
     await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)
     await page.route('**/api/**', mockApi)
     await page.goto('/')
-    await page.getByRole('heading', { level: 1, name: /give every euro a job/i }).waitFor()
+    // The currency noun follows the browser locale (euro by default), so match the
+    // invariant shape of the tagline rather than a specific word.
+    await page.getByRole('heading', { level: 1, name: /give every \S+ a job/i }).waitFor()
     await expectNoViolations(page)
   })
 }

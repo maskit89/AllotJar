@@ -17,8 +17,13 @@ export interface TourStep {
  * tour stays on one screen and points at "this menu item → does this". Anchors
  * gracefully centre when missing/off-screen (mobile top bar, a section turned off
  * by a feature flag, or no budget yet), so the tour works in any app state.
+ *
+ * A builder rather than a constant so the zero-based step can speak the user's
+ * currency ("give every euro a job"); `noun` is the singular money-noun from
+ * currencyNoun(). Step count is invariant to the noun — see TOUR_STEP_COUNT.
  */
-export const TOUR_STEPS: TourStep[] = [
+export function buildTourSteps(noun: string): TourStep[] {
+  return [
   {
     id: 'nav',
     selector: '[data-tour="sidebar"]',
@@ -47,12 +52,12 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: 'goal',
     selector: '[data-tour="remaining-banner"]',
-    title: 'Give every euro a job',
+    title: `Give every ${noun} a job`,
     body: (
       <>
         This is the heart of zero-based budgeting: assign <strong>all</strong> of your income across
         spending lines, savings and jars until <strong>Remaining to Budget</strong> reaches{' '}
-        <strong>€0.00</strong> and the banner turns green. <strong>Spent</strong> fills in
+        <strong>zero</strong> and the banner turns green. <strong>Spent</strong> fills in
         automatically from the transactions you log — there’s nothing to tally by hand.
       </>
     ),
@@ -127,4 +132,8 @@ export const TOUR_STEPS: TourStep[] = [
       </>
     ),
   },
-]
+  ]
+}
+
+/** The number of tour steps — invariant to the currency noun, so it's safe to precompute. */
+export const TOUR_STEP_COUNT = buildTourSteps('unit').length

@@ -4,9 +4,11 @@ import { Button, Card, PageHeader } from '../components/ui'
 import { useOnboarding } from '../onboarding/OnboardingContext'
 import { EVENTS, track } from '../analytics'
 import { useAnalytics } from '../analytics/AnalyticsProvider'
+import { useAuth } from '../auth/AuthContext'
+import { currencyNoun } from '../lib/money'
 import { hueColor, hueForIndex, hueTint } from '../lib/categoryColors'
 
-const GUIDE_URL = 'https://github.com/maskit89/ZeroBudget/blob/main/docs/USER_GUIDE.md'
+const GUIDE_URL = 'https://github.com/maskit89/AllotJar/blob/main/docs/USER_GUIDE.md'
 
 /** A topic card — a hue-tinted icon tile, a title, and a short explanation. */
 function HelpCard({
@@ -39,6 +41,8 @@ function HelpCard({
 export function HelpPage() {
   const { replay } = useOnboarding()
   const { available, consent, accept, decline } = useAnalytics()
+  const { preferredCurrency } = useAuth()
+  const noun = currencyNoun(preferredCurrency)
   return (
     <AppShell active="help">
       <PageHeader
@@ -54,8 +58,8 @@ export function HelpPage() {
       <div className="grid gap-4 sm:grid-cols-2">
         <HelpCard hueIndex={0} title="Zero-based budgeting">
           <p>
-            Give every euro a job until <strong>Remaining to budget</strong> reaches{' '}
-            <strong>€0.00</strong> — assign all your income across spending lines, savings and jars before the
+            Give every {noun} a job until <strong>Remaining to budget</strong> reaches{' '}
+            <strong>zero</strong> — assign all your income across spending lines, savings and jars before the
             month begins. <strong>Spent</strong> fills in automatically from your transactions, so there's
             nothing to total by hand.
           </p>

@@ -1,6 +1,6 @@
 # AllotJar — User Guide
 
-AllotJar is a zero-based budgeting app for Europe: every euro of income gets a job before the month starts. This guide walks through every page of the app, what each control does, and how the numbers behind them are calculated.
+AllotJar is a zero-based budgeting app crafted in Europe and at home anywhere: every unit of your income gets a job before the month starts, in whatever currency you budget. This guide walks through every page of the app, what each control does, and how the numbers behind them are calculated.
 
 ---
 
@@ -43,11 +43,11 @@ AllotJar is a zero-based budgeting app for Europe: every euro of income gets a j
 
 ## 1. The idea: zero-based budgeting
 
-In a zero-based budget you don't just track spending after the fact — you **assign every euro a job before you spend it**. Each month:
+In a zero-based budget you don't just track spending after the fact — you **assign every part of your income a job before you spend it**. Each month:
 
 1. Enter the income you expect.
 2. Assign all of it across your spending lines (Rent, Groceries, …), your savings goals, and your jars.
-3. The goal is **Remaining to Budget = €0.00** — no money left unassigned, none over-assigned.
+3. The goal is **Remaining to Budget = 0** — no money left unassigned, none over-assigned.
 4. During the month, record what you actually spend; AllotJar compares it to the plan for you.
 
 AllotJar's big banner tracks that goal live as you type.
@@ -94,7 +94,7 @@ The large coloured banner shows **Income**, **Assigned**, and the difference —
 | Colour | Meaning |
 |---|---|
 | 🟡 Amber — "Still to assign" | Income not yet given a job. Keep assigning. |
-| 🟢 Green — "Every Euro has a job 🎉" | Exactly €0.00 left. The budget is balanced. |
+| 🟢 Green — "Every [currency] has a job 🎉" | Nothing left to assign (the banner names your currency). The budget is balanced. |
 | 🔴 Red — "Over-budgeted — trim a category" | You've planned more than you earn. Reduce something. |
 
 **How it works:** Income = the sum of your income lines' *planned* amounts. Assigned = the sum of every expense line *and* every savings contribution. Putting money into a savings line counts as giving it a job, so the budget only balances once your savings are funded too.
@@ -156,7 +156,7 @@ The register of real money movements.
 
 ### Adding a transaction
 
-Use the **Add a transaction** form: date, payee, amount, type (**Expense** or **Income**), optionally assign it to a budget line right away, and — if you use [Accounts](#5-accounts) — the account it happened on. Amounts accept European decimal commas ("12,50").
+Use the **Add a transaction** form: date, payee, amount, type (**Expense** or **Income**), optionally assign it to a budget line right away, and — if you use [Accounts](#5-accounts) — the account it happened on. Amounts accept a decimal point or comma ("12.50" or "12,50"), and tolerate thousands separators.
 
 If you don't pick a budget line, AllotJar quietly fills one in for you: it assigns the new transaction to the same line as your **most recent earlier transaction with the same description**. So once you've categorised "REWE" or your landlord once, repeat payees sort themselves — with no rules to set up. Whatever it can't match is left *Unassigned* for you to place.
 
@@ -195,21 +195,23 @@ The **Accounts** page tracks *where your money sits* — current account, saving
 
 ## 6. Jars (savings goals)
 
-The **Jars** page is where you set savings *goals* and watch them fill up. A jar is the visual, target-driven companion to a savings line on the Budget page.
+The **Jars** page is where you set savings targets and watch them fill up. A jar is the visual, target-driven companion to a savings line on the Budget page.
 
-For each jar you set:
+The first thing you choose is the jar's **Type**, and that shapes the rest of the form:
+
+- **Recurring** — a cost that comes around again: you save toward a due date, and when the date passes the jar rolls forward to its next cycle and keeps going (home insurance, road tax, a yearly holiday). You give it a **Next due** date and a **Repeats** cadence (yearly, every 6 months, every 3 months, or monthly). If a cycle slips past its date, the remaining amount simply spreads over the next one.
+- **Goal** — a one-off target that's done once it's funded (a new kitchen, a sofa, a wedding). You give it a **Target date** if you have one; it's optional.
+
+You also set:
 
 - **Name** — e.g. "Home insurance", "Summer holiday".
-- **Kind** — how the goal recurs (for example a yearly cost versus an ongoing monthly set-aside).
-- **Target** and **Target date** — how much you want, and by when.
-- **Saved so far** — the opening balance already put aside.
-- **Accrual** — how AllotJar spreads the goal into a monthly figure (by default, evenly up to the target date).
+- **Target** — how much you want to reach.
+- **Saved so far** — money you'd already put aside before AllotJar started tracking (on an existing jar this field is labelled **Opening balance**, and the card shows the live total — don't retype it).
 - **Held in** *(optional)* — the account the money sits in, if you track accounts.
-- **Renews yearly** — for goals that come around again every year.
 
-From this AllotJar works out the **monthly contribution** the jar needs and shows each jar as a **progress bar** toward its target. The page header totals your **Total saved**, the combined **monthly** set-aside, and the number of **active jars**.
+As you fill the form, a live line estimates the **monthly set-aside** the jar needs ("Sets aside ≈ €120/mo toward Mar 2027, then it repeats"). Each jar card then shows a **progress bar**, a **status** (Behind, Funded, Overspent) where it matters, and its projected finish ("full by Nov 2026"). The page header totals your **Total saved**, the combined **monthly** set-aside, and the number of **active jars**.
 
-**Jars and the Budget page work together:** the jar tells you *what to set aside each month*; you budget that amount as a contribution on a **Savings** line so it counts toward giving every euro a job. Edit a jar to change its target or date, or **archive** it when the goal is done (archiving never touches your transactions).
+**Jars and the Budget page work together:** the jar tells you *what to set aside each month*, and AllotJar seeds that amount onto its **Savings** budget line automatically when you create each month — so a new jar starts filling without extra steps. When you spend from a jar, record the expense against that Savings line and its balance falls, ready to fill again next cycle. Edit a jar any time to change its target, date or cadence, or **archive** it when you're done with it (archiving never touches your transactions; deleting the budget line instead just re-adds it next month).
 
 ## 7. Reports
 

@@ -11,14 +11,14 @@ export const FLAGS = { accounts: true, multiCurrency: true, camtImport: true, re
 
 // The current login (Owner) for /auth/me, so role-gated UI resolves to full access.
 function meResponse() {
-  return { userId: 'u1', email: 'e2e@zerobudget.app', displayName: 'Chris', role: 0, ownerId: 'u1', memberId: null }
+  return { userId: 'u1', email: 'e2e@allotjar.app', displayName: 'Chris', role: 0, ownerId: 'u1', memberId: null }
 }
 
 // A representative access list so the /access table renders both status badges (Active +
 // Invited), the per-row role <select> and the Remove button.
 function memberships() {
   return [
-    { id: 'mem1', email: 'e2e@zerobudget.app', displayName: 'Chris', role: 0, status: 0, memberId: null, isOwner: true, isSelf: true, createdUtc: '2026-01-01T00:00:00Z' },
+    { id: 'mem1', email: 'e2e@allotjar.app', displayName: 'Chris', role: 0, status: 0, memberId: null, isOwner: true, isSelf: true, createdUtc: '2026-01-01T00:00:00Z' },
     { id: 'mem2', email: 'liza@example.eu', displayName: 'Liza', role: 1, status: 0, memberId: null, isOwner: false, isSelf: false, createdUtc: '2026-02-01T00:00:00Z' },
     { id: 'mem3', email: 'guest@example.eu', displayName: null, role: 3, status: 1, memberId: null, isOwner: false, isSelf: false, createdUtc: '2026-03-01T00:00:00Z' },
   ]
@@ -39,8 +39,8 @@ function memberSpending() {
 // bars (incl. an overspent one).
 function jars() {
   return [
-    { id: 'f1', name: 'Home insurance', kind: 0, targetAmount: 300, targetDate: '2026-12-01', coverStart: null, coverEnd: null, accrual: 0, recurAnnually: true, openingBalance: 0, openingAsOf: null, fundingAccountId: null, isArchived: false, currentBalance: 120, requiredMonthlyContribution: 25, projectedFullyFundedDate: '2026-11-01', status: 'OnTrack' },
-    { id: 'f2', name: 'Holiday', kind: 1, targetAmount: 1000, targetDate: null, coverStart: null, coverEnd: null, accrual: 1, recurAnnually: false, openingBalance: 0, openingAsOf: null, fundingAccountId: null, isArchived: false, currentBalance: -40, requiredMonthlyContribution: 0, projectedFullyFundedDate: null, status: 'Overspent' },
+    { id: 'f1', name: 'Home insurance', kind: 0, targetAmount: 300, targetDate: '2026-12-01', coverStart: null, coverEnd: null, accrual: 0, recurMonths: 12, openingBalance: 0, openingAsOf: null, fundingAccountId: null, isArchived: false, currentBalance: 120, requiredMonthlyContribution: 25, projectedFullyFundedDate: '2026-11-01', status: 'OnTrack' },
+    { id: 'f2', name: 'Holiday', kind: 1, targetAmount: 1000, targetDate: null, coverStart: null, coverEnd: null, accrual: 1, recurMonths: null, openingBalance: 0, openingAsOf: null, fundingAccountId: null, isArchived: false, currentBalance: -40, requiredMonthlyContribution: 0, projectedFullyFundedDate: null, status: 'Overspent' },
   ]
 }
 
@@ -220,13 +220,13 @@ export async function mockApi(route: Route) {
   return json([]) // anything else → empty
 }
 
-export const ONBOARDING_EMAIL = 'e2e@zerobudget.app'
+export const ONBOARDING_EMAIL = 'e2e@allotjar.app'
 // A fully-completed onboarding record so the welcome/tour/checklist stay out of
 // the per-route scans (they're scanned on their own).
 const ONBOARDING_DONE = JSON.stringify({ v: 1, welcomeSeen: true, tourDone: true, checklistDismissed: true })
 
 /** The session body returned by /auth/refresh (and login) for the e2e user. */
-export function authResponse(email = 'e2e@zerobudget.app') {
+export function authResponse(email = 'e2e@allotjar.app') {
   return { token: 'e2e-token', expiresAtUtc: '2030-01-01T00:00:00Z', userId: 'u1', email, role: 0, displayName: 'Chris' }
 }
 
@@ -235,7 +235,7 @@ export function authResponse(email = 'e2e@zerobudget.app') {
  * bootstraps auth on a cold load (the access token lives in memory, not localStorage). Registered
  * after the catch-all so it wins for the refresh route.
  */
-export async function mockSignedIn(page: Page, email = 'e2e@zerobudget.app') {
+export async function mockSignedIn(page: Page, email = 'e2e@allotjar.app') {
   await page.route('**/api/auth/refresh', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(authResponse(email)) }),
   )
@@ -246,8 +246,8 @@ export async function authedSetup(page: Page, theme: 'light' | 'dark') {
   await page.addInitScript(
     ({ t, done }) => {
       localStorage.setItem('zbb.theme', t)
-      localStorage.setItem('zbb.email', 'e2e@zerobudget.app')
-      localStorage.setItem('zbb.onboarding:e2e@zerobudget.app', done)
+      localStorage.setItem('zbb.email', 'e2e@allotjar.app')
+      localStorage.setItem('zbb.onboarding:e2e@allotjar.app', done)
     },
     { t: theme, done: ONBOARDING_DONE },
   )
