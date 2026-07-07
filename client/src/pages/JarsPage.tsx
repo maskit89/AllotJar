@@ -61,6 +61,12 @@ export function JarsPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(BLANK_FORM)
+  // The jar behind the edit modal — one lookup shared by submit (echoing stored
+  // fields) and the footer's Archive affordance.
+  const editingJar = useMemo(
+    () => (editingId ? jars.find((f) => f.id === editingId) ?? null : null),
+    [editingId, jars],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -125,16 +131,19 @@ export function JarsPage() {
       return
     }
 
+    // The form doesn't surface the cover window or opening as-of, so on edit the
+    // jar's stored values are echoed back rather than wiped — importer-set cover
+    // windows survive an unrelated rename (PUT replaces the whole resource).
     const body = {
       name: form.name.trim(),
       kind: form.kind,
       targetAmount,
       targetDate: form.targetDate || null,
-      coverStart: null,
-      coverEnd: null,
+      coverStart: editingJar?.coverStart ?? null,
+      coverEnd: editingJar?.coverEnd ?? null,
       accrual: form.accrual,
       openingBalance,
-      openingAsOf: null,
+      openingAsOf: editingJar?.openingAsOf ?? null,
       fundingAccountId: form.fundingAccountId || null,
     }
 
@@ -156,7 +165,7 @@ export function JarsPage() {
     } finally {
       setSaving(false)
     }
-  }, [form, editingId, closeForm])
+  }, [form, editingId, editingJar, closeForm])
 
   const archive = useCallback(
     async (f: JarDto) => {
@@ -182,8 +191,6 @@ export function JarsPage() {
     () => jars.reduce((s, f) => s + fromAmount(f.requiredMonthlyContribution), 0),
     [jars],
   )
-
-  const editingJar = editingId ? jars.find((f) => f.id === editingId) ?? null : null
 
   return (
     <AppShell active="jars" title="Jars">
@@ -294,7 +301,10 @@ export function JarsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Saved so far
+                {/* At creation the opening IS what's saved so far; once contributions
+                    are recorded on top of it, calling it "saved so far" invites
+                    retyping the card's live balance — which would double-count. */}
+                {editingId ? 'Opening balance' : 'Saved so far'}
                 <Input
                   type="text"
                   inputMode="decimal"
@@ -304,6 +314,11 @@ export function JarsPage() {
                   onChange={(e) => set('opening', e.target.value)}
                   className="w-full text-right tabular-nums"
                 />
+                {editingId && (
+                  <span className="text-[11px] font-normal text-slate-400">
+                    Before tracking began — the card shows the live total.
+                  </span>
+                )}
               </label>
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
                 Target date

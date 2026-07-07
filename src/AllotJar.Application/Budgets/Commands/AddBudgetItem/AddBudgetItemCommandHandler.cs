@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Budgets.Dtos;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Jars;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 
@@ -44,15 +45,20 @@ public class AddBudgetItemCommandHandler : IRequestHandler<AddBudgetItemCommand,
 
         var nextOrder = category.Items.Count == 0 ? 0 : category.Items.Max(i => i.DisplayOrder) + 1;
 
+        // A line in a Savings group is a jar's monthly contribution — backed by a
+        // real jar (created here, shaped later on the Jars page), never a bare Guid,
+        // which would violate the SavingsId FK on SQL Server.
+        var savingsId = category.Kind == CategoryKind.Savings
+            ? SavingsLines.AddBackingJar(_db, userId, request.Name.Trim()).Id
+            : (Guid?)null;
+
         _db.BudgetItems.Add(new BudgetItem
         {
             BudgetCategoryId = category.Id,
             Name = request.Name.Trim(),
             PlannedAmount = request.PlannedAmount,
             DisplayOrder = nextOrder,
-            // A line in a Fund group is a sinking fund — give it a stable id so its
-            // balance can roll over across months.
-            SavingsId = category.Kind == CategoryKind.Savings ? Guid.NewGuid() : null,
+            SavingsId = savingsId,
         });
 
         await _db.SaveChangesAsync(cancellationToken);

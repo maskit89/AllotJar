@@ -126,6 +126,49 @@ describe('JarsPage', () => {
     expect(dialog.queryByLabelText('Renews each year')).not.toBeInTheDocument()
   })
 
+  it('echoes the stored cover window and opening as-of when editing', { timeout: 15000 }, async () => {
+    // The form doesn't surface these fields; an unrelated edit must not wipe them.
+    fundsData = [
+      fund({ coverStart: '2026-01-01', coverEnd: '2026-12-31', openingAsOf: '2025-12-31' }),
+    ]
+    mockPut.mockResolvedValue({ data: fundsData[0] })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.click(dialog.getByRole('button', { name: 'Save jar' }))
+
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith(
+        '/jars/f1',
+        expect.objectContaining({
+          coverStart: '2026-01-01',
+          coverEnd: '2026-12-31',
+          openingAsOf: '2025-12-31',
+        }),
+      ),
+    )
+  })
+
+  it('labels the opening amount "Saved so far" on create but "Opening balance" on edit', { timeout: 15000 }, async () => {
+    fundsData = [fund()]
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'New jar' }, { timeout: 5000 }))
+    let dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByText('Saved so far')).toBeInTheDocument()
+    await user.click(dialog.getByRole('button', { name: 'Cancel edit' }))
+
+    await user.click(screen.getByLabelText('Edit Home insurance'))
+    dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByText('Opening balance')).toBeInTheDocument()
+    expect(dialog.queryByText('Saved so far')).not.toBeInTheDocument()
+  })
+
   it('archives a fund from its edit modal', { timeout: 15000 }, async () => {
     fundsData = [
       fund(),
