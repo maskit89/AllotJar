@@ -36,6 +36,31 @@ function monthsFromNow(iso: string): number {
   return (y - now.getFullYear()) * 12 + (m - (now.getMonth() + 1))
 }
 
+/**
+ * Whole months from today to the effective due date, mirroring the server's
+ * recurrence roll: a Recurring jar whose date has passed re-arms to its next cycle,
+ * so a past "Next due" spreads over the upcoming cycle rather than demanding the
+ * whole remainder this month. Goals (and cycle-less jars) don't roll.
+ */
+function monthsToEffectiveDue(iso: string, kind: number, recurMonths: number): number {
+  const raw = monthsFromNow(iso)
+  if (kind !== JarKind.Recurring || recurMonths < 1 || raw >= 0) return raw
+  const cyclesBehind = Math.ceil(-raw / recurMonths)
+  return raw + cyclesBehind * recurMonths
+}
+
+/** The recurrence-adjusted due date (ISO) for display — jumps whole cycles from the anchor, keeping the day. */
+function effectiveDueIso(iso: string, kind: number, recurMonths: number): string {
+  const raw = monthsFromNow(iso)
+  if (kind !== JarKind.Recurring || recurMonths < 1 || raw >= 0) return iso
+  const cyclesBehind = Math.ceil(-raw / recurMonths)
+  const [y, m, d] = iso.split('-').map(Number)
+  const total = m - 1 + cyclesBehind * recurMonths
+  const yy = y + Math.floor(total / 12)
+  const mm = (total % 12) + 1
+  return `${yy}-${String(mm).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
 interface FormState {
   name: string
   kind: number
@@ -78,24 +103,42 @@ export function JarsPage() {
   // One deliberate step between "Archive jar" and it actually happening.
   const [confirmArchive, setConfirmArchive] = useState(false)
 
-  // Live preview of the monthly set-aside, mirroring the server's by-target-date
-  // math (remaining ÷ whole months, floored at one). Hidden while the target
-  // doesn't parse or is 0, and for imported jars on other accrual methods, where
-  // this math wouldn't match the server's figure.
+  // The cycle dropdown offers the common cadences; if an edited jar carries a value
+  // set via the API that isn't one of them (e.g. 24), keep it as an option so the
+  // select shows it rather than silently rewriting it on the next save.
+  const recurOptions = useMemo(() => {
+    if (RECUR_MONTHS_OPTIONS.some((o) => o.value === form.recurMonths)) return RECUR_MONTHS_OPTIONS
+    return [...RECUR_MONTHS_OPTIONS, { value: form.recurMonths, label: `Every ${form.recurMonths} months` }]
+  }, [form.recurMonths])
+
+  // Live estimate of the monthly set-aside, mirroring the server's by-target-date
+  // math (remaining ÷ whole months to the — recurrence-adjusted — due date, floored
+  // at one). Approximate by nature (prefixed "≈"): it uses the browser clock and may
+  // differ from the server by a month/cent at a boundary. Hidden while the target
+  // doesn't parse or is 0, and for imported jars on other accrual methods, where this
+  // math wouldn't match the server's figure.
   const preview = useMemo(() => {
     if (editingJar && editingJar.accrual !== AccrualMethod.TargetByDate) return null
     const targetMinor = form.target.trim() === '' ? 0 : parseMinor(form.target)
     if (targetMinor === null || targetMinor <= 0) return null
-    const baseMinor = editingJar
-      ? fromAmount(editingJar.currentBalance)
-      : form.opening.trim() === ''
-        ? 0
-        : parseMinor(form.opening) ?? 0
+    // The live balance the contributions build on. In edit mode that's the jar's
+    // current balance, but with the Opening field the user is actively editing swapped
+    // in for the stored opening (currentBalance = opening + tracked), so the preview
+    // reacts to that field instead of freezing on the saved figure.
+    let baseMinor: number
+    if (editingJar) {
+      const openingMinor = form.opening.trim() === '' ? 0 : parseMinor(form.opening) ?? 0
+      baseMinor = openingMinor + (fromAmount(editingJar.currentBalance) - fromAmount(editingJar.openingBalance))
+    } else {
+      baseMinor = form.opening.trim() === '' ? 0 : parseMinor(form.opening) ?? 0
+    }
     const remaining = targetMinor - baseMinor
     if (remaining <= 0) return 0
-    const months = form.targetDate ? Math.max(1, monthsFromNow(form.targetDate)) : 12
+    const months = form.targetDate
+      ? Math.max(1, monthsToEffectiveDue(form.targetDate, form.kind, form.recurMonths))
+      : 12
     return Math.round(remaining / months)
-  }, [form.target, form.opening, form.targetDate, editingJar])
+  }, [form.target, form.opening, form.targetDate, form.kind, form.recurMonths, editingJar])
 
   useEffect(() => {
     let cancelled = false
@@ -161,9 +204,10 @@ export function JarsPage() {
       return
     }
     // A recurring jar rolls its date forward each cycle, so it needs a date (and a
-    // real target) to roll — mirrors the server's validation, but caught here with
-    // friendlier wording.
-    if (form.kind === JarKind.Recurring) {
+    // real target) to roll. This is form guidance for a NEW jar — the server stays
+    // permissive so imported/legacy recurring jars (open-ended pools, date-less funds)
+    // can still be renamed or re-accounted without inventing values on edit.
+    if (!editingId && form.kind === JarKind.Recurring) {
       if (targetAmount <= 0) {
         setError('Give the recurring jar a target amount.')
         return
@@ -172,12 +216,6 @@ export function JarsPage() {
         setError('Give the recurring jar its next due date.')
         return
       }
-    }
-    // A brand-new jar due in the past would demand its whole remainder this month
-    // (months-to-date floors at one) — almost never what was meant.
-    if (!editingId && form.targetDate && monthsFromNow(form.targetDate) < 0) {
-      setError('The date has already passed — pick an upcoming one.')
-      return
     }
 
     // The form doesn't surface the cover window, opening as-of or accrual method, so
@@ -391,7 +429,7 @@ export function JarsPage() {
                       onChange={(e) => set('recurMonths', Number(e.target.value))}
                       className="w-full"
                     >
-                      {RECUR_MONTHS_OPTIONS.map((o) => (
+                      {recurOptions.map((o) => (
                         <option key={o.value} value={o.value}>
                           {o.label}
                         </option>
@@ -417,16 +455,20 @@ export function JarsPage() {
                   value={form.fundingAccountId}
                   aria-label="Funding account"
                   onChange={(e) => set('fundingAccountId', e.target.value)}
-                  disabled={accounts.length === 0}
                   className="w-full"
                 >
-                  <option value="">{accounts.length === 0 ? 'No accounts yet' : 'No account'}</option>
+                  <option value="">No account</option>
                   {accounts.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name}
                     </option>
                   ))}
                 </Select>
+                {accounts.length === 0 && (
+                  <span className="text-[11px] font-normal text-slate-400">
+                    Add accounts to earmark a jar&rsquo;s cash.
+                  </span>
+                )}
               </label>
             </div>
             {preview !== null && (
@@ -437,7 +479,7 @@ export function JarsPage() {
                 Sets aside <span className="font-bold text-slate-900">≈ {formatMoney(preview, CURRENCY)}/mo</span>
                 {form.targetDate
                   ? form.kind === JarKind.Recurring
-                    ? ` until ${formatDate(form.targetDate)}, then the date rolls forward and it keeps going`
+                    ? ` toward ${formatDate(effectiveDueIso(form.targetDate, form.kind, form.recurMonths))}, then it repeats`
                     : ` until ${formatDate(form.targetDate)}`
                   : ' (no date — the remainder spreads over 12 months)'}
               </p>

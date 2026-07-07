@@ -25,18 +25,10 @@ public class CreateJarCommandValidator : AbstractValidator<CreateJarCommand>
             .WithMessage("Opening balance is out of range.");
 
 
-        // The lifecycle contract: a Recurring jar rolls its date forward each cycle,
-        // so it must have a date (and a real target) to roll.
-        RuleFor(x => x.TargetDate)
-            .NotNull()
-            .When(x => x.Kind == Domain.Enums.JarKind.Recurring)
-            .WithMessage("A recurring jar needs its next due date.");
-
-        RuleFor(x => x.TargetAmount)
-            .GreaterThan(0m)
-            .When(x => x.Kind == Domain.Enums.JarKind.Recurring)
-            .WithMessage("A recurring jar needs a target amount.");
-
+        // The recurrence cycle, when set, is bounded. Whether a Recurring jar *must*
+        // carry a date and target is a form concern (the New-jar form collects them) —
+        // the server stays permissive so imported and legacy jars (open-ended pools,
+        // date-less recurring funds) remain editable.
         RuleFor(x => x.RecurMonths)
             .InclusiveBetween(1, 120)
             .When(x => x.RecurMonths.HasValue)

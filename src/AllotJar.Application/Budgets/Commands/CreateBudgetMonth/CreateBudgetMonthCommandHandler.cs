@@ -56,26 +56,14 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         // (ProportionalPool funds wait for the pool — allocation engine, a later slice —
         // and copy flat); and any jar without a line in the new month gets one appended,
         // so a jar created on the Jars page starts filling without a manual budget step.
-        // Loaded tracked: month creation doubles as the tick that persists recurrence
-        // rolls (below), and the changes ride the same SaveChanges as the new month.
+        // Recurrence is applied virtually per seed month by the calculator — the stored
+        // date is an anchor and never rewritten here, so seeding a month is deterministic
+        // regardless of creation order.
         var activeJars = (await _db.Jars
+            .AsNoTracking()
             .Where(f => f.OwnerId == userId && !f.IsArchived)
             .ToListAsync(cancellationToken))
             .ToDictionary(f => f.Id);
-
-        // Persist any recurrence roll that is due as of TODAY (a Recurring jar whose
-        // date has passed re-arms for its next cycle). Only up to today — creating a
-        // far-future month must not skip cycles that are still ahead of us; the
-        // calculator applies further rolls virtually per computation date.
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        foreach (var jar in activeJars.Values)
-        {
-            var rolled = JarAccrualCalculator.EffectiveTargetDate(jar, today);
-            if (rolled != jar.TargetDate)
-            {
-                jar.TargetDate = rolled;
-            }
-        }
 
         // One eligibility rule for accrual seeding, shared by the copy path and the
         // appended-lines step below.

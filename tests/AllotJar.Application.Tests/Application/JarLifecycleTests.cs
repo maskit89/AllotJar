@@ -104,8 +104,10 @@ public class JarLifecycleTests
         var dto = jar.ToDto(currentBalance: 100m, requiredMonthly: 75m, asOf: new DateOnly(2026, 7, 6));
 
         dto.Status.Should().Be("OnTrack");
-        // And the DTO carries the rolled date, not the stale one.
-        dto.TargetDate.Should().Be(new DateOnly(2027, 3, 1));
+        // The DTO carries the stored ANCHOR, not the rolled date — an edit round-trips
+        // faithfully rather than silently advancing the date. Recurrence shows up in
+        // the status (OnTrack, not Behind), computed from the effective date internally.
+        dto.TargetDate.Should().Be(new DateOnly(2026, 3, 1));
     }
 
     [Fact]
@@ -166,54 +168,68 @@ public class JarLifecycleTests
         dto.RecurMonths.Should().BeNull();
     }
 
-    // ---- Month creation persists the roll ---------------------------------------
+    // ---- Month creation seeds from the anchor, never rewrites it ------------------
 
     [Fact]
-    public async Task CreateMonth_PersistsRollsDueToday_ButNeverSkipsFutureCycles()
+    public async Task CreateMonth_SeedsFromTheRolledDate_WithoutRewritingTheStoredAnchor()
     {
         await using var db = NewContext();
+        // Past-due yearly jar: €600 target, due last month, no contributions yet.
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        // Past-due: rolls forward past today. Future-due: must NOT roll, even when
-        // the month being created lies beyond it.
-        var pastDue = Recurring(today.AddMonths(-2));
-        var futureDue = Recurring(today.AddMonths(1));
-        futureDue.Name = "Future";
-        db.Jars.AddRange(pastDue, futureDue);
+        var due = today.AddMonths(-1);
+        var jar = Recurring(due);
+        db.Jars.Add(jar);
         db.SaveChanges();
         var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
 
-        var far = today.AddMonths(4);
-        await handler.Handle(
-            new CreateBudgetMonthCommand(far.Year, far.Month, CopyFromPrevious: false),
+        var dto = await handler.Handle(
+            new CreateBudgetMonthCommand(today.Year, today.Month, CopyFromPrevious: false),
             CancellationToken.None);
 
-        (await db.Jars.SingleAsync(f => f.Id == pastDue.Id)).TargetDate
-            .Should().Be(today.AddMonths(-2).AddMonths(12));
-        (await db.Jars.SingleAsync(f => f.Id == futureDue.Id)).TargetDate
-            .Should().Be(today.AddMonths(1), "cycles still ahead of today must not be skipped");
+        // The stored anchor is untouched — recurrence is a pure view, never persisted.
+        (await db.Jars.SingleAsync()).TargetDate.Should().Be(due);
+        // The seeded line spreads over the months to the ROLLED date (11 months out).
+        var line = dto.Categories.Single(c => c.Kind == "Savings").Items.Single();
+        var monthsToRolled = ((due.AddMonths(12).Year * 12) + due.AddMonths(12).Month)
+            - ((today.Year * 12) + today.Month);
+        line.PlannedAmount.Should().Be(Math.Round(600m / monthsToRolled, 2, MidpointRounding.AwayFromZero));
+    }
+
+    [Fact]
+    public void EffectiveDate_PreservesMonthEndDay_AcrossRolls()
+    {
+        // A monthly jar due the 31st must not drift to the 28th (the compounding-roll bug).
+        var jar = Recurring(new DateOnly(2026, 1, 31), recurMonths: 1);
+
+        JarAccrualCalculator.EffectiveTargetDate(jar, new DateOnly(2026, 3, 15))
+            .Should().Be(new DateOnly(2026, 3, 31));
+    }
+
+    [Fact]
+    public void EffectiveDate_SameMonthLaterDay_RollsToNextCycle()
+    {
+        // Due the 15th, today is the 20th of the same month: it's passed, so roll.
+        var jar = Recurring(new DateOnly(2026, 3, 15), recurMonths: 12);
+
+        JarAccrualCalculator.EffectiveTargetDate(jar, new DateOnly(2026, 3, 20))
+            .Should().Be(new DateOnly(2027, 3, 15));
     }
 
     // ---- Validators --------------------------------------------------------------
 
     [Fact]
-    public void Validator_RequiresDateAndTarget_ForRecurring()
+    public void Validator_StaysPermissive_ForDatelessRecurringJars()
     {
-        var validator = new CreateJarCommandValidator();
+        // The "a recurring jar needs a date + target" rule is a form concern, not a
+        // server one — so imported/legacy Recurring jars (open-ended pools, date-less
+        // funds) remain editable rather than 400-ing on a plain rename.
+        var validator = new UpdateJarCommandValidator();
 
-        var noDate = validator.Validate(new CreateJarCommand(
-            "X", JarKind.Recurring, 100m, null, null, null,
-            AccrualMethod.TargetByDate, 0m, null, null));
-        noDate.Errors.Should().Contain(e => e.ErrorMessage == "A recurring jar needs its next due date.");
+        var pool = validator.Validate(new UpdateJarCommand(
+            Guid.NewGuid(), "Living Costs", JarKind.Recurring, 0m, null, null, null,
+            AccrualMethod.ProportionalPool, 0m, null, null));
 
-        var noTarget = validator.Validate(new CreateJarCommand(
-            "X", JarKind.Recurring, 0m, new DateOnly(2026, 10, 1), null, null,
-            AccrualMethod.TargetByDate, 0m, null, null));
-        noTarget.Errors.Should().Contain(e => e.ErrorMessage == "A recurring jar needs a target amount.");
-
-        var goalWithoutEither = validator.Validate(new CreateJarCommand(
-            "X", JarKind.Goal, 0m, null, null, null,
-            AccrualMethod.TargetByDate, 0m, null, null));
-        goalWithoutEither.IsValid.Should().BeTrue("goals stay open-ended");
+        pool.IsValid.Should().BeTrue();
     }
 
     [Fact]
