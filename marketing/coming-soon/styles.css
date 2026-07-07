@@ -53,25 +53,19 @@ main {
 
 /* ---- Logo lockup ---- */
 .lockup {
-  display: inline-flex;
+  /* Block-level + centred so it takes its own line — the eyebrow pill then sits
+     on the line below (both are otherwise inline-level and would sit side by side). */
+  display: flex;
+  justify-content: center;
   align-items: center;
   gap: 13px;
-  margin-bottom: 14px;
+  margin-bottom: 24px;
 }
 
 .lockup svg {
   width: 50px;
   height: auto;
   flex-shrink: 0;
-}
-
-/* ---- Realistic hero jar (a copy of brand/allotjar-mark.svg) ---- */
-.hero-jar {
-  display: block;
-  width: clamp(120px, 24vw, 168px);
-  height: auto;
-  margin: 0 auto 18px;
-  filter: drop-shadow(0 16px 28px rgba(0, 0, 0, 0.32));
 }
 
 .wordmark {
@@ -109,36 +103,38 @@ h1 {
 }
 
 /* ---- Rotating currency word (CSS-only carousel; no JS, per the strict CSP) ----
-   The words stack in one slot sized to the widest ("koruna") so "a job." never
-   shifts; each fades+slides in on a staggered delay. Order/list mirrors the
+   A slot-machine: the words sit in a vertical track inside a one-line-tall,
+   overflow-hidden window, so exactly ONE is ever in view. Clipping (geometry) —
+   not opacity/colour timing — is what guarantees the other words can't pile up
+   (they overlapped into a gold block on first paint with the fade approach). The
+   track's width = the widest word, so "a job." never shifts. Order mirrors the
    distinct nouns in client/src/lib/money.ts. */
 .rotator {
-  position: relative;
   display: inline-block;
-  text-align: center;
-}
-
-.rot-size {
-  visibility: hidden;
-}
-
-.rot {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  white-space: nowrap;
+  overflow: hidden;
+  height: 1.16em;
+  vertical-align: bottom;
   color: var(--gold-bright);
-  opacity: 0;
-  animation: roll 23.4s infinite;
+}
+
+.rot-track {
+  display: block;
+  animation: roll 27s steps(18) infinite;
+}
+
+.rot-track > span {
+  display: block;
+  height: 1.16em;
+  line-height: 1.16;
+  white-space: nowrap;
 }
 
 @keyframes roll {
-  0% { opacity: 0; transform: translateY(0.2em); }
-  0.5% { opacity: 1; transform: translateY(0); }
-  5% { opacity: 1; transform: translateY(0); }
-  5.55% { opacity: 0; transform: translateY(-0.2em); }
-  100% { opacity: 0; }
+  /* Scroll the track by MARGIN (a paint/layout property), not transform. transform
+     would composite the track, and Safari can paint a still-loading web font as
+     boxes on a composited layer. Margin keeps the text on the normal paint layer. */
+  from { margin-top: 0; }
+  to { margin-top: -20.88em; } /* 18 words × 1.16em */
 }
 
 /* Visually hidden, but read by screen readers so the heading says "…euro a job." */
@@ -213,11 +209,8 @@ footer a {
   .cta {
     transition: none;
   }
-  /* Freeze the carousel on the lead word rather than animating. */
-  .rot {
+  /* Freeze the carousel on the first word (track at rest shows "euro"). */
+  .rot-track {
     animation: none;
-  }
-  .rot-lead {
-    opacity: 1;
   }
 }

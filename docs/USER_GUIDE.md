@@ -195,21 +195,23 @@ The **Accounts** page tracks *where your money sits* — current account, saving
 
 ## 6. Jars (savings goals)
 
-The **Jars** page is where you set savings *goals* and watch them fill up. A jar is the visual, target-driven companion to a savings line on the Budget page.
+The **Jars** page is where you set savings targets and watch them fill up. A jar is the visual, target-driven companion to a savings line on the Budget page.
 
-For each jar you set:
+The first thing you choose is the jar's **Type**, and that shapes the rest of the form:
+
+- **Recurring** — a cost that comes around again: you save toward a due date, and when the date passes the jar rolls forward to its next cycle and keeps going (home insurance, road tax, a yearly holiday). You give it a **Next due** date and a **Repeats** cadence (yearly, every 6 months, every 3 months, or monthly). If a cycle slips past its date, the remaining amount simply spreads over the next one.
+- **Goal** — a one-off target that's done once it's funded (a new kitchen, a sofa, a wedding). You give it a **Target date** if you have one; it's optional.
+
+You also set:
 
 - **Name** — e.g. "Home insurance", "Summer holiday".
-- **Kind** — how the goal recurs (for example a yearly cost versus an ongoing monthly set-aside).
-- **Target** and **Target date** — how much you want, and by when.
-- **Saved so far** — the opening balance already put aside.
-- **Accrual** — how AllotJar spreads the goal into a monthly figure (by default, evenly up to the target date).
+- **Target** — how much you want to reach.
+- **Saved so far** — money you'd already put aside before AllotJar started tracking (on an existing jar this field is labelled **Opening balance**, and the card shows the live total — don't retype it).
 - **Held in** *(optional)* — the account the money sits in, if you track accounts.
-- **Renews yearly** — for goals that come around again every year.
 
-From this AllotJar works out the **monthly contribution** the jar needs and shows each jar as a **progress bar** toward its target. The page header totals your **Total saved**, the combined **monthly** set-aside, and the number of **active jars**.
+As you fill the form, a live line estimates the **monthly set-aside** the jar needs ("Sets aside ≈ €120/mo toward Mar 2027, then it repeats"). Each jar card then shows a **progress bar**, a **status** (Behind, Funded, Overspent) where it matters, and its projected finish ("full by Nov 2026"). The page header totals your **Total saved**, the combined **monthly** set-aside, and the number of **active jars**.
 
-**Jars and the Budget page work together:** the jar tells you *what to set aside each month*; you budget that amount as a contribution on a **Savings** line so it counts toward a balanced, zero-based month. Edit a jar to change its target or date, or **archive** it when the goal is done (archiving never touches your transactions).
+**Jars and the Budget page work together:** the jar tells you *what to set aside each month*, and AllotJar seeds that amount onto its **Savings** budget line automatically when you create each month — so a new jar starts filling without extra steps. When you spend from a jar, record the expense against that Savings line and its balance falls, ready to fill again next cycle. Edit a jar any time to change its target, date or cadence, or **archive** it when you're done with it (archiving never touches your transactions; deleting the budget line instead just re-adds it next month).
 
 ## 7. Reports
 
