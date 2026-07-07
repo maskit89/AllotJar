@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { shortDate, formatDate } from './dates'
+import { shortDate, formatDate, monthYear } from './dates'
 
 // jsdom's navigator.language is en-US, so these assert the en-US rendering; the
 // helpers follow the browser locale at runtime.
@@ -28,5 +28,16 @@ describe('formatDate', () => {
 
   it('returns the input unchanged for a non-ISO value', () => {
     expect(formatDate('garbage')).toBe('garbage')
+  })
+})
+
+describe('monthYear', () => {
+  it('renders the month and year with no day', () => {
+    expect(monthYear('2026-11-01')).toBe('Nov 2026')
+    expect(monthYear('2026-11-30')).toBe('Nov 2026') // day is dropped
+  })
+
+  it('returns the input unchanged for a non-ISO value', () => {
+    expect(monthYear('soon')).toBe('soon')
   })
 })

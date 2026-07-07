@@ -88,6 +88,24 @@ describe('JarsPage', () => {
     expect(screen.getByText('40%')).toBeInTheDocument()
   })
 
+  it('shows a status chip and the projected finish on the cards', { timeout: 15000 }, async () => {
+    fundsData = [
+      fund({ requiredMonthlyContribution: 25, status: 'OnTrack', projectedFullyFundedDate: '2026-11-01' }),
+      fund({ id: 'f2', name: 'Roof', status: 'Behind', targetDate: '2026-01-01' }),
+      fund({ id: 'f3', name: 'Sofa', status: 'FullyFunded', currentBalance: 300, requiredMonthlyContribution: 0 }),
+    ]
+
+    renderPage()
+
+    // OnTrack jar: no chip, but the pace line carries the projection.
+    expect((await screen.findAllByText(/full by Nov 2026/, {}, { timeout: 5000 })).length).toBeGreaterThan(0)
+    // Attention + celebration states surface as chips.
+    expect(screen.getByText('Behind')).toBeInTheDocument()
+    expect(screen.getByText('Funded')).toBeInTheDocument()
+    // A €0/mo funded jar reads "Fully funded", not a bare dash.
+    expect(screen.getByText('Fully funded')).toBeInTheDocument()
+  })
+
   it('adds a fund from the New jar modal', { timeout: 15000 }, async () => {
     fundsData = []
     mockPost.mockResolvedValue({ data: fund({ id: 'f9', name: 'Vacation', kind: 0, targetAmount: 1200, status: 'OnTrack' }) })
