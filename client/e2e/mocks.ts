@@ -126,14 +126,29 @@ function accountReconciliation() {
 }
 
 // Two not-yet-imported rows so the import review table renders (checkboxes, per-row
-// category/member selects, bulk controls).
+// category/member selects, bulk controls). A `layout` is included so the generic-CSV mapping
+// panel — column selects, the sample-rows table, delimiter/date-format controls and the
+// detected-format readout — is covered by the a11y + mobile-overflow scans too.
 function importPreview() {
   return {
     totalEntries: 3, newCount: 2, skippedDuplicates: 1, credits: 0, debits: 2,
+    detectedFormat: 'GenericCsv',
     items: [
-      { reference: 'hsbc:a#0', date: '2026-06-17', payee: 'AUTOMARKET', amount: 35, currency: 'EUR', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: 'Rent', likelyTransfer: false },
-      { reference: 'hsbc:b#0', date: '2026-06-15', payee: 'WOLT', amount: 80.9, currency: 'EUR', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: null, likelyTransfer: true },
+      { reference: 'csv:a#0', date: '2026-06-17', payee: 'AUTOMARKET', amount: 35, currency: 'EUR', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: 'Rent', likelyTransfer: false },
+      { reference: 'csv:b#0', date: '2026-06-15', payee: 'WOLT', amount: 80.9, currency: 'EUR', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: null, likelyTransfer: true },
     ],
+    layout: {
+      columns: ['Date', 'Description', 'Amount'],
+      // Distinct from the review-row payees so getByText('AUTOMARKET'/'WOLT') stays unambiguous.
+      sampleRows: [
+        ['2026-06-17', 'PETROL STATION', '-35.00'],
+        ['2026-06-15', 'FOOD DELIVERY', '-80.90'],
+      ],
+      suggested: {
+        delimiter: ',', hasHeader: true, dateColumn: 0, amountColumn: 2, descriptionColumn: 1,
+        currencyColumn: null, dateFormat: 'yyyy-MM-dd', decimalStyle: 0, defaultCurrency: 'EUR',
+      },
+    },
   }
 }
 
