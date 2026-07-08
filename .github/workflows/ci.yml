@@ -69,6 +69,85 @@ jobs:
       - name: Test
         run: dotnet test tests/AllotJar.IntegrationTests/AllotJar.IntegrationTests.csproj --no-build -c Release --verbosity normal
 
+  # Real-backend journey tests: Playwright drives complete user journeys (register → seeded
+  # budget, CSV import round-trip + dedup, invite → accept) against a LIVE .NET API + real SQL
+  # Server, with the SPA served by Vite proxying /api to the API. This is the only layer that
+  # exercises the whole stack over HTTP — the a11y specs stub every request, and the backend job
+  # runs on the FK-blind in-memory provider. The API + Vite are booted/torn down by Playwright's
+  # webServer (playwright.journey.config.ts).
+  journey:
+    name: journey
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: 'AllotJar!Str0ngP4ss'
+        ports:
+          - 1433:1433
+        # No health-cmd (recent images may not ship sqlcmd): the container starts here, an explicit
+        # port wait (below) plus the ~90s of build/install steps give it ample time to become
+        # query-ready, and the API retries migrations on boot before it serves /health.
+    env:
+      # A throwaway journey database on the service container; the API migrates it on boot. The
+      # signing key only ever signs tokens for this ephemeral DB — not a secret.
+      JOURNEY_TEST_CONNECTION: 'Server=localhost,1433;Database=AllotJar_Journey;User Id=sa;Password=AllotJar!Str0ngP4ss;TrustServerCertificate=True;Encrypt=False'
+      JOURNEY_JWT_KEY: 'journey-e2e-signing-key-not-a-secret-0123456789'
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      # Pre-build the API so Playwright's `dotnet run` webServer starts fast and deterministically.
+      - name: Build API
+        run: dotnet build src/AllotJar.Api/AllotJar.Api.csproj -c Release
+
+      - name: Install client deps
+        working-directory: client
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: client
+        run: npx playwright install --with-deps chromium
+
+      # Guarantee the SQL Server container accepts TCP before Playwright boots the API (whose
+      # migration retry then covers the short port-open → query-ready gap).
+      - name: Wait for SQL Server
+        run: |
+          for i in $(seq 1 60); do
+            if (echo > /dev/tcp/localhost/1433) >/dev/null 2>&1; then
+              echo "SQL Server port is open."; exit 0
+            fi
+            sleep 2
+          done
+          echo "SQL Server did not open port 1433 in time." >&2; exit 1
+
+      - name: Journey tests
+        working-directory: client
+        run: npm run test:e2e:journey
+
+      # Traces/screenshots/video are retained on failure — upload them for debugging.
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journey-playwright-report
+          path: |
+            client/test-results
+            client/playwright-report
+          retention-days: 7
+
   frontend:
     name: frontend
     runs-on: ubuntu-latest
