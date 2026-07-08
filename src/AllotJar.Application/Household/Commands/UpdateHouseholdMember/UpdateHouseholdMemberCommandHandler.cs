@@ -33,6 +33,19 @@ public class UpdateHouseholdMemberCommandHandler
             throw new ForbiddenAccessException();
         }
 
+        // A personal-savings account must exist and belong to this household. It's a soft hint with
+        // no FK, so validate here — otherwise a stale or foreign id would be stored and later booked
+        // as an allocation transfer into a non-existent (crash) or another household's (leak) account.
+        if (request.PersonalSavingsAccountId is Guid savingsId)
+        {
+            var owned = await _db.Accounts
+                .AnyAsync(a => a.Id == savingsId && a.OwnerId == userId, cancellationToken);
+            if (!owned)
+            {
+                throw new NotFoundException($"Account {savingsId} was not found.");
+            }
+        }
+
         member.Name = request.Name.Trim();
         member.NetMonthlyIncome = request.NetMonthlyIncome;
         member.PersonalSavingsAccountId = request.PersonalSavingsAccountId;

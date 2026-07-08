@@ -25,6 +25,19 @@ public class CreateHouseholdMemberCommandHandler
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
+        // A personal-savings account (soft hint, no FK) must exist and belong to this household —
+        // otherwise a stale/foreign id would later be booked as an allocation transfer into a
+        // non-existent (crash) or another household's (leak) account.
+        if (request.PersonalSavingsAccountId is Guid savingsId)
+        {
+            var owned = await _db.Accounts
+                .AnyAsync(a => a.Id == savingsId && a.OwnerId == userId, cancellationToken);
+            if (!owned)
+            {
+                throw new NotFoundException($"Account {savingsId} was not found.");
+            }
+        }
+
         var nextOrder = await _db.HouseholdMembers
             .Where(m => m.OwnerId == userId)
             .Select(m => (int?)m.DisplayOrder)

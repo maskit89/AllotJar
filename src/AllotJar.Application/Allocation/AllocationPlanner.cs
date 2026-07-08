@@ -51,9 +51,20 @@ public static class AllocationPlanner
         var savingsBalances = await SavingsBalancesAsync(db, ownerId, members, year, month, ct);
 
         var allocMembers = members
-            .Select(m => new AllocationMember(
-                m.Id, m.Name, m.NetMonthlyIncome, m.PersonalSavingsAccountId,
-                SavingsBalance: m.PersonalSavingsAccountId is Guid sid && savingsBalances.TryGetValue(sid, out var bal) ? bal : 0m))
+            .Select(m =>
+            {
+                // Only keep the savings-account link when the account still exists and belongs to
+                // this household. PersonalSavingsAccountId is a soft hint with no FK, so a deleted
+                // (or foreign) account leaves it dangling — and savingsBalances only ever contains
+                // owned, existing accounts. Passing a dangling id through to the commit would write a
+                // broken Transfer.TransferAccountId FK and crash the whole allocation on SQL Server.
+                var savingsId = m.PersonalSavingsAccountId is Guid sid && savingsBalances.ContainsKey(sid)
+                    ? (Guid?)sid
+                    : null;
+                return new AllocationMember(
+                    m.Id, m.Name, m.NetMonthlyIncome, savingsId,
+                    SavingsBalance: savingsId is Guid vid ? savingsBalances[vid] : 0m);
+            })
             .ToList();
 
         var ruleInputs = (profile?.Rules ?? Enumerable.Empty<AllocationRule>())
