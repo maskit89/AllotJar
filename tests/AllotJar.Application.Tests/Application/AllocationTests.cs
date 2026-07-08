@@ -106,8 +106,11 @@ public class AllocationTests
         result.Pool.Should().Be(8411.61m);
         result.EnvelopesTotal.Should().Be(3641m);
         result.JarsTotal.Should().Be(2164m);
-        result.Members.Single(m => m.Name == "Chris").Residual.Should().Be(1259.14m);
-        result.Members.Single(m => m.Name == "Liza").Residual.Should().Be(847.47m);
+        // StandardRules' terminal step splits the 2106.61 surplus Equally (pooled), so each member
+        // saves half; the deduction waterfall (pool − 3641 − 2164 − 500) is what's being validated.
+        result.Members.Sum(m => m.Residual).Should().Be(2106.61m);
+        result.Members.Single(m => m.Name == "Chris").Residual.Should().Be(1053.31m);
+        result.Members.Single(m => m.Name == "Liza").Residual.Should().Be(1053.30m);
     }
 
     [Fact]
@@ -181,8 +184,10 @@ public class AllocationTests
         first.TransfersCreated.Should().Be(2);
         var transfers = await db.Transactions.Where(t => t.Type == TransactionType.Transfer).ToListAsync();
         transfers.Should().HaveCount(2);
-        transfers.Should().ContainSingle(t => t.TransferAccountId == chrisSavings.Id && t.Amount == 1259.14m);
-        transfers.Should().ContainSingle(t => t.TransferAccountId == lizaSavings.Id && t.Amount == 847.47m);
+        // Equal terminal split pools the 2106.61 surplus evenly into each member's savings account.
+        transfers.Should().ContainSingle(t => t.TransferAccountId == chrisSavings.Id && t.Amount == 1053.31m);
+        transfers.Should().ContainSingle(t => t.TransferAccountId == lizaSavings.Id && t.Amount == 1053.30m);
+        transfers.Sum(t => t.Amount).Should().Be(2106.61m);
 
         // Re-running replaces, not appends.
         var second = await commit.Handle(new AllocateIncomeCommand(2026, 6), CancellationToken.None);

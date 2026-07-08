@@ -66,9 +66,17 @@ public static class IncomeAllocator
                 case AllocationRuleType.SplitRemainderToMembers:
                 {
                     var remainder = members.Sum(m => balances[m.Id]);
-                    var shares = rule.Split == SplitMethod.BalanceTilt && remainder > 0m
-                        ? BalanceTiltSplit(members, remainder, balanceLeanPercent)
-                        : members.Select(m => new MemberShare(m.Id, m.Name, balances[m.Id])).ToList();
+                    // How the pooled remainder is divided into each member's savings, matching the
+                    // "Send savings to" control: Balance tilts toward the lowest balance; Equal and
+                    // ByIncomeRatio pool it and split evenly / by income. When there's nothing to
+                    // share (remainder <= 0) each member keeps their own (non-positive) leftover.
+                    var shares = remainder <= 0m
+                        ? members.Select(m => new MemberShare(m.Id, m.Name, balances[m.Id])).ToList()
+                        : rule.Split switch
+                        {
+                            SplitMethod.BalanceTilt => BalanceTiltSplit(members, remainder, balanceLeanPercent),
+                            _ => Split(members, remainder, rule.Split, totalNet),
+                        };
 
                     // The terminal step *is* each member's savings, so make their running
                     // balance match exactly — residuals are read back from it below.
@@ -181,22 +189,37 @@ public static class IncomeAllocator
         for (var k = 1; k <= n; k++)
         {
             prefix += ordered[k - 1].SavingsBalance;
-            var ceiling = k < n ? ordered[k].SavingsBalance : decimal.MaxValue;
-            var costToCeiling = (k * ceiling) - prefix;
 
-            if (remainder <= costToCeiling || k == n)
+            // Top tier: no higher balance to fill up to, so level everything remaining across all k.
+            // Handle this BEFORE forming a ceiling — the old sentinel `k * decimal.MaxValue` overflows
+            // decimal for n >= 2 (it threw OverflowException for any household with equal/zero
+            // balances, e.g. a brand-new couple, 500-ing both preview and commit).
+            if (k == n)
             {
-                var level = (remainder + prefix) / k;
-                for (var j = 0; j < k; j++)
-                {
-                    result[ordered[j].Id] = level - ordered[j].SavingsBalance;
-                }
+                FillToLevel(result, ordered, k, remainder, prefix);
+                break;
+            }
 
+            var costToCeiling = (k * ordered[k].SavingsBalance) - prefix;
+            if (remainder <= costToCeiling)
+            {
+                FillToLevel(result, ordered, k, remainder, prefix);
                 break;
             }
         }
 
         return result;
+    }
+
+    /// <summary>Brings the k lowest balances up to a common level with exactly the funds available.</summary>
+    private static void FillToLevel(
+        Dictionary<Guid, decimal> result, IReadOnlyList<AllocationMember> ordered, int k, decimal remainder, decimal prefix)
+    {
+        var level = (remainder + prefix) / k;
+        for (var j = 0; j < k; j++)
+        {
+            result[ordered[j].Id] = level - ordered[j].SavingsBalance;
+        }
     }
 }
 
