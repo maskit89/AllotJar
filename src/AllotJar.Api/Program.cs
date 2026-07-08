@@ -51,6 +51,10 @@ builder.Services.AddCors(options =>
 // NOTE: in production the API sits behind the IIS/ARR reverse proxy, so RemoteIpAddress is the
 // proxy (loopback) and this effectively becomes a per-site cap until X-Forwarded-For handling is
 // added. The limit is set high enough that real household use never trips it.
+// The per-source cap. Configurable so a serial end-to-end test run (many register/login/refresh
+// calls from one IP inside a minute) can raise it via RateLimiting__AuthPermitLimit without
+// weakening the production default of 20.
+var authPermitLimit = builder.Configuration.GetValue("RateLimiting:AuthPermitLimit", 20);
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -59,7 +63,7 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 20,
+                PermitLimit = authPermitLimit,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
             }));

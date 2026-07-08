@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:journey": "playwright test --config playwright.journey.config.ts"
   },
   "dependencies": {
     "axios": "^1.18.1",
