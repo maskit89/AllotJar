@@ -49,11 +49,12 @@ function preview(transfersCreated = 0): AllocationResultDto {
       { type: 0, total: 3641, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1820.5 }, { memberId: 'm2', name: 'Liza', amount: 1820.5 }] },
       { type: 1, total: 2164, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1082 }, { memberId: 'm2', name: 'Liza', amount: 1082 }] },
       { type: 2, total: 500, perMember: [{ memberId: 'm1', name: 'Chris', amount: 250 }, { memberId: 'm2', name: 'Liza', amount: 250 }] },
-      { type: 3, total: 2106.61, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1259.14 }, { memberId: 'm2', name: 'Liza', amount: 847.47 }] },
+      // Terminal step is BalanceTilt (rule r3 split:2), tilting the 2106.61 toward Chris's lower balance.
+      { type: 3, total: 2106.61, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1316.63 }, { memberId: 'm2', name: 'Liza', amount: 789.98 }] },
     ],
     members: [
-      { memberId: 'm1', name: 'Chris', netIncome: 4411.64, residual: 1259.14, savingsBalance: 35631.96, savingsAccountId: 'acc1' },
-      { memberId: 'm2', name: 'Liza', netIncome: 3999.97, residual: 847.47, savingsBalance: 46033.38, savingsAccountId: 'acc2' },
+      { memberId: 'm1', name: 'Chris', netIncome: 4411.64, residual: 1316.63, savingsBalance: 35631.96, savingsAccountId: 'acc1' },
+      { memberId: 'm2', name: 'Liza', netIncome: 3999.97, residual: 789.98, savingsBalance: 46033.38, savingsAccountId: 'acc2' },
     ],
   }
 }
@@ -131,9 +132,20 @@ describe('AllocationPage', () => {
     expect(screen.getByText(/8,411\.61/)).toBeInTheDocument() // pool (hero)
     expect(screen.getByText('Pocket money')).toBeInTheDocument()
     expect(screen.getByText('To savings')).toBeInTheDocument() // hero tile
-    // 1.259,14 appears in both the step breakdown and Chris's surplus card.
-    expect(screen.getAllByText(/1,259\.14/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/847\.47/).length).toBeGreaterThan(0)
+    expect(screen.getByText('Shared spending')).toBeInTheDocument() // hero tile reconciles to the pool
+    // Each member's tilted surplus appears in both the step breakdown and their surplus card.
+    expect(screen.getAllByText(/1,316\.63/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/789\.98/).length).toBeGreaterThan(0)
+  })
+
+  it('disables Allocate and explains when no source account is set', { timeout: 15000 }, async () => {
+    profileData = { ...profile(), sourceAccountId: null }
+
+    renderPage()
+
+    await screen.findByText('How June is allocated', {}, { timeout: 5000 })
+    expect(screen.getByRole('button', { name: 'Commit allocation' })).toBeDisabled()
+    expect(screen.getByText(/Set the account to pay shared costs from/)).toBeInTheDocument()
   })
 
   it('saves a new profile from the setup form', { timeout: 15000 }, async () => {
@@ -169,6 +181,6 @@ describe('AllocationPage', () => {
     await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/6', {}))
-    expect(await screen.findByText(/created 2 savings transfers/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText(/2 savings transfers created/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
 })
