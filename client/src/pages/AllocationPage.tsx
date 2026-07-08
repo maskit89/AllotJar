@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { Button, Card, EmptyState, ErrorBanner, Input, Select, SegmentedControl } from '../components/ui'
 import { Hero } from '../components/Hero'
+import { InfoHint } from '../components/InfoHint'
 import { Modal } from '../components/Modal'
 import { AllocationIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
@@ -130,6 +131,8 @@ export function AllocationPage() {
         rules: standardRules(split, toAmount(pocketAmount as number), savingsSplit),
       })
       setProfile(data)
+      // A prior "Allocated" banner is now stale (the numbers just changed) — clear it.
+      setCommitted(null)
       track(EVENTS.allocationPreviewed, { split })
       await loadPreview(period.year, period.month)
       setShowSettings(false)
@@ -156,17 +159,55 @@ export function AllocationPage() {
     }
   }, [period])
 
+  // Re-seed the settings form from the saved profile (defaults when there's none). Called when the
+  // modal opens (clean start) and closes (Cancel/backdrop discards unsaved edits, so a later Save
+  // can't quietly commit a value the user thought they'd cancelled).
+  const syncFormFromProfile = useCallback(() => {
+    setError(null)
+    setSourceAccountId(profile?.sourceAccountId ?? '')
+    const pocketRule = profile?.rules.find((r) => r.type === AllocationRuleType.FixedPerMember)
+    setPocket(pocketRule ? toEditString(fromAmount(pocketRule.fixedAmountPerMember)) : '')
+    const fundRule = profile?.rules.find((r) => r.type === AllocationRuleType.FundEnvelopes)
+    setSplit(fundRule?.split ?? SplitMethod.Equal)
+    const savingsRule = profile?.rules.find((r) => r.type === AllocationRuleType.SplitRemainderToMembers)
+    setSavingsSplit(savingsRule?.split ?? SplitMethod.BalanceTilt)
+    setLean(String(profile?.balanceLeanPercent ?? 25))
+  }, [profile])
+
+  const openSettings = useCallback(() => {
+    syncFormFromProfile()
+    setShowSettings(true)
+  }, [syncFormFromProfile])
+  const closeSettings = useCallback(() => {
+    syncFormFromProfile()
+    setShowSettings(false)
+  }, [syncFormFromProfile])
+
   const monthName = useMemo(
     // undefined locale = the visitor's browser locale (e.g. "June" / "Juni").
     () => new Date(period.year, period.month - 1, 1).toLocaleDateString(undefined, { month: 'long' }),
     [period],
   )
 
-  // Hero figures — the pooled income, what goes to shared costs, what goes to savings.
+  // Hero figures. The pool splits into shared spending (costs + jars + pocket money) and savings,
+  // so those two tiles reconcile exactly to the pooled income; the waterfall below breaks spending
+  // down further.
   const stepTotal = (type: number) =>
     fromAmount(preview?.steps.find((s) => s.type === type)?.total ?? 0)
-  const sharedCostsMinor = stepTotal(AllocationRuleType.FundEnvelopes)
+  const sharedSpendingMinor =
+    stepTotal(AllocationRuleType.FundEnvelopes) +
+    stepTotal(AllocationRuleType.FundJars) +
+    stepTotal(AllocationRuleType.FixedPerMember)
   const toSavingsMinor = stepTotal(AllocationRuleType.SplitRemainderToMembers)
+
+  // What will actually transfer on commit vs. what's stranded because a member has no savings
+  // account (a positive share with nowhere to go stays in the source account).
+  const members = preview?.members ?? []
+  const strandedMinor = fromAmount(
+    members.filter((m) => !m.savingsAccountId && m.residual > 0).reduce((sum, m) => sum + m.residual, 0),
+  )
+  const nothingToSave = !!preview && toSavingsMinor <= 0
+  const hasSource = !!profile?.sourceAccountId
 
   // Allocation only makes sense once the budget is shared. A solo user who reaches
   // this route directly gets a friendly nudge to add members rather than an empty engine.
@@ -192,7 +233,7 @@ export function AllocationPage() {
           amount={formatMoney(fromAmount(preview.pool), CURRENCY)}
           amountLabel={`Income to allocate: ${formatMoney(fromAmount(preview.pool), CURRENCY)}`}
           tiles={[
-            { label: 'Shared costs', value: formatMoney(sharedCostsMinor, CURRENCY) },
+            { label: 'Shared spending', value: formatMoney(sharedSpendingMinor, CURRENCY) },
             { label: 'To savings', value: formatMoney(toSavingsMinor, CURRENCY) },
           ]}
         />
@@ -208,7 +249,7 @@ export function AllocationPage() {
           description="Choose where shared costs come from and how to split them, then save — we’ll show you the monthly breakdown."
         >
           {canWrite && (
-            <Button onClick={() => { setError(null); setShowSettings(true) }} aria-label="Set up allocation">
+            <Button onClick={openSettings} aria-label="Set up allocation">
               Set up allocation
             </Button>
           )}
@@ -221,24 +262,33 @@ export function AllocationPage() {
             <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">How {monthName} is allocated</h2>
             <div className="flex items-center gap-2">
               {canWrite && (
-                <Button variant="ghost" size="sm" onClick={() => { setError(null); setShowSettings(true) }} aria-label="Allocation settings">
+                <Button variant="ghost" size="sm" onClick={openSettings} aria-label="Allocation settings">
                   Settings
                 </Button>
               )}
               {canEnterData && (
-                <Button onClick={commit} disabled={busy} aria-label="Commit allocation">
+                <Button onClick={commit} disabled={busy || !hasSource} aria-label="Commit allocation">
                   Allocate {monthName}
                 </Button>
               )}
             </div>
           </div>
 
+          {!hasSource && (
+            <p className="mb-4 text-sm text-amber-700 dark:text-amber-400">
+              Set the account to pay shared costs from in <span className="font-medium">Settings</span> before
+              you can allocate {monthName}.
+            </p>
+          )}
+
           {committed !== null && (
             <div
               role="status"
               className="mb-4 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
             >
-              Allocated — created {committed} savings transfer{committed === 1 ? '' : 's'}.
+              {committed === 0
+                ? `Allocated ${monthName} — no savings transfers were needed this month.`
+                : `Allocated ${monthName} — ${committed} savings transfer${committed === 1 ? '' : 's'} created. Re-running Allocate replaces them, never doubles up.`}
             </div>
           )}
 
@@ -270,6 +320,19 @@ export function AllocationPage() {
             })}
           </ol>
 
+          {nothingToSave && strandedMinor === 0 && (
+            <p className="mt-4 text-sm text-slate-500">
+              Shared spending uses up all the pooled income this month, so there’s nothing left to move to
+              savings.
+            </p>
+          )}
+          {strandedMinor > 0 && (
+            <p className="mt-4 text-sm text-amber-700 dark:text-amber-400">
+              {formatMoney(strandedMinor, CURRENCY)} has nowhere to go — a member has no savings account, so
+              that share stays in the source account instead of transferring.
+            </p>
+          )}
+
           {/* Each person's surplus → their savings. */}
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             {preview.members.map((m) => (
@@ -286,7 +349,7 @@ export function AllocationPage() {
                   {formatMoney(fromAmount(m.residual), CURRENCY)}
                 </p>
                 <p className="text-xs tabular-nums text-slate-500">
-                  New balance {formatMoney(fromAmount(m.savingsBalance + m.residual), CURRENCY)}
+                  Projected balance {formatMoney(fromAmount(m.savingsBalance + m.residual), CURRENCY)}
                 </p>
                 {!m.savingsAccountId && (
                   <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
@@ -301,15 +364,24 @@ export function AllocationPage() {
 
       {/* Allocation settings — a modal (mounted only while open so the focus trap engages). */}
       {showSettings && canWrite && (
-        <Modal title={profile ? 'Allocation settings' : 'Set up allocation'} onClose={() => setShowSettings(false)} size="lg">
+        <Modal title={profile ? 'Allocation settings' : 'Set up allocation'} onClose={closeSettings} size="lg">
           {error && (
             <div className="mb-3">
               <ErrorBanner>{error}</ErrorBanner>
             </div>
           )}
           <div className="space-y-4">
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Pay shared costs from
+            {/* div, not label — an InfoHint <button> inside a <label> would become the label's
+                control (clicking the text would open the tooltip instead of focusing the field);
+                the Select carries its own aria-label. */}
+            <div className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              <span className="inline-flex items-center gap-1.5">
+                Pay shared costs from
+                <InfoHint label="About the source account">
+                  The account the allocated savings are transferred out of when you press “Allocate”. It
+                  only affects the commit — the preview below is the same whichever account you pick.
+                </InfoHint>
+              </span>
               <Select
                 value={sourceAccountId}
                 aria-label="Source account"
@@ -323,7 +395,7 @@ export function AllocationPage() {
                   </option>
                 ))}
               </Select>
-            </label>
+            </div>
             <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
               Pocket money (each)
               <Input
@@ -337,7 +409,13 @@ export function AllocationPage() {
               />
             </label>
             <div className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Split shared costs
+              <span className="inline-flex items-center gap-1.5">
+                Split shared costs
+                <InfoHint label="About splitting shared costs">
+                  How much each person is treated as contributing to the shared costs and jars — split
+                  Equally, or in proportion to income.
+                </InfoHint>
+              </span>
               <SegmentedControl
                 value={String(split)}
                 ariaLabel="Split method"
@@ -349,7 +427,14 @@ export function AllocationPage() {
               />
             </div>
             <div className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Send savings to
+              <span className="inline-flex items-center gap-1.5">
+                Send savings to
+                <InfoHint label="About the savings split">
+                  How the pooled leftover is divided into each person’s savings. <strong>Balance</strong>{' '}
+                  leans toward whoever’s savings are lowest; <strong>Equally</strong> splits it evenly;{' '}
+                  <strong>By income</strong> splits it in proportion to each person’s income.
+                </InfoHint>
+              </span>
               <SegmentedControl
                 value={String(savingsSplit)}
                 ariaLabel="Savings split method"
@@ -362,8 +447,14 @@ export function AllocationPage() {
               />
             </div>
             {savingsSplit === SplitMethod.BalanceTilt && (
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Balance lean (0–100)
+              <div className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                <span className="inline-flex items-center gap-1.5">
+                  Balance lean (0–100)
+                  <InfoHint label="About balance lean">
+                    How hard the split leans toward equalising savings. <strong>0</strong> is a plain even
+                    split; <strong>100</strong> fills the lowest balance first. 25 is a gentle nudge.
+                  </InfoHint>
+                </span>
                 <Input
                   type="text"
                   inputMode="numeric"
@@ -373,10 +464,10 @@ export function AllocationPage() {
                   onChange={(e) => setLean(e.target.value)}
                   className="w-24 text-right tabular-nums"
                 />
-              </label>
+              </div>
             )}
             <div className="flex justify-end gap-2 pt-1">
-              <Button variant="ghost" onClick={() => setShowSettings(false)} aria-label="Cancel settings">
+              <Button variant="ghost" onClick={closeSettings} aria-label="Cancel settings">
                 Cancel
               </Button>
               <Button onClick={saveProfile} disabled={busy} aria-label="Save allocation settings">

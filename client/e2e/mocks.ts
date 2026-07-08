@@ -103,11 +103,13 @@ function allocationPreview() {
     pool: 8411.61, envelopesTotal: 3641, jarsTotal: 2164, transfersCreated: 0,
     steps: [
       { type: 0, total: 3641, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1820.5 }, { memberId: 'm2', name: 'Liza', amount: 1820.5 }] },
-      { type: 3, total: 2106.61, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1259.14 }, { memberId: 'm2', name: 'Liza', amount: 847.47 }] },
+      { type: 1, total: 2164, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1082 }, { memberId: 'm2', name: 'Liza', amount: 1082 }] },
+      { type: 2, total: 500, perMember: [{ memberId: 'm1', name: 'Chris', amount: 250 }, { memberId: 'm2', name: 'Liza', amount: 250 }] },
+      { type: 3, total: 2106.61, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1316.63 }, { memberId: 'm2', name: 'Liza', amount: 789.98 }] },
     ],
     members: [
-      { memberId: 'm1', name: 'Chris', netIncome: 4411.64, residual: 1259.14, savingsBalance: 35631.96, savingsAccountId: 'acc1' },
-      { memberId: 'm2', name: 'Liza', netIncome: 3999.97, residual: 847.47, savingsBalance: 46033.38, savingsAccountId: 'acc2' },
+      { memberId: 'm1', name: 'Chris', netIncome: 4411.64, residual: 1316.63, savingsBalance: 35631.96, savingsAccountId: 'acc1' },
+      { memberId: 'm2', name: 'Liza', netIncome: 3999.97, residual: 789.98, savingsBalance: 46033.38, savingsAccountId: 'acc2' },
     ],
   }
 }
