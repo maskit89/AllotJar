@@ -124,20 +124,30 @@ const DUE_SOON_DAYS = 7
 
 const dateOnly = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate())
 
+/** The due day clamped to the month's length (e.g. "31" → 28/29 in February). */
+export function effectiveDueDay(dueDay: number | null, year: number, month: number): number | null {
+  if (dueDay === null) return null
+  return Math.min(dueDay, new Date(year, month, 0).getDate())
+}
+
 /**
- * Classify a line's bill against `today`. Urgency (overdue / due-soon) is only
- * meaningful for the month you're actually living in, so other months always read
- * as "upcoming". Returns null when the line isn't a bill.
+ * Classify a line's bill against `today`. A future month always reads "upcoming";
+ * a month that has already passed reads "overdue" when still unpaid (a genuinely
+ * missed bill); the current month is scored against the clamped due day. Returns
+ * null when the line isn't a bill.
  */
 export function billStatus(i: ItemVM, year: number, month: number, today: Date): BillStatus | null {
   if (i.dueDay === null) return null
   if (i.isPaid) return 'paid'
 
-  const isCurrentMonth = today.getFullYear() === year && today.getMonth() + 1 === month
+  const currentYear = today.getFullYear()
+  const currentMonth = today.getMonth() + 1
+  const isPastMonth = year < currentYear || (year === currentYear && month < currentMonth)
+  const isCurrentMonth = year === currentYear && month === currentMonth
+  if (isPastMonth) return 'overdue' // an unpaid bill in a month already gone is overdue
   if (!isCurrentMonth) return 'upcoming'
 
-  const lastDayOfMonth = new Date(year, month, 0).getDate()
-  const day = Math.min(i.dueDay, lastDayOfMonth) // clamp e.g. "31" in a 30-day month
+  const day = effectiveDueDay(i.dueDay, year, month)! // clamp e.g. "31" in a 30-day month
   const due = new Date(year, month - 1, day)
   const diffDays = Math.round((due.getTime() - dateOnly(today).getTime()) / 86_400_000)
 

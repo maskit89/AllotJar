@@ -249,10 +249,9 @@ describe('bill reminders', () => {
     expect(billStatus(item(null), 2026, 6, today)).toBeNull()
   })
 
-  it('only assesses urgency for the month you are living in', () => {
-    // Same overdue-looking day, but viewing a different month → just "upcoming".
-    expect(billStatus(item(10), 2026, 7, today)).toBe('upcoming') // future month
-    expect(billStatus(item(10), 2026, 5, today)).toBe('upcoming') // past month
+  it('treats a future month as upcoming but an unpaid past-month bill as overdue', () => {
+    expect(billStatus(item(10), 2026, 7, today)).toBe('upcoming') // future month — not due yet
+    expect(billStatus(item(10), 2026, 5, today)).toBe('overdue') // a month already gone, still unpaid
   })
 
   it('clamps a due day past the end of a short month', () => {
