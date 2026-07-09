@@ -5,7 +5,6 @@ using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
-using AllotJar.Domain.ValueObjects;
 
 namespace AllotJar.Application.Transactions.Commands.CreateTransfer;
 
@@ -35,13 +34,29 @@ public class CreateTransferCommandHandler : IRequestHandler<CreateTransferComman
             throw new ForbiddenAccessException();
         }
 
+        // Without a conversion the raw amount is debited from one account and credited
+        // to the other, so a cross-currency transfer would silently change net worth
+        // (e.g. £100 credited for €100 debited). Block it until real FX is recorded.
+        if (from.Currency != to.Currency)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                [nameof(request.ToAccountId)] = new[]
+                {
+                    "Both accounts must use the same currency to transfer between them.",
+                },
+            });
+        }
+
         var transfer = new Transaction
         {
             OwnerId = userId,
             Date = request.Date,
             Payee = string.IsNullOrWhiteSpace(request.Payee) ? "Transfer" : request.Payee.Trim(),
             Amount = request.Amount,
-            Currency = CurrencyCode.Eur,
+            // Both accounts share a currency (guarded above); stamp the transfer in it
+            // rather than a hardcoded EUR so the register row matches the accounts.
+            Currency = from.Currency,
             ExchangeRate = 1m,
             Type = TransactionType.Transfer,
             Account = from,

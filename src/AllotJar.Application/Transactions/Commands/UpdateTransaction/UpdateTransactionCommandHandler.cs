@@ -4,6 +4,7 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Domain.Entities;
+using AllotJar.Domain.Enums;
 
 namespace AllotJar.Application.Transactions.Commands.UpdateTransaction;
 
@@ -73,6 +74,15 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         transaction.Payee = request.Payee.Trim();
         transaction.Amount = request.Amount;
         transaction.Type = request.Type;
+        // Editing a transfer into a plain income/expense must drop the counterparty
+        // link, or the stale TransferAccountId keeps phantom-crediting the other account
+        // in the derived balances. (The validator already rejects Type=Transfer here, so
+        // an updated row is never itself a transfer.)
+        if (request.Type != TransactionType.Transfer)
+        {
+            transaction.TransferAccount = null;
+            transaction.TransferAccountId = null;
+        }
         transaction.Account = account;
         transaction.AccountId = account?.Id;
         transaction.Member = member;
