@@ -59,11 +59,16 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         // Recurrence is applied virtually per seed month by the calculator — the stored
         // date is an anchor and never rewritten here, so seeding a month is deterministic
         // regardless of creation order.
-        var activeJars = (await _db.Jars
+        var allJars = await _db.Jars
             .AsNoTracking()
-            .Where(f => f.OwnerId == userId && !f.IsArchived)
-            .ToListAsync(cancellationToken))
-            .ToDictionary(f => f.Id);
+            .Where(f => f.OwnerId == userId)
+            .ToListAsync(cancellationToken);
+        var activeJars = allJars.Where(f => !f.IsArchived).ToDictionary(f => f.Id);
+        // A copy drops lines backed by an archived jar (below). Key that on the archived
+        // ids specifically: a line whose SavingsId has no jar row (dangling) is still
+        // copied — production enforces the FK, so "absent" only happens in tests and must
+        // not be treated as "archived".
+        var archivedJarIds = allJars.Where(f => f.IsArchived).Select(f => f.Id).ToHashSet();
 
         // One eligibility rule for accrual seeding, shared by the copy path and the
         // appended-lines step below.
@@ -73,9 +78,12 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
 
         // Cross-history balances are only needed when a fund line is actually being
         // seeded or appended — computed at most once, on first use.
+        // Balances as-of this month: only contributions/spend in months strictly before
+        // the one being created count, so back-filling an earlier month (via ‹) doesn't
+        // let a later month's savings leak into the seed and zero out the contribution.
         Dictionary<Guid, decimal>? tracked = null;
         async Task<Dictionary<Guid, decimal>> BalancesAsync() =>
-            tracked ??= await JarBalances.ComputeAsync(_db, userId, cancellationToken);
+            tracked ??= await JarBalances.ComputeAsync(_db, userId, cancellationToken, (request.Year, request.Month));
 
         var seedAsOf = new DateOnly(request.Year, request.Month, 1);
 
@@ -140,7 +148,15 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                     Name = c.Name,
                     Kind = c.Kind,
                     DisplayOrder = c.DisplayOrder,
+                    // Carry the allocation-exclusion flag; dropping it silently folds an
+                    // excluded category (e.g. Personal Savings) back into the shared
+                    // obligation total and corrupts every copied month's member split.
+                    ExcludeFromAllocation = c.ExcludeFromAllocation,
                     Items = c.Items
+                        // Don't roll a line that funds an archived jar forward — archiving
+                        // must stop future contributions. (Non-savings lines have no
+                        // SavingsId and stay; a dangling SavingsId also stays.)
+                        .Where(i => i.SavingsId is not { } sid || !archivedJarIds.Contains(sid))
                         .OrderBy(i => i.DisplayOrder)
                         .Select(i => new BudgetItem
                         {
@@ -197,7 +213,28 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         }
 
         _db.BudgetMonths.Add(budget);
-        await _db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // A concurrent request (double-click, StrictMode double-fire, two logins in
+            // the same household) can insert this month between the AnyAsync pre-check
+            // and here, tripping the unique (OwnerId, Year, Month) index. Surface the
+            // same friendly 400 as the pre-check instead of a raw 500.
+            var raced = await _db.BudgetMonths.AnyAsync(
+                m => m.OwnerId == userId && m.Year == request.Year && m.Month == request.Month,
+                cancellationToken);
+            if (raced)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    [nameof(request.Month)] = new[] { $"A budget for {request.Year:D4}-{request.Month:D2} already exists." },
+                });
+            }
+            throw;
+        }
 
         var month = await _db.BudgetMonths
             .AsNoTracking()
