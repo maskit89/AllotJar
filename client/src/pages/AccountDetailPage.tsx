@@ -48,8 +48,11 @@ export function AccountDetailPage() {
     }
   }, [id])
 
-  // Map each budget line to its category's hue, so the category pills match the rest of the app.
-  const itemHue = useMemo(() => {
+  // Map each current-month line NAME to its category hue. The register spans every
+  // month, but /budget/current only knows this month's line ids — keying by name lets
+  // a transaction keep its colour across months. Rows whose line isn't in this month
+  // fall back to a stable hue derived from the name, so none render grey.
+  const hueByName = useMemo(() => {
     const map: Record<string, CategoryHue | 'income'> = {}
     if (!month || !Array.isArray(month.categories)) return map
     let expenseIdx = 0
@@ -57,10 +60,18 @@ export function AccountDetailPage() {
     for (const c of month.categories) {
       const hue: CategoryHue | 'income' =
         c.kind === 'Income' ? 'income' : c.kind === 'Savings' ? hueForIndex(fundIdx++) : hueForIndex(expenseIdx++)
-      for (const it of c.items) map[it.id] = hue
+      for (const it of c.items) map[it.name] = hue
     }
     return map
   }, [month])
+
+  const hueForName = (name: string | null): CategoryHue | 'income' | undefined => {
+    if (!name) return undefined
+    if (name in hueByName) return hueByName[name]
+    let h = 0
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0
+    return hueForIndex(Math.abs(h))
+  }
 
   const rows = useMemo(
     () => transactions.filter((t) => t.accountId === id || t.transferAccountId === id),
@@ -128,7 +139,7 @@ export function AccountDetailPage() {
                   {rows.map((t) => {
                     const isIncome = transactionTypeLabel(t.type) === 'Income'
                     const isTransfer = t.type === TransactionType.Transfer
-                    const hue = t.budgetItemId ? itemHue[t.budgetItemId] : undefined
+                    const hue = hueForName(t.budgetItemName)
                     return (
                       <tr key={t.id} className="hover:bg-slate-50">
                         <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-slate-500">{shortDate(t.date)}</td>
@@ -140,7 +151,7 @@ export function AccountDetailPage() {
                         <td className="px-4 py-3.5">
                           {isTransfer ? (
                             <span className="text-xs text-slate-500">
-                              {t.accountName ?? '—'} → {t.transferAccountName ?? '—'}
+                              {t.accountName ?? '(removed account)'} → {t.transferAccountName ?? '(removed account)'}
                             </span>
                           ) : t.budgetItemId ? (
                             <span
@@ -159,7 +170,9 @@ export function AccountDetailPage() {
                             isTransfer ? 'text-slate-500' : isIncome ? 'text-brand-700 dark:text-brand-200' : 'text-slate-900'
                           }`}
                         >
-                          {isTransfer ? '' : isIncome ? '+' : '−'}
+                          {/* On a single-account register a transfer is signed by direction:
+                              − when this account is the source, + when it's the destination. */}
+                          {isTransfer ? (t.accountId === id ? '−' : '+') : isIncome ? '+' : '−'}
                           {formatMoney(fromAmount(t.amount), t.currency)}
                         </td>
                       </tr>

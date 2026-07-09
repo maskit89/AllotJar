@@ -85,7 +85,7 @@ describe('AccountsPage', () => {
     expect(await screen.findByText('Wallet', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
-  it('deletes an account', { timeout: 15000 }, async () => {
+  it('deletes an account after confirming', { timeout: 15000 }, async () => {
     mockGet.mockResolvedValue({ data: accounts() })
     mockDelete.mockResolvedValue({ data: null })
     const user = userEvent.setup()
@@ -93,9 +93,26 @@ describe('AccountsPage', () => {
     renderPage()
 
     await user.click(await screen.findByLabelText('Delete Everyday', {}, { timeout: 5000 }))
+    // Deleting now asks for confirmation, explaining transactions are kept.
+    expect(await screen.findByText(/transactions are kept/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Confirm delete Everyday' }))
 
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/accounts/a1'))
     await waitFor(() => expect(screen.queryByText('Everyday')).not.toBeInTheDocument())
+  })
+
+  it('does not delete when the confirmation is cancelled', { timeout: 15000 }, async () => {
+    mockGet.mockResolvedValue({ data: accounts() })
+    mockDelete.mockResolvedValue({ data: null })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Delete Everyday', {}, { timeout: 5000 }))
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+    expect(mockDelete).not.toHaveBeenCalled()
+    expect(screen.getByText('Everyday')).toBeInTheDocument()
   })
 
   it('shows an empty state when there are no accounts', { timeout: 15000 }, async () => {

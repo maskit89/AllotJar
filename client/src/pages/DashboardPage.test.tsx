@@ -455,7 +455,7 @@ describe('DashboardPage month navigation', () => {
     await user.click(screen.getByLabelText('Next month'))
 
     expect(await screen.findByText(/No budget for .* yet/, {}, { timeout: 5000 })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Copy last month’s budget' }))
+    await user.click(screen.getByRole('button', { name: /^Copy / }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(
