@@ -171,8 +171,9 @@ export function AccountPage() {
         <Card className="p-5">
           <h2 className="mb-1 text-sm font-semibold text-slate-700">Your own budget</h2>
           <p className="mb-4 text-sm text-slate-500">
-            You’re a member of a shared household. Want a budget of your own too? We’ll set one up and
-            you can switch between them anytime — the shared budget stays exactly as it is.
+            You’re a member of a shared household. Want a budget of your own too? We’ll create it and
+            you can build your first month — blank or from a template — and switch between them
+            anytime. The shared budget stays exactly as it is.
           </p>
           {startError && (
             <div className="mb-3">

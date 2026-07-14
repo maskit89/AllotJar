@@ -170,10 +170,10 @@ public class SavingsForeignKeyTests
         await AssertEverySavingsLineHasItsJarAsync(owner, reloaded);
     }
 
-    // ---- Crash path 5: "start my own budget" runs the seeder for an existing login ----
+    // ---- Crash path 5: an opted-in registration runs the seeder through the bootstrap ----
 
     [Fact]
-    public async Task HouseholdBootstrap_StartOwnBudget_SeedsSavingsGroupBackedByAJar()
+    public async Task HouseholdBootstrap_WithSampleOptIn_SeedsSavingsGroupBackedByAJar()
     {
         var owner = NewOwner();
         await using var db = _fixture.CreateContext();
@@ -190,7 +190,8 @@ public class SavingsForeignKeyTests
 
         var now = DateTime.UtcNow;
         // Goes through BudgetSeeder → SavingsLines.AddBackingJar, the same enforced-FK write path.
-        var created = await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, now);
+        // The sample budget is opt-in since the seed became optional; this pins the opted-in path.
+        var created = await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, now, seedSampleBudget: true);
 
         created.Should().BeTrue();
         var reloaded = await LoadMonthGraphAsync(owner);

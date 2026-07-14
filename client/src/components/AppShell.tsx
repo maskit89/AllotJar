@@ -168,12 +168,14 @@ export function AppShell({
       ? 'You have limited access — you can record transactions, mark bills paid and run allocation, but not change the budget structure or settings.'
       : null
 
-  // A one-time greeting after a household change: ?joined=1 (accepted an invite) or ?started=1
-  // (started an own budget). The param is stripped immediately so a refresh doesn't repeat it.
-  const [greeting, setGreeting] = useState<'joined' | 'started' | null>(() => {
+  // A one-time greeting after a household change: ?joined=1 (accepted an invite), ?started=1
+  // (started an own budget) or ?left=1 (left a joined household, landing back in their own).
+  // The param is stripped immediately so a refresh doesn't repeat it.
+  const [greeting, setGreeting] = useState<'joined' | 'started' | 'left' | null>(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.has('joined')) return 'joined'
     if (params.has('started')) return 'started'
+    if (params.has('left')) return 'left'
     return null
   })
   useEffect(() => {
@@ -240,7 +242,9 @@ export function AppShell({
               <span>
                 {greeting === 'joined'
                   ? 'You’ve joined this household — you’re viewing its shared budget now. You can switch households anytime from the account menu.'
-                  : 'Your own budget is ready — you’re viewing it now. You can switch back to the shared household anytime from the account menu.'}
+                  : greeting === 'started'
+                    ? 'This is your own budget — set up your first month below. You can switch back to the shared household anytime from the account menu.'
+                    : 'You’ve left that household — you’re viewing your own budget now. Nothing was deleted; you can be invited back anytime.'}
               </span>
               <button
                 type="button"

@@ -12,7 +12,9 @@ test('an owner invites a new person who accepts and lands in the shared househol
   browser,
 }) => {
   // --- Inviter: register, add a person, create an invite link ---
-  await register(page, { firstName: 'Ada' })
+  // Sample figures opted in: the guest below asserts the shared budget renders after joining,
+  // which needs the inviter's household to have a budget month.
+  await register(page, { firstName: 'Ada', sampleBudget: true })
 
   await page.goto('/people')
   // exact — the dialog's Cancel button is aria-labelled "Cancel add person" (contains "Add person").
@@ -48,6 +50,17 @@ test('an owner invites a new person who accepts and lands in the shared househol
   // fresh own budget or the login screen.
   await expect(guest.getByText(/joined this household/)).toBeVisible()
   await expect(guest.getByText('Remaining to budget')).toBeVisible()
+
+  // --- Invitee leaves again: lands in their own household, explained, with NO sample data ---
+  // The leave path materializes a pure invitee's own household without sample figures
+  // (seedSampleBudget: false), so the landing is the create-month hero plus the ?left greeting.
+  await guest.goto('/account')
+  await guest.getByRole('button', { name: 'Leave household' }).click()
+  await guest.getByRole('button', { name: 'Yes, leave' }).click()
+
+  await expect(guest.getByText(/left that household/)).toBeVisible()
+  await expect(guest.getByText(/No budget for .+ yet/)).toBeVisible()
+  await expect(guest.getByRole('button', { name: 'Start a blank budget' })).toBeVisible()
 
   await guestContext.close()
 })
