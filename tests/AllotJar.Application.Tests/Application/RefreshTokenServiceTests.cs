@@ -99,6 +99,56 @@ public class RefreshTokenServiceTests
     }
 
     [Fact]
+    public async Task Revoke_returns_the_owning_user_so_logout_can_kill_their_access_tokens()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+
+        var raw = await svc.IssueAsync("user-1");
+
+        (await svc.RevokeAsync(raw)).Should().Be("user-1");
+        // Already revoked still names the owner — signing out twice still ends the session.
+        (await svc.RevokeAsync(raw)).Should().Be("user-1");
+        (await svc.RevokeAsync("never-issued")).Should().BeNull();
+        (await svc.RevokeAsync("")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Replaying_an_administratively_revoked_token_is_refused_without_the_theft_response()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+
+        // Password change: every device's token is revoked, then THIS device gets a fresh one.
+        var stale = await svc.IssueAsync("user-1");
+        await svc.RevokeAllForUserAsync("user-1");
+        var fresh = await svc.IssueAsync("user-1");
+
+        // The stale device checking back in is refused — but it must NOT burn the new session
+        // (only a ROTATED token replayed is theft; an admin-revoked one is just signed out).
+        (await svc.RotateAsync(stale)).Succeeded.Should().BeFalse();
+        (await svc.RotateAsync(fresh)).Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RevokeAllForUser_ends_the_session_on_every_device_but_leaves_other_users_alone()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+
+        // Two devices for user-1 (e.g. laptop + phone), one for user-2.
+        var laptop = await svc.IssueAsync("user-1");
+        var phone = await svc.IssueAsync("user-1");
+        var other = await svc.IssueAsync("user-2");
+
+        await svc.RevokeAllForUserAsync("user-1");
+
+        (await svc.RotateAsync(laptop)).Succeeded.Should().BeFalse();
+        (await svc.RotateAsync(phone)).Succeeded.Should().BeFalse();
+        (await svc.RotateAsync(other)).Succeeded.Should().BeTrue(); // user-2 unaffected
+    }
+
+    [Fact]
     public async Task An_unknown_token_is_rejected()
     {
         using var db = NewContext();

@@ -199,21 +199,37 @@ public class AuthController : ControllerBase
         var raw = Request.Cookies[RefreshCookieName];
         if (!string.IsNullOrEmpty(raw))
         {
-            await _refreshTokens.RevokeAsync(raw, ct);
+            var userId = await _refreshTokens.RevokeAsync(raw, ct);
+            if (userId is not null)
+            {
+                // Rotating the security stamp fails the sstamp check on every already-issued
+                // access token, so sign-out takes effect now — not after the JWT's remaining
+                // lifetime. Other devices recover silently: their next 401 refreshes via their
+                // own still-valid cookie into a token carrying the new stamp.
+                var user = await _userManager.FindByIdAsync(userId);
+                if (user is not null)
+                {
+                    await _userManager.UpdateSecurityStampAsync(user);
+                }
+            }
         }
 
         ClearRefreshCookie();
         return NoContent();
     }
 
-    /// <summary>Changes the authenticated login's own password.</summary>
+    /// <summary>
+    /// Changes the authenticated login's own password. Ends the session on every other device
+    /// (all refresh tokens revoked; the stamp rotation inside ChangePasswordAsync kills their
+    /// access tokens too) and returns a fresh token + cookie so this device stays signed in.
+    /// </summary>
     [HttpPost("change-password")]
     [Authorize]
     [EnableRateLimiting("auth")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> ChangePassword(ChangePasswordRequest request)
+    public async Task<IActionResult> ChangePassword(ChangePasswordRequest request, CancellationToken ct)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null)
@@ -233,7 +249,9 @@ public class AuthController : ControllerBase
             return BadRequest(new { errors = result.Errors.Select(e => e.Description) });
         }
 
-        return NoContent();
+        await _refreshTokens.RevokeAllForUserAsync(user.Id, ct);
+        await IssueRefreshCookieAsync(user.Id, ct);
+        return Ok(await BuildResponseAsync(user, ct));
     }
 
     /// <summary>The authenticated login's identity, household and access level.</summary>
