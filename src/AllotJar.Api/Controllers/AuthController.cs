@@ -176,7 +176,13 @@ public class AuthController : ControllerBase
         var rotation = await _refreshTokens.RotateAsync(raw, ct);
         if (!rotation.Succeeded)
         {
-            ClearRefreshCookie();
+            // Superseded = a sibling tab just rotated this cookie, so the shared jar already
+            // holds THAT tab's fresh token. Clearing here would delete it and sign the winning
+            // tab out too, 15 minutes later, when its access token expires.
+            if (!rotation.Superseded)
+            {
+                ClearRefreshCookie();
+            }
             return Unauthorized();
         }
 
