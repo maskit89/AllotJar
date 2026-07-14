@@ -23,6 +23,9 @@ export function LoginPage() {
   )
   // Where to go after signing in (e.g. back to an invite link) — internal paths only.
   const returnUrl = safeInternalPath(searchParams.get('returnUrl'))
+  // Set when an expired/revoked session bounced the user here (lib/api.ts sessionExpired), so
+  // the page can say WHY they're seeing it instead of looking like an unexplained sign-out.
+  const wasExpired = searchParams.get('reason') === 'expired'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [firstName, setFirstName] = useState('')
@@ -95,6 +98,15 @@ export function LoginPage() {
         </div>
 
         <Card className="p-8">
+          {wasExpired && mode === 'login' && (
+            <p
+              role="status"
+              className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100"
+            >
+              Your session has expired, so we signed you out to keep your budget safe. Sign back
+              in to pick up where you left off.
+            </p>
+          )}
           {/* Segmented sign-in / register toggle. */}
           <div className="mb-6">
             <SegmentedControl

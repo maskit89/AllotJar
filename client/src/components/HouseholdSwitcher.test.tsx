@@ -5,7 +5,10 @@ import type { HouseholdSummary, MeResponse } from '../types'
 
 const { mockGet, mockPost } = vi.hoisted(() => ({ mockGet: vi.fn(), mockPost: vi.fn() }))
 
-vi.mock('../lib/api', () => ({
+vi.mock('../lib/api', async (importOriginal) => ({
+  // Spread the real module first so newly added api.ts exports keep working under test;
+  // the stubs below override only what this file controls.
+  ...(await importOriginal<typeof import('../lib/api')>()),
   api: { get: mockGet, post: mockPost, put: vi.fn(), delete: vi.fn() },
   getToken: () => 'test-token',
   setToken: vi.fn(),

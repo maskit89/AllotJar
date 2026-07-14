@@ -2,7 +2,10 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
-vi.mock('../lib/api', () => ({
+vi.mock('../lib/api', async (importOriginal) => ({
+  // Spread the real module first so newly added api.ts exports keep working under test;
+  // the stubs below override only what this file controls.
+  ...(await importOriginal<typeof import('../lib/api')>()),
   api: { get: vi.fn(), put: vi.fn(), post: vi.fn(), delete: vi.fn() },
   getToken: () => 'test-token',
   setToken: vi.fn(),
