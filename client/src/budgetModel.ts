@@ -97,7 +97,13 @@ export const monthPlanned = (m: MonthVM): Minor =>
 
 export const remainingToBudget = (m: MonthVM): Minor => totalIncome(m) - monthPlanned(m)
 
-export const isBalanced = (m: MonthVM): boolean => remainingToBudget(m) === 0
+/**
+ * Balanced = some income is planned AND every unit of it has a job. A month
+ * with no income and nothing planned has nothing to balance — it is empty,
+ * not balanced (mirrors AllotJar.Domain BudgetMonth.IsBalanced).
+ */
+export const isBalanced = (m: MonthVM): boolean =>
+  totalIncome(m) > 0 && remainingToBudget(m) === 0
 
 export interface BillsSummary {
   /** How many lines are bills (have a due day). */

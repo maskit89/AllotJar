@@ -75,7 +75,7 @@ export function GettingStartedChecklist() {
   if (activeHousehold && !activeHousehold.isOwn) return null
 
   const steps = [
-    { id: 'month', label: 'Create your first month', hint: 'Copy last month, start blank, or pick a template.', to: '/', done: progress.monthExists },
+    { id: 'month', label: 'Create your first month', hint: 'Start blank, pick a template, or copy a previous month.', to: '/', done: progress.monthExists },
     { id: 'income', label: 'Plan your income', hint: 'Add what you expect to earn this month.', to: '/', done: progress.hasIncome },
     { id: 'balance', label: `Give every ${noun} a job`, hint: 'Assign it all until Remaining reaches zero.', to: '/', done: progress.balanced },
     { id: 'tx', label: 'Log your first transaction', hint: 'Record real spending and assign it to a line.', to: '/transactions', done: progress.hasTransaction },
