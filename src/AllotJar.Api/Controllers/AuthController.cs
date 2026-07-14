@@ -48,7 +48,8 @@ public class AuthController : ControllerBase
         _env = env;
     }
 
-    /// <summary>Creates an account, seeds a starter budget + owner membership + owner member, returns a JWT.</summary>
+    /// <summary>Creates an account (owner membership + owner member, plus a sample budget only when
+    /// <see cref="RegisterRequest.IncludeSampleData"/> was opted into), returns a JWT.</summary>
     [HttpPost("register")]
     [EnableRateLimiting("auth")]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
@@ -99,10 +100,11 @@ public class AuthController : ControllerBase
             return BadRequest(new { errors = result.Errors.Select(e => e.Description) });
         }
 
-        // The new user owns their own household (Owner membership + starter budget + owner member).
-        // The owner is themselves member #1, so a household is never "0 members": solo is a
-        // household of one, shared is two or more.
-        await HouseholdBootstrap.EnsureOwnHouseholdAsync(_db, user, DateTime.UtcNow, ct);
+        // The new user owns their own household (Owner membership + owner member, plus the sample
+        // budget only when they opted in on the sign-up form). The owner is themselves member #1,
+        // so a household is never "0 members": solo is a household of one, shared is two or more.
+        await HouseholdBootstrap.EnsureOwnHouseholdAsync(
+            _db, user, DateTime.UtcNow, seedSampleBudget: request.IncludeSampleData, ct);
 
         await IssueRefreshCookieAsync(user.Id, ct);
         return Ok(await BuildResponseAsync(user, ct));

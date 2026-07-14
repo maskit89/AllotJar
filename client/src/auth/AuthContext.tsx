@@ -12,6 +12,8 @@ export interface RegisterInput {
   preferredCurrency: string
   numberFormat: string
   acceptedTerms: boolean
+  /** Opt-in to a pre-filled sample budget to explore; default off — accounts start empty. */
+  includeSampleData: boolean
 }
 
 /** What the account-preferences form submits. */
@@ -56,7 +58,7 @@ interface AuthState {
   confirmConsent: () => Promise<void>
   /** Switch the active household and re-bootstrap the app into it. */
   switchHousehold: (ownerId: string) => Promise<void>
-  /** Create the login's own household (Owner + starter budget) and re-bootstrap into it. */
+  /** Create the login's own (empty) household and re-bootstrap into it to set up a first month. */
   startOwnBudget: () => Promise<void>
   /** Leave a household the login joined, then re-bootstrap into whatever remains active. */
   leaveHousehold: (ownerId: string) => Promise<void>
@@ -246,8 +248,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function leaveHousehold(ownerId: string) {
     await api.post('/households/leave', { ownerId })
-    // Active household may have changed; re-bootstrap so every screen re-scopes.
-    window.location.assign('/')
+    // Active household may have changed; re-bootstrap so every screen re-scopes. The ?left=1
+    // greeting explains the landing — a pure invitee's own household starts with no months,
+    // and an unexplained blank dashboard would read as data loss.
+    window.location.assign('/?left=1')
   }
 
   async function updatePreferences(input: PreferencesInput) {

@@ -73,9 +73,10 @@ public class HouseholdsController : ControllerBase
     }
 
     /// <summary>
-    /// Creates the caller's OWN household — an Owner membership, a starter budget and the owner as
-    /// member #1 — and switches them into it. This is the path for someone who only ever joined
-    /// another household by invite and now wants a budget of their own. Idempotent: if they already
+    /// Creates the caller's OWN household — an Owner membership and the owner as member #1 — and
+    /// switches them into it. This is the path for someone who only ever joined another household
+    /// by invite and now wants a budget of their own; they land on the dashboard's create-month
+    /// flow (blank or template) rather than pre-filled sample figures. Idempotent: if they already
     /// own a household this simply switches them back into it.
     /// </summary>
     [HttpPost("start-own")]
@@ -95,7 +96,10 @@ public class HouseholdsController : ControllerBase
             return Unauthorized();
         }
 
-        await HouseholdBootstrap.EnsureOwnHouseholdAsync(_db, user, DateTime.UtcNow, ct);
+        // No sample figures: someone deliberately starting their own budget gets the dashboard's
+        // create-month flow, not pre-filled data to clean up.
+        await HouseholdBootstrap.EnsureOwnHouseholdAsync(
+            _db, user, DateTime.UtcNow, seedSampleBudget: false, ct);
 
         // Land them in their own household (null = own).
         if (user.ActiveOwnerId is not null)
@@ -150,11 +154,13 @@ public class HouseholdsController : ControllerBase
         var user = await _userManager.FindByIdAsync(userId);
         if (user is not null)
         {
-            // Never strand them in an empty, un-seeded "own" household: a member who only ever
-            // joined others has no own budget, and after leaving the resolver would drop them into
-            // a blank one. Guarantee a real starter budget to land in. Idempotent — a no-op for a
-            // user who already owns a household.
-            await HouseholdBootstrap.EnsureOwnHouseholdAsync(_db, user, DateTime.UtcNow, ct);
+            // A member who only ever joined others has no own household; after leaving, the
+            // resolver would drop them into one that doesn't exist. Materialize it (membership +
+            // owner member) so they land somewhere real — the dashboard's create-month flow takes
+            // it from there; sample figures are never injected by a background path. Idempotent —
+            // a no-op for a user who already owns a household.
+            await HouseholdBootstrap.EnsureOwnHouseholdAsync(
+                _db, user, DateTime.UtcNow, seedSampleBudget: false, ct);
 
             // If they were viewing the household they just left, drop back to their own.
             if (user.ActiveOwnerId == request.OwnerId)
