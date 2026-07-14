@@ -33,11 +33,13 @@ export async function suppressOnboarding(page: Page, email: string): Promise<voi
 /**
  * Register a brand-new user through the real UI and land on the dashboard. Returns the email.
  * The register build has no beta-consent checkbox (VITE_APP_ENV is unset for the journey run),
- * so only the Terms checkbox is required.
+ * so only the Terms checkbox is required. Sample figures are opt-in (default OFF, matching the
+ * product default): pass `sampleBudget: true` to tick the opt-in box and land on the seeded
+ * month; otherwise the landing is the create-month empty state.
  */
 export async function register(
   page: Page,
-  opts: { email?: string; password?: string; firstName?: string } = {},
+  opts: { email?: string; password?: string; firstName?: string; sampleBudget?: boolean } = {},
 ): Promise<{ email: string; password: string }> {
   const email = opts.email ?? uniqueEmail()
   const password = opts.password ?? JOURNEY_PASSWORD
@@ -49,12 +51,21 @@ export async function register(
   await page.getByLabel('Last name').fill('Tester')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
+  if (opts.sampleBudget) {
+    // The optional sample-figures box — like Terms, reached through its wrapping label text.
+    await page.locator('label', { hasText: 'Start with sample figures' }).getByRole('checkbox').check()
+  }
   // Terms checkbox has no id/aria-label — reach it through its wrapping label text.
   await page.locator('label', { hasText: 'I agree to the' }).getByRole('checkbox').check()
   // "Create account" also names a segmented tab, so target the form's submit button.
   await page.locator('button[type="submit"]').click()
 
-  // Registration lands on the dashboard with the seeded starter budget (onboarding was suppressed).
-  await expect(page.getByText('Remaining to budget')).toBeVisible()
+  // Registration lands on the dashboard (onboarding was suppressed): on the seeded sample month
+  // when opted in, otherwise on the create-month empty state.
+  if (opts.sampleBudget) {
+    await expect(page.getByText('Remaining to budget')).toBeVisible()
+  } else {
+    await expect(page.getByText(/No budget for .+ yet/)).toBeVisible()
+  }
   return { email, password }
 }
