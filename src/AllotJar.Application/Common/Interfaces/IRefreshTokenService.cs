@@ -15,8 +15,14 @@ public interface IRefreshTokenService
     /// </summary>
     Task<RefreshRotationResult> RotateAsync(string rawToken, CancellationToken cancellationToken = default);
 
-    /// <summary>Revokes a refresh token (sign-out). No-op if it's unknown or already revoked.</summary>
-    Task RevokeAsync(string rawToken, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Revokes a refresh token (sign-out). Returns the owning user id when the token is known
+    /// (even if already revoked, so sign-out can still invalidate access tokens), else null.
+    /// </summary>
+    Task<string?> RevokeAsync(string rawToken, CancellationToken cancellationToken = default);
+
+    /// <summary>Revokes every active refresh token a login holds — ends the session on all devices.</summary>
+    Task RevokeAllForUserAsync(string userId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Outcome of a rotation. On success carries the user id and the new raw token for the cookie.</summary>

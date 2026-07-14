@@ -1,5 +1,14 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { api, getToken, setToken, refreshSession } from '../lib/api'
+import {
+  api,
+  getToken,
+  setToken,
+  refreshSession,
+  sessionExpired,
+  setSessionHandlers,
+  isAccessTokenExpired,
+} from '../lib/api'
+import { broadcastSignOut, onSignOutBroadcast } from '../lib/authChannel'
 import { setMoneyFormat, DEFAULT_CURRENCY_CODE, DEFAULT_FORMAT_KEY } from '../lib/money'
 import { HouseholdRole, type AuthResponse, type HouseholdSummary, type MeResponse, type PreferencesResponse } from '../types'
 
@@ -117,6 +126,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Let lib/api.ts reach back into React state: interceptor-driven refreshes re-apply the fresh
+  // session (so the /auth/me-on-token-change effect refires and picks up role/preference changes),
+  // and a genuinely dead session tears auth state down and tells the other tabs. Registered before
+  // the bootstrap effect below so a bootstrap refresh flows through it too.
+  useEffect(() => {
+    // Guard against incomplete test mocks of lib/api so the provider never throws.
+    if (typeof setSessionHandlers !== 'function') return
+    setSessionHandlers({
+      refreshed: (session) => apply(session),
+      expired: () => {
+        clearAuthState()
+        broadcastSignOut()
+      },
+    })
+    return () => setSessionHandlers(null)
+    // apply/clearAuthState only close over stable setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Sign-outs propagate across tabs: another tab logging out (or its session dying) clears this
+  // tab's auth state too, so RequireAuth bounces it to /login instead of it keeping a working
+  // access token for up to 15 more minutes. Receive-only — never re-broadcasts, so no loops.
+  useEffect(() => {
+    return onSignOutBroadcast(() => {
+      if (getToken()) clearAuthState()
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // A tab left open while the access token lapses (overnight laptop lid, background tab) should
+  // find out the moment the user comes back — not when a stale page's save fails. On focus or
+  // becoming visible, if the token's lifetime has passed, revalidate against the refresh cookie:
+  // success re-arms the session silently; failure means the session is over → prompt sign-in.
+  useEffect(() => {
+    function revalidate() {
+      // typeof guards: incomplete test mocks of lib/api must never crash the provider.
+      if (typeof isAccessTokenExpired !== 'function' || typeof refreshSession !== 'function') return
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      if (!isAccessTokenExpired()) return
+      refreshSession().then((session) => {
+        if (!session && typeof sessionExpired === 'function') sessionExpired()
+      })
+    }
+    window.addEventListener('focus', revalidate)
+    document.addEventListener('visibilitychange', revalidate)
+    return () => {
+      window.removeEventListener('focus', revalidate)
+      document.removeEventListener('visibilitychange', revalidate)
+    }
+  }, [])
+
   // Cold load: the access token lives in memory, so it's gone after a refresh — but the HttpOnly
   // refresh cookie may still be valid. Try once to restore the session before showing sign-in.
   // Uses the shared single-flight refreshSession() (lib/api.ts) rather than POSTing directly: React
@@ -154,7 +214,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   function apply(res: AuthResponse) {
-    setToken(res.token)
+    setToken(res.token, res.expiresAtUtc)
     setTokenState(res.token)
     setEmail(res.email)
     setRole(res.role)
@@ -231,7 +291,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function changePassword(currentPassword: string, newPassword: string) {
-    await api.post('/auth/change-password', { currentPassword, newPassword })
+    // Changing the password signs out every other device server-side; the response carries a
+    // fresh token + rotated cookie so THIS device carries on seamlessly — adopt it.
+    const { data } = await api.post<AuthResponse>('/auth/change-password', { currentPassword, newPassword })
+    if (data?.token) apply(data)
   }
 
   async function switchHousehold(ownerId: string) {
@@ -285,6 +348,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Revoke the refresh token + clear the cookie server-side; don't block the UI on it.
     api.post('/auth/logout').catch(() => {})
     clearAuthState()
+    broadcastSignOut()
   }
 
   const value = useMemo<AuthState>(

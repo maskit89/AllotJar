@@ -51,11 +51,17 @@ public class RefreshTokenService : IRefreshTokenService
             return RefreshRotationResult.Failed;
         }
 
-        // A token that's already been rotated/revoked turning up again means the cookie was stolen
-        // and replayed — burn every active token for the user so neither party can continue.
+        // A token that was ROTATED turning up again means the cookie was stolen and replayed —
+        // burn every active token for the user so neither party can continue. A token revoked
+        // administratively (logout, password change signs out all devices) has no replacement:
+        // that's just a signed-out device checking back in, so refuse it WITHOUT the theft
+        // response — otherwise a stale device would nuke the user's brand-new sessions.
         if (token.RevokedUtc is not null)
         {
-            await RevokeAllForUserAsync(token.UserId, cancellationToken);
+            if (token.ReplacedByTokenHash is not null)
+            {
+                await RevokeAllForUserAsync(token.UserId, cancellationToken);
+            }
             return RefreshRotationResult.Failed;
         }
 
@@ -78,23 +84,30 @@ public class RefreshTokenService : IRefreshTokenService
         return RefreshRotationResult.Success(token.UserId, newRaw);
     }
 
-    public async Task RevokeAsync(string rawToken, CancellationToken cancellationToken = default)
+    public async Task<string?> RevokeAsync(string rawToken, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(rawToken))
         {
-            return;
+            return null;
         }
 
         var hash = Hash(rawToken);
         var token = await _db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == hash, cancellationToken);
-        if (token is not null && token.RevokedUtc is null)
+        if (token is null)
+        {
+            return null;
+        }
+
+        if (token.RevokedUtc is null)
         {
             token.RevokedUtc = DateTime.UtcNow;
             await _db.SaveChangesAsync(cancellationToken);
         }
+
+        return token.UserId;
     }
 
-    private async Task RevokeAllForUserAsync(string userId, CancellationToken cancellationToken)
+    public async Task RevokeAllForUserAsync(string userId, CancellationToken cancellationToken = default)
     {
         var active = await _db.RefreshTokens
             .Where(t => t.UserId == userId && t.RevokedUtc == null)

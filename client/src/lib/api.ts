@@ -12,21 +12,69 @@ export type StatementFormat = 'HsbcCsv' | 'Camt053' | 'GenericCsv'
 // The access token lives in memory only — never localStorage — so a successful XSS can't read a
 // durable credential. The long-lived session sits in an HttpOnly refresh cookie the JS can't touch.
 let accessToken: string | null = null
+// Epoch ms of the access token's server-side expiry (AuthResponse.expiresAtUtc), so a tab that
+// sat idle can tell its token has lapsed without waiting for an API call to 401.
+let accessTokenExpiresAt: number | null = null
 
 export function getToken(): string | null {
   return accessToken
 }
 
-export function setToken(token: string | null) {
+export function setToken(token: string | null, expiresAtUtc?: string | null) {
   accessToken = token
+  const parsed = token && expiresAtUtc ? Date.parse(expiresAtUtc) : NaN
+  accessTokenExpiresAt = Number.isFinite(parsed) ? parsed : null
 }
 
-// When the session can't be refreshed (refresh token expired/revoked), send the user to sign in.
+/** True when there IS an in-memory access token but its server-side lifetime has passed. */
+export function isAccessTokenExpired(): boolean {
+  return accessToken !== null && accessTokenExpiresAt !== null && Date.now() >= accessTokenExpiresAt
+}
+
+// AuthContext plugs in here so session events reach React state without an import cycle:
+// `refreshed` keeps the provider's token/role in sync with interceptor-driven refreshes, and
+// `expired` tears down auth state (and the localStorage identity) the moment a session dies.
+interface SessionHandlers {
+  refreshed: (session: AuthResponse) => void
+  expired: () => void
+}
+let sessionHandlers: SessionHandlers | null = null
+
+export function setSessionHandlers(handlers: SessionHandlers | null) {
+  sessionHandlers = handlers
+}
+
+/**
+ * The session is genuinely over (refresh token expired/revoked): drop the in-memory token, let
+ * AuthContext tear its state down, and send the user to sign in. Where they were rides along in
+ * ?returnUrl so signing back in lands them on the same page, and ?reason=expired lets the login
+ * page say WHY they're seeing it instead of leaving a misleading page-level error behind.
+ */
+export function sessionExpired() {
+  setToken(null)
+  sessionHandlers?.expired()
+  redirectToLogin()
+}
+
+// Indirection over window.location so tests can observe the redirect (jsdom's location is
+// unforgeable — it can't be spied on or replaced).
+export const navigation = {
+  assign: (url: string) => window.location.assign(url),
+}
+
+/** The /login URL an expired session bounces to, or null when already on /login. */
+export function loginRedirectPath(pathname: string, search: string): string | null {
+  if (pathname.startsWith('/login')) return null
+  const here = `${pathname}${search}`
+  const returnUrl = here !== '/' ? `&returnUrl=${encodeURIComponent(here)}` : ''
+  return `/login?reason=expired${returnUrl}`
+}
+
 // A full navigation also re-bootstraps a clean auth state. No-op if we're already on /login.
 function redirectToLogin() {
-  if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-    window.location.assign('/login')
-  }
+  if (typeof window === 'undefined') return
+  const target = loginRedirectPath(window.location.pathname, window.location.search)
+  if (target) navigation.assign(target)
 }
 
 // All requests go to the same-origin "/api" prefix, which Vite proxies to the .NET API in dev. In
@@ -62,7 +110,11 @@ export function refreshSession(): Promise<AuthResponse | null> {
       .post<AuthResponse>('/auth/refresh')
       .then((res) => {
         const data = res?.data?.token ? res.data : null
-        setToken(data?.token ?? null)
+        setToken(data?.token ?? null, data?.expiresAtUtc)
+        // Keep AuthContext in step with interceptor-driven refreshes too — otherwise its token
+        // state holds the old JWT and the /auth/me-on-token-change effect never refires, so
+        // overnight role/preference changes wouldn't be picked up until a hard reload.
+        if (data) sessionHandlers?.refreshed(data)
         return data
       })
       .catch(() => {
@@ -76,18 +128,24 @@ export function refreshSession(): Promise<AuthResponse | null> {
   return sessionRefresh
 }
 
+// Endpoints where a 401 means "bad credentials / not signed in yet", never "expired session":
+// refreshing there would recurse (/auth/refresh) or turn real sign-in feedback into a bounce.
+// Deliberately NOT the whole /auth/ prefix — a 401 from /auth/me, /auth/preferences or
+// /auth/change-password IS an expired session and must refresh-and-retry like any other call
+// (the blanket prefix made /account a dead end that could never prompt re-login).
+const CREDENTIAL_ENDPOINTS = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/accept-invite', '/auth/logout']
+
 // On a 401 from a normal API call, transparently refresh the access token (via the HttpOnly cookie)
-// and retry once. Auth endpoints are excluded so /auth/refresh can't recurse and a failed login
-// isn't mistaken for an expired session.
+// and retry once.
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const status: number | undefined = error.response?.status
     const original = error.config
     const url: string = original?.url ?? ''
-    const isAuthEndpoint = url.includes('/auth/')
+    const isCredentialEndpoint = CREDENTIAL_ENDPOINTS.some((endpoint) => url.includes(endpoint))
 
-    if (status === 401 && original && !original.__retried && !isAuthEndpoint) {
+    if (status === 401 && original && !original.__retried && !isCredentialEndpoint) {
       original.__retried = true
       const session = await refreshSession()
       if (session?.token) {
@@ -96,7 +154,7 @@ api.interceptors.response.use(
         return api(original)
       }
       // Refresh failed — the session is genuinely over.
-      redirectToLogin()
+      sessionExpired()
     }
 
     // One central hook for every failed request: report the endpoint shape + status only
