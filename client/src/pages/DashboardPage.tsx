@@ -16,6 +16,7 @@ import {
   categoryPlanned,
   fromDto,
   findItem,
+  isBalanced,
   isSavings,
   isIncome,
   monthPlanned,
@@ -558,7 +559,10 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           const incomeMinor = totalIncome(month)
           const allottedMinor = monthPlanned(month)
           const remainingMinor = remainingToBudget(month)
-          const balanced = remainingMinor === 0
+          // A month with no income and nothing planned has Remaining €0, but it
+          // isn't balanced — it's empty. Prompt for income instead of celebrating.
+          const empty = incomeMinor === 0 && allottedMinor === 0
+          const balanced = isBalanced(month)
           const over = remainingMinor < 0
           const totalSavedMinor = jars.reduce((s, f) => s + fromAmount(f.currentBalance), 0)
           // The jars shelf shows all-time (today's) balances, which only line up with
@@ -584,9 +588,11 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                       over ? 'bg-rose-500/25 text-rose-50 ring-1 ring-rose-200/40' : 'bg-black/[0.18]'
                     }`}
                   >
-                    {over
-                      ? `${formatMoney(-remainingMinor, month.currency)} over-budgeted — trim a line`
-                      : `${formatMoney(remainingMinor, month.currency)} still to assign`}
+                    {empty
+                      ? `Plan your income, then give every ${currencyNoun(month.currency)} a job`
+                      : over
+                        ? `${formatMoney(-remainingMinor, month.currency)} over-budgeted — trim a line`
+                        : `${formatMoney(remainingMinor, month.currency)} still to assign`}
                   </span>
                 )
               }

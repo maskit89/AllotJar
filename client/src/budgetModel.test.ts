@@ -111,6 +111,22 @@ describe('budgetModel selectors', () => {
     expect(isBalanced(next)).toBe(true)
   })
 
+  it('an empty month (no income, nothing planned) is not balanced', () => {
+    const base = dto()
+    const empty: BudgetMonthDto = {
+      ...base,
+      totalIncome: 0,
+      totalPlanned: 0,
+      remainingToBudget: 0,
+      categories: [{ ...base.categories[0], totalPlanned: 0, items: [] }],
+    }
+    const vm = fromDto(empty)
+
+    // Remaining is 0, but there is no income to give a job — empty, not balanced.
+    expect(remainingToBudget(vm)).toBe(0)
+    expect(isBalanced(vm)).toBe(false)
+  })
+
   it('adding an income line raises the pool but never the planned total', () => {
     const vm = fromDto(dto())
     const next = withNewItem(vm, 'inc', {

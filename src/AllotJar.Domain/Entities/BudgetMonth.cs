@@ -67,6 +67,10 @@ public class BudgetMonth : BaseEntity
     /// <summary>The same metric as <see cref="RemainingToBudget"/>, carrying its currency.</summary>
     public Money RemainingToBudgetMoney => new(RemainingToBudget, BaseCurrency);
 
-    /// <summary>True when every unit of income is assigned and nothing is over-allocated.</summary>
-    public bool IsBalanced => RemainingToBudget == 0m;
+    /// <summary>
+    /// True when every unit of income is assigned and nothing is over-allocated.
+    /// Requires some income to be planned: a month with no income and nothing
+    /// planned has nothing to balance — it is empty, not balanced.
+    /// </summary>
+    public bool IsBalanced => TotalIncome > 0m && RemainingToBudget == 0m;
 }
