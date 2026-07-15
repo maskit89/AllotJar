@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { StrictMode } from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
-import { api, getToken, setToken } from '../lib/api'
+import { api, getToken, setToken, navigation } from '../lib/api'
+import { broadcastSignOut } from '../lib/authChannel'
 import { AuthProvider, useAuth } from './AuthContext'
 
 // Drive the real axios instance + interceptors through a scripted adapter (same technique as
@@ -106,5 +107,116 @@ describe('AuthProvider cold-load bootstrap', () => {
 
     expect(refreshCalls).toBe(1)
     expect(getToken()).toBeNull()
+  })
+})
+
+// Renders a provider whose bootstrap succeeded, so each test starts from a signed-in tab —
+// the state the session-expiry paths below act on.
+async function renderSignedIn(adapter: (config: InternalAxiosRequestConfig) => Promise<AxiosResponse>) {
+  api.defaults.adapter = adapter
+  render(
+    <StrictMode>
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>
+    </StrictMode>,
+  )
+  await waitFor(() => expect(screen.getByTestId('probe')).toHaveTextContent('in'))
+}
+
+describe('mid-session expiry', () => {
+  beforeEach(() => {
+    setToken(null)
+    localStorage.clear()
+  })
+  afterEach(() => {
+    api.defaults.adapter = originalAdapter
+    vi.restoreAllMocks()
+  })
+
+  it('revalidates an expired token on tab focus and silently re-arms a live session', async () => {
+    let refreshCalls = 0
+    await renderSignedIn((config) => {
+      const url = config.url ?? ''
+      if (url.includes('/auth/refresh')) {
+        refreshCalls += 1
+        return ok(REFRESHED, config)
+      }
+      return ok(url.includes('/auth/me') ? ME : {}, config)
+    })
+    const bootstrapRefreshes = refreshCalls
+
+    // Overnight: the access token's server-side lifetime has passed while the tab idled.
+    setToken('boot-jwt', new Date(Date.now() - 1_000).toISOString())
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    await waitFor(() => expect(refreshCalls).toBe(bootstrapRefreshes + 1))
+    expect(screen.getByTestId('probe')).toHaveTextContent('in') // seamless — no bounce
+    expect(getToken()).toBe('boot-jwt')
+  })
+
+  it('prompts sign-in (with the session-expired reason) when focus revalidation finds a dead session', async () => {
+    const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {})
+    let sessionDead = false
+    await renderSignedIn((config) => {
+      const url = config.url ?? ''
+      if (url.includes('/auth/refresh')) {
+        if (sessionDead) return Promise.reject({ response: { status: 401, data: {} }, config })
+        return ok(REFRESHED, config)
+      }
+      return ok(url.includes('/auth/me') ? ME : {}, config)
+    })
+
+    // The refresh cookie was revoked (or lapsed) while the tab idled past its token's lifetime.
+    sessionDead = true
+    setToken('boot-jwt', new Date(Date.now() - 1_000).toISOString())
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    await waitFor(() => expect(screen.getByTestId('probe')).toHaveTextContent('out'))
+    expect(getToken()).toBeNull()
+    expect(localStorage.getItem('zbb.email')).toBeNull() // identity remnants cleared
+    expect(assign).toHaveBeenCalledWith('/login?reason=expired')
+  })
+
+  it('does nothing on focus while the access token is still within its lifetime', async () => {
+    let refreshCalls = 0
+    await renderSignedIn((config) => {
+      const url = config.url ?? ''
+      if (url.includes('/auth/refresh')) {
+        refreshCalls += 1
+        return ok(REFRESHED, config)
+      }
+      return ok(url.includes('/auth/me') ? ME : {}, config)
+    })
+    const bootstrapRefreshes = refreshCalls
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    expect(refreshCalls).toBe(bootstrapRefreshes) // REFRESHED expires in 2030 — nothing to do
+    expect(screen.getByTestId('probe')).toHaveTextContent('in')
+  })
+
+  it('signs this tab out when another tab broadcasts a sign-out', async () => {
+    await renderSignedIn((config) => {
+      const url = config.url ?? ''
+      if (url.includes('/auth/refresh')) return ok(REFRESHED, config)
+      return ok(url.includes('/auth/me') ? ME : {}, config)
+    })
+
+    await act(async () => {
+      broadcastSignOut() // what logout()/sessionExpired() in another tab emits
+    })
+
+    await waitFor(() => expect(screen.getByTestId('probe')).toHaveTextContent('out'))
+    expect(getToken()).toBeNull()
+    expect(localStorage.getItem('zbb.email')).toBeNull()
   })
 })

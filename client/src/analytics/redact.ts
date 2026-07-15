@@ -66,6 +66,7 @@ const ALLOWED_PARAM_KEYS: ReadonlySet<string> = new Set([
   'api_status', // numeric HTTP status
   'error_kind', // a coarse error category, never a message
   'consent', // 'granted' | 'denied'
+  'sample_data', // sign-up opted into the sample budget (boolean)
 ])
 
 export type SafeParams = Record<string, string | number | boolean>

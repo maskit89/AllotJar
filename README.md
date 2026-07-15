@@ -109,7 +109,8 @@ load keeps a single source of truth that can't drift.
   previous month, or blank** (`CreateBudgetMonthRequest { Year, Month,
   CopyFromPrevious, TemplateKey }`; precedence is template → copy → blank).
 - `GET /api/budget/templates` lists the built-in starters (`Essentials`, `Student`,
-  `Family`); new accounts are seeded with a default month on registration.
+  `Family`); new accounts start empty unless the sign-up form's sample-figures
+  opt-in was ticked (`RegisterRequest.IncludeSampleData`), which seeds a default month.
 - Category groups and lines have full CRUD plus drag-reorder:
   `POST /api/budget/categories` (pass `Kind: Savings` for a savings group; defaults to `Expense`),
   `PUT /api/budget/categories/{id}` (rename), `DELETE /api/budget/categories/{id}`,
@@ -383,8 +384,9 @@ npm run dev      # http://localhost:5173
 ```
 
 The Vite dev server proxies `/api` → `http://localhost:5029`, so run the API too.
-Register a new account (you get a seeded starter budget), then drag a line's planned
-amount until the banner turns green at your currency's 0.00.
+Register a new account and tick "Start with sample figures to explore" (accounts start
+empty by default), then drag a line's planned amount until the banner turns green at
+your currency's 0.00.
 
 ---
 

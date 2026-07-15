@@ -6,8 +6,8 @@ using AllotJar.Domain.Enums;
 namespace AllotJar.Infrastructure.Persistence;
 
 /// <summary>
-/// Creates a starter budget for a brand-new user so the dashboard has data to
-/// render on first login. Income is seeded above the planned total on purpose,
+/// Creates a sample budget for a brand-new user who opted in at sign-up, so the dashboard
+/// has data to explore on first login. Income is seeded above the planned total on purpose,
 /// leaving a positive "Remaining to Budget" for the user to assign to €0.00.
 /// </summary>
 public static class BudgetSeeder
@@ -19,8 +19,9 @@ public static class BudgetSeeder
         int month,
         CancellationToken ct = default)
     {
-        var exists = await db.BudgetMonths
-            .AnyAsync(m => m.OwnerId == ownerId && m.Year == year && m.Month == month, ct);
+        // Strictly a brand-new-household seed: any existing month (not just the target one) means
+        // the owner has a real budget, and sample figures must never be injected into it.
+        var exists = await db.BudgetMonths.AnyAsync(m => m.OwnerId == ownerId, ct);
         if (exists)
         {
             return;

@@ -6,11 +6,12 @@ import { Hero } from '../components/Hero'
 import { Modal } from '../components/Modal'
 import { AccountsIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
+import { useFeatures } from '../features/FeatureContext'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import type { AccountDto, AccountReconciliationDto } from '../types'
 import { ACCOUNT_TYPE_LABELS, AccountType } from '../types'
-import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import { CURRENCY_OPTIONS, formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
 import { hueColor, hueForAccountType, hueTint } from '../lib/categoryColors'
 
 const TYPE_OPTIONS = Object.entries(ACCOUNT_TYPE_LABELS).map(([value, label]) => ({
@@ -31,18 +32,20 @@ function parseSignedAmount(input: string): number | null {
 export function AccountsPage() {
   // Managing accounts needs Admin+ (canWrite); others get a read-only register.
   const { canWrite, preferredCurrency } = useAuth()
-  const CURRENCY = preferredCurrency
+  const { multiCurrency } = useFeatures()
   const [accounts, setAccounts] = useState<AccountDto[]>([])
   const [reconciliation, setReconciliation] = useState<AccountReconciliationDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   // Add-account modal.
   const [showAdd, setShowAdd] = useState(false)
   const [name, setName] = useState('')
   const [type, setType] = useState<number>(AccountType.Current)
   const [opening, setOpening] = useState('')
+  const [currency, setCurrency] = useState(preferredCurrency)
   const [adding, setAdding] = useState(false)
 
   // Inline (in-card) edit.
@@ -93,20 +96,21 @@ export function AccountsPage() {
       const { data } = await api.post<AccountDto>('/accounts', {
         name: name.trim(),
         type,
-        currency: CURRENCY,
+        currency,
         openingBalance,
       })
       setAccounts((prev) => [...prev, data])
       track(EVENTS.accountCreated, { kind: ACCOUNT_TYPE_LABELS[type] ?? 'unknown' })
       setName('')
       setOpening('')
+      setCurrency(preferredCurrency)
       setShowAdd(false)
     } catch {
       setError('Could not add that account.')
     } finally {
       setAdding(false)
     }
-  }, [name, type, opening, CURRENCY])
+  }, [name, type, opening, currency, preferredCurrency])
 
   function startEdit(a: AccountDto) {
     setEditingId(a.id)
@@ -174,16 +178,36 @@ export function AccountsPage() {
     [accounts],
   )
 
+  // Each account is a single-currency ledger. When they all share a currency the hero
+  // totals are shown in it (so a preference change never mislabels them); when they
+  // diverge, the raw cross-currency sum is meaningless — we label it in the preferred
+  // currency and flag it, deferring real FX conversion. Per-account rows always use
+  // their own currency.
+  const currencies = useMemo(() => Array.from(new Set(accounts.map((a) => a.currency))), [accounts])
+  const heroCurrency = currencies.length === 1 ? currencies[0] : preferredCurrency
+  const mixedCurrencies = currencies.length > 1
+  const currencyById = useMemo(
+    () => Object.fromEntries(accounts.map((a) => [a.id, a.currency])) as Record<string, string>,
+    [accounts],
+  )
+
   return (
     <AppShell active="accounts" title="Accounts">
       <Hero
         eyebrow="Total balance"
-        amount={formatMoney(netMinor, CURRENCY)}
-        amountLabel={`Total balance: ${formatMoney(netMinor, CURRENCY)}`}
+        amount={formatMoney(netMinor, heroCurrency)}
+        amountLabel={`Total balance: ${formatMoney(netMinor, heroCurrency)}`}
         tiles={[
-          { label: 'Available', value: formatMoney(availableMinor, CURRENCY) },
-          { label: 'Owed', value: formatMoney(-owedMinor, CURRENCY) },
+          { label: 'Available', value: formatMoney(availableMinor, heroCurrency) },
+          { label: 'Owed', value: formatMoney(-owedMinor, heroCurrency) },
         ]}
+        footnote={
+          mixedCurrencies ? (
+            <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13px] font-medium">
+              Totals shown in {heroCurrency}; some accounts hold another currency.
+            </span>
+          ) : undefined
+        }
       />
 
       {error && !showAdd && <ErrorBanner>{error}</ErrorBanner>}
@@ -207,6 +231,19 @@ export function AccountsPage() {
                 className="w-full"
               />
             </label>
+            {multiCurrency && (
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Currency
+                <Select value={currency} aria-label="Account currency" onChange={(e) => setCurrency(e.target.value)} className="w-full">
+                  {CURRENCY_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+                <span className="font-normal text-slate-400">An account’s currency is fixed once created.</span>
+              </label>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
                 Type
@@ -245,6 +282,35 @@ export function AccountsPage() {
           </div>
         </Modal>
       )}
+
+      {confirmDeleteId && canWrite && (() => {
+        const acct = accounts.find((a) => a.id === confirmDeleteId)
+        if (!acct) return null
+        return (
+          <Modal title={`Delete ${acct.name}?`} onClose={() => setConfirmDeleteId(null)}>
+            <p className="text-sm text-slate-600">
+              The account is removed, but its transactions are kept — they simply become
+              unassigned from any account. This can’t be undone.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setConfirmDeleteId(null)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  const id = confirmDeleteId
+                  setConfirmDeleteId(null)
+                  remove(id)
+                }}
+                disabled={savingId === confirmDeleteId}
+                aria-label={`Confirm delete ${acct.name}`}
+              >
+                Delete account
+              </Button>
+            </div>
+          </Modal>
+        )
+      })()}
 
       {loading && <p className="text-slate-500">Loading…</p>}
 
@@ -288,6 +354,11 @@ export function AccountsPage() {
                         ))}
                       </Select>
                       <Input type="text" inputMode="decimal" value={eOpening} aria-label={`Opening balance for ${a.name}`} onChange={(e) => setEOpening(e.target.value)} className="w-full text-right tabular-nums" />
+                      {multiCurrency && (
+                        <p className="text-xs text-slate-500">
+                          Currency <span className="font-semibold text-slate-700">{a.currency}</span> — fixed once created.
+                        </p>
+                      )}
                       <div className="flex justify-end gap-2">
                         <Button size="sm" onClick={() => saveEdit(a.id)} disabled={savingId === a.id} aria-label={`Save ${a.name}`}>
                           Save
@@ -311,16 +382,23 @@ export function AccountsPage() {
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: hueTint(hue) }} aria-hidden>
                         <span className="h-5 w-5 rounded-lg" style={{ background: hueColor(hue) }} />
                       </div>
-                      <span className="rounded-full border border-slate-200 px-2.5 py-0.5 text-xs font-medium text-slate-500">
-                        {ACCOUNT_TYPE_LABELS[a.type] ?? 'Other'}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {multiCurrency && (
+                          <span className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
+                            {a.currency}
+                          </span>
+                        )}
+                        <span className="rounded-full border border-slate-200 px-2.5 py-0.5 text-xs font-medium text-slate-500">
+                          {ACCOUNT_TYPE_LABELS[a.type] ?? 'Other'}
+                        </span>
+                      </div>
                     </div>
                     <div>
                       <div className="text-[14.5px] font-semibold text-slate-900">{a.name}</div>
                       <div className={`mt-0.5 text-[25px] font-bold tabular-nums ${balanceMinor < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900'}`}>
-                        {formatMoney(balanceMinor, CURRENCY)}
+                        {formatMoney(balanceMinor, a.currency)}
                       </div>
-                      <div className="mt-1 text-xs text-slate-500">Opening {formatMoney(fromAmount(a.openingBalance), CURRENCY)}</div>
+                      <div className="mt-1 text-xs text-slate-500">Opening {formatMoney(fromAmount(a.openingBalance), a.currency)}</div>
                     </div>
                     {canWrite && (
                       <div className="absolute bottom-3 right-3 z-10 flex gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
@@ -335,7 +413,7 @@ export function AccountsPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => remove(a.id)}
+                          onClick={() => setConfirmDeleteId(a.id)}
                           disabled={savingId === a.id}
                           aria-label={`Delete ${a.name}`}
                           title="Delete account"
@@ -377,10 +455,10 @@ export function AccountsPage() {
                   .map((r) => (
                     <tr key={r.accountId} className="hover:bg-slate-50">
                       <td className="px-4 py-2.5 font-medium text-slate-700">{r.accountName}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{formatMoney(fromAmount(r.currentBalance), CURRENCY)}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-500">{formatMoney(fromAmount(r.backedJarsTotal), CURRENCY)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{formatMoney(fromAmount(r.currentBalance), currencyById[r.accountId] ?? heroCurrency)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-500">{formatMoney(fromAmount(r.backedJarsTotal), currencyById[r.accountId] ?? heroCurrency)}</td>
                       <td className={`px-4 py-2.5 text-right font-semibold tabular-nums ${fromAmount(r.float) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800'}`}>
-                        {formatMoney(fromAmount(r.float), CURRENCY)}
+                        {formatMoney(fromAmount(r.float), currencyById[r.accountId] ?? heroCurrency)}
                       </td>
                     </tr>
                   ))}

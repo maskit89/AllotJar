@@ -7,6 +7,7 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.Services;
 using AllotJar.Domain.ValueObjects;
 using AllotJar.Infrastructure.Persistence;
 
@@ -137,6 +138,118 @@ public class CreateBudgetMonthTests
 
         july.Categories.Should().ContainSingle(c => c.Kind == "Income");
         july.Categories.SelectMany(c => c.Items).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Create_Copy_PreservesExcludeFromAllocation()
+    {
+        await using var db = NewContext();
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = "user-1", Year = 2026, Month = 6, BaseCurrency = CurrencyCode.Eur,
+            Categories = new List<BudgetCategory>
+            {
+                new()
+                {
+                    Name = "Income", Kind = CategoryKind.Income, DisplayOrder = 0,
+                    Items = new List<BudgetItem> { new() { Name = "Pay", PlannedAmount = 3000m } },
+                },
+                new()
+                {
+                    // Excluded from allocation (the importer's "Personal Savings" surplus).
+                    Name = "Personal Savings", Kind = CategoryKind.Expense, DisplayOrder = 1,
+                    ExcludeFromAllocation = true,
+                    Items = new List<BudgetItem> { new() { Name = "Surplus", PlannedAmount = 200m } },
+                },
+            },
+        });
+        await db.SaveChangesAsync();
+        var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
+
+        await handler.Handle(new CreateBudgetMonthCommand(2026, 7, CopyFromPrevious: true), CancellationToken.None);
+
+        // Dropping the flag would fold this category back into the allocation pool and
+        // corrupt the copied month's member split.
+        var july = await db.BudgetMonths.Include(m => m.Categories)
+            .SingleAsync(m => m.OwnerId == "user-1" && m.Year == 2026 && m.Month == 7);
+        july.Categories.Single(c => c.Name == "Personal Savings").ExcludeFromAllocation.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Create_Copy_SkipsLinesFundingArchivedJars()
+    {
+        await using var db = NewContext();
+        var active = new Jar { OwnerId = "user-1", Name = "Active", TargetAmount = 0m };
+        var archived = new Jar { OwnerId = "user-1", Name = "Archived", TargetAmount = 0m, IsArchived = true };
+        db.Jars.AddRange(active, archived);
+        await db.SaveChangesAsync();
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = "user-1", Year = 2026, Month = 6, BaseCurrency = CurrencyCode.Eur,
+            Categories = new List<BudgetCategory>
+            {
+                new()
+                {
+                    Name = "Savings", Kind = CategoryKind.Savings, DisplayOrder = 0,
+                    Items = new List<BudgetItem>
+                    {
+                        new() { Name = "Active", PlannedAmount = 50m, SavingsId = active.Id },
+                        new() { Name = "Archived", PlannedAmount = 30m, SavingsId = archived.Id },
+                    },
+                },
+            },
+        });
+        await db.SaveChangesAsync();
+        var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
+
+        var july = await handler.Handle(
+            new CreateBudgetMonthCommand(2026, 7, CopyFromPrevious: true), CancellationToken.None);
+
+        // Archiving a jar must stop it being funded — its line doesn't roll forward.
+        var savings = july.Categories.Single(c => c.Kind == "Savings");
+        savings.Items.Should().ContainSingle(i => i.Name == "Active");
+        savings.Items.Should().NotContain(i => i.Name == "Archived");
+    }
+
+    [Fact]
+    public async Task Create_BackfilledMonth_SeedsJarFromBalanceAsOfThatMonth_NotAllTime()
+    {
+        await using var db = NewContext();
+        var jar = new Jar
+        {
+            OwnerId = "user-1", Name = "Car Insurance", Kind = JarKind.Goal,
+            TargetAmount = 600m, TargetDate = new DateOnly(2026, 12, 1),
+            Accrual = AccrualMethod.TargetByDate,
+        };
+        db.Jars.Add(jar);
+        await db.SaveChangesAsync();
+        // July already funds the jar to its target — an all-time balance reads ≥ 600.
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = "user-1", Year = 2026, Month = 7, BaseCurrency = CurrencyCode.Eur,
+            Categories = new List<BudgetCategory>
+            {
+                new()
+                {
+                    Name = "Savings", Kind = CategoryKind.Savings, DisplayOrder = 0,
+                    Items = new List<BudgetItem>
+                    {
+                        new() { Name = "Car Insurance", PlannedAmount = 600m, SavingsId = jar.Id },
+                    },
+                },
+            },
+        });
+        await db.SaveChangesAsync();
+        var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
+
+        // Back-fill June: its seed must ignore July's later contribution.
+        var june = await handler.Handle(
+            new CreateBudgetMonthCommand(2026, 6, CopyFromPrevious: false), CancellationToken.None);
+
+        var line = june.Categories.Single(c => c.Kind == "Savings").Items.Single(i => i.Name == "Car Insurance");
+        var expected = JarAccrualCalculator.RequiredMonthlyContribution(jar, new DateOnly(2026, 6, 1), 0m);
+        expected.Should().BeGreaterThan(0m);        // the jar still needs funding as of June
+        line.PlannedAmount.Should().Be(expected);   // not 0, which the leaked all-time balance would produce
     }
 
     [Fact]
