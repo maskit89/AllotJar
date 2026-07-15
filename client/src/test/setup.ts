@@ -34,6 +34,38 @@ Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
 })
 
+// jsdom has no BroadcastChannel; provide a same-process one so the cross-tab
+// sign-out sync (lib/authChannel.ts) is exercisable under test.
+if (typeof globalThis.BroadcastChannel === 'undefined') {
+  const channels = new Map<string, Set<MemoryBroadcastChannel>>()
+
+  class MemoryBroadcastChannel {
+    onmessage: ((event: { data: unknown }) => void) | null = null
+
+    constructor(readonly name: string) {
+      if (!channels.has(name)) channels.set(name, new Set())
+      channels.get(name)!.add(this)
+    }
+
+    postMessage(data: unknown) {
+      // Delivered to every OTHER instance on the channel, asynchronously — like the real thing.
+      for (const peer of channels.get(this.name) ?? []) {
+        if (peer !== this) queueMicrotask(() => peer.onmessage?.({ data }))
+      }
+    }
+
+    close() {
+      channels.get(this.name)?.delete(this)
+    }
+  }
+
+  Object.defineProperty(globalThis, 'BroadcastChannel', {
+    value: MemoryBroadcastChannel,
+    writable: true,
+    configurable: true,
+  })
+}
+
 afterEach(() => {
   cleanup()
   localStorage.clear()

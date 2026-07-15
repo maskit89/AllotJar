@@ -16,9 +16,19 @@ namespace AllotJar.Application.Jars;
 /// </summary>
 public static class JarBalances
 {
+    /// <param name="asOf">
+    /// When set, only months strictly before this (year, month) contribute — the
+    /// cross-history balance as it stood entering that month. Omit for the all-time
+    /// balance (the default used by the jars page and reconciliation).
+    /// </param>
     public static async Task<Dictionary<Guid, decimal>> ComputeAsync(
-        IApplicationDbContext db, string ownerId, CancellationToken cancellationToken)
+        IApplicationDbContext db, string ownerId, CancellationToken cancellationToken,
+        (int Year, int Month)? asOf = null)
     {
+        var hasAsOf = asOf is not null;
+        var asOfYear = asOf?.Year ?? 0;
+        var asOfMonth = asOf?.Month ?? 0;
+
         var lines = await (
             from i in db.BudgetItems
             join c in db.BudgetCategories on i.BudgetCategoryId equals c.Id
@@ -26,6 +36,9 @@ public static class JarBalances
             where m.OwnerId == ownerId
                   && c.Kind == CategoryKind.Savings
                   && i.SavingsId != null
+                  && (!hasAsOf
+                      || m.Year < asOfYear
+                      || (m.Year == asOfYear && m.Month < asOfMonth))
             select new
             {
                 SavingsId = i.SavingsId!.Value,

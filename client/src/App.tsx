@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, useSearchParams } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
 import type { JSX } from 'react'
 import { safeInternalPath } from './lib/returnUrl'
 import { useAuth } from './auth/AuthContext'
@@ -37,9 +37,14 @@ function AuthSplash() {
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const { isAuthenticated, bootstrapping } = useAuth()
+  const location = useLocation()
   // Don't bounce to /login while we're still restoring the session from the refresh cookie.
   if (bootstrapping) return <AuthSplash />
-  return isAuthenticated ? children : <Navigate to="/login" replace />
+  if (isAuthenticated) return children
+  // Keep where they were headed so signing in lands them there, not on the dashboard.
+  const here = `${location.pathname}${location.search}`
+  const suffix = here !== '/' ? `?returnUrl=${encodeURIComponent(here)}` : ''
+  return <Navigate to={`/login${suffix}`} replace />
 }
 
 /** An already-signed-in visit to /login honours ?returnUrl= (e.g. back to an invite link). */

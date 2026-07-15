@@ -111,6 +111,22 @@ describe('budgetModel selectors', () => {
     expect(isBalanced(next)).toBe(true)
   })
 
+  it('an empty month (no income, nothing planned) is not balanced', () => {
+    const base = dto()
+    const empty: BudgetMonthDto = {
+      ...base,
+      totalIncome: 0,
+      totalPlanned: 0,
+      remainingToBudget: 0,
+      categories: [{ ...base.categories[0], totalPlanned: 0, items: [] }],
+    }
+    const vm = fromDto(empty)
+
+    // Remaining is 0, but there is no income to give a job — empty, not balanced.
+    expect(remainingToBudget(vm)).toBe(0)
+    expect(isBalanced(vm)).toBe(false)
+  })
+
   it('adding an income line raises the pool but never the planned total', () => {
     const vm = fromDto(dto())
     const next = withNewItem(vm, 'inc', {
@@ -249,10 +265,9 @@ describe('bill reminders', () => {
     expect(billStatus(item(null), 2026, 6, today)).toBeNull()
   })
 
-  it('only assesses urgency for the month you are living in', () => {
-    // Same overdue-looking day, but viewing a different month → just "upcoming".
-    expect(billStatus(item(10), 2026, 7, today)).toBe('upcoming') // future month
-    expect(billStatus(item(10), 2026, 5, today)).toBe('upcoming') // past month
+  it('treats a future month as upcoming but an unpaid past-month bill as overdue', () => {
+    expect(billStatus(item(10), 2026, 7, today)).toBe('upcoming') // future month — not due yet
+    expect(billStatus(item(10), 2026, 5, today)).toBe('overdue') // a month already gone, still unpaid
   })
 
   it('clamps a due day past the end of a short month', () => {

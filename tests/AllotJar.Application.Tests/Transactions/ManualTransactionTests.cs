@@ -112,6 +112,18 @@ public class ManualTransactionTests
     }
 
     [Fact]
+    public void Validator_RejectsTransferType()
+    {
+        // A bare Type=Transfer here would create a destination-less transfer that makes
+        // money vanish from the derived account balances — transfers must go through the
+        // two-account transfer flow.
+        var validator = new CreateTransactionCommandValidator();
+        validator.Validate(new CreateTransactionCommand(
+                new DateOnly(2026, 6, 1), "x", 10m, TransactionType.Transfer, null))
+            .IsValid.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Assign_RollsTheTransactionIntoTheLineActual()
     {
         await using var db = NewContext();

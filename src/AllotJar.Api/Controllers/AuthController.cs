@@ -48,7 +48,8 @@ public class AuthController : ControllerBase
         _env = env;
     }
 
-    /// <summary>Creates an account, seeds a starter budget + owner membership + owner member, returns a JWT.</summary>
+    /// <summary>Creates an account (owner membership + owner member, plus a sample budget only when
+    /// <see cref="RegisterRequest.IncludeSampleData"/> was opted into), returns a JWT.</summary>
     [HttpPost("register")]
     [EnableRateLimiting("auth")]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
@@ -99,10 +100,11 @@ public class AuthController : ControllerBase
             return BadRequest(new { errors = result.Errors.Select(e => e.Description) });
         }
 
-        // The new user owns their own household (Owner membership + starter budget + owner member).
-        // The owner is themselves member #1, so a household is never "0 members": solo is a
-        // household of one, shared is two or more.
-        await HouseholdBootstrap.EnsureOwnHouseholdAsync(_db, user, DateTime.UtcNow, ct);
+        // The new user owns their own household (Owner membership + owner member, plus the sample
+        // budget only when they opted in on the sign-up form). The owner is themselves member #1,
+        // so a household is never "0 members": solo is a household of one, shared is two or more.
+        await HouseholdBootstrap.EnsureOwnHouseholdAsync(
+            _db, user, DateTime.UtcNow, seedSampleBudget: request.IncludeSampleData, ct);
 
         await IssueRefreshCookieAsync(user.Id, ct);
         return Ok(await BuildResponseAsync(user, ct));
@@ -174,7 +176,13 @@ public class AuthController : ControllerBase
         var rotation = await _refreshTokens.RotateAsync(raw, ct);
         if (!rotation.Succeeded)
         {
-            ClearRefreshCookie();
+            // Superseded = a sibling tab just rotated this cookie, so the shared jar already
+            // holds THAT tab's fresh token. Clearing here would delete it and sign the winning
+            // tab out too, 15 minutes later, when its access token expires.
+            if (!rotation.Superseded)
+            {
+                ClearRefreshCookie();
+            }
             return Unauthorized();
         }
 
@@ -199,21 +207,37 @@ public class AuthController : ControllerBase
         var raw = Request.Cookies[RefreshCookieName];
         if (!string.IsNullOrEmpty(raw))
         {
-            await _refreshTokens.RevokeAsync(raw, ct);
+            var userId = await _refreshTokens.RevokeAsync(raw, ct);
+            if (userId is not null)
+            {
+                // Rotating the security stamp fails the sstamp check on every already-issued
+                // access token, so sign-out takes effect now — not after the JWT's remaining
+                // lifetime. Other devices recover silently: their next 401 refreshes via their
+                // own still-valid cookie into a token carrying the new stamp.
+                var user = await _userManager.FindByIdAsync(userId);
+                if (user is not null)
+                {
+                    await _userManager.UpdateSecurityStampAsync(user);
+                }
+            }
         }
 
         ClearRefreshCookie();
         return NoContent();
     }
 
-    /// <summary>Changes the authenticated login's own password.</summary>
+    /// <summary>
+    /// Changes the authenticated login's own password. Ends the session on every other device
+    /// (all refresh tokens revoked; the stamp rotation inside ChangePasswordAsync kills their
+    /// access tokens too) and returns a fresh token + cookie so this device stays signed in.
+    /// </summary>
     [HttpPost("change-password")]
     [Authorize]
     [EnableRateLimiting("auth")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> ChangePassword(ChangePasswordRequest request)
+    public async Task<IActionResult> ChangePassword(ChangePasswordRequest request, CancellationToken ct)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null)
@@ -233,7 +257,9 @@ public class AuthController : ControllerBase
             return BadRequest(new { errors = result.Errors.Select(e => e.Description) });
         }
 
-        return NoContent();
+        await _refreshTokens.RevokeAllForUserAsync(user.Id, ct);
+        await IssueRefreshCookieAsync(user.Id, ct);
+        return Ok(await BuildResponseAsync(user, ct));
     }
 
     /// <summary>The authenticated login's identity, household and access level.</summary>

@@ -16,6 +16,7 @@ import {
   categoryPlanned,
   fromDto,
   findItem,
+  isBalanced,
   isSavings,
   isIncome,
   monthPlanned,
@@ -75,6 +76,9 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     setLoading(true)
     setError(null)
     setNotFound(false)
+    // Clear the previous month before fetching, so its Hero/jars/lines can never
+    // render for a beat under the newly-selected month's label on a slow link.
+    setMonth(null)
     api
       .get<BudgetMonthDto>(`/budget/${year}/${monthNum}`)
       .then(({ data }) => {
@@ -120,8 +124,13 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       .catch(() => {})
   }, [])
 
-  const hasPrevBudget = useMemo(
-    () => months.some((m) => m.year < year || (m.year === year && m.month < monthNum)),
+  // The most recent month strictly before the viewed one — what "copy" actually
+  // copies (which may not be literally last month, if a month was skipped).
+  const prevBudget = useMemo(
+    () =>
+      months
+        .filter((m) => m.year < year || (m.year === year && m.month < monthNum))
+        .sort((a, b) => b.year - a.year || b.month - a.month)[0] ?? null,
     [months, year, monthNum],
   )
 
@@ -490,14 +499,14 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
               No budget for {MONTH_NAMES[monthNum - 1]} {year} yet.
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-3">
-              {hasPrevBudget && (
+              {prevBudget && (
                 <button
                   type="button"
                   onClick={() => createMonth(true)}
                   disabled={creating}
                   className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
-                  Copy last month’s budget
+                  Copy {MONTH_NAMES[prevBudget.month - 1]} {prevBudget.year}
                 </button>
               )}
               <button
@@ -509,6 +518,13 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                 Start a blank budget
               </button>
             </div>
+
+            {jars.length > 0 && (
+              <p className="mt-3 text-xs text-slate-400">
+                Your {jars.length} existing {jars.length === 1 ? 'jar is' : 'jars are'} added to any new
+                budget automatically, so it will have a few more lines than a template lists.
+              </p>
+            )}
 
             {templates.length > 0 && (
               <div className="mt-8 border-t border-slate-100 pt-6">
@@ -543,9 +559,15 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           const incomeMinor = totalIncome(month)
           const allottedMinor = monthPlanned(month)
           const remainingMinor = remainingToBudget(month)
-          const balanced = remainingMinor === 0
+          // A month with no income and nothing planned has Remaining €0, but it
+          // isn't balanced — it's empty. Prompt for income instead of celebrating.
+          const empty = incomeMinor === 0 && allottedMinor === 0
+          const balanced = isBalanced(month)
           const over = remainingMinor < 0
           const totalSavedMinor = jars.reduce((s, f) => s + fromAmount(f.currentBalance), 0)
+          // The jars shelf shows all-time (today's) balances, which only line up with
+          // the month-scoped savings lines on the current month — so it's shown there only.
+          const isCurrentMonth = today.getFullYear() === year && today.getMonth() + 1 === monthNum
           return (
           <>
             <Hero
@@ -561,10 +583,16 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                 balanced ? (
                   <BalancedBadge>Every {currencyNoun(month.currency)} has a job</BalancedBadge>
                 ) : (
-                  <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13.5px] font-medium">
-                    {over
-                      ? `${formatMoney(-remainingMinor, month.currency)} over-budgeted`
-                      : `${formatMoney(remainingMinor, month.currency)} still to assign`}
+                  <span
+                    className={`inline-flex items-center rounded-full px-[15px] py-2 text-[13.5px] font-medium ${
+                      over ? 'bg-rose-500/25 text-rose-50 ring-1 ring-rose-200/40' : 'bg-black/[0.18]'
+                    }`}
+                  >
+                    {empty
+                      ? `Plan your income, then give every ${currencyNoun(month.currency)} a job`
+                      : over
+                        ? `${formatMoney(-remainingMinor, month.currency)} over-budgeted — trim a line`
+                        : `${formatMoney(remainingMinor, month.currency)} still to assign`}
                   </span>
                 )
               }
@@ -600,8 +628,10 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
               )
             })()}
 
-            {/* "Your jars" shelf — the jars drawn as jars, the signature metaphor. */}
-            {jars.length > 0 && (
+            {/* "Your jars" shelf — the jars drawn as jars, the signature metaphor.
+                Shown on the current month only: it's today's all-time balance, which
+                would contradict a past/future month's savings lines on the same screen. */}
+            {jars.length > 0 && isCurrentMonth && (
               <Card className="p-6">
                 <div className="flex items-baseline justify-between gap-3">
                   <h2 className="text-base font-bold tracking-[-0.01em] text-slate-900">Your jars</h2>

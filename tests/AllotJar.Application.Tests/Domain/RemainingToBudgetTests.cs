@@ -90,8 +90,18 @@ public class RemainingToBudgetTests
     {
         var month = BuildMonth(income: 0m);
 
+        // Remaining is 0, but an empty month is NOT balanced — there is no income
+        // to give a job. The UI prompts for income instead of celebrating.
         Assert.Equal(0m, month.RemainingToBudget);
-        Assert.True(month.IsBalanced);
+        Assert.False(month.IsBalanced);
+    }
+
+    [Fact]
+    public void IsBalanced_RequiresIncome_NotJustZeroRemaining()
+    {
+        Assert.False(BuildMonth(income: 0m).IsBalanced);          // empty month
+        Assert.False(BuildMonth(income: 1000m, 500m).IsBalanced); // money left to assign
+        Assert.True(BuildMonth(income: 1000m, 1000m).IsBalanced); // every euro has a job
     }
 
     [Fact]

@@ -4,6 +4,7 @@ using Xunit;
 using AllotJar.Application.Accounts.Commands.DeleteAccount;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
+using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Transactions.Commands.CreateTransfer;
 using AllotJar.Domain.Entities;
@@ -123,5 +124,48 @@ public class TransfersTests
 
         validator.Validate(new CreateTransferCommand(new DateOnly(2026, 6, 10), 0m, Guid.NewGuid(), Guid.NewGuid()))
             .IsValid.Should().BeFalse();
+    }
+
+    private static Account SeedAccountIn(ApplicationDbContext db, string ownerId, string name, string currency)
+    {
+        var a = new Account
+        {
+            OwnerId = ownerId,
+            Name = name,
+            Type = AccountType.Current,
+            Currency = CurrencyCode.From(currency),
+        };
+        db.Accounts.Add(a);
+        db.SaveChanges();
+        return a;
+    }
+
+    [Fact]
+    public async Task Transfer_BetweenDifferentCurrencies_IsRejected_AndMovesNothing()
+    {
+        await using var db = NewContext();
+        var eur = SeedAccountIn(db, "user-1", "Current", "EUR");
+        var gbp = SeedAccountIn(db, "user-1", "UK", "GBP");
+        var handler = new CreateTransferCommandHandler(db, new CurrentUserStub("user-1"));
+
+        // Without a conversion this would credit £30 for €30 debited — silent net-worth
+        // change. It must be refused, and no row written.
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            handler.Handle(new CreateTransferCommand(new DateOnly(2026, 6, 10), 30m, eur.Id, gbp.Id), CancellationToken.None));
+
+        (await db.Transactions.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Transfer_StampsCurrencyFromSource_NotHardcodedEur()
+    {
+        await using var db = NewContext();
+        var from = SeedAccountIn(db, "user-1", "UK Current", "GBP");
+        var to = SeedAccountIn(db, "user-1", "UK Savings", "GBP");
+
+        await new CreateTransferCommandHandler(db, new CurrentUserStub("user-1"))
+            .Handle(new CreateTransferCommand(new DateOnly(2026, 6, 10), 30m, from.Id, to.Id), CancellationToken.None);
+
+        db.Transactions.Single().Currency.Should().Be(CurrencyCode.From("GBP"));
     }
 }

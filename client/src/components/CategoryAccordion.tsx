@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { CategoryVM } from '../budgetModel'
-import { billStatus, categoryActual, categoryPlanned } from '../budgetModel'
+import { billStatus, categoryActual, categoryPlanned, effectiveDueDay } from '../budgetModel'
 import { formatMoney, type Minor } from '../lib/money'
 import { hueColor, type CategoryHue } from '../lib/categoryColors'
 import { BudgetItemRow } from './BudgetItemRow'
@@ -197,6 +197,7 @@ export function CategoryAccordion({
           onRename={onRenameItem}
           onDelete={onDeleteItem}
           billStatus={billStatus(item, monthYear, monthNumber, today)}
+          dueDayEffective={effectiveDueDay(item.dueDay, monthYear, monthNumber)}
         />
       ))}
       {category.items.length === 0 && (

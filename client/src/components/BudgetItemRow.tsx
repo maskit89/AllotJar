@@ -20,6 +20,8 @@ interface Props {
   onSetPaid?: (itemId: string, isPaid: boolean) => void
   /** Urgency of this line's bill relative to today (drives the due-date pill colour). */
   billStatus?: BillStatus | null
+  /** The due day clamped to the month's length, for the tooltip (so February shows 28, not 31). */
+  dueDayEffective?: number | null
   /** When provided, ▲▼ controls reorder the line within its category. */
   onMove?: (itemId: string, direction: -1 | 1) => void
   isFirst?: boolean
@@ -55,6 +57,7 @@ export function BudgetItemRow({
   isLast = false,
   availableMinor,
   billStatus,
+  dueDayEffective,
   hue = 'indigo',
 }: Props) {
   // Structural edits need Admin+ (canWrite); marking a bill paid is day-to-day (canEnterData).
@@ -263,11 +266,14 @@ export function BudgetItemRow({
   // ---- Expense line: the "Everyday spending" layout ------------------------
   const overdue = billStatus === 'overdue'
   const dueSoon = billStatus === 'due-soon'
+  // Show the clamped day so the tooltip matches the day urgency was scored against
+  // (a bill set to day 31 reads "day 28" in February, not a day that doesn't exist).
+  const dueDayShown = dueDayEffective ?? item.dueDay
   const billTitle = overdue
-    ? `Overdue — was due on day ${item.dueDay}`
+    ? `Overdue — was due on day ${dueDayShown}`
     : dueSoon
-      ? `Due soon — day ${item.dueDay}`
-      : `Bill due on day ${item.dueDay}`
+      ? `Due soon — day ${dueDayShown}`
+      : `Bill due on day ${dueDayShown}`
   // The Bill tag: urgent states use dark-aware rose/amber tones; a normal bill uses
   // ink text on the category-hue tint. (The cat hues are graphics-tuned — too light as
   // small text — and an inline rose/amber dark-red would fail contrast on the dark tint.)
@@ -364,7 +370,7 @@ export function BudgetItemRow({
               type="button"
               onClick={() => onSetPaid(item.id, !item.isPaid)}
               aria-pressed={item.isPaid}
-              aria-label={`Mark ${item.name} paid`}
+              aria-label={item.isPaid ? `Mark ${item.name} unpaid` : `Mark ${item.name} paid`}
               title={item.isPaid ? 'Paid' : 'Mark as paid'}
               className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 text-[11px] font-medium ${
                 item.isPaid

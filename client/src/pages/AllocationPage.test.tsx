@@ -10,7 +10,10 @@ const { mockGet, mockPut, mockPost } = vi.hoisted(() => ({
   mockPost: vi.fn(),
 }))
 
-vi.mock('../lib/api', () => ({
+vi.mock('../lib/api', async (importOriginal) => ({
+  // Spread the real module first so newly added api.ts exports keep working under test;
+  // the stubs below override only what this file controls.
+  ...(await importOriginal<typeof import('../lib/api')>()),
   api: { get: mockGet, put: mockPut, post: mockPost },
   getToken: () => 'test-token',
   setToken: vi.fn(),
