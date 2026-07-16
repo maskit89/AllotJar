@@ -1,0 +1,641 @@
+# Registration & Login
+
+**ID prefix:** REG | **Scope:** The `/login` page in both modes: the segmented "Sign in" / "Create account" toggle, the create-account form (first/last name, email, password, currency picker, number-format picker, opt-in sample-budget checkbox, terms consent, beta data-loss consent) with every client- and server-side validation rule (`POST /api/auth/register`), HIBP breached-password rejection, duplicate-email handling, the sign-in form (`POST /api/auth/login`) with wrong-credential, anti-enumeration, lockout and rate-limiting behavior, returnUrl navigation at sign-in time, and the first-login landing state for both PR #170 paths (empty account vs seeded sample budget). | **Out of scope:** everything after a session exists — silent refresh, 401 interceptor, `sessionExpired()` production, cross-tab broadcast, logout, refresh-replay grace window (sessions file 03; REG only covers the login-form *rendering* of `?reason=expired` and the sign-in leg of returnUrl); landing-page CTAs, beta banner on public pages, analytics consent banner, SEO (01-landing-public.md); `/accept-invite` registration path and household greetings `?started/?left` (households & people file); `/account` preferences and change-password (account settings file); ConsentModal general behavior and the onboarding welcome/tour (routing & app shell file); full dark/responsive/a11y sweeps (cross-cutting files — `/login` is already axe-scanned in both modes/themes by `client/e2e/a11y.spec.ts`). **Do not test for:** "Forgot password?" link, password reset, email sending, Google SSO, separate username — none of these exist (username == email).
+
+**Test data setup:** (a) A clean anonymous browser profile — no `zbb_rt` cookie, no `zbb.*` localStorage keys. (b) An existing login `owner@example.com` / `Sunlit-Meadow-42a` (non-breached, meets digit+upper+lower policy), Owner of a solo household with at least one budget month. (c) Fresh unique registration emails per case (`reg-<case>@example.test`) and random non-breached passwords of shape `Aa1-<uuid>` (HIBP rejects fixed common passwords — journey-harness gotcha). (d) Unless a case says otherwise, run against a **beta-mode** build (`VITE_APP_ENV=beta`, e.g. app.allotjar.com or a local beta build) where the beta banner and the required beta data-loss checkbox render; REG-016 covers the GA/default build. (e) Server defaults: rate limit 20 auth requests/min per source IP (`RateLimiting:AuthPermitLimit`), lockout 5 failures → 15 min, HIBP reachable. (f) Browser locale `en-GB` unless the case pins another locale. For "direct API" steps use any HTTP client against `POST /api/auth/register` with a JSON body — the UI blocks those inputs client-side.
+
+## Page chrome & mode toggle
+
+### REG-001 - Login page renders sign-in mode by default with full chrome
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Anonymous browser; navigate cold to `/login`.
+- **Steps:**
+  1. Load `/login` and wait for the auth bootstrap splash to clear (cold load 401s the cookie refresh).
+  2. Inspect the page.
+- **Expected:**
+  - Beta banner (`role="status"`): "**Beta** — AllotJar is under active development. Features may change and your data can be reset or lost without notice." (beta build only).
+  - ThemeToggle top-right; jar logo; heading "AllotJar"; tagline "Zero-based budgeting, in your currency."
+  - Segmented control with `aria-label="Sign in or create an account"`, options "Sign in" (selected) and "Create account".
+  - Only two fields: "Email" (`type=email`, placeholder "you@example.com", autocomplete `email`) and "Password" (`type=password`, placeholder "At least 8 characters", autocomplete `current-password`). No name/currency/format/checkbox fields.
+  - Submit button "Sign in". Footer tagline "Give every pound a job." (noun follows the locale-detected currency — en-GB → GBP → "pound"; EUR fallback locales read "euro"; see REG-031).
+- **Automated:** Partial (client/src/pages/LoginPage.test.tsx — registration-only fields hidden in sign-in mode; client/e2e/a11y.spec.ts — axe scan of both modes)
+
+### REG-002 - Switching to "Create account" reveals all registration fields
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Anonymous browser on `/login` (sign-in mode).
+- **Steps:**
+  1. Click "Create account" in the segmented control.
+  2. Inspect the form top-to-bottom.
+  3. Click "Sign in" to switch back.
+- **Expected:**
+  - Registration mode adds, in order: "First name" + "Last name" side by side (both required, autocomplete `given-name`/`family-name`); "Currency" select; "Number format" select; hint "You can change your currency and number format anytime in account settings."; unticked sample-figures checkbox ("Start with sample figures to explore — example groups and amounts you can edit or delete anytime. Leave unticked to start with an empty budget."); required terms checkbox ("I agree to the Terms of Service and Privacy Policy."); beta build only: required amber checkbox "I understand AllotJar is in beta and under active development, and that my data may be reset or permanently lost."
+  - Password autocomplete switches to `new-password`; submit button label becomes "Create account".
+  - The "Terms of Service" and "Privacy Policy" links open `/terms` and `/privacy` in a new tab (`target="_blank"`, `rel="noopener noreferrer"`).
+  - Switching back to "Sign in" hides every registration-only field again; entered email/password values are kept.
+- **Automated:** Partial (client/src/pages/LoginPage.test.tsx — field visibility per mode + beta checkbox)
+
+### REG-003 - Deep link `/login?register=1` opens the Create-account tab
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** Anonymous browser.
+- **Steps:**
+  1. Navigate directly to `/login?register=1`.
+  2. Also try `/login?register=anything` and `/login?register=` (param present with any/empty value).
+- **Expected:**
+  - All three land with the "Create account" tab pre-selected and registration fields visible (the code checks `searchParams.has('register')`, not its value). Plain `/login` still opens on "Sign in".
+- **Automated:** Partial (client/e2e-journey/helpers.ts — register() drives `/login?register=1`; client/src/pages/LandingPage.test.tsx — CTAs point at it)
+
+### REG-004 - Switching tabs clears the current error message
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** Anonymous browser on `/login`.
+- **Steps:**
+  1. Sign in with `owner@example.com` and a wrong password → error "Invalid email or password." appears (`role="alert"`, rose text).
+  2. Click "Create account".
+  3. Click "Sign in" again.
+- **Expected:**
+  - Step 2: the error disappears immediately (mode switch calls `setError(null)`).
+  - Step 3: still no error; the form is clean.
+- **Automated:** No
+
+### REG-005 - Submit button busy state prevents double submission
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** Anonymous browser on `/login?register=1`; all registration fields validly filled; network throttled (slow 3G) to widen the window.
+- **Steps:**
+  1. Click "Create account" and immediately click it again (and mash Enter).
+- **Expected:**
+  - While the request is in flight the button is disabled and reads "Please wait…".
+  - Exactly one `POST /api/auth/register` is sent (check the network log); exactly one account is created.
+  - On success the button never re-enables before navigation to `/`.
+- **Automated:** No
+
+## Create account — happy paths & the sample-budget choice
+
+### REG-006 - Default registration (sample unticked) creates a completely empty account
+- **Priority:** P0
+- **Type:** Happy
+- **Preconditions:** Anonymous browser on `/login?register=1`; fresh email `reg-006@example.test`.
+- **Steps:**
+  1. Fill "First name" = `Ana`, "Last name" = `Borg`, "Email", "Password" = a fresh `Aa1-<uuid>`.
+  2. Leave "Currency" = the preselected value (EUR under en-GB? see REG-031 — pick "Euro (€)" explicitly), "Number format" = "1,234.56".
+  3. Leave the sample-figures checkbox **unticked** (its default).
+  4. Tick the terms checkbox and (beta build) the data-loss checkbox.
+  5. Click "Create account".
+- **Expected:**
+  - 200 from `POST /api/auth/register` with `includeSampleData: false` in the request body; user is signed in immediately (no email verification step) and navigated to `/`.
+  - Dashboard shows the create-month hero: "No budget for {current month} {year} yet." with buttons "Start a blank budget" and the "Or start from a template" template grid. **No** "Copy …" button (no previous month exists).
+  - No budget months, no transactions, no accounts; `/jars` shows its empty state (no "Emergency Fund" jar).
+  - The account-menu chip shows "Ana Borg" (DisplayName = "First Last").
+- **Automated:** Yes (client/e2e-journey/register.spec.ts — default registration lands on an empty budget)
+
+### REG-007 - Opting in to sample figures seeds the exact starter budget
+- **Priority:** P0
+- **Type:** Happy
+- **Preconditions:** Anonymous browser on `/login?register=1`; fresh email; currency "Euro (€)", format "1,234.56".
+- **Steps:**
+  1. Fill all fields as in REG-006 but **tick** "Start with sample figures to explore …".
+  2. Tick terms (+ beta) and click "Create account".
+  3. Inspect the dashboard, then open `/jars`.
+- **Expected:**
+  - Request body carries `includeSampleData: true`. Landing = a seeded month for the current UTC month:
+    - Income group with line "Take-home Pay" planned €3,000.00 (line names render as textbox *values* — assert via the "Income source name" textbox, not text).
+    - Groups: "Housing" (Rent €1,100.00, Utilities €180.00), "Transport" (Fuel €120.00, Public Transport €60.00), "Food" (Groceries €400.00, Dining Out €90.00), Savings group "Savings" with jar-backed line "Emergency Fund" €250.00.
+    - Hero: "Remaining to budget" = **€800.00** (3,000.00 − 2,200.00 planned), footnote "€800.00 still to assign" — deliberately positive, never the balanced badge.
+  - `/jars` shows a real "Emergency Fund" jar (the savings line's `SavingsId` is an enforced FK to `Jars`).
+- **Automated:** Yes (client/e2e-journey/register.spec.ts — sample opt-in leg; tests/AllotJar.IntegrationTests/SavingsForeignKeyTests.cs — HouseholdBootstrap_WithSampleOptIn_SeedsSavingsGroupBackedByAJar)
+
+### REG-008 - Sample checkbox defaults to unticked and is the only thing that flips the payload
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** PR #170 — sample figures made strictly opt-in; unasked-for pre-filled figures read as real data
+- **Preconditions:** Anonymous browser on `/login?register=1`.
+- **Steps:**
+  1. Open the registration form fresh — verify the sample checkbox starts unticked.
+  2. Register without touching it; capture the `POST /api/auth/register` body.
+  3. In a second registration, tick it; capture the body.
+- **Expected:**
+  - Step 1: unchecked by default on every fresh load (no persistence of a previous choice).
+  - Step 2: body has `includeSampleData: false` → account has zero budget months.
+  - Step 3: body has `includeSampleData: true` → seeded month per REG-007. The checkbox is never required — the form submits either way.
+- **Automated:** Yes (client/src/pages/LoginPage.test.tsx — includeSampleData sent only when the box is ticked; tests/AllotJar.Application.Tests/Application/HouseholdBootstrapTests.cs — no-sample bootstrap creates no budget)
+
+### REG-009 - Blank first month prompts for income, never the gold balanced badge
+- **Priority:** P0
+- **Type:** Regression
+- **Origin:** PR #172 — empty month is NOT balanced; `IsBalanced` requires `TotalIncome > 0`
+- **Preconditions:** Freshly registered default (empty) account from REG-006, sitting on the create-month hero.
+- **Steps:**
+  1. Click "Start a blank budget".
+  2. Inspect the hero.
+- **Expected:**
+  - A month is created containing only the "Income" group with no planned amounts.
+  - Hero shows "Remaining to budget" €0.00, Income €0.00, Allotted €0.00, and the footnote pill "Plan your income, then give every euro a job".
+  - The gold badge "Every euro has a job" is **absent** — a 0/0 month must never celebrate as balanced.
+- **Automated:** Yes (client/src/pages/DashboardPage.test.tsx — empty month prompts for income instead of celebrating; tests/AllotJar.Application.Tests/Domain/RemainingToBudgetTests.cs — IsBalanced_RequiresIncome_NotJustZeroRemaining; client/e2e-journey/register.spec.ts — start-blank leg)
+
+### REG-010 - Registering across the UTC month boundary seeds the sample into the UTC month
+- **Priority:** P3
+- **Type:** Boundary
+- **Preconditions:** Browser in a timezone ahead of UTC (e.g. UTC+2); local clock just past midnight on the 1st while UTC is still the 31st of the previous month (or simulate by adjusting the server clock).
+- **Steps:**
+  1. Register with the sample checkbox ticked.
+  2. Note which month the dashboard opens on and where the seeded figures are.
+- **Expected:**
+  - The sample month is created for the **UTC** current month (`HouseholdBootstrap` receives `DateTime.UtcNow`); the dashboard opens on the browser-local current month. When these differ the user lands on "No budget for {local month} yet." with their sample data one month back — verify the data is reachable via month navigation and nothing is lost. Flag as UX seam if observed (opted-in user should land on their sample figures).
+- **Automated:** No
+
+## Create account — required fields & client-side validation
+
+### REG-011 - Every required field blocks submission when empty
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Anonymous browser on `/login?register=1`.
+- **Steps:**
+  1. Click "Create account" with the whole form empty.
+  2. Fill fields one at a time (First name → Last name → Email → Password), attempting submit after each, until only the checkboxes remain.
+- **Expected:**
+  - Each attempt is blocked client-side by native HTML5 validation (the browser focuses/flags the first invalid control: `required` on First name, Last name, Email, Password; then the required terms checkbox, then the required beta checkbox).
+  - **No** `POST /api/auth/register` request is sent for any blocked attempt.
+- **Automated:** No
+
+### REG-012 - Email format validation (client lenient-server boundary)
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Anonymous browser on `/login?register=1`; all other fields valid.
+- **Steps:**
+  1. Try email `notanemail` → submit.
+  2. Try `user@` → submit.
+  3. Try ` spaced@example.test ` (leading/trailing spaces) → submit.
+  4. Try `a@b` → submit.
+- **Expected:**
+  - Steps 1–3: blocked client-side by `type=email` validation; no request sent.
+  - Step 4: `a@b` passes both HTML5 and the server's `[EmailAddress]` annotation (both are deliberately lenient — one `@` with content either side) and the account is created. Document, don't fail: minimal-but-parseable addresses are accepted by design.
+- **Automated:** No
+
+### REG-013 - Password shorter than 8 characters is blocked
+- **Priority:** P1
+- **Type:** Boundary
+- **Preconditions:** Anonymous browser on `/login?register=1`; all other fields valid.
+- **Steps:**
+  1. Enter a 7-character password `Aa1-xyz` and submit.
+  2. Direct API: `POST /api/auth/register` with `"password": "Aa1-xyz"` and otherwise-valid body.
+- **Expected:**
+  - Step 1: blocked client-side by `minLength=8` (browser message; no request).
+  - Step 2: 400 in the ASP.NET **ValidationProblemDetails** shape (`{"errors":{"Password":[…]}}` — `[MinLength(8)]` fires at model binding, a different body shape from the app's `{error:…}`). No account created.
+- **Automated:** No
+
+### REG-014 - Terms consent is required (client checkbox + server enforcement)
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Anonymous browser on `/login?register=1`; all fields valid, terms checkbox unticked.
+- **Steps:**
+  1. Submit the form.
+  2. Direct API: `POST /api/auth/register` with `"acceptedTerms": false` and an otherwise-valid body.
+- **Expected:**
+  - Step 1: blocked client-side (`required` checkbox); no request.
+  - Step 2: 400 `{error: "Please accept the terms and privacy policy to create an account."}`; no account created. This is the **first** server-side check — it fires before currency/format/duplicate checks.
+- **Automated:** No
+
+### REG-015 - Beta build requires the data-loss acknowledgment (client-side only)
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Beta build (`VITE_APP_ENV=beta`); anonymous browser on `/login?register=1`; everything filled and terms ticked, beta checkbox unticked.
+- **Steps:**
+  1. Submit.
+  2. Tick "I understand AllotJar is in beta … my data may be reset or permanently lost." and submit again.
+  3. Inspect the request body of the successful registration.
+- **Expected:**
+  - Step 1: blocked client-side (required checkbox).
+  - Step 2: registration succeeds.
+  - Step 3: the beta acknowledgment is **not** part of the request body — it is a client-side-only gate (no `acknowledgesDataLoss`-style server field on `RegisterRequest`).
+- **Automated:** Yes (client/src/pages/LoginPage.test.tsx — beta build adds a required data-loss acknowledgment)
+
+### REG-016 - GA/default build renders neither beta banner nor beta checkbox
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** Default (non-beta) build — `VITE_APP_ENV` unset; anonymous browser on `/login?register=1`.
+- **Steps:**
+  1. Inspect the page and the registration form.
+  2. Register with only the terms checkbox ticked.
+- **Expected:**
+  - No beta banner above the page; no amber data-loss checkbox in the form; registration succeeds with terms alone. Everything else (fields, sample checkbox, validation) is identical to the beta build.
+- **Automated:** Partial (client/src/components/BetaBanner.test.tsx — banner renders nothing outside beta; the checkbox absence in default build is untested)
+
+### REG-017 - Server error bodies render in the form's alert
+- **Priority:** P2
+- **Type:** Negative
+- **Preconditions:** Anonymous browser on `/login?register=1`; a way to force each failure (duplicate email for `{error}`, weak password composition for `{errors:[…]}`, network offline for the fallback).
+- **Steps:**
+  1. Register with `owner@example.com` (existing) → observe the alert.
+  2. Register with password `aaaaaaaa1` (no uppercase; fresh email) → observe the alert.
+  3. Go offline and submit → observe the alert.
+- **Expected:**
+  - Step 1: `role="alert"` rose text with the exact server string ("An account with that email already exists.").
+  - Step 2: the Identity error descriptions joined with spaces (the client renders `data.errors.join(' ')` for the array shape).
+  - Step 3: "Something went wrong." (network/unexpected fallback). The form stays filled; the user can correct and resubmit.
+- **Automated:** Partial (client/src/pages/LoginPage.test.tsx exercises the submit path; the three error-shape renderings are untested)
+
+## Create account — password policy & HIBP
+
+### REG-018 - Breached password is rejected with the HIBP message
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Anonymous browser on `/login?register=1`; all fields valid; live outbound access to api.pwnedpasswords.com.
+- **Steps:**
+  1. Use password `Password1!` (known-breached, passes length/composition) and submit.
+- **Expected:**
+  - 400; alert shows "This password has appeared in a known data breach. Please choose a different one."
+  - No account is created; correcting to a random `Aa1-<uuid>` password succeeds. (HIBP check uses k-anonymity — only a 5-char SHA-1 prefix leaves the server — and **never** runs at sign-in.)
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/BreachedPasswordValidatorTests.cs — validator unit only; the register round-trip was verified manually on prod at PR #81)
+
+### REG-019 - Identity composition rules: digit, lowercase, uppercase each enforced
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Anonymous browser on `/login?register=1`; fresh email per attempt.
+- **Steps:**
+  1. Submit with password `Abcdefgh-` (no digit).
+  2. Submit with `ABCDEFG1-` (no lowercase).
+  3. Submit with `abcdefg1-` (no uppercase).
+- **Expected:**
+  - Each returns 400 `{errors:[…]}` with the matching Identity default message, rendered in the alert: "Passwords must have at least one digit ('0'-'9').", "…at least one lowercase ('a'-'z').", "…at least one uppercase ('A'-'Z')." (RequireNonAlphanumeric is OFF — no special character required.) Multiple violations list every message joined with spaces.
+- **Automated:** No (policy is configuration; only the HIBP validator has unit tests)
+
+### REG-020 - Exactly-8-character compliant password is accepted
+- **Priority:** P2
+- **Type:** Boundary
+- **Preconditions:** Anonymous browser on `/login?register=1`; fresh email.
+- **Steps:**
+  1. Register with an 8-character password containing digit+upper+lower and not breached (e.g. `Xq7pLm2v` — verify it against HIBP first or generate randomly).
+- **Expected:**
+  - Registration succeeds (8 is the inclusive minimum); immediate sign-in works; signing out and back in with the same password works.
+- **Automated:** No (journey passwords are always longer than 8)
+
+### REG-021 - Very long and unicode passwords are handled gracefully
+- **Priority:** P3
+- **Type:** Boundary
+- **Preconditions:** Anonymous browser on `/login?register=1`; fresh email per attempt.
+- **Steps:**
+  1. Register with a 200-character random password (contains digit+upper+lower).
+  2. Register (fresh email) with a unicode password `Pässw0rd-jär-€₺-Aa1` and sign out/in with it.
+- **Expected:**
+  - Both are accepted (no maximum length or ASCII restriction in the policy) or rejected with a clear 400 — never a 500 or a truncated/corrupted store. Signing back in with the exact same string must succeed (round-trip integrity, incl. unicode normalization — the same bytes typed again must match).
+- **Automated:** No
+
+### REG-022 - HIBP outage fails open — registration still completes
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** Test environment where api.pwnedpasswords.com is unreachable (block the host / point DNS at a black hole); anonymous browser.
+- **Steps:**
+  1. Register with a valid random password.
+- **Expected:**
+  - Registration succeeds after at most the validator's 5s HTTP timeout (breach screening fails OPEN by design — an HIBP outage must never block sign-ups). No error surfaces to the user.
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/BreachedPasswordValidatorTests.cs — fails open when the HIBP API is unreachable or non-success)
+
+## Create account — email rules & duplicates
+
+### REG-023 - Duplicate email is rejected with the exact message
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** `owner@example.com` exists; anonymous browser on `/login?register=1`.
+- **Steps:**
+  1. Register with email `owner@example.com`, everything else valid.
+- **Expected:**
+  - 400; alert shows "An account with that email already exists." No account/household side effects. (Registration deliberately reveals account existence — accepted trade-off, unlike the sign-in path.)
+- **Automated:** No
+
+### REG-024 - Duplicate detection is case-insensitive
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** `owner@example.com` exists; anonymous browser.
+- **Steps:**
+  1. Register with `OWNER@Example.COM`.
+- **Expected:**
+  - Same 400 "An account with that email already exists." (Identity normalized-email lookup). No second account created.
+- **Automated:** No
+
+### REG-025 - Overlong email is rejected gracefully
+- **Priority:** P3
+- **Type:** Boundary
+- **Preconditions:** Anonymous browser; direct API access (HTML5 may allow long values).
+- **Steps:**
+  1. `POST /api/auth/register` with a syntactically valid email of 300+ characters (`aaaa…@example.test`) and an otherwise-valid body.
+- **Expected:**
+  - Rejected with a 4xx and no account row (Identity's `AspNetUsers.Email/UserName` columns are nvarchar(256)) — never a 500/DbUpdateException leaking to the client. Whatever the exact message, the response must use one of the JSON error shapes.
+- **Automated:** No
+
+### REG-026 - Unicode/IDN email addresses
+- **Priority:** P3
+- **Type:** Edge
+- **Preconditions:** Anonymous browser on `/login?register=1`.
+- **Steps:**
+  1. Try `chris@bücher.example` in the email field and submit.
+  2. Direct API: same address.
+- **Expected:**
+  - Step 1: blocked client-side (browsers reject non-ASCII domains in `type=email` unless punycoded).
+  - Step 2: server responds 4xx or accepts consistently — document the behavior; whichever way, the subsequent sign-in with the identical string must behave the same (no register-accepts/login-rejects asymmetry).
+- **Automated:** No
+
+## Create account — name boundaries
+
+### REG-027 - Whitespace-only names must not silently fail
+- **Priority:** P2
+- **Type:** Negative
+- **Preconditions:** Anonymous browser on `/login?register=1`; First name = three spaces, Last name = three spaces, everything else valid.
+- **Steps:**
+  1. Submit (HTML5 `required` passes — spaces count as content; the client then trims both names to `""` before sending).
+  2. Observe the network response and the form.
+- **Expected:**
+  - Server returns 400 (`[Required]` fails on the empty strings) in the ValidationProblemDetails shape. The form must surface a visible error and stay usable — **known gap to verify:** `LoginPage` only parses `{error}` / `{errors:[…]}`; the ValidationProblemDetails `errors` *object* shape can produce no message (or a console TypeError from `errors.join`). The user must never be left with a re-enabled button and no explanation, and no account may be created.
+- **Automated:** No
+
+### REG-028 - Unicode and accented names compose the display name correctly
+- **Priority:** P3
+- **Type:** Edge
+- **Preconditions:** Anonymous browser on `/login?register=1`.
+- **Steps:**
+  1. Register with First name `José-María`, Last name `Żółć 🌱`.
+  2. After landing, open the account menu and `/account`.
+- **Expected:**
+  - Registration succeeds. Account menu chip and `/account` "Name" row show `José-María Żółć 🌱` (DisplayName = `"{First} {Last}".Trim()`), rendered without mojibake.
+- **Automated:** No
+
+### REG-029 - Very long names don't break registration or the shell
+- **Priority:** P3
+- **Type:** Boundary
+- **Preconditions:** Anonymous browser on `/login?register=1`; First and Last name of 250 characters each.
+- **Steps:**
+  1. Register.
+  2. Inspect the account-menu chip and `/account`.
+- **Expected:**
+  - Accepted (no explicit max) or clean 400 — never a 500. If accepted, the shell truncates/wraps the chip without breaking layout, and the full name round-trips on `/account`.
+- **Automated:** No
+
+## Currency & number-format pickers
+
+### REG-030 - Picker option lists are exactly the curated sets
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** Anonymous browser on `/login?register=1`.
+- **Steps:**
+  1. Open the "Currency" select and read every option.
+  2. Open the "Number format" select and read every option.
+- **Expected:**
+  - Currency: exactly 24 options, EUR first, labels like "Euro (€)", "British pound (£)", "US dollar ($)", "Swiss franc (CHF)", … "Turkish lira (₺)" (full list per `CURRENCY_OPTIONS` in client/src/lib/money.ts).
+  - Number format: exactly 5 options labeled `1,234.56`, `1.234,56`, `1 234,56`, `1'234.56`, `1,23,456.78`.
+- **Automated:** No
+
+### REG-031 - Browser locale preselects currency and number format
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** Anonymous browsers pinned to specific locales (e.g. Playwright `locale`).
+- **Steps:**
+  1. Load `/login?register=1` under `en-US`; read the two selects and the footer tagline.
+  2. Repeat under `en-IN`, `de-CH`, `de-DE`, and `pt-PT`.
+- **Expected:**
+  - `en-US`: USD + `1,234.56`; tagline "Give every dollar a job."
+  - `en-IN`: INR + `1,23,456.78` (lakh); "…every rupee…". `de-CH`: CHF + `1'234.56`; "…every franc…". `de-DE`: EUR + `1.234,56`; "…every euro…".
+  - `pt-PT` (region not in the map): falls back to EUR; number format inferred from the locale's separators (comma decimal + space grouping → `1 234,56`).
+  - Both selects remain fully user-overridable; the preselect is computed once on mount.
+- **Automated:** Partial (client/src/lib/money.test.ts — detectLocaleDefaults + currencyNoun; the form preselect itself is untested)
+
+### REG-032 - Chosen currency and format actually govern the app after sign-up
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Anonymous browser (en-GB locale) on `/login?register=1`.
+- **Steps:**
+  1. Register with Currency = "Polish złoty (zł)" and Number format = "1.234,56", sample figures **ticked**.
+  2. Inspect the dashboard hero and the account menu.
+  3. Open `/account` → Preferences card.
+- **Expected:**
+  - Money renders in PLN with dot-comma grouping app-wide (hero "Remaining to budget" shows the seeded 800 as `800,00 zł`-style per the PLN formatter with de-DE grouping).
+  - Account-menu chip shows "PLN · Your household". `/account` Preferences preselects "Polish złoty (zł)" and "1.234,56".
+  - Footer tagline on later logged-out visits aside, the in-app "give every złoty a job" surfaces use the noun "złoty".
+- **Automated:** Partial (client/src/pages/LoginPage.test.tsx — registration submits the chosen prefs; client/src/lib/money.test.ts — formats render; the end-to-end render isn't tested)
+
+### REG-033 - Invalid currency code is rejected server-side
+- **Priority:** P2
+- **Type:** Negative
+- **Preconditions:** Direct API access (the UI select can't produce these).
+- **Steps:**
+  1. `POST /api/auth/register` with `"preferredCurrency": "EU"` (2 letters), otherwise valid.
+  2. Repeat with `"preferredCurrency": "12A"`.
+- **Expected:**
+  - Both → 400 `{error: "That isn't a valid ISO 4217 currency code."}`; no account created. (Validation = trim + uppercase + regex `^[A-Z]{3}$` only.)
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Infrastructure/UserPreferencesTests.cs + Domain/CurrencyCodeTests.cs — normalization units; the endpoint path is untested)
+
+### REG-034 - Any three-letter code passes; blank falls back to EUR
+- **Priority:** P3
+- **Type:** Edge
+- **Preconditions:** Direct API access.
+- **Steps:**
+  1. Register with `"preferredCurrency": "XXX"`.
+  2. Register (fresh email) with `"preferredCurrency": ""`.
+  3. Register (fresh email) with `"preferredCurrency": " eur "` (padded lowercase).
+- **Expected:**
+  - Step 1: accepted **by design** (regex-only, no ISO table lookup); the app then renders XXX via the generic formatter and `currencyNoun` falls back to "unit".
+  - Step 2: accepted, currency defaults to EUR.
+  - Step 3: accepted, normalized to `EUR`.
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Infrastructure/UserPreferencesTests.cs — blank default + canonicalization)
+
+### REG-035 - Invalid number format is rejected; blank defaults to comma-dot
+- **Priority:** P2
+- **Type:** Negative
+- **Preconditions:** Direct API access.
+- **Steps:**
+  1. `POST /api/auth/register` with `"numberFormat": "euro-style"`.
+  2. Register (fresh email) with `"numberFormat": ""`.
+- **Expected:**
+  - Step 1: 400 `{error: "That number format isn't supported."}` (allowed keys: `comma-dot`, `dot-comma`, `space-comma`, `apostrophe`, `lakh`).
+  - Step 2: accepted; format defaults to `comma-dot` (renders `1,234.56`).
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Infrastructure/UserPreferencesTests.cs — NormalizeNumberFormat units)
+
+## Sign-in
+
+### REG-036 - Valid credentials sign in and land on the dashboard
+- **Priority:** P0
+- **Type:** Happy
+- **Preconditions:** `owner@example.com` exists with a budget month; anonymous browser on `/login`.
+- **Steps:**
+  1. Enter "Email" = `owner@example.com`, "Password" = `Sunlit-Meadow-42a`; click "Sign in".
+  2. Inspect localStorage and the URL history.
+- **Expected:**
+  - Navigated to `/` with `replace: true` (Back does not return to `/login`); DashboardPage renders the user's month.
+  - localStorage holds only identity *hints* (`zbb.email`, `zbb.displayName`, `zbb.currency`, `zbb.numberFormat`, `zbb.role`) — **never** the access token (in-memory only; refresh token is the HttpOnly `zbb_rt` cookie, invisible to JS). Session persistence itself is file 03.
+- **Automated:** Yes (client/e2e-journey/session-expiry.spec.ts + helpers sign in against the real backend; client/src/pages/LoginPage.test.tsx — sign-in submit)
+
+### REG-037 - Wrong password shows the generic credential error
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** `owner@example.com` exists; anonymous browser on `/login`.
+- **Steps:**
+  1. Sign in with the right email and password `WrongPass1x`.
+- **Expected:**
+  - 401; alert (`role="alert"`) reads exactly "Invalid email or password." The user stays on the form with fields intact; no cookie is set; correcting the password immediately succeeds.
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/LoginTests.cs — invalid credentials never issue a token; the UI rendering is untested)
+
+### REG-038 - Unknown email returns the identical error (anti-enumeration)
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Anonymous browser on `/login`; email `nobody-here@example.test` has no account.
+- **Steps:**
+  1. Sign in with the unknown email and any ≥8-char password.
+  2. Compare the response (status, body, and roughly the latency) against REG-037's wrong-password attempt.
+- **Expected:**
+  - Same 401 with byte-identical body `{error: "Invalid email or password."}` — the response must never distinguish unknown-email from wrong-password. Latency is deliberately equalized (dummy PBKDF2 verify on the unknown-email path); no gross timing tell (order-of-magnitude).
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/LoginTests.cs — identical Invalid outcome; timing equalization untested)
+
+### REG-039 - Sign-in email is case-insensitive
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** `owner@example.com` exists; anonymous browser.
+- **Steps:**
+  1. Sign in as `OWNER@EXAMPLE.COM` with the correct password.
+- **Expected:**
+  - Success — same account (normalized-email lookup). The account menu shows the canonical stored casing.
+- **Automated:** No
+
+### REG-040 - Sign-in client-side validation mirrors the field constraints
+- **Priority:** P2
+- **Type:** Negative
+- **Preconditions:** Anonymous browser on `/login`.
+- **Steps:**
+  1. Submit with both fields empty.
+  2. Submit with a valid email and a 5-character password.
+- **Expected:**
+  - Both blocked by HTML5 (`required`; `minLength=8` applies in sign-in mode too — safe because the policy has always required ≥8). No network request either time.
+- **Automated:** No
+
+### REG-041 - returnUrl is honored on sign-in; unsafe values are discarded
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** `owner@example.com` exists; anonymous browser.
+- **Steps:**
+  1. Load `/login?returnUrl=%2Ftransactions` and sign in.
+  2. Sign out. Load `/login?returnUrl=https%3A%2F%2Fevil.example` and sign in.
+  3. Sign out. Load `/login?returnUrl=%2F%2Fevil.example` (scheme-relative) and sign in.
+  4. Sign out. Load `/login?returnUrl=%2F%09%2Fevil.example` (control character) and sign in.
+- **Expected:**
+  - Step 1: lands on `/transactions`.
+  - Steps 2–4: `safeInternalPath` rejects absolute URLs, `//…`/`/\…`, and any 0x00–0x1F/0x7F control character → lands on `/`. The app never navigates off-origin from a returnUrl.
+- **Automated:** Yes (client/src/pages/LoginPage.test.tsx — returns to safe internal returnUrl; client/src/lib/returnUrl.test.ts — rejection table incl. control-char smuggling)
+
+### REG-042 - Already-authenticated visitor to /login is bounced into the app
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** `owner@example.com` signed in with a live session.
+- **Steps:**
+  1. Manually navigate to `/login`.
+  2. Manually navigate to `/login?returnUrl=%2Freports`.
+- **Expected:**
+  - Step 1: `AuthedLoginRedirect` sends the user to `/` — the login form never renders for an authenticated session (a brief splash while bootstrapping is allowed).
+  2. Step 2: redirected to `/reports` (sanitized returnUrl honored even on the authed path).
+- **Automated:** No
+
+### REG-043 - Expired-session banner renders only in sign-in mode
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** PR #169 — genuinely dead sessions bounce to `/login?reason=expired` with an explanation instead of an unexplained sign-out
+- **Preconditions:** Anonymous browser.
+- **Steps:**
+  1. Load `/login?reason=expired&returnUrl=%2Ftransactions`.
+  2. Click "Create account".
+  3. Click "Sign in".
+- **Expected:**
+  - Step 1: amber banner (`role="status"`): "Your session has expired, so we signed you out to keep your budget safe. Sign back in to pick up where you left off." above the sign-in form.
+  - Step 2: banner disappears in Create-account mode (it explains a sign-*in* situation only).
+  - Step 3: banner returns. Signing in then lands on `/transactions` (the sign-in leg of the returnUrl round-trip; the bounce *production* is file 03).
+- **Automated:** Partial (client/e2e-journey/session-expiry.spec.ts — banner text + returnUrl round-trip; the register-tab hiding is untested)
+
+## Lockout & rate limiting
+
+### REG-044 - Five consecutive failures lock the account for 15 minutes
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Dedicated login `lockme@example.test` (so `owner@` stays usable); anonymous browser on `/login`.
+- **Steps:**
+  1. Attempt sign-in with a wrong password 4 times — each shows "Invalid email or password."
+  2. Attempt a 5th wrong password.
+  3. Immediately attempt with the **correct** password.
+  4. Wait 15+ minutes, retry the correct password.
+- **Expected:**
+  - Step 2: 401 with "Your account is temporarily locked after too many failed sign-in attempts. Please try again in a few minutes." (the threshold-crossing failure itself returns the locked message).
+  - Step 3: still the locked message — correct credentials are refused while locked, and no token/cookie is issued.
+  - Step 4: sign-in succeeds; failure counter is reset.
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/LoginTests.cs — locked-out never issues a token; the 5-failure HTTP flow and 15-min expiry are untested)
+
+### REG-045 - A successful sign-in resets the failure counter
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** Fresh login `counter@example.test`; anonymous browser.
+- **Steps:**
+  1. Fail sign-in 4 times.
+  2. Sign in successfully; sign out.
+  3. Fail sign-in 4 more times, then sign in correctly.
+- **Expected:**
+  - No lockout at any point — the counter counts *consecutive* failures and step 2 reset it; step 3's 4 failures stay below the threshold and the final correct attempt succeeds.
+- **Automated:** No
+
+### REG-046 - Lockout is per-account, not per-browser or per-IP
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** `lockme@example.test` currently locked (from REG-044); `owner@example.com` healthy; same browser/IP.
+- **Steps:**
+  1. While `lockme@` is locked, sign in as `owner@example.com` with correct credentials from the same browser.
+- **Expected:**
+  - `owner@` signs in normally — the Identity lockout binds to the account, and it is the real brute-force defence (the IP rate limiter is effectively per-site behind Cloudflare/IIS).
+- **Automated:** No
+
+### REG-047 - Auth rate limiter returns 429 after 20 requests per minute
+- **Priority:** P2
+- **Type:** Negative
+- **Preconditions:** Environment where your client IP reaches the API directly (local/dev — behind the Cloudflare proxy the bucket is shared site-wide); default `RateLimiting:AuthPermitLimit` = 20.
+- **Steps:**
+  1. Script 21 `POST /api/auth/login` attempts (any body) within one minute from one source IP.
+  2. Trigger the same via the UI (rapid sign-in attempts) and observe the form.
+- **Expected:**
+  - Request 21 gets HTTP 429 with an empty body (fixed window, queue 0). Register/refresh/logout/accept-invite/change-password share the same `auth` policy.
+  - The UI surfaces the empty-body failure as "Something went wrong." — not a crash. After the window rolls over, requests succeed again. (E2E runs raise `RateLimiting__AuthPermitLimit` to avoid tripping this — expect it live.)
+- **Automated:** No
+
+## First-login landing state & analytics
+
+### REG-048 - Registration records consent up front — no ConsentModal on first login
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** Freshly registered account (either sample path).
+- **Steps:**
+  1. Complete registration and observe the first authenticated render.
+  2. Sign out, sign back in, observe again.
+- **Expected:**
+  - The blocking ConsentModal ("One thing before you start") never appears — `Register` sets `ConsentedUtc` at creation, so `needsConsent` is false. (The modal exists for owner-created/legacy logins — households & people file.) The onboarding welcome dialog *may* appear instead (routing & app shell file).
+- **Automated:** Partial (client/src/components/ConsentModal.test.tsx — hidden for consented logins; the register-sets-consent linkage is untested)
+
+### REG-049 - A brand-new registrant is a solo Owner with the matching shell state
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Freshly registered default (empty) account.
+- **Steps:**
+  1. Open the account menu (aria-label "Account menu").
+  2. Inspect the nav.
+  3. Open `/account`.
+- **Expected:**
+  - Chip shows the display name and "{currency} · Your household"; no household-switcher section (single household); menu offers "Account settings" and "Sign out".
+  - Nav: "People" is visible (always — project invariant); "Allocation" is hidden (solo household of 1 member — the owner is member #1, never a 0-member household).
+  - `/account`: "Access level" = "Owner"; the Sharing card reads the solo variant ("You're budgeting on your own. …" with "Share this budget"); no "Leave household" card.
+- **Automated:** Partial (client/src/components/AppNav.test.tsx — People always/Allocation solo-hidden; client/src/pages/AccountPage.test.tsx — solo cards; client/src/components/HouseholdSwitcher.test.tsx — hidden for single household; not exercised as one post-registration flow)
+
+### REG-050 - Analytics events fire with whitelisted params only
+- **Priority:** P3
+- **Type:** Regression
+- **Origin:** PR #170 gotcha — GA params are whitelisted; `sample_data` had to be added to `ALLOWED_PARAM_KEYS` or it is silently dropped
+- **Preconditions:** Beta host with analytics consent **granted** (consent banner accepted — see 01-landing-public.md); GA debug view or network inspection of `google-analytics.com/g/collect`.
+- **Steps:**
+  1. Register a fresh account with the sample checkbox ticked.
+  2. Sign out; sign in with wrong credentials once, then correctly.
+- **Expected:**
+  - Step 1: one `sign_up` event with `method: "password"` **and** `sample_data: true` (both params present — `sample_data` must not be silently dropped by the redactor).
+  - Step 2: one `login_failed {method:"password"}` then one `login {method:"password"}`. No email, name, or other PII in any event payload.
+- **Automated:** Partial (client/src/analytics/analytics.test.ts — whitelist forwarding incl. sample_data; the LoginPage → track() wiring is untested)
