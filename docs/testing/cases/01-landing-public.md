@@ -1,0 +1,606 @@
+# Landing & Public Pages
+
+**ID prefix:** LAND | **Scope:** The anonymous-facing surface of AllotJar: the public marketing landing page at `/` (hero, tagline, CTAs, currency-aware copy), the auth-state branching of `/` (splash → landing vs dashboard), the public legal pages `/privacy` and `/terms`, SEO artifacts observable in the served app (head title/meta/canonical/OG/JSON-LD, `robots.txt`, `sitemap.xml`, the prerendered landing HTML, `theme-init.js`), the analytics consent banner + GA Consent Mode gating, the beta banner + beta signup data-loss consent, and the coming-soon page expectations on `www`/apex. | **Out of scope:** login/registration form mechanics, session refresh, returnUrl handling and `?reason=expired` (auth & sessions file); AppShell nav, onboarding welcome/tour/checklist, ConsentModal general behavior, theme toggle control (routing & app shell file); ReportsPage (reports file); household greeting banners `?joined/started/left` (households & people file); full responsive/dark/a11y sweeps and role matrices (cross-cutting files) — only the landing/legal-specific contrast regressions and the coming-soon reduced-motion behavior are covered here because they are area-specific past bugs.
+
+**Test data setup:** (a) A clean anonymous browser profile — no `zbb_rt` cookie, empty `localStorage` (no `zbb.*` keys). (b) One existing login `owner@example.com` (Owner of a solo household) for auth-branching cases. (c) Access to the live **beta** deployment `app.allotjar.com` (built with `VITE_APP_ENV=beta`, GA measurement ID `G-55WS48MJ91` inlined, server flag `Features:Analytics=true`) and to a **local/default** build (non-beta, `Features:Analytics=false` by default; flip the flag via the `Features` section of `appsettings.json` — `IOptionsSnapshot`, no restart needed). (d) `https://www.allotjar.com` / apex currently serve the Cloudflare Worker coming-soon page; the repo source for it is `marketing/coming-soon/` (deployed **manually** — verify against the live page, not just the repo).
+
+## Landing page — anonymous visit
+
+### LAND-001 - Landing page renders the full hero for an anonymous visitor
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Clean anonymous browser (refresh cookie absent); default (non-beta) build or beta build.
+- **Steps:**
+  1. Navigate to `/`.
+  2. Wait for the page to settle (the auth bootstrap 401s).
+  3. Inspect the hero section.
+- **Expected:**
+  - Eyebrow text "Zero-based budgeting · crafted in Europe, at home anywhere".
+  - Exactly one `<h1>`: "Give every euro a job." (noun may swap per locale — see LAND-005).
+  - Hero sub-copy beginning "AllotJar is a zero-based budgeting app crafted in Europe and at home anywhere."
+  - Note "Free to start · No card required".
+  - Right-hand "Your jars" panel: gold figure "€2,480", caption "set aside across 3 jars this year", three decorative jars Insurance/Holiday/New car with accessible labels "Insurance: 90% funded", "Holiday: 70% funded", "New car: 40% funded" and **no** visible in-jar percent text.
+- **Automated:** Partial (client/src/pages/LandingPage.test.tsx — single H1; client/e2e/landing.spec.ts — H1 `/give every \S+ a job/i` + axe)
+
+### LAND-002 - Header and footer chrome and links
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** Anonymous visitor on `/` (landing rendered).
+- **Steps:**
+  1. Inspect the header: logo link and `nav` with `aria-label="Primary"`.
+  2. Scroll to the footer (`nav` with `aria-label="Footer"`).
+  3. Click the logo link.
+- **Expected:**
+  - Header logo link has `aria-label="AllotJar home"`, `href="/"`; wordmark reads "AllotJar". Header nav contains "Sign in" → `/login` and the filled CTA "Get started" → `/login?register=1`.
+  - Footer shows "© 2026 AllotJar · Give every euro a job." (year = current year) and links: "Privacy" → `/privacy`, "Terms" → `/terms`, "Sign in" → `/login`, "Create account" → `/login?register=1`.
+  - Clicking the logo performs a plain `<a>` navigation back to `/` (full page load — landing uses no router links, by SSR design).
+- **Automated:** Partial (client/src/pages/LandingPage.test.tsx — sign-in link)
+
+### LAND-003 - Every CTA lands on the correct login tab
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Anonymous visitor on `/`.
+- **Steps:**
+  1. Click header "Get started".
+  2. Go back; click hero "Create your free account".
+  3. Go back; click hero "Sign in" (secondary CTA).
+  4. Go back; scroll to the closing CTA band "Ready to give every euro a job?" and click its "Create your free account".
+  5. Go back; click footer "Create account" and footer "Sign in".
+- **Expected:**
+  - All "Get started" / "Create your free account" / "Create account" links go to `/login?register=1` and LoginPage opens with the **Create account** tab of the segmented control "Sign in or create an account" selected.
+  - Both "Sign in" links go to `/login` with the **Sign in** tab selected.
+  - No CTA requires JavaScript state — each is a plain `<a href>` (works middle-click/new-tab).
+- **Automated:** Partial (client/src/pages/LandingPage.test.tsx — primary CTAs → registration tab)
+
+### LAND-004 - Marketing content sections render with exact headings
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** Anonymous visitor on `/`.
+- **Steps:**
+  1. Scroll through the features, how-it-works and FAQ sections.
+- **Expected:**
+  - Features section heading "Everything you need to budget with confidence" with exactly 6 cards titled: "Zero-based budgeting", "Sinking-fund jars", "All your accounts", "Reports & trends", "Budget as a household", "Private & secure".
+  - How-it-works heading "How AllotJar works" + "Three simple steps, every month." with an ordered list of 3 steps: "1 Plan the month", "2 Track as you spend", "3 Adjust and save".
+  - FAQ heading "Frequently asked questions" with exactly 5 Q/As: "What is zero-based budgeting?", "Can I use AllotJar outside Europe?", "What makes AllotJar different?", "Can I share my budget with my partner?", "How much does AllotJar cost?".
+- **Automated:** Partial (client/src/pages/LandingPage.test.tsx — FAQ content for long-tail search)
+
+## Currency-aware copy (locale noun swap)
+
+### LAND-005 - Visitor locale swaps the tagline noun after mount
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Anonymous browser with language set to `en-US` (e.g. Playwright `locale: 'en-US'`).
+- **Steps:**
+  1. Navigate to `/` with JavaScript enabled.
+  2. Read the H1, the closing CTA heading and the footer tagline after the app mounts.
+- **Expected:**
+  - H1 reads "Give every dollar a job." (US → USD → "dollar" via `REGION_CURRENCY` + `CURRENCY_NOUNS`).
+  - Closing CTA reads "Ready to give every dollar a job?" and footer reads "· Give every dollar a job." — all three use the same noun.
+  - Equivalent spot-checks: `en-GB` → "pound", `de-CH` → "franc", `en-IN` → "rupee", `pl-PL` → "złoty" (unicode noun renders correctly).
+- **Automated:** Partial (client/src/lib/money.test.ts — currencyNoun mapping + detectLocaleDefaults only; the landing swap itself is untested)
+
+### LAND-006 - Unmapped or missing locale falls back to euro
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** Anonymous browser with (a) a locale whose region is not in `REGION_CURRENCY` (e.g. `pt-PT`), and (b) a context where `navigator.language` is empty/undefined.
+- **Steps:**
+  1. Load `/` under locale `pt-PT`; read the H1.
+  2. Load `/` with `navigator.language` stubbed to `''`; read the H1.
+- **Expected:**
+  - Both cases keep "Give every euro a job." — unlisted regions and failed detection fall back to `EUR` → "euro". The "unit" fallback of `currencyNoun` is unreachable from detection (every `REGION_CURRENCY` value has a noun); no case may ever display "Give every unit a job." from the landing.
+- **Automated:** Partial (client/src/lib/money.test.ts — `unit` fallback + detection returns a supported currency)
+
+### LAND-007 - Prerendered/crawled HTML always says "euro"
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** PR #117 — LandingPage must stay SSR-safe; the noun swap is a mount-only effect so `renderToStaticMarkup` output stays euro-first
+- **Preconditions:** A production build (`npm run build` in `client/`, which runs `scripts/prerender.mjs`), or the deployed beta host.
+- **Steps:**
+  1. Fetch `/` with JavaScript disabled (e.g. `curl -s https://app.allotjar.com/`) from any locale.
+  2. Search the raw HTML for the H1 text.
+- **Expected:**
+  - The static markup inside `<div id="root">` contains "Give every euro a job." regardless of the fetching client's locale/headers — the swap only happens client-side after mount. Crawler-visible copy is deterministic and on-brand (euro-first).
+- **Automated:** No
+
+## Route `/` auth branching & catch-all
+
+### LAND-008 - Authenticated user at `/` gets the dashboard, never the landing
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** `owner@example.com` signed in with a live session (valid `zbb_rt` refresh cookie).
+- **Steps:**
+  1. From inside the app, navigate to `/`.
+  2. Hard-reload the browser on `/` (cold load — in-memory access token gone, cookie present).
+- **Expected:**
+  - Step 1: DashboardPage renders (month view), no landing content.
+  - Step 2: while `refreshSession()` runs, the `AuthSplash` spinner shows (`role="status"`, sr-only "Loading…"); when the refresh succeeds the dashboard renders. The marketing landing never flashes at any point (the splash exists precisely to prevent it).
+- **Automated:** Partial (client/e2e/a11y.spec.ts — authed `/` renders the dashboard for the axe scan; no explicit no-flash assertion)
+
+### LAND-009 - Anonymous cold load: splash then landing on refresh 401
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Clean anonymous browser (no refresh cookie).
+- **Steps:**
+  1. Navigate to `/` with dev tools network tab open.
+  2. Observe the bootstrap sequence.
+- **Expected:**
+  - Exactly one `POST /api/auth/refresh` fires (single-flight, StrictMode-safe) and returns 401.
+  - During the request the AuthSplash renders; afterwards the LandingPage renders. No redirect to `/login`, no error surfaced — a 401 bootstrap is the normal anonymous path.
+- **Automated:** Partial (client/e2e/landing.spec.ts — landing renders when `/auth/refresh` 401s; client/src/auth/AuthContext.test.tsx — single refresh + stays signed out)
+
+### LAND-010 - Unknown paths and query-string visits land safely on `/`
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** Anonymous browser; separately, `owner@example.com` signed in.
+- **Steps:**
+  1. Anonymous: navigate to `/pricing`, then `/signup`, then `/index.html`-style junk like `/foo/bar?x=1`.
+  2. Anonymous: navigate to `/?utm_source=newsletter&utm_campaign=beta`.
+  3. Signed in: navigate to `/pricing`.
+- **Expected:**
+  - Steps 1 & 3: the `*` catch-all replaces the URL with `/` — anonymous users see the landing, authed users the dashboard. No 404 screen exists; the query string of the junk URL is dropped by the redirect.
+  - Step 2: path is exactly `/`, so the landing renders normally with the `utm_*` params left in the URL and ignored (greeting params like `?joined=1` only have meaning in the authed AppShell).
+- **Automated:** No
+
+## Legal pages — /privacy & /terms
+
+### LAND-011 - Privacy Policy renders complete and correct
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Anonymous browser.
+- **Steps:**
+  1. Navigate to `/privacy` directly (deep link, cold load).
+  2. Read the header, date line and body sections.
+- **Expected:**
+  - H1 "Privacy Policy"; line "Last updated: 1 July 2026".
+  - Body identifies the data controller as Christopher Muscat (individual, Malta); covers what data is collected, how it is used, cookies and analytics (GA4, denied-by-default Consent Mode v2, hashed user id), sharing (hosting, Cloudflare, Google), international transfers, retention, protection, the 6 GDPR data-subject rights + right to complain to the Malta IDPC (link to `idpc.org.mt`), children (16+), changes, contact.
+  - `mailto:privacy@allotjar.com` links present.
+  - No auth redirect occurs — the page is fully public.
+- **Automated:** Partial (client/src/pages/LegalPages.test.tsx — H1, contact address, data controller, GDPR rights; client/e2e/legal.spec.ts — axe only)
+
+### LAND-012 - Terms of Service renders complete and correct
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Anonymous browser.
+- **Steps:**
+  1. Navigate to `/terms` directly.
+  2. Read the header, date line and numbered sections.
+- **Expected:**
+  - H1 "Terms of Service"; "Last updated: 1 July 2026"; 13 numbered sections.
+  - Governing law = Malta with exclusive jurisdiction of Maltese courts; eligibility 16+; a "Not financial advice" section exists.
+  - In-body link to `/privacy` labelled "Privacy Policy" works.
+- **Automated:** Partial (client/src/pages/LegalPages.test.tsx — H1, `/laws of Malta/`, privacy link; client/e2e/legal.spec.ts — axe only)
+
+### LAND-013 - LegalLayout chrome and document-title lifecycle
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** Anonymous browser starting on `/` (tab title "AllotJar — Zero-Based Budgeting App").
+- **Steps:**
+  1. Click footer "Privacy"; note the browser tab title.
+  2. From the legal footer click "Terms"; note the title.
+  3. Click legal footer "Home"; note the title.
+  4. Inspect the legal header and footer.
+- **Expected:**
+  - Step 1: tab title becomes "Privacy Policy — AllotJar". Step 2: "Terms of Service — AllotJar". Step 3: title restored to the SPA default (unmount effect restores the previous title).
+  - Header: brand link `aria-label="AllotJar home"` → `/` plus a "Sign in" link → `/login`. Footer `nav aria-label="Footer"`: "Home", "Privacy", "Terms", "Sign in", "© 2026 AllotJar". No app shell, no month bar.
+- **Automated:** No
+
+### LAND-014 - Legal pages access variants: signed in, case-variant path, cold deep link
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** `owner@example.com` signed in; separately, an anonymous browser.
+- **Steps:**
+  1. Signed in: type `/privacy` in the URL bar and load it.
+  2. Signed in: load `/TERMS` (uppercase).
+  3. Anonymous: paste `/terms` into a fresh tab (no prior visit).
+- **Expected:**
+  - Step 1: the Privacy page renders in LegalLayout (no AppShell, no redirect); the static header still shows "Sign in" (known cosmetic quirk of the shared public chrome — acceptable).
+  - Step 2: Terms renders — React Router path matching is case-insensitive by default (`caseSensitive` unset).
+  - Step 3: the page renders after the normal anonymous bootstrap; no bounce to `/login`.
+- **Automated:** No
+
+### LAND-015 - ConsentModal never covers the legal pages it links to
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** PR #156/#158 consent-gap work — `ConsentModal` suppresses itself on `/terms` and `/privacy` (ConsentModal.tsx path check)
+- **Preconditions:** A login with `needsConsent = true` from `/auth/me` (e.g. an owner-created login that has never agreed to terms), signed in.
+- **Steps:**
+  1. Land anywhere in the app; confirm the blocking dialog "One thing before you start" is up.
+  2. Click its "Terms of Service" link (opens `/terms`).
+  3. Navigate to `/privacy` in the same tab.
+  4. Return to `/`.
+- **Expected:**
+  - On `/terms` and `/privacy` the modal is NOT rendered — the user can actually read the documents they are being asked to accept.
+  - Back on `/` the blocking modal reappears (consent still pending).
+- **Automated:** Yes (client/src/components/ConsentModal.test.tsx — "never covers the legal pages it links to")
+
+### LAND-016 - Dark-mode AA contrast on landing accent and legal muted text
+- **Priority:** P3
+- **Type:** Regression
+- **Origin:** PR #117 (accent `text-brand-600` must pair `dark:text-brand-500` on the dark background) and PR #120 (legal footer muted text must be `slate-500`, not `slate-400` at 2.55:1)
+- **Preconditions:** Anonymous browser; ability to switch OS/emulated color scheme.
+- **Steps:**
+  1. Load `/` in dark mode; inspect the hero eyebrow accent text ("Zero-based budgeting · crafted in Europe…").
+  2. Load `/privacy` and `/terms` in dark mode; inspect the footer "© 2026 AllotJar" and "Last updated" muted text.
+- **Expected:**
+  - The eyebrow renders in the brightened brand-500 green in dark mode (not the deep brand-600), meeting WCAG AA contrast against the dark background.
+  - Legal muted text renders at slate-500 or better; an axe scan of both pages in both themes reports no A/AA contrast violations.
+- **Automated:** Yes (client/e2e/landing.spec.ts + client/e2e/legal.spec.ts — axe WCAG A/AA in light and dark)
+
+## SEO artifacts — head, robots, sitemap, prerender
+
+### LAND-017 - Served HTML head: title, description, canonical, robots meta, JSON-LD
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Any built deployment of the app (beta host works); fetch tool (curl/view-source).
+- **Steps:**
+  1. Fetch `/` and inspect `<head>` of the raw response.
+  2. Parse the `application/ld+json` block.
+- **Expected:**
+  - `<title>AllotJar — Zero-Based Budgeting App</title>` (em dash).
+  - Meta description starting "AllotJar is a zero-based budgeting app crafted in Europe…".
+  - `<link rel="canonical" href="https://www.allotjar.com/">`; `<meta name="robots" content="index, follow, max-image-preview:large">`; `<meta name="theme-color" content="#1F6B4D">`; favicon links to `/brand/allotjar-favicon.svg` + PNG sizes.
+  - JSON-LD parses as valid JSON: `@type: SoftwareApplication`, `applicationCategory: FinanceApplication`, `offers.price: "0"` / `priceCurrency: "EUR"`, `url: https://www.allotjar.com/`. Being a data block it is NOT blocked by the CSP (`script-src 'self'` doesn't apply to `type="application/ld+json"`), and no CSP violation appears in the console.
+- **Automated:** No
+
+### LAND-018 - Open Graph and Twitter card tags plus share image asset
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** Built deployment; fetch tool.
+- **Steps:**
+  1. Inspect the OG/Twitter meta tags in the served `/` HTML.
+  2. `GET /og/allotjar-og.png` on the app host.
+- **Expected:**
+  - `og:type=website`, `og:site_name=AllotJar`, `og:title=AllotJar — Zero-Based Budgeting App`, `og:url=https://www.allotjar.com/`, `og:image=https://www.allotjar.com/og/allotjar-og.png` with `og:image:width=1200`/`height=630`, `og:image:alt`, `og:locale=en_GB`.
+  - `twitter:card=summary_large_image` + title/description/image/alt tags present.
+  - The image asset exists on the app host and is a 1200×630 PNG. (Note: the absolute `www` URL inside the tags is deliberately GA-facing and 404s during beta — see LAND-040.)
+- **Automated:** No
+
+### LAND-019 - robots.txt and sitemap.xml served correctly
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Built deployment (fetch from `app.allotjar.com` during beta — these are static files under `client/public/`, served ahead of the SPA fallback).
+- **Steps:**
+  1. `GET /robots.txt`.
+  2. `GET /sitemap.xml`.
+- **Expected:**
+  - robots.txt: `User-agent: *`, `Allow: /`, and exactly these Disallow lines: `/account`, `/accounts`, `/transactions`, `/reports`, `/jars`, `/people`, `/allocation`, `/import`, `/help`, `/accept-invite`; `Sitemap: https://www.allotjar.com/sitemap.xml`. `/login`, `/privacy`, `/terms` are NOT disallowed (crawlable).
+  - sitemap.xml: valid urlset with exactly 3 URLs — `https://www.allotjar.com/` (priority 1.0, changefreq weekly), `/privacy` and `/terms` (0.3, yearly), all `lastmod 2026-07-01`. Every listed URL is allowed by robots.txt and actually renders (cross-check LAND-001/011/012).
+- **Automated:** No
+
+### LAND-020 - Prerendered landing is fully indexable without JavaScript
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Production build output (`client/dist/index.html` after `npm run build`) or the beta host; JS-disabled fetch.
+- **Steps:**
+  1. Fetch `/` without executing JavaScript.
+  2. Search the HTML inside `<div id="root">`.
+  3. Load the same URL with JS enabled and watch the console.
+- **Expected:**
+  - The static markup contains the full landing content: H1 "Give every euro a job.", all 6 feature card titles, the 5 FAQ questions, footer links — enough for crawlers and link scrapers.
+  - With JS on, `createRoot` (not `hydrateRoot`) replaces the static markup on mount: no React hydration-mismatch warnings in the console; the interactive landing (or splash → landing) appears seamlessly.
+- **Automated:** No
+
+### LAND-021 - Prerender failure is non-fatal and leaves the CSR shell intact
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** PR #117 — `scripts/prerender.mjs` must never break the build/deploy; it also rejects suspicious markup < 100 chars
+- **Preconditions:** Local checkout of `client/`; ability to sabotage the prerender (e.g. temporarily break an import in `src/prerender/landing-entry.tsx`) — do this in a scratch worktree, not the user's tree.
+- **Steps:**
+  1. Break the prerender entry and run `npm run build`.
+  2. Inspect the build exit code, its log, and `dist/index.html`.
+- **Expected:**
+  - The build exits 0. The log contains a warning matching "prerender: skipped, CSR index.html left intact - …".
+  - `dist/index.html` keeps the empty `<div id="root"></div>` but retains all Phase-0 head SEO (title/meta/OG/JSON-LD) — degraded but shippable.
+  - Also: a stub entry returning markup shorter than 100 chars is rejected the same way (treated as suspicious, CSR shell kept).
+- **Automated:** No
+
+### LAND-022 - Non-JS scrape of a legal page sees the landing head (accepted trade-off)
+- **Priority:** P3
+- **Type:** Edge
+- **Preconditions:** Built deployment; JS-disabled fetch.
+- **Steps:**
+  1. Fetch `/privacy` without JavaScript and inspect `<title>` and OG tags.
+  2. Fetch `/privacy` with JavaScript (or via a JS-rendering crawler) and inspect the rendered content.
+- **Expected:**
+  - Step 1: the response is the SPA shell — title "AllotJar — Zero-Based Budgeting App" and the landing OG tags, with the prerendered landing markup (legal pages are deliberately CSR-only). This is the documented, accepted behavior — not a bug to "fix" in test reporting.
+  - Step 2: the rendered page shows the Privacy Policy and `document.title` "Privacy Policy — AllotJar" (what Google's JS rendering indexes via the sitemap).
+- **Automated:** No
+
+### LAND-023 - theme-init.js applies the theme pre-paint under the strict CSP
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** CSP hardening (security review) — `script-src 'self'` forbids inline scripts, so the pre-paint theme snippet must remain the external `/theme-init.js`
+- **Preconditions:** Anonymous browser with `localStorage['zbb.theme'] = 'dark'` set for the app origin; OS in light mode (to prove the stored key wins).
+- **Steps:**
+  1. Hard-reload `/` and observe the very first painted frame (throttle CPU/network if needed).
+  2. Check the network tab for `/theme-init.js` and the console for CSP violations.
+  3. Repeat with `zbb.theme` removed and the OS in dark mode.
+- **Expected:**
+  - Step 1: the landing paints dark from the first frame — no white flash (the script is render-blocking in `<head>`).
+  - Step 2: `/theme-init.js` is fetched as an external same-origin script with HTTP 200; zero CSP violations.
+  - Step 3: with no stored key, the OS `prefers-color-scheme: dark` applies pre-paint instead.
+- **Automated:** No
+
+## Analytics consent banner & GA consent-mode gating
+
+### LAND-024 - Consent banner shows when the flag is on and no choice is stored
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Server `Features:Analytics=true`; browser with no `zbb.analyticsConsent` key; anonymous visitor (banner is auth-independent).
+- **Steps:**
+  1. Navigate to `/` (landing, signed out).
+  2. Inspect the bottom of the viewport after `/api/features` resolves.
+  3. Sign in and navigate around; check the banner persists until a choice is made.
+- **Expected:**
+  - A non-modal region `role="region" aria-label="Analytics consent"` is pinned to the bottom with the exact copy: "We use **Google Analytics** to understand how the app is used and improve it. We never send your name, email, account names or any amounts — only anonymous usage. You can change this anytime under **Help**." and two buttons "Decline" / "Accept".
+  - It appears only after the features fetch returns `analytics:true` (client default is `analytics:false`, so there is no flash-on before the fetch).
+  - No focus trap — the page behind stays fully usable; the banner shows on the anonymous landing, on `/login`, and inside the authed app alike.
+- **Automated:** Partial (client/e2e/a11y.spec.ts — banner rendered with the flag forced on, axe-only assertions)
+
+### LAND-025 - Accept: consent persisted and GA starts with Consent Mode v2 sequence
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Beta deployment (flag on + measurement ID `G-55WS48MJ91` in the bundle); no stored consent; dev tools open on network + `window.dataLayer`.
+- **Steps:**
+  1. Load `/` and click "Accept" on the banner.
+  2. Inspect `localStorage`, the injected scripts, and the `dataLayer` sequence.
+- **Expected:**
+  - `localStorage['zbb.analyticsConsent'] = 'granted'`; the banner disappears immediately and never returns on later loads.
+  - gtag start order: Consent Mode v2 default with everything denied → GA script injected (only now does a request to googletagmanager.com occur) → `config` with `send_page_view:false`, `anonymize_ip:true`, `allow_google_signals:false`, `allow_ad_personalization_signals:false` → `consent update { analytics_storage: 'granted' }`.
+  - A synthetic initial `page_view` fires for the current path (redacted `page_path` + origin-prefixed `page_location`), plus a `consent_updated` event with param `consent: 'granted'`.
+- **Automated:** Partial (client/src/analytics/analytics.test.ts — start gating, idempotent start, consent persistence; not the DOM banner flow)
+
+### LAND-026 - Decline: choice persisted and GA never loads
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Beta deployment; no stored consent; network tab open.
+- **Steps:**
+  1. Load `/` and click "Decline".
+  2. Browse several pages, sign in, reload.
+  3. Filter network requests for `googletagmanager.com` / `google-analytics.com`.
+- **Expected:**
+  - `localStorage['zbb.analyticsConsent'] = 'denied'`; banner gone and does not reappear on reload.
+  - Zero requests to any Google Analytics host at any point — the script is never injected; `track()` calls are inert no-ops.
+- **Automated:** Partial (client/src/analytics/analytics.test.ts — nothing loads/fires before start; consent persistence)
+
+### LAND-027 - Analytics flag off (default): no banner anywhere
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Local/default deployment with `Features:Analytics=false` (the code default); clean browser.
+- **Steps:**
+  1. Load `/`, `/login`, `/privacy`; sign in and visit the dashboard.
+- **Expected:**
+  - The consent banner never renders on any page (`available=false`); no `zbb.analyticsConsent` key is created; no GA network traffic. (The Help page's "Privacy & analytics" card is also absent — asserted in the routing/shell sibling file.)
+- **Automated:** No
+
+### LAND-028 - Flag on but no measurement ID: banner shows, Accept is inert
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** Build without `VITE_GA_MEASUREMENT_ID` (e.g. local dev) but server `Features:Analytics=true`; clean browser.
+- **Steps:**
+  1. Load `/`; confirm the banner shows.
+  2. Click "Accept"; inspect storage and network.
+- **Expected:**
+  - Banner shows on the flag alone (by design, so it is testable without real GA).
+  - Accept persists `granted` and dismisses the banner, but `isConfigured()` is false so nothing starts: no script injection, no dataLayer, no GA requests — silently inert, no console error.
+- **Automated:** Partial (client/src/analytics/analytics.test.ts — gtag bridge inert without measurement id)
+
+### LAND-029 - Corrupted or unavailable consent storage degrades to "undecided"
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** Analytics flag on. Case A: `localStorage['zbb.analyticsConsent'] = 'yes'` (garbage). Case B: storage blocked (private-mode/permission context where `localStorage` access throws).
+- **Steps:**
+  1. Case A: load `/` and observe the banner.
+  2. Case B: load `/`, click "Accept", reload.
+- **Expected:**
+  - Case A: any value other than exactly `granted`/`denied` reads as undecided → the banner shows; no crash.
+  - Case B: the banner shows, Accept works for the session (state updates in memory) but cannot persist; after reload the banner reappears. All storage access is try/caught — no unhandled exception either way.
+- **Automated:** No
+
+### LAND-030 - No PII ever reaches GA: redacted paths and hashed user id
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** PR #77 — GA4 shipped PII-safe by design (redactPath, safeParams whitelist, hashUserId)
+- **Preconditions:** Beta deployment with consent granted; signed in as `owner@example.com`; network tab capturing GA `collect` requests.
+- **Steps:**
+  1. Navigate to a parameterized route (e.g. an account detail page `/accounts/{id}`).
+  2. Trigger a failed API call (e.g. a 404) to fire `api_error`.
+  3. Inspect every outgoing GA request payload.
+- **Expected:**
+  - `page_view` for the detail route carries the collapsed template (`/accounts/:id`), never the real id; query strings/hashes are stripped from `page_path`/`page_location`.
+  - `api_error` carries only whitelisted params (`api_endpoint` as a collapsed template, `api_status`).
+  - The GA User-ID is a 32-hex SHA-256 derivative of the email — the raw email, display name, account names or any money amount appear in NO payload.
+- **Automated:** Yes (client/src/analytics/analytics.test.ts — redactPath, apiEndpointTemplate, safeParams whitelist, hashUserId no-raw-email)
+
+### LAND-031 - GA param whitelist: sample_data passes, unknown keys are silently dropped
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** PR #170 gotcha — a new `track()` param key must be added to `ALLOWED_PARAM_KEYS` in `redact.ts` or it silently vanishes (bit the team with `sample_data`; nothing errors and tests stay green)
+- **Preconditions:** Beta deployment with consent granted; network tab capturing GA requests.
+- **Steps:**
+  1. Register a fresh account with "Start with sample figures to explore…" ticked; capture the `sign_up` event.
+  2. Register another with the box unticked; capture again.
+- **Expected:**
+  - Both `sign_up` events reach GA and include the whitelisted `sample_data` param reflecting the checkbox (true/false).
+  - No event ever carries a non-whitelisted key (spot-check payloads against the whitelist: method, line_type, direction, report_type, destination, theme, row_bucket, count_bucket, status, kind, split, step, source, context, api_endpoint, api_status, error_kind, consent, sample_data) — anything else is dropped client-side before send.
+- **Automated:** Partial (client/src/analytics/analytics.test.ts — only whitelisted events/params forwarded; client/src/pages/LoginPage.test.tsx — includeSampleData wiring)
+
+### LAND-032 - In-session opt-out does not stop gtag until the next reload
+- **Priority:** P3
+- **Type:** Edge
+- **Preconditions:** Beta deployment; consent previously granted and GA live in the current tab; Help page reachable.
+- **Steps:**
+  1. On `/help`, use "Turn off analytics" under "Privacy & analytics".
+  2. Without reloading, navigate between pages and watch GA traffic.
+  3. Reload the app and repeat.
+- **Expected:**
+  - Step 2 (documented current behavior — `gtag.ts` has no stop path): `isStarted()` stays true, so events continue to emit for the remainder of the page lifetime; no `consent update: denied` is sent in-session.
+  - Step 3: the persisted `denied` prevents the next session from starting — zero GA traffic after reload. Any change to the in-session behavior is a product decision, not a silent regression.
+- **Automated:** No
+
+## Beta banner & beta signup data-loss consent
+
+### LAND-033 - Beta build shows the beta banner on landing, login and app shell
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Beta bundle (`VITE_APP_ENV=beta`, i.e. `app.allotjar.com`); anonymous browser.
+- **Steps:**
+  1. Load `/` (landing); inspect the top strip and scroll.
+  2. Load `/login`.
+  3. Sign in and inspect the app shell.
+  4. Fetch `/` without JavaScript and search the raw HTML.
+- **Expected:**
+  - A sticky amber strip with `role="status"` reads exactly: "**Beta** — AllotJar is under active development. Features may change and your data can be reset or lost without notice." It stays pinned on scroll.
+  - Present on the landing, on `/login`, and above `<main>` in the authed shell.
+  - Step 4: the banner markup is inside the prerendered landing HTML (BetaBanner is SSR-safe and included in the beta prerender).
+- **Automated:** Partial (client/src/components/BetaBanner.test.tsx — beta variant text; the beta build is not exercised in CI e2e, no prerender assertion)
+
+### LAND-034 - Production/local build renders no beta banner
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Default build with `VITE_APP_ENV` unset (local dev) or `production` (GA promote workflow).
+- **Steps:**
+  1. Load `/`, `/login` and the authed shell.
+  2. Open `/login?register=1`.
+- **Expected:**
+  - No beta strip anywhere (`IS_BETA` false → component returns null).
+  - The registration form has NO beta data-loss checkbox — only the Terms checkbox (gating is build-time; there is no runtime toggle).
+- **Automated:** Yes (client/src/components/BetaBanner.test.tsx — renders nothing in production/default build)
+
+### LAND-035 - Beta registration requires the data-loss acknowledgment
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Beta bundle; anonymous visitor on `/login?register=1` with all other fields validly filled (names, email, password ≥ 8, currency/format, Terms ticked, sample-figures unticked).
+- **Steps:**
+  1. Leave the checkbox "I understand AllotJar is in **beta** and under active development, and that my data may be reset or permanently lost." unticked and submit.
+  2. Tick it and submit again.
+- **Expected:**
+  - Step 1: submission is blocked client-side by native `required` validation on the checkbox — no `POST /api/auth/register` fires.
+  - Step 2: registration proceeds normally (account created; the checkbox value itself is NOT sent to the API).
+- **Automated:** Partial (client/src/pages/LoginPage.test.tsx — beta build adds the required acknowledgment `/my data may be reset or permanently lost/i`; the journey layer never runs a beta build)
+
+### LAND-036 - Beta acknowledgment is client-gated only, never persisted
+- **Priority:** P2
+- **Type:** Edge
+- **Origin:** PR #121 design — matches the existing `AcceptedTerms` pattern (validated, not stored) so the live beta DB needed no schema migration
+- **Preconditions:** Beta deployment; API access (e.g. curl/Postman) and DB read access (or the ops query pack).
+- **Steps:**
+  1. Inspect the `POST /api/auth/register` payload sent by the beta form.
+  2. Call the register endpoint directly with a valid payload (no beta-consent field exists to send).
+  3. Check the created user record.
+- **Expected:**
+  - The request body carries no beta-acknowledgment field; the API accepts direct registrations without it (enforcement is client-side only — a documented, accepted limitation, not a defect).
+  - No column/claim stores the beta acknowledgment; nothing breaks on the GA build where the checkbox does not exist.
+- **Automated:** No
+
+## Coming-soon page — www/apex
+
+### LAND-037 - Host topology: www/apex serve coming-soon, app serves the beta app
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Live DNS as deployed (Cloudflare Worker `allotjar-coming-soon` on `www`+apex; `app.allotjar.com` → the VPS app). Note: the coming-soon Worker is deployed MANUALLY — verify the live page, which may lag `marketing/coming-soon/` in the repo.
+- **Steps:**
+  1. Load `https://www.allotjar.com/` and `https://allotjar.com/`.
+  2. Load `https://app.allotjar.com/` and `https://app.allotjar.com/api/features`.
+  3. Load `https://allotjar-coming-soon.chrismuscat89.workers.dev/`.
+- **Expected:**
+  - Step 1: both serve the coming-soon page — title "AllotJar — Coming soon", brand lockup (reversed cream+gold jar SVG, `aria-label="AllotJar logo"`), eyebrow "Coming soon", H1 "Give every … a job." with the cycling currency word, lede "A zero-based budgeting app built for Europe — save with sinking-fund jars and budget together as a household.", CTA "Request early access →" → `mailto:hello@allotjar.com?subject=AllotJar early access`, beta notice ("A private beta is open to invited testers…"), footer "© 2026 AllotJar · Give every euro a job. · Contact".
+  - Step 2: the app responds 200 (landing with beta banner); `/api/features` returns the flags JSON.
+  - Step 3: 404 — the workers.dev preview URL is disabled (D3 toggle); custom domains unaffected.
+- **Automated:** No
+
+### LAND-038 - Coming-soon works with zero JavaScript under CSP script-src 'none'
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** Live `www.allotjar.com`; browser with JS disabled; header-inspection tool.
+- **Steps:**
+  1. Inspect the response headers of `/`.
+  2. Load the page with JavaScript disabled.
+- **Expected:**
+  - Headers include the strict CSP with `script-src 'none'` (the `_headers` file is honored on the Worker) plus the frame protections; no scripts are served or executed.
+  - The page renders fully without JS: the currency word still cycles (CSS-only animation), the mailto CTA works, Hanken Grotesk loads from Google Fonts (allowed by the style/font CSP directives), OG meta present (canonical `https://www.allotjar.com/`).
+- **Automated:** No
+
+### LAND-039 - Currency rotator shows exactly one word from the very first frame
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** PR #134 (`0386c62`) — first-paint pile-up: all 18 absolutely-stacked words painted at once as a gold block before the opacity animation settled; final fix is a slot-machine track inside a one-line `overflow:hidden` window (geometric clipping, `margin-top` scroll)
+- **Preconditions:** Live coming-soon page (or `marketing/coming-soon/index.html` served locally); Chromium and WebKit; ability to capture the first rendered frame (e.g. Playwright screenshot on `domcontentloaded`).
+- **Steps:**
+  1. Capture frame 1 of a cold load and count the visible rotator words.
+  2. Watch a full cycle of the animation.
+  3. Reload with `prefers-reduced-motion: reduce` emulated.
+  4. Inspect the accessibility output of the H1.
+- **Expected:**
+  - Frame 1 shows exactly one word ("euro"); at no point are two or more words visible simultaneously (clipping guarantees it, including first paint) — never a gold block.
+  - The track cycles through all 18 words (euro, pound, dollar, franc, yen, rupee, krona, krone, złoty, koruna, forint, leu, rand, real, peso, dirham, riyal, lira — one per distinct `CURRENCY_NOUNS` noun, euro first; verify the list is still in sync with `client/src/lib/money.ts`); descenders (złoty, riyal) are not clipped.
+  - Reduced motion: no distracting cycling. Screen readers get the stable sr-only text — the H1 reads "Give every euro a job." (rotator is `aria-hidden`).
+- **Automated:** No (verified manually on Chromium + WebKit at fix time; nothing in CI)
+
+### LAND-040 - Two OG share images: www/og.png live, app OG URL 404 during beta (accepted)
+- **Priority:** P3
+- **Type:** Edge
+- **Origin:** staging/beta split (PR #121/#124) — the app's OG URL is deliberately GA-facing; the coming-soon `og.png` is the real public share surface during beta; the two images must be regenerated together
+- **Preconditions:** Live beta topology.
+- **Steps:**
+  1. `GET https://www.allotjar.com/og.png`.
+  2. `GET https://www.allotjar.com/og/allotjar-og.png`.
+  3. Paste `https://www.allotjar.com/` into a link-preview debugger (e.g. an OG scraper).
+- **Expected:**
+  - Step 1: 200, a 1200×630 PNG (the coming-soon share card, brand mark artwork).
+  - Step 2: 404 during beta — the Worker serves only `/og.png`; the app's `og:image` URL resolves only after GA cutover when `www` = the app. This is documented/accepted (beta host `app.allotjar.com` is unadvertised); it becomes a P1 failure only at/after GA cutover.
+  - Step 3: the preview uses the coming-soon title "AllotJar — Coming soon" and its `/og.png` image.
+- **Automated:** No
+
+## Gap-fill additions — Help page (guide & analytics controls)
+
+> Scope note: `HelpPage` (`/help`, behind `RequireAuth`, always mounted) is documented in the routing-shell map §2 but was not owned by any case file — 05-onboarding cedes "the Help page's topic cards and analytics consent controls" to a routing/shell sibling that does not exist, and LAND-027 defers the "Privacy & analytics" card to that same non-existent file. This file owns the analytics-consent surface, so the guide-link event and the analytics on/off status controls belong here; the topic-card render + route load sit here too (they may alternatively be exercised from 26-ux-states). Onboarding's "Replay welcome tour" action stays owned by ONBD-027; the in-session opt-out/gtag behavior stays owned by LAND-032 — this section adds only the untested surfaces.
+
+### LAND-041 - Help page route loads with header, subtitle and the ten topic cards
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** `owner@example.com` signed in (Help is an authed AppShell page); default/local build with `Features:Analytics=false` (so the "Privacy & analytics" card is absent and exactly ten topic cards render). Preferred currency EUR for the noun spot-check.
+- **Steps:**
+  1. From inside the app, navigate to `/help` (or deep-link `/help` while signed in — RequireAuth passes it straight through).
+  2. Read the PageHeader and its action button.
+  3. Enumerate the topic-card `h3` headings in document order.
+  4. Read the "Zero-based budgeting" card body and the "Good to know" bullet list.
+- **Expected:**
+  - Exactly one visible `<h1>` "Help & guide" (rendered by PageHeader — HelpPage passes no AppShell `title`, so there is no competing sr-only h1) with subtitle "How each part of AllotJar works." and an action button "Replay welcome tour" (its replay behavior is owned by ONBD-027; here only its presence matters).
+  - The AppShell chrome wraps the page with `active="help"` (Help nav item current); the top month bar (month picker ‹ ›, "Zero-based" pill, ThemeToggle) is present even though Help is a non-month page.
+  - Exactly ten topic-card `h3` headings in this order: "Zero-based budgeting", "Months & appearance", "Transactions", "Bills & due dates", "Accounts", "Saving with jars", "Reports", "People & allocation", "Your account", "Good to know". No "Privacy & analytics" card renders (flag off → `useAnalytics().available === false`).
+  - The "Zero-based budgeting" body uses the preferred-currency noun: "Give every euro a job until Remaining to budget reaches zero…" (noun = `currencyNoun(preferredCurrency)`; a USD owner reads "Give every dollar a job…" — same mapping as LAND-005).
+  - "Good to know" is a bulleted list containing: inline-editing ("click, type, Enter to save, Escape to cancel"), "Deleting a line or account never deletes its transactions.", the "12.50"/"12,50" cent-exact note, and the "complete user guide" link (asserted in LAND-042).
+- **Automated:** Partial (client/src/pages/HelpPage.test.tsx — asserts the "Help & guide" h1, three topic headings (Zero-based budgeting / Transactions / Accounts) and the "Replay welcome tour" button; the full ten-card set + order, the subtitle, the AppShell/nav-active chrome and the currency-noun body copy are unasserted)
+
+### LAND-042 - "complete user guide" link opens the manual in a new tab and fires help_guide_opened
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** Signed in on `/help`. To observe the GA event on the wire: beta bundle (`G-55WS48MJ91`) with consent granted and a GA `collect` capture; the link is present and clickable on any build.
+- **Steps:**
+  1. In the "Good to know" card, locate the "complete user guide" link and inspect its attributes.
+  2. Click it and observe the new browser tab and the GA network traffic.
+  3. Repeat the click with analytics declined (or the flag off).
+- **Expected:**
+  - The link `href` is exactly `https://github.com/maskit89/AllotJar/blob/main/docs/USER_GUIDE.md` with `target="_blank"` and `rel="noreferrer"` — it opens the doc in a new tab with no opener/referrer leak, leaving the `/help` tab in place.
+  - When tracking is live (step 2: beta + consent granted), the click fires exactly one `help_guide_opened` GA event (`track(EVENTS.helpGuideOpened)`), a whitelisted event name carrying no extra params.
+  - Step 3: with consent denied or the flag off, the click still navigates to the guide but sends nothing — `track()` is an inert no-op when tracking has not started (no console error, no `collect` request).
+- **Automated:** Partial (client/src/pages/HelpPage.test.tsx — asserts only that the link `href` contains `USER_GUIDE.md`; the `target="_blank"`/`rel="noreferrer"` attributes and the `help_guide_opened` emission are untested)
+
+### LAND-043 - "Privacy & analytics" card: status-text variants and the Turn on / Turn off toggle
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** `Features:Analytics=true` (flag on so `available === true`); `owner@example.com` signed in on `/help`. Each consent state is reached by seeding `localStorage['zbb.analyticsConsent']` (`granted` / `denied` / key absent) before load. Beta bundle (with `G-55WS48MJ91`) to also observe GA start; a flag-on build with no measurement ID to prove the inert path.
+- **Steps:**
+  1. With the key absent (undecided), load `/help`; read the "Privacy & analytics" card status line and button label.
+  2. Click "Turn on analytics"; inspect `localStorage`, the status line, the button label, and the bottom consent banner.
+  3. Reload with `zbb.analyticsConsent = 'denied'`; read the status line and button; then click "Turn on analytics".
+  4. With `zbb.analyticsConsent = 'granted'`, read the status line and button; then click "Turn off analytics".
+- **Expected:**
+  - The card renders only because the flag is on (`available`) as an eleventh card spanning both columns (`sm:col-span-2`); blurb: "We use Google Analytics to understand how AllotJar is used so we can improve it. We never send your name, email, account or category names, or any amounts — only anonymous page views and feature-usage events."
+  - Status text tracks the stored consent exactly, followed by ". You can change this at any time.": undecided → "Not chosen yet", `granted` → "Analytics is on", `denied` → "Analytics is off".
+  - Button label mirrors state: when `granted` → "Turn off analytics" (calls `decline()`); otherwise (denied or undecided) → "Turn on analytics" (calls `accept()`).
+  - Opt-IN (steps 2 & 3): "Turn on analytics" → `accept()` persists `localStorage['zbb.analyticsConsent'] = 'granted'`, the status flips to "Analytics is on" and the button becomes "Turn off analytics". If the bottom consent banner was showing (it shows only when consent is `null`), it disappears now that consent is no longer null. On the beta bundle this starts GA with the Consent Mode v2 sequence (cross-ref LAND-025); on a flag-on build without a measurement ID it persists `granted` but starts nothing (`isConfigured()` false — cross-ref LAND-028).
+  - Opt-OUT (step 4): "Turn off analytics" → `decline()` persists `'denied'` (the value is set, NOT cleared to `null`); the status flips to "Analytics is off" and the button becomes "Turn on analytics". The bottom consent banner does NOT reappear (it needs `consent === null`, and this is `'denied'`). Note: the map's aside that this control uses `reset()` is stale — HelpPage wires `accept`/`decline`, so the choice persists rather than reverting to undecided. In-session gtag keeps emitting until the next reload (cross-ref LAND-032).
+  - Cross-check: on a default build with the flag off, this whole card is absent (LAND-027) and no consent key is created.
+- **Automated:** No (client/src/pages/HelpPage.test.tsx renders HelpPage with only AuthProvider + MemoryRouter — no AnalyticsProvider — so `useAnalytics()` returns the NOOP context with `available === false` and this card never appears in unit tests; no e2e exercises the opt-in/opt-out status flip)
