@@ -535,3 +535,37 @@
   - Step 3: device B's access token fails the stamp check → 401 → refresh with its revoked cookie → 401 → bounce to `/login?reason=expired&returnUrl=…` with the amber notice. Device B cannot continue on the old password's session.
   - Step 4: the new password signs in; the old password now fails with "Invalid email or password."
 - **Automated:** Yes (client/e2e-journey/session-expiry.spec.ts — password change signs out device A's counterpart everywhere while the changing device's rotated cookie still refreshes, and re-login uses the new password)
+
+## Gap-fill additions
+
+*Session-side surfaces of the blocking ConsentModal. The modal's rendering, its "I agree" success path, z-order/suppression, and where it appears are owned by the households & people file (ONBD-006, UX-047, LAND-015 and journey checkpoints); these two cases cover only the parts that are pure session lifecycle: the modal keeping an authenticated-but-blocked session stuck when the consent POST fails, and its "Sign out" button being a second `logout()` exit (the same `useAuth().logout` behind SESS-037). Test login: a login whose `ConsentedUtc` is null so `/auth/me` returns `needsConsent: true` — e.g. an owner-created member login with a temporary password, or a direct-invite login on its first sign-in — which lands on the non-dismissible "One thing before you start" dialog immediately after signing in. Registration and invite-link acceptance record consent up front, so `owner@example.com` never hits this.*
+
+### SESS-041 - Consent POST failure shows the exact error banner and keeps the session blocked
+- **Priority:** P2
+- **Type:** Negative
+- **Preconditions:** Signed in as a `needsConsent` login (see section note), sitting on the blocking ConsentModal ("One thing before you start"). Devtools open with the ability to make `POST /api/auth/consent` fail — request-block it to a 500, or set the network to Offline for the click.
+- **Steps:**
+  1. With the modal showing, arrange for `POST /api/auth/consent` to fail (block-to-500 or Offline).
+  2. Click "I agree" and watch the button and the dialog.
+  3. Remove the failure (unblock / go back Online) and click "I agree" again.
+- **Expected:**
+  - Step 2: the primary button reads "Please wait…" while `busy`, then reverts to "I agree"; `confirmConsent()` throws (the POST rejects), `onAgree`'s `catch` sets `error` → a `role="alert"` paragraph appears with the EXACT text "Something went wrong saving your agreement — please try again."
+  - The dialog stays open and blocking — `needsConsent` is NOT cleared (`setNeedsConsent(false)` runs only after a resolved POST), the backdrop still covers the app, and Onboarding stays unmounted underneath (`isAuthenticated && !needsConsent` is still false). The user is neither let in nor signed out.
+  - The session itself is untouched: the failure is a plain rejected data POST (a 500, not a 401), so no `/auth/refresh` and no `sessionExpired()` bounce fire — the access token is still live.
+  - Step 3: the retried "I agree" posts `/auth/consent` → 204; the alert and the whole dialog disappear and the app unblocks (Onboarding may then mount). The error banner is transient — a fresh `onAgree` clears `error` before awaiting.
+- **Automated:** No (client/src/components/ConsentModal.test.tsx covers the success path and asserts the sign-out affordance exists, but the `confirmConsent`-throws → error-banner branch has no test)
+
+### SESS-042 - "Sign out" from the blocking consent prompt abandons the session (second logout exit)
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** Signed in as a `needsConsent` login that deep-linked in — sign out, paste a guarded route like `/account` into the address bar, sign in, so `navigate(returnUrl)` lands on `/account` with the ConsentModal blocking it. Copy the current bearer token and note `zbb_rt` beforehand.
+- **Steps:**
+  1. On the ConsentModal, click "Sign out".
+  2. Inspect the network log, localStorage, the cookie, and the resulting URL.
+  3. Sign back in with the same login.
+- **Expected:**
+  - Step 1: the "Sign out" button is wired straight to `useAuth().logout` (ConsentModal.tsx:81 `onClick={logout}`) — the SAME `logout()` as the account menu: fire-and-forget `POST /auth/logout` → 204 (refresh token revoked, security stamp rotated, `Set-Cookie` deleting `zbb_rt`), then `clearAuthState()` wipes the in-memory token and the `zbb.email`/`zbb.role`/`zbb.displayName` hints AND resets `needsConsent` to false, then `broadcastSignOut()` posts `'signed-out'` on the `zbb.auth` channel. (Unlike the account-menu sign-out in SESS-037, this button does NOT emit the analytics `logout` event — it calls `logout` directly, with no analytics wrapper.)
+  - Step 2: with the token gone, `isAuthenticated` flips false → the ConsentModal unmounts and `RequireAuth` for `/account` navigates to `/login?returnUrl=%2Faccount`, with NO `reason=expired` param and no amber notice — this was a chosen sign-out, not an expiry. `zbb_rt` is cleared; the identity hints are gone. (Variant: a `needsConsent` login that never deep-linked is sitting on the public `/`; there, signing out has no guarded route to bounce, so it simply renders the LandingPage signed-out — still no `/login`, still no `reason` banner.)
+  - "Sign out" and "I agree" are the ONLY exits — the dialog exposes no close/dismiss/✕ control, and the backdrop is not click-to-close.
+  - Step 3: the login is still un-consented server-side (`ConsentedUtc` is still null — nothing stamped it), so `/auth/me` again returns `needsConsent: true` and the blocking ConsentModal re-appears. Signing out truly abandoned the session without agreeing.
+- **Automated:** Partial (client/src/components/ConsentModal.test.tsx asserts the "Sign out" button exists and that no close/dismiss control is present, but never clicks it or asserts the logout side-effects; the underlying logout mechanics are covered by SESS-037 and client/e2e-journey/session-expiry.spec.ts)

@@ -620,3 +620,48 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
 - **Automated:** No
 
 ---
+
+## Gap-fill additions
+
+### ROLE-050 - Switching to a household you have no ACTIVE membership in is refused (404, not a role denial)
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Lena (Limited in H1, Owner in H2). A third household **H3** owned by someone else that Lena either has no membership in at all, or holds only an *Invited* (pending, not-yet-accepted) membership in. `/households/switch` is `[Authorize]`-only, no role gate.
+- **Steps:**
+  1. As Lena, direct-call `POST /households/switch {ownerId: <H3 owner id>}` where she has no membership in H3.
+  2. As Lena holding only an *Invited* (unaccepted) membership in H3, repeat the switch.
+  3. As Lena, `POST /households/switch {ownerId: <Lena's own user id>}` (her own household).
+- **Expected:** Steps 1–2 → **404** `{error:"You don't have access to that household."}`. `HouseholdsController.Switch` requires `isOwn || an Active membership` at the target (`m.Status == MembershipStatus.Active` only) — an *Invited* row does NOT qualify, so a pending invitee must accept the invite (ROLE-037/040) before they can switch in. Step 3 → **204** (your own `userId` always qualifies via `isOwn`, even with no membership row — the self-owner fallback of ROLE-052). This is an **access-scope** refusal (you may only act inside households you actually belong to), orthogonal to the role pipeline: switch carries no role gate (ROLE-033), but the target must be one of your active households. On the 404 nothing is persisted — `ActiveOwnerId` is left unchanged (the NotFound returns before the user update).
+- **Automated:** No (`ActiveHouseholdSelectorTests.cs` covers the `Pick` selection logic; the controller's `hasAccess`→404 refusal for a non-/pending-member is not asserted)
+
+### ROLE-051 - Leaving a household you never joined is refused (404); leave is bounded to your own active memberships
+- **Priority:** P2
+- **Type:** Negative
+- **Preconditions:** Rhea (Read-only in H1). A household **H4** Rhea has no Active membership in — never joined, or only *Invited*. `/households/leave` is `[Authorize]`-only, no role gate.
+- **Steps:**
+  1. As Rhea, direct-call `POST /households/leave {ownerId: <H4 owner id>}` where she has no Active membership there.
+  2. As Rhea holding only an *Invited* membership in H4, repeat.
+- **Expected:** Both → **404** `{error:"You don't have access to that household."}`. `Leave` looks up an **Active** membership for `(userId, ownerId)`; finding none it returns 404 and removes nothing. Leave is self-service (any role may call it — ROLE-033) but bounded: you can only leave a household you are an *active* member of, and an unaccepted invite is not a membership you can "leave". Contrast ROLE-030 (owner leaving their OWN household → **400** business rule) and ROLE-041 (a valid non-owner leave hard-deletes only that membership row and falls back to your own household). No `HouseholdMembership` row is deleted on this 404 path.
+- **Automated:** No (journey `invite.spec.ts` exercises a valid member leave; the non-member 404 path is not asserted)
+
+### ROLE-052 - A login with zero active memberships resolves as Owner of its own household (self-owner fallback)
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** A login with **no** `Active` `HouseholdMembership` rows — e.g. a brand-new registrant in the instant before its owner-membership row is seeded, legacy pre-membership data, or a member whose sole membership was just revoked and whose own household is not yet materialized. `HouseholdResolutionMiddleware` runs after authentication on every request.
+- **Steps:**
+  1. As such a login, make any authenticated request and read the resolved context (`/auth/me` `role`).
+  2. Attempt an Admin+ command against their OWN data, e.g. `POST /budget/categories`.
+  3. Attempt to read or write ANOTHER household's data by id.
+- **Expected:** With zero Active memberships the middleware takes its `else` branch: `household.OwnerId = userId`, `household.Role = HouseholdRole.Owner`, `household.Resolved = true` — the caller is treated as **Owner of their own household**, so `role = 0` and step 2 → **201** (Owner ⇒ always permitted). This is distinct from ROLE-004's `role is null ⇒ skip`: here a role IS resolved (Owner), so `AuthorizationBehaviour` runs and *permits* rather than being bypassed. Step 3 → still only their own `OwnerId`-scoped data is reachable (every handler is owner-scoped; no Active membership grants any other household), so the self-owner role confers power over self only, never a foreign household. This fallback is why a freshly-registered or just-revoked login is never locked out of its own budget — it dovetails with ROLE-041's graceful post-revoke fallback and the phantom-own-household edge (PPL-064).
+- **Automated:** Partial (`MembershipSeederTests.cs` / `HouseholdBootstrapTests.cs` cover the seeded owner membership + idempotency; the middleware's zero-membership⇒Owner resolution is not directly asserted)
+
+### ROLE-053 - The role gate triggers only on the "Command" type-name suffix, and fails closed on an unrecognized role
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** Source: `AuthorizationBehaviour.Handle` computes `isCommand = type.Name.EndsWith("Command", Ordinal)` and calls `IsPermitted` **only** when `isCommand`; the role `switch` in `IsPermitted` carries a `_ => false` default arm. Every MediatR request in the codebase is named `…Command` (writes) or `…Query` (reads).
+- **Steps:**
+  1. Enumerate the MediatR requests dispatched from every controller; confirm each mutating one ends in `Command` and each read ends in `Query`.
+  2. Reason through a hypothetical request whose type name ends in neither (e.g. `…Request`, `…Job`) as it passes `AuthorizationBehaviour`.
+  3. Reason through a resolved role value outside {Owner, Admin, Limited, ReadOnly} (a corrupt/out-of-range persisted role) dispatching a Command vs a Query.
+- **Expected:** (1) The naming convention is **load-bearing enforcement** — only `…Command` requests are role-checked; `…Query` requests bypass the gate entirely (as ROLE-002 asserts for reads). (2) A request ending in *neither* suffix is treated like a Query: `isCommand` is false, `IsPermitted` is never consulted, and **no role check fires** — a state-changing request not named `…Command` would silently escape role gating. QA/security invariant: audit that every mutating request type ends in `Command` (not a bare `…Request`/handler that writes), because the suffix, not the effect, is what the pipeline keys on. (3) An unrecognized role hitting a Command falls through `_ => false` ⇒ **403** (fails **closed** — denies, never grants), while the same role on a Query still passes (queries never reach `IsPermitted`). The pipeline never fails open on an unknown role, but it *does* depend on the suffix convention to recognize a write as a write.
+- **Automated:** Partial (`AuthorizationBehaviourTests.cs` proves the Command/Query split and the four defined role arms; the non-Command/non-Query bypass and the `_ => false` fail-closed default arm are not separately asserted)

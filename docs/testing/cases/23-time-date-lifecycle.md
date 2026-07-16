@@ -308,7 +308,7 @@
   - `ResolveDateFormat` picks the single format parsing the most rows, tie-broken by preference order (ISO first, then **dd/MM before MM/dd**), so `03/07/2026` is read as **3 July 2026**, not 7 March; the label echoes "DD/MM/YYYY" and pins it into the mapping for re-scans.
   - Every row uses that one format; the applied format is echoed as `ResolvedDateFormat`. Overriding "Date format" to MM/DD/YYYY and re-scanning re-reads the whole file as month-first.
   - A file that only parses cleanly under MM/dd resolves to MM/dd; PR #154's accepted trade-off is that such rows re-appear once after the format lock changed how they were previously read.
-- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/GenericCsvImporterTests.cs — one date format locked for the whole file; explicit date format wins over scan; client ImportPage.test.tsx — "We read your dates as …" readout)
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Imports/GenericCsvImporterTests.cs — one date format locked for the whole file; explicit date format wins over scan; client ImportPage.test.tsx — "We read your dates as …" readout)
 
 ### TIME-023 - A 2-digit-year CSV pivots via the invariant-culture window and stores a 4-digit year in the reference
 - **Priority:** P1

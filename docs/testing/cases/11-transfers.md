@@ -471,4 +471,16 @@
 - **Expected:**
   - Limited: `CreateTransferCommand` is `[AllowLimited]` → 201, the transfer is recorded (Limited cannot create accounts, but can move between existing ones).
   - ReadOnly: `AuthorizationBehaviour` → 403 **"Your access level (ReadOnly) does not permit this action."**; nothing created. (Full per-role matrix lives in the households & roles file.)
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Auth/AuthorizationBehaviourTests.cs — Limited runs AllowLimited commands, ReadOnly blocked; client/src/pages/RoleGating.test.tsx — UI entry gating)
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/AuthorizationBehaviourTests.cs — Limited runs AllowLimited commands, ReadOnly blocked; client/src/pages/RoleGating.test.tsx — UI entry gating)
+
+### TRF-040 - Server rejects an empty or omitted account id (NotEmpty → 400, not a 404 lookup miss)
+- **Priority:** P2
+- **Type:** Negative
+- **Preconditions:** trf-owner signed in (active household "Move-It"); account "Current" exists.
+- **Steps:**
+  1. `POST /api/transactions/transfer {date, amount: 10, fromAccountId: "00000000-0000-0000-0000-000000000000", toAccountId: <Current>}` (all-zero source Guid).
+  2. `POST /api/transactions/transfer {date, amount: 10, toAccountId: <Current>}` — `fromAccountId` omitted, so the `CreateTransferRequest` record deserializes it to `Guid.Empty`.
+- **Expected:**
+  - Both requests fail `CreateTransferCommandValidator` `RuleFor(x => x.FromAccountId).NotEmpty()` (and symmetrically `.ToAccountId).NotEmpty()` for an empty destination) → **400** with the default FluentValidation message (field shown as **"From Account Id"** / **"To Account Id"** — validator carries no custom `.WithMessage` here). The client would surface only the generic **"Could not record that transfer."**
+  - Validation runs in `ValidationBehaviour` **before** the handler, so the account lookups at `CreateTransferCommandHandler` never execute: an empty Guid never reaches the `NotFoundException` path that a random *non-empty* unknown id hits in TRF-037. Nothing is created; no balance moves.
+- **Automated:** No
