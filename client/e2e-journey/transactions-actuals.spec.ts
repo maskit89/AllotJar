@@ -254,6 +254,46 @@ test('expense transactions drive real line actuals: explicit assign, payee inher
   await expect(panelHeader).toContainText('200.00 of')
 })
 
+test('the auto-categorizer never inherits a payee match from another household', async ({
+  page,
+  browser,
+}) => {
+  // --- TX-042: the suggestion index is owner-scoped (AutoCategorizer filters
+  // t.OwnerId == ownerId), so household A teaching "Cross Cafe" → Groceries must
+  // leak nothing into household B — even though B has a line with the SAME name,
+  // which a naive name-based cross-owner match would happily resolve to.
+
+  // Household A, in its own browser context (own cookie jar): teach the payee.
+  const contextA = await browser.newContext()
+  const pageA = await contextA.newPage()
+  await register(pageA)
+  await startBlankBudget(pageA)
+  await addExpenseGroup(pageA, 'Everyday')
+  await addLine(pageA, 'Everyday', 'Groceries')
+  await pageA.getByRole('link', { name: 'Transactions' }).click()
+  await addTransaction(pageA, { payee: 'Cross Cafe', amount: '15', category: 'Groceries' })
+  await expect(
+    pageA.locator('tbody tr').first().getByRole('button', { name: /^Reassign/ }),
+  ).toContainText('Groceries')
+  await contextA.close()
+
+  // Household B: an unassigned "Cross Cafe" stays unassigned — no cross-household
+  // inheritance (and no crash from a foreign BudgetItemId).
+  await register(page)
+  await startBlankBudget(page)
+  await addExpenseGroup(page, 'Everyday')
+  await addLine(page, 'Everyday', 'Groceries')
+  await page.getByRole('link', { name: 'Transactions' }).click()
+  await addTransaction(page, { payee: 'Cross Cafe', amount: '9' })
+  await expect(
+    page.locator('tbody tr').first().getByRole('button', { name: 'Assign Cross Cafe', exact: true }),
+  ).toBeVisible()
+
+  // And B's Groceries actual is untouched by A's 15.00 — only planning-free zeros.
+  await page.getByRole('link', { name: 'Budget' }).click()
+  await expect(budgetLineRow(page, 'Groceries')).toContainText('0.00 of')
+})
+
 test('deleting a budget line or an account detaches its transactions but never deletes them', async ({
   page,
 }) => {

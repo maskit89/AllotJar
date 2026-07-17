@@ -276,6 +276,15 @@ test('client-side transfer validation blocks bad input without an API call, and 
   await dialog.getByRole('button', { name: 'Record transfer', exact: true }).click()
   await expect(dialog.getByText('Enter a valid transfer amount greater than zero.')).toBeVisible()
 
+  // --- TRF-012: negative, empty and whitespace-only amounts all hit the same
+  // client short-circuit (parseMinor → null) with the same string; the
+  // transferPosts counter asserted below proves none of them sent a POST.
+  for (const bad of ['-50', '', '   ']) {
+    await dialog.getByLabel('Transfer amount').fill(bad)
+    await dialog.getByRole('button', { name: 'Record transfer', exact: true }).click()
+    await expect(dialog.getByText('Enter a valid transfer amount greater than zero.')).toBeVisible()
+  }
+
   // --- TRF-013: a valid amount but a missing source is blocked next.
   await dialog.getByLabel('Transfer amount').fill('50')
   await dialog.getByLabel('Transfer from account').selectOption({ label: 'Choose…' })
