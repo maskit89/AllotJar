@@ -106,7 +106,8 @@ for (const theme of ['light', 'dark'] as const) {
       await expectNoViolations(page)
 
       await page.goto('/reset-password?email=owner%40example.com&token=tok')
-      await page.getByLabel('New password').waitFor()
+      // exact — "Confirm new password" substring-matches "New password" otherwise.
+      await page.getByLabel('New password', { exact: true }).waitFor()
       await expectNoViolations(page)
 
       // Incomplete-link recovery state (no token in the URL).

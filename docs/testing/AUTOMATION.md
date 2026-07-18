@@ -8,20 +8,21 @@ automated, write the closest proxy and **flag the rest here** rather than preten
 
 | Layer | Location | Run | Tests | New |
 |---|---|---|---|---|
-| Backend unit (xUnit, EF InMemory) | `tests/AllotJar.Application.Tests` | `dotnet test tests/AllotJar.Application.Tests` | **648** | +206 |
-| Client component (Vitest + RTL) | `client/src/**/*.catalog*.test.tsx` | `cd client && npm run test` | **593** | +350 |
-| Journey e2e (live API + real SQL) | `client/e2e-journey` | `cd client && npm run test:e2e:journey` | **34** | +25 |
-| a11y / responsive / UX (stubbed API) | `client/e2e` | `cd client && npm run test:e2e` | **96** | +46 |
-| HTTP integration (in-process API + real SQL) | `tests/AllotJar.IntegrationTests` | `dotnet test tests/AllotJar.IntegrationTests` | **30** | +15 |
-| **Total** | | | **1,401** | **+642** |
+| Backend unit (xUnit, EF InMemory) | `tests/AllotJar.Application.Tests` | `dotnet test tests/AllotJar.Application.Tests` | **659** | +206 |
+| Client component (Vitest + RTL) | `client/src/**/*.catalog*.test.tsx` | `cd client && npm run test` | **602** | +350 |
+| Journey e2e (live API + real SQL) | `client/e2e-journey` | `cd client && npm run test:e2e:journey` | **36** | +25 |
+| a11y / responsive / UX (stubbed API) | `client/e2e` | `cd client && npm run test:e2e` | **98** | +46 |
+| HTTP integration (in-process API + real SQL) | `tests/AllotJar.IntegrationTests` | `dotnet test tests/AllotJar.IntegrationTests` | **33** | +15 |
+| **Total** | | | **1,428** | **+642** |
 
 Delivered as four PRs, each independently verified green and CI-passing: **#178** (backend, merged),
 **#179** (client, merged), **#180** (journey), **#181** (a11y). Every added test cites the catalog case
 id(s) it automates; coverage was cross-checked against `maps/automated-tests.md` to avoid duplication.
 The Tests column is the current measured count (2026-07-18) — it has since grown past the four-PR
-delivery via the #183 bug-fix un-skips, the #184 regression pins, and the residual-gap closure
+delivery via the #183 bug-fix un-skips, the #184 regression pins, the residual-gap closure
 (`ExcludeFromAllocationCoverageTests` +2 backend; the UX-036 account-detail and OS-live theme
-e2e specs +3); the New column still documents the original automation drive. The HTTP integration
+e2e specs +3), and the password-reset feature (REG-051..066: +11 backend, +9 Vitest, +3 HTTP
+integration, +2 journey, +2 a11y scans); the New column still documents the original automation drive. The HTTP integration
 row is the out-of-slnx SQL Server project (CI `integration` job): its 15 pre-existing FK crash-path
 tests (previously untracked here) plus the 15-test HTTP harness (`tests/AllotJar.IntegrationTests/Http/`)
 that boots the real API in-process via `WebApplicationFactory` — an anonymous per-endpoint 401
