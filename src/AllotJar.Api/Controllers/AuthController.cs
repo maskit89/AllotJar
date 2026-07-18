@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using AllotJar.Api.Contracts.Auth;
 using AllotJar.Application.Auth.Commands.Login;
@@ -31,7 +32,7 @@ public class AuthController : ControllerBase
     private readonly ISender _mediator;
     private readonly ICurrentUser _currentUser;
     private readonly IWebHostEnvironment _env;
-    private readonly IEmailSender _emailSender;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly EmailSettings _emailSettings;
     private readonly ILogger<AuthController> _logger;
 
@@ -43,7 +44,7 @@ public class AuthController : ControllerBase
         ISender mediator,
         ICurrentUser currentUser,
         IWebHostEnvironment env,
-        IEmailSender emailSender,
+        IServiceScopeFactory scopeFactory,
         IOptions<EmailSettings> emailSettings,
         ILogger<AuthController> logger)
     {
@@ -54,7 +55,7 @@ public class AuthController : ControllerBase
         _mediator = mediator;
         _currentUser = currentUser;
         _env = env;
-        _emailSender = emailSender;
+        _scopeFactory = scopeFactory;
         _emailSettings = emailSettings.Value;
         _logger = logger;
     }
@@ -238,36 +239,57 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Emails a password-reset link if (and only if) an account exists for the address. The
-    /// response is 204 either way, in the same shape and on the same path, so the endpoint can't
-    /// be used to enumerate which emails have accounts. Send failures are logged, never surfaced.
+    /// Emails a password-reset link if (and only if) an account exists for the address. Always 204,
+    /// in the same shape and on the same path — and the lookup + provider send run OFF the request
+    /// path (see <see cref="DispatchResetEmail"/>), so the response is also constant-TIME: a real
+    /// and an unknown address are indistinguishable by both body and latency, closing the timing
+    /// side-channel a synchronous send would open. (Account existence is still learnable from the
+    /// register endpoint's duplicate-email message — an accepted, separate trade-off.)
     /// </summary>
     [HttpPost("forgot-password")]
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> ForgotPassword(ForgotPasswordRequest request, CancellationToken ct)
+    public IActionResult ForgotPassword(ForgotPasswordRequest request)
     {
-        var user = await _userManager.FindByEmailAsync(request.Email);
-        if (user is not null)
+        DispatchResetEmail(request.Email);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Looks up the account and sends the reset email as detached, best-effort work — deliberately
+    /// NOT awaited by the request. Two reasons: (1) the HTTP response must not depend on (or be
+    /// timed against) the provider round-trip, and (2) a slow/timing-out Resend call must not hang
+    /// the caller for the HttpClient timeout. A fresh DI scope is created because the request scope
+    /// (and its scoped <see cref="UserManager{TUser}"/>) is disposed the moment we return 204.
+    /// </summary>
+    private void DispatchResetEmail(string email)
+    {
+        _ = Task.Run(async () =>
         {
             try
             {
-                var token = await _userManager.GeneratePasswordResetTokenAsync(user);
-                // The base URL comes from config only — building it from the request's Host
-                // header would let a spoofed header steer the emailed link to an attacker.
+                using var scope = _scopeFactory.CreateScope();
+                var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+                var user = await users.FindByEmailAsync(email);
+                if (user is null)
+                {
+                    return; // unknown address — nothing to send, and never revealed to the caller
+                }
+
+                var token = await users.GeneratePasswordResetTokenAsync(user);
+                // The base URL comes from config only — building it from the request's Host header
+                // would let a spoofed header steer the emailed link to an attacker.
                 var link = $"{_emailSettings.AppBaseUrl.TrimEnd('/')}/reset-password" +
                            $"?email={Uri.EscapeDataString(user.Email!)}&token={Uri.EscapeDataString(token)}";
-                await _emailSender.SendAsync(PasswordResetEmail.Build(user.Email!, link), ct);
+                var sender = scope.ServiceProvider.GetRequiredService<IEmailSender>();
+                await sender.SendAsync(PasswordResetEmail.Build(user.Email!, link));
             }
             catch (Exception ex)
             {
-                // Still 204: an "email failed" response would confirm the account exists.
                 _logger.LogError(ex, "Failed to send a password-reset email.");
             }
-        }
-
-        return NoContent();
+        });
     }
 
     /// <summary>
@@ -305,6 +327,13 @@ public class AuthController : ControllerBase
 
             return BadRequest(new { errors = result.Errors.Select(e => e.Description) });
         }
+
+        // A reset proves control of the account's email, so clear any active lockout. Otherwise a
+        // user who reset BECAUSE they'd locked themselves out (5 failed sign-ins → 15-min lockout,
+        // the most common reset trigger) would find the correct NEW password still refused as
+        // "temporarily locked" on their other devices for the rest of the window.
+        await _userManager.SetLockoutEndDateAsync(user, null);
+        await _userManager.ResetAccessFailedCountAsync(user);
 
         await _refreshTokens.RevokeAllForUserAsync(user.Id, ct);
         await IssueRefreshCookieAsync(user.Id, ct);

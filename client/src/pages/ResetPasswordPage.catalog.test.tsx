@@ -83,8 +83,10 @@ describe('ResetPasswordPage (catalog REG-063/REG-065)', () => {
     mockGet.mockResolvedValue({ data: { role: 0, email: 'owner@example.com', households: [] } })
     renderAt(LINK)
 
-    // The page names the account being reset (decoded from the query).
+    // The page names the account being reset (decoded from the query) and warns that a reset
+    // signs the user out of their other devices (REG-063 expected copy).
     expect(screen.getByText('owner@example.com')).toBeInTheDocument()
+    expect(screen.getByText(/signs you out everywhere else/i)).toBeInTheDocument()
 
     await fillPasswords('Aa1-fresh-secret')
     await userEvent.click(screen.getByRole('button', { name: 'Set new password' }))

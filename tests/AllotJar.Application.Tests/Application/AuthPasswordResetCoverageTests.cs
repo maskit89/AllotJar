@@ -168,20 +168,37 @@ public class AuthPasswordResetCoverageTests
     // Group B — outbound email plumbing
     // ---------------------------------------------------------------------------------------------
 
-    // REG-054 — the reset email carries the link in BOTH bodies (text clients + html clients), and
-    // states the lifetime so the user knows why a stale link failed.
+    // REG-054 — the reset email carries the link in BOTH bodies (text clients + html clients),
+    // states the lifetime in each, includes the "didn't request this — ignore it" reassurance, and
+    // embeds NO external images/trackers (mail-client privacy + nothing to block).
     [Fact]
-    public void Reset_email_carries_the_link_in_both_bodies()
+    public void Reset_email_is_self_contained_with_the_link_lifetime_and_ignore_note_in_both_bodies()
     {
         const string link = "https://www.allotjar.com/reset-password?email=a%40b.com&token=x%2By";
 
         var message = PasswordResetEmail.Build("a@b.com", link);
+        var lifetime = $"{PasswordResetEmail.LinkLifetimeHours} hours";
 
         message.ToEmail.Should().Be("a@b.com");
-        message.Subject.Should().Contain("password");
+        message.Subject.Should().Contain("Reset").And.Contain("password");
+
+        // The link is present in both bodies (raw in text, HTML-encoded in markup).
         message.TextBody.Should().Contain(link);
         message.HtmlBody.Should().Contain(WebUtility.HtmlEncode(link));
-        message.TextBody.Should().Contain($"{PasswordResetEmail.LinkLifetimeHours} hours");
+
+        // The lifetime is stated in BOTH bodies (a text-only client must see it too).
+        message.TextBody.Should().Contain(lifetime);
+        message.HtmlBody.Should().Contain(lifetime);
+
+        // The reassurance note is in both bodies.
+        message.TextBody.Should().Contain("didn't request");
+        message.HtmlBody.Should().Contain("didn't request");
+
+        // No external images/trackers: the only http(s) URLs in the HTML are the reset link itself.
+        message.HtmlBody.Should().NotContain("<img");
+        var encodedLink = WebUtility.HtmlEncode(link);
+        message.HtmlBody.Replace(encodedLink, string.Empty).Should().NotContain("http",
+            "the reset link is the ONLY external URL — no tracking pixels, CDN assets or unsubscribe hosts");
     }
 
     // The dev-mailbox capture the journey e2e suite depends on: per-recipient, most recent first,

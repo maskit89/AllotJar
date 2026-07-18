@@ -45,8 +45,18 @@ builder.Services.Configure<FeatureFlags>(builder.Configuration.GetSection(Featur
 var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];
 if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
 {
-    builder.Services.AddDataProtection()
+    var dataProtection = builder.Services.AddDataProtection()
         .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
+
+    // Encrypt the key ring AT REST. The IIS app pool runs without a loaded user profile (the very
+    // reason the keys can't stay in-memory), so CurrentUser DPAPI auto-encryption isn't available
+    // and the keys would otherwise be written in PLAINTEXT — anyone who can read the folder or a
+    // backup of it could forge reset tokens. LocalMachine DPAPI works with no user profile. It's
+    // Windows-only, which is exactly where this path is ever set (the production VPS).
+    if (OperatingSystem.IsWindows())
+    {
+        dataProtection.ProtectKeysWithDpapi(protectToLocalMachine: true);
+    }
 }
 
 // CORS for the Vite dev server (configurable via Cors:AllowedOrigins).

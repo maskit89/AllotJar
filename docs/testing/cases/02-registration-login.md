@@ -675,11 +675,11 @@
 - **Type:** Security
 - **Preconditions:** Direct API access; Development mailbox (setup note g).
 - **Steps:**
-  1. `POST /api/auth/forgot-password` with a registered email; read the mailbox.
+  1. `POST /api/auth/forgot-password` with a registered email; read the mailbox (`GET /api/dev/emails`).
   2. Same with an unknown email; read the mailbox.
 - **Expected:**
-  - Both answer **204 No Content** in the same shape/path (no enumeration oracle). Only the registered address has a captured email. A provider/send failure is logged server-side and STILL answers 204.
-- **Automated:** Full (tests/AllotJar.IntegrationTests/Http/PasswordResetFlowTests.cs — REG-053)
+  - Both answer **204 No Content** in the same shape/path AND the same TIME (no enumeration oracle by status, body, or latency). Only the registered address has a captured email. The lookup + send run OFF the request path (`DispatchResetEmail`), so the 204 is unconditional — a provider/send failure can never turn into a 500 for existing accounts (which would itself be an oracle); the failure is logged in the background. The Development mailbox endpoint's serialized JSON shape (`subject`/`textBody`) is pinned so the journey specs' contract is gated.
+- **Automated:** Full (tests/AllotJar.IntegrationTests/Http/PasswordResetFlowTests.cs — REG-053 async-mailbox capture, unknown-email empty, mailbox JSON shape; send-failure-still-204 is now structural — the send is never awaited)
 
 ### REG-054 - The reset email carries the link in both bodies and states the lifetime
 - **Priority:** P2
@@ -719,8 +719,8 @@
 - **Steps:**
   1. Reset the password; compare the security stamp; replay the pre-reset bearer on `GET /auth/me`.
 - **Expected:**
-  - Stamp differs after the reset; the pre-reset access token is 401 (JWT sstamp check); all refresh tokens are revoked server-side (`RevokeAllForUserAsync`).
-- **Automated:** Full (AuthPasswordResetCoverageTests — REG-057; PasswordResetFlowTests stale-bearer leg)
+  - Stamp differs after the reset; the pre-reset access token is 401 (JWT sstamp check); all refresh tokens are revoked server-side (`RevokeAllForUserAsync`) — presenting the registration-time refresh cookie to `/auth/refresh` after the reset is a 401.
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-057 stamp rotation; PasswordResetFlowTests — stale pre-reset BEARER 401 AND stale pre-reset refresh-COOKIE 401)
 
 ### REG-058 - A redeemed reset link is single-use
 - **Priority:** P1
@@ -748,9 +748,11 @@
 - **Preconditions:** Unit level; token lifespan shrunk to zero for determinism (production: 2h via `DataProtectionTokenProviderOptions`, `DependencyInjection.cs`).
 - **Steps:**
   1. Generate a token; let it expire; redeem.
+  2. Separately, assert the REAL application container's configured lifespan is 2h (guards against the DI registration being dropped, which would silently revert to Identity's 24h default).
 - **Expected:**
-  - `InvalidToken` — surfaced to the user as the same generic invalid-link message (no hint whether the token was expired, tampered or foreign).
-- **Automated:** Full (AuthPasswordResetCoverageTests — REG-060)
+  - Step 1: `InvalidToken` — surfaced to the user as the same generic invalid-link message (no hint whether the token was expired, tampered or foreign).
+  - Step 2: `IOptions<DataProtectionTokenProviderOptions>.Value.TokenLifespan == 2h` resolved from the booted app.
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-060 expiry; PasswordResetFlowTests — real-container 2h lifespan)
 
 ### REG-061 - A policy-failing new password does not burn the token
 - **Priority:** P2
@@ -820,3 +822,16 @@
 - **Expected:**
   - No WCAG 2.x A/AA violations in any of the four states × two themes.
 - **Automated:** Full (client/e2e/a11y.spec.ts — REG-066)
+
+### REG-067 - A successful reset clears an active lockout
+- **Priority:** P2
+- **Type:** Negative
+- **Origin:** Adversarial review of the password-reset PR — reset didn't clear lockout, so a user who reset *because* they were locked out still couldn't sign in.
+- **Preconditions:** A registered account; direct API access (Development mailbox, setup note g).
+- **Steps:**
+  1. Fail sign-in 5 times to trip the 15-minute lockout; confirm even the correct old password is refused ("temporarily locked").
+  2. Forgot-password → reset via the emailed link → set a new password.
+  3. Immediately sign in with the new password.
+- **Expected:**
+  - Step 3 succeeds — the reset cleared `LockoutEnd` + `AccessFailedCount` (`SetLockoutEndDateAsync(null)` + `ResetAccessFailedCountAsync`), so the new password isn't refused as locked. Without the fix, the reset signs the device in but login elsewhere stays locked for the rest of the window.
+- **Automated:** Full (tests/AllotJar.IntegrationTests/Http/PasswordResetFlowTests.cs — REG-067)

@@ -1,6 +1,30 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { register, uniqueEmail } from './helpers'
+
+/**
+ * Read the reset link from the Development mailbox. The forgot-password send is dispatched OFF the
+ * request path (so the endpoint is constant-time / non-enumerating), so the email isn't in the
+ * mailbox the instant the 204 returns — poll until it lands, then extract the link.
+ */
+async function waitForResetLink(page: Page, email: string): Promise<string> {
+  let link: string | undefined
+  await expect
+    .poll(
+      async () => {
+        const res = await page.request.get(`/api/dev/emails?to=${encodeURIComponent(email)}`)
+        const messages: Array<{ subject: string; textBody: string }> = await res.json()
+        link = messages[0]?.textBody
+          ?.split('\n')
+          .map((l) => l.trim())
+          .find((l) => l.startsWith('http') && l.includes('/reset-password?'))
+        return link ?? ''
+      },
+      { message: 'reset email should land in the dev mailbox', timeout: 10_000 },
+    )
+    .not.toBe('')
+  return link!
+}
 
 /**
  * REG-063 as a whole-stack journey: forgot-password → the actual emailed link (read back from the
@@ -27,18 +51,11 @@ test('a forgotten password is recovered via the emailed link', async ({ page }) 
   await expect(page.getByRole('status')).toContainText('If an account exists')
 
   // Read the email a real recipient would have received and follow its link verbatim.
-  const mailbox = await page.request.get(`/api/dev/emails?to=${encodeURIComponent(email)}`)
-  const messages: Array<{ subject: string; textBody: string }> = await mailbox.json()
-  expect(messages.length).toBeGreaterThan(0)
-  expect(messages[0].subject).toContain('password')
-  const link = messages[0].textBody
-    .split('\n')
-    .map((l) => l.trim())
-    .find((l) => l.startsWith('http') && l.includes('/reset-password?'))
-  expect(link, 'the text body carries the reset link').toBeTruthy()
+  const link = await waitForResetLink(page, email)
 
-  await page.goto(link!)
+  await page.goto(link)
   await expect(page.getByText(email)).toBeVisible() // the page names the account being reset
+  await expect(page.getByText('signs you out everywhere else')).toBeVisible()
   await page.getByLabel('New password', { exact: true }).fill(newPassword)
   await page.getByLabel('Confirm new password').fill(newPassword)
   await page.getByRole('button', { name: 'Set new password' }).click()
@@ -71,12 +88,7 @@ test('a redeemed reset link cannot be replayed', async ({ page }) => {
   await page.getByRole('button', { name: 'Email me a reset link' }).click()
   await expect(page.getByRole('status')).toContainText('If an account exists')
 
-  const mailbox = await page.request.get(`/api/dev/emails?to=${encodeURIComponent(email)}`)
-  const messages: Array<{ textBody: string }> = await mailbox.json()
-  const link = messages[0].textBody
-    .split('\n')
-    .map((l) => l.trim())
-    .find((l) => l.startsWith('http') && l.includes('/reset-password?'))!
+  const link = await waitForResetLink(page, email)
 
   // First redemption succeeds and signs in.
   await page.goto(link)
