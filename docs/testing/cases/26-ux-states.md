@@ -66,7 +66,7 @@
 - **Type:** Negative
 - **Preconditions:** Manual axe run.
 - **Steps:**
-  1. Manually axe-scan `/accept-invite?code=…`, `/accounts/:id` (AccountDetailPage), the beta build (`VITE_APP_ENV=beta`, banner rendered), and error/empty renders (fetch failures, empty month, all-caught-up import) in both themes.
+  1. Manually axe-scan `/accept-invite?code=…`, `/accounts/:id` (AccountDetailPage), the staging build (`VITE_APP_ENV=staging`, banner rendered), and error/empty renders (fetch failures, empty month, all-caught-up import) in both themes.
 - **Expected:** These are NOT in `AUTHED_ROUTES` and the e2e fixtures are always happy-path, so they are unscanned by CI. They must be checked manually and be violation-free; document any finding — the automated `a11y` gate does not protect them.
 - **Automated:** No
 
@@ -97,7 +97,7 @@
 - **Preconditions:** Real backend, a long page (e.g. `/` with many budget lines) scrolled down.
 - **Steps:**
   1. Tab to a control low in the page, or follow an in-page anchor.
-- **Expected:** `html { scroll-padding-top: 5rem }` (index.css) keeps the focused target clear of the sticky top bar/beta banner — WCAG 2.4.11 (Focus Not Obscured). The control is fully visible, not tucked behind the 4rem header.
+- **Expected:** `html { scroll-padding-top: 5rem }` (index.css) keeps the focused target clear of the sticky top bar/staging banner — WCAG 2.4.11 (Focus Not Obscured). The control is fully visible, not tucked behind the 4rem header.
 - **Automated:** No
 
 ### UX-010 - The user menu is a keyboard-operable popup menu
@@ -500,22 +500,22 @@
 - **Expected:** `client/playwright.config.ts` uses `contextOptions: { reducedMotion: 'reduce' }`, so axe never samples an element mid-fade (which used to flake contrast). This documents why the automated a11y results are stable and that motion-on contrast should also be spot-checked manually.
 - **Automated:** Yes (`client/playwright.config.ts` context option; enforced across `client/e2e/*.spec.ts`)
 
-### UX-051 - The beta banner stacks above main content on every screen (beta build only)
+### UX-051 - The staging banner stacks above main content on every screen (staging build only)
 - **Priority:** P2
 - **Type:** Happy
-- **Preconditions:** Beta build (`VITE_APP_ENV=beta`); signed in and signed out.
+- **Preconditions:** Staging build (`VITE_APP_ENV=staging`); signed in and signed out.
 - **Steps:**
   1. Load an authed page, `/login`, and the landing `/`; look above the content.
-- **Expected:** A sticky amber `role="status"` strip renders above `<main>` in AppShell and on LoginPage/LandingPage: "Beta — AllotJar is under active development. Features may change and your data can be reset or lost without notice." The GA/prod build (`promote-to-production.yml`) renders nothing. It does not overlap the skip link or steal focus.
-- **Automated:** Partial (`client/src/components/BetaBanner.test.tsx` renders-nothing-in-prod / warns-in-beta; not axe-scanned since CI has no beta build)
+- **Expected:** A sticky amber `role="status"` strip renders above `<main>` in AppShell and on LoginPage/LandingPage: "Staging — this is the AllotJar test environment. Features may change and your data can be reset or lost without notice." The production build (the `deploy-production` job) renders nothing. It does not overlap the skip link or steal focus.
+- **Automated:** Partial (`client/src/components/StagingBanner.test.tsx` renders-nothing-in-prod / warns-in-staging; not axe-scanned since CI has no staging build)
 
 ### UX-052 - Simultaneous banners stack in a stable order without overlap or duplicate landmarks
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Beta build, Limited/Read-only login, landing via `?joined=1`, plus a page-level error.
+- **Preconditions:** Staging build, Limited/Read-only login, landing via `?joined=1`, plus a page-level error.
 - **Steps:**
   1. Load an authed page in the state above and read top-to-bottom.
-- **Expected:** Banners stack in document order without covering each other: beta strip (above main) → one-time greeting (`role="status"`) → access-level banner (`role="status"`) → any page `role="alert"` error → page content. Each is a distinct region; there is no z-index overlap and no more than one h1 (UX-017). Dismissing the greeting (`aria-label="Dismiss"`) reflows the rest upward.
+- **Expected:** Banners stack in document order without covering each other: staging strip (above main) → one-time greeting (`role="status"`) → access-level banner (`role="status"`) → any page `role="alert"` error → page content. Each is a distinct region; there is no z-index overlap and no more than one h1 (UX-017). Dismissing the greeting (`aria-label="Dismiss"`) reflows the rest upward.
 - **Automated:** No
 
 ### UX-053 - The consent modal sits above onboarding and never covers the pages it links to

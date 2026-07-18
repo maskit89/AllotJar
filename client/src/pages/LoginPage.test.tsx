@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 const { mockGet, mockPost, envState } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockPost: vi.fn(),
-  envState: { isBeta: false },
+  envState: { isStaging: false },
 }))
 
 vi.mock('../lib/api', async (importOriginal) => ({
@@ -22,11 +22,11 @@ vi.mock('../lib/api', async (importOriginal) => ({
 
 // Build-time env flag — default off so the existing single-checkbox tests are unaffected.
 vi.mock('../lib/env', () => ({
-  get IS_BETA() {
-    return envState.isBeta
+  get IS_STAGING() {
+    return envState.isStaging
   },
   get APP_ENV() {
-    return envState.isBeta ? 'beta' : undefined
+    return envState.isStaging ? 'staging' : undefined
   },
 }))
 
@@ -46,7 +46,7 @@ function renderPage() {
 describe('LoginPage', () => {
   beforeEach(() => {
     localStorage.clear()
-    envState.isBeta = false
+    envState.isStaging = false
     mockGet.mockReset()
     mockPost.mockReset()
     mockGet.mockResolvedValue({
@@ -183,8 +183,8 @@ describe('LoginPage', () => {
     )
   })
 
-  it('adds a required data-loss acknowledgment when registering in the beta build', async () => {
-    envState.isBeta = true
+  it('adds a required data-loss acknowledgment when registering in the staging build', async () => {
+    envState.isStaging = true
     mockPost.mockResolvedValue({
       data: {
         token: 'tok',
@@ -200,21 +200,21 @@ describe('LoginPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
-    // The beta build shows an extra required checkbox: the data-loss acknowledgment
+    // The staging build shows an extra required checkbox: the data-loss acknowledgment
     // (alongside the optional sample-figures box and the required terms box).
     expect(
       screen.getByText(/my data may be reset or permanently lost/i),
     ).toBeInTheDocument()
     expect(screen.getAllByRole('checkbox')).toHaveLength(3)
-    const betaBox = screen.getByRole('checkbox', { name: /beta/i })
-    expect((betaBox as HTMLInputElement).required).toBe(true)
+    const stagingBox = screen.getByRole('checkbox', { name: /staging/i })
+    expect((stagingBox as HTMLInputElement).required).toBe(true)
 
     await user.type(screen.getByLabelText('First name'), 'New')
     await user.type(screen.getByLabelText('Last name'), 'User')
     await user.type(screen.getByLabelText('Email'), 'new@x.com')
     await user.type(screen.getByLabelText('Password'), 'password123')
     await user.click(screen.getByRole('checkbox', { name: /I agree to the/ }))
-    await user.click(betaBox)
+    await user.click(stagingBox)
 
     const submit = screen
       .getAllByRole('button', { name: 'Create account' })

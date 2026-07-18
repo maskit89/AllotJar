@@ -32,7 +32,7 @@ export async function suppressOnboarding(page: Page, email: string): Promise<voi
 
 /**
  * Register a brand-new user through the real UI and land on the dashboard. Returns the email.
- * The register build has no beta-consent checkbox (VITE_APP_ENV is unset for the journey run),
+ * The register build has no staging-consent checkbox (VITE_APP_ENV is unset for the journey run),
  * so only the Terms checkbox is required. Sample figures are opt-in (default OFF, matching the
  * product default): pass `sampleBudget: true` to tick the opt-in box and land on the seeded
  * month; otherwise the landing is the create-month empty state.

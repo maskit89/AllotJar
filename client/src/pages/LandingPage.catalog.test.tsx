@@ -9,20 +9,20 @@ import type { BudgetMonthDto } from '../types'
 // marketing landing page, its currency-aware tagline swap, the SSR-safe prerender
 // invariant, the `/` auth-branch (anonymous -> landing, signed in -> dashboard), the
 // public legal pages + LegalLayout title lifecycle, the analytics consent banner and
-// its accept/decline persistence, and the beta banner on the landing surface.
+// its accept/decline persistence, and the staging banner on the landing surface.
 //
 // These COMPLEMENT (do not duplicate) the assertions already living in
 // LandingPage.test.tsx (single H1 shape, primary CTA -> register tab, one sign-in
 // link, two FAQ items), LegalPages.test.tsx (Privacy H1/contact/controller/GDPR
-// rights; Terms H1/Malta law/privacy link), BetaBanner.test.tsx (production build
-// renders nothing; beta build warns of data loss in isolation), ConsentModal.test.tsx
+// rights; Terms H1/Malta law/privacy link), StagingBanner.test.tsx (production build
+// renders nothing; staging build warns of data loss in isolation), ConsentModal.test.tsx
 // (LAND-015 — modal suppressed on /privacy + /terms) and analytics.test.ts (LAND-025/
 // 026/028/030/031 — start gating, PII redaction, whitelist, consent persistence at the
 // module level, not the DOM banner flow).
 //
 // Harness matches the repo convention (PR #169 gotcha): hoisted api mock fns,
 // vi.mock('../lib/api') spreading importOriginal, `../lib/env` mocked so a test can
-// flip the build-time beta flag, `getToken` reading a mutable authState so a single
+// flip the build-time staging flag, `getToken` reading a mutable authState so a single
 // file can render the `/` branch signed out AND signed in. The analytics module is
 // left REAL — no measurement id exists under test, so isConfigured() is false and GA
 // never starts; the consent banner still shows on the flag alone (by design), which is
@@ -45,7 +45,7 @@ const { mockGet, mockPost, mockPut, mockDelete, envState, authState } = vi.hoist
   mockPost: vi.fn(),
   mockPut: vi.fn(),
   mockDelete: vi.fn(),
-  envState: { isBeta: false },
+  envState: { isStaging: false },
   authState: { token: null as string | null },
 }))
 
@@ -61,14 +61,14 @@ vi.mock('../lib/api', async (importOriginal) => ({
   refreshSession: () => Promise.resolve(null),
 }))
 
-// Build-time env flag — default off (GA/default build) so the beta banner is absent
+// Build-time env flag — default off (GA/default build) so the staging banner is absent
 // unless a test opts in.
 vi.mock('../lib/env', () => ({
-  get IS_BETA() {
-    return envState.isBeta
+  get IS_STAGING() {
+    return envState.isStaging
   },
   get APP_ENV() {
-    return envState.isBeta ? 'beta' : undefined
+    return envState.isStaging ? 'staging' : undefined
   },
 }))
 
@@ -164,7 +164,7 @@ function withLocale(lang: string) {
 
 beforeEach(() => {
   localStorage.clear()
-  envState.isBeta = false
+  envState.isStaging = false
   authState.token = null
   featuresData = {}
   mockGet.mockReset()
@@ -389,20 +389,20 @@ describe('LandingPage — SSR-safe prerender noun', () => {
 })
 
 // =============================================================================
-// Beta banner on the landing surface (LAND-033)
+// Staging banner on the landing surface (LAND-033)
 // =============================================================================
-describe('LandingPage — beta banner integration', () => {
-  // LAND-033 — the beta build renders the sticky amber data-loss strip at the top of the
-  // landing page itself (BetaBanner.test.tsx proves the component in isolation; this
+describe('LandingPage — staging banner integration', () => {
+  // LAND-033 — the staging build renders the sticky amber data-loss strip at the top of the
+  // landing page itself (StagingBanner.test.tsx proves the component in isolation; this
   // proves it is wired into LandingPage). The default build's absence is LAND-034 /
   // REG-016, already automated.
-  it('LAND-033: the beta build shows the data-loss strip on the landing page', () => {
+  it('LAND-033: the staging build shows the data-loss strip on the landing page', () => {
     const spy = withLocale('de-DE')
     try {
-      envState.isBeta = true
+      envState.isStaging = true
       render(<LandingPage />)
       const strip = screen.getByRole('status')
-      expect(strip).toHaveTextContent(/Beta/)
+      expect(strip).toHaveTextContent(/Staging/)
       expect(strip).toHaveTextContent(/your data can be reset or lost without notice/i)
     } finally {
       spy.mockRestore()

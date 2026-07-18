@@ -1,26 +1,32 @@
-name: Deploy to beta
+name: Deploy
 
-# Auto-deploys to the BETA environment (app.allotjar.com) whenever code lands on
-# main (i.e. after a PR merge). Beta is the rolling staging/UAT + public-beta env:
-# the SPA is built with VITE_APP_ENV=beta so it carries the under-construction
-# banner + the registration data-loss acknowledgment.
+# One pipeline, two environments, every merge to main:
 #
-# Promotion to PRODUCTION is a separate, manual, approval-gated workflow:
-# .github/workflows/promote-to-production.yml. The public production URL
-# (allotjar.com / www) is the Cloudflare-Pages "coming soon" page until GA.
+#   build-staging ──► deploy-staging (auto)          staging.allotjar.com
+#                                    └► deploy-production (PAUSES for approval)
+#   build-production ────────────────┘               allotjar.com / www
+#
+# * STAGING auto-deploys on every merge. It is the IP-allowlisted test environment
+#   (Cloudflare WAF rule) with the amber staging banner + data-loss signup consent
+#   (VITE_APP_ENV=staging) and NO GA measurement ID (analytics stays inert there).
+# * PRODUCTION deploys the SAME commit after a manual approval: the `production`
+#   GitHub environment has a required reviewer, so the deploy-production job waits
+#   until it is approved in the Actions UI. It always runs AFTER deploy-staging,
+#   so nothing reaches production that staging didn't get first.
+# * Both stacks live on the same VPS (separate IIS sites/pools/DBs; API on :5000
+#   staging, :5001 production) and reuse the same repo-level VPS_* SSH secrets.
+#
+# The staging and production bundles differ at build time (banner/consent/GA are
+# inlined by Vite), so each environment builds its own artifact - "build once,
+# deploy many" intentionally does NOT apply.
 on:
   push:
     branches: [main]
   workflow_dispatch: {}
 
-# Never let two beta deploys run at once.
-concurrency:
-  group: beta-deploy
-  cancel-in-progress: false
-
 jobs:
-  build:
-    name: build release (beta)
+  build-staging:
+    name: build release (staging)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -46,12 +52,11 @@ jobs:
 
       - name: Build SPA
         working-directory: client
-        # VITE_* vars are inlined into the bundle at build time. VITE_APP_ENV=beta
-        # turns on the beta banner + data-loss consent; the GA build sets it to
-        # 'production' (see promote-to-production.yml).
+        # VITE_APP_ENV=staging turns on the staging banner + data-loss consent.
+        # VITE_GA_MEASUREMENT_ID is deliberately NOT set: absent => analytics is
+        # disabled entirely, so staging traffic never pollutes GA.
         env:
-          VITE_APP_ENV: beta
-          VITE_GA_MEASUREMENT_ID: ${{ vars.VITE_GA_MEASUREMENT_ID }}
+          VITE_APP_ENV: staging
         run: |
           npm ci
           npm run build
@@ -68,20 +73,25 @@ jobs:
       - name: Upload release artifact
         uses: actions/upload-artifact@v7
         with:
-          name: release
+          name: release-staging
           path: release.zip
           retention-days: 7
 
-  deploy:
-    name: deploy to beta VPS
-    needs: build
+  deploy-staging:
+    name: deploy to staging
+    needs: build-staging
     runs-on: ubuntu-latest
-    environment: beta
+    environment: staging
+    # Serialize staging deploys without ever blocking on the (possibly long)
+    # production approval below - hence job-level, not workflow-level, groups.
+    concurrency:
+      group: staging-deploy
+      cancel-in-progress: false
     steps:
       - name: Download release artifact
         uses: actions/download-artifact@v8
         with:
-          name: release
+          name: release-staging
 
       # Native OpenSSH (SFTP-based), NOT appleboy/scp-action: drone-scp pipes tar
       # through the remote shell, which fails against Windows OpenSSH + a PowerShell
@@ -96,10 +106,8 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
 
       # The scp below writes straight into C:\deploy\incoming, so that folder (and
-      # the staging folder the extract step expands into) must exist. They normally
-      # persist on the VPS, but if either goes missing the scp fails with
-      # "dest open ...: No such file or directory" and blocks every deploy. Create
-      # them first so a transient missing dir can't break the pipeline.
+      # the staging folder the extract step expands into) must exist, or the scp
+      # fails with "dest open ...: No such file or directory".
       - name: Ensure VPS deploy dirs exist
         env:
           PORT: ${{ secrets.VPS_SSH_PORT }}
@@ -121,8 +129,8 @@ jobs:
             -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             release.zip "$USER@$HOST:C:/deploy/incoming/release.zip"
 
-      # Deploy.ps1 with no args targets the existing IIS stack (C:\inetpub\zerobudget\*,
-      # pools ZeroBudget-Api/-Web) — the same box that is being relabelled as beta.
+      # Deploy.ps1 with no args targets the staging IIS stack (C:\inetpub\zerobudget\*,
+      # pools ZeroBudget-Api/-Web, API/proxy on :5000).
       - name: Extract and deploy on VPS
         env:
           PORT: ${{ secrets.VPS_SSH_PORT }}
@@ -133,3 +141,113 @@ jobs:
             -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             "$USER@$HOST" \
             'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\staging\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming\release.zip -DestinationPath C:\deploy\staging -Force; & C:\deploy\staging\Deploy.ps1"'
+
+  build-production:
+    name: build release (production)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Publish API
+        run: >
+          dotnet publish src/AllotJar.Api/AllotJar.Api.csproj
+          -c Release -r win-x64 --no-self-contained -o publish/api
+
+      - name: Build SPA
+        working-directory: client
+        # Production bundle: no banner, no extra consent, GA measurement ID inlined.
+        env:
+          VITE_APP_ENV: production
+          VITE_GA_MEASUREMENT_ID: ${{ vars.VITE_GA_MEASUREMENT_ID }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Assemble release package
+        run: |
+          mkdir -p release/api release/web
+          cp -r publish/api/. release/api/
+          cp -r client/dist/. release/web/
+          cp deploy/web/web.config release/web/web.config
+          cp deploy/Deploy.ps1 release/Deploy.ps1
+          cd release && zip -qr ../release.zip . && cd ..
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-production
+          path: release.zip
+          retention-days: 7
+
+  deploy-production:
+    name: deploy to production (needs approval)
+    # Staging must have deployed this commit first; the `production` environment's
+    # required reviewer is the manual gate - the job PAUSES here until approved.
+    # Unapproved runs are superseded: at most one production deploy is pending, and
+    # a newer run replaces it, so approving always ships the newest main.
+    needs: [build-production, deploy-staging]
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Download release artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: release-production
+
+      - name: Write SSH key
+        env:
+          KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Ensure VPS deploy dirs exist
+        env:
+          PORT: ${{ secrets.VPS_SSH_PORT }}
+          USER: ${{ secrets.VPS_SSH_USER }}
+          HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$PORT" \
+            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "$USER@$HOST" \
+            'powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path C:\deploy\incoming-prod, C:\deploy\staging-prod | Out-Null"'
+
+      - name: Copy release to VPS
+        env:
+          PORT: ${{ secrets.VPS_SSH_PORT }}
+          USER: ${{ secrets.VPS_SSH_USER }}
+          HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          scp -i ~/.ssh/deploy_key -P "$PORT" \
+            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            release.zip "$USER@$HOST:C:/deploy/incoming-prod/release.zip"
+
+      # The production stack is Deploy.ps1 with different dirs/pools/ports; the SQL
+      # database is never touched by a deploy. -ApiProxyPort patches the copied
+      # web.config so the front site proxies /api to the prod API on :5001.
+      - name: Extract and deploy on VPS
+        env:
+          PORT: ${{ secrets.VPS_SSH_PORT }}
+          USER: ${{ secrets.VPS_SSH_USER }}
+          HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$PORT" \
+            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "$USER@$HOST" \
+            'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\staging-prod\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming-prod\release.zip -DestinationPath C:\deploy\staging-prod -Force; & C:\deploy\staging-prod\Deploy.ps1 -ApiDir C:\inetpub\zerobudget-prod\api -WebDir C:\inetpub\zerobudget-prod\web -ApiPool ZeroBudget-Prod-Api -WebPool ZeroBudget-Prod-Web -HealthUrl http://127.0.0.1:5001/health -ApiProxyPort 5001"'

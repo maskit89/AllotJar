@@ -15,7 +15,7 @@ to that folder unless absolute.
 
 Chrome around the page (`client/src/components/AppShell.tsx`):
 - Desktop ≥900px: left sidebar (jar logo, `AppNav`, user-chip menu); <900px: horizontal top bar. Nav key `budget` is active; page title "Budget" rendered as a visually-hidden `<h1>` (AppShell.tsx:234).
-- `BetaBanner` above content; skip-link "Skip to main content".
+- `StagingBanner` above content; skip-link "Skip to main content".
 - `TopBar` (`client/src/components/TopBar.tsx`) on every data screen: month navigator `‹ {Month Year} ›` (aria-labels "Previous month" / "Next month"), "Zero-based" pill, `ThemeToggle`. Month state lives in `client/src/features/MonthContext.tsx` (app-wide `{year, month}`, defaults to today's month; `goPrev`/`goNext` roll across year boundaries with NO min/max clamp — the UI can navigate to any year).
 - Access banners (AppShell.tsx:164-169): read-only → "You have read-only access — you can view everything but cannot make changes."; Limited → "You have limited access — you can record transactions, mark bills paid and run allocation, but not change the budget structure or settings."
 - One-time greeting banner from `?joined=1` / `?started=1` / `?left=1` (AppShell.tsx:174-183), param stripped immediately.

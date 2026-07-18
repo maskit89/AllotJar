@@ -1,8 +1,8 @@
 # Registration & Login
 
-**ID prefix:** REG | **Scope:** The `/login` page in both modes: the segmented "Sign in" / "Create account" toggle, the create-account form (first/last name, email, password, currency picker, number-format picker, opt-in sample-budget checkbox, terms consent, beta data-loss consent) with every client- and server-side validation rule (`POST /api/auth/register`), HIBP breached-password rejection, duplicate-email handling, the sign-in form (`POST /api/auth/login`) with wrong-credential, anti-enumeration, lockout and rate-limiting behavior, returnUrl navigation at sign-in time, and the first-login landing state for both PR #170 paths (empty account vs seeded sample budget). | **Out of scope:** everything after a session exists — silent refresh, 401 interceptor, `sessionExpired()` production, cross-tab broadcast, logout, refresh-replay grace window (sessions file 03; REG only covers the login-form *rendering* of `?reason=expired` and the sign-in leg of returnUrl); landing-page CTAs, beta banner on public pages, analytics consent banner, SEO (01-landing-public.md); `/accept-invite` registration path and household greetings `?started/?left` (households & people file); `/account` preferences and change-password (account settings file); ConsentModal general behavior and the onboarding welcome/tour (routing & app shell file); full dark/responsive/a11y sweeps (cross-cutting files — `/login` is already axe-scanned in both modes/themes by `client/e2e/a11y.spec.ts`). **Do not test for:** "Forgot password?" link, password reset, email sending, Google SSO, separate username — none of these exist (username == email).
+**ID prefix:** REG | **Scope:** The `/login` page in both modes: the segmented "Sign in" / "Create account" toggle, the create-account form (first/last name, email, password, currency picker, number-format picker, opt-in sample-budget checkbox, terms consent, staging data-loss consent) with every client- and server-side validation rule (`POST /api/auth/register`), HIBP breached-password rejection, duplicate-email handling, the sign-in form (`POST /api/auth/login`) with wrong-credential, anti-enumeration, lockout and rate-limiting behavior, returnUrl navigation at sign-in time, and the first-login landing state for both PR #170 paths (empty account vs seeded sample budget). | **Out of scope:** everything after a session exists — silent refresh, 401 interceptor, `sessionExpired()` production, cross-tab broadcast, logout, refresh-replay grace window (sessions file 03; REG only covers the login-form *rendering* of `?reason=expired` and the sign-in leg of returnUrl); landing-page CTAs, staging banner on public pages, analytics consent banner, SEO (01-landing-public.md); `/accept-invite` registration path and household greetings `?started/?left` (households & people file); `/account` preferences and change-password (account settings file); ConsentModal general behavior and the onboarding welcome/tour (routing & app shell file); full dark/responsive/a11y sweeps (cross-cutting files — `/login` is already axe-scanned in both modes/themes by `client/e2e/a11y.spec.ts`). **Do not test for:** "Forgot password?" link, password reset, email sending, Google SSO, separate username — none of these exist (username == email).
 
-**Test data setup:** (a) A clean anonymous browser profile — no `zbb_rt` cookie, no `zbb.*` localStorage keys. (b) An existing login `owner@example.com` / `Sunlit-Meadow-42a` (non-breached, meets digit+upper+lower policy), Owner of a solo household with at least one budget month. (c) Fresh unique registration emails per case (`reg-<case>@example.test`) and random non-breached passwords of shape `Aa1-<uuid>` (HIBP rejects fixed common passwords — journey-harness gotcha). (d) Unless a case says otherwise, run against a **beta-mode** build (`VITE_APP_ENV=beta`, e.g. app.allotjar.com or a local beta build) where the beta banner and the required beta data-loss checkbox render; REG-016 covers the GA/default build. (e) Server defaults: rate limit 20 auth requests/min per source IP (`RateLimiting:AuthPermitLimit`), lockout 5 failures → 15 min, HIBP reachable. (f) Browser locale `en-GB` unless the case pins another locale. For "direct API" steps use any HTTP client against `POST /api/auth/register` with a JSON body — the UI blocks those inputs client-side.
+**Test data setup:** (a) A clean anonymous browser profile — no `zbb_rt` cookie, no `zbb.*` localStorage keys. (b) An existing login `owner@example.com` / `Sunlit-Meadow-42a` (non-breached, meets digit+upper+lower policy), Owner of a solo household with at least one budget month. (c) Fresh unique registration emails per case (`reg-<case>@example.test`) and random non-breached passwords of shape `Aa1-<uuid>` (HIBP rejects fixed common passwords — journey-harness gotcha). (d) Unless a case says otherwise, run against a **staging-mode** build (`VITE_APP_ENV=staging`, e.g. staging.allotjar.com or a local staging build) where the staging banner and the required staging data-loss checkbox render; REG-016 covers the GA/default build. (e) Server defaults: rate limit 20 auth requests/min per source IP (`RateLimiting:AuthPermitLimit`), lockout 5 failures → 15 min, HIBP reachable. (f) Browser locale `en-GB` unless the case pins another locale. For "direct API" steps use any HTTP client against `POST /api/auth/register` with a JSON body — the UI blocks those inputs client-side.
 
 ## Page chrome & mode toggle
 
@@ -14,7 +14,7 @@
   1. Load `/login` and wait for the auth bootstrap splash to clear (cold load 401s the cookie refresh).
   2. Inspect the page.
 - **Expected:**
-  - Beta banner (`role="status"`): "**Beta** — AllotJar is under active development. Features may change and your data can be reset or lost without notice." (beta build only).
+  - Staging banner (`role="status"`): "**Staging** — this is the AllotJar test environment. Features may change and your data can be reset or lost without notice." (staging build only).
   - ThemeToggle top-right; jar logo; heading "AllotJar"; tagline "Zero-based budgeting, in your currency."
   - Segmented control with `aria-label="Sign in or create an account"`, options "Sign in" (selected) and "Create account".
   - Only two fields: "Email" (`type=email`, placeholder "you@example.com", autocomplete `email`) and "Password" (`type=password`, placeholder "At least 8 characters", autocomplete `current-password`). No name/currency/format/checkbox fields.
@@ -30,11 +30,11 @@
   2. Inspect the form top-to-bottom.
   3. Click "Sign in" to switch back.
 - **Expected:**
-  - Registration mode adds, in order: "First name" + "Last name" side by side (both required, autocomplete `given-name`/`family-name`); "Currency" select; "Number format" select; hint "You can change your currency and number format anytime in account settings."; unticked sample-figures checkbox ("Start with sample figures to explore — example groups and amounts you can edit or delete anytime. Leave unticked to start with an empty budget."); required terms checkbox ("I agree to the Terms of Service and Privacy Policy."); beta build only: required amber checkbox "I understand AllotJar is in beta and under active development, and that my data may be reset or permanently lost."
+  - Registration mode adds, in order: "First name" + "Last name" side by side (both required, autocomplete `given-name`/`family-name`); "Currency" select; "Number format" select; hint "You can change your currency and number format anytime in account settings."; unticked sample-figures checkbox ("Start with sample figures to explore — example groups and amounts you can edit or delete anytime. Leave unticked to start with an empty budget."); required terms checkbox ("I agree to the Terms of Service and Privacy Policy."); staging build only: required amber checkbox "I understand this is the AllotJar staging test environment, and that my data may be reset or permanently lost."
   - Password autocomplete switches to `new-password`; submit button label becomes "Create account".
   - The "Terms of Service" and "Privacy Policy" links open `/terms` and `/privacy` in a new tab (`target="_blank"`, `rel="noopener noreferrer"`).
   - Switching back to "Sign in" hides every registration-only field again; entered email/password values are kept.
-- **Automated:** Partial (client/src/pages/LoginPage.test.tsx — field visibility per mode + beta checkbox)
+- **Automated:** Partial (client/src/pages/LoginPage.test.tsx — field visibility per mode + staging checkbox)
 
 ### REG-003 - Deep link `/login?register=1` opens the Create-account tab
 - **Priority:** P2
@@ -82,7 +82,7 @@
   1. Fill "First name" = `Ana`, "Last name" = `Borg`, "Email", "Password" = a fresh `Aa1-<uuid>`.
   2. Leave "Currency" = the preselected value (EUR under en-GB? see REG-031 — pick "Euro (€)" explicitly), "Number format" = "1,234.56".
   3. Leave the sample-figures checkbox **unticked** (its default).
-  4. Tick the terms checkbox and (beta build) the data-loss checkbox.
+  4. Tick the terms checkbox and (staging build) the data-loss checkbox.
   5. Click "Create account".
 - **Expected:**
   - 200 from `POST /api/auth/register` with `includeSampleData: false` in the request body; user is signed in immediately (no email verification step) and navigated to `/`.
@@ -97,7 +97,7 @@
 - **Preconditions:** Anonymous browser on `/login?register=1`; fresh email; currency "Euro (€)", format "1,234.56".
 - **Steps:**
   1. Fill all fields as in REG-006 but **tick** "Start with sample figures to explore …".
-  2. Tick terms (+ beta) and click "Create account".
+  2. Tick terms (+ staging) and click "Create account".
   3. Inspect the dashboard, then open `/jars`.
 - **Expected:**
   - Request body carries `includeSampleData: true`. Landing = a seeded month for the current UTC month:
@@ -157,7 +157,7 @@
   1. Click "Create account" with the whole form empty.
   2. Fill fields one at a time (First name → Last name → Email → Password), attempting submit after each, until only the checkboxes remain.
 - **Expected:**
-  - Each attempt is blocked client-side by native HTML5 validation (the browser focuses/flags the first invalid control: `required` on First name, Last name, Email, Password; then the required terms checkbox, then the required beta checkbox).
+  - Each attempt is blocked client-side by native HTML5 validation (the browser focuses/flags the first invalid control: `required` on First name, Last name, Email, Password; then the required terms checkbox, then the required staging checkbox).
   - **No** `POST /api/auth/register` request is sent for any blocked attempt.
 - **Automated:** No
 
@@ -199,30 +199,30 @@
   - Step 2: 400 `{error: "Please accept the terms and privacy policy to create an account."}`; no account created. This is the **first** server-side check — it fires before currency/format/duplicate checks.
 - **Automated:** No
 
-### REG-015 - Beta build requires the data-loss acknowledgment (client-side only)
+### REG-015 - Staging build requires the data-loss acknowledgment (client-side only)
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Beta build (`VITE_APP_ENV=beta`); anonymous browser on `/login?register=1`; everything filled and terms ticked, beta checkbox unticked.
+- **Preconditions:** Staging build (`VITE_APP_ENV=staging`); anonymous browser on `/login?register=1`; everything filled and terms ticked, staging checkbox unticked.
 - **Steps:**
   1. Submit.
-  2. Tick "I understand AllotJar is in beta … my data may be reset or permanently lost." and submit again.
+  2. Tick "I understand this is the AllotJar staging … my data may be reset or permanently lost." and submit again.
   3. Inspect the request body of the successful registration.
 - **Expected:**
   - Step 1: blocked client-side (required checkbox).
   - Step 2: registration succeeds.
-  - Step 3: the beta acknowledgment is **not** part of the request body — it is a client-side-only gate (no `acknowledgesDataLoss`-style server field on `RegisterRequest`).
-- **Automated:** Yes (client/src/pages/LoginPage.test.tsx — beta build adds a required data-loss acknowledgment)
+  - Step 3: the staging acknowledgment is **not** part of the request body — it is a client-side-only gate (no `acknowledgesDataLoss`-style server field on `RegisterRequest`).
+- **Automated:** Yes (client/src/pages/LoginPage.test.tsx — staging build adds a required data-loss acknowledgment)
 
-### REG-016 - GA/default build renders neither beta banner nor beta checkbox
+### REG-016 - GA/default build renders neither staging banner nor staging checkbox
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Default (non-beta) build — `VITE_APP_ENV` unset; anonymous browser on `/login?register=1`.
+- **Preconditions:** Default (non-staging) build — `VITE_APP_ENV` unset; anonymous browser on `/login?register=1`.
 - **Steps:**
   1. Inspect the page and the registration form.
   2. Register with only the terms checkbox ticked.
 - **Expected:**
-  - No beta banner above the page; no amber data-loss checkbox in the form; registration succeeds with terms alone. Everything else (fields, sample checkbox, validation) is identical to the beta build.
-- **Automated:** Partial (client/src/components/BetaBanner.test.tsx — banner renders nothing outside beta; the checkbox absence in default build is untested)
+  - No staging banner above the page; no amber data-loss checkbox in the form; registration succeeds with terms alone. Everything else (fields, sample checkbox, validation) is identical to the staging build.
+- **Automated:** Partial (client/src/components/StagingBanner.test.tsx — banner renders nothing outside staging; the checkbox absence in default build is untested)
 
 ### REG-017 - Server error bodies render in the form's alert
 - **Priority:** P2
@@ -631,7 +631,7 @@
 - **Priority:** P3
 - **Type:** Regression
 - **Origin:** PR #170 gotcha — GA params are whitelisted; `sample_data` had to be added to `ALLOWED_PARAM_KEYS` or it is silently dropped
-- **Preconditions:** Beta host with analytics consent **granted** (consent banner accepted — see 01-landing-public.md); GA debug view or network inspection of `google-analytics.com/g/collect`.
+- **Preconditions:** Staging host with analytics consent **granted** (consent banner accepted — see 01-landing-public.md); GA debug view or network inspection of `google-analytics.com/g/collect`.
 - **Steps:**
   1. Register a fresh account with the sample checkbox ticked.
   2. Sign out; sign in with wrong credentials once, then correctly.

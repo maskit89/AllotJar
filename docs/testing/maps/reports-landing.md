@@ -1,4 +1,4 @@
-﻿# Subsystem map: Reports, Landing page, Legal pages, Feature flags
+# Subsystem map: Reports, Landing page, Legal pages, Feature flags
 
 Ground-truth feature inventory for QA test design. All paths are relative to the repo root
 `C:\Users\Laptop\Documents\Projects\ZeroBudget` unless stated otherwise. Verified against the
@@ -100,8 +100,8 @@ Rendered inside `AppShell active="reports" title="Reports"`.
 
 All navigation is plain `<a>` (no router) - required for SSR-safety.
 
-- `BetaBanner` at top (only when `VITE_APP_ENV === 'beta'`): role="status", text
-  `Beta - AllotJar is under active development. Features may change and your data can be reset or lost without notice.`
+- `StagingBanner` at top (only when `VITE_APP_ENV === 'staging'`): role="status", text
+  `Staging - this is the AllotJar test environment. Features may change and your data can be reset or lost without notice.`
 - Header: logo link (aria-label `AllotJar home`, href `/`), nav (aria-label `Primary`): `Sign in`
   -> `/login`; primary CTA `Get started` -> `/login?register=1`.
 - Hero: eyebrow `Zero-based budgeting · crafted in Europe, at home anywhere`; H1
@@ -240,8 +240,8 @@ Landing/legal pages have no forms and no validation.
 - `bootstrapping` -> AuthSplash spinner (`role="status"`, sr-only `Loading...`).
 - Anonymous -> LandingPage; authed -> DashboardPage.
 - Signed-in visit to `/login` -> redirect honouring `?returnUrl` (safe-internal-path checked).
-- Beta build (`VITE_APP_ENV=beta`, i.e. app.allotjar.com) -> BetaBanner shows on the landing
-  (SSR-safe, part of prerendered markup for beta builds); GA/prod build renders nothing.
+- Staging build (`VITE_APP_ENV=staging`, i.e. staging.allotjar.com) -> StagingBanner shows on the landing
+  (SSR-safe, part of prerendered markup for staging builds); GA/prod build renders nothing.
 - Currency-noun swap: prerendered/static HTML always says "euro"; after JS mounts, the noun follows
   browser locale (REGION_CURRENCY map in client/src/lib/money.ts:146-151; unlisted regions stay EUR;
   no `navigator` -> EUR). Footer tagline and closing CTA use the same noun.
@@ -398,7 +398,7 @@ Client:
 - client/src/pages/LandingPage.tsx (+ LandingPage.test.tsx)
 - client/src/pages/LegalLayout.tsx, PrivacyPage.tsx, TermsPage.tsx (+ LegalPages.test.tsx)
 - client/src/features/FeatureContext.tsx
-- client/src/components/AppNav.tsx, Hero.tsx, BetaBanner.tsx, ui.tsx (ErrorBanner/EmptyState)
+- client/src/components/AppNav.tsx, Hero.tsx, StagingBanner.tsx, ui.tsx (ErrorBanner/EmptyState)
 - client/src/lib/money.ts, categoryColors.ts, env.ts, api.ts (base/interceptor context)
 - client/src/analytics/AnalyticsProvider.tsx, analytics/events.ts (reportViewed)
 - client/src/types.ts (BudgetTrendsDto/AnnualSummaryDto/FeatureFlags)

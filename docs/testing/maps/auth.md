@@ -31,7 +31,7 @@ Guard mechanics:
 ## 2. UI controls & user actions (exact labels)
 
 ### LoginPage (`client/src/pages/LoginPage.tsx`)
-- `BetaBanner` (beta build only, `role="status"`): "**Beta** — AllotJar is under active development. Features may change and your data can be reset or lost without notice." (BetaBanner.tsx:29-31; gated on `IS_BETA` = `VITE_APP_ENV === 'beta'`, env.ts:16).
+- `StagingBanner` (staging build only, `role="status"`): "**Staging** — this is the AllotJar test environment. Features may change and your data can be reset or lost without notice." (StagingBanner.tsx:29-31; gated on `IS_STAGING` = `VITE_APP_ENV === 'staging'`, env.ts:16).
 - ThemeToggle top-right. Jar logo + heading "AllotJar", tagline "Zero-based budgeting, in your currency."
 - Expired-session banner (`role="status"`): "Your session has expired, so we signed you out to keep your budget safe. Sign back in to pick up where you left off." — only when `?reason=expired` AND mode is login.
 - `SegmentedControl` aria-label "Sign in or create an account", options **"Sign in"** / **"Create account"**. Switching tabs clears the error (LoginPage.tsx:47-50).
@@ -43,7 +43,7 @@ Guard mechanics:
   - Hint text: "You can change your currency and number format anytime in account settings."
   - Sample-data checkbox (NOT required, default **unchecked** — PR #170): "Start with sample figures to explore — example groups and amounts you can edit or delete anytime. Leave unticked to start with an empty budget."
   - Terms checkbox (`required`): "I agree to the **Terms of Service** and **Privacy Policy**." (links open `/terms`, `/privacy` in new tab).
-  - Beta-only checkbox (`required`, only when `IS_BETA`): "I understand AllotJar is in **beta** and under active development, and that my data may be reset or permanently lost." — client-side only; not sent to the server.
+  - Staging-only checkbox (`required`, only when `IS_STAGING`): "I understand this is the AllotJar **staging** test environment, and that my data may be reset or permanently lost." — client-side only; not sent to the server.
 - Submit button: "Sign in" / "Create account" / "Please wait…" while busy (disabled).
 - Error `role="alert"` in rose text (see §4 for content resolution).
 - Footer tagline: "Give every {currencyNoun} a job." — noun follows the **locale-detected** currency (e.g. "every euro", "every rupee"; unknown → "unit") (LoginPage.tsx:313-315, money.ts:130-133).
@@ -143,7 +143,7 @@ JWT (`Infrastructure/Identity/JwtTokenGenerator.cs`, `DependencyInjection.cs:106
 (`Application/HouseholdAccess/Commands/AcceptInvite/AcceptInviteCommandHandler.cs`.)
 
 ### Client-side
-- LoginPage: HTML5 `required`/`minLength=8` on inputs; required checkboxes (terms, beta). Submit error text = `data.error ?? data.errors.join(' ') ?? 'Something went wrong.'` (LoginPage.tsx:79-84). Note: the middleware's `errors` object shape (accept-invite) is NOT parsed here — LoginPage only handles login/register whose bodies are `{error}` or `{errors:[…]}`.
+- LoginPage: HTML5 `required`/`minLength=8` on inputs; required checkboxes (terms, staging). Submit error text = `data.error ?? data.errors.join(' ') ?? 'Something went wrong.'` (LoginPage.tsx:79-84). Note: the middleware's `errors` object shape (accept-invite) is NOT parsed here — LoginPage only handles login/register whose bodies are `{error}` or `{errors:[…]}`.
 - AccountPage change password (pre-submit): "The new passwords do not match."; "Use a new password of at least 8 characters." Server failure fallback: "Could not change your password." Preferences fallback: "Could not save your preferences."
 - Unexpected/network error: "Something went wrong."
 
@@ -162,7 +162,7 @@ JWT (`Infrastructure/Identity/JwtTokenGenerator.cs`, `DependencyInjection.cs:106
 - **Solo vs shared**: Sharing card swaps copy/CTA on `isShared` (≥2 members); card hidden entirely while household data loads. People nav always visible (project invariant).
 - **Multi-household**: switcher section in the account menu only when `households.length > 1`; `MeResponse.Households` labels own as "Your household", others by owner displayName ?? email ?? "Household", ordered own-first then label; a login with zero membership rows still gets a synthesized own-household entry (AuthController.cs:333-368).
 - **needsConsent**: blocking ConsentModal (see §2); `/auth/me` computes it as `ConsentedUtc is null`.
-- **Beta vs GA build**: `IS_BETA` gates the banner + the extra data-loss checkbox; GA build renders neither.
+- **Staging vs GA build**: `IS_STAGING` gates the banner + the extra data-loss checkbox; GA build renders neither.
 - **Empty new account (PR #170 default)**: register without the sample checkbox ⇒ NO months seeded ⇒ dashboard create-month hero ("No budget for … yet" / plan-your-income prompt per PR #172), not the gold badge. With checkbox ⇒ sample month (Income "Take-home Pay" 3000 planned, Housing/Transport/Food/… groups, real "Emergency Fund" jar) with positive Remaining-to-budget on purpose (BudgetSeeder.cs:9-12,49).
 - **`?started=1` / `?left=1`** greetings after start-own / leave (full navigations; AppShell renders the greeting).
 - **Deleted user with live cookie**: refresh → user lookup fails → 401 + cookie cleared.
@@ -235,7 +235,7 @@ Client:
 - `client/src/auth/AuthContext.tsx` — provider, bootstrap, focus revalidation, login/register/acceptInvite/changePassword/updatePreferences/logout/switch/start-own/leave
 - `client/src/App.tsx` — routes, RequireAuth, AuthedLoginRedirect, consent/onboarding mounting
 - `client/src/pages/LoginPage.tsx`, `client/src/pages/AccountPage.tsx`, `client/src/pages/AcceptInvitePage.tsx` (labels only)
-- `client/src/components/{ConsentModal,BetaBanner,AppShell}.tsx`
+- `client/src/components/{ConsentModal,StagingBanner,AppShell}.tsx`
 - `client/src/analytics/events.ts`, `client/src/analytics/redact.ts` (auth event names + param whitelist)
 - `client/src/types.ts` (HouseholdRole labels/hints)
 - `client/e2e-journey/` spec names (session-expiry, concurrent-refresh, register, invite)

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { JarLogo, Jar } from '../components/Jar'
-import { BetaBanner } from '../components/BetaBanner'
+import { StagingBanner } from '../components/StagingBanner'
 import { currencyNoun, detectLocaleDefaults } from '../lib/money'
 import {
   DashboardIcon,
@@ -153,7 +153,7 @@ export function LandingPage() {
 
   return (
     <div className="min-h-full">
-      <BetaBanner />
+      <StagingBanner />
       {/* ---- Header ---- */}
       <header className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5">
         <a href="/" className="flex items-center gap-2.5" aria-label="AllotJar home">

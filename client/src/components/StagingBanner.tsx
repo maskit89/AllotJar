@@ -1,16 +1,17 @@
-import { IS_BETA } from '../lib/env'
+import { IS_STAGING } from '../lib/env'
 
 /**
- * A persistent, full-width "this is a beta" strip shown only in the beta build
- * (VITE_APP_ENV=beta). It warns that the app is under active development and that
- * data may be reset or lost — the general-availability build renders nothing.
+ * A persistent, full-width "this is the staging environment" strip shown only in the
+ * staging build (VITE_APP_ENV=staging). It warns that this is an internal test
+ * environment and that data may be reset or lost — the general-availability
+ * (production) build renders nothing.
  *
  * Kept **SSR-safe** (no hooks, state or browser globals) so it can sit at the top
  * of the prerendered landing page as well as the live SPA. Sticky so it stays in
  * view as the user scrolls; `role="status"` so assistive tech announces it politely.
  */
-export function BetaBanner() {
-  if (!IS_BETA) return null
+export function StagingBanner() {
+  if (!IS_STAGING) return null
   return (
     <div
       role="status"
@@ -26,8 +27,8 @@ export function BetaBanner() {
         />
       </svg>
       <span>
-        <strong className="font-semibold">Beta</strong> — AllotJar is under active development.
-        Features may change and your data can be reset or lost without notice.
+        <strong className="font-semibold">Staging</strong> — this is the AllotJar test
+        environment. Features may change and your data can be reset or lost without notice.
       </span>
     </div>
   )
