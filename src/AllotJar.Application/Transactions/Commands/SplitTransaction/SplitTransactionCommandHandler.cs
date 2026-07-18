@@ -119,10 +119,13 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        // Re-read with line names so the DTO carries each slice's "assigned to".
+        // Re-read with line names so the DTO carries each slice's "assigned to". Include the
+        // Account too so the response DTO's accountName is populated (matching how
+        // CreateTransaction/GetTransactions load it).
         var saved = await _db.Transactions
             .AsNoTracking()
             .Include(t => t.BudgetItem)
+            .Include(t => t.Account)
             .Include(t => t.Member)
             .Include(t => t.Splits)
                 .ThenInclude(s => s.BudgetItem)

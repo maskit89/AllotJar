@@ -26,6 +26,7 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
 
         var transaction = await _db.Transactions
             .Include(t => t.BudgetItem)
+            .Include(t => t.Account)
             .Include(t => t.Splits)
             .FirstOrDefaultAsync(t => t.Id == request.TransactionId, cancellationToken);
 

@@ -37,6 +37,14 @@ public class AuthorizationBehaviour<TRequest, TResponse> : IPipelineBehavior<TRe
         }
 
         var type = typeof(TRequest);
+
+        // A command marked [AllowAnyRole] is authorized by something other than the caller's
+        // household role (e.g. an invite token), so skip the role gate entirely.
+        if (type.GetCustomAttribute<AllowAnyRoleAttribute>() is not null)
+        {
+            return next();
+        }
+
         var isCommand = type.Name.EndsWith("Command", StringComparison.Ordinal);
         if (isCommand && !IsPermitted(role.Value, type))
         {

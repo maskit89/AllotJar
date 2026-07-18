@@ -308,10 +308,6 @@ test('reorder arrows are labelled buttons with titles, disabled at the ends (UX-
 // UX-022 / WCAG 2.5.8 (Target Size Minimum, AA) — reorder arrows should present a
 // ≥24×24 CSS-px hit area. See the BUG skip below: the current arrows are smaller.
 test('reorder arrows meet the WCAG 2.5.8 24px minimum target size (UX-022)', async ({ page }) => {
-  test.skip(
-    true,
-    'BUG: line reorder arrows render at 16×14 CSS px and group arrows ~13×15 — below the WCAG 2.5.8 (AA) 24×24 minimum, with no spacing exemption (up/down arrows are directly adjacent) and no keyboard-accessible equivalent for reordering - UX-022/UX-012',
-  )
   await authedSetup(page, 'light')
   await page.goto('/')
   await page.getByRole('heading', { level: 1 }).first().waitFor()
