@@ -132,6 +132,11 @@ await BackfillOwnerMembersAsync(app);
 // Repair pre-#142 starter budgets whose "Savings" group defaulted to Expense (idempotent).
 await BackfillStarterSavingsKindAsync(app);
 
+// State plainly, once, which outbound-email provider actually resolved. Without this, "is email
+// live?" is only answerable by triggering a reset and waiting to see if one arrives — and a
+// misconfigured provider silently degrades to log-only (see AddInfrastructure).
+LogEmailProvider(app);
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -249,6 +254,33 @@ static async Task BackfillStarterSavingsKindAsync(WebApplication app)
     catch (Exception ex)
     {
         logger.LogWarning(ex, "Starter savings-kind backfill failed; continuing startup.");
+    }
+}
+
+// Reports the resolved outbound-email provider at startup. LoggingEmailSender means NOTHING is
+// actually delivered (no key, or an incomplete/unrecognised Email:Provider) — that's a warning in
+// any environment where real email is expected.
+static void LogEmailProvider(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        var sender = scope.ServiceProvider.GetRequiredService<IEmailSender>();
+        if (sender is LoggingEmailSender)
+        {
+            logger.LogWarning(
+                "Outbound email is NOT configured — messages will only be logged, never delivered. " +
+                "Set Email:ApiKey (+ Email:AccountId for Cloudflare) to enable sending.");
+        }
+        else
+        {
+            logger.LogInformation("Outbound email provider: {Provider}.", sender.GetType().Name);
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Could not resolve the outbound email provider; continuing startup.");
     }
 }
 

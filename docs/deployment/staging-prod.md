@@ -54,24 +54,59 @@ Cloudflare zone ──┬─ allotjar.com + www ──►  VPS IIS site 'ZeroBud
 
 ## Outbound email (password reset)
 
-The API sends transactional email (today: password-reset links) through **Resend** when
-`Email:ApiKey` is configured; without a key it logs instead of sending (fine for staging — the
-reset flow is then effectively disabled there, which the IP-allowlisted audience can live with).
+The API sends transactional email (today: password-reset links) through a **configurable provider** —
+**Cloudflare Email Service** or **Resend** — selected by `Email:Provider`. Without an `Email:ApiKey`
+it logs instead of sending (fine for staging — the reset flow is then effectively disabled there,
+which the IP-allowlisted audience can live with).
 
-One-time production setup:
+Provider is config, not code: switching (e.g. falling back off Cloudflare's beta) is an
+`appsettings.Production.json` edit + an app-pool recycle, never a redeploy.
 
-1. Create a Resend account and **verify the `allotjar.com` domain** (Resend dashboard → Domains →
-   add the DKIM/SPF DNS records it lists into Cloudflare; verification is required before any
-   send from `no-reply@allotjar.com`).
-2. Create an API key and add to the server's `appsettings.Production.json` (preserved across
-   deploys by `Deploy.ps1`'s robocopy exclude):
-   `"Email": { "ApiKey": "…", "FromAddress": "AllotJar <no-reply@allotjar.com>", "AppBaseUrl": "https://www.allotjar.com" }`
-3. Set `"DataProtection": { "KeysPath": "C:\\inetpub\\zerobudget-dp-keys" }` (create the folder,
-   grant the API app-pool identity modify rights). **Without this, every app restart/deploy
-   invalidates all outstanding reset links** — the IIS app pool doesn't load a user profile, so
-   the DataProtection key ring is otherwise in-memory.
-4. Smoke-test: request a reset from `https://www.allotjar.com/forgot-password` and follow the
-   emailed link end-to-end.
+### One-time production setup
+
+**1. Onboard the sending domain with your chosen provider.**
+
+- *Cloudflare Email Service* (requires the domain to use Cloudflare DNS — `allotjar.com` already
+  does): dashboard → Email → Email Sending → onboard `allotjar.com`, then add the MX/SPF/DKIM/DMARC
+  records it lists. Create an API token with the **`Email Sending: Edit`** permission and note your
+  **account id**. NOTE: Email Sending is in **public beta** — APIs may change before GA; that is the
+  reason the Resend path is kept selectable.
+- *Resend*: create the account, add `allotjar.com` under Domains, add the DKIM/SPF records it lists
+  into Cloudflare DNS, wait for Verified, then create an API key.
+
+Either way, verification must complete before any send from `no-reply@allotjar.com` is accepted.
+
+**2. Put the provider config in the server's `appsettings.Production.json`** (preserved across
+deploys by `Deploy.ps1`'s robocopy exclude):
+
+```jsonc
+// Cloudflare
+"Email": {
+  "Provider": "cloudflare",
+  "ApiKey": "<API token with Email Sending: Edit>",
+  "AccountId": "<cloudflare account id>",   // required — the send endpoint is account-scoped
+  "FromAddress": "AllotJar <no-reply@allotjar.com>",
+  "AppBaseUrl": "https://www.allotjar.com"
+}
+// Resend — same block without AccountId, and "Provider": "resend" (or omit Provider entirely)
+```
+
+**3. Set `"DataProtection": { "KeysPath": "C:\\inetpub\\zerobudget-dp-keys" }`** (create the folder,
+grant the API app-pool identity modify rights). **Without this, every app restart/deploy invalidates
+all outstanding reset links** — the IIS app pool doesn't load a user profile, so the DataProtection
+key ring is otherwise in-memory. The ring is encrypted at rest with LocalMachine DPAPI.
+
+**4. Recycle the API app pool.** The provider is chosen **once at startup** (see
+`AddInfrastructure`), so editing the config file alone does not switch it over.
+
+**5. Confirm it took, from the log.** Startup emits either
+`Outbound email provider: CloudflareEmailSender` / `ResendEmailSender`, or a warning that outbound
+email is NOT configured and messages will only be logged. Check this before testing by hand — an
+incomplete provider config (unknown name, or Cloudflare without an `AccountId`) deliberately
+degrades to log-only rather than taking the API down, so it is otherwise silent.
+
+**6. Smoke-test:** request a reset from `https://www.allotjar.com/forgot-password` and follow the
+emailed link end-to-end.
 
 `Email:AppBaseUrl` is deliberately config-only (never derived from request Host headers — a
 spoofed header must not steer emailed links). Reset links are valid for 2 hours, single-use.

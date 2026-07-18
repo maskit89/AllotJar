@@ -702,6 +702,41 @@
   - One `POST https://api.resend.com/emails` with JSON `from/to/subject/text/html` and the configured From address. A non-2xx throws `HttpRequestException` — which the controller catches, logs, and still answers 204 (REG-053).
 - **Automated:** Full (AuthPasswordResetCoverageTests — REG-055)
 
+### REG-068 - The Cloudflare Email Service adapter posts the account-scoped provider shape
+- **Priority:** P3
+- **Type:** Contract
+- **Preconditions:** Unit level (stubbed HTTP handler); `Email:Provider=cloudflare`, `AccountId=acct-123`.
+- **Steps:**
+  1. Send a message through `CloudflareEmailSender`; capture the HTTP request.
+- **Expected:**
+  - One `POST https://api.cloudflare.com/client/v4/accounts/{accountId}/email/sending/send` with JSON `to` (string), `from`, `subject`, `text`, `html` and the configured From address.
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-068)
+
+### REG-069 - A Cloudflare 200 that reports `success: false` is treated as a failure
+- **Priority:** P2
+- **Type:** Negative
+- **Origin:** Cloudflare's `client/v4` API answers HTTP 200 with `{"success": false, "errors":[…]}` for a rejected send — a status-code-only check would swallow it.
+- **Preconditions:** Unit level (stubbed HTTP handler).
+- **Steps:**
+  1. Stub a 200 whose body is `{"success":false,…}`; send.
+  2. Stub a non-2xx; send.
+  3. Stub a 200 whose body carries no `success` field (or isn't JSON); send.
+- **Expected:**
+  - 1 and 2 throw `HttpRequestException` (logged; the controller's dispatch is off-request so the caller still sees 204 — REG-053).
+  - 3 does NOT throw — a healthy send must not be turned into a false alarm by a terse body.
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-069 ×2)
+
+### REG-070 - The configured provider resolves to the right sender at startup
+- **Priority:** P2
+- **Type:** Contract
+- **Origin:** The provider is chosen ONCE at startup; a config typo silently degrades password reset to log-only instead of failing loudly.
+- **Preconditions:** The real `AddInfrastructure` container over an in-memory `Email` configuration.
+- **Steps:**
+  1. Resolve `IEmailSender` for each config combination (no key; key with no provider; resend; cloudflare with/without AccountId; unknown provider name; provider with no key).
+- **Expected:**
+  - No key → `LoggingEmailSender`. Key with **no** provider → `ResendEmailSender` (back-compat with pre-switch configs). `resend` → `ResendEmailSender`. `cloudflare` **with** AccountId → `CloudflareEmailSender`; **without** one (or blank) → `LoggingEmailSender`. Unknown provider name → `LoggingEmailSender`. Provider names are case/whitespace tolerant. Startup logs the resolved provider, or warns that email is not configured.
+- **Automated:** Full (EmailProviderSelectionTests — REG-070, 10 cases)
+
 ### REG-056 - A reset token sets the new password
 - **Priority:** P1
 - **Type:** Happy

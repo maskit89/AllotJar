@@ -10,8 +10,29 @@ public class EmailSettings
 {
     public const string SectionName = "Email";
 
-    /// <summary>Resend API key. Absent ⇒ the logging fallback sender is used.</summary>
+    /// <summary>Provider names understood by <c>AddInfrastructure</c>.</summary>
+    public const string ProviderCloudflare = "cloudflare";
+    public const string ProviderResend = "resend";
+
+    /// <summary>
+    /// Which sending provider to use: <c>cloudflare</c> (Cloudflare Email Service, needs
+    /// <see cref="AccountId"/>) or <c>resend</c>. Blank defaults to <c>resend</c> so existing
+    /// key-only configurations keep working. Ignored entirely when <see cref="ApiKey"/> is absent —
+    /// then the logging fallback is used regardless.
+    /// </summary>
+    public string? Provider { get; set; }
+
+    /// <summary>
+    /// The provider API key/token. Absent ⇒ the logging fallback sender is used (dev/CI need no
+    /// credentials). For Cloudflare this is an API token with the "Email Sending: Edit" permission.
+    /// </summary>
     public string? ApiKey { get; set; }
+
+    /// <summary>
+    /// Cloudflare account id — required by the Email Service send endpoint, which is scoped per
+    /// account (<c>/client/v4/accounts/{account_id}/email/sending/send</c>). Cloudflare only.
+    /// </summary>
+    public string? AccountId { get; set; }
 
     /// <summary>
     /// The From header, "Name &lt;address&gt;" form. The address's domain must be verified with

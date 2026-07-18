@@ -273,6 +273,88 @@ public class AuthPasswordResetCoverageTests
         await act.Should().ThrowAsync<HttpRequestException>();
     }
 
+    // REG-068 — the Cloudflare Email Service adapter posts the documented account-scoped shape
+    // (POST /client/v4/accounts/{id}/email/sending/send with to/from/subject/text/html).
+    [Fact]
+    public async Task Cloudflare_sender_posts_the_account_scoped_provider_shape()
+    {
+        var captured = new List<(HttpRequestMessage Request, string Body)>();
+        var sender = CloudflareSender(
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"success\":true,\"result\":{\"delivered\":[\"to@example.com\"]}}"),
+            },
+            captured);
+
+        await sender.SendAsync(new EmailMessage("to@example.com", "Subj", "text-body", "<p>html</p>"));
+
+        captured.Should().ContainSingle();
+        captured[0].Request.RequestUri!.AbsoluteUri.Should()
+            .Be("https://api.cloudflare.com/client/v4/accounts/acct-123/email/sending/send");
+        captured[0].Body.Should().Contain("\"to\":\"to@example.com\"")
+            .And.Contain("\"from\":\"AllotJar \\u003Cno-reply@allotjar.com\\u003E\"")
+            .And.Contain("\"subject\":\"Subj\"")
+            .And.Contain("\"text\":\"text-body\"")
+            .And.Contain("\"html\":");
+    }
+
+    // REG-069 — **the Cloudflare trap**: client/v4 answers HTTP 200 with {"success": false} for a
+    // rejected send. A status-code-only check would swallow it and leave the user waiting for an
+    // email that was never accepted, so the envelope must be inspected too.
+    [Fact]
+    public async Task Cloudflare_sender_throws_on_a_200_response_that_reports_failure()
+    {
+        var sender = CloudflareSender(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                "{\"success\":false,\"errors\":[{\"code\":1001,\"message\":\"domain not onboarded\"}]}"),
+        });
+
+        var act = () => sender.SendAsync(new EmailMessage("to@example.com", "Subj", "t", "h"));
+
+        await act.Should().ThrowAsync<HttpRequestException>();
+    }
+
+    // A non-2xx is a failure regardless of the body, and a healthy send must NOT be turned into a
+    // false alarm by a body that carries no "success" field (or isn't JSON at all).
+    [Fact]
+    public async Task Cloudflare_sender_throws_on_non_success_status_but_not_on_an_envelope_less_body()
+    {
+        var rejected = CloudflareSender(_ => new HttpResponseMessage(HttpStatusCode.Forbidden)
+        {
+            Content = new StringContent("{\"success\":false,\"errors\":[{\"code\":10000}]}"),
+        });
+        var actRejected = () => rejected.SendAsync(new EmailMessage("to@example.com", "S", "t", "h"));
+        await actRejected.Should().ThrowAsync<HttpRequestException>();
+
+        // 200 + a body with no envelope (or non-JSON) is accepted — the status code governs.
+        var terse = CloudflareSender(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("accepted"),
+        });
+        var actTerse = () => terse.SendAsync(new EmailMessage("to@example.com", "S", "t", "h"));
+        await actTerse.Should().NotThrowAsync();
+    }
+
+    private static CloudflareEmailSender CloudflareSender(
+        Func<HttpRequestMessage, HttpResponseMessage> respond,
+        List<(HttpRequestMessage, string)>? captured = null)
+    {
+        var settings = Options.Create(new EmailSettings
+        {
+            Provider = EmailSettings.ProviderCloudflare,
+            ApiKey = "cf-token",
+            AccountId = "acct-123",
+            FromAddress = "AllotJar <no-reply@allotjar.com>",
+        });
+        return new CloudflareEmailSender(
+            new HttpClient(new CapturingHandler(respond, captured ?? new List<(HttpRequestMessage, string)>()))
+            {
+                BaseAddress = new Uri("https://api.cloudflare.com/"),
+            },
+            settings, NullLogger<CloudflareEmailSender>.Instance);
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Plumbing
     // ---------------------------------------------------------------------------------------------
