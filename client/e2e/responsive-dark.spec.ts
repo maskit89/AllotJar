@@ -224,8 +224,7 @@ test.describe('responsive — data tables scroll inside their own container (375
 
   // UX-031 — the /accounts jar-reconciliation table is wrapped in its own
   // overflow-x-auto box (soft: four columns may fit the phone, but the box, not
-  // the page, is the designated scroller). NB: the account-detail register at
-  // /accounts/:id is NOT in AUTHED_ROUTES and is a documented manual gap (UX-036).
+  // the page, is the designated scroller).
   test('the accounts reconciliation table scrolls inside its own container (UX-031)', async ({
     page,
   }) => {
@@ -235,6 +234,25 @@ test.describe('responsive — data tables scroll inside their own container (375
     const table = page.getByRole('table')
     await table.waitFor()
     await expectInnerScroller(table, '/accounts reconciliation table', false)
+  })
+
+  // UX-036 — the account-detail register at /accounts/:id (a parameterized route
+  // NOT in AUTHED_ROUTES, so the per-route sweeps never visit it). The fixture's
+  // 'acc0' account carries every mocked transaction, so the register renders a
+  // populated table (min-w-[520px]) that must scroll inside its own
+  // overflow-x-auto box while the document never scrolls sideways at 375 px.
+  test('the account-detail register scrolls inside its own container (UX-036)', async ({
+    page,
+  }) => {
+    await authedSetup(page, 'light')
+    await page.goto('/accounts/acc0')
+    await page.getByRole('heading', { level: 1 }).first().waitFor()
+    // The register rendered real rows (not the empty state) — the table's width
+    // pressure comes from actual content.
+    await page.getByText('Welbees Supermarket').waitFor()
+    const table = page.getByRole('table')
+    await table.waitFor()
+    await expectInnerScroller(table, '/accounts/acc0 register', true)
   })
 
   // UX-032 — the budget grid does NOT use an overflow-x scroller; its rows reflow
