@@ -99,11 +99,19 @@ key ring is otherwise in-memory. The ring is encrypted at rest with LocalMachine
 **4. Recycle the API app pool.** The provider is chosen **once at startup** (see
 `AddInfrastructure`), so editing the config file alone does not switch it over.
 
-**5. Confirm it took, from the log.** Startup emits either
-`Outbound email provider: CloudflareEmailSender` / `ResendEmailSender`, or a warning that outbound
-email is NOT configured and messages will only be logged. Check this before testing by hand — an
-incomplete provider config (unknown name, or Cloudflare without an `AccountId`) deliberately
-degrades to log-only rather than taking the API down, so it is otherwise silent.
+**5. Confirm it took, from the Windows Event Log.** Startup emits either
+`Outbound email provider: CloudflareEmailSender` / `ResendEmailSender`, or
+`Outbound email is NOT configured … : <reason>` naming the specific problem (missing `ApiKey`,
+missing `AccountId`, or an unrecognised `Provider` — a typo like `"cloudfare"` says so). Both are
+logged at **Warning** on purpose: the Console provider writes to ANCM stdout, which
+`stdoutLogEnabled` leaves off and the deploy re-mirrors anyway, and the EventLog provider filters
+out anything below Warning — an Information line would be invisible here. Check this before testing
+by hand: an incomplete provider config deliberately degrades to log-only rather than taking the API
+down, so it is otherwise silent.
+
+Note for Cloudflare: the sending identity is derived from `FromAddress`. A display-name value like
+`AllotJar <no-reply@allotjar.com>` is split into Cloudflare's `{ address, name }` form
+automatically — do NOT expect the raw RFC5322 string to be accepted by their API.
 
 **6. Smoke-test:** request a reset from `https://www.allotjar.com/forgot-password` and follow the
 emailed link end-to-end.

@@ -292,10 +292,33 @@ public class AuthPasswordResetCoverageTests
         captured[0].Request.RequestUri!.AbsoluteUri.Should()
             .Be("https://api.cloudflare.com/client/v4/accounts/acct-123/email/sending/send");
         captured[0].Body.Should().Contain("\"to\":\"to@example.com\"")
-            .And.Contain("\"from\":\"AllotJar \\u003Cno-reply@allotjar.com\\u003E\"")
+            // REG-068 — Cloudflare's REST contract takes a bare address or {address,name}; the
+            // RFC5322 "Name <addr>" string Resend accepts is REJECTED as an invalid schema, and
+            // (sends being off-request + best-effort) that rejection would be silent. The shared
+            // FromAddress default IS in display-name form, so the adapter must split it. NOTE the
+            // REST key is `address` — the Workers binding uses `email` for the same idea.
+            .And.Contain("\"from\":{\"address\":\"no-reply@allotjar.com\",\"name\":\"AllotJar\"}")
+            .And.NotContain("\"from\":\"AllotJar")
             .And.Contain("\"subject\":\"Subj\"")
             .And.Contain("\"text\":\"text-body\"")
-            .And.Contain("\"html\":");
+            .And.Contain("\"html\":\"\\u003Cp\\u003Ehtml\\u003C/p\\u003E\"");
+    }
+
+    // REG-068 — a FromAddress that is already a bare address is sent as a plain string (the other
+    // documented form), not wrapped in an object with an empty name.
+    [Fact]
+    public async Task Cloudflare_sender_sends_a_bare_from_address_as_a_plain_string()
+    {
+        var captured = new List<(HttpRequestMessage Request, string Body)>();
+        var sender = CloudflareSender(
+            _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"success\":true}") },
+            captured,
+            fromAddress: "no-reply@allotjar.com");
+
+        await sender.SendAsync(new EmailMessage("to@example.com", "Subj", "t", "h"));
+
+        captured[0].Body.Should().Contain("\"from\":\"no-reply@allotjar.com\"")
+            .And.NotContain("\"name\":");
     }
 
     // REG-069 — **the Cloudflare trap**: client/v4 answers HTTP 200 with {"success": false} for a
@@ -327,7 +350,15 @@ public class AuthPasswordResetCoverageTests
         var actRejected = () => rejected.SendAsync(new EmailMessage("to@example.com", "S", "t", "h"));
         await actRejected.Should().ThrowAsync<HttpRequestException>();
 
-        // 200 + a body with no envelope (or non-JSON) is accepted — the status code governs.
+        // 200 + valid JSON that simply carries NO "success" field is accepted — the status governs.
+        var noEnvelope = CloudflareSender(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"result\":{\"delivered\":[\"to@example.com\"]}}"),
+        });
+        var actNoEnvelope = () => noEnvelope.SendAsync(new EmailMessage("to@example.com", "S", "t", "h"));
+        await actNoEnvelope.Should().NotThrowAsync();
+
+        // ...as is a 200 whose body isn't JSON at all (the parse failure must not become an error).
         var terse = CloudflareSender(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent("accepted"),
@@ -338,14 +369,15 @@ public class AuthPasswordResetCoverageTests
 
     private static CloudflareEmailSender CloudflareSender(
         Func<HttpRequestMessage, HttpResponseMessage> respond,
-        List<(HttpRequestMessage, string)>? captured = null)
+        List<(HttpRequestMessage, string)>? captured = null,
+        string fromAddress = "AllotJar <no-reply@allotjar.com>")
     {
         var settings = Options.Create(new EmailSettings
         {
             Provider = EmailSettings.ProviderCloudflare,
             ApiKey = "cf-token",
             AccountId = "acct-123",
-            FromAddress = "AllotJar <no-reply@allotjar.com>",
+            FromAddress = fromAddress,
         });
         return new CloudflareEmailSender(
             new HttpClient(new CapturingHandler(respond, captured ?? new List<(HttpRequestMessage, string)>()))

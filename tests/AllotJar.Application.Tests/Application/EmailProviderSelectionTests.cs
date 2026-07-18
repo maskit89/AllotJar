@@ -1,3 +1,4 @@
+using System.Reflection;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -44,6 +45,61 @@ public class EmailProviderSelectionTests
         var sender = provider_.GetRequiredService<IEmailSender>();
 
         sender.Should().BeOfType(expected);
+    }
+
+    // REG-070 — the typed HttpClient the REAL composition root configures. The adapter unit tests
+    // hand-build their own HttpClient, so without this a wrong base address or a missing/renamed
+    // auth header in AddInfrastructure would ship silently: every send would 404/401 at the
+    // provider and, because dispatch is off-request and best-effort, no user would ever see it.
+    [Theory]
+    [InlineData("cloudflare", "acct", "https://api.cloudflare.com/", typeof(CloudflareEmailSender))]
+    [InlineData("resend", null, "https://api.resend.com/", typeof(ResendEmailSender))]
+    public void Configures_the_typed_http_client_with_the_provider_base_address_and_bearer_auth(
+        string provider, string? accountId, string expectedBaseAddress, Type senderType)
+    {
+        using var services = BuildProvider(provider, "secret-token", accountId);
+
+        var sender = services.GetRequiredService<IEmailSender>();
+        sender.Should().BeOfType(senderType);
+
+        // The typed client is injected as a private field; reading it back is the only way to
+        // assert what AddHttpClient actually configured.
+        var http = (HttpClient)senderType
+            .GetField("_http", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(sender)!;
+
+        http.BaseAddress.Should().Be(new Uri(expectedBaseAddress));
+        http.DefaultRequestHeaders.Authorization.Should().NotBeNull();
+        http.DefaultRequestHeaders.Authorization!.Scheme.Should().Be("Bearer");
+        http.DefaultRequestHeaders.Authorization.Parameter.Should().Be("secret-token");
+        http.Timeout.Should().Be(TimeSpan.FromSeconds(10));
+    }
+
+    // REG-070 — the remediation text an operator actually reads. Telling someone to "set
+    // Email:ApiKey" when they already have one (they typo'd the provider, or omitted AccountId)
+    // sends them hunting in the wrong place, so each failure mode must name ITSELF.
+    [Theory]
+    [InlineData(null, null, null, "Email:ApiKey")]
+    [InlineData("cloudflare", "key", null, "Email:AccountId")]
+    [InlineData("cloudfare", "key", "acct", "not recognised")] // the classic typo
+    public void Describes_each_misconfiguration_in_its_own_terms(
+        string? provider, string? apiKey, string? accountId, string expectedFragment)
+    {
+        var settings = new EmailSettings { Provider = provider, ApiKey = apiKey, AccountId = accountId };
+
+        settings.DescribeMisconfiguration().Should().NotBeNull().And.Contain(expectedFragment);
+    }
+
+    [Theory]
+    [InlineData("cloudflare", "key", "acct")]
+    [InlineData("resend", "key", null)]
+    [InlineData(null, "key", null)] // blank provider = resend, and that IS complete
+    public void Describes_a_complete_configuration_as_having_no_problem(
+        string? provider, string? apiKey, string? accountId)
+    {
+        var settings = new EmailSettings { Provider = provider, ApiKey = apiKey, AccountId = accountId };
+
+        settings.DescribeMisconfiguration().Should().BeNull();
     }
 
     /// <summary>

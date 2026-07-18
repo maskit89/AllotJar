@@ -36,11 +36,7 @@ public class LoggingEmailSender : IEmailSender
         {
             // Name the actual reason: a misconfigured provider is easy to mistake for "no email
             // set up yet", and password reset silently not sending is the failure that hurts.
-            var reason = string.IsNullOrWhiteSpace(_settings.ApiKey)
-                ? "no Email:ApiKey is configured"
-                : $"the Email:Provider configuration is incomplete or unrecognised " +
-                  $"(Provider='{_settings.Provider}'" +
-                  (string.IsNullOrWhiteSpace(_settings.AccountId) ? ", no Email:AccountId" : "") + ")";
+            var reason = _settings.DescribeMisconfiguration() ?? "outbound email is not configured";
             _logger.LogWarning(
                 "Email to {To} ({Subject}) was NOT sent: {Reason}.",
                 message.ToEmail, message.Subject, reason);

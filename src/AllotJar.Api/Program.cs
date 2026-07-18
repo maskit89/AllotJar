@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using AllotJar.Api.Features;
 using AllotJar.Api.Middleware;
@@ -267,15 +268,24 @@ static void LogEmailProvider(WebApplication app)
     try
     {
         var sender = scope.ServiceProvider.GetRequiredService<IEmailSender>();
+        var settings = scope.ServiceProvider.GetRequiredService<IOptions<EmailSettings>>().Value;
+
         if (sender is LoggingEmailSender)
         {
+            // Name the ACTUAL problem — "set Email:ApiKey" is misleading advice for the two
+            // configurations that already have one (typo'd provider / missing AccountId).
             logger.LogWarning(
-                "Outbound email is NOT configured — messages will only be logged, never delivered. " +
-                "Set Email:ApiKey (+ Email:AccountId for Cloudflare) to enable sending.");
+                "Outbound email is NOT configured — messages will only be logged, never delivered: {Reason}.",
+                settings.DescribeMisconfiguration() ?? "outbound email is not configured");
         }
         else
         {
-            logger.LogInformation("Outbound email provider: {Provider}.", sender.GetType().Name);
+            // Deliberately Warning, not Information: on the production host the Console provider
+            // writes to ANCM stdout (disabled by default, and the deploy re-mirrors the folder), and
+            // the EventLog provider filters below Warning — so an Information line has no reachable
+            // sink and the runbook's "confirm from the log" step would be unfollowable. This is a
+            // once-per-startup operational notice, not a problem.
+            logger.LogWarning("Outbound email provider: {Provider}.", sender.GetType().Name);
         }
     }
     catch (Exception ex)

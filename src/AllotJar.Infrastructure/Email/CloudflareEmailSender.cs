@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Net.Mail;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -32,14 +33,15 @@ public class CloudflareEmailSender : IEmailSender
     public async Task SendAsync(EmailMessage message, CancellationToken ct = default)
     {
         var path = $"client/v4/accounts/{_settings.AccountId}/email/sending/send";
-        using var response = await _http.PostAsJsonAsync(path, new
+        var payload = new Dictionary<string, object?>
         {
-            to = message.ToEmail,
-            from = _settings.FromAddress,
-            subject = message.Subject,
-            text = message.TextBody,
-            html = message.HtmlBody,
-        }, ct);
+            ["to"] = message.ToEmail,
+            ["from"] = BuildFrom(_settings.FromAddress),
+            ["subject"] = message.Subject,
+            ["text"] = message.TextBody,
+            ["html"] = message.HtmlBody,
+        };
+        using var response = await _http.PostAsJsonAsync(path, payload, ct);
 
         // The body carries Cloudflare's error array (never the recipient's mail content).
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -54,6 +56,36 @@ public class CloudflareEmailSender : IEmailSender
                 (int)response.StatusCode, body);
             throw new HttpRequestException(
                 $"Cloudflare Email Service send failed with status {(int)response.StatusCode}.");
+        }
+    }
+
+    /// <summary>
+    /// Renders <c>FromAddress</c> in a shape Cloudflare's REST API accepts.
+    ///
+    /// **This is NOT interchangeable with Resend's.** Cloudflare types the field as either a BARE
+    /// address string (<c>"no-reply@allotjar.com"</c>) or an object
+    /// (<c>{ "address": "…", "name": "…" }</c>) — the RFC5322 display-name string
+    /// <c>"AllotJar &lt;no-reply@allotjar.com&gt;"</c> that Resend accepts (and that the shared
+    /// <see cref="EmailSettings.FromAddress"/> default uses) is rejected as an invalid request
+    /// schema. Because sends are best-effort and dispatched off the request path, that rejection
+    /// would be SILENT: the user still gets 204 and simply never receives a reset email. Hence the
+    /// split here rather than posting the configured string verbatim.
+    /// NOTE the REST key is <c>address</c>; the Workers binding uses <c>email</c> for the same idea.
+    /// </summary>
+    private static object BuildFrom(string fromAddress)
+    {
+        try
+        {
+            var parsed = new MailAddress(fromAddress);
+            return string.IsNullOrWhiteSpace(parsed.DisplayName)
+                ? parsed.Address
+                : new { address = parsed.Address, name = parsed.DisplayName };
+        }
+        catch (FormatException)
+        {
+            // Unparseable: send it through and let the provider reject it with a logged error,
+            // rather than throwing a different exception from inside the sender.
+            return fromAddress;
         }
     }
 

@@ -52,4 +52,37 @@ public class EmailSettings
     /// link is in the body); keep OFF elsewhere so tokens never reach persisted logs.
     /// </summary>
     public bool LogBodies { get; set; }
+
+    /// <summary>
+    /// Why no real provider resolved, phrased as actionable remediation — or <c>null</c> when the
+    /// configuration IS complete. Shared by the startup report and the fallback sender so both
+    /// name the ACTUAL problem: telling an operator to "set Email:ApiKey" when they already have
+    /// one (they typo'd the provider, or omitted AccountId) sends them looking in the wrong place.
+    /// </summary>
+    public string? DescribeMisconfiguration()
+    {
+        if (string.IsNullOrWhiteSpace(ApiKey))
+        {
+            return "no Email:ApiKey is configured — set it (plus Email:AccountId for Cloudflare) to enable sending";
+        }
+
+        var provider = string.IsNullOrWhiteSpace(Provider)
+            ? ProviderResend
+            : Provider.Trim().ToLowerInvariant();
+
+        if (provider == ProviderCloudflare)
+        {
+            return string.IsNullOrWhiteSpace(AccountId)
+                ? "Email:Provider is 'cloudflare' but Email:AccountId is missing — Cloudflare's send endpoint is account-scoped"
+                : null;
+        }
+
+        if (provider == ProviderResend)
+        {
+            return null;
+        }
+
+        return $"Email:Provider '{Provider}' is not recognised — use '{ProviderCloudflare}' or '{ProviderResend}' " +
+               "(or leave it blank for resend)";
+    }
 }
