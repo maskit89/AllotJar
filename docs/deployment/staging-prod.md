@@ -1,90 +1,100 @@
-# Beta + production environments, and the GA cutover
+# Staging + production environments
 
-This describes the split between a rolling **beta** environment and a manually
-promoted **production** (GA) environment, the **coming-soon** page on the public URL,
-and the one-time steps to wire it all up. For the base IIS/SQL deploy mechanics, see
+This describes the two-environment topology (IP-allowlisted **staging** + public
+**production**), the single release pipeline that feeds both, and the runbook that
+took us here at the 2026-07 GA cutover. For the base IIS/SQL deploy mechanics, see
 [`README.md`](./README.md).
+
+> History: before 2026-07 the single stack was the public "beta" at
+> `app.allotjar.com` and `www`/apex served a Cloudflare-Worker coming-soon page
+> (PR #121). At the cutover the beta stack was relabelled **staging** (keeping its
+> data), a clean **production** stack was provisioned next to it, and the
+> coming-soon Worker was retired. The old `app.allotjar.com` hostname is gone.
 
 ## The model
 
 ```
-                         ┌─ allotjar.com + www ──►  Cloudflare Pages  ──►  "coming soon" one-pager
-Cloudflare zone ─────────┤                          (marketing/coming-soon/)
-(allotjar.com)           └─ app.allotjar.com  ──►  VPS IIS front site  ──►  API ──► SQL (the real data)
-                            (proxied → 74.50.82.13)        = BETA
+Cloudflare zone ──┬─ allotjar.com + www ──►  VPS IIS site 'ZeroBudget-Prod'  ─► API :5001 ─► SQL 'ZeroBudgetProd'
+(allotjar.com)    │                          = PRODUCTION (public)
+                  └─ staging.allotjar.com ─► VPS IIS site 'ZeroBudget'       ─► API :5000 ─► SQL 'ZeroBudget'
+                       ▲                     = STAGING (the old beta stack + its data)
+                       │
+                WAF custom rule 'staging-ip-allowlist':
+                block staging.allotjar.com unless ip.src is allowlisted
 
-  merge to main ──► "Deploy to beta" workflow (auto) ─────────────► BETA  (app.allotjar.com)
-                    "Promote to production" workflow (manual, ──►  PRODUCTION  (GA, provisioned at cutover)
-                     reviewer-gated)
+  merge to main ──► deploy.yml: build+deploy STAGING (auto)
+                                └► deploy PRODUCTION (pauses for approval in the Actions UI)
 ```
 
-- **Beta** = the *existing* live VPS stack, **with its current data** (the family/friends
-  testers). It is just given the `app.allotjar.com` hostname and a beta-flagged build
-  (`VITE_APP_ENV=beta`) that shows the under-construction banner + a data-loss
-  acknowledgment on signup. Every merge to `main` auto-deploys here.
-- **Production** = a *future*, clean GA stack, stood up at cutover. Until then the public
-  URL is the coming-soon page, so nothing app-shaped runs there yet. The
-  **Promote to production** workflow is the manual, approval-gated path to it.
-- Open signup is allowed on beta (anyone with the URL who accepts the beta terms); the
-  URL is simply not advertised on the coming-soon page.
+- **Staging** = the original VPS stack **with its historical data**. Only
+  allowlisted IPs get through Cloudflare; everyone else is blocked at the edge.
+  The bundle is built with `VITE_APP_ENV=staging` (amber banner + data-loss signup
+  consent) and **no GA measurement ID** (analytics inert).
+- **Production** = the clean stack provisioned at cutover (own IIS sites/pools, API
+  on `127.0.0.1:5001`, own database `ZeroBudgetProd`, own `appsettings.Production.json`
+  with a fresh JWT signing key). Public at `allotjar.com`/`www`. Accounts do NOT
+  carry over from staging — production started empty.
+- **One pipeline** (`.github/workflows/deploy.yml`): every merge to `main` deploys
+  staging automatically, then the production job waits on the `production`
+  environment's required reviewer. Approving it ships the same commit to prod.
+  Unapproved production jobs are superseded by newer runs (job-level concurrency
+  group `production-deploy`), so approving always deploys the newest `main`.
 
-## What's already in the repo
+## What's in the repo
 
 | Piece | Where |
 |---|---|
-| Beta auto-deploy | `.github/workflows/deploy.yml` (builds `VITE_APP_ENV=beta`) |
-| Manual prod promotion | `.github/workflows/promote-to-production.yml` (reviewer-gated) |
-| Beta banner + signup consent | `client/src/components/BetaBanner.tsx`, `client/src/lib/env.ts`, `LoginPage.tsx` |
-| Coming-soon page | `marketing/coming-soon/` (+ its own README) |
+| Release pipeline (staging auto + prod approval) | `.github/workflows/deploy.yml` |
+| Prod stack provisioning (manual, reviewer-gated) | `.github/workflows/provision-production.yml` + `deploy/Provision-Production.ps1` |
+| Cloudflare DNS/WAF automation | `deploy/Setup-Cloudflare.ps1` |
+| Server-side deploy (parametrised per stack) | `deploy/Deploy.ps1` (`-ApiProxyPort` patches the ARR port) |
+| Staging banner + signup consent | `client/src/components/StagingBanner.tsx`, `client/src/lib/env.ts`, `LoginPage.tsx` |
+| Daily DB backups (both databases) | `deploy/Backup-Database.ps1` + `deploy/Register-BackupTask.ps1` (tasks `ZeroBudget-DbBackup`, `ZeroBudget-Prod-DbBackup`) |
+| Retired coming-soon page (archived source) | `marketing/coming-soon/` |
 
-## One-time setup (do these to go live with beta + coming-soon)
+## Changing the staging IP allowlist
 
-### 1. GitHub environments
-- Settings → Environments → create **`beta`** (no reviewers — auto-deploys).
-- Create **`production`** and add yourself under **Required reviewers**. This is what
-  makes *Promote to production* pause for a manual approval click.
+The allowlist lives in ONE place: the Cloudflare WAF custom rule
+**`staging-ip-allowlist`** on the `allotjar.com` zone
+(dash.cloudflare.com → the zone → Security → WAF → Custom rules). Its expression is
 
-### 2. Cloudflare — coming-soon page on apex + www
-- Deploy `marketing/coming-soon/` to **Cloudflare Pages** (see that folder's README:
-  output dir `marketing/coming-soon`, no build command).
-- Add custom domains **`allotjar.com`** and **`www.allotjar.com`** to the Pages project.
-  Cloudflare repoints their DNS to Pages automatically.
+```
+(http.host eq "staging.allotjar.com" and not ip.src in {<ip> <ip> ...})
+```
 
-### 3. Cloudflare + IIS — beta on app.allotjar.com
-- Cloudflare DNS: add an **A record `app` → `74.50.82.13`, Proxied (orange)**. Proxying
-  keeps the existing CF-IP origin firewall valid and gives `app.*` edge TLS/HSTS.
-- On the VPS, add `app.allotjar.com` host-header bindings to the existing front site
-  (the same site that serves the app today), reusing the current origin cert. Mirror how
-  the `allotjar.com` binding was set up; representative PowerShell:
-  ```powershell
-  Import-Module WebAdministration
-  New-WebBinding -Name 'ZeroBudget' -Protocol http  -Port 80  -HostHeader 'app.allotjar.com'
-  New-WebBinding -Name 'ZeroBudget' -Protocol https -Port 443 -HostHeader 'app.allotjar.com' -SslFlags 1
-  # then assign the existing self-signed cert to the SNI binding (see the TLS notes in README/ops)
-  ```
-- The apex/www bindings on the VPS become inert (CF now serves those from Pages); leave
-  or remove them.
+with action **Block**. Edit the IP set in the dashboard, or re-run
+`deploy/Setup-Cloudflare.ps1 -Phase staging -AllowedIps <ips...>` with a
+zone-scoped API token (Zone→DNS Edit + Zone→Zone WAF Edit).
 
-> After this, merging to `main` ships the beta build to `app.allotjar.com`, and the public
-> URL shows the coming-soon page. The next merge will show the beta banner on the app —
-> expected.
+Note the origin firewall only admits Cloudflare's IP ranges, so the WAF rule can't
+be bypassed by hitting the VPS directly.
 
-## GA cutover checklist (when you're ready to launch publicly)
+## The cutover runbook (2026-07) — kept for reference / disaster recovery
 
-1. **Provision the production stack** on the VPS (mirrors README, parallel to beta):
-   - IIS sites/dirs `C:\inetpub\zerobudget-prod\{api,web}`, app pools
-     `ZeroBudget-Prod-Api` / `ZeroBudget-Prod-Web`, API bound on **127.0.0.1:5001**.
-   - A **fresh SQL database** + its own `appsettings.Production.json` (server-only,
-     gitignored — new JWT key, connection string). The deploy never touches the DB.
-   - Grant the prod API app-pool identity access to the prod DB.
-2. **Secrets**: add `PROD_VPS_HOST` / `PROD_VPS_SSH_USER` / `PROD_VPS_SSH_KEY` /
-   `PROD_VPS_SSH_PORT` (mirror the beta `VPS_*` values if it's the same box).
-3. **Promote**: Actions → *Promote to production* → Run workflow → approve the gate.
-   It builds a GA-flagged SPA (no beta banner) and deploys to the prod stack.
-4. **Smoke-test privately** against the prod stack before exposing it (it answers on
-   `127.0.0.1:5001`; or add a temporary internal host binding).
-5. **Flip DNS**: move `allotjar.com` + `www` off Cloudflare Pages and onto the prod app
-   (proxied A → the VPS / prod site binding). Decide beta's fate: keep `app.allotjar.com`
-   as an ongoing beta channel, or retire it.
-6. Update `client/index.html` canonical/OG (already `www.allotjar.com`) and the
-   `robots.txt`/`sitemap.xml` hosts as needed.
+1. **Merge the pipeline PR.** The next `main` build auto-deploys the
+   staging-flagged bundle to the existing stack.
+2. **Provision production**: Actions → *Provision production stack* → run (approve
+   the gate). Idempotent; creates dirs/pools/sites/SNI-bindings/DB/settings/backup
+   tasks. The prod API dir is empty until the first deploy.
+3. **First production deploy**: approve the pending `deploy-production` job on the
+   latest Deploy run (or re-run the workflow). Health check: `http://127.0.0.1:5001/health`
+   on the VPS; EF migrations create the schema in `ZeroBudgetProd` on first start.
+4. **Cloudflare — staging first** (never expose staging unfiltered):
+   `deploy/Setup-Cloudflare.ps1 -ApiToken <t> -Phase staging` — creates the WAF
+   allowlist rule, THEN the proxied `staging` A record.
+5. **Cloudflare — retire the Worker**: dashboard → Workers & Pages →
+   `allotjar-coming-soon` → Settings → Domains & Routes → remove `allotjar.com`
+   and `www.allotjar.com` (needs account-scoped Workers perms, hence manual).
+6. **Cloudflare — production**: `deploy/Setup-Cloudflare.ps1 -ApiToken <t> -Phase production`
+   — proxied A records for apex + `www` → the origin, and deletes the `app` record.
+7. **Trim staging bindings**: Actions → *Provision production stack* → run with
+   `trim_staging_bindings=true`. Removes the catch-all/apex/www/app bindings from
+   the staging site so each site answers exactly its own hostnames.
+8. **Verify**: `www.allotjar.com` serves the app with no banner; `staging.allotjar.com`
+   works from an allowlisted IP and is blocked elsewhere; `app.allotjar.com` no
+   longer resolves; `Get-ScheduledTask ZeroBudget-DbBackup, ZeroBudget-Prod-DbBackup`
+   both exist and run.
+
+Rollback: the coming-soon Worker still exists (custom domains can be re-added in
+the dashboard), and DNS records are plain proxied A records — re-point as needed.
+The staging stack is untouched by all of this except for its extra hostname.

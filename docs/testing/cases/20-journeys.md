@@ -2,7 +2,7 @@
 
 **ID prefix:** JRN | **Scope:** Realistic multi-feature life journeys run start-to-finish, each a numbered script with an explicit CHECKPOINT expectation after every stage. These cases deliberately cross subsystem boundaries — registration → onboarding → accounts → months → transactions → bills → jars → allocation → reports → sharing → session lifecycle — to exercise the *seams* that per-area cases (which see one subsystem at a time) cannot: server-side active-household resolution flowing between pages, tx-derived actuals rippling from a transaction into a month hero and a report, sample-vs-empty landing shaping the whole first run, cross-tab/cross-device session state, and the money-integrity chain across allocation → transfer → account balance → reconciliation. Where a single step equals an existing area case it is referenced by ID (e.g. "as ACCT-007"); the journey asserts the *stitching between* those steps, not the step in isolation. | **Out of scope:** single-surface depth lives in the sibling files — `01-landing-public.md` (LAND), `02-registration-login.md` (REG), `03-session-auth-lifecycle.md` (SESS), `04-account-preferences.md` (PREF), `05-onboarding.md` (ONBD), `06-dashboard-budget-view.md` (DASH), `07-month-lifecycle.md` (BUDG), `11-transfers.md` (TRF), `12-accounts-reconciliation.md` (ACCT), `13-jars.md` (JAR), `14-allocation.md` (ALLOC), `18-reports.md` (RPT), plus the transactions, people/invites and import area files. Do not re-test isolated field validation or single-endpoint error strings here.
 
-**Test data setup:** These journeys assume a clean beta environment (`app.allotjar.com`, `IS_BETA` true, `RateLimiting__AuthPermitLimit` raised for serial e2e). Passwords must be HIBP-safe randoms (`Aa1-<uuid>`), never fixed common strings. Canonical fixtures used across journeys:
+**Test data setup:** These journeys assume a clean staging environment (`staging.allotjar.com`, `IS_STAGING` true, `RateLimiting__AuthPermitLimit` raised for serial e2e). Passwords must be HIBP-safe randoms (`Aa1-<uuid>`), never fixed common strings. Canonical fixtures used across journeys:
 - **Solo user "Sam":** EUR, number format `comma-dot` (en-GB), registers with the sample checkbox **unticked** (PR #170 default = empty account).
 - **Couple "Chris + Liza":** Chris owns the household (net monthly income 3,000.00), Liza is member #2 (net 2,000.00); joint EUR account "Joint" opening 1,250.00, plus each member's personal savings account. The allocation golden anchor figures (keep-own remainder Chris 1,259.14 / Liza 847.47) are the Bank-Summary-2026 reference numbers.
 - **Multi-currency household:** one EUR account "Joint" and one GBP account "UK Savings" (currency fixed at create).
@@ -15,10 +15,10 @@
 ### JRN-001 - Brand-new solo user: empty sign-up through a full first month to next-month copy
 - **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** No account exists for the chosen email. Beta build. Today = mid-month (so bills can be past/future within the month).
+- **Preconditions:** No account exists for the chosen email. Staging build. Today = mid-month (so bills can be past/future within the month).
 - **Steps:**
   1. Visit `/`, click **"Get started"** → lands on `/login?register=1` with the "Create account" tab pre-selected.
-  2. Fill **"First name"** "Sam", **"Last name"** "Rivera", **"Email"**, **"Password"** (random), leave **"Currency"** at the locale default (EUR) and **"Number format"** at `1,234.56`. Leave **"Start with sample figures…"** UNTICKED. Tick the required terms checkbox and the beta data-loss checkbox. Submit **"Create account"** (as REG-006).
+  2. Fill **"First name"** "Sam", **"Last name"** "Rivera", **"Email"**, **"Password"** (random), leave **"Currency"** at the locale default (EUR) and **"Number format"** at `1,234.56`. Leave **"Start with sample figures…"** UNTICKED. Tick the required terms checkbox and the staging data-loss checkbox. Submit **"Create account"** (as REG-006).
   3. Observe the landing dashboard at `/`.
   4. The onboarding **"Welcome to AllotJar"** dialog auto-opens (owner copy). Click **"Take the tour"**, step through all 9 spotlight steps, click **"Finish"** (as ONBD-001/ONBD-007).
   5. Open the account menu → **"Account settings"** → not needed yet; instead go to `/accounts` via nav, click **"+ Add account"**, add "Everyday" (Current, opening 1,200.00) and a second "Rainy Day" (Savings, opening 0.00) (as ACCT-007).
@@ -47,7 +47,7 @@
 ### JRN-002 - Opt-in sample sign-up: from seeded starter budget to a balanced, personalised first month
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Fresh email, beta build.
+- **Preconditions:** Fresh email, staging build.
 - **Steps:**
   1. Register via `/login?register=1` exactly as JRN-001 but TICK **"Start with sample figures to explore…"** before submitting **"Create account"** (as REG-007).
   2. Land on `/`; skip the welcome with **"Skip for now"**.

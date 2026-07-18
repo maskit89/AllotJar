@@ -6,7 +6,7 @@ A **zero-based budgeting** (ZBB) web app: give every unit of income a job until
 style at sign-up, and the whole app speaks your money ("give every _dollar_ /
 _rupee_ / _euro_ a job").
 
-- **Live:** <https://www.allotjar.com> (marketing) · <https://app.allotjar.com> (the app, currently **beta**)
+- **Live:** <https://www.allotjar.com> (production) · `staging.allotjar.com` (IP-allowlisted staging)
 - **New to the app?** The **[User Guide](docs/USER_GUIDE.md)** walks through every
   page — budgets, jars, bills, transactions, accounts, imports, people, reports
   and feature flags.
@@ -456,14 +456,17 @@ Production runs on a **native Windows Server VPS** (no Docker): IIS serves the R
 build and reverse-proxies `/api` to the ASP.NET Core API (ANCM), backed by SQL Server.
 See **[docs/deployment/README.md](docs/deployment/README.md)** for the full runbook and
 **[docs/deployment/staging-prod.md](docs/deployment/staging-prod.md)** for the
-beta/prod split.
+staging/production split.
 
 - **`.github/workflows/ci.yml`** builds and tests backend + frontend (with the axe
   a11y gate) on every push/PR.
-- **`deploy.yml`** auto-deploys `main` to **beta** (`app.allotjar.com`) over SSH/SCP on
-  merge.
-- **`promote-to-production.yml`** is a manual, reviewer-gated promotion to clean prod.
-- The `www`/apex domain serves a Cloudflare Worker "coming soon" page until GA; the app
-  lives on `app.allotjar.com` with a beta banner and a data-loss signup consent
-  (`VITE_APP_ENV=beta`).
+- **`deploy.yml`** is the release pipeline: every merge to `main` auto-deploys
+  **staging** (`staging.allotjar.com`, IP-allowlisted via a Cloudflare WAF rule,
+  `VITE_APP_ENV=staging` with the amber banner + data-loss signup consent), then the
+  **production** job (`allotjar.com` / `www`, `VITE_APP_ENV=production`) waits for a
+  manual approval on the `production` GitHub environment.
+- **`provision-production.yml`** is the manual, reviewer-gated infra workflow that
+  stood up (and can re-shape) the production IIS/SQL stack on the VPS.
+- Both stacks share one VPS: separate IIS sites/pools, API on `:5000` (staging) and
+  `:5001` (production), separate SQL databases (`ZeroBudget` / `ZeroBudgetProd`).
 - The `deploy/` folder holds the PowerShell bootstrap/setup/deploy/backup scripts.

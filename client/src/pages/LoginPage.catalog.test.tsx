@@ -7,12 +7,12 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 // `/login` page in both modes. These COMPLEMENT the five cases already in
 // LoginPage.test.tsx (registration-only fields hidden in sign-in mode; safe
 // internal returnUrl round-trip; full profile+prefs submit; includeSampleData
-// only when ticked; beta required data-loss ack) and DO NOT duplicate them.
+// only when ticked; staging required data-loss ack) and DO NOT duplicate them.
 //
 // Harness matches the repo convention (PR #169 gotcha): hoisted api mock fns,
 // vi.mock('../lib/api') spreading importOriginal, page rendered inside
 // <MemoryRouter><AuthProvider>. `../lib/env` is mocked so a test can flip the
-// beta build flag; `../analytics` is mocked so the LoginPage -> track() wiring
+// staging build flag; `../analytics` is mocked so the LoginPage -> track() wiring
 // (REG-050) is assertable without the real GA bridge (which is inert under test
 // anyway).
 //
@@ -28,7 +28,7 @@ const { mockGet, mockPost, mockPut, mockDelete, envState } = vi.hoisted(() => ({
   mockPost: vi.fn(),
   mockPut: vi.fn(),
   mockDelete: vi.fn(),
-  envState: { isBeta: false },
+  envState: { isStaging: false },
 }))
 
 vi.mock('../lib/api', async (importOriginal) => ({
@@ -42,14 +42,14 @@ vi.mock('../lib/api', async (importOriginal) => ({
   refreshSession: () => Promise.resolve(null),
 }))
 
-// Build-time env flag — default off (GA/default build) so the beta banner and the
-// beta data-loss checkbox are absent unless a test opts in.
+// Build-time env flag — default off (GA/default build) so the staging banner and the
+// staging data-loss checkbox are absent unless a test opts in.
 vi.mock('../lib/env', () => ({
-  get IS_BETA() {
-    return envState.isBeta
+  get IS_STAGING() {
+    return envState.isStaging
   },
   get APP_ENV() {
-    return envState.isBeta ? 'beta' : undefined
+    return envState.isStaging ? 'staging' : undefined
   },
 }))
 
@@ -130,7 +130,7 @@ async function switchToRegister(user: ReturnType<typeof userEvent.setup>) {
 describe('LoginPage (REG catalog)', () => {
   beforeEach(() => {
     localStorage.clear()
-    envState.isBeta = false
+    envState.isStaging = false
     mockGet.mockReset()
     mockPost.mockReset()
     mockPut.mockReset()
@@ -145,7 +145,7 @@ describe('LoginPage (REG catalog)', () => {
   // ---- Page chrome & mode toggle ------------------------------------------
 
   // REG-001 — sign-in mode is the default, with the full chrome and only the two
-  // sign-in fields (no registration-only fields, no beta banner in a default build).
+  // sign-in fields (no registration-only fields, no staging banner in a default build).
   it('REG-001: renders sign-in mode by default with the two-field chrome and no registration fields', () => {
     renderAt('/login')
 
@@ -167,7 +167,7 @@ describe('LoginPage (REG catalog)', () => {
     expect(password).toHaveAttribute('placeholder', 'At least 8 characters')
     expect(password).toHaveAttribute('autocomplete', 'current-password')
 
-    // Submit reads "Sign in"; no registration-only fields; no beta banner (default build).
+    // Submit reads "Sign in"; no registration-only fields; no staging banner (default build).
     expect(submitButton('Sign in')).toBeInTheDocument()
     expect(screen.queryByLabelText('First name')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Currency')).not.toBeInTheDocument()
@@ -412,18 +412,18 @@ describe('LoginPage (REG catalog)', () => {
     expect(screen.getByLabelText('Password')).toHaveAttribute('minlength', '8')
   })
 
-  // ---- Beta vs GA/default build -------------------------------------------
+  // ---- Staging vs GA/default build -------------------------------------------
 
-  // REG-016 — the default (non-beta) build renders neither the beta banner nor the
+  // REG-016 — the default (non-staging) build renders neither the staging banner nor the
   // amber data-loss checkbox, and registration succeeds with terms alone.
-  it('REG-016: default build shows no beta banner and no data-loss checkbox; terms alone suffices', async () => {
+  it('REG-016: default build shows no staging banner and no data-loss checkbox; terms alone suffices', async () => {
     mockPost.mockResolvedValue({ data: authResponse() })
     const user = userEvent.setup()
     renderAt('/login?register=1')
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(screen.queryByText(/my data may be reset or permanently lost/i)).not.toBeInTheDocument()
-    // Only the optional sample box + the required terms box (no beta box).
+    // Only the optional sample box + the required terms box (no staging box).
     expect(screen.getAllByRole('checkbox')).toHaveLength(2)
 
     await user.type(screen.getByLabelText('First name'), 'Ana')

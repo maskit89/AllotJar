@@ -1,15 +1,15 @@
 # Landing & Public Pages
 
-**ID prefix:** LAND | **Scope:** The anonymous-facing surface of AllotJar: the public marketing landing page at `/` (hero, tagline, CTAs, currency-aware copy), the auth-state branching of `/` (splash → landing vs dashboard), the public legal pages `/privacy` and `/terms`, SEO artifacts observable in the served app (head title/meta/canonical/OG/JSON-LD, `robots.txt`, `sitemap.xml`, the prerendered landing HTML, `theme-init.js`), the analytics consent banner + GA Consent Mode gating, the beta banner + beta signup data-loss consent, and the coming-soon page expectations on `www`/apex. | **Out of scope:** login/registration form mechanics, session refresh, returnUrl handling and `?reason=expired` (auth & sessions file); AppShell nav, onboarding welcome/tour/checklist, ConsentModal general behavior, theme toggle control (routing & app shell file); ReportsPage (reports file); household greeting banners `?joined/started/left` (households & people file); full responsive/dark/a11y sweeps and role matrices (cross-cutting files) — only the landing/legal-specific contrast regressions and the coming-soon reduced-motion behavior are covered here because they are area-specific past bugs.
+**ID prefix:** LAND | **Scope:** The anonymous-facing surface of AllotJar: the public marketing landing page at `/` (hero, tagline, CTAs, currency-aware copy), the auth-state branching of `/` (splash → landing vs dashboard), the public legal pages `/privacy` and `/terms`, SEO artifacts observable in the served app (head title/meta/canonical/OG/JSON-LD, `robots.txt`, `sitemap.xml`, the prerendered landing HTML, `theme-init.js`), the analytics consent banner + GA Consent Mode gating, the staging banner + staging signup data-loss consent, and the (retired) coming-soon page expectations. | **Out of scope:** login/registration form mechanics, session refresh, returnUrl handling and `?reason=expired` (auth & sessions file); AppShell nav, onboarding welcome/tour/checklist, ConsentModal general behavior, theme toggle control (routing & app shell file); ReportsPage (reports file); household greeting banners `?joined/started/left` (households & people file); full responsive/dark/a11y sweeps and role matrices (cross-cutting files) — only the landing/legal-specific contrast regressions and the coming-soon reduced-motion behavior are covered here because they are area-specific past bugs.
 
-**Test data setup:** (a) A clean anonymous browser profile — no `zbb_rt` cookie, empty `localStorage` (no `zbb.*` keys). (b) One existing login `owner@example.com` (Owner of a solo household) for auth-branching cases. (c) Access to the live **beta** deployment `app.allotjar.com` (built with `VITE_APP_ENV=beta`, GA measurement ID `G-55WS48MJ91` inlined, server flag `Features:Analytics=true`) and to a **local/default** build (non-beta, `Features:Analytics=false` by default; flip the flag via the `Features` section of `appsettings.json` — `IOptionsSnapshot`, no restart needed). (d) `https://www.allotjar.com` / apex currently serve the Cloudflare Worker coming-soon page; the repo source for it is `marketing/coming-soon/` (deployed **manually** — verify against the live page, not just the repo).
+**Test data setup:** (a) A clean anonymous browser profile — no `zbb_rt` cookie, empty `localStorage` (no `zbb.*` keys). (b) One existing login `owner@example.com` (Owner of a solo household) for auth-branching cases. (c) Access to the live **production** deployment `www.allotjar.com`/apex (built with `VITE_APP_ENV=production`, GA measurement ID `G-55WS48MJ91` inlined, server flag `Features:Analytics=true`) and/or the **staging** deployment `staging.allotjar.com` (built with `VITE_APP_ENV=staging`, NO GA measurement ID — analytics disabled; reachable only from allowlisted IPs via a Cloudflare WAF rule), and to a **local/default** build (`VITE_APP_ENV` unset, `Features:Analytics=false` by default; flip the flag via the `Features` section of `appsettings.json` — `IOptionsSnapshot`, no restart needed). (d) The coming-soon page was RETIRED at the 2026-07 GA cutover (`www`/apex now serve the production app); its source remains archived in `marketing/coming-soon/`.
 
 ## Landing page — anonymous visit
 
 ### LAND-001 - Landing page renders the full hero for an anonymous visitor
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Clean anonymous browser (refresh cookie absent); default (non-beta) build or beta build.
+- **Preconditions:** Clean anonymous browser (refresh cookie absent); default (non-staging) build or staging build.
 - **Steps:**
   1. Navigate to `/`.
   2. Wait for the page to settle (the auth bootstrap 401s).
@@ -94,9 +94,9 @@
 - **Priority:** P2
 - **Type:** Regression
 - **Origin:** PR #117 — LandingPage must stay SSR-safe; the noun swap is a mount-only effect so `renderToStaticMarkup` output stays euro-first
-- **Preconditions:** A production build (`npm run build` in `client/`, which runs `scripts/prerender.mjs`), or the deployed beta host.
+- **Preconditions:** A production build (`npm run build` in `client/`, which runs `scripts/prerender.mjs`), or the deployed production host.
 - **Steps:**
-  1. Fetch `/` with JavaScript disabled (e.g. `curl -s https://app.allotjar.com/`) from any locale.
+  1. Fetch `/` with JavaScript disabled (e.g. `curl -s https://www.allotjar.com/`) from any locale.
   2. Search the raw HTML for the H1 text.
 - **Expected:**
   - The static markup inside `<div id="root">` contains "Give every euro a job." regardless of the fetching client's locale/headers — the swap only happens client-side after mount. Crawler-visible copy is deterministic and on-brand (euro-first).
@@ -231,7 +231,7 @@
 ### LAND-017 - Served HTML head: title, description, canonical, robots meta, JSON-LD
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Any built deployment of the app (beta host works); fetch tool (curl/view-source).
+- **Preconditions:** Any built deployment of the app (production or staging host works); fetch tool (curl/view-source).
 - **Steps:**
   1. Fetch `/` and inspect `<head>` of the raw response.
   2. Parse the `application/ld+json` block.
@@ -252,13 +252,13 @@
 - **Expected:**
   - `og:type=website`, `og:site_name=AllotJar`, `og:title=AllotJar — Zero-Based Budgeting App`, `og:url=https://www.allotjar.com/`, `og:image=https://www.allotjar.com/og/allotjar-og.png` with `og:image:width=1200`/`height=630`, `og:image:alt`, `og:locale=en_GB`.
   - `twitter:card=summary_large_image` + title/description/image/alt tags present.
-  - The image asset exists on the app host and is a 1200×630 PNG. (Note: the absolute `www` URL inside the tags is deliberately GA-facing and 404s during beta — see LAND-040.)
+  - The image asset exists on the app host and is a 1200×630 PNG. (The absolute `www` URL inside the tags resolves now that `www` serves the production app — see LAND-040.)
 - **Automated:** No
 
 ### LAND-019 - robots.txt and sitemap.xml served correctly
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Built deployment (fetch from `app.allotjar.com` during beta — these are static files under `client/public/`, served ahead of the SPA fallback).
+- **Preconditions:** Built deployment (fetch from `www.allotjar.com` — these are static files under `client/public/`, served ahead of the SPA fallback).
 - **Steps:**
   1. `GET /robots.txt`.
   2. `GET /sitemap.xml`.
@@ -270,7 +270,7 @@
 ### LAND-020 - Prerendered landing is fully indexable without JavaScript
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Production build output (`client/dist/index.html` after `npm run build`) or the beta host; JS-disabled fetch.
+- **Preconditions:** Production build output (`client/dist/index.html` after `npm run build`) or the production host; JS-disabled fetch.
 - **Steps:**
   1. Fetch `/` without executing JavaScript.
   2. Search the HTML inside `<div id="root">`.
@@ -340,7 +340,7 @@
 ### LAND-025 - Accept: consent persisted and GA starts with Consent Mode v2 sequence
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Beta deployment (flag on + measurement ID `G-55WS48MJ91` in the bundle); no stored consent; dev tools open on network + `window.dataLayer`.
+- **Preconditions:** Production deployment (flag on + measurement ID `G-55WS48MJ91` in the bundle — GA ships ONLY in the production bundle; the staging build omits the measurement ID, so analytics is inert there); no stored consent; dev tools open on network + `window.dataLayer`.
 - **Steps:**
   1. Load `/` and click "Accept" on the banner.
   2. Inspect `localStorage`, the injected scripts, and the `dataLayer` sequence.
@@ -353,7 +353,7 @@
 ### LAND-026 - Decline: choice persisted and GA never loads
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Beta deployment; no stored consent; network tab open.
+- **Preconditions:** Production deployment; no stored consent; network tab open.
 - **Steps:**
   1. Load `/` and click "Decline".
   2. Browse several pages, sign in, reload.
@@ -401,7 +401,7 @@
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** PR #77 — GA4 shipped PII-safe by design (redactPath, safeParams whitelist, hashUserId)
-- **Preconditions:** Beta deployment with consent granted; signed in as `owner@example.com`; network tab capturing GA `collect` requests.
+- **Preconditions:** Production deployment with consent granted; signed in as `owner@example.com`; network tab capturing GA `collect` requests.
 - **Steps:**
   1. Navigate to a parameterized route (e.g. an account detail page `/accounts/{id}`).
   2. Trigger a failed API call (e.g. a 404) to fire `api_error`.
@@ -416,7 +416,7 @@
 - **Priority:** P2
 - **Type:** Regression
 - **Origin:** PR #170 gotcha — a new `track()` param key must be added to `ALLOWED_PARAM_KEYS` in `redact.ts` or it silently vanishes (bit the team with `sample_data`; nothing errors and tests stay green)
-- **Preconditions:** Beta deployment with consent granted; network tab capturing GA requests.
+- **Preconditions:** Production deployment with consent granted; network tab capturing GA requests.
 - **Steps:**
   1. Register a fresh account with "Start with sample figures to explore…" ticked; capture the `sign_up` event.
   2. Register another with the box unticked; capture again.
@@ -428,7 +428,7 @@
 ### LAND-032 - In-session opt-out does not stop gtag until the next reload
 - **Priority:** P3
 - **Type:** Edge
-- **Preconditions:** Beta deployment; consent previously granted and GA live in the current tab; Help page reachable.
+- **Preconditions:** Production deployment; consent previously granted and GA live in the current tab; Help page reachable.
 - **Steps:**
   1. On `/help`, use "Turn off analytics" under "Privacy & analytics".
   2. Without reloading, navigate between pages and watch GA traffic.
@@ -438,81 +438,85 @@
   - Step 3: the persisted `denied` prevents the next session from starting — zero GA traffic after reload. Any change to the in-session behavior is a product decision, not a silent regression.
 - **Automated:** No
 
-## Beta banner & beta signup data-loss consent
+## Staging banner & staging signup data-loss consent
 
-### LAND-033 - Beta build shows the beta banner on landing, login and app shell
+### LAND-033 - Staging build shows the staging banner on landing, login and app shell
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Beta bundle (`VITE_APP_ENV=beta`, i.e. `app.allotjar.com`); anonymous browser.
+- **Preconditions:** Staging bundle (`VITE_APP_ENV=staging`, i.e. `staging.allotjar.com` — requires an allowlisted IP); anonymous browser.
 - **Steps:**
   1. Load `/` (landing); inspect the top strip and scroll.
   2. Load `/login`.
   3. Sign in and inspect the app shell.
   4. Fetch `/` without JavaScript and search the raw HTML.
 - **Expected:**
-  - A sticky amber strip with `role="status"` reads exactly: "**Beta** — AllotJar is under active development. Features may change and your data can be reset or lost without notice." It stays pinned on scroll.
+  - A sticky amber strip with `role="status"` reads exactly: "**Staging** — this is the AllotJar test environment. Features may change and your data can be reset or lost without notice." It stays pinned on scroll.
   - Present on the landing, on `/login`, and above `<main>` in the authed shell.
-  - Step 4: the banner markup is inside the prerendered landing HTML (BetaBanner is SSR-safe and included in the beta prerender).
-- **Automated:** Partial (client/src/components/BetaBanner.test.tsx — beta variant text; the beta build is not exercised in CI e2e, no prerender assertion)
+  - Step 4: the banner markup is inside the prerendered landing HTML (StagingBanner is SSR-safe and included in the staging prerender).
+- **Automated:** Partial (client/src/components/StagingBanner.test.tsx — staging variant text; the staging build is not exercised in CI e2e, no prerender assertion)
 
-### LAND-034 - Production/local build renders no beta banner
+### LAND-034 - Production/local build renders no staging banner
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Default build with `VITE_APP_ENV` unset (local dev) or `production` (GA promote workflow).
+- **Preconditions:** Default build with `VITE_APP_ENV` unset (local dev) or `production` (the production deploy job).
 - **Steps:**
   1. Load `/`, `/login` and the authed shell.
   2. Open `/login?register=1`.
 - **Expected:**
-  - No beta strip anywhere (`IS_BETA` false → component returns null).
-  - The registration form has NO beta data-loss checkbox — only the Terms checkbox (gating is build-time; there is no runtime toggle).
-- **Automated:** Yes (client/src/components/BetaBanner.test.tsx — renders nothing in production/default build)
+  - No staging strip anywhere (`IS_STAGING` false → component returns null).
+  - The registration form has NO staging data-loss checkbox — only the Terms checkbox (gating is build-time; there is no runtime toggle).
+- **Automated:** Yes (client/src/components/StagingBanner.test.tsx — renders nothing in production/default build)
 
-### LAND-035 - Beta registration requires the data-loss acknowledgment
+### LAND-035 - Staging registration requires the data-loss acknowledgment
 - **Priority:** P1
 - **Type:** Negative
-- **Preconditions:** Beta bundle; anonymous visitor on `/login?register=1` with all other fields validly filled (names, email, password ≥ 8, currency/format, Terms ticked, sample-figures unticked).
+- **Preconditions:** Staging bundle; anonymous visitor on `/login?register=1` with all other fields validly filled (names, email, password ≥ 8, currency/format, Terms ticked, sample-figures unticked).
 - **Steps:**
-  1. Leave the checkbox "I understand AllotJar is in **beta** and under active development, and that my data may be reset or permanently lost." unticked and submit.
+  1. Leave the checkbox "I understand this is the AllotJar **staging** test environment, and that my data may be reset or permanently lost." unticked and submit.
   2. Tick it and submit again.
 - **Expected:**
   - Step 1: submission is blocked client-side by native `required` validation on the checkbox — no `POST /api/auth/register` fires.
   - Step 2: registration proceeds normally (account created; the checkbox value itself is NOT sent to the API).
-- **Automated:** Partial (client/src/pages/LoginPage.test.tsx — beta build adds the required acknowledgment `/my data may be reset or permanently lost/i`; the journey layer never runs a beta build)
+- **Automated:** Partial (client/src/pages/LoginPage.test.tsx — staging build adds the required acknowledgment `/my data may be reset or permanently lost/i`; the journey layer never runs a staging build)
 
-### LAND-036 - Beta acknowledgment is client-gated only, never persisted
+### LAND-036 - Staging acknowledgment is client-gated only, never persisted
 - **Priority:** P2
 - **Type:** Edge
-- **Origin:** PR #121 design — matches the existing `AcceptedTerms` pattern (validated, not stored) so the live beta DB needed no schema migration
-- **Preconditions:** Beta deployment; API access (e.g. curl/Postman) and DB read access (or the ops query pack).
+- **Origin:** PR #121 design (as the then-beta consent) — matches the existing `AcceptedTerms` pattern (validated, not stored) so the live DB needed no schema migration
+- **Preconditions:** Staging deployment; API access (e.g. curl/Postman) and DB read access (or the ops query pack).
 - **Steps:**
-  1. Inspect the `POST /api/auth/register` payload sent by the beta form.
-  2. Call the register endpoint directly with a valid payload (no beta-consent field exists to send).
+  1. Inspect the `POST /api/auth/register` payload sent by the staging form.
+  2. Call the register endpoint directly with a valid payload (no staging-consent field exists to send).
   3. Check the created user record.
 - **Expected:**
-  - The request body carries no beta-acknowledgment field; the API accepts direct registrations without it (enforcement is client-side only — a documented, accepted limitation, not a defect).
-  - No column/claim stores the beta acknowledgment; nothing breaks on the GA build where the checkbox does not exist.
+  - The request body carries no staging-acknowledgment field; the API accepts direct registrations without it (enforcement is client-side only — a documented, accepted limitation, not a defect).
+  - No column/claim stores the staging acknowledgment; nothing breaks on the production build where the checkbox does not exist.
 - **Automated:** No
 
-## Coming-soon page — www/apex
+## Host topology — production, staging, retired coming-soon
 
-### LAND-037 - Host topology: www/apex serve coming-soon, app serves the beta app
+### LAND-037 - Host topology: www/apex serve the production app, staging is IP-allowlisted, app is retired
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Live DNS as deployed (Cloudflare Worker `allotjar-coming-soon` on `www`+apex; `app.allotjar.com` → the VPS app). Note: the coming-soon Worker is deployed MANUALLY — verify the live page, which may lag `marketing/coming-soon/` in the repo.
+- **Preconditions:** Live DNS as deployed after the 2026-07 GA cutover (`www`+apex → proxied A to the VPS production site; `staging.allotjar.com` → proxied A to the VPS staging site behind a Cloudflare WAF IP-allowlist rule; the `app` record deleted; the coming-soon Worker retired from the zone).
 - **Steps:**
   1. Load `https://www.allotjar.com/` and `https://allotjar.com/`.
-  2. Load `https://app.allotjar.com/` and `https://app.allotjar.com/api/features`.
-  3. Load `https://allotjar-coming-soon.chrismuscat89.workers.dev/`.
+  2. Load `https://www.allotjar.com/api/features`.
+  3. From an ALLOWLISTED IP, load `https://staging.allotjar.com/` and `/api/features`.
+  4. From a NON-allowlisted IP (e.g. a phone on mobile data), load `https://staging.allotjar.com/`.
+  5. Load `https://app.allotjar.com/`.
 - **Expected:**
-  - Step 1: both serve the coming-soon page — title "AllotJar — Coming soon", brand lockup (reversed cream+gold jar SVG, `aria-label="AllotJar logo"`), eyebrow "Coming soon", H1 "Give every … a job." with the cycling currency word, lede "A zero-based budgeting app built for Europe — save with sinking-fund jars and budget together as a household.", CTA "Request early access →" → `mailto:hello@allotjar.com?subject=AllotJar early access`, beta notice ("A private beta is open to invited testers…"), footer "© 2026 AllotJar · Give every euro a job. · Contact".
-  - Step 2: the app responds 200 (landing with beta banner); `/api/features` returns the flags JSON.
-  - Step 3: 404 — the workers.dev preview URL is disabled (D3 toggle); custom domains unaffected.
+  - Step 1: both serve the production app (public landing, NO staging banner); production and staging are separate IIS stacks with separate SQL databases — accounts do not cross over.
+  - Step 2: the flags JSON — the production API on its own port answers through the same host.
+  - Step 3: the staging app (landing WITH the staging banner); its `/api/features` answers.
+  - Step 4: blocked by the Cloudflare WAF rule (Cloudflare block page / 403 — never the app).
+  - Step 5: DNS no longer resolves (record deleted) — the old `app.allotjar.com` beta hostname is retired.
 - **Automated:** No
 
-### LAND-038 - Coming-soon works with zero JavaScript under CSP script-src 'none'
-- **Priority:** P2
+### LAND-038 - [RETIRED] Coming-soon works with zero JavaScript under CSP script-src 'none'
+- **Priority:** P3 (retired — the coming-soon page no longer serves on any host; applies only if `marketing/coming-soon/` is ever redeployed)
 - **Type:** Happy
-- **Preconditions:** Live `www.allotjar.com`; browser with JS disabled; header-inspection tool.
+- **Preconditions:** A deployment of `marketing/coming-soon/` (none live since the 2026-07 GA cutover); browser with JS disabled; header-inspection tool.
 - **Steps:**
   1. Inspect the response headers of `/`.
   2. Load the page with JavaScript disabled.
@@ -521,11 +525,11 @@
   - The page renders fully without JS: the currency word still cycles (CSS-only animation), the mailto CTA works, Hanken Grotesk loads from Google Fonts (allowed by the style/font CSP directives), OG meta present (canonical `https://www.allotjar.com/`).
 - **Automated:** No
 
-### LAND-039 - Currency rotator shows exactly one word from the very first frame
-- **Priority:** P1
+### LAND-039 - [RETIRED] Currency rotator shows exactly one word from the very first frame
+- **Priority:** P3 (retired with the coming-soon page — the archived source keeps the fix; re-verify only on redeploy)
 - **Type:** Regression
 - **Origin:** PR #134 (`0386c62`) — first-paint pile-up: all 18 absolutely-stacked words painted at once as a gold block before the opacity animation settled; final fix is a slot-machine track inside a one-line `overflow:hidden` window (geometric clipping, `margin-top` scroll)
-- **Preconditions:** Live coming-soon page (or `marketing/coming-soon/index.html` served locally); Chromium and WebKit; ability to capture the first rendered frame (e.g. Playwright screenshot on `domcontentloaded`).
+- **Preconditions:** `marketing/coming-soon/index.html` served locally (no live deployment since the GA cutover); Chromium and WebKit; ability to capture the first rendered frame (e.g. Playwright screenshot on `domcontentloaded`).
 - **Steps:**
   1. Capture frame 1 of a cold load and count the visible rotator words.
   2. Watch a full cycle of the animation.
@@ -537,19 +541,17 @@
   - Reduced motion: no distracting cycling. Screen readers get the stable sr-only text — the H1 reads "Give every euro a job." (rotator is `aria-hidden`).
 - **Automated:** No (verified manually on Chromium + WebKit at fix time; nothing in CI)
 
-### LAND-040 - Two OG share images: www/og.png live, app OG URL 404 during beta (accepted)
-- **Priority:** P3
-- **Type:** Edge
-- **Origin:** staging/beta split (PR #121/#124) — the app's OG URL is deliberately GA-facing; the coming-soon `og.png` is the real public share surface during beta; the two images must be regenerated together
-- **Preconditions:** Live beta topology.
+### LAND-040 - OG share image resolves on the production host after GA cutover
+- **Priority:** P1
+- **Type:** Happy
+- **Origin:** staging/beta split (PR #121/#124) — the app's OG URL was deliberately GA-facing and 404'd during beta (Worker-only `/og.png` was the share surface then); at GA cutover the app took over `www`, so its `og:image` URL MUST now resolve
+- **Preconditions:** Live post-cutover topology (`www` = the production app).
 - **Steps:**
-  1. `GET https://www.allotjar.com/og.png`.
-  2. `GET https://www.allotjar.com/og/allotjar-og.png`.
-  3. Paste `https://www.allotjar.com/` into a link-preview debugger (e.g. an OG scraper).
+  1. `GET https://www.allotjar.com/og/allotjar-og.png`.
+  2. Paste `https://www.allotjar.com/` into a link-preview debugger (e.g. an OG scraper).
 - **Expected:**
-  - Step 1: 200, a 1200×630 PNG (the coming-soon share card, brand mark artwork).
-  - Step 2: 404 during beta — the Worker serves only `/og.png`; the app's `og:image` URL resolves only after GA cutover when `www` = the app. This is documented/accepted (beta host `app.allotjar.com` is unadvertised); it becomes a P1 failure only at/after GA cutover.
-  - Step 3: the preview uses the coming-soon title "AllotJar — Coming soon" and its `/og.png` image.
+  - Step 1: 200, a 1200×630 PNG (the brand-mark share card from `client/public/og/`).
+  - Step 2: the preview uses the app's landing title and the `og/allotjar-og.png` image (the old Worker-era `/og.png` path is gone with the Worker — a 404 there is fine).
 - **Automated:** No
 
 ## Gap-fill additions — Help page (guide & analytics controls)
@@ -576,21 +578,21 @@
 ### LAND-042 - "complete user guide" link opens the manual in a new tab and fires help_guide_opened
 - **Priority:** P2
 - **Type:** Happy
-- **Preconditions:** Signed in on `/help`. To observe the GA event on the wire: beta bundle (`G-55WS48MJ91`) with consent granted and a GA `collect` capture; the link is present and clickable on any build.
+- **Preconditions:** Signed in on `/help`. To observe the GA event on the wire: production bundle (`G-55WS48MJ91`) with consent granted and a GA `collect` capture; the link is present and clickable on any build.
 - **Steps:**
   1. In the "Good to know" card, locate the "complete user guide" link and inspect its attributes.
   2. Click it and observe the new browser tab and the GA network traffic.
   3. Repeat the click with analytics declined (or the flag off).
 - **Expected:**
   - The link `href` is exactly `https://github.com/maskit89/AllotJar/blob/main/docs/USER_GUIDE.md` with `target="_blank"` and `rel="noreferrer"` — it opens the doc in a new tab with no opener/referrer leak, leaving the `/help` tab in place.
-  - When tracking is live (step 2: beta + consent granted), the click fires exactly one `help_guide_opened` GA event (`track(EVENTS.helpGuideOpened)`), a whitelisted event name carrying no extra params.
+  - When tracking is live (step 2: production + consent granted), the click fires exactly one `help_guide_opened` GA event (`track(EVENTS.helpGuideOpened)`), a whitelisted event name carrying no extra params.
   - Step 3: with consent denied or the flag off, the click still navigates to the guide but sends nothing — `track()` is an inert no-op when tracking has not started (no console error, no `collect` request).
 - **Automated:** Partial (client/src/pages/HelpPage.test.tsx — asserts only that the link `href` contains `USER_GUIDE.md`; the `target="_blank"`/`rel="noreferrer"` attributes and the `help_guide_opened` emission are untested)
 
 ### LAND-043 - "Privacy & analytics" card: status-text variants and the Turn on / Turn off toggle
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** `Features:Analytics=true` (flag on so `available === true`); `owner@example.com` signed in on `/help`. Each consent state is reached by seeding `localStorage['zbb.analyticsConsent']` (`granted` / `denied` / key absent) before load. Beta bundle (with `G-55WS48MJ91`) to also observe GA start; a flag-on build with no measurement ID to prove the inert path.
+- **Preconditions:** `Features:Analytics=true` (flag on so `available === true`); `owner@example.com` signed in on `/help`. Each consent state is reached by seeding `localStorage['zbb.analyticsConsent']` (`granted` / `denied` / key absent) before load. Production bundle (with `G-55WS48MJ91`) to also observe GA start; a flag-on build with no measurement ID (e.g. the staging bundle) to prove the inert path.
 - **Steps:**
   1. With the key absent (undecided), load `/help`; read the "Privacy & analytics" card status line and button label.
   2. Click "Turn on analytics"; inspect `localStorage`, the status line, the button label, and the bottom consent banner.
@@ -600,7 +602,7 @@
   - The card renders only because the flag is on (`available`) as an eleventh card spanning both columns (`sm:col-span-2`); blurb: "We use Google Analytics to understand how AllotJar is used so we can improve it. We never send your name, email, account or category names, or any amounts — only anonymous page views and feature-usage events."
   - Status text tracks the stored consent exactly, followed by ". You can change this at any time.": undecided → "Not chosen yet", `granted` → "Analytics is on", `denied` → "Analytics is off".
   - Button label mirrors state: when `granted` → "Turn off analytics" (calls `decline()`); otherwise (denied or undecided) → "Turn on analytics" (calls `accept()`).
-  - Opt-IN (steps 2 & 3): "Turn on analytics" → `accept()` persists `localStorage['zbb.analyticsConsent'] = 'granted'`, the status flips to "Analytics is on" and the button becomes "Turn off analytics". If the bottom consent banner was showing (it shows only when consent is `null`), it disappears now that consent is no longer null. On the beta bundle this starts GA with the Consent Mode v2 sequence (cross-ref LAND-025); on a flag-on build without a measurement ID it persists `granted` but starts nothing (`isConfigured()` false — cross-ref LAND-028).
+  - Opt-IN (steps 2 & 3): "Turn on analytics" → `accept()` persists `localStorage['zbb.analyticsConsent'] = 'granted'`, the status flips to "Analytics is on" and the button becomes "Turn off analytics". If the bottom consent banner was showing (it shows only when consent is `null`), it disappears now that consent is no longer null. On the production bundle this starts GA with the Consent Mode v2 sequence (cross-ref LAND-025); on a flag-on build without a measurement ID (e.g. staging) it persists `granted` but starts nothing (`isConfigured()` false — cross-ref LAND-028).
   - Opt-OUT (step 4): "Turn off analytics" → `decline()` persists `'denied'` (the value is set, NOT cleared to `null`); the status flips to "Analytics is off" and the button becomes "Turn on analytics". The bottom consent banner does NOT reappear (it needs `consent === null`, and this is `'denied'`). Note: the map's aside that this control uses `reset()` is stale — HelpPage wires `accept`/`decline`, so the choice persists rather than reverting to undecided. In-session gtag keeps emitting until the next reload (cross-ref LAND-032).
   - Cross-check: on a default build with the flag off, this whole card is absent (LAND-027) and no consent key is created.
 - **Automated:** No (client/src/pages/HelpPage.test.tsx renders HelpPage with only AuthProvider + MemoryRouter — no AnalyticsProvider — so `useAnalytics()` returns the NOOP context with `available === false` and this card never appears in unit tests; no e2e exercises the opt-in/opt-out status flip)

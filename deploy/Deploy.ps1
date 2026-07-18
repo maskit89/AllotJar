@@ -21,12 +21,16 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$StagingDir = $PSScriptRoot,
-    [string]$ApiDir     = 'C:\inetpub\zerobudget\api',
-    [string]$WebDir     = 'C:\inetpub\zerobudget\web',
-    [string]$ApiPool    = 'ZeroBudget-Api',
-    [string]$WebPool    = 'ZeroBudget-Web',
-    [string]$HealthUrl  = 'http://127.0.0.1:5000/health'   # IPv4: the API binds to 127.0.0.1
+    [string]$StagingDir   = $PSScriptRoot,
+    [string]$ApiDir       = 'C:\inetpub\zerobudget\api',
+    [string]$WebDir       = 'C:\inetpub\zerobudget\web',
+    [string]$ApiPool      = 'ZeroBudget-Api',
+    [string]$WebPool      = 'ZeroBudget-Web',
+    [string]$HealthUrl    = 'http://127.0.0.1:5000/health', # IPv4: the API binds to 127.0.0.1
+    # Port the front site's ARR rule proxies /api to. deploy/web/web.config ships with
+    # 5000 baked in (the staging stack); the production stack passes 5001 and the
+    # copied web.config is patched after the sync.
+    [int]   $ApiProxyPort = 5000
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,6 +66,17 @@ if ($LASTEXITCODE -ge 8) { throw "robocopy(api) failed with code $LASTEXITCODE" 
 Info 'Syncing web files'
 robocopy $webSrc $WebDir /MIR /R:3 /W:3 /NFL /NDL /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "robocopy(web) failed with code $LASTEXITCODE" }
+
+# Point the ARR /api proxy at this stack's API port. The checked-in web.config
+# says 5000; a non-default port (production = 5001) is patched in post-sync so
+# one web.config serves every stack.
+if ($ApiProxyPort -ne 5000) {
+    Info "Patching web.config ApiProxy to port $ApiProxyPort"
+    $webConfig = Join-Path $WebDir 'web.config'
+    $xml = [System.IO.File]::ReadAllText($webConfig)
+    $xml = $xml.Replace('http://127.0.0.1:5000/api/', "http://127.0.0.1:$ApiProxyPort/api/")
+    [System.IO.File]::WriteAllText($webConfig, $xml, (New-Object System.Text.UTF8Encoding($true)))
+}
 
 # --- 3. Bring it back online ------------------------------------------------
 Info 'Bringing API online and recycling pools'

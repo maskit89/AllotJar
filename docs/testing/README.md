@@ -38,7 +38,7 @@ validation message, every invariant with its PR origin). Read a **case file** to
 
 | File | Prefix | Cases | Area |
 |------|--------|------:|------|
-| [01-landing-public.md](cases/01-landing-public.md) | `LAND` | 43 | Public landing, legal pages, SEO, consent/beta banners |
+| [01-landing-public.md](cases/01-landing-public.md) | `LAND` | 43 | Public landing, legal pages, SEO, consent/staging banners |
 | [02-registration-login.md](cases/02-registration-login.md) | `REG` | 50 | Create-account + sign-in, validation, HIBP, lockout, sample-budget opt-in |
 | [03-session-auth-lifecycle.md](cases/03-session-auth-lifecycle.md) | `SESS` | 42 | Token/refresh lifecycle, silent refresh, expiry prompt, cross-tab logout |
 | [04-account-preferences.md](cases/04-account-preferences.md) | `PREF` | 39 | Profile, currency label, number format, change password, theme |
@@ -118,8 +118,9 @@ backend unit (`tests/AllotJar.Application.Tests`), and SQL-Server integration
    A release pass = **P0 + P1**. A full pass = everything, including the cross-cutting suites.
 2. **Stand up the app.** Local: API on `:5099`
    (`ASPNETCORE_ENVIRONMENT=Development dotnet run -c Release --no-launch-profile --project
-   src/AllotJar.Api --urls http://localhost:5099`) + the Vite client; or test against beta
-   (`app.allotjar.com`). Each file's **Test data setup** block lists the fixtures it assumes.
+   src/AllotJar.Api --urls http://localhost:5099`) + the Vite client; or test against staging
+   (`staging.allotjar.com`, allowlisted IPs only — NEVER run destructive passes against
+   production `www.allotjar.com`). Each file's **Test data setup** block lists the fixtures it assumes.
 3. **Work a file top-to-bottom.** Cases are ordered so preconditions build up naturally within
    a section. Cross-suite steps often say "as `TX-012`" — that references an area case rather
    than repeating it.

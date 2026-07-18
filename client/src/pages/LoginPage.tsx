@@ -3,11 +3,11 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import axios from 'axios'
 import { JarLogo } from '../components/Jar'
-import { BetaBanner } from '../components/BetaBanner'
+import { StagingBanner } from '../components/StagingBanner'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { Button, Card, Input, SegmentedControl, Select } from '../components/ui'
 import { CURRENCY_OPTIONS, NUMBER_FORMAT_OPTIONS, currencyNoun, detectLocaleDefaults } from '../lib/money'
-import { IS_BETA } from '../lib/env'
+import { IS_STAGING } from '../lib/env'
 import { safeInternalPath } from '../lib/returnUrl'
 import { EVENTS, track } from '../analytics'
 
@@ -36,8 +36,8 @@ export function LoginPage() {
   const [currency, setCurrency] = useState(localeDefaults.currency)
   const [numberFormat, setNumberFormat] = useState<string>(localeDefaults.numberFormat)
   const [acceptedTerms, setAcceptedTerms] = useState(false)
-  // Beta builds require a separate acknowledgment that data may be lost (see BetaBanner).
-  const [acceptedBeta, setAcceptedBeta] = useState(false)
+  // Staging builds require a separate acknowledgment that data may be lost (see StagingBanner).
+  const [acceptedStaging, setAcceptedStaging] = useState(false)
   // Opt-in: pre-fill the first month with example figures. Off by default — surprise
   // sample data reads as real data and confuses new users.
   const [includeSampleData, setIncludeSampleData] = useState(false)
@@ -102,7 +102,7 @@ export function LoginPage() {
 
   return (
     <>
-      <BetaBanner />
+      <StagingBanner />
       <div className="relative flex min-h-full items-center justify-center bg-slate-50 px-4 py-12">
       <div className="absolute right-4 top-4">
         <ThemeToggle />
@@ -291,18 +291,18 @@ export function LoginPage() {
                   </span>
                 </label>
 
-                {IS_BETA && (
+                {IS_STAGING && (
                   <label className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100">
                     <input
                       type="checkbox"
                       required
-                      checked={acceptedBeta}
-                      onChange={(e) => setAcceptedBeta(e.target.checked)}
+                      checked={acceptedStaging}
+                      onChange={(e) => setAcceptedStaging(e.target.checked)}
                       className="mt-0.5 h-4 w-4 rounded border-amber-400 text-amber-600 focus:ring-2 focus:ring-amber-500/40"
                     />
                     <span>
-                      I understand AllotJar is in <strong className="font-semibold">beta</strong> and under
-                      active development, and that my data may be reset or permanently lost.
+                      I understand this is the AllotJar <strong className="font-semibold">staging</strong>{' '}
+                      test environment, and that my data may be reset or permanently lost.
                     </span>
                   </label>
                 )}

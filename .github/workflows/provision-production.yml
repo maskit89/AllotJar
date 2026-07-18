@@ -1,0 +1,83 @@
+name: Provision production stack
+
+# MANUAL, one-time-ish infrastructure workflow (safe to re-run: the script is
+# idempotent). Ships deploy/Provision-Production.ps1 to the VPS over the same
+# SSH secrets the deploys use and runs it there:
+#   * production IIS sites/pools/dirs, API on 127.0.0.1:5001
+#   * SNI 443 bindings for allotjar.com/www (prod) + staging.allotjar.com (staging)
+#   * SQL database ZeroBudgetProd + app-pool grant
+#   * prod appsettings.Production.json (cloned, own DB + fresh JWT key)
+#   * daily backup tasks for BOTH databases
+#
+# Run it once BEFORE approving the first production deploy. After the Cloudflare
+# DNS cutover, run it again with trim_staging_bindings=true to strip the retired
+# hostnames (catch-all/apex/www/app) off the staging site.
+#
+# Gated behind the `production` environment (required reviewer) because it
+# reshapes live IIS/SQL state.
+on:
+  workflow_dispatch:
+    inputs:
+      trim_staging_bindings:
+        description: 'Post-cutover cleanup: remove catch-all/apex/www/app bindings from the staging site (run only AFTER DNS moved apex/www to production)'
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: provision-production
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: provision on VPS
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Write SSH key
+        env:
+          KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Ensure provision dir exists on VPS
+        env:
+          PORT: ${{ secrets.VPS_SSH_PORT }}
+          USER: ${{ secrets.VPS_SSH_USER }}
+          HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$PORT" \
+            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "$USER@$HOST" \
+            'powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path C:\deploy\provision | Out-Null"'
+
+      # The provision script re-registers the backup tasks, which need
+      # Backup-Database.ps1 + Register-BackupTask.ps1 sitting next to it.
+      - name: Copy provisioning scripts to VPS
+        env:
+          PORT: ${{ secrets.VPS_SSH_PORT }}
+          USER: ${{ secrets.VPS_SSH_USER }}
+          HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          scp -i ~/.ssh/deploy_key -P "$PORT" \
+            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            deploy/Provision-Production.ps1 deploy/Register-BackupTask.ps1 deploy/Backup-Database.ps1 \
+            "$USER@$HOST:C:/deploy/provision/"
+
+      - name: Run provisioning on VPS
+        env:
+          PORT: ${{ secrets.VPS_SSH_PORT }}
+          USER: ${{ secrets.VPS_SSH_USER }}
+          HOST: ${{ secrets.VPS_HOST }}
+          TRIM: ${{ inputs.trim_staging_bindings }}
+        run: |
+          SWITCH=""
+          if [ "$TRIM" = "true" ]; then SWITCH=" -TrimStagingBindings"; fi
+          ssh -i ~/.ssh/deploy_key -p "$PORT" \
+            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "$USER@$HOST" \
+            "powershell -NoProfile -ExecutionPolicy Bypass -Command \"& C:\\deploy\\provision\\Provision-Production.ps1$SWITCH\""

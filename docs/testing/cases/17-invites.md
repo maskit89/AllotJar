@@ -241,7 +241,7 @@
 - **Preconditions:** Fixture B; `liza@x.eu` already has a membership; invite modal open.
 - **Steps:**
   1. Invite `Liza@X.eu` (same address, different casing).
-- **Expected:** On beta/prod (SQL Server, case-insensitive collation) the dupe check matches → 400 field `Email` "That email already has access to this household." — the intended block. **Divergence to note:** the EF InMemory backend used by the `backend` CI job compares case-sensitively, so the same input would slip past the handler check there (a duplicate-looking membership); the accept path, however, matches emails `OrdinalIgnoreCase`, so a case-variant accept still reconciles. Verify the real behavior against beta, not the unit-test layer.
+- **Expected:** On staging/prod (SQL Server, case-insensitive collation) the dupe check matches → 400 field `Email` "That email already has access to this household." — the intended block. **Divergence to note:** the EF InMemory backend used by the `backend` CI job compares case-sensitively, so the same input would slip past the handler check there (a duplicate-looking membership); the accept path, however, matches emails `OrdinalIgnoreCase`, so a case-variant accept still reconciles. Verify the real behavior against staging, not the unit-test layer.
 - **Automated:** No
 
 ### INV-025 - Very long display name rejected by the server (API-surface)
