@@ -330,4 +330,54 @@ public class SplitTransactionTests
         dto.BudgetItemId.Should().Be(s.Groceries.Id);
         (await db.TransactionSplits.CountAsync(x => x.TransactionId == tx.Id)).Should().Be(0);
     }
+
+    private static Account SeedAccount(ApplicationDbContext db, string name = "Joint", string ownerId = "user-1")
+    {
+        var account = new Account { OwnerId = ownerId, Name = name };
+        db.Accounts.Add(account);
+        db.SaveChanges();
+        return account;
+    }
+
+    // The split response DTO must carry the account name — the handler re-reads the saved
+    // transaction with .Include(t => t.Account), so accountName is populated (not null).
+    [Fact]
+    public async Task Split_Response_CarriesAccountName()
+    {
+        await using var db = NewContext();
+        var s = Seed(db);
+        var account = SeedAccount(db);
+        var tx = SeedExpense(db, 100m);
+        tx.AccountId = account.Id;
+        await db.SaveChangesAsync();
+
+        var handler = new SplitTransactionCommandHandler(db, new CurrentUserStub("user-1"));
+        var dto = await handler.Handle(new SplitTransactionCommand(tx.Id, new List<SplitAllocationInput>
+        {
+            new(s.Groceries.Id, 70m),
+            new(s.Household.Id, 30m),
+        }), CancellationToken.None);
+
+        dto.AccountId.Should().Be(account.Id);
+        dto.AccountName.Should().Be("Joint");
+    }
+
+    // The assign response DTO must carry the account name — the handler loads the transaction with
+    // .Include(t => t.Account), so accountName is populated (not null).
+    [Fact]
+    public async Task Assign_Response_CarriesAccountName()
+    {
+        await using var db = NewContext();
+        var s = Seed(db);
+        var account = SeedAccount(db);
+        var tx = SeedExpense(db, 100m);
+        tx.AccountId = account.Id;
+        await db.SaveChangesAsync();
+
+        var handler = new AssignTransactionCommandHandler(db, new CurrentUserStub("user-1"));
+        var dto = await handler.Handle(new AssignTransactionCommand(tx.Id, s.Groceries.Id), CancellationToken.None);
+
+        dto.AccountId.Should().Be(account.Id);
+        dto.AccountName.Should().Be("Joint");
+    }
 }

@@ -33,7 +33,10 @@ public class AllocationController : ControllerBase
     public async Task<ActionResult<AllocationProfileDto?>> GetProfile(CancellationToken ct)
     {
         var result = await _mediator.Send(new GetAllocationProfileQuery(), ct);
-        return Ok(result);
+        // Always emit a JSON body (a literal `null` for no profile) rather than letting
+        // ASP.NET's Ok(null) formatter collapse to 204 No Content — the client maps a 204's
+        // empty body to '' and `'' ?? null` keeps the empty string, poisoning first-time setup.
+        return new JsonResult(result);
     }
 
     /// <summary>Creates or replaces the allocation profile. Returns it.</summary>

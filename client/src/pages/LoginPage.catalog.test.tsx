@@ -653,7 +653,7 @@ describe('LoginPage (REG catalog)', () => {
   // Catalog REG-027 Expected: "The form must surface a visible error and stay usable."
   // Skipped (not weakened) until LoginPage handles the errors-object shape (e.g. flatten
   // Object.values(errors).flat(), or guard Array.isArray(errors) before .join).
-  it.skip('REG-027 BUG: a ValidationProblemDetails errors-object body must surface a visible error, not a TypeError', async () => {
+  it('REG-027 BUG: a ValidationProblemDetails errors-object body must surface a visible error, not a TypeError', async () => {
     mockPost.mockRejectedValue(
       axiosError({ errors: { FirstName: ['The FirstName field is required.'] } }),
     )

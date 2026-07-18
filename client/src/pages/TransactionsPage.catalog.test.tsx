@@ -926,3 +926,38 @@ describe('TransactionsPage catalog — no current-month budget', () => {
     expect(await screen.findByText('Add some expense budget lines first.', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 })
+
+describe('TransactionsPage catalog — add resets category (TX-094)', () => {
+  // TX-094 — after a successful add the form clears payee, amount AND the category, so a later
+  // "unassigned" add cannot silently inherit the previous line (and the auto-categorizer runs).
+  it('resets the Category select to Unassigned after a successful add', { timeout: 15000 }, async () => {
+    mockLoad([])
+    mockPost.mockResolvedValue({
+      data: tx({ payee: 'Tesco', budgetItemId: 'i-groceries', budgetItemName: 'Groceries' }),
+    })
+    const user = userEvent.setup()
+    renderPage()
+
+    // Open the add modal, pick a category, fill payee + amount, and submit.
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.selectOptions(screen.getByLabelText('Assign transaction to'), 'i-groceries')
+    expect((screen.getByLabelText('Assign transaction to') as HTMLSelectElement).value).toBe('i-groceries')
+    await user.type(screen.getByLabelText('Transaction payee'), 'Tesco')
+    await user.type(screen.getByLabelText('Transaction amount'), '40')
+    await user.click(dialog.getByRole('button', { name: 'Add transaction' }))
+
+    // The POST carried the chosen line, and the modal closed on success.
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith(
+        '/transactions',
+        expect.objectContaining({ budgetItemId: 'i-groceries' }),
+      ),
+    )
+
+    // Re-open the modal: the Category select is back to its Unassigned default, not the prior line.
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    await screen.findByRole('dialog', {}, { timeout: 5000 })
+    expect((screen.getByLabelText('Assign transaction to') as HTMLSelectElement).value).toBe('')
+  })
+})

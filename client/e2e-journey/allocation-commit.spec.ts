@@ -679,20 +679,11 @@ test('a new couple with equal zero balances previews and commits under the defau
 test('the first-run Set up allocation modal opens from the no-profile empty state', async ({
   page,
 }) => {
-  // Reproduced live against the journey stack on 2026-07-17: GET /api/allocation/profile
-  // answers 204 No Content for a profile-less household (ASP.NET's null → 204 formatter),
-  // axios maps the empty body to '' and the client's `prof?.data ?? null` keeps '', so
-  // `profile` is the empty string. The empty state renders (''), but clicking "Set up
-  // allocation" throws inside syncFormFromProfile — `''?.rules.find(...)` does NOT
-  // short-circuit on '' — so setShowSettings(true) never runs and the modal NEVER opens:
-  // first-time allocation setup is impossible through the UI. AllocationPage.test.tsx
-  // passes only because its stub resolves `data: null` (a real JSON null). Fix either
-  // side (controller returning Ok(null), or normalising falsy → null client-side).
-  test.skip(
-    true,
-    'BUG: GET /api/allocation/profile returns 204 (not JSON null) for a fresh household; profile state becomes "" and openSettings throws in syncFormFromProfile, so the Set up allocation modal never opens - ALLOC-010/ALLOC-018',
-  )
-
+  // FIXED (ALLOC-010/ALLOC-018): GET /api/allocation/profile now returns a JSON `null` body
+  // (200, via JsonResult) for a profile-less household instead of 204 No Content, so axios no
+  // longer hands the client an empty string. The client also hardens `prof?.data || null` so any
+  // falsy body normalises to null. `profile` is therefore a real null, openSettings →
+  // syncFormFromProfile short-circuits on `profile?.rules`, and the Set up allocation modal opens.
   await register(page)
   await page.getByRole('link', { name: 'People' }).click()
   await addPerson(page, { name: 'Robin', income: '2000' })

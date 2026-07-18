@@ -83,7 +83,9 @@ export function AllocationPage() {
     ])
       .then(async ([prof, acc, budget]) => {
         if (cancelled) return
-        const p = prof?.data ?? null
+        // `|| null` (not `?? null`) so a falsy body — a 204's '' or an empty string — normalises
+        // to null too; otherwise `''` survives and openSettings throws on `''?.rules.find`.
+        const p = prof?.data || null
         setProfile(p)
         setAccounts(Array.isArray(acc?.data) ? acc.data : [])
         const year = budget?.data?.year ?? period.year

@@ -135,6 +135,9 @@ export function TransactionsPage() {
       })
       setPayee('')
       setAmount('')
+      // Reset the category back to its Unassigned default too — otherwise a later "unassigned" add
+      // silently inherits the previous line and the server-side auto-categorizer never runs.
+      setAssignTo('')
       setShowAdd(false)
     } catch {
       setError('Could not add that transaction.')

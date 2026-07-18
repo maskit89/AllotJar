@@ -77,8 +77,19 @@ export function LoginPage() {
     } catch (err) {
       track(EVENTS.loginFailed, { method: 'password' })
       if (axios.isAxiosError(err)) {
-        const data = err.response?.data as { error?: string; errors?: string[] } | undefined
-        setError(data?.error ?? data?.errors?.join(' ') ?? 'Something went wrong.')
+        const data = err.response?.data as
+          | { error?: string; errors?: string[] | Record<string, string[]> }
+          | undefined
+        // `errors` is either an array (ASP.NET Identity composition rules) or an OBJECT of arrays
+        // (ValidationProblemDetails, e.g. a required FirstName). Flatten the object shape so it
+        // never throws `errors.join is not a function` and silently swallows the error.
+        const errors = data?.errors
+        const joined = Array.isArray(errors)
+          ? errors.join(' ')
+          : errors && typeof errors === 'object'
+            ? Object.values(errors).flat().join(' ')
+            : undefined
+        setError(data?.error ?? joined ?? 'Something went wrong.')
       } else {
         setError('Something went wrong.')
       }

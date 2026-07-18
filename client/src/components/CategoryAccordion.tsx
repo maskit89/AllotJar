@@ -126,7 +126,7 @@ export function CategoryAccordion({
                 disabled={isFirst}
                 aria-label={`Move ${category.name} up`}
                 title="Move group up"
-                className="rounded px-0.5 text-[10px] text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                className="inline-flex min-h-6 min-w-6 -my-1 items-center justify-center rounded text-[10px] text-slate-400 hover:text-slate-700 disabled:opacity-30"
               >
                 ▲
               </button>
@@ -136,7 +136,7 @@ export function CategoryAccordion({
                 disabled={isLast}
                 aria-label={`Move ${category.name} down`}
                 title="Move group down"
-                className="rounded px-0.5 text-[10px] text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                className="inline-flex min-h-6 min-w-6 -my-1 items-center justify-center rounded text-[10px] text-slate-400 hover:text-slate-700 disabled:opacity-30"
               >
                 ▼
               </button>

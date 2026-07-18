@@ -446,14 +446,11 @@ public class IInvitesCoverageTests
 
     // ---- Suspected defect -----------------------------------------------------------------------
 
-    // INV-042 — SUSPECTED BUG. AcceptInviteCommand ends in "Command" and carries neither
-    // [AllowLimited] nor [OwnerOnly], so AuthorizationBehaviour treats it as an ordinary write:
-    // a signed-in Limited/Read-only login (role resolved from their CURRENT household) is thrown a
-    // 403 BEFORE the handler runs, and cannot accept an invite to a DIFFERENT household. Accepting an
-    // invite should not be gated by the accepter's role in an unrelated household. This test asserts
-    // the desired behaviour (the accept is not gated) and therefore fails against current code, so it
-    // is skipped and reported rather than weakened.
-    [Fact(Skip = "BUG: AuthorizationBehaviour blocks a signed-in Limited/ReadOnly accepter from AcceptInviteCommand (no [AllowLimited]) — INV-042")]
+    // INV-042 — FIXED. AcceptInviteCommand now carries [AllowAnyRole], so AuthorizationBehaviour
+    // skips the role gate: a signed-in Limited/Read-only login (role resolved from their CURRENT
+    // household) reaches the handler and can accept an invite to a DIFFERENT household. Accepting an
+    // invite is authorized by the invite token, not by the accepter's role in an unrelated household.
+    [Fact]
     public async Task Signed_in_limited_user_can_accept_an_invite_through_the_pipeline()
     {
         var behaviour = new AuthorizationBehaviour<AcceptInviteCommand, AcceptInviteResult>(
@@ -463,6 +460,28 @@ public class IInvitesCoverageTests
         {
             ran = true;
             return Task.FromResult(new AcceptInviteResult("user-1", "robin@x.eu", HouseholdRole.Limited, "Robin"));
+        };
+
+        await behaviour.Handle(
+            new AcceptInviteCommand("token", "Aa1-longpass", "Robin", AcceptedTerms: true),
+            next, CancellationToken.None);
+
+        ran.Should().BeTrue();
+    }
+
+    // INV-042 (sibling) — a Read-only login is the harder case: HouseholdRole.ReadOnly => false in
+    // IsPermitted for EVERY command, so [AllowLimited] alone would not have helped. [AllowAnyRole]
+    // exempts the command outright, so a signed-in Read-only user can accept an invite too.
+    [Fact]
+    public async Task Signed_in_readonly_user_can_accept_an_invite_through_the_pipeline()
+    {
+        var behaviour = new AuthorizationBehaviour<AcceptInviteCommand, AcceptInviteResult>(
+            new RoleStub(HouseholdRole.ReadOnly));
+        var ran = false;
+        RequestHandlerDelegate<AcceptInviteResult> next = _ =>
+        {
+            ran = true;
+            return Task.FromResult(new AcceptInviteResult("user-1", "robin@x.eu", HouseholdRole.ReadOnly, "Robin"));
         };
 
         await behaviour.Handle(

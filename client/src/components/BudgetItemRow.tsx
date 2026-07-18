@@ -149,14 +149,14 @@ export function BudgetItemRow({
   // Reorder ▲▼ float in the card's left gutter so they never push the line name
   // out of alignment with its bar; they fade in on hover/focus.
   const reorder = canWrite && onMove && (
-    <div className="absolute -left-5 top-1/2 flex -translate-y-1/2 flex-col opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+    <div className="absolute -left-7 top-1/2 flex -translate-y-1/2 flex-col opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
       <button
         type="button"
         onClick={() => onMove(item.id, -1)}
         disabled={isFirst}
         aria-label={`Move ${item.name} up`}
         title="Move line up"
-        className="flex h-3.5 w-4 items-center justify-center text-[10px] leading-none text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:hover:text-slate-400"
+        className="flex min-h-6 min-w-6 items-center justify-center text-[10px] leading-none text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:hover:text-slate-400"
       >
         ▲
       </button>
@@ -166,7 +166,7 @@ export function BudgetItemRow({
         disabled={isLast}
         aria-label={`Move ${item.name} down`}
         title="Move line down"
-        className="flex h-3.5 w-4 items-center justify-center text-[10px] leading-none text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:hover:text-slate-400"
+        className="flex min-h-6 min-w-6 items-center justify-center text-[10px] leading-none text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:hover:text-slate-400"
       >
         ▼
       </button>
