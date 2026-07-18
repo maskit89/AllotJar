@@ -58,6 +58,18 @@ $ErrorActionPreference = 'Stop'
 Import-Module WebAdministration
 function Info($m) { Write-Host "==> $m" -ForegroundColor Cyan }
 
+# A site whose bindings collide with another site's (e.g. apex/www living on BOTH
+# the old staging site and the new prod site until the trim) fails to AUTO-start
+# but starts fine once the collision is gone - so always try to start explicitly.
+function Start-SiteIfStopped($name) {
+    $site = Get-Website -Name $name -ErrorAction SilentlyContinue
+    if (-not $site) { return }
+    if ($site.State -ne 'Started') {
+        Info "Starting site '$name' (was $($site.State))"
+        Start-Website -Name $name
+    }
+}
+
 # --- SQL helper (System.Data.SqlClient over Shared Memory; no sqlcmd needed) --
 Add-Type -AssemblyName System.Data
 function Invoke-Sql {
@@ -90,6 +102,13 @@ if ($TrimStagingBindings) {
     $left = @(Get-WebBinding -Name $StagingSite)
     if ($left.Count -eq 0) { throw "Refusing to leave '$StagingSite' with zero bindings - aborting (was $StagingHost ever added?)" }
     Info 'Staging bindings trimmed.'
+
+    # The binding collision is gone now, so the prod sites can (re)start and
+    # HTTP.sys will route apex/www to them instead of the old catch-all.
+    Start-SiteIfStopped $ProdApiSite
+    Start-SiteIfStopped $ProdWebSite
+    Start-SiteIfStopped $StagingSite
+    Get-Website | Select-Object Name, State | Format-Table -AutoSize | Out-String | Write-Host
     return
 }
 
@@ -229,6 +248,14 @@ if (Test-Path $registerScript) {
 } else {
     Write-Warning "Register-BackupTask.ps1 not found next to this script - backup tasks NOT registered."
 }
+
+# =============================================================================
+# 8. Make sure every site is actually running
+# =============================================================================
+Start-SiteIfStopped $ProdApiSite
+Start-SiteIfStopped $ProdWebSite
+Start-SiteIfStopped $StagingSite
+Get-Website | Select-Object Name, State | Format-Table -AutoSize | Out-String | Write-Host
 
 Info 'Production provisioning complete.'
 Write-Host @"
