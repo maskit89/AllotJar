@@ -17,8 +17,12 @@
   },
 
   "Email": {
-    "//": "Resend API key (https://resend.com — domain must be DNS-verified for the FromAddress). Without it, password-reset emails are NOT sent (only logged as a warning).",
-    "ApiKey": "REPLACE_WITH_RESEND_API_KEY",
+    "//": "Provider is 'cloudflare' (Cloudflare Email Service) or 'resend'; blank defaults to resend. The sending domain must be onboarded/verified with the chosen provider or sends are rejected. Without an ApiKey, password-reset emails are NOT sent (only logged as a warning) - the startup log states which provider resolved.",
+    "Provider": "cloudflare",
+    "//ApiKey": "Cloudflare: an API token with the 'Email Sending: Edit' permission. Resend: the API key.",
+    "ApiKey": "REPLACE_WITH_PROVIDER_API_TOKEN",
+    "//AccountId": "Cloudflare ONLY - its send endpoint is account-scoped (/client/v4/accounts/{id}/email/sending/send). Omit for Resend.",
+    "AccountId": "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID",
     "FromAddress": "AllotJar <no-reply@allotjar.com>",
     "AppBaseUrl": "https://www.allotjar.com"
   },

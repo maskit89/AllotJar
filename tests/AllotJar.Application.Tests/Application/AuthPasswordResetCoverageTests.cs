@@ -273,6 +273,120 @@ public class AuthPasswordResetCoverageTests
         await act.Should().ThrowAsync<HttpRequestException>();
     }
 
+    // REG-068 — the Cloudflare Email Service adapter posts the documented account-scoped shape
+    // (POST /client/v4/accounts/{id}/email/sending/send with to/from/subject/text/html).
+    [Fact]
+    public async Task Cloudflare_sender_posts_the_account_scoped_provider_shape()
+    {
+        var captured = new List<(HttpRequestMessage Request, string Body)>();
+        var sender = CloudflareSender(
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"success\":true,\"result\":{\"delivered\":[\"to@example.com\"]}}"),
+            },
+            captured);
+
+        await sender.SendAsync(new EmailMessage("to@example.com", "Subj", "text-body", "<p>html</p>"));
+
+        captured.Should().ContainSingle();
+        captured[0].Request.RequestUri!.AbsoluteUri.Should()
+            .Be("https://api.cloudflare.com/client/v4/accounts/acct-123/email/sending/send");
+        captured[0].Body.Should().Contain("\"to\":\"to@example.com\"")
+            // REG-068 — Cloudflare's REST contract takes a bare address or {address,name}; the
+            // RFC5322 "Name <addr>" string Resend accepts is REJECTED as an invalid schema, and
+            // (sends being off-request + best-effort) that rejection would be silent. The shared
+            // FromAddress default IS in display-name form, so the adapter must split it. NOTE the
+            // REST key is `address` — the Workers binding uses `email` for the same idea.
+            .And.Contain("\"from\":{\"address\":\"no-reply@allotjar.com\",\"name\":\"AllotJar\"}")
+            .And.NotContain("\"from\":\"AllotJar")
+            .And.Contain("\"subject\":\"Subj\"")
+            .And.Contain("\"text\":\"text-body\"")
+            .And.Contain("\"html\":\"\\u003Cp\\u003Ehtml\\u003C/p\\u003E\"");
+    }
+
+    // REG-068 — a FromAddress that is already a bare address is sent as a plain string (the other
+    // documented form), not wrapped in an object with an empty name.
+    [Fact]
+    public async Task Cloudflare_sender_sends_a_bare_from_address_as_a_plain_string()
+    {
+        var captured = new List<(HttpRequestMessage Request, string Body)>();
+        var sender = CloudflareSender(
+            _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"success\":true}") },
+            captured,
+            fromAddress: "no-reply@allotjar.com");
+
+        await sender.SendAsync(new EmailMessage("to@example.com", "Subj", "t", "h"));
+
+        captured[0].Body.Should().Contain("\"from\":\"no-reply@allotjar.com\"")
+            .And.NotContain("\"name\":");
+    }
+
+    // REG-069 — **the Cloudflare trap**: client/v4 answers HTTP 200 with {"success": false} for a
+    // rejected send. A status-code-only check would swallow it and leave the user waiting for an
+    // email that was never accepted, so the envelope must be inspected too.
+    [Fact]
+    public async Task Cloudflare_sender_throws_on_a_200_response_that_reports_failure()
+    {
+        var sender = CloudflareSender(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                "{\"success\":false,\"errors\":[{\"code\":1001,\"message\":\"domain not onboarded\"}]}"),
+        });
+
+        var act = () => sender.SendAsync(new EmailMessage("to@example.com", "Subj", "t", "h"));
+
+        await act.Should().ThrowAsync<HttpRequestException>();
+    }
+
+    // A non-2xx is a failure regardless of the body, and a healthy send must NOT be turned into a
+    // false alarm by a body that carries no "success" field (or isn't JSON at all).
+    [Fact]
+    public async Task Cloudflare_sender_throws_on_non_success_status_but_not_on_an_envelope_less_body()
+    {
+        var rejected = CloudflareSender(_ => new HttpResponseMessage(HttpStatusCode.Forbidden)
+        {
+            Content = new StringContent("{\"success\":false,\"errors\":[{\"code\":10000}]}"),
+        });
+        var actRejected = () => rejected.SendAsync(new EmailMessage("to@example.com", "S", "t", "h"));
+        await actRejected.Should().ThrowAsync<HttpRequestException>();
+
+        // 200 + valid JSON that simply carries NO "success" field is accepted — the status governs.
+        var noEnvelope = CloudflareSender(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"result\":{\"delivered\":[\"to@example.com\"]}}"),
+        });
+        var actNoEnvelope = () => noEnvelope.SendAsync(new EmailMessage("to@example.com", "S", "t", "h"));
+        await actNoEnvelope.Should().NotThrowAsync();
+
+        // ...as is a 200 whose body isn't JSON at all (the parse failure must not become an error).
+        var terse = CloudflareSender(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("accepted"),
+        });
+        var actTerse = () => terse.SendAsync(new EmailMessage("to@example.com", "S", "t", "h"));
+        await actTerse.Should().NotThrowAsync();
+    }
+
+    private static CloudflareEmailSender CloudflareSender(
+        Func<HttpRequestMessage, HttpResponseMessage> respond,
+        List<(HttpRequestMessage, string)>? captured = null,
+        string fromAddress = "AllotJar <no-reply@allotjar.com>")
+    {
+        var settings = Options.Create(new EmailSettings
+        {
+            Provider = EmailSettings.ProviderCloudflare,
+            ApiKey = "cf-token",
+            AccountId = "acct-123",
+            FromAddress = fromAddress,
+        });
+        return new CloudflareEmailSender(
+            new HttpClient(new CapturingHandler(respond, captured ?? new List<(HttpRequestMessage, string)>()))
+            {
+                BaseAddress = new Uri("https://api.cloudflare.com/"),
+            },
+            settings, NullLogger<CloudflareEmailSender>.Instance);
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Plumbing
     // ---------------------------------------------------------------------------------------------

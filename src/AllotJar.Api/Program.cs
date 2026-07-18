@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using AllotJar.Api.Features;
 using AllotJar.Api.Middleware;
@@ -132,6 +133,11 @@ await BackfillOwnerMembersAsync(app);
 // Repair pre-#142 starter budgets whose "Savings" group defaulted to Expense (idempotent).
 await BackfillStarterSavingsKindAsync(app);
 
+// State plainly, once, which outbound-email provider actually resolved. Without this, "is email
+// live?" is only answerable by triggering a reset and waiting to see if one arrives — and a
+// misconfigured provider silently degrades to log-only (see AddInfrastructure).
+LogEmailProvider(app);
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -249,6 +255,42 @@ static async Task BackfillStarterSavingsKindAsync(WebApplication app)
     catch (Exception ex)
     {
         logger.LogWarning(ex, "Starter savings-kind backfill failed; continuing startup.");
+    }
+}
+
+// Reports the resolved outbound-email provider at startup. LoggingEmailSender means NOTHING is
+// actually delivered (no key, or an incomplete/unrecognised Email:Provider) — that's a warning in
+// any environment where real email is expected.
+static void LogEmailProvider(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        var sender = scope.ServiceProvider.GetRequiredService<IEmailSender>();
+        var settings = scope.ServiceProvider.GetRequiredService<IOptions<EmailSettings>>().Value;
+
+        if (sender is LoggingEmailSender)
+        {
+            // Name the ACTUAL problem — "set Email:ApiKey" is misleading advice for the two
+            // configurations that already have one (typo'd provider / missing AccountId).
+            logger.LogWarning(
+                "Outbound email is NOT configured — messages will only be logged, never delivered: {Reason}.",
+                settings.DescribeMisconfiguration() ?? "outbound email is not configured");
+        }
+        else
+        {
+            // Deliberately Warning, not Information: on the production host the Console provider
+            // writes to ANCM stdout (disabled by default, and the deploy re-mirrors the folder), and
+            // the EventLog provider filters below Warning — so an Information line has no reachable
+            // sink and the runbook's "confirm from the log" step would be unfollowable. This is a
+            // once-per-startup operational notice, not a problem.
+            logger.LogWarning("Outbound email provider: {Provider}.", sender.GetType().Name);
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Could not resolve the outbound email provider; continuing startup.");
     }
 }
 

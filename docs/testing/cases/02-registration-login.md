@@ -702,6 +702,59 @@
   - One `POST https://api.resend.com/emails` with JSON `from/to/subject/text/html` and the configured From address. A non-2xx throws `HttpRequestException` — which the controller catches, logs, and still answers 204 (REG-053).
 - **Automated:** Full (AuthPasswordResetCoverageTests — REG-055)
 
+### REG-068 - The Cloudflare Email Service adapter posts the account-scoped provider shape
+- **Priority:** P3
+- **Type:** Contract
+- **Preconditions:** Unit level (stubbed HTTP handler); `Email:Provider=cloudflare`, `AccountId=acct-123`.
+- **Steps:**
+  1. Send a message with a display-name `FromAddress` ("AllotJar <no-reply@allotjar.com>"); capture the HTTP request.
+  2. Repeat with a bare `FromAddress` ("no-reply@allotjar.com").
+- **Expected:**
+  - One `POST https://api.cloudflare.com/client/v4/accounts/{accountId}/email/sending/send` with JSON `to` (string), `subject`, `text`, `html` (values, not just keys).
+  - **`from` must NOT be the RFC5322 `Name <addr>` string** Resend accepts — Cloudflare rejects that as an invalid request schema, and since sends are off-request/best-effort the rejection is SILENT (user still gets 204, no email ever arrives). Step 1 ⇒ `"from":{"address":"no-reply@allotjar.com","name":"AllotJar"}` (REST key is `address`; the Workers binding uses `email`). Step 2 ⇒ the bare string, with no `name`.
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-068 ×2)
+
+### REG-069 - A Cloudflare 200 that reports `success: false` is treated as a failure
+- **Priority:** P2
+- **Type:** Negative
+- **Origin:** Cloudflare's `client/v4` API answers HTTP 200 with `{"success": false, "errors":[…]}` for a rejected send — a status-code-only check would swallow it.
+- **Preconditions:** Unit level (stubbed HTTP handler).
+- **Steps:**
+  1. Stub a 200 whose body is `{"success":false,…}`; send.
+  2. Stub a non-2xx; send.
+  3. Stub a 200 whose body carries no `success` field (or isn't JSON); send.
+- **Expected:**
+  - 1 and 2 throw `HttpRequestException` (logged; the controller's dispatch is off-request so the caller still sees 204 — REG-053).
+  - 3 does NOT throw — a healthy send must not be turned into a false alarm by a terse body.
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-069 ×2)
+
+### REG-070 - The configured provider resolves to the right sender at startup
+- **Priority:** P2
+- **Type:** Contract
+- **Origin:** The provider is chosen ONCE at startup; a config typo silently degrades password reset to log-only instead of failing loudly.
+- **Preconditions:** The real `AddInfrastructure` container over an in-memory `Email` configuration.
+- **Steps:**
+  1. Resolve `IEmailSender` for each config combination (no key; key with no provider; resend; cloudflare with/without AccountId; unknown provider name; provider with no key).
+  2. For the resolved sender, inspect the typed `HttpClient` the container configured.
+  3. Ask each configuration to describe its own misconfiguration.
+- **Expected:**
+  - No key → `LoggingEmailSender`. Key with **no** provider → `ResendEmailSender` (back-compat with pre-switch configs). `resend` → `ResendEmailSender`. `cloudflare` **with** AccountId → `CloudflareEmailSender`; **without** one (or blank) → `LoggingEmailSender`. Unknown provider name → `LoggingEmailSender`. Provider names are case/whitespace tolerant.
+  - Step 2: base address `https://api.cloudflare.com/` or `https://api.resend.com/` per provider, `Authorization: Bearer <ApiKey>`, 10s timeout — a wrong base URL or missing header would otherwise ship silently (every send fails at the provider, off-request, unseen).
+  - Step 3: each failure mode names ITSELF (missing `Email:ApiKey` / missing `Email:AccountId` / unrecognised provider), because "set Email:ApiKey" is misleading for the two modes that already have one. A complete config describes no problem.
+- **Automated:** Full (EmailProviderSelectionTests — REG-070: 10 selection cases + 2 HttpClient cases + 6 remediation-text cases)
+
+### REG-071 - Startup states which email provider resolved
+- **Priority:** P2
+- **Type:** Ops
+- **Origin:** A misconfigured provider degrades to log-only instead of failing loudly, so "is email live?" was previously only answerable by sending a test email and waiting.
+- **Preconditions:** Production-like host (IIS/ANCM), API restarted.
+- **Steps:**
+  1. Restart the API and read the startup log.
+- **Expected:**
+  - Either `Outbound email provider: CloudflareEmailSender` / `ResendEmailSender`, or `Outbound email is NOT configured … : <reason>` naming the specific problem.
+  - Both are logged at **Warning** deliberately: on the production host the Console provider writes to ANCM stdout (disabled by default, and the deploy re-mirrors the folder) and the EventLog provider filters below Warning, so an Information line would have no reachable sink and this check would be unfollowable.
+- **Automated:** None — log emission on a real IIS host is out of reach of the suites (the *content* of the reason string is covered by REG-070 step 3). Verify manually per `docs/deployment/staging-prod.md` step 5.
+
 ### REG-056 - A reset token sets the new password
 - **Priority:** P1
 - **Type:** Happy

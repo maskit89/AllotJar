@@ -68,7 +68,27 @@ public static class DependencyInjection
         services.Configure<EmailSettings>(emailSection);
         services.AddSingleton<DevEmailSink>();
         var emailSettings = emailSection.Get<EmailSettings>() ?? new EmailSettings();
-        if (!string.IsNullOrWhiteSpace(emailSettings.ApiKey))
+        // Provider is a CONFIG choice so a provider swap (or a fall back off a beta service) is a
+        // server-side setting change, not a code change + redeploy. Blank defaults to Resend so
+        // pre-existing key-only configurations keep working unchanged.
+        var provider = string.IsNullOrWhiteSpace(emailSettings.Provider)
+            ? EmailSettings.ProviderResend
+            : emailSettings.Provider.Trim().ToLowerInvariant();
+        var hasKey = !string.IsNullOrWhiteSpace(emailSettings.ApiKey);
+        // Cloudflare's send endpoint is account-scoped, so a key alone isn't a usable config.
+        var cloudflareReady = hasKey && !string.IsNullOrWhiteSpace(emailSettings.AccountId);
+
+        if (hasKey && provider == EmailSettings.ProviderCloudflare && cloudflareReady)
+        {
+            services.AddHttpClient<IEmailSender, CloudflareEmailSender>(client =>
+            {
+                client.BaseAddress = new Uri("https://api.cloudflare.com/");
+                client.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", emailSettings.ApiKey);
+                client.Timeout = TimeSpan.FromSeconds(10);
+            });
+        }
+        else if (hasKey && provider == EmailSettings.ProviderResend)
         {
             services.AddHttpClient<IEmailSender, ResendEmailSender>(client =>
             {
@@ -80,6 +100,11 @@ public static class DependencyInjection
         }
         else
         {
+            // No key, an unknown provider name, or Cloudflare without an AccountId. Deliberately
+            // NOT fatal: a bad email config must not take the whole API down (unlike Jwt:Key, the
+            // app is fully usable without it) — password reset degrades instead, and both this
+            // registration and every attempted send log loudly. Program.cs reports the resolved
+            // provider at startup so "is email actually live?" is answerable from the log.
             services.AddSingleton<IEmailSender, LoggingEmailSender>();
         }
 
