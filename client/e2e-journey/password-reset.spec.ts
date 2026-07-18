@@ -44,9 +44,14 @@ test('a forgotten password is recovered via the emailed link', async ({ page }) 
   await page.request.post('/api/auth/logout')
   await page.goto('/login')
 
-  // The login page's escape hatch → request a reset link.
+  // The login page's escape hatch → the reset flow. Wait for the SPA navigation to commit before
+  // filling: /login ALSO has an "Email" field, so filling before the route swaps would land on the
+  // login page's input and be lost when /forgot-password mounts (fine locally, races in slower CI).
   await page.getByRole('link', { name: 'Forgot password?' }).click()
-  await page.getByLabel('Email').fill(email)
+  await expect(page).toHaveURL(/\/forgot-password$/)
+  const emailField = page.getByLabel('Email')
+  await emailField.fill(email)
+  await expect(emailField).toHaveValue(email)
   await page.getByRole('button', { name: 'Email me a reset link' }).click()
   await expect(page.getByRole('status')).toContainText('If an account exists')
 
