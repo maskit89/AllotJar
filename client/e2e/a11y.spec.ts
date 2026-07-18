@@ -88,6 +88,33 @@ for (const theme of ['light', 'dark'] as const) {
       await expectNoViolations(page)
     })
 
+    // REG-066 — the password-reset pages are public auth chrome like /login: scan the
+    // forgot form + its non-enumerating confirmation, and the reset form + its
+    // incomplete-link recovery state.
+    test('forgot/reset password pages have no WCAG A/AA violations', async ({ page }) => {
+      await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)
+      await page.route('**/api/**', mockApi)
+
+      await page.goto('/forgot-password')
+      await page.getByLabel('Email').waitFor()
+      await expectNoViolations(page)
+
+      // The confirmation panel (the forgot endpoint 204s; mockApi answers everything 200-ish).
+      await page.getByLabel('Email').fill('owner@example.com')
+      await page.getByRole('button', { name: 'Email me a reset link' }).click()
+      await page.getByRole('status').waitFor()
+      await expectNoViolations(page)
+
+      await page.goto('/reset-password?email=owner%40example.com&token=tok')
+      await page.getByLabel('New password').waitFor()
+      await expectNoViolations(page)
+
+      // Incomplete-link recovery state (no token in the URL).
+      await page.goto('/reset-password')
+      await page.getByRole('button', { name: 'Request a new link' }).waitFor()
+      await expectNoViolations(page)
+    })
+
     test('analytics consent banner + Help control have no WCAG A/AA violations', async ({ page }) => {
       await authedSetup(page, theme)
       // Turn the analytics flag on so the consent banner and the Help privacy control both render

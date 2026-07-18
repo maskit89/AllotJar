@@ -7,7 +7,7 @@ using AllotJar.Infrastructure.Email;
 namespace AllotJar.IntegrationTests.Http;
 
 /// <summary>
-/// The forgot/reset-password contract end-to-end over real HTTP (catalog REG-059..REG-062):
+/// The forgot/reset-password contract end-to-end over real HTTP (catalog REG-053, REG-058, REG-063, REG-064):
 /// forgot-password answers 204 identically for known and unknown emails (no enumeration) while
 /// only the known one gets mail; the emailed link's token resets the password; the reset revokes
 /// every pre-reset credential (bearer token AND refresh cookie) and signs the caller in; and the
@@ -22,6 +22,8 @@ public class PasswordResetFlowTests
 
     public PasswordResetFlowTests(HttpApiFixture fixture) => _fixture = fixture;
 
+    // REG-063 — the whole happy path over real HTTP: forgot → emailed link → reset → every
+    // pre-reset credential dead → this device signed in.
     [Fact]
     public async Task Forgot_then_reset_rotates_credentials_and_signs_in()
     {
@@ -80,7 +82,7 @@ public class PasswordResetFlowTests
         var stale = await HttpApiFixture.SendAsync(client, HttpMethod.Get, "/api/auth/me", preResetToken);
         stale.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
-        // REG-061 — a redeemed link is dead: replaying the token is the generic invalid-link 400.
+        // REG-058 — a redeemed link is dead: replaying the token is the generic invalid-link 400.
         var replay = await client.PostAsJsonAsync("/api/auth/reset-password", new
         {
             email = linkEmail,
@@ -91,7 +93,7 @@ public class PasswordResetFlowTests
         (await replay.Content.ReadAsStringAsync()).Should().Contain("invalid or has expired");
     }
 
-    // REG-059 — the no-enumeration contract: an unknown email gets the same 204 as a known one,
+    // REG-053 — the no-enumeration contract: an unknown email gets the same 204 as a known one,
     // and nothing is sent.
     [Fact]
     public async Task Forgot_password_for_an_unknown_email_is_an_indistinguishable_204()
@@ -105,7 +107,7 @@ public class PasswordResetFlowTests
         _fixture.Services.GetRequiredService<DevEmailSink>().ForRecipient(email).Should().BeEmpty();
     }
 
-    // REG-062 — reset failures don't enumerate either: unknown email and garbage token produce the
+    // REG-064 — reset failures don't enumerate either: unknown email and garbage token produce the
     // SAME generic invalid-link 400 (a weak password against a real token is the one helpful 400,
     // covered at the unit layer).
     [Fact]

@@ -67,6 +67,9 @@ export default defineConfig({
         ConnectionStrings__DefaultConnection: CONNECTION,
         Jwt__Key: JWT_KEY,
         RateLimiting__AuthPermitLimit: '1000',
+        // Emailed links (password reset) point at the journey app origin, so a spec can follow
+        // the exact link a real recipient would click (read back via GET /api/dev/emails).
+        Email__AppBaseUrl: APP_URL,
         // Quieten the API's Development Info/SQL logging so it doesn't flood the test output.
         Logging__LogLevel__Default: 'Warning',
       },

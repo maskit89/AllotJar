@@ -6,6 +6,8 @@ import { ConsentModal } from './components/ConsentModal'
 import { useFeatures } from './features/FeatureContext'
 import { MonthProvider } from './features/MonthContext'
 import { LoginPage } from './pages/LoginPage'
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
+import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { LandingPage } from './pages/LandingPage'
 import { PrivacyPage } from './pages/PrivacyPage'
 import { TermsPage } from './pages/TermsPage'
@@ -67,6 +69,10 @@ export default function App() {
           }
         />
         <Route path="/accept-invite" element={<AcceptInvitePage />} />
+        {/* Password reset — public: the whole point is having no working credential. The reset
+            link must work in a fresh browser, so neither route depends on auth state. */}
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         {/* Public legal pages — crawlable, available signed in or out. */}
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/terms" element={<TermsPage />} />

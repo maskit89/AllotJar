@@ -42,7 +42,7 @@ public class AuthPasswordResetCoverageTests
     // Group A — the reset-token engine (real UserManager + DataProtector token provider)
     // ---------------------------------------------------------------------------------------------
 
-    // REG-050 — a generated reset token sets a new password: the old one stops working and the new
+    // REG-056 — a generated reset token sets a new password: the old one stops working and the new
     // one signs in (the whole point of the emailed link).
     [Fact]
     public async Task Reset_token_sets_the_new_password()
@@ -60,7 +60,7 @@ public class AuthPasswordResetCoverageTests
         (await h.Users.CheckPasswordAsync(user, newPassword)).Should().BeTrue();
     }
 
-    // REG-051 — resetting rotates the security stamp, which is what invalidates every access token
+    // REG-057 — resetting rotates the security stamp, which is what invalidates every access token
     // issued before the reset (the JWT sstamp check) and makes the token single-use.
     [Fact]
     public async Task Reset_rotates_the_security_stamp()
@@ -75,7 +75,7 @@ public class AuthPasswordResetCoverageTests
         (await h.Users.GetSecurityStampAsync(user)).Should().NotBe(stampBefore);
     }
 
-    // REG-052 — a redeemed link is dead: replaying the same token after a successful reset fails
+    // REG-058 — a redeemed link is dead: replaying the same token after a successful reset fails
     // (the token embeds the pre-reset security stamp), and the once-set password stays in force.
     [Fact]
     public async Task Reset_token_is_single_use()
@@ -94,7 +94,7 @@ public class AuthPasswordResetCoverageTests
         (await h.Users.CheckPasswordAsync(user, firstNew)).Should().BeTrue();
     }
 
-    // REG-053 — a token minted for one account is useless against another (and garbage is useless
+    // REG-059 — a token minted for one account is useless against another (and garbage is useless
     // against anyone): InvalidToken, password untouched.
     [Fact]
     public async Task Foreign_or_garbage_tokens_are_rejected()
@@ -115,7 +115,7 @@ public class AuthPasswordResetCoverageTests
         (await h.Users.CheckPasswordAsync(alice, password)).Should().BeTrue();
     }
 
-    // REG-054 — the emailed link expires (production lifespan: 2h, set in DependencyInjection.cs;
+    // REG-060 — the emailed link expires (production lifespan: 2h, set in DependencyInjection.cs;
     // here shrunk to zero so expiry is deterministic). An expired token reads as InvalidToken.
     [Fact]
     public async Task Expired_token_is_rejected()
@@ -130,7 +130,7 @@ public class AuthPasswordResetCoverageTests
         result.Errors.Should().Contain(e => e.Code == nameof(IdentityErrorDescriber.InvalidToken));
     }
 
-    // REG-055 — the reset path enforces the same password policy as registration, and a policy
+    // REG-061 — the reset path enforces the same password policy as registration, and a policy
     // rejection does NOT burn the token: the user can retry the same link with a stronger password.
     [Fact]
     public async Task Policy_failing_password_is_rejected_without_burning_the_token()
@@ -147,7 +147,7 @@ public class AuthPasswordResetCoverageTests
         retry.Succeeded.Should().BeTrue(string.Join("; ", retry.Errors.Select(e => e.Description)));
     }
 
-    // REG-056 — the new password is screened against the HIBP breach corpus exactly like
+    // REG-062 — the new password is screened against the HIBP breach corpus exactly like
     // registration's (same BreachedPasswordValidator instance in the pipeline).
     [Fact]
     public async Task Breached_new_password_is_rejected()
@@ -168,7 +168,7 @@ public class AuthPasswordResetCoverageTests
     // Group B — outbound email plumbing
     // ---------------------------------------------------------------------------------------------
 
-    // REG-057 — the reset email carries the link in BOTH bodies (text clients + html clients), and
+    // REG-054 — the reset email carries the link in BOTH bodies (text clients + html clients), and
     // states the lifetime so the user knows why a stale link failed.
     [Fact]
     public void Reset_email_carries_the_link_in_both_bodies()
@@ -216,7 +216,7 @@ public class AuthPasswordResetCoverageTests
         sink.ForRecipient("dev@example.com").Should().ContainSingle(m => m.Subject == "Hello");
     }
 
-    // REG-058 — the Resend adapter posts the provider's documented shape (from/to/subject/text/html
+    // REG-055 — the Resend adapter posts the provider's documented shape (from/to/subject/text/html
     // to POST /emails) and treats a provider rejection as a throw (the controller catches + logs it
     // and still answers 204 — no-enumeration).
     [Fact]

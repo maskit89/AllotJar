@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import axios from 'axios'
 import { JarLogo } from '../components/Jar'
@@ -189,9 +189,19 @@ export function LoginPage() {
               />
             </div>
             <div>
-              <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-600">
-                Password
-              </label>
+              <div className="mb-1 flex items-baseline justify-between">
+                <label htmlFor="password" className="block text-sm font-medium text-slate-600">
+                  Password
+                </label>
+                {!registering && (
+                  <Link
+                    to="/forgot-password"
+                    className="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-500"
+                  >
+                    Forgot password?
+                  </Link>
+                )}
+              </div>
               <Input
                 id="password"
                 type="password"
