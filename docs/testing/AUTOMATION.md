@@ -8,15 +8,25 @@ automated, write the closest proxy and **flag the rest here** rather than preten
 
 | Layer | Location | Run | Tests | New |
 |---|---|---|---|---|
-| Backend unit (xUnit, EF InMemory) | `tests/AllotJar.Application.Tests` | `dotnet test tests/AllotJar.Application.Tests` | **643** | +206 |
-| Client component (Vitest + RTL) | `client/src/**/*.catalog*.test.tsx` | `cd client && npm run test` | **591** | +350 |
+| Backend unit (xUnit, EF InMemory) | `tests/AllotJar.Application.Tests` | `dotnet test tests/AllotJar.Application.Tests` | **648** | +206 |
+| Client component (Vitest + RTL) | `client/src/**/*.catalog*.test.tsx` | `cd client && npm run test` | **593** | +350 |
 | Journey e2e (live API + real SQL) | `client/e2e-journey` | `cd client && npm run test:e2e:journey` | **34** | +25 |
-| a11y / responsive / UX (stubbed API) | `client/e2e` | `cd client && npm run test:e2e` | **92** | +46 |
-| **Total** | | | **1,360** | **+627** |
+| a11y / responsive / UX (stubbed API) | `client/e2e` | `cd client && npm run test:e2e` | **96** | +46 |
+| HTTP integration (in-process API + real SQL) | `tests/AllotJar.IntegrationTests` | `dotnet test tests/AllotJar.IntegrationTests` | **30** | +15 |
+| **Total** | | | **1,401** | **+642** |
 
 Delivered as four PRs, each independently verified green and CI-passing: **#178** (backend, merged),
 **#179** (client, merged), **#180** (journey), **#181** (a11y). Every added test cites the catalog case
 id(s) it automates; coverage was cross-checked against `maps/automated-tests.md` to avoid duplication.
+The Tests column is the current measured count (2026-07-18) — it has since grown past the four-PR
+delivery via the #183 bug-fix un-skips, the #184 regression pins, and the residual-gap closure
+(`ExcludeFromAllocationCoverageTests` +2 backend; the UX-036 account-detail and OS-live theme
+e2e specs +3); the New column still documents the original automation drive. The HTTP integration
+row is the out-of-slnx SQL Server project (CI `integration` job): its 15 pre-existing FK crash-path
+tests (previously untracked here) plus the 15-test HTTP harness (`tests/AllotJar.IntegrationTests/Http/`)
+that boots the real API in-process via `WebApplicationFactory` — an anonymous per-endpoint 401
+sweep with a curated known-anonymous allowlist, a four-role (Owner/Admin/Limited/ReadOnly)
+write/read matrix over real logins and bearer tokens, and a real rate-limit 429.
 
 Each layer catches a different class of defect: backend = money/domain logic; client = rendering,
 validation copy, optimistic UI; journey = whole-stack integration (FK cascades, derived actuals, cookie
@@ -26,8 +36,10 @@ lowest layer that can actually observe its behaviour.
 ## Bugs surfaced by the automation
 
 Automating a spec is a forcing function: writing an honest assertion against real behaviour finds bugs a
-green catalog never would. Each is pinned by a **skipped test** (not a weakened one) that will pass once
-the bug is fixed — un-skipping is the fix's proof.
+green catalog never would. Each was pinned by a **skipped test** (not a weakened one) at discovery time.
+**All six were fixed in [PR #183](https://github.com/maskit89/AllotJar/pull/183) (2026-07-18)** — every
+pinned test is now un-skipped and passing (the un-skip is the fix's proof), and the "Fix:" notes below
+describe the fix that shipped. The table stays as the historical register.
 
 | # | Case | Severity | Defect |
 |---|---|---|---|
@@ -50,12 +62,20 @@ These stay manual (or covered only by the closest proxy noted). They are a small
 | SEO meta / canonical / OG, prerendered landing HTML, `robots.txt` / `sitemap.xml` | Produced by the Vite build/prerender step, not a running route; exact-tag assertions are brittle and low-value | Landing render + route behaviour covered (`LandingPage.catalog.test.tsx`) |
 | Email delivery (invite / temp-password emails) | No mail server in any test environment | Invite *flow* covered via the returned token/link (journey `invite` specs) |
 | Real GA / analytics network payloads, Consent Mode v2 wire format | External endpoint, consent-gated; asserting the actual gtag network call needs a live GA | `sign_up`/consent **event firing** unit-tested (`LoginPage.catalog.test.tsx`) |
-| Rate-limit **429** UX | The journey harness raises `RateLimiting:AuthPermitLimit` to 1000 so a serial suite can't self-throttle | Lockout message + recovery covered; 429 mapping is unit-level |
 | Pixel-exact visuals (hero gold gradient, exact brand focus-ring values, precise dark palette) | Needs visual-regression tooling / human eye; not a functional contract | axe (WCAG A/AA) + token-inversion + contrast + overflow all automated |
-| No-flash-under-CSP theme init; OS-live `prefers-color-scheme` change at runtime | Depends on the CSP'd production bundle / a live OS theme switch mid-session | Dark-mode toggle + persisted theme covered |
+| No-flash-under-CSP theme init | Depends on the CSP'd production bundle (dev serves no CSP, so the "no console error" half can't be observed in the harness) | Dark-mode toggle + persisted theme covered; the OS-live `prefers-color-scheme` half is now automated (`client/e2e/theme-os-live.spec.ts` via `page.emulateMedia`) |
 | Offline-mid-action optimistic rollback; throttled-network stale-render races | Require fault injection that contradicts the real-stack journey premise | Optimistic commit/rollback covered at the Vitest layer |
-| `ExcludeFromAllocation` actuals (`TX-095`, `ALLOC-036`) | The flag has no UI control and no API writer — set only by a data migration + the Excel seeder tool | Domain rule verified by inspection; catalog kept `Automated: No` |
-| Full per-endpoint role **403** API sweep | The journey bearer token is in-memory, so raw `page.request` calls 401 rather than exercising the role pipeline | `AuthorizationBehaviour` + `RoleGating` unit tests cover the matrix |
+
+Two former residuals were **closed 2026-07-18** by the HTTP integration harness
+(`tests/AllotJar.IntegrationTests/Http/`), which boots the real API in-process and so isn't bound by
+the journey harness's constraints:
+
+- *Rate-limit 429* — a dedicated factory sets `RateLimiting:AuthPermitLimit = 3` and asserts the real
+  429 from the real limiter (`RateLimit429Tests`); the journey suite keeps its raised limit.
+- *Full per-endpoint role 403 API sweep* — real logins for all four roles exercise a representative
+  write per controller against real bearer tokens (`RoleMatrixTests`), and an ApiExplorer-driven
+  anonymous sweep 401-checks every endpoint outside a curated allowlist
+  (`AnonymousEndpointSweepTests`), guarding against a forgotten `[Authorize]`.
 
 ## Maintaining
 
@@ -63,4 +83,6 @@ These stay manual (or covered only by the closest proxy noted). They are a small
   the case's `Automated` field.
 - A bug is fixed → un-skip its pinned test (it should then pass).
 - Keep suites green before merge: `dotnet test`, `npm run test`, `npm run test:e2e`, and (with LocalDB)
-  `npm run test:e2e:journey`.
+  `dotnet test tests/AllotJar.IntegrationTests` + `npm run test:e2e:journey`.
+- A new deliberately-anonymous endpoint → add it to `KnownAnonymous` in `AnonymousEndpointSweepTests`
+  (the sweep fails until you do); a new controller → add its representative write to `RoleMatrixTests`.

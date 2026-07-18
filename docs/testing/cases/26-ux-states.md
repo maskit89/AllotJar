@@ -299,7 +299,7 @@
   1. Load the app (should be dark by OS); flip the OS to light and observe.
   2. Click "Light mode" explicitly, then flip the OS again.
 - **Expected:** With `zbb.theme` unset, `ThemeToggle` follows OS `prefers-color-scheme` live via a `matchMedia` change listener. After an explicit pick the listener stops honouring OS changes and the choice persists in `localStorage['zbb.theme']` (device-wide, not per-user, kept across household switches).
-- **Automated:** No
+- **Automated:** Yes (`client/e2e/theme-os-live.spec.ts` — system mode follows an emulated OS flip live; a theme pinned via the real ThemeToggle ignores OS flips and survives a reload)
 
 ## Responsive / mobile (375 px)
 
@@ -353,14 +353,14 @@
 - **Expected:** The modal (`max-w-md`, `p-4` outer, scrollable `overflow-y-auto`) fits 375 px with no sideways scroll; the 2-col field grid reflows/stays within the dialog. Long content scrolls vertically inside the dialog, not the page.
 - **Automated:** Yes (`client/e2e/mobile-layout.spec.ts` "the jar modal fits a phone screen")
 
-### UX-036 - Account-detail and reconciliation tables at 375 px (coverage gap)
+### UX-036 - Account-detail and reconciliation tables at 375 px
 - **Priority:** P2
 - **Type:** Negative
-- **Preconditions:** Manual, `/accounts/:id` and the `/accounts` reconciliation table at 375 px.
+- **Preconditions:** `/accounts/:id` and the `/accounts` reconciliation table at 375 px.
 - **Steps:**
   1. Load a busy account detail register and the reconciliation panel; scroll and check page overflow.
-- **Expected:** Both scroll inside their own containers with no page horizontal scroll. Note `/accounts/:id` (AccountDetailPage) is NOT in `AUTHED_ROUTES`, so the automated 375px guard does not cover it — verify manually.
-- **Automated:** No
+- **Expected:** Both scroll inside their own containers with no page horizontal scroll. Note `/accounts/:id` (AccountDetailPage) is NOT in `AUTHED_ROUTES`, so the per-route 375px sweep skips it — it has its own dedicated spec instead.
+- **Automated:** Yes (`client/e2e/responsive-dark.spec.ts` — "the account-detail register scrolls inside its own container (UX-036)" + the reconciliation-table UX-031 test)
 
 ### UX-037 - Tour steps that target the hidden sidebar centre gracefully on mobile
 - **Priority:** P3

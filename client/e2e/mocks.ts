@@ -269,11 +269,12 @@ export async function mockSignedIn(page: Page, email = 'e2e@allotjar.app') {
   )
 }
 
-/** Sign in as the Owner (refresh session + email + completed onboarding) and stub the API. */
-export async function authedSetup(page: Page, theme: 'light' | 'dark') {
+/** Sign in as the Owner (refresh session + email + completed onboarding) and stub the API.
+ *  `theme: 'system'` leaves `zbb.theme` unset, so the app follows the OS scheme live. */
+export async function authedSetup(page: Page, theme: 'light' | 'dark' | 'system') {
   await page.addInitScript(
     ({ t, done }) => {
-      localStorage.setItem('zbb.theme', t)
+      if (t !== 'system') localStorage.setItem('zbb.theme', t)
       localStorage.setItem('zbb.email', 'e2e@allotjar.app')
       localStorage.setItem('zbb.onboarding:e2e@allotjar.app', done)
     },

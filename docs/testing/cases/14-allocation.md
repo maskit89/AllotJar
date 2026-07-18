@@ -365,7 +365,7 @@
 - **Steps:**
   1. Open `/allocation`; read "Cover shared costs" and "Fund the jars".
 - **Expected:** The flagged 800.00 is **excluded** from both the envelopes and jars totals (they stay €2,000.00 / €500.00), so the surplus is not subtracted from the pool twice. The flag is only ever set by the importer and carried by month-copy — it cannot be toggled from this page.
-- **Automated:** Yes (Application/AllocationTests.cs — "preview excludes flagged categories")
+- **Automated:** Yes (Application/AllocationTests.cs — "preview excludes flagged categories"; Application/ExcludeFromAllocationCoverageTests.cs additionally pins that excluded categories of BOTH kinds — Expense and Savings — are dropped from the pooled envelopes/jars totals while comparable non-excluded categories stay in)
 
 ### ALLOC-037 - Equal cost split sums exactly; last member absorbs the odd cent
 - **Priority:** P1
