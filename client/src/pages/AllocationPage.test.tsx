@@ -62,7 +62,9 @@ function preview(transfersCreated = 0): AllocationResultDto {
   }
 }
 
-let profileData: AllocationProfileDto | null = null
+// `'' ` is a real wire shape, not a hypothetical: a 204 No Content answer arrives from axios as an
+// empty-string body, so the bootstrap has to normalise it the same way it normalises null.
+let profileData: AllocationProfileDto | null | '' = null
 
 function setupGet() {
   mockGet.mockImplementation((url: string) => {
@@ -113,6 +115,22 @@ describe('AllocationPage', () => {
 
     expect(await screen.findByText(/No allocation set up yet/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Set up allocation')).toBeInTheDocument()
+  })
+
+  // ALLOC-010/ALLOC-018 regression. GET /allocation/profile used to answer 204 No Content for a
+  // profile-less household; axios hands that back as `data: ''`, and the bootstrap's `?? null` let
+  // the empty string through. `''?.rules` does NOT short-circuit — optional chaining only guards
+  // null/undefined — so openSettings threw before setShowSettings(true) and the first-run modal
+  // could never open. The server now emits a JSON null, and the client normalises falsy → null;
+  // this test pins the client half so an empty body can't poison profile state again.
+  it('opens the first-run setup modal when the profile response has an empty body', { timeout: 15000 }, async () => {
+    profileData = ''
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Set up allocation' }, { timeout: 5000 }))
+    expect(await screen.findByRole('dialog', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
   it('nudges a solo user to add members instead of the allocation engine', { timeout: 15000 }, async () => {
