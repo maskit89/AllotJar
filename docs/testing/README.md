@@ -11,6 +11,9 @@ interactions, end-to-end journeys, concurrency, roles, currency/locale, and UX s
   gap map for future automation.
 - Authored against `main` @ `99ec47f` (includes PRs #167–#172). Re-verify a case against the
   code before trusting it if the app has moved on.
+- **Automation status → [AUTOMATION.md](AUTOMATION.md)**: ~627 of these cases are now automated
+  across backend/client/journey/a11y suites (PRs #178–#181); it also lists the 6 bugs the effort
+  surfaced and the small residual that stays manual, with rationale.
 
 > **Scope.** This catalog is **functional** (does the behaviour work, alone and in combination).
 > It is not a performance, load, penetration, or visual-pixel test plan — though it does include
