@@ -131,7 +131,10 @@ if (app.Environment.IsDevelopment())
     // outbound mail in DevEmailSink, and this endpoint lets the journey e2e suite read what a real
     // recipient would have received (e.g. the password-reset link). Never mapped outside
     // Development — production email goes through the real provider.
-    app.MapGet("/api/dev/emails", (string to, DevEmailSink sink) => sink.ForRecipient(to));
+    // `to` is optional (empty list without it) so a query-less probe is a clean 200, not a
+    // framework BadHttpRequestException that the exception middleware would surface as a 500.
+    app.MapGet("/api/dev/emails", (string? to, DevEmailSink sink) =>
+        string.IsNullOrEmpty(to) ? [] : sink.ForRecipient(to));
 }
 
 // NOTE: in Production, HTTPS is terminated at the IIS reverse proxy and the API is
