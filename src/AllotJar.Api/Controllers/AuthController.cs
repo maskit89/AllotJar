@@ -5,11 +5,13 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using AllotJar.Api.Contracts.Auth;
 using AllotJar.Application.Auth.Commands.Login;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.HouseholdAccess.Commands.AcceptInvite;
 using AllotJar.Domain.Enums;
+using AllotJar.Infrastructure.Email;
 using AllotJar.Infrastructure.Identity;
 using AllotJar.Infrastructure.Persistence;
 
@@ -29,6 +31,9 @@ public class AuthController : ControllerBase
     private readonly ISender _mediator;
     private readonly ICurrentUser _currentUser;
     private readonly IWebHostEnvironment _env;
+    private readonly IEmailSender _emailSender;
+    private readonly EmailSettings _emailSettings;
+    private readonly ILogger<AuthController> _logger;
 
     public AuthController(
         UserManager<ApplicationUser> userManager,
@@ -37,7 +42,10 @@ public class AuthController : ControllerBase
         ApplicationDbContext db,
         ISender mediator,
         ICurrentUser currentUser,
-        IWebHostEnvironment env)
+        IWebHostEnvironment env,
+        IEmailSender emailSender,
+        IOptions<EmailSettings> emailSettings,
+        ILogger<AuthController> logger)
     {
         _userManager = userManager;
         _tokenGenerator = tokenGenerator;
@@ -46,6 +54,9 @@ public class AuthController : ControllerBase
         _mediator = mediator;
         _currentUser = currentUser;
         _env = env;
+        _emailSender = emailSender;
+        _emailSettings = emailSettings.Value;
+        _logger = logger;
     }
 
     /// <summary>Creates an account (owner membership + owner member, plus a sample budget only when
@@ -224,6 +235,80 @@ public class AuthController : ControllerBase
 
         ClearRefreshCookie();
         return NoContent();
+    }
+
+    /// <summary>
+    /// Emails a password-reset link if (and only if) an account exists for the address. The
+    /// response is 204 either way, in the same shape and on the same path, so the endpoint can't
+    /// be used to enumerate which emails have accounts. Send failures are logged, never surfaced.
+    /// </summary>
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> ForgotPassword(ForgotPasswordRequest request, CancellationToken ct)
+    {
+        var user = await _userManager.FindByEmailAsync(request.Email);
+        if (user is not null)
+        {
+            try
+            {
+                var token = await _userManager.GeneratePasswordResetTokenAsync(user);
+                // The base URL comes from config only — building it from the request's Host
+                // header would let a spoofed header steer the emailed link to an attacker.
+                var link = $"{_emailSettings.AppBaseUrl.TrimEnd('/')}/reset-password" +
+                           $"?email={Uri.EscapeDataString(user.Email!)}&token={Uri.EscapeDataString(token)}";
+                await _emailSender.SendAsync(PasswordResetEmail.Build(user.Email!, link), ct);
+            }
+            catch (Exception ex)
+            {
+                // Still 204: an "email failed" response would confirm the account exists.
+                _logger.LogError(ex, "Failed to send a password-reset email.");
+            }
+        }
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Redeems an emailed reset token and sets a new password. Like change-password, this ends the
+    /// session on every other device (refresh tokens revoked; the stamp rotation inside
+    /// ResetPasswordAsync kills issued access tokens) and signs this device in directly — the user
+    /// just proved control of the account's email, which is exactly what a sign-in would test.
+    /// </summary>
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ResetPassword(ResetPasswordRequest request, CancellationToken ct)
+    {
+        const string invalidLink = "That reset link is invalid or has expired. Please request a new one.";
+
+        // Unknown email gets the same message as a bad token — the reset endpoint must not
+        // become the enumeration oracle that forgot-password carefully avoids being.
+        var user = await _userManager.FindByEmailAsync(request.Email);
+        if (user is null)
+        {
+            return BadRequest(new { error = invalidLink });
+        }
+
+        var result = await _userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
+        if (!result.Succeeded)
+        {
+            // A dead token and a weak password both land here; only the password feedback is
+            // useful to a legitimate user, so keep the token failure generic.
+            if (result.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.InvalidToken)))
+            {
+                return BadRequest(new { error = invalidLink });
+            }
+
+            return BadRequest(new { errors = result.Errors.Select(e => e.Description) });
+        }
+
+        await _refreshTokens.RevokeAllForUserAsync(user.Id, ct);
+        await IssueRefreshCookieAsync(user.Id, ct);
+        return Ok(await BuildResponseAsync(user, ct));
     }
 
     /// <summary>

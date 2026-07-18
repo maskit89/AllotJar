@@ -45,6 +45,16 @@ public record ChangePasswordRequest(
     [Required] string CurrentPassword,
     [Required, MinLength(8)] string NewPassword);
 
+/// <summary>Requests a password-reset email. The response is always 204 — no account enumeration.</summary>
+public record ForgotPasswordRequest(
+    [Required, EmailAddress] string Email);
+
+/// <summary>Redeems an emailed reset token and sets a new password.</summary>
+public record ResetPasswordRequest(
+    [Required, EmailAddress] string Email,
+    [Required] string Token,
+    [Required, MinLength(8)] string NewPassword);
+
 /// <summary>Self-service profile + money-display preferences for the authenticated login.</summary>
 public record UpdatePreferencesRequest(
     string? FirstName,

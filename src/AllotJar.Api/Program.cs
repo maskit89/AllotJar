@@ -1,4 +1,5 @@
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -9,6 +10,7 @@ using AllotJar.Api.Services;
 using AllotJar.Application;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Infrastructure;
+using AllotJar.Infrastructure.Email;
 using AllotJar.Infrastructure.Identity;
 using AllotJar.Infrastructure.Persistence;
 
@@ -35,6 +37,17 @@ builder.Services.AddHealthChecks();
 
 // Feature toggles for the features beyond core zero-based budgeting (all default ON).
 builder.Services.Configure<FeatureFlags>(builder.Configuration.GetSection(FeatureFlags.SectionName));
+
+// Password-reset tokens are protected with the DataProtection key ring. By default an IIS app
+// pool without a loaded user profile keeps that ring IN MEMORY, so every recycle/deploy would
+// invalidate any reset link already emailed. Pointing DataProtection:KeysPath at a persistent
+// folder (outside the deploy dir — the deploy wipes it) keeps links valid across restarts.
+var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];
+if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
+{
+    builder.Services.AddDataProtection()
+        .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
+}
 
 // CORS for the Vite dev server (configurable via Cors:AllowedOrigins).
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
@@ -113,6 +126,12 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+
+    // Development-only mailbox: when no email provider is configured, LoggingEmailSender captures
+    // outbound mail in DevEmailSink, and this endpoint lets the journey e2e suite read what a real
+    // recipient would have received (e.g. the password-reset link). Never mapped outside
+    // Development — production email goes through the real provider.
+    app.MapGet("/api/dev/emails", (string to, DevEmailSink sink) => sink.ForRecipient(to));
 }
 
 // NOTE: in Production, HTTPS is terminated at the IIS reverse proxy and the API is
