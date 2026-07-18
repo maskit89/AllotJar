@@ -1,8 +1,8 @@
 # Registration & Login
 
-**ID prefix:** REG | **Scope:** The `/login` page in both modes: the segmented "Sign in" / "Create account" toggle, the create-account form (first/last name, email, password, currency picker, number-format picker, opt-in sample-budget checkbox, terms consent, staging data-loss consent) with every client- and server-side validation rule (`POST /api/auth/register`), HIBP breached-password rejection, duplicate-email handling, the sign-in form (`POST /api/auth/login`) with wrong-credential, anti-enumeration, lockout and rate-limiting behavior, returnUrl navigation at sign-in time, and the first-login landing state for both PR #170 paths (empty account vs seeded sample budget). | **Out of scope:** everything after a session exists — silent refresh, 401 interceptor, `sessionExpired()` production, cross-tab broadcast, logout, refresh-replay grace window (sessions file 03; REG only covers the login-form *rendering* of `?reason=expired` and the sign-in leg of returnUrl); landing-page CTAs, staging banner on public pages, analytics consent banner, SEO (01-landing-public.md); `/accept-invite` registration path and household greetings `?started/?left` (households & people file); `/account` preferences and change-password (account settings file); ConsentModal general behavior and the onboarding welcome/tour (routing & app shell file); full dark/responsive/a11y sweeps (cross-cutting files — `/login` is already axe-scanned in both modes/themes by `client/e2e/a11y.spec.ts`). **Do not test for:** "Forgot password?" link, password reset, email sending, Google SSO, separate username — none of these exist (username == email).
+**ID prefix:** REG | **Scope:** The `/login` page in both modes: the segmented "Sign in" / "Create account" toggle, the create-account form (first/last name, email, password, currency picker, number-format picker, opt-in sample-budget checkbox, terms consent, staging data-loss consent) with every client- and server-side validation rule (`POST /api/auth/register`), HIBP breached-password rejection, duplicate-email handling, the sign-in form (`POST /api/auth/login`) with wrong-credential, anti-enumeration, lockout and rate-limiting behavior, returnUrl navigation at sign-in time, and the first-login landing state for both PR #170 paths (empty account vs seeded sample budget). | **Out of scope:** everything after a session exists — silent refresh, 401 interceptor, `sessionExpired()` production, cross-tab broadcast, logout, refresh-replay grace window (sessions file 03; REG only covers the login-form *rendering* of `?reason=expired` and the sign-in leg of returnUrl); landing-page CTAs, staging banner on public pages, analytics consent banner, SEO (01-landing-public.md); `/accept-invite` registration path and household greetings `?started/?left` (households & people file); `/account` preferences and change-password (account settings file); ConsentModal general behavior and the onboarding welcome/tour (routing & app shell file); full dark/responsive/a11y sweeps (cross-cutting files — `/login` is already axe-scanned in both modes/themes by `client/e2e/a11y.spec.ts`). **Do not test for:** Google SSO, separate username — neither exists (username == email). The forgot/reset-password flow (`/forgot-password`, `/reset-password`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`) IS in scope — see the "Password reset" section (REG-051..REG-066).
 
-**Test data setup:** (a) A clean anonymous browser profile — no `zbb_rt` cookie, no `zbb.*` localStorage keys. (b) An existing login `owner@example.com` / `Sunlit-Meadow-42a` (non-breached, meets digit+upper+lower policy), Owner of a solo household with at least one budget month. (c) Fresh unique registration emails per case (`reg-<case>@example.test`) and random non-breached passwords of shape `Aa1-<uuid>` (HIBP rejects fixed common passwords — journey-harness gotcha). (d) Unless a case says otherwise, run against a **staging-mode** build (`VITE_APP_ENV=staging`, e.g. staging.allotjar.com or a local staging build) where the staging banner and the required staging data-loss checkbox render; REG-016 covers the GA/default build. (e) Server defaults: rate limit 20 auth requests/min per source IP (`RateLimiting:AuthPermitLimit`), lockout 5 failures → 15 min, HIBP reachable. (f) Browser locale `en-GB` unless the case pins another locale. For "direct API" steps use any HTTP client against `POST /api/auth/register` with a JSON body — the UI blocks those inputs client-side.
+**Test data setup:** (a) A clean anonymous browser profile — no `zbb_rt` cookie, no `zbb.*` localStorage keys. (b) An existing login `owner@example.com` / `Sunlit-Meadow-42a` (non-breached, meets digit+upper+lower policy), Owner of a solo household with at least one budget month. (c) Fresh unique registration emails per case (`reg-<case>@example.test`) and random non-breached passwords of shape `Aa1-<uuid>` (HIBP rejects fixed common passwords — journey-harness gotcha). (d) Unless a case says otherwise, run against a **staging-mode** build (`VITE_APP_ENV=staging`, e.g. staging.allotjar.com or a local staging build) where the staging banner and the required staging data-loss checkbox render; REG-016 covers the GA/default build. (e) Server defaults: rate limit 20 auth requests/min per source IP (`RateLimiting:AuthPermitLimit`), lockout 5 failures → 15 min, HIBP reachable. (f) Browser locale `en-GB` unless the case pins another locale. (g) Password-reset cases: run against a Development-env API with NO `Email:ApiKey` configured — outbound mail is then captured in-memory and readable at `GET /api/dev/emails?to=<email>` (`textBody` carries the reset link); production sends via Resend instead and has no mailbox endpoint. For "direct API" steps use any HTTP client against `POST /api/auth/register` with a JSON body — the UI blocks those inputs client-side.
 
 ## Page chrome & mode toggle
 
@@ -639,3 +639,199 @@
   - Step 1: one `sign_up` event with `method: "password"` **and** `sample_data: true` (both params present — `sample_data` must not be silently dropped by the redactor).
   - Step 2: one `login_failed {method:"password"}` then one `login {method:"password"}`. No email, name, or other PII in any event payload.
 - **Automated:** Partial (client/src/analytics/analytics.test.ts — whitelist forwarding incl. sample_data; the LoginPage → track() wiring is untested)
+
+
+## Password reset (forgot / reset)
+
+### REG-051 - "Forgot password?" link shows in sign-in mode only
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** Anonymous browser on `/login` (sign-in mode).
+- **Steps:**
+  1. Inspect the password field's label row; follow the "Forgot password?" link.
+  2. Go back; switch to "Create account"; look again.
+- **Expected:**
+  - Sign-in mode: a "Forgot password?" link beside the Password label → `/forgot-password`.
+  - Register mode: no such link (a brand-new visitor has nothing to reset).
+- **Automated:** Full (client/src/pages/LoginPage.catalog.test.tsx — REG-051)
+
+### REG-052 - Forgot-password page requests a link with a non-enumerating confirmation
+- **Priority:** P1
+- **Type:** Security
+- **Preconditions:** Anonymous browser on `/forgot-password`.
+- **Steps:**
+  1. Submit a registered email; note the exact confirmation copy.
+  2. Fresh page: submit an email that has no account; compare.
+  3. Fresh page: submit while the API is unreachable.
+  4. Fresh page: submit `not-an-email`.
+- **Expected:**
+  - Steps 1–2: IDENTICAL confirmation panel (`role="status"`): "If an account exists for {email}, we've emailed it a link…", "valid for 2 hours", spam-folder hint. The form is gone (no resubmit loop); "Back to sign in" → `/login`. `password_reset_requested` fires.
+  - Step 3: generic retryable error ("We couldn't send the email just now…"), still on the form, no analytics event. The error must not reveal whether the account exists.
+  - Step 4: blocked client-side (`type=email` + `required`) — no POST.
+- **Automated:** Full (client/src/pages/ForgotPasswordPage.catalog.test.tsx — REG-052 ×3)
+
+### REG-053 - Server: forgot-password is always 204 and only real accounts get mail
+- **Priority:** P1
+- **Type:** Security
+- **Preconditions:** Direct API access; Development mailbox (setup note g).
+- **Steps:**
+  1. `POST /api/auth/forgot-password` with a registered email; read the mailbox (`GET /api/dev/emails`).
+  2. Same with an unknown email; read the mailbox.
+- **Expected:**
+  - Both answer **204 No Content** in the same shape/path AND the same TIME (no enumeration oracle by status, body, or latency). Only the registered address has a captured email. The lookup + send run OFF the request path (`DispatchResetEmail`), so the 204 is unconditional — a provider/send failure can never turn into a 500 for existing accounts (which would itself be an oracle); the failure is logged in the background. The Development mailbox endpoint's serialized JSON shape (`subject`/`textBody`) is pinned so the journey specs' contract is gated.
+- **Automated:** Full (tests/AllotJar.IntegrationTests/Http/PasswordResetFlowTests.cs — REG-053 async-mailbox capture, unknown-email empty, mailbox JSON shape; send-failure-still-204 is now structural — the send is never awaited)
+
+### REG-054 - The reset email carries the link in both bodies and states the lifetime
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** A captured reset email (setup note g).
+- **Steps:**
+  1. Inspect subject, text body and HTML body.
+- **Expected:**
+  - Subject mentions the password reset; the SAME `/reset-password?email=…&token=…` link appears raw in the text body and HTML-encoded in the HTML body (button + copyable fallback); the 2-hour validity and the "if you didn't request this, ignore" note are present. No external images/trackers.
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-054)
+
+### REG-055 - The Resend adapter posts the provider shape; a rejection throws (and is logged)
+- **Priority:** P3
+- **Type:** Contract
+- **Preconditions:** Unit level (stubbed HTTP handler).
+- **Steps:**
+  1. Send a message through `ResendEmailSender`; capture the HTTP request.
+  2. Make the stub answer 422.
+- **Expected:**
+  - One `POST https://api.resend.com/emails` with JSON `from/to/subject/text/html` and the configured From address. A non-2xx throws `HttpRequestException` — which the controller catches, logs, and still answers 204 (REG-053).
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-055)
+
+### REG-056 - A reset token sets the new password
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Unit level (real UserManager, production Identity options).
+- **Steps:**
+  1. Generate a reset token; redeem it with a fresh strong password.
+- **Expected:**
+  - Reset succeeds; the old password no longer verifies; the new one does.
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-056)
+
+### REG-057 - A reset rotates the security stamp (issued access tokens die)
+- **Priority:** P1
+- **Type:** Security
+- **Preconditions:** As REG-056; over HTTP, a bearer token minted before the reset.
+- **Steps:**
+  1. Reset the password; compare the security stamp; replay the pre-reset bearer on `GET /auth/me`.
+- **Expected:**
+  - Stamp differs after the reset; the pre-reset access token is 401 (JWT sstamp check); all refresh tokens are revoked server-side (`RevokeAllForUserAsync`) — presenting the registration-time refresh cookie to `/auth/refresh` after the reset is a 401.
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-057 stamp rotation; PasswordResetFlowTests — stale pre-reset BEARER 401 AND stale pre-reset refresh-COOKIE 401)
+
+### REG-058 - A redeemed reset link is single-use
+- **Priority:** P1
+- **Type:** Security
+- **Preconditions:** A link that has just been redeemed successfully.
+- **Steps:**
+  1. Replay the same token (API and/or the emailed link in a browser).
+- **Expected:**
+  - Generic invalid-link 400 ("That reset link is invalid or has expired…"); the once-set password stays in force. (The token embeds the pre-reset security stamp.)
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-058; PasswordResetFlowTests replay leg; e2e-journey/password-reset.spec.ts replay spec)
+
+### REG-059 - A token minted for one account is useless against another
+- **Priority:** P1
+- **Type:** Security
+- **Preconditions:** Two accounts; a valid token for one of them.
+- **Steps:**
+  1. Redeem account B's token against account A; also try a garbage token.
+- **Expected:**
+  - Both fail `InvalidToken`; account A's password is untouched.
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-059)
+
+### REG-060 - The emailed link expires after 2 hours
+- **Priority:** P2
+- **Type:** Negative
+- **Preconditions:** Unit level; token lifespan shrunk to zero for determinism (production: 2h via `DataProtectionTokenProviderOptions`, `DependencyInjection.cs`).
+- **Steps:**
+  1. Generate a token; let it expire; redeem.
+  2. Separately, assert the REAL application container's configured lifespan is 2h (guards against the DI registration being dropped, which would silently revert to Identity's 24h default).
+- **Expected:**
+  - Step 1: `InvalidToken` — surfaced to the user as the same generic invalid-link message (no hint whether the token was expired, tampered or foreign).
+  - Step 2: `IOptions<DataProtectionTokenProviderOptions>.Value.TokenLifespan == 2h` resolved from the booted app.
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-060 expiry; PasswordResetFlowTests — real-container 2h lifespan)
+
+### REG-061 - A policy-failing new password does not burn the token
+- **Priority:** P2
+- **Type:** Negative
+- **Preconditions:** A valid, unredeemed token.
+- **Steps:**
+  1. Redeem with a too-short password; then retry the SAME token with a strong one.
+- **Expected:**
+  - First attempt fails `PasswordTooShort` (the 400 carries the helpful Identity errors — the ONE non-generic reset failure); the retry with the same link succeeds.
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-061)
+
+### REG-062 - The new password is screened against HIBP
+- **Priority:** P1
+- **Type:** Security
+- **Preconditions:** As REG-056 (HIBP stubbed to report a breach).
+- **Steps:**
+  1. Redeem a valid token with a breached password.
+- **Expected:**
+  - Fails `PwnedPassword` — the same BreachedPasswordValidator as registration/change-password runs on the reset path.
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-062)
+
+### REG-063 - Full journey: forgot → emailed link → reset → signed in, old credentials dead
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Registered account; signed-out browser; Development mailbox.
+- **Steps:**
+  1. `/login` → "Forgot password?" → submit the email → confirmation.
+  2. Open the exact link from the captured email; set a new password (matching confirmation).
+  3. Try the old password; then the new one.
+- **Expected:**
+  - The reset page names the account being reset and warns "This signs you out everywhere else." A successful reset signs THIS device straight in (fresh token + `zbb_rt` cookie) and lands on the dashboard; `password_reset_completed` fires. The old password is refused ("Invalid email or password."); the new one signs in.
+- **Automated:** Full (e2e-journey/password-reset.spec.ts; PasswordResetFlowTests — REG-063; ResetPasswordPage.catalog.test.tsx client leg)
+
+### REG-064 - Reset failures are indistinguishable for unknown email vs bad token
+- **Priority:** P1
+- **Type:** Security
+- **Preconditions:** Direct API access.
+- **Steps:**
+  1. `POST /api/auth/reset-password` with an unknown email + any token.
+  2. Same with a shape-valid email + garbage token.
+- **Expected:**
+  - Byte-identical generic 400 bodies — the reset endpoint must not become the enumeration oracle forgot-password avoids being.
+- **Automated:** Full (PasswordResetFlowTests — REG-064)
+
+### REG-065 - Reset page client behaviour: mismatch guard, dead-link recovery, incomplete link
+- **Priority:** P2
+- **Type:** Negative
+- **Preconditions:** `/reset-password` opened with various query shapes.
+- **Steps:**
+  1. Valid link, mismatched confirmation → submit.
+  2. Valid link, server answers the generic invalid-link 400.
+  3. Valid link, server answers Identity password-policy `errors`.
+  4. Open with the token missing from the query.
+- **Expected:**
+  - 1: inline "Those passwords don't match." — no POST.
+  - 2: the generic message verbatim + a "Request a new link" button → `/forgot-password`.
+  - 3: the joined Identity errors; NO new-link button (the link is still redeemable).
+  - 4: the incomplete-link state (no doomed form) with the same recovery button.
+- **Automated:** Full (client/src/pages/ResetPasswordPage.catalog.test.tsx — REG-065 ×4)
+
+### REG-066 - Forgot/reset pages pass axe in both themes
+- **Priority:** P2
+- **Type:** A11y
+- **Preconditions:** Stubbed-API e2e build.
+- **Steps:**
+  1. Scan `/forgot-password` (form + confirmation state) and `/reset-password` (form + incomplete-link state) in light and dark.
+- **Expected:**
+  - No WCAG 2.x A/AA violations in any of the four states × two themes.
+- **Automated:** Full (client/e2e/a11y.spec.ts — REG-066)
+
+### REG-067 - A successful reset clears an active lockout
+- **Priority:** P2
+- **Type:** Negative
+- **Origin:** Adversarial review of the password-reset PR — reset didn't clear lockout, so a user who reset *because* they were locked out still couldn't sign in.
+- **Preconditions:** A registered account; direct API access (Development mailbox, setup note g).
+- **Steps:**
+  1. Fail sign-in 5 times to trip the 15-minute lockout; confirm even the correct old password is refused ("temporarily locked").
+  2. Forgot-password → reset via the emailed link → set a new password.
+  3. Immediately sign in with the new password.
+- **Expected:**
+  - Step 3 succeeds — the reset cleared `LockoutEnd` + `AccessFailedCount` (`SetLockoutEndDateAsync(null)` + `ResetAccessFailedCountAsync`), so the new password isn't refused as locked. Without the fix, the reset signs the device in but login elsewhere stays locked for the rest of the window.
+- **Automated:** Full (tests/AllotJar.IntegrationTests/Http/PasswordResetFlowTests.cs — REG-067)

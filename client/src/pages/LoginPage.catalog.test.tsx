@@ -722,4 +722,17 @@ describe('LoginPage (REG catalog)', () => {
       timeout: 5000,
     })
   })
+
+  // REG-051 — sign-in mode offers the "Forgot password?" escape hatch beside the password
+  // label; register mode hides it (a brand-new visitor has nothing to reset).
+  it('REG-051: "Forgot password?" links to /forgot-password from sign-in mode only', async () => {
+    const user = userEvent.setup()
+    renderAt('/login')
+
+    const link = screen.getByRole('link', { name: 'Forgot password?' })
+    expect(link).toHaveAttribute('href', '/forgot-password')
+
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+    expect(screen.queryByRole('link', { name: 'Forgot password?' })).not.toBeInTheDocument()
+  })
 })

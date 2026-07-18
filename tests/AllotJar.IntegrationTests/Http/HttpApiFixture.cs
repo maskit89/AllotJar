@@ -49,6 +49,17 @@ public sealed class HttpApiFixture : IAsyncLifetime
     /// <summary>A client with NO Authorization header (callers add one per request when needed).</summary>
     public HttpClient CreateClient() => _factory.CreateClient();
 
+    /// <summary>
+    /// A client that does NOT persist cookies across requests, so a caller can present an exact
+    /// refresh cookie via an explicit Cookie header (e.g. a pre-reset token, to prove it's dead)
+    /// without the automatic jar overwriting it with a fresher one.
+    /// </summary>
+    public HttpClient CreateClientWithoutCookies() =>
+        _factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+        {
+            HandleCookies = false,
+        });
+
     public async Task InitializeAsync()
     {
         await _factory.ResetDatabaseAsync();

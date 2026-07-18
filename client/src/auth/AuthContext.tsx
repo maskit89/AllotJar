@@ -75,6 +75,10 @@ interface AuthState {
   register: (input: RegisterInput) => Promise<void>
   acceptInvite: (token: string, password: string, displayName?: string, acceptedTerms?: boolean) => Promise<void>
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>
+  /** Requests a reset email. Resolves on 204 whether or not the account exists (no enumeration). */
+  forgotPassword: (email: string) => Promise<void>
+  /** Redeems an emailed reset token; a successful reset signs this device in. */
+  resetPassword: (email: string, token: string, newPassword: string) => Promise<void>
   updatePreferences: (input: PreferencesInput) => Promise<void>
   logout: () => void
 }
@@ -297,6 +301,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (data?.token) apply(data)
   }
 
+  async function forgotPassword(email: string) {
+    await api.post('/auth/forgot-password', { email })
+  }
+
+  async function resetPassword(email: string, token: string, newPassword: string) {
+    // Like change-password, the server revokes every other session and answers with a fresh
+    // token + cookie for this device — adopt it so the user lands signed in.
+    const { data } = await api.post<AuthResponse>('/auth/reset-password', { email, token, newPassword })
+    if (data?.token) apply(data)
+  }
+
   async function switchHousehold(ownerId: string) {
     await api.post('/households/switch', { ownerId })
     // Every screen's data is scoped to the active household, so re-bootstrap the whole app.
@@ -379,6 +394,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       register,
       acceptInvite,
       changePassword,
+      forgotPassword,
+      resetPassword,
       updatePreferences,
       logout,
     }),

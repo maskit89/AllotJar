@@ -60,6 +60,7 @@ AllotJar's big banner tracks that goal live as you type.
 - Your **preferred currency** and **number format** are display preferences — they control how amounts are shown and entered. They are *not* an exchange-rate conversion; AllotJar keeps your figures in one currency.
 - Your data is private to your login. (You can deliberately share a household with other people — see [People & sharing](#8-people--sharing).)
 - Your session is kept alive securely in the background, so you stay signed in between visits without re-entering your password.
+- Forgot your password? Use the **Forgot password?** link on the sign-in card — we'll email you a reset link (valid for 2 hours). Setting a new password signs you out everywhere else and signs you straight in on the device you used.
 
 ### The layout: sidebar, top bar and your account menu
 

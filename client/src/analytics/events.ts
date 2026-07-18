@@ -10,6 +10,8 @@ export const EVENTS = {
   logout: 'logout',
   loginFailed: 'login_failed',
   passwordChanged: 'password_changed',
+  passwordResetRequested: 'password_reset_requested',
+  passwordResetCompleted: 'password_reset_completed',
   inviteAccepted: 'invite_accepted',
 
   // Household access

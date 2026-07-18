@@ -27,7 +27,11 @@ public class AnonymousEndpointSweepTests
     ///   - auth register/login: no [Authorize] on AuthController, none on the actions — entry points.
     ///   - auth accept-invite / refresh / logout: explicitly [AllowAnonymous] (invite redemption,
     ///     cookie-only refresh, and sign-out that must work with an expired access token).
+    ///   - auth forgot-password / reset-password: explicitly [AllowAnonymous] — a user who lost
+    ///     their password has no credential to present; both are rate-limited and non-enumerating.
     ///   - features: explicitly anonymous feature-flag read the SPA needs before sign-in.
+    ///   - dev/emails: the Development-only mailbox (Program.cs maps it only under IsDevelopment,
+    ///     which this harness runs as; production never maps it). Journey e2e reads reset links here.
     /// (/health is anonymous too, but it is a health-check mapping, not a controller action, so
     /// ApiExplorer does not discover it; it is exercised separately below.)
     /// </summary>
@@ -38,7 +42,10 @@ public class AnonymousEndpointSweepTests
         "POST api/auth/accept-invite",
         "POST api/auth/refresh",
         "POST api/auth/logout",
+        "POST api/auth/forgot-password",
+        "POST api/auth/reset-password",
         "GET api/features",
+        "GET api/dev/emails",
     };
 
     [Fact]

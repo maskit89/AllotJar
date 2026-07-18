@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Infrastructure.Email;
 using AllotJar.Infrastructure.Identity;
 using AllotJar.Infrastructure.Persistence;
 using AllotJar.Infrastructure.Statements;
@@ -59,6 +60,29 @@ public static class DependencyInjection
             client.DefaultRequestHeaders.UserAgent.ParseAdd("AllotJar-Security/1.0");
         });
 
+        // --- Outbound email ----------------------------------------------------
+        // Resend when an API key is configured; otherwise a logging fallback + in-memory sink so
+        // development, CI and the test harnesses run without credentials (and journey tests can
+        // read the "sent" reset link back via the Development-only /api/dev/emails endpoint).
+        var emailSection = configuration.GetSection(EmailSettings.SectionName);
+        services.Configure<EmailSettings>(emailSection);
+        services.AddSingleton<DevEmailSink>();
+        var emailSettings = emailSection.Get<EmailSettings>() ?? new EmailSettings();
+        if (!string.IsNullOrWhiteSpace(emailSettings.ApiKey))
+        {
+            services.AddHttpClient<IEmailSender, ResendEmailSender>(client =>
+            {
+                client.BaseAddress = new Uri("https://api.resend.com/");
+                client.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", emailSettings.ApiKey);
+                client.Timeout = TimeSpan.FromSeconds(10);
+            });
+        }
+        else
+        {
+            services.AddSingleton<IEmailSender, LoggingEmailSender>();
+        }
+
         // --- Identity ----------------------------------------------------------
         services
             .AddIdentityCore<ApplicationUser>(options =>
@@ -77,6 +101,11 @@ public static class DependencyInjection
             .AddDefaultTokenProviders()
             // Screen new passwords against the Have I Been Pwned breach corpus.
             .AddPasswordValidator<BreachedPasswordValidator>();
+
+        // Password-reset links die after 2 hours (default is a whole day). This lifespan applies to
+        // every DataProtector-based Identity token; only reset tokens are issued today.
+        services.Configure<DataProtectionTokenProviderOptions>(options =>
+            options.TokenLifespan = TimeSpan.FromHours(PasswordResetEmail.LinkLifetimeHours));
 
         // Application-facing wrapper over UserManager (create logins, change passwords).
         services.AddScoped<IIdentityService, IdentityService>();

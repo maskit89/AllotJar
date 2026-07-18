@@ -14,5 +14,17 @@
   "Cors": {
     "//": "Not strictly needed since the SPA is served same-origin via the IIS proxy, but set it to your real domain for safety.",
     "AllowedOrigins": [ "https://your-domain.example" ]
+  },
+
+  "Email": {
+    "//": "Resend API key (https://resend.com — domain must be DNS-verified for the FromAddress). Without it, password-reset emails are NOT sent (only logged as a warning).",
+    "ApiKey": "REPLACE_WITH_RESEND_API_KEY",
+    "FromAddress": "AllotJar <no-reply@allotjar.com>",
+    "AppBaseUrl": "https://www.allotjar.com"
+  },
+
+  "DataProtection": {
+    "//": "Persistent folder for the DataProtection key ring (grant the API app-pool identity modify rights). Without it, emailed password-reset links die on every app restart/deploy.",
+    "KeysPath": "C:\\inetpub\\zerobudget-dp-keys"
   }
 }
