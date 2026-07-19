@@ -429,6 +429,26 @@ describe('AllocationPage (catalog)', () => {
     expect(mockPut).not.toHaveBeenCalled()
   })
 
+  it('UX-056: typing over a prefilled numeric field replaces the value (select-on-focus)', async () => {
+    profileData = profile()
+    mockPut.mockResolvedValue({ data: profile() })
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openSettingsFromCard(user)
+
+    // The lean field is prefilled "25" — type WITHOUT clearing; the focus-time
+    // selection makes "50" replace it instead of producing "255"/"525".
+    const lean = dialog.getByLabelText('Balance lean percent')
+    await user.type(lean, '50')
+    expect(lean).toHaveValue('50')
+    await user.click(dialog.getByRole('button', { name: 'Save allocation settings' }))
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1), { timeout: 5000 })
+    const body = mockPut.mock.calls[0][1] as { balanceLeanPercent: number }
+    expect(body.balanceLeanPercent).toBe(50)
+  })
+
   it('ALLOC-023: an invalid pocket-money amount is blocked with a message and no PUT', async () => {
     profileData = null
     const user = userEvent.setup()
