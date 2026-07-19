@@ -71,9 +71,7 @@ public static class DependencyInjection
         // Provider is a CONFIG choice so a provider swap (or a fall back off a beta service) is a
         // server-side setting change, not a code change + redeploy. Blank defaults to Resend so
         // pre-existing key-only configurations keep working unchanged.
-        var provider = string.IsNullOrWhiteSpace(emailSettings.Provider)
-            ? EmailSettings.ProviderResend
-            : emailSettings.Provider.Trim().ToLowerInvariant();
+        var provider = emailSettings.ResolvedProvider;
         var hasKey = !string.IsNullOrWhiteSpace(emailSettings.ApiKey);
         // Cloudflare's send endpoint is account-scoped, so a key alone isn't a usable config.
         var cloudflareReady = hasKey && !string.IsNullOrWhiteSpace(emailSettings.AccountId);

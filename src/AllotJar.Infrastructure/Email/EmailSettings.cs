@@ -54,6 +54,44 @@ public class EmailSettings
     public bool LogBodies { get; set; }
 
     /// <summary>
+    /// The provider actually in effect: blank defaults to <see cref="ProviderResend"/> (back-compat
+    /// with key-only configurations), otherwise the trimmed lowercase name. Single source of truth
+    /// so the composition root and the diagnostics can never disagree about what is running.
+    /// </summary>
+    public string ResolvedProvider =>
+        string.IsNullOrWhiteSpace(Provider) ? ProviderResend : Provider.Trim().ToLowerInvariant();
+
+    /// <summary>
+    /// A configuration smell worth warning about even though a real sender DID resolve — or
+    /// <c>null</c> when nothing looks wrong.
+    ///
+    /// Today that means a Cloudflare account id which isn't the documented 32-character hex form.
+    /// A truncated or ellipsis-bearing copy/paste (e.g. pasting the "49033e69c8021025…" shown in a
+    /// dashboard or a doc) passes the not-empty check, so startup reports a healthy provider — and
+    /// then EVERY send 404s with "could not route … perhaps your object identifier is invalid?",
+    /// off-request and invisible to the user. Warning at startup turns that into an immediate,
+    /// named signal. Deliberately NOT fatal and NOT part of sender selection: if Cloudflare ever
+    /// changes the id format, an over-strict check must not disable email.
+    /// </summary>
+    public string? DescribeSuspiciousConfiguration()
+    {
+        if (ResolvedProvider != ProviderCloudflare || string.IsNullOrWhiteSpace(AccountId))
+        {
+            return null;
+        }
+
+        var id = AccountId.Trim();
+        if (id.Length == 32 && id.All(Uri.IsHexDigit))
+        {
+            return null;
+        }
+
+        return $"Email:AccountId does not look like a Cloudflare account id (expected 32 hex " +
+               $"characters, got {id.Length}) — sends will fail with a 404 routing error. Copy the " +
+               "FULL id from the dashboard URL or the account home sidebar, with no ellipsis.";
+    }
+
+    /// <summary>
     /// Why no real provider resolved, phrased as actionable remediation — or <c>null</c> when the
     /// configuration IS complete. Shared by the startup report and the fallback sender so both
     /// name the ACTUAL problem: telling an operator to "set Email:ApiKey" when they already have
@@ -66,9 +104,7 @@ public class EmailSettings
             return "no Email:ApiKey is configured — set it (plus Email:AccountId for Cloudflare) to enable sending";
         }
 
-        var provider = string.IsNullOrWhiteSpace(Provider)
-            ? ProviderResend
-            : Provider.Trim().ToLowerInvariant();
+        var provider = ResolvedProvider;
 
         if (provider == ProviderCloudflare)
         {
