@@ -1,6 +1,6 @@
 # Registration & Login
 
-**ID prefix:** REG | **Scope:** The `/login` page in both modes: the segmented "Sign in" / "Create account" toggle, the create-account form (first/last name, email, password, currency picker, number-format picker, opt-in sample-budget checkbox, terms consent, staging data-loss consent) with every client- and server-side validation rule (`POST /api/auth/register`), HIBP breached-password rejection, duplicate-email handling, the sign-in form (`POST /api/auth/login`) with wrong-credential, anti-enumeration, lockout and rate-limiting behavior, returnUrl navigation at sign-in time, and the first-login landing state for both PR #170 paths (empty account vs seeded sample budget). | **Out of scope:** everything after a session exists — silent refresh, 401 interceptor, `sessionExpired()` production, cross-tab broadcast, logout, refresh-replay grace window (sessions file 03; REG only covers the login-form *rendering* of `?reason=expired` and the sign-in leg of returnUrl); landing-page CTAs, staging banner on public pages, analytics consent banner, SEO (01-landing-public.md); `/accept-invite` registration path and household greetings `?started/?left` (households & people file); `/account` preferences and change-password (account settings file); ConsentModal general behavior and the onboarding welcome/tour (routing & app shell file); full dark/responsive/a11y sweeps (cross-cutting files — `/login` is already axe-scanned in both modes/themes by `client/e2e/a11y.spec.ts`). **Do not test for:** Google SSO, separate username — neither exists (username == email). The forgot/reset-password flow (`/forgot-password`, `/reset-password`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`) IS in scope — see the "Password reset" section (REG-051..REG-066).
+**ID prefix:** REG | **Scope:** The `/login` page in both modes: the segmented "Sign in" / "Create account" toggle, the create-account form (first/last name, email, password, currency picker, number-format picker, opt-in sample-budget checkbox, terms consent, staging data-loss consent) with every client- and server-side validation rule (`POST /api/auth/register`), HIBP breached-password rejection, duplicate-email handling, the sign-in form (`POST /api/auth/login`) with wrong-credential, anti-enumeration, lockout and rate-limiting behavior, returnUrl navigation at sign-in time, and the first-login landing state for both PR #170 paths (empty account vs seeded sample budget). | **Out of scope:** everything after a session exists — silent refresh, 401 interceptor, `sessionExpired()` production, cross-tab broadcast, logout, refresh-replay grace window (sessions file 03; REG only covers the login-form *rendering* of `?reason=expired` and the sign-in leg of returnUrl); landing-page CTAs, staging banner on public pages, analytics consent banner, SEO (01-landing-public.md); `/accept-invite` registration path and household greetings `?started/?left` (households & people file); `/account` preferences and change-password (account settings file); ConsentModal general behavior and the onboarding welcome/tour (routing & app shell file); full dark/responsive/a11y sweeps (cross-cutting files — `/login` is already axe-scanned in both modes/themes by `client/e2e/a11y.spec.ts`). **Do not test for:** separate username — none exists (username == email). The forgot/reset-password flow (`/forgot-password`, `/reset-password`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`) IS in scope — see the "Password reset" section (REG-051..REG-066). **Google sign-in** (`POST /api/auth/google`, the "Sign in with Google" button) IS in scope — see the "Google sign-in" section (REG-073..REG-081).
 
 **Test data setup:** (a) A clean anonymous browser profile — no `zbb_rt` cookie, no `zbb.*` localStorage keys. (b) An existing login `owner@example.com` / `Sunlit-Meadow-42a` (non-breached, meets digit+upper+lower policy), Owner of a solo household with at least one budget month. (c) Fresh unique registration emails per case (`reg-<case>@example.test`) and random non-breached passwords of shape `Aa1-<uuid>` (HIBP rejects fixed common passwords — journey-harness gotcha). (d) Unless a case says otherwise, run against a **staging-mode** build (`VITE_APP_ENV=staging`, e.g. staging.allotjar.com or a local staging build) where the staging banner and the required staging data-loss checkbox render; REG-016 covers the GA/default build. (e) Server defaults: rate limit 20 auth requests/min per source IP (`RateLimiting:AuthPermitLimit`), lockout 5 failures → 15 min, HIBP reachable. (f) Browser locale `en-GB` unless the case pins another locale. (g) Password-reset cases: run against a Development-env API with NO `Email:ApiKey` configured — outbound mail is then captured in-memory and readable at `GET /api/dev/emails?to=<email>` (`textBody` carries the reset link); production sends via Resend instead and has no mailbox endpoint. For "direct API" steps use any HTTP client against `POST /api/auth/register` with a JSON body — the UI blocks those inputs client-side.
 
@@ -904,3 +904,101 @@
 - **Expected:**
   - Step 3 succeeds — the reset cleared `LockoutEnd` + `AccessFailedCount` (`SetLockoutEndDateAsync(null)` + `ResetAccessFailedCountAsync`), so the new password isn't refused as locked. Without the fix, the reset signs the device in but login elsewhere stays locked for the rest of the window.
 - **Automated:** Full (tests/AllotJar.IntegrationTests/Http/PasswordResetFlowTests.cs — REG-067)
+
+
+## Google sign-in
+
+Setup for this section: the server runs the Development-only fake validator
+(`Google:UseFakeValidator=true` on a Development host — set in the HTTP-integration fixture and the
+journey webServer). A fake credential is `fake-google:{json}`, e.g.
+`fake-google:{"sub":"g-1","email":"a@b.test","emailVerified":true,"givenName":"Ana"}`. The fake
+rejects anything else, INCLUDING a real Google token — production uses `GoogleIdTokenValidator`
+(audience-pinned to `Google:ClientId`). The client button needs a build-time `VITE_GOOGLE_CLIENT_ID`.
+
+### REG-073 - First Google sign-in creates a working passwordless account
+- **Priority:** P1
+- **Type:** Happy
+- **Steps:**
+  1. `POST /api/auth/google` with a fresh-`sub` verified credential.
+  2. Inspect the response, the Set-Cookie, and `GET /auth/me`.
+  3. Do an authorized write (create a month).
+- **Expected:**
+  - 200 `AuthResponse` with a token, `isNewAccount:true`, and a `zbb_rt` cookie. `/auth/me`: `needsConsent:true` (deferred terms), `hasPassword:false`, a non-empty households list. The write succeeds — the full `HouseholdBootstrap` (Owner membership + member #1) ran, and NO sample budget was seeded.
+- **Automated:** Full (tests/AllotJar.IntegrationTests/Http/GoogleSignInFlowTests.cs — REG-073; journey e2e-journey/google-sign-in.spec.ts for the cookie→reload→ConsentModal lifecycle)
+
+### REG-074 - The permanent Google sub keys the account, not the email
+- **Priority:** P1
+- **Type:** Security
+- **Steps:**
+  1. Sign in with a `sub`; note the userId.
+  2. Sign in again with the SAME `sub` but a DIFFERENT email (as after a Google address change).
+- **Expected:**
+  - Same userId, `isNewAccount:false`. The app account's stored email is NOT rewritten from the token.
+- **Automated:** Full (GoogleSignInFlowTests — REG-074; journey returning-user spec)
+
+### REG-075 - A verified-email match auto-links to an existing password account
+- **Priority:** P1
+- **Type:** Security
+- **Steps:**
+  1. Register a password account for an email.
+  2. Sign in with Google using a verified credential for the SAME email.
+  3. Then sign in with the original password; check `/auth/me`.
+- **Expected:**
+  - Google sign-in lands in the SAME account (same userId, `isNewAccount:false`) — no duplicate fork. The password still signs in and `hasPassword` stays true: one account, both methods.
+- **Automated:** Full (GoogleSignInFlowTests — REG-075)
+
+### REG-076 - An unverified Google email is rejected
+- **Priority:** P1
+- **Type:** Security
+- **Steps:**
+  1. `POST /api/auth/google` with `emailVerified:false`.
+- **Expected:**
+  - 401 naming the unverified email — no account created, no link. (Auto-linking on an unverified address would let an attacker who registers an unverified Google identity for a victim's email walk into the victim's account.)
+- **Automated:** Full (GoogleSignInFlowTests — REG-076)
+
+### REG-077 - Invalid credentials are a clean generic 401
+- **Priority:** P1
+- **Type:** Negative
+- **Steps:**
+  1. POST a garbage credential, a malformed fake, a fake missing `sub`, and a real-JWT-shaped string.
+- **Expected:**
+  - Each is a generic 401 (`could not be verified`) — no 500, no enumeration. The fake validator rejects a real Google token too, so a harness pointed at it can't be satisfied by accident.
+- **Automated:** Full (GoogleSignInFlowTests — REG-077; GoogleSignInValidatorTests — the validator grammar)
+
+### REG-078 - Locale hints apply to new accounts; garbage falls back
+- **Priority:** P2
+- **Type:** Negative
+- **Steps:**
+  1. First Google sign-in sending `preferredCurrency:"GBP"`, `numberFormat:"dot-comma"`.
+  2. Another first sign-in sending garbage currency/format.
+- **Expected:**
+  - 1: `/auth/me` shows GBP / dot-comma (register-form parity — the client sends its locale detection). 2: sign-in still succeeds (200); prefs fall back to EUR / comma-dot — bad hints never fail sign-in.
+- **Automated:** Full (GoogleSignInFlowTests — REG-078)
+
+### REG-079 - The fake validator is double-gated
+- **Priority:** P1
+- **Type:** Security
+- **Steps:**
+  1. Resolve `IGoogleIdTokenValidator` from the real container for {flag on/off} × {Development/Production}.
+- **Expected:**
+  - Fake ONLY when the flag is on AND the host is Development. Flag-on + Production → the REAL validator. So production configuration alone can never disable real Google verification.
+- **Automated:** Full (GoogleSignInValidatorTests — REG-079)
+
+### REG-080 - The Google button renders only when configured, and degrades silently
+- **Priority:** P2
+- **Type:** UX
+- **Steps:**
+  1. Render the login page with a client id, without one, and with the GSI script failing.
+- **Expected:**
+  - With a client id: the button + an "or" divider appear (the divider follows the button's readiness). Without one, or on script failure: nothing — the card is byte-identical to the password-only experience (no orphaned divider, no dead button).
+- **Automated:** Full (client/src/components/GoogleSignInButton.catalog.test.tsx + LoginPage.catalog.test.tsx — REG-080)
+
+### REG-081 - The Google credential round-trip on the login page
+- **Priority:** P1
+- **Type:** Happy
+- **Steps:**
+  1. Complete the Google flow; the button's callback fires with a credential.
+  2. Server answers `isNewAccount` true, then false; then a 401.
+- **Expected:**
+  - POSTs `/auth/google` with the credential AND the locale-detected currency/format; applies the session and navigates to `returnUrl ?? '/'`. Fires `sign_up {method:'google'}` when `isNewAccount`, else `login {method:'google'}`. A 401 surfaces the server's error string inline (no bounce, no spurious session-expired redirect) and fires `login_failed {method:'google'}`.
+- **Automated:** Full (client/src/pages/LoginPage.catalog.test.tsx — REG-081)
