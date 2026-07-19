@@ -151,6 +151,147 @@ public class AuthController : ControllerBase
         return Unauthorized(new { error = "Invalid email or password." });
     }
 
+    /// <summary>
+    /// Exchanges a verified Google ID token for an AllotJar session. Resolution order:
+    /// the Google identity link (permanent `sub`) wins; else a VERIFIED-email match auto-links to
+    /// the existing account (Google attests the email, so its holder already commands the same
+    /// inbox a password reset would trust); else a new passwordless account is created — same
+    /// bootstrap as registration, no sample budget, and terms consent collected on first load via
+    /// the existing NeedsConsent/ConsentModal path (the invite-created-login pattern).
+    /// Google sign-in deliberately ignores password lockout: lockout throttles password GUESSING,
+    /// while a valid Google token is cryptographic proof of account control — honouring lockout
+    /// here would lock the victim of a guessing attack out of their own recovery path.
+    /// </summary>
+    [HttpPost("google")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GoogleLogin(
+        GoogleLoginRequest request,
+        [FromServices] IGoogleIdTokenValidator googleValidator,
+        CancellationToken ct)
+    {
+        const string providerName = "Google";
+
+        var identity = await googleValidator.ValidateAsync(request.Credential, ct);
+        if (identity is null)
+        {
+            // Invalid/expired/foreign-audience token — or Google sign-in simply isn't configured.
+            return Unauthorized(new { error = "Google sign-in could not be verified. Please try again." });
+        }
+
+        // The permanent Google account id is the ONLY safe link key (emails change and recycle).
+        var user = await _userManager.FindByLoginAsync(providerName, identity.Subject);
+        var isNewAccount = false;
+
+        if (user is null)
+        {
+            // Auto-link requires Google's OWN attestation of the address. Without it, anyone able
+            // to register an unverified Google identity claiming a victim's email could walk into
+            // the victim's AllotJar account.
+            if (!identity.EmailVerified)
+            {
+                return Unauthorized(new
+                {
+                    error = "Your Google account's email address is not verified, so it can't be " +
+                            "used to sign in here. Verify it with Google, or use a password instead."
+                });
+            }
+
+            var existing = await _userManager.FindByEmailAsync(identity.Email);
+            if (existing is not null)
+            {
+                var link = await _userManager.AddLoginAsync(
+                    existing, new UserLoginInfo(providerName, identity.Subject, providerName));
+                if (!link.Succeeded)
+                {
+                    // e.g. the account is already linked to a DIFFERENT Google identity.
+                    _logger.LogWarning(
+                        "Google link to an existing account failed: {Errors}",
+                        string.Join("; ", link.Errors.Select(e => e.Description)));
+                    return Unauthorized(new { error = "Google sign-in could not be verified. Please try again." });
+                }
+                user = existing;
+            }
+            else
+            {
+                (user, var created) = await CreateGoogleUserAsync(identity, request, providerName, ct);
+                if (user is null)
+                {
+                    return Unauthorized(new { error = "Google sign-in could not be verified. Please try again." });
+                }
+                isNewAccount = created;
+            }
+        }
+
+        await IssueRefreshCookieAsync(user.Id, ct);
+        var response = await BuildResponseAsync(user, ct);
+        return Ok(response with { IsNewAccount = isNewAccount });
+    }
+
+    /// <summary>
+    /// Creates the passwordless account for a first-time Google user: profile from Google's
+    /// attested claims, currency/format from the client's locale detection (register-form
+    /// parity; invalid values fall back to the defaults rather than failing sign-in),
+    /// ConsentedUtc deliberately NULL so the ConsentModal collects terms on first load, and the
+    /// same household bootstrap as registration — without the sample budget (that is opt-in on
+    /// the register form, and this user never saw the form). Races with a concurrent first
+    /// sign-in for the same email are resolved by re-reading instead of failing.
+    /// </summary>
+    private async Task<(ApplicationUser? User, bool Created)> CreateGoogleUserAsync(
+        GoogleIdentity identity, GoogleLoginRequest request, string providerName, CancellationToken ct)
+    {
+        var user = new ApplicationUser
+        {
+            UserName = identity.Email,
+            Email = identity.Email,
+            EmailConfirmed = true, // Google attested it — that is stronger than our own confirm flow
+            FirstName = identity.GivenName,
+            LastName = identity.FamilyName,
+            DisplayName = ComposeDisplayName(identity.GivenName, identity.FamilyName)
+                ?? NullIfBlank(identity.DisplayName),
+            PreferredCurrency = UserPreferences.NormalizeCurrency(request.PreferredCurrency)
+                ?? UserPreferences.DefaultCurrency,
+            NumberFormat = UserPreferences.NormalizeNumberFormat(request.NumberFormat)
+                ?? UserPreferences.DefaultNumberFormat,
+            ConsentedUtc = null,
+        };
+
+        var createResult = await _userManager.CreateAsync(user); // passwordless — no PasswordHash
+        if (!createResult.Succeeded)
+        {
+            // Most plausible cause: a concurrent request created the same email in between our
+            // FindByEmail and here. Re-read; a still-missing user is a genuine failure.
+            var raced = await _userManager.FindByEmailAsync(identity.Email);
+            if (raced is null)
+            {
+                _logger.LogError(
+                    "Creating a Google-sign-in account failed: {Errors}",
+                    string.Join("; ", createResult.Errors.Select(e => e.Description)));
+                return (null, false);
+            }
+
+            await _userManager.AddLoginAsync(raced, new UserLoginInfo(providerName, identity.Subject, providerName));
+            return (raced, false);
+        }
+
+        var linkResult = await _userManager.AddLoginAsync(
+            user, new UserLoginInfo(providerName, identity.Subject, providerName));
+        if (!linkResult.Succeeded)
+        {
+            _logger.LogError(
+                "Linking the Google identity to a freshly created account failed: {Errors}",
+                string.Join("; ", linkResult.Errors.Select(e => e.Description)));
+        }
+
+        // Owner membership + owner member #1 — a household is never "0 members". No sample budget.
+        await HouseholdBootstrap.EnsureOwnHouseholdAsync(
+            _db, user, DateTime.UtcNow, seedSampleBudget: false, ct);
+
+        return (user, true);
+    }
+
     /// <summary>Redeems a one-time invite link, creates the login and returns a JWT.</summary>
     [HttpPost("accept-invite")]
     [AllowAnonymous]
@@ -410,7 +551,10 @@ public class AuthController : ControllerBase
             ResolveCurrency(user.PreferredCurrency),
             ResolveNumberFormat(user.NumberFormat),
             households,
-            NeedsConsent: user.ConsentedUtc is null));
+            NeedsConsent: user.ConsentedUtc is null,
+            // Google-created accounts have no PasswordHash: the client hides change-password and
+            // points at forgot-password (which SETS a password) to add one later.
+            HasPassword: await _userManager.HasPasswordAsync(user)));
     }
 
     /// <summary>
