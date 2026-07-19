@@ -70,6 +70,10 @@ export default defineConfig({
         // Emailed links (password reset) point at the journey app origin, so a spec can follow
         // the exact link a real recipient would click (read back via GET /api/dev/emails).
         Email__AppBaseUrl: APP_URL,
+        // Google sign-in: the Development-only fake validator (accepts fake-google:{json}
+        // credentials) so a journey can drive the whole server+client session lifecycle without
+        // Google's interactive consent screen. Double-gated — needs this AND the Development host.
+        Google__UseFakeValidator: 'true',
         // Quieten the API's Development Info/SQL logging so it doesn't flood the test output.
         Logging__LogLevel__Default: 'Warning',
       },
