@@ -84,12 +84,19 @@ deploys by `Deploy.ps1`'s robocopy exclude):
 "Email": {
   "Provider": "cloudflare",
   "ApiKey": "<API token with Email Sending: Edit>",
-  "AccountId": "<cloudflare account id>",   // required — the send endpoint is account-scoped
+  "AccountId": "<32 hex characters>",       // required — the send endpoint is account-scoped
   "FromAddress": "AllotJar <no-reply@allotjar.com>",
   "AppBaseUrl": "https://www.allotjar.com"
 }
 // Resend — same block without AccountId, and "Provider": "resend" (or omit Provider entirely)
 ```
+
+> **`AccountId` must be the FULL 32-character hex id** — from the dashboard URL
+> (`https://dash.cloudflare.com/<account-id>/…`) or the account-home sidebar. Dashboards and docs
+> often *display* it truncated with an ellipsis; pasting that (`49033e69c8021025…`) passes every
+> not-empty check, so startup reports a healthy provider and then every send 404s with
+> *"could not route … perhaps your object identifier is invalid?"* — off-request, so the user just
+> never receives the email. Startup now warns when the id isn't 32 hex characters (see step 5).
 
 **3. Set `"DataProtection": { "KeysPath": "C:\\inetpub\\zerobudget-dp-keys" }`** (create the folder,
 grant the API app-pool identity modify rights). **Without this, every app restart/deploy invalidates
@@ -108,6 +115,11 @@ logged at **Warning** on purpose: the Console provider writes to ANCM stdout, wh
 out anything below Warning — an Information line would be invisible here. Check this before testing
 by hand: an incomplete provider config deliberately degrades to log-only rather than taking the API
 down, so it is otherwise silent.
+
+A **second** line can follow even when a provider DID resolve:
+`Outbound email configuration looks wrong: Email:AccountId does not look like a Cloudflare account
+id (expected 32 hex characters, got N)`. Sending is live but every send will 404 until the full id
+is in — fix it and recycle.
 
 Note for Cloudflare: the sending identity is derived from `FromAddress`. A display-name value like
 `AllotJar <no-reply@allotjar.com>` is split into Cloudflare's `{ address, name }` form

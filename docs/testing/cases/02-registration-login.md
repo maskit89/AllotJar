@@ -755,6 +755,22 @@
   - Both are logged at **Warning** deliberately: on the production host the Console provider writes to ANCM stdout (disabled by default, and the deploy re-mirrors the folder) and the EventLog provider filters below Warning, so an Information line would have no reachable sink and this check would be unfollowable.
 - **Automated:** None — log emission on a real IIS host is out of reach of the suites (the *content* of the reason string is covered by REG-070 step 3). Verify manually per `docs/deployment/staging-prod.md` step 5.
 
+### REG-072 - A malformed Cloudflare account id is flagged at startup, not at send time
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** Live incident 2026-07-19 — the truncated id `49033e69c8021025…` (ellipsis included) was pasted into production config. It passed every not-empty check, startup reported a healthy `CloudflareEmailSender`, and every send then failed `404 … could not route … perhaps your object identifier is invalid?` — off-request, so the user saw only the normal confirmation and no email.
+- **Preconditions:** `Email:Provider=cloudflare` with a key present.
+- **Steps:**
+  1. Set `AccountId` to each of: the ellipsis paste, a 16-char truncation, 33 chars, 32 chars containing a non-hex letter, a dash-formatted GUID.
+  2. Set it to a canonical 32-hex id (and an upper-case/whitespace-padded variant).
+  3. With a malformed id, resolve `IEmailSender`.
+- **Expected:**
+  - 1: each is reported by `DescribeSuspiciousConfiguration()` naming "32 hex characters" and the actual length; startup logs `Outbound email configuration looks wrong: …` **in addition to** the healthy provider line.
+  - 2: no complaint (case-insensitive, trimmed).
+  - 3: the Cloudflare sender STILL resolves — the check warns, it never disables sending (if Cloudflare changes the id format, an over-strict check must not turn email off).
+  - Non-Cloudflare providers, and a missing id, say nothing (absence is `DescribeMisconfiguration`'s job).
+- **Automated:** Full (EmailProviderSelectionTests — REG-072, 11 cases)
+
 ### REG-056 - A reset token sets the new password
 - **Priority:** P1
 - **Type:** Happy

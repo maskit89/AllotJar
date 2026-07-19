@@ -286,6 +286,14 @@ static void LogEmailProvider(WebApplication app)
             // sink and the runbook's "confirm from the log" step would be unfollowable. This is a
             // once-per-startup operational notice, not a problem.
             logger.LogWarning("Outbound email provider: {Provider}.", sender.GetType().Name);
+
+            // A sender resolved, but the config may still be subtly wrong in a way that only shows
+            // up as a failed send much later (e.g. a truncated Cloudflare account id). Say so now.
+            var smell = settings.DescribeSuspiciousConfiguration();
+            if (smell is not null)
+            {
+                logger.LogWarning("Outbound email configuration looks wrong: {Problem}", smell);
+            }
         }
     }
     catch (Exception ex)
