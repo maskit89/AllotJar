@@ -840,5 +840,10 @@ describe('LoginPage (REG catalog)', () => {
     // Did NOT navigate (would render HOME) and the form is gone.
     expect(screen.queryByText('HOME')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('First name')).not.toBeInTheDocument()
+    // No sign_up analytics fires — no account was created (the claim link went to the true owner).
+    expect(track).not.toHaveBeenCalledWith(EVENTS.signUp, expect.anything())
+    // Not a dead-end: "Use a different email" returns to the form.
+    await user.click(screen.getByRole('button', { name: 'Use a different email' }))
+    expect(await screen.findByLabelText('First name')).toBeInTheDocument()
   })
 })

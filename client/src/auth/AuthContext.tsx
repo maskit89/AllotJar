@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   api,
   getToken,
@@ -81,6 +81,9 @@ interface AuthState {
   emailConfirmed: boolean
   /** Resends the address-verification email for the current login. */
   resendVerification: () => Promise<void>
+  /** Marks the email confirmed in live state (the confirm-email page calls this on its 204), so the
+   *  banner clears on the next client-side render rather than waiting for a token change or reload. */
+  markEmailConfirmed: () => void
   login: (email: string, password: string) => Promise<void>
   /** Exchanges a Google ID token for a session; resolves with whether the account was just created. */
   loginWithGoogle: (credential: string) => Promise<{ isNewAccount: boolean }>
@@ -140,6 +143,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Default true so the banner never flashes for a confirmed/returning login before /auth/me;
   // register (new account) sets it false locally, and /auth/me is authoritative.
   const [emailConfirmed, setEmailConfirmed] = useState(true)
+  // Once the user confirms in this session (markEmailConfirmed), confirmation is monotonic — there
+  // is no "un-confirm" — so a /auth/me still in flight from before the confirm (its response reads
+  // the old unverified state) must not downgrade it back. The latch makes the local confirm win
+  // regardless of which resolves last. Reset when the identity changes (register/clear).
+  const emailConfirmedLatch = useRef(false)
   // No in-memory access token on a cold load ⇒ try to restore the session from the refresh cookie.
   const [bootstrapping, setBootstrapping] = useState<boolean>(!getToken())
 
@@ -273,7 +281,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setNeedsConsent(data.needsConsent === true)
         setHasPassword(data.hasPassword !== false)
         setHasGoogle(data.hasGoogle === true)
-        setEmailConfirmed(data.emailConfirmed !== false)
+        // Respect a local confirm (see emailConfirmedLatch): never downgrade true→false from a
+        // response that predates it. A cold-load unverified user (latch false) still flips to false.
+        setEmailConfirmed(emailConfirmedLatch.current || data.emailConfirmed !== false)
         applyPrefs(data.preferredCurrency, data.numberFormat)
         localStorage.setItem(ROLE_KEY, String(data.role))
       })
@@ -327,6 +337,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // unverified until they click the emailed link.
     setFirstName(input.firstName || null)
     setLastName(input.lastName || null)
+    emailConfirmedLatch.current = false
     setEmailConfirmed(false)
     applyPrefs(input.preferredCurrency, input.numberFormat)
     return {}
@@ -334,6 +345,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function resendVerification() {
     await api.post('/auth/resend-verification')
+  }
+
+  function markEmailConfirmed() {
+    emailConfirmedLatch.current = true
+    setEmailConfirmed(true)
   }
 
   async function acceptInvite(
@@ -417,6 +433,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setNeedsConsent(false)
     setHasPassword(true)
     setHasGoogle(false)
+    emailConfirmedLatch.current = false
     setEmailConfirmed(true)
     applyPrefs(DEFAULT_CURRENCY, DEFAULT_FORMAT)
     localStorage.removeItem(EMAIL_KEY)
@@ -456,6 +473,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       unlinkGoogle,
       emailConfirmed,
       resendVerification,
+      markEmailConfirmed,
       confirmConsent,
       switchHousehold,
       startOwnBudget,

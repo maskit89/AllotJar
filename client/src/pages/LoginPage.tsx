@@ -167,6 +167,13 @@ export function LoginPage() {
                 can confirm it and set a password.
               </p>
               <p>If that's you, follow the link to take it over. If not, you can ignore this.</p>
+              <button
+                type="button"
+                onClick={() => setClaimPending(false)}
+                className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-500"
+              >
+                Use a different email
+              </button>
             </div>
           ) : (
           <>

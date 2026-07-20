@@ -139,7 +139,11 @@ public class AuthController : ControllerBase
 
     /// <summary>
     /// Confirms an emailed address-verification token (the normal path: a registrant clicks the
-    /// link). Generic failure message — a dead/foreign token reveals nothing.
+    /// link). Failures share one generic message so a dead/foreign token gives no token-validity
+    /// signal. Note the idempotent 204-on-already-confirmed short-circuit (below) does distinguish a
+    /// confirmed account from an unverified/unknown one for a known email — an existence/verified
+    /// oracle strictly weaker than what registration already exposes, rate-limited, and accepted
+    /// under the same registration-enumeration trade-off (docs/testing/maps/auth.md §8/§17).
     /// </summary>
     [HttpPost("confirm-email")]
     [AllowAnonymous]

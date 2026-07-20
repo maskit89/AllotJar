@@ -70,6 +70,9 @@ public class EmailVerificationFlowTests
         var unknown = await client.PostAsJsonAsync("/api/auth/confirm-email",
             new { email = $"nobody-{run}@httpsweep.test", token = "x" }, HttpApiFixture.Json);
         unknown.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        // Same generic body as the bad-token case — an unknown email must not be distinguishable
+        // from a known email with a bad token (no existence oracle on this endpoint).
+        (await unknown.Content.ReadAsStringAsync()).Should().Contain("invalid or has expired");
 
         var (_, goodToken) = await WaitForConfirmLinkAsync(email);
         (await client.PostAsJsonAsync("/api/auth/confirm-email",
@@ -142,8 +145,11 @@ public class EmailVerificationFlowTests
         (await again.Content.ReadAsStringAsync()).Should().Contain("already exists");
     }
 
-    // REG-090 — resend-verification re-sends for an unverified caller, and is a no-op 204 once
-    // verified (never a different response that would leak confirmation state).
+    // REG-090 — resend-verification dispatches a genuinely NEW confirmation email for an unverified
+    // caller, and is a no-op 204 (sending nothing) once verified — never a different response that
+    // would leak confirmation state. The DevEmailSink never dequeues, so a rising message count is
+    // the proof a real send happened: polling for "any confirm link" would pass even if the endpoint
+    // silently no-op'd, because the registration email is still sitting in the sink.
     [Fact]
     public async Task Resend_verification_resends_while_unverified_and_noops_once_verified()
     {
@@ -152,17 +158,27 @@ public class EmailVerificationFlowTests
         var email = $"resend-{run}@httpsweep.test";
         var token = (await HttpApiFixture.ReadJsonAsync(await RegisterAsync(client, email)))
             .RootElement.GetProperty("token").GetString()!;
-        await WaitForConfirmLinkAsync(email); // drain the registration email
 
+        // Registration sent exactly one confirmation email; wait for it to land.
+        await WaitForConfirmCountAsync(email, 1);
+
+        // Resend while unverified must produce a SECOND email — the only way the never-dequeuing
+        // sink reaches a count of 2. A silently-no-op'ing endpoint would still 204 but leave it at 1.
         (await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/auth/resend-verification", token))
             .StatusCode.Should().Be(HttpStatusCode.NoContent);
-        var (_, resent) = await WaitForConfirmLinkAsync(email); // a fresh one arrived
+        await WaitForConfirmCountAsync(email, 2);
 
-        // Confirm, then resend is a no-op 204 (same shape — no confirmation-state leak).
+        // Confirm with the freshest token; then a resend on a VERIFIED account is a no-op 204 that
+        // sends nothing (count stays 2) — same 204 shape as the unverified case, so no state leak.
+        var (_, resent) = await WaitForConfirmLinkAsync(email);
         (await client.PostAsJsonAsync("/api/auth/confirm-email", new { email, token = resent }, HttpApiFixture.Json))
             .StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/auth/resend-verification", token))
             .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        // A verified account's resend starts no send at all; give any (erroneous) async dispatch a
+        // moment to land, then assert the count never rose past 2.
+        await Task.Delay(300);
+        ConfirmEmailCount(email).Should().Be(2);
     }
 
     // ----- helpers -------------------------------------------------------------------------------
@@ -179,6 +195,25 @@ public class EmailVerificationFlowTests
             acceptedTerms = true,
             includeSampleData = false,
         }, HttpApiFixture.Json);
+
+    private int ConfirmEmailCount(string email) =>
+        Sink.ForRecipient(email).Count(m => m.TextBody.Contains("/confirm-email?"));
+
+    private async Task WaitForConfirmCountAsync(string email, int expected)
+    {
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            if (ConfirmEmailCount(email) >= expected)
+            {
+                return;
+            }
+
+            await Task.Delay(50);
+        }
+
+        throw new InvalidOperationException(
+            $"Expected at least {expected} confirmation emails for {email}, saw {ConfirmEmailCount(email)}.");
+    }
 
     private Task<(string Email, string Token)> WaitForConfirmLinkAsync(string email) =>
         WaitForLinkAsync(email, "/confirm-email?");

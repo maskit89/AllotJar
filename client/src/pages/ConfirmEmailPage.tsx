@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
+import { useAuth } from '../auth/AuthContext'
 import { JarLogo } from '../components/Jar'
 import { StagingBanner } from '../components/StagingBanner'
 import { ThemeToggle } from '../components/ThemeToggle'
@@ -17,6 +18,7 @@ const buttonLink =
  */
 export function ConfirmEmailPage() {
   const [params] = useSearchParams()
+  const { markEmailConfirmed } = useAuth()
   const email = params.get('email') ?? ''
   const token = params.get('token') ?? ''
   const [status, setStatus] = useState<'working' | 'done' | 'invalid' | 'incomplete'>(
@@ -30,9 +32,15 @@ export function ConfirmEmailPage() {
     started.current = true
     api
       .post('/auth/confirm-email', { email, token })
-      .then(() => setStatus('done'))
+      .then(() => {
+        // Clear the banner live: if this is the same browser that's signed in, the "Go to
+        // AllotJar" link is a client-side nav (no reload), so state must update here — /auth/me
+        // only re-runs on a token change, which confirming doesn't cause.
+        markEmailConfirmed()
+        setStatus('done')
+      })
       .catch(() => setStatus('invalid'))
-  }, [status, email, token])
+  }, [status, email, token, markEmailConfirmed])
 
   return (
     <>

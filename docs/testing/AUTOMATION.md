@@ -23,7 +23,7 @@ delivery via the #183 bug-fix un-skips, the #184 regression pins, the residual-g
 (`ExcludeFromAllocationCoverageTests` +2 backend; the UX-036 account-detail and OS-live theme
 e2e specs +3), the password-reset feature (REG-051..067: +11 backend, +9 Vitest, +6 HTTP
 integration, +2 journey, +2 a11y scans), the Cloudflare/Resend email-provider work (+13 backend),
-and Google sign-in (REG-073..084/PREF-011: +18 backend, +18 Vitest, +9 HTTP integration, +2 journey — the last incl. the adversarial-review hardening: pre-hijacking defence, audience-pin, and CSP tests), plus the two follow-ups: disconnect-Google (PREF-041 + REG-085) and email verification with safe reclaim (REG-086..093 / SESS-043: +1 backend, +9 Vitest, +5 HTTP integration, +2 journey, +2 a11y);
+and Google sign-in (REG-073..084/PREF-011: +18 backend, +18 Vitest, +9 HTTP integration, +2 journey — the last incl. the adversarial-review hardening: pre-hijacking defence, audience-pin, and CSP tests), plus the two follow-ups: disconnect-Google (PREF-041 + REG-085) and email verification with safe reclaim (REG-086..093 / SESS-043: +1 backend, +9 Vitest, +5 HTTP integration, +2 journey, +4 a11y — the confirm-email page and verify-email banner scans, each run in light and dark);
 the New column still documents the original automation drive. The HTTP integration
 row is the out-of-slnx SQL Server project (CI `integration` job): its 15 pre-existing FK crash-path
 tests (previously untracked here) plus the 15-test HTTP harness (`tests/AllotJar.IntegrationTests/Http/`)

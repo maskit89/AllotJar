@@ -6,12 +6,21 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 // Harness matches the repo convention: hoisted api mock, vi.mock('../lib/api') spreading
 // importOriginal, page inside <MemoryRouter>.
 
-const { mockPost } = vi.hoisted(() => ({ mockPost: vi.fn() }))
+const { mockPost, markEmailConfirmed } = vi.hoisted(() => ({
+  mockPost: vi.fn(),
+  markEmailConfirmed: vi.fn(),
+}))
 
 vi.mock('../lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/api')>()),
   api: { get: vi.fn(), post: mockPost, put: vi.fn(), delete: vi.fn() },
   getToken: () => null,
+}))
+
+// The page only needs markEmailConfirmed from auth — stub it so we can assert the banner-clear
+// wiring fires exactly on a successful confirm (and never on a dead/incomplete link).
+vi.mock('../auth/AuthContext', () => ({
+  useAuth: () => ({ markEmailConfirmed }),
 }))
 
 import { ConfirmEmailPage } from './ConfirmEmailPage'
@@ -42,6 +51,8 @@ describe('ConfirmEmailPage (catalog REG-092)', () => {
       token: 'tok+abc', // URL-decoded
     })
     expect(screen.getByRole('link', { name: 'Go to AllotJar' })).toHaveAttribute('href', '/')
+    // The banner-clear wiring ran on success (so an in-app nav back doesn't show a stale banner).
+    expect(markEmailConfirmed).toHaveBeenCalled()
   })
 
   it('REG-092: a dead link shows the expired state with a path to resend', async () => {
@@ -51,6 +62,8 @@ describe('ConfirmEmailPage (catalog REG-092)', () => {
 
     expect(await screen.findByText('This link has expired')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login')
+    // A failed confirm must NOT mark the email confirmed.
+    expect(markEmailConfirmed).not.toHaveBeenCalled()
   })
 
   it('REG-092: an incomplete link (no token) never calls the API', async () => {
@@ -58,5 +71,6 @@ describe('ConfirmEmailPage (catalog REG-092)', () => {
 
     expect(await screen.findByText("This link isn't complete")).toBeInTheDocument()
     await waitFor(() => expect(mockPost).not.toHaveBeenCalled())
+    expect(markEmailConfirmed).not.toHaveBeenCalled()
   })
 })

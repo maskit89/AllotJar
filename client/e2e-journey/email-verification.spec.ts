@@ -45,8 +45,11 @@ test('a new registration is unverified with a banner, and the emailed link confi
   await page.goto(link)
   await expect(page.getByText('Email confirmed')).toBeVisible()
 
-  // Back in the app, the banner is gone (a fresh /auth/me now reports confirmed).
-  await page.goto('/')
+  // Return to the app via the in-app link — a CLIENT-SIDE nav, NOT a reload — and assert the
+  // banner is gone. This proves confirming updates the live auth state (markEmailConfirmed);
+  // a full page.goto('/') would mask that by re-running /auth/me on a fresh mount.
+  await page.getByRole('link', { name: 'Go to AllotJar' }).click()
+  await expect(page).toHaveURL(/\/$/)
   await expect(page.getByText(/please confirm your email/i)).toHaveCount(0)
 })
 
