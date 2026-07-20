@@ -4,7 +4,6 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Domain.Entities;
-using AllotJar.Domain.Enums;
 
 namespace AllotJar.Application.Transactions.Commands.SplitTransaction;
 
@@ -37,63 +36,11 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
             throw new ForbiddenAccessException();
         }
 
-        // The slices must account for the whole transaction, to the cent.
-        var allocated = request.Allocations.Sum(a => a.Amount);
-        if (allocated != transaction.Amount)
-        {
-            throw Validation(
-                $"The split lines must add up to {transaction.Amount:0.####}; they add up to {allocated:0.####}.");
-        }
-
-        // Load every target line once, owned by the user, with its kind.
-        var itemIds = request.Allocations.Select(a => a.BudgetItemId).Distinct().ToList();
-        var items = await _db.BudgetItems
-            .Include(i => i.BudgetCategory)
-                .ThenInclude(c => c.BudgetMonth)
-            .Where(i => itemIds.Contains(i.Id))
-            .ToDictionaryAsync(i => i.Id, cancellationToken);
-
-        foreach (var id in itemIds)
-        {
-            if (!items.TryGetValue(id, out var item))
-            {
-                throw new NotFoundException($"Budget item {id} was not found.");
-            }
-            if (item.BudgetCategory.BudgetMonth.OwnerId != userId)
-            {
-                throw new ForbiddenAccessException();
-            }
-
-            // Keep the roll-up coherent: split an expense across expense lines,
-            // income across income lines.
-            var lineIsIncome = item.BudgetCategory.Kind == CategoryKind.Income;
-            var txIsIncome = transaction.Type == TransactionType.Income;
-            if (lineIsIncome != txIsIncome)
-            {
-                throw Validation(txIsIncome
-                    ? "Income can only be split across income lines."
-                    : "An expense can only be split across expense lines.");
-            }
-        }
-
-        // Any per-slice member attributions must belong to this user.
-        var memberIds = request.Allocations
-            .Where(a => a.MemberId is not null)
-            .Select(a => a.MemberId!.Value)
-            .Distinct()
-            .ToList();
-        if (memberIds.Count > 0)
-        {
-            var ownedMemberIds = await _db.HouseholdMembers
-                .Where(m => memberIds.Contains(m.Id) && m.OwnerId == userId)
-                .Select(m => m.Id)
-                .ToListAsync(cancellationToken);
-            var missing = memberIds.Except(ownedMemberIds).FirstOrDefault();
-            if (missing != Guid.Empty)
-            {
-                throw new NotFoundException($"Household member {missing} was not found.");
-            }
-        }
+        // Shared slice rules (sum, ownership, direction match, member ownership) — the
+        // same guard CreateTransaction uses for split-at-creation.
+        var items = await SplitGuards.ValidateSlicesAsync(
+            _db, userId, transaction.Type, transaction.Amount, request.Allocations,
+            errorKey: "Allocations", cancellationToken);
 
         // Replace any previous split, and drop the whole-transaction assignment —
         // the slices carry the attribution now.
@@ -135,10 +82,4 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
 
         return saved.ToDto();
     }
-
-    private static ValidationException Validation(string message) =>
-        new(new Dictionary<string, string[]>
-        {
-            ["Allocations"] = new[] { message },
-        });
 }

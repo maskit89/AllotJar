@@ -933,3 +933,33 @@
   2. Read that line's spent/available on the Budget page and the row's pill.
 - **Expected:** The transaction and its derived actual behave **identically** to any other line — `BudgetActuals.ApplyAsync` groups assigned transactions by `(BudgetItemId, Type)` and **never reads `ExcludeFromAllocation`** (verified: the flag appears nowhere in `BudgetActuals.cs`), so the line's spent (or a savings line's `SavingsAvailable`) reflects the 50.00 as usual and the register renders the normal tint pill. The flag changes **only** the income-split pool (the category is dropped from the allocation waterfall in `AllocationPlanner`), which is asserted in `14-allocation.md`; it has **no** transaction-side effect and produces no special badge, filter behaviour, or actuals adjustment here.
 - **Automated:** Yes (backend — the flag has no UI/API writer, so it is seeded directly on the entity: `Application/ExcludeFromAllocationCoverageTests.cs` asserts whole + split-slice actuals on an excluded line equal a control line's via the real GetBudgetMonth handler; `Application/TTransactionsCoverageTests.cs` "ExcludeFromAllocationCategory_StillCountsTheTransactionToTheLineActual" covers the single-tx path)
+
+### TX-096 - The Add modal splits an expense across categories at creation
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Signed in with `canEnterData`; a current month with expense lines.
+- **Steps:**
+  1. + Add transaction; enter payee + amount (e.g. 100); click "Split across categories".
+  2. Fill two slice rows (category + amount, optionally a member each) summing to the amount.
+  3. Add transaction.
+- **Expected:** The toggle replaces the single Category select (and the whole-transaction Member select — members attribute per slice) with two slice rows and a "Fully allocated"/"€X left" chip. Submit stays disabled until the slices sum exactly to the amount. One `POST /transactions` carries `budgetItemId: null`, `memberId: null` and the `splits` array; the server persists parent + slices atomically and the register row immediately shows the violet Split badge + slice summary. The auto-categorizer is NOT applied (slices are the assignment). "Don't split", switching Type to Income, switching to Transfer, or closing the modal resets split mode to two blank rows.
+- **Automated:** Full (client `TransactionsPage.test.tsx` split-mode cases; backend `CreateTransactionWithSplitsTests` incl. atomicity, kind/ownership guards, auto-categorizer skip, actuals roll-up; IntegrationTests FK case)
+
+### TX-097 - Add-modal split guards: mismatched sum and incomplete rows never post
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** As TX-096.
+- **Steps:**
+  1. In split mode, enter slices that do not sum to the amount; press Enter in the Amount field (bypasses the disabled button).
+  2. Fix the sum but clear a slice's category; press Enter again.
+- **Expected:** "The split lines must add up to the transaction total." then "Give every split line a category and an amount greater than zero." — no POST either time. Server-side the same rules are enforced (400 with the identical sum message shape; expense slices only onto expense/savings lines; income lines rejected), so a hand-crafted request cannot create a torn or double-counted split.
+- **Automated:** Full (client Enter-key guard case; backend validator + handler tests)
+
+### TX-098 - Register row actions are always visible (split is discoverable)
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** Any transactions in the register; `canEnterData`.
+- **Steps:**
+  1. Look at a register row without hovering.
+- **Expected:** The ✎ edit, ⑂ split and ✕ delete actions are visible on every row (no hover reveal — the affordance was previously `opacity-0 group-hover:opacity-100`, invisible on touch devices and undiscoverable). The ⑂ editor still opens seeded from an existing split and `PUT /transactions/{id}/splits` replaces it.
+- **Automated:** Partial (existing inline split editor cases exercise the button; visibility itself is visual)
