@@ -105,15 +105,56 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
 
         _db.Transactions.Add(transaction);
 
+        // Split at creation: validate the slices with the same guard the post-hoc split
+        // uses, then persist parent + children in the one SaveChanges — the transaction
+        // either exists fully split or not at all.
+        var hasSplits = request.Splits is { Count: > 0 };
+        if (request.Splits is { Count: > 0 } splits)
+        {
+            await SplitGuards.ValidateSlicesAsync(
+                _db, userId, request.Type, request.Amount, splits,
+                errorKey: "Splits", cancellationToken);
+
+            // Scalar FKs only, exactly like CommitImport — setting the BudgetItem
+            // navigation here trips EF InMemory's duplicate tracking.
+            foreach (var slice in splits)
+            {
+                transaction.Splits.Add(new TransactionSplit
+                {
+                    BudgetItemId = slice.BudgetItemId,
+                    MemberId = slice.MemberId,
+                    Amount = slice.Amount,
+                });
+            }
+        }
+
         // No line was chosen explicitly? Fall back to the budget line of the most
         // recent earlier transaction with the same description (a quiet, zero-config
-        // default — no user-managed rules).
-        if (item is null)
+        // default — no user-managed rules). Slices ARE an assignment: without the
+        // hasSplits guard the categorizer would set a whole-transaction line on a
+        // split transaction, an illegal state BudgetActuals would double-count.
+        if (item is null && !hasSplits)
         {
             await AutoCategorizer.ApplyAsync(_db, userId, new[] { transaction }, cancellationToken);
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        // The slices were saved with scalar FKs, so re-read with line/member names for
+        // the DTO — the same shape SplitTransaction returns.
+        if (hasSplits)
+        {
+            var saved = await _db.Transactions
+                .AsNoTracking()
+                .Include(t => t.Account)
+                .Include(t => t.Splits)
+                    .ThenInclude(s => s.BudgetItem)
+                .Include(t => t.Splits)
+                    .ThenInclude(s => s.Member)
+                .FirstAsync(t => t.Id == transaction.Id, cancellationToken);
+
+            return saved.ToDto();
+        }
 
         // If the fallback filled in a line, hydrate its navigation so the returned
         // DTO carries the line name (AutoCategorizer only sets the foreign key).

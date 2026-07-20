@@ -364,4 +364,137 @@ describe('TransactionsPage manual sheet', () => {
     await user.click(screen.getByRole('button', { name: 'All' }))
     expect(await screen.findByText('Rent payment', {}, { timeout: 5000 })).toBeInTheDocument()
   })
+
+  // TX-060.. — splitting an expense across categories directly in the Add modal.
+
+  it('split mode replaces the single category and member selects with slice rows', { timeout: 15000 }, async () => {
+    mockLoad([], [], membersFixture())
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    await screen.findByRole('dialog', {}, { timeout: 5000 })
+    await user.click(await screen.findByRole('button', { name: 'Split across categories' }, { timeout: 5000 }))
+
+    expect(screen.getByLabelText('Split line 1 category')).toBeInTheDocument()
+    expect(screen.getByLabelText('Split line 2 category')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Assign transaction to')).not.toBeInTheDocument()
+    // The whole-transaction member select hides too — members are attributed per slice.
+    expect(screen.queryByLabelText('Transaction member')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Split line 1 member')).toBeInTheDocument()
+
+    // "Don't split" restores the single-category form.
+    await user.click(screen.getByRole('button', { name: "Don't split" }))
+    expect(screen.getByLabelText('Assign transaction to')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Split line 1 category')).not.toBeInTheDocument()
+  })
+
+  it('posts an atomic split payload once the slices sum to the amount', { timeout: 15000 }, async () => {
+    mockLoad([], [], membersFixture())
+    mockPost.mockResolvedValue({
+      data: {
+        ...tx(),
+        payee: 'Supermarket',
+        amount: 100,
+        isSplit: true,
+        splits: [
+          { id: 's1', budgetItemId: 'i-rent', budgetItemName: 'Rent', memberId: 'mem-chris', memberName: 'Chris', amount: 70 },
+          { id: 's2', budgetItemId: 'i-food', budgetItemName: 'Groceries', memberId: null, memberName: null, amount: 30 },
+        ],
+      },
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(screen.getByLabelText('Transaction payee'), 'Supermarket')
+    await user.type(screen.getByLabelText('Transaction amount'), '100')
+    await user.click(await screen.findByRole('button', { name: 'Split across categories' }, { timeout: 5000 }))
+
+    // Unallocated remainder disables the submit.
+    await user.selectOptions(screen.getByLabelText('Split line 1 category'), 'i-rent')
+    await user.type(screen.getByLabelText('Split line 1 amount'), '70')
+    await user.selectOptions(screen.getByLabelText('Split line 1 member'), 'mem-chris')
+    expect(dialog.getByRole('button', { name: 'Add transaction' })).toBeDisabled()
+
+    await user.selectOptions(screen.getByLabelText('Split line 2 category'), 'i-food')
+    await user.type(screen.getByLabelText('Split line 2 amount'), '30')
+    expect(screen.getByText('Fully allocated')).toBeInTheDocument()
+
+    await user.click(dialog.getByRole('button', { name: 'Add transaction' }))
+
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/transactions', {
+        date: expect.any(String),
+        payee: 'Supermarket',
+        amount: 100,
+        type: 0,
+        budgetItemId: null,
+        accountId: null,
+        memberId: null,
+        splits: [
+          { budgetItemId: 'i-rent', amount: 70, memberId: 'mem-chris' },
+          { budgetItemId: 'i-food', amount: 30, memberId: null },
+        ],
+      }),
+    )
+    // The register row renders the violet Split badge + slice summary.
+    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
+    expect(table.getByText('Split')).toBeInTheDocument()
+  })
+
+  it('guards the Enter-key path: mismatched or incomplete slices never post', { timeout: 15000 }, async () => {
+    mockLoad([], [], membersFixture())
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    await screen.findByRole('dialog', {}, { timeout: 5000 })
+    await user.type(screen.getByLabelText('Transaction payee'), 'Supermarket')
+    await user.type(screen.getByLabelText('Transaction amount'), '100')
+    await user.click(await screen.findByRole('button', { name: 'Split across categories' }, { timeout: 5000 }))
+    await user.selectOptions(screen.getByLabelText('Split line 1 category'), 'i-rent')
+    await user.type(screen.getByLabelText('Split line 1 amount'), '70')
+    await user.selectOptions(screen.getByLabelText('Split line 2 category'), 'i-food')
+    await user.type(screen.getByLabelText('Split line 2 amount'), '20')
+
+    // Enter in the amount field bypasses the disabled button — the guard must catch it.
+    await user.type(screen.getByLabelText('Transaction amount'), '{Enter}')
+    expect(await screen.findByText('The split lines must add up to the transaction total.')).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+
+    // Fix the sum but blank a category — the completeness guard fires instead.
+    await user.clear(screen.getByLabelText('Split line 2 amount'))
+    await user.type(screen.getByLabelText('Split line 2 amount'), '30')
+    await user.selectOptions(screen.getByLabelText('Split line 2 category'), '')
+    await user.type(screen.getByLabelText('Transaction amount'), '{Enter}')
+    expect(
+      await screen.findByText('Give every split line a category and an amount greater than zero.'),
+    ).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+  })
+
+  it('switching the type to Income resets split mode', { timeout: 15000 }, async () => {
+    mockLoad([], [], membersFixture())
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    await screen.findByRole('dialog', {}, { timeout: 5000 })
+    await user.click(await screen.findByRole('button', { name: 'Split across categories' }, { timeout: 5000 }))
+    expect(screen.getByLabelText('Split line 1 category')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Transaction type'), '1')
+    expect(screen.queryByLabelText('Split line 1 category')).not.toBeInTheDocument()
+
+    // Back to Expense: split mode was RESET, not remembered — the single select returns.
+    await user.selectOptions(screen.getByLabelText('Transaction type'), '0')
+    expect(screen.getByLabelText('Assign transaction to')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Split line 1 category')).not.toBeInTheDocument()
+  })
 })
