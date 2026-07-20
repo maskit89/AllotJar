@@ -569,3 +569,14 @@
   - "Sign out" and "I agree" are the ONLY exits — the dialog exposes no close/dismiss/✕ control, and the backdrop is not click-to-close.
   - Step 3: the login is still un-consented server-side (`ConsentedUtc` is still null — nothing stamped it), so `/auth/me` again returns `needsConsent: true` and the blocking ConsentModal re-appears. Signing out truly abandoned the session without agreeing.
 - **Automated:** Partial (client/src/components/ConsentModal.test.tsx asserts the "Sign out" button exists and that no close/dismiss control is present, but never clicks it or asserts the logout side-effects; the underlying logout mechanics are covered by SESS-037 and client/e2e-journey/session-expiry.spec.ts)
+
+
+### SESS-043 - The "confirm your email" banner
+- **Priority:** P2
+- **Type:** UX
+- **Preconditions:** A signed-in login whose `/auth/me` reports `emailConfirmed:false`.
+- **Steps:**
+  1. View any in-app page; click Resend. Also view with `emailConfirmed:true`, with `needsConsent:true`, and signed out.
+- **Expected:**
+  - Shown (persistent, non-dismissible, `role="status"`) only when authenticated AND unverified AND not awaiting consent. Resend calls `POST /auth/resend-verification` and confirms it sent (or a retry hint on failure). Hidden once confirmed, while consent is owed (that blocks the app first), or signed out.
+- **Automated:** Full (client/src/components/VerifyEmailBanner.catalog.test.tsx — SESS-043; client/e2e/a11y.spec.ts scans it)

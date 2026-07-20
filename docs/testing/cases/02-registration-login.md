@@ -1037,3 +1037,89 @@ rejects anything else, INCLUDING a real Google token — production uses `Google
 - **Expected:**
   - `script-src` includes `accounts.google.com/gsi/client`; `frame-src` and `connect-src` include `accounts.google.com/gsi/`; `style-src` includes `accounts.google.com/gsi/style`. Baseline intact: `default-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`, no `unsafe-eval`.
 - **Automated:** Full (tests/AllotJar.IntegrationTests/ContentSecurityPolicyTests.cs — REG-084)
+
+
+## Email verification & safe reclaim
+
+Setup: a Development-env API with NO `Email:ApiKey` so verification/reclaim emails land in the sink
+(`GET /api/dev/emails?to=<email>`; `textBody` carries the link). Registration now sends a
+"confirm your email" link; the account is usable immediately behind a persistent banner.
+
+### REG-086 - A fresh registration is unverified until the emailed link is confirmed
+- **Priority:** P1
+- **Type:** Happy
+- **Steps:**
+  1. Register a new account; check `/auth/me`.
+  2. Open the confirmation link from the mailbox; check `/auth/me` again.
+- **Expected:**
+  - After register: signed in, `emailConfirmed:false`, and a confirmation email present. After
+    `POST /auth/confirm-email` with the emailed token: 204, and `/auth/me` `emailConfirmed:true`.
+- **Automated:** Full (tests/AllotJar.IntegrationTests/Http/EmailVerificationFlowTests.cs — REG-086; journey email-verification.spec.ts)
+
+### REG-087 - Confirm-email rejects bad tokens and is idempotent
+- **Priority:** P2
+- **Type:** Negative
+- **Steps:**
+  1. POST a garbage token, and an unknown email.
+  2. Confirm with the real token, then confirm again.
+- **Expected:**
+  - Garbage/unknown → generic 400 ("invalid or has expired"). A valid token → 204; a second confirm of the now-verified account → idempotent 204 (no confirmation-state leak).
+- **Automated:** Full (EmailVerificationFlowTests — REG-087)
+
+### REG-088 - Safe reclaim: registering an UNVERIFIED email emails a claim link that takes it over
+- **Priority:** P1
+- **Type:** Security
+- **Origin:** Closes the email-squatting residual left by the Google pre-hijacking work.
+- **Steps:**
+  1. A "squatter" registers an email (unverified) and holds a session.
+  2. The true owner registers the SAME email.
+  3. The owner redeems the emailed link; then check the squatter's session + password.
+- **Expected:**
+  - Step 2: a neutral `{ verificationPending: true }` 200 with NO session, and a reset/claim link emailed to the address. Step 3: redeeming it (reset-password) signs the owner in, sets `emailConfirmed:true`, and revokes the squatter's session + password (both now 401). The account is reclaimed with no data loss.
+- **Automated:** Full (EmailVerificationFlowTests — REG-088; journey reclaim spec)
+
+### REG-089 - A VERIFIED existing email still returns the honest "already exists"
+- **Priority:** P1
+- **Type:** Negative
+- **Steps:**
+  1. Register + confirm an email; then register it again.
+- **Expected:**
+  - 400 "An account with that email already exists." — a confirmed account genuinely belongs to someone; no reclaim, no session. (Registration revealing existence for VERIFIED emails is the accepted trade-off; UNVERIFIED ones get the neutral reclaim instead.)
+- **Automated:** Full (EmailVerificationFlowTests — REG-089)
+
+### REG-090 - Resend-verification resends while unverified and no-ops once verified
+- **Priority:** P2
+- **Type:** Happy
+- **Steps:**
+  1. Register (unverified); `POST /auth/resend-verification`.
+  2. Confirm; resend again.
+- **Expected:**
+  - Both calls are 204; step 1 produces a fresh confirmation email, step 2 (already verified) sends nothing — same 204 shape either way, so confirmation state never leaks through the response.
+- **Automated:** Full (EmailVerificationFlowTests — REG-090)
+
+### REG-091 - The verification email is self-contained
+- **Priority:** P2
+- **Type:** Happy
+- **Steps:**
+  1. Inspect the `EmailVerificationEmail` text + HTML bodies.
+- **Expected:**
+  - The confirm link in both bodies, the 2-hour lifetime, the "didn't create an account — ignore" note, and NO external images/trackers (only the confirm link is an external URL).
+- **Automated:** Full (tests/AllotJar.Application.Tests/Application/EmailVerificationEmailTests.cs — REG-091)
+
+### REG-092 - The confirm-email page: confirm, dead link, incomplete link
+- **Priority:** P2
+- **Type:** Negative
+- **Steps:**
+  1. Open `/confirm-email?email=&token=` with a good link, a dead link, and no token.
+- **Expected:**
+  - Good: POSTs the decoded email+token once (StrictMode-safe), shows "Email confirmed" + a link home. Dead: "This link has expired" + a Sign in link (to resend from the banner). No token: "This link isn't complete", no API call.
+- **Automated:** Full (client/src/pages/ConfirmEmailPage.catalog.test.tsx — REG-092)
+
+### REG-093 - Register on an unverified email shows the client claim panel
+- **Priority:** P1
+- **Type:** Happy
+- **Steps:**
+  1. Submit the register form for an email the server answers with `verificationPending:true`.
+- **Expected:**
+  - The form is replaced by a "Check your inbox" panel naming the email; the app is NOT navigated to (no session). No sign_up analytics fires (no account was created for this caller).
+- **Automated:** Full (client/src/pages/LoginPage.catalog.test.tsx — REG-093)

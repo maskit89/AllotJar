@@ -8,12 +8,12 @@ automated, write the closest proxy and **flag the rest here** rather than preten
 
 | Layer | Location | Run | Tests | New |
 |---|---|---|---|---|
-| Backend unit (xUnit, EF InMemory) | `tests/AllotJar.Application.Tests` | `dotnet test tests/AllotJar.Application.Tests` | **710** | +206 |
-| Client component (Vitest + RTL) | `client/src/**/*.catalog*.test.tsx` | `cd client && npm run test` | **613** | +350 |
-| Journey e2e (live API + real SQL) | `client/e2e-journey` | `cd client && npm run test:e2e:journey` | **38** | +25 |
-| a11y / responsive / UX (stubbed API) | `client/e2e` | `cd client && npm run test:e2e` | **98** | +46 |
-| HTTP integration (in-process API + real SQL) | `tests/AllotJar.IntegrationTests` | `dotnet test tests/AllotJar.IntegrationTests` | **46** | +15 |
-| **Total** | | | **1,505** | **+642** |
+| Backend unit (xUnit, EF InMemory) | `tests/AllotJar.Application.Tests` | `dotnet test tests/AllotJar.Application.Tests` | **711** | +206 |
+| Client component (Vitest + RTL) | `client/src/**/*.catalog*.test.tsx` | `cd client && npm run test` | **622** | +350 |
+| Journey e2e (live API + real SQL) | `client/e2e-journey` | `cd client && npm run test:e2e:journey` | **40** | +25 |
+| a11y / responsive / UX (stubbed API) | `client/e2e` | `cd client && npm run test:e2e` | **102** | +46 |
+| HTTP integration (in-process API + real SQL) | `tests/AllotJar.IntegrationTests` | `dotnet test tests/AllotJar.IntegrationTests` | **51** | +15 |
+| **Total** | | | **1,526** | **+642** |
 
 Delivered as four PRs, each independently verified green and CI-passing: **#178** (backend, merged),
 **#179** (client, merged), **#180** (journey), **#181** (a11y). Every added test cites the catalog case
@@ -23,7 +23,7 @@ delivery via the #183 bug-fix un-skips, the #184 regression pins, the residual-g
 (`ExcludeFromAllocationCoverageTests` +2 backend; the UX-036 account-detail and OS-live theme
 e2e specs +3), the password-reset feature (REG-051..067: +11 backend, +9 Vitest, +6 HTTP
 integration, +2 journey, +2 a11y scans), the Cloudflare/Resend email-provider work (+13 backend),
-and Google sign-in (REG-073..084/PREF-011: +18 backend, +18 Vitest, +9 HTTP integration, +2 journey — the last incl. the adversarial-review hardening: pre-hijacking defence, audience-pin, and CSP tests);
+and Google sign-in (REG-073..084/PREF-011: +18 backend, +18 Vitest, +9 HTTP integration, +2 journey — the last incl. the adversarial-review hardening: pre-hijacking defence, audience-pin, and CSP tests), plus the two follow-ups: disconnect-Google (PREF-041 + REG-085) and email verification with safe reclaim (REG-086..093 / SESS-043: +1 backend, +9 Vitest, +5 HTTP integration, +2 journey, +2 a11y);
 the New column still documents the original automation drive. The HTTP integration
 row is the out-of-slnx SQL Server project (CI `integration` job): its 15 pre-existing FK crash-path
 tests (previously untracked here) plus the 15-test HTTP harness (`tests/AllotJar.IntegrationTests/Http/`)
