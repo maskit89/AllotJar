@@ -1,5 +1,6 @@
 import type { HouseholdMemberDto } from '../types'
 import type { ItemOptionGroup } from '../lib/transactions'
+import { selectOnFocusProps } from '../lib/selectOnFocus'
 
 export interface SplitRowDraft {
   budgetItemId: string
@@ -46,6 +47,7 @@ export function SplitLinesEditor({ rows, options, members, onChangeRow, onRemove
           <input
             type="text"
             inputMode="decimal"
+            {...selectOnFocusProps}
             value={row.amount}
             placeholder="0,00"
             aria-label={`Split line ${index + 1} amount`}

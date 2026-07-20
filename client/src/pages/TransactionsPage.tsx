@@ -13,6 +13,7 @@ import { EVENTS, track } from '../analytics'
 import type { AccountDto, BudgetMonthDto, HouseholdMemberDto, TransactionDto } from '../types'
 import { TransactionType } from '../types'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount } from '../lib/money'
+import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { shortDate } from '../lib/dates'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { buildItemOptions, transactionTypeLabel } from '../lib/transactions'
@@ -530,6 +531,7 @@ export function TransactionsPage() {
                 <Input
                   type="text"
                   inputMode="decimal"
+                  {...selectOnFocusProps}
                   value={amount}
                   placeholder="0.00"
                   aria-label="Transaction amount"
@@ -677,6 +679,7 @@ export function TransactionsPage() {
                 <Input
                   type="text"
                   inputMode="decimal"
+                  {...selectOnFocusProps}
                   value={tAmount}
                   placeholder="0.00"
                   aria-label="Transfer amount"
@@ -853,6 +856,7 @@ export function TransactionsPage() {
                               <input
                                 type="text"
                                 inputMode="decimal"
+                                {...selectOnFocusProps}
                                 value={eAmount}
                                 aria-label="Edit amount"
                                 onChange={(e) => setEAmount(e.target.value)}

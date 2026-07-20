@@ -12,6 +12,7 @@ import { EVENTS, track } from '../analytics'
 import type { AccountDto, AccountReconciliationDto } from '../types'
 import { ACCOUNT_TYPE_LABELS, AccountType } from '../types'
 import { CURRENCY_OPTIONS, formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { hueColor, hueForAccountType, hueTint } from '../lib/categoryColors'
 
 const TYPE_OPTIONS = Object.entries(ACCOUNT_TYPE_LABELS).map(([value, label]) => ({
@@ -260,6 +261,7 @@ export function AccountsPage() {
                 <Input
                   type="text"
                   inputMode="decimal"
+                  {...selectOnFocusProps}
                   value={opening}
                   placeholder="0.00"
                   aria-label="Opening balance"
@@ -353,7 +355,7 @@ export function AccountsPage() {
                           </option>
                         ))}
                       </Select>
-                      <Input type="text" inputMode="decimal" value={eOpening} aria-label={`Opening balance for ${a.name}`} onChange={(e) => setEOpening(e.target.value)} className="w-full text-right tabular-nums" />
+                      <Input type="text" inputMode="decimal" {...selectOnFocusProps} value={eOpening} aria-label={`Opening balance for ${a.name}`} onChange={(e) => setEOpening(e.target.value)} className="w-full text-right tabular-nums" />
                       {multiCurrency && (
                         <p className="text-xs text-slate-500">
                           Currency <span className="font-semibold text-slate-700">{a.currency}</span> — fixed once created.

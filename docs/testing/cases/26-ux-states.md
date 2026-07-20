@@ -535,3 +535,23 @@
   1. With the banner up, Tab through the page and into/out of the banner; use the app behind it.
 - **Expected:** The banner is a `role="region" aria-label="Analytics consent"` pinned bottom (`z-50`), NOT a modal — it does not trap focus or block interaction with the app; "Decline"/"Accept" are ordinary tab stops. It coexists with (sits below) any other banners and is axe-clean in both themes.
 - **Automated:** Partial (`client/e2e/a11y.spec.ts` scans the region + Help control with the flag forced on)
+
+### UX-055 - Focusing a filled numeric input selects its value so typing replaces it
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Any numeric/money field holding a value (typically a prefilled `0`): budget planned editors, bill due-day, transaction/transfer/split amounts, account opening balances, jar target and saved-so-far, allocation pocket money and balance lean, member incomes, import split amounts.
+- **Steps:**
+  1. Click (or Tab) into a numeric field showing an existing value, e.g. `0`.
+  2. Type `50` without clearing first.
+- **Expected:** Focus selects the whole current value (the shared `selectOnFocusProps` in `client/src/lib/selectOnFocus.ts`), so the field reads exactly `50` — never `050` or `500`. The selection survives the focusing click's mouseup (Chrome/Safari collapse guard); a second click inside the already-focused field places the caret normally for fine editing. Free-text fields (payee, names) deliberately keep normal caret behavior.
+- **Automated:** Yes (`client/src/lib/selectOnFocus.test.tsx` — select-on-focus, single-mouseup guard, type-replaces; `client/src/pages/DashboardPage.test.tsx` "typing into the planned editor replaces the selected value")
+
+### UX-056 - Typing over a prefilled always-mounted numeric field replaces the value end-to-end
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** A form field prefilled from saved data, e.g. the allocation settings "Balance lean percent" holding `25`.
+- **Steps:**
+  1. Open Allocation settings; click straight into the lean field and type `50` without clearing.
+  2. Save.
+- **Expected:** The field holds `50` (not `255`/`525`) and the PUT carries `balanceLeanPercent: 50`. The same applies to every always-mounted numeric input in the sweep (accounts opening balance, jar target, member income, split amounts).
+- **Automated:** Yes (`client/src/pages/AllocationPage.catalog.test.tsx` UX-056)
