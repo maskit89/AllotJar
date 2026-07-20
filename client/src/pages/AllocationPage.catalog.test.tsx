@@ -815,4 +815,30 @@ describe('AllocationPage (catalog)', () => {
     await user.click(dialog.getByRole('button', { name: 'About splitting shared costs' }))
     expect(splitGroup.getByRole('button', { name: 'Equally' })).toHaveAttribute('aria-pressed', 'true')
   })
+
+  // ---- Income-per-person switchover (the pool's source honesty) --------------
+
+  it('ALLOC-072: unattributed budget income shows the assign-it banner with the amount', async () => {
+    profileData = profile()
+    previewData = { ...workedPreview(), incomeFromBudget: true, unattributedIncome: 350 }
+
+    renderPage()
+    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+
+    expect(screen.getByText(/€350\.00 of July’s income isn’t assigned to a person/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Assign income lines on the Budget page' })).toBeInTheDocument()
+    // Fully-attributed months are quiet.
+    expect(screen.queryByText(/default incomes from the People page/)).not.toBeInTheDocument()
+  })
+
+  it('ALLOC-073: a month with no attributed income names the People-page fallback', async () => {
+    profileData = profile()
+    previewData = { ...workedPreview(), incomeFromBudget: false, unattributedIncome: 0 }
+
+    renderPage()
+    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+
+    expect(screen.getByText(/This split uses the default incomes from the People page/)).toBeInTheDocument()
+    expect(screen.queryByText(/isn’t assigned to a person/)).not.toBeInTheDocument()
+  })
 })

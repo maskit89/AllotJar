@@ -697,4 +697,52 @@ describe('PeoplePage — catalog (PPL)', () => {
     // Solo again: Allocation gone.
     await waitFor(() => expect(screen.queryAllByRole('link', { name: 'Allocation' })).toHaveLength(0), { timeout: 5000 })
   })
+
+  // ---- Derived income (budget-attributed) ------------------------------------
+
+  it('PPL-078: budget-attributed income drives the hero and the income column', async () => {
+    membersData = [
+      member(),
+      { ...member(), id: 'm2', name: 'Liza', netMonthlyIncome: 2000 },
+    ]
+    setupGet()
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/members') return Promise.resolve({ data: membersData })
+      if (url === '/access/members') return Promise.resolve({ data: membershipsData })
+      if (url === '/accounts') return Promise.resolve({ data: accountsData })
+      if (url === '/members/spending') return Promise.resolve({ data: [] })
+      if (url.startsWith('/members/income/')) {
+        return Promise.resolve({
+          data: {
+            incomeFromBudget: true,
+            unattributedPlanned: 100,
+            items: [
+              { memberId: 'm1', name: 'Chris', planned: 3200, received: 1500 },
+              { memberId: 'm2', name: 'Liza', planned: 2000, received: 0 },
+            ],
+          },
+        })
+      }
+      return Promise.resolve({ data: {} })
+    })
+
+    renderPage()
+
+    // Hero: this month's budgeted income (3,200 + 2,000 + 100 unattributed).
+    expect(await screen.findByText('Income this month', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByLabelText(/^Income this month:/)).toHaveTextContent('5,300.00')
+    // Chris's cell shows the derived figure with the static default as a sub-line.
+    expect(screen.getByText('€3,200.00')).toBeInTheDocument()
+    expect(screen.getByText(/default\s+€3,000\.00/)).toBeInTheDocument()
+  })
+
+  it('PPL-079: without attributed income the page keeps the static figures and label', async () => {
+    setupGet() // default mock: /members/income falls through to {} → treated as absent
+
+    renderPage()
+
+    expect(await screen.findByText('Combined income', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.queryByText('Income this month')).not.toBeInTheDocument()
+    expect(screen.queryByText(/default\s+€/)).not.toBeInTheDocument()
+  })
 })

@@ -1,0 +1,91 @@
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Common.Exceptions;
+using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Allocation;
+using AllotJar.Application.Household.Dtos;
+using AllotJar.Domain.Enums;
+
+namespace AllotJar.Application.Household.Queries.GetMemberIncome;
+
+public class GetMemberIncomeQueryHandler : IRequestHandler<GetMemberIncomeQuery, MemberIncomeResultDto>
+{
+    private readonly IApplicationDbContext _db;
+    private readonly ICurrentUser _currentUser;
+
+    public GetMemberIncomeQueryHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    {
+        _db = db;
+        _currentUser = currentUser;
+    }
+
+    public async Task<MemberIncomeResultDto> Handle(GetMemberIncomeQuery request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.OwnerId
+            ?? throw new ForbiddenAccessException("No authenticated user on the request.");
+
+        var members = await _db.HouseholdMembers
+            .AsNoTracking()
+            .Where(m => m.OwnerId == userId && !m.IsArchived)
+            .OrderBy(m => m.DisplayOrder)
+                .ThenBy(m => m.Name)
+            .ToListAsync(cancellationToken);
+
+        if (members.Count == 0)
+        {
+            return new MemberIncomeResultDto();
+        }
+
+        var memberIds = members.Select(m => m.Id).ToList();
+
+        // Planned side: the same derivation the allocation engine uses.
+        var planned = await MemberIncome.ForMonthAsync(
+            _db, userId, request.Year, request.Month, memberIds, cancellationToken);
+
+        // Received side: income transactions dated in the month, attributed whole or by
+        // slice — a split counts by its slices only (it has no whole-tx attribution).
+        var from = new DateOnly(request.Year, request.Month, 1);
+        var to = from.AddMonths(1);
+        var incomes = await _db.Transactions
+            .AsNoTracking()
+            .Include(t => t.Splits)
+            .Where(t => t.OwnerId == userId && t.Type == TransactionType.Income
+                        && t.Date >= from && t.Date < to)
+            .ToListAsync(cancellationToken);
+
+        var memberIdSet = memberIds.ToHashSet();
+        var receivedByMember = new Dictionary<Guid, decimal>();
+        foreach (var t in incomes)
+        {
+            if (t.Splits.Count > 0)
+            {
+                foreach (var slice in t.Splits)
+                {
+                    if (slice.MemberId is Guid sliceMember && memberIdSet.Contains(sliceMember))
+                    {
+                        receivedByMember[sliceMember] = receivedByMember.GetValueOrDefault(sliceMember) + slice.Amount;
+                    }
+                }
+            }
+            else if (t.MemberId is Guid wholeMember && memberIdSet.Contains(wholeMember))
+            {
+                receivedByMember[wholeMember] = receivedByMember.GetValueOrDefault(wholeMember) + t.Amount;
+            }
+        }
+
+        return new MemberIncomeResultDto
+        {
+            IncomeFromBudget = planned.HasAttributedIncome,
+            UnattributedPlanned = planned.Unattributed,
+            Items = members
+                .Select(m => new MemberIncomeDto
+                {
+                    MemberId = m.Id,
+                    Name = m.Name,
+                    Planned = planned.ByMember.GetValueOrDefault(m.Id),
+                    Received = receivedByMember.GetValueOrDefault(m.Id),
+                })
+                .ToList(),
+        };
+    }
+}

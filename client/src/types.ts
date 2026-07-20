@@ -430,6 +430,27 @@ export interface AllocationResultDto {
   steps: AllocationStepDto[]
   members: MemberAllocationDto[]
   transfersCreated: number
+  /**
+   * True when the pool came from the month's budgeted income lines (attributed to
+   * people). Optional so existing fixtures stay valid; absent reads as false.
+   */
+  incomeFromBudget?: boolean
+  /** Budgeted income not attributed to any person, shared equally when incomeFromBudget. */
+  unattributedIncome?: number
+}
+
+/** Per-member income for a month, derived from the budget (GET /members/income/{y}/{m}). */
+export interface MemberIncomeResultDto {
+  incomeFromBudget: boolean
+  unattributedPlanned: number
+  items: MemberIncomeDto[]
+}
+
+export interface MemberIncomeDto {
+  memberId: string
+  name: string
+  planned: number
+  received: number
 }
 
 /** Toggles for the features beyond core zero-based budgeting (from GET /api/features). */
