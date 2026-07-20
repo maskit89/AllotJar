@@ -70,6 +70,22 @@ public class GoogleSignInValidatorTests
         (await validator.ValidateAsync("anything")).Should().BeNull();
     }
 
+    // REG-083 — the AUDIENCE PIN, the feature's core control: the validation settings MUST carry
+    // exactly our client id as the accepted `aud`. GoogleJsonWebSignature.ValidateAsync is a static
+    // call with no injectable seam, so this asserts the wiring directly — without it, dropping the
+    // pin (accepting tokens minted for ANY Google app) would leave the whole suite green.
+    [Fact]
+    public void Real_validator_pins_the_audience_to_the_configured_client_id()
+    {
+        const string clientId = "client-123.apps.googleusercontent.com";
+
+        var settings = GoogleIdTokenValidator.BuildValidationSettings(clientId);
+
+        settings.Audience.Should().NotBeNull();
+        settings.Audience.Should().ContainSingle().Which.Should().Be(clientId,
+            "an ID token minted for a DIFFERENT Google OAuth app must never sign its holder in");
+    }
+
     // Malformed tokens die in local JWT parsing (InvalidJwtException) — no network, no throw out.
     [Theory]
     [InlineData("")]

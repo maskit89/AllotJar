@@ -936,15 +936,15 @@ rejects anything else, INCLUDING a real Google token — production uses `Google
   - Same userId, `isNewAccount:false`. The app account's stored email is NOT rewritten from the token.
 - **Automated:** Full (GoogleSignInFlowTests — REG-074; journey returning-user spec)
 
-### REG-075 - A verified-email match auto-links to an existing password account
+### REG-075 - A verified-email match auto-links, and neutralizes the pre-existing password (pre-hijacking defence)
 - **Priority:** P1
 - **Type:** Security
 - **Steps:**
-  1. Register a password account for an email.
+  1. Register a password account for an email (registration never verifies the email).
   2. Sign in with Google using a verified credential for the SAME email.
-  3. Then sign in with the original password; check `/auth/me`.
+  3. Then try the original password; check `/auth/me`.
 - **Expected:**
-  - Google sign-in lands in the SAME account (same userId, `isNewAccount:false`) — no duplicate fork. The password still signs in and `hasPassword` stays true: one account, both methods.
+  - Google sign-in lands in the SAME account (same userId, `isNewAccount:false`) — no duplicate fork. **The old password no longer signs in (401) and `hasPassword` is now false.** Because the app never verified the email at registration, an attacker could have pre-registered the victim's address with a known password; the moment Google attests ownership, that pre-existing password is REMOVED and existing sessions revoked. The legitimate owner keeps Google sign-in and can re-add a password via **Forgot password** (which re-proves email control).
 - **Automated:** Full (GoogleSignInFlowTests — REG-075)
 
 ### REG-076 - An unverified Google email is rejected
@@ -1002,3 +1002,37 @@ rejects anything else, INCLUDING a real Google token — production uses `Google
 - **Expected:**
   - POSTs `/auth/google` with the credential AND the locale-detected currency/format; applies the session and navigates to `returnUrl ?? '/'`. Fires `sign_up {method:'google'}` when `isNewAccount`, else `login {method:'google'}`. A 401 surfaces the server's error string inline (no bounce, no spurious session-expired redirect) and fires `login_failed {method:'google'}`.
 - **Automated:** Full (client/src/pages/LoginPage.catalog.test.tsx — REG-081)
+
+
+### REG-082 - Google link ignores lockout and neutralizes a pre-existing password + sessions
+- **Priority:** P1
+- **Type:** Security
+- **Origin:** Adversarial review of the Google SSO PR — the verified-email auto-link left the pre-existing password and sessions intact (account pre-hijacking), and the lockout-exempt property was unpinned.
+- **Steps:**
+  1. Register a password account; capture its session token.
+  2. Trip the 5-strike lockout with wrong-password sign-ins; confirm the correct password is now refused as locked.
+  3. Sign in with Google using a verified credential for the SAME email.
+  4. Replay the pre-link session token; try the old password again.
+- **Expected:**
+  - Step 3 succeeds (200) despite the lockout — a valid Google token proves account control, so lockout (which throttles password *guessing*) is not honoured. Step 4: the pre-link token is 401 (sessions revoked by the stamp rotation) and the old password is 401 (removed). Password login is simply gone until re-added via forgot-password.
+- **Automated:** Full (tests/AllotJar.IntegrationTests/Http/GoogleSignInFlowTests.cs — REG-082)
+
+### REG-083 - The real validator pins the token audience to the configured client id
+- **Priority:** P1
+- **Type:** Security
+- **Origin:** Adversarial review — audience pinning is the feature's core control but `GoogleJsonWebSignature.ValidateAsync` is a static call with no seam, so a dropped pin would go unnoticed.
+- **Steps:**
+  1. Build the validator's `ValidationSettings` for a client id and inspect the accepted audience.
+- **Expected:**
+  - `Audience` contains exactly the configured client id — an ID token minted for any OTHER Google OAuth app is rejected. (The wiring is asserted directly via `GoogleIdTokenValidator.BuildValidationSettings`; the live signature/expiry/issuer checks are Google.Apis.Auth's, exercised only against the real Google keys in production.)
+- **Automated:** Full (tests/AllotJar.Application.Tests/Application/GoogleSignInValidatorTests.cs — REG-083)
+
+### REG-084 - The production CSP allows Google Identity Services and keeps its baseline hardening
+- **Priority:** P2
+- **Type:** Security
+- **Origin:** Adversarial review — the CSP is deploy infra (not compiled), so stripping the GIS allowances would silently break the button with no failing test.
+- **Steps:**
+  1. Parse `deploy/web/web.config`'s Content-Security-Policy header.
+- **Expected:**
+  - `script-src` includes `accounts.google.com/gsi/client`; `frame-src` and `connect-src` include `accounts.google.com/gsi/`; `style-src` includes `accounts.google.com/gsi/style`. Baseline intact: `default-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`, no `unsafe-eval`.
+- **Automated:** Full (tests/AllotJar.IntegrationTests/ContentSecurityPolicyTests.cs — REG-084)

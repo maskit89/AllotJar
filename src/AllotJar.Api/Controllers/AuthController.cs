@@ -208,10 +208,12 @@ public class AuthController : ControllerBase
                 {
                     // e.g. the account is already linked to a DIFFERENT Google identity.
                     _logger.LogWarning(
-                        "Google link to an existing account failed: {Errors}",
-                        string.Join("; ", link.Errors.Select(e => e.Description)));
+                        "Google link to an existing account failed: {Codes}",
+                        string.Join("; ", link.Errors.Select(e => e.Code)));
                     return Unauthorized(new { error = "Google sign-in could not be verified. Please try again." });
                 }
+
+                await NeutralizePreExistingCredentialAsync(existing, ct);
                 user = existing;
             }
             else
@@ -266,9 +268,11 @@ public class AuthController : ControllerBase
             var raced = await _userManager.FindByEmailAsync(identity.Email);
             if (raced is null)
             {
+                // Log error CODES, not descriptions — Identity descriptions embed the offending
+                // value (e.g. the email address), which must not reach the logs as PII.
                 _logger.LogError(
-                    "Creating a Google-sign-in account failed: {Errors}",
-                    string.Join("; ", createResult.Errors.Select(e => e.Description)));
+                    "Creating a Google-sign-in account failed: {Codes}",
+                    string.Join("; ", createResult.Errors.Select(e => e.Code)));
                 return (null, false);
             }
 
@@ -281,8 +285,8 @@ public class AuthController : ControllerBase
         if (!linkResult.Succeeded)
         {
             _logger.LogError(
-                "Linking the Google identity to a freshly created account failed: {Errors}",
-                string.Join("; ", linkResult.Errors.Select(e => e.Description)));
+                "Linking the Google identity to a freshly created account failed: {Codes}",
+                string.Join("; ", linkResult.Errors.Select(e => e.Code)));
         }
 
         // Owner membership + owner member #1 — a household is never "0 members". No sample budget.
@@ -290,6 +294,44 @@ public class AuthController : ControllerBase
             _db, user, DateTime.UtcNow, seedSampleBudget: false, ct);
 
         return (user, true);
+    }
+
+    /// <summary>
+    /// Closes the account **pre-hijacking** hole when Google links into a PRE-EXISTING account.
+    ///
+    /// AllotJar never verifies email ownership at registration (no confirmation email), so a
+    /// password account's <c>EmailConfirmed</c> is false and ANYONE could have registered a
+    /// victim's address with a password they know, waiting for the victim to arrive via Google.
+    /// The moment Google attests that address belongs to the person signing in NOW, any
+    /// pre-existing password on an UNVERIFIED-email account can no longer be trusted — so revoke
+    /// every existing session (refresh tokens + a security-stamp rotation kills issued access
+    /// tokens) and REMOVE the password. The legitimate owner keeps Google sign-in and can re-add a
+    /// password via forgot-password (which re-proves email control). An already-verified account
+    /// (only ever true for a prior Google link) keeps its password — nothing to distrust.
+    /// </summary>
+    private async Task NeutralizePreExistingCredentialAsync(ApplicationUser existing, CancellationToken ct)
+    {
+        // Google just proved the email; record that so a later link on the same account is trusted.
+        var alreadyVerified = existing.EmailConfirmed;
+        if (!alreadyVerified)
+        {
+            existing.EmailConfirmed = true;
+        }
+
+        if (!alreadyVerified && await _userManager.HasPasswordAsync(existing))
+        {
+            // The attacker's known password (if this was a pre-hijack) must stop working.
+            await _userManager.RemovePasswordAsync(existing);
+            _logger.LogInformation(
+                "Removed the pre-existing password on {UserId} while linking Google to a " +
+                "previously-unverified-email account (pre-hijacking defence).", existing.Id);
+        }
+
+        // Kill any session an attacker may already hold: refresh tokens + the stamp rotation that
+        // fails every issued access token. RemovePasswordAsync/UpdateSecurityStampAsync both rotate
+        // the stamp, but call it explicitly so the revoke holds even when no password was present.
+        await _refreshTokens.RevokeAllForUserAsync(existing.Id, ct);
+        await _userManager.UpdateSecurityStampAsync(existing);
     }
 
     /// <summary>Redeems a one-time invite link, creates the login and returns a JWT.</summary>

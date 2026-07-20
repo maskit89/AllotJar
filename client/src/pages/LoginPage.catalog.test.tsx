@@ -81,6 +81,7 @@ vi.mock('../lib/googleAuth', () => ({
 import { LoginPage } from './LoginPage'
 import { AuthProvider } from '../auth/AuthContext'
 import { track, EVENTS } from '../analytics'
+import { detectLocaleDefaults } from '../lib/money'
 
 function LocationProbe() {
   const loc = useLocation()
@@ -768,10 +769,14 @@ describe('LoginPage (REG catalog)', () => {
     await act(async () => googleState.callback!('google-credential-xyz'))
 
     await waitFor(() => expect(screen.getByText('HOME')).toBeInTheDocument())
+    // Pin the CONCRETE locale-detected values (not just "some string"): the server applies these
+    // as a new Google user's home currency, so forwarding the wrong field/a hardcoded value must
+    // fail here. jsdom's navigator.language is en-US → GBP/EUR-agnostic detectLocaleDefaults output.
+    const detected = detectLocaleDefaults()
     expect(mockPost).toHaveBeenCalledWith('/auth/google', {
       credential: 'google-credential-xyz',
-      preferredCurrency: expect.any(String),
-      numberFormat: expect.any(String),
+      preferredCurrency: detected.currency,
+      numberFormat: detected.numberFormat,
     })
     expect(track).toHaveBeenCalledWith(EVENTS.signUp, { method: 'google' })
 

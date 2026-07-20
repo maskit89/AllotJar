@@ -120,14 +120,73 @@ public class GoogleSignInFlowTests
             "a verified email match must land in the SAME account, not fork a duplicate");
         googleJson.RootElement.GetProperty("isNewAccount").GetBoolean().Should().BeFalse();
 
-        // Both methods now work: the password still signs in, and the account still HAS one.
-        var login = await client.PostAsJsonAsync("/api/auth/login",
+        // PRE-HIJACKING DEFENCE: registration never verified the email, so the pre-existing
+        // password (which an attacker could have set on the victim's address) must be neutralized
+        // the moment Google attests ownership. The old password no longer signs in...
+        var oldLogin = await client.PostAsJsonAsync("/api/auth/login",
             new { email, password }, HttpApiFixture.Json);
-        login.StatusCode.Should().Be(HttpStatusCode.OK);
+        oldLogin.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "the pre-existing (unverified-email) password must be removed on Google auto-link");
+
+        // ...and /auth/me reports the account as passwordless (owner can re-add via forgot-password).
         var token = googleJson.RootElement.GetProperty("token").GetString()!;
         var me = await HttpApiFixture.SendAsync(client, HttpMethod.Get, "/api/auth/me", token);
         (await HttpApiFixture.ReadJsonAsync(me)).RootElement
-            .GetProperty("hasPassword").GetBoolean().Should().BeTrue();
+            .GetProperty("hasPassword").GetBoolean().Should().BeFalse();
+    }
+
+    // REG-082 — pre-hijacking + lockout-exempt together: a locked-out password account (5 failed
+    // sign-ins) whose email a Google credential then verifies STILL signs in via Google (lockout
+    // throttles password guessing, not a proven token), and the same sign-in neutralizes the
+    // pre-existing password (revoked sessions + password removed).
+    [Fact]
+    public async Task Google_link_ignores_lockout_and_neutralizes_a_pre_existing_password()
+    {
+        using var client = _fixture.CreateClient();
+        var run = Guid.NewGuid().ToString("N")[..8];
+        var email = $"prehijack-{run}@httpsweep.test";
+        var password = $"Aa1x{Guid.NewGuid():N}";
+
+        var register = await client.PostAsJsonAsync("/api/auth/register", new
+        {
+            email,
+            password,
+            firstName = "Pre",
+            lastName = "Hijack",
+            preferredCurrency = "EUR",
+            numberFormat = (string?)null,
+            acceptedTerms = true,
+            includeSampleData = false,
+        }, HttpApiFixture.Json);
+        register.StatusCode.Should().Be(HttpStatusCode.OK);
+        var preLinkToken = (await HttpApiFixture.ReadJsonAsync(register))
+            .RootElement.GetProperty("token").GetString()!;
+
+        // Trip the 5-strike lockout on the password account.
+        for (var i = 0; i < 5; i++)
+        {
+            await client.PostAsJsonAsync("/api/auth/login",
+                new { email, password = $"Wrong{i}x{Guid.NewGuid():N}" }, HttpApiFixture.Json);
+        }
+        var lockedLogin = await client.PostAsJsonAsync("/api/auth/login",
+            new { email, password }, HttpApiFixture.Json);
+        lockedLogin.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await lockedLogin.Content.ReadAsStringAsync()).Should().Contain("locked");
+
+        // Google sign-in with the verified matching email STILL works despite the lockout.
+        var google = await PostGoogleAsync(client, Credential($"g-prehijack-{run}", email));
+        google.StatusCode.Should().Be(HttpStatusCode.OK, "a valid Google token bypasses password lockout");
+
+        // The pre-link session (an attacker's, in the attack) is revoked by the stamp rotation...
+        var stalePreLink = await HttpApiFixture.SendAsync(client, HttpMethod.Get, "/api/auth/me", preLinkToken);
+        stalePreLink.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "linking Google must revoke sessions held on the pre-existing account");
+
+        // ...and neither the old password (removed) NOR its lockout matters anymore — password
+        // login is simply gone until the owner re-adds one via forgot-password.
+        var oldLogin = await client.PostAsJsonAsync("/api/auth/login",
+            new { email, password }, HttpApiFixture.Json);
+        oldLogin.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     // REG-076 — an UNVERIFIED email must not link or create: without Google's attestation, anyone

@@ -32,11 +32,7 @@ public class GoogleIdTokenValidator : IGoogleIdTokenValidator
 
         try
         {
-            var payload = await GoogleJsonWebSignature.ValidateAsync(idToken,
-                new GoogleJsonWebSignature.ValidationSettings
-                {
-                    Audience = new[] { _settings.ClientId },
-                });
+            var payload = await GoogleJsonWebSignature.ValidateAsync(idToken, BuildValidationSettings(_settings.ClientId));
 
             if (string.IsNullOrWhiteSpace(payload.Subject) || string.IsNullOrWhiteSpace(payload.Email))
             {
@@ -68,4 +64,14 @@ public class GoogleIdTokenValidator : IGoogleIdTokenValidator
 
     private static string? NullIfBlank(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
+
+    /// <summary>
+    /// The Google validation settings, pinned so the ID token's `aud` MUST equal our OAuth client
+    /// id. This is the feature's core control: without it, an ID token minted for ANY Google app
+    /// would sign its holder into AllotJar. Exposed so a test can assert the audience is actually
+    /// wired from config — <see cref="GoogleJsonWebSignature.ValidateAsync(string, GoogleJsonWebSignature.ValidationSettings)"/>
+    /// is a static call with no injectable seam, so removing the pin would otherwise go unnoticed.
+    /// </summary>
+    public static GoogleJsonWebSignature.ValidationSettings BuildValidationSettings(string? clientId) =>
+        new() { Audience = new[] { clientId } };
 }
