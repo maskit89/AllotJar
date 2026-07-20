@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { CategoryVM } from '../budgetModel'
+import type { HouseholdMemberDto } from '../types'
 import { categoryActual, categoryPlanned } from '../budgetModel'
 import { formatMoney, type Minor } from '../lib/money'
 import { IncomeLineRow } from './IncomeLineRow'
@@ -14,6 +15,10 @@ interface Props {
   onCommitPlanned: (itemId: string, plannedMinor: Minor) => void
   onDeleteItem: (itemId: string) => void
   onAddItem: (categoryId: string, name: string) => void
+  /** Shared households only: attribute each income line to who earns it. */
+  members?: HouseholdMemberDto[]
+  showMemberPicker?: boolean
+  onSetItemMember?: (itemId: string, memberId: string | null) => void
 }
 
 /**
@@ -30,6 +35,9 @@ export function IncomeGroup({
   onCommitPlanned,
   onDeleteItem,
   onAddItem,
+  members,
+  showMemberPicker,
+  onSetItemMember,
 }: Props) {
   const { canWrite } = useAuth()
   const [newName, setNewName] = useState('')
@@ -57,6 +65,9 @@ export function IncomeGroup({
           item={item}
           currency={currency}
           saving={savingItemId === item.id}
+          members={members}
+          showMemberPicker={showMemberPicker}
+          onSetMember={onSetItemMember}
           onRename={onRenameItem}
           onCommitPlanned={onCommitPlanned}
           onDelete={onDeleteItem}

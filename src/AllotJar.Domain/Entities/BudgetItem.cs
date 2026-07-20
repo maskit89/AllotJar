@@ -59,6 +59,13 @@ public class BudgetItem : BaseEntity
     /// <summary>True when this line is tracked as a bill (it has a due day).</summary>
     public bool IsBill => DueDay is not null;
 
+    /// <summary>
+    /// The household member this INCOME line belongs to (who earns it) — the budget-side
+    /// half of per-person income. Null = whole-household / unattributed; always null on
+    /// expense/savings lines (write paths enforce it). Carried when a month is copied.
+    /// </summary>
+    public Guid? MemberId { get; set; }
+
     public int DisplayOrder { get; set; }
 
     public ICollection<Transaction> Transactions { get; set; } = new List<Transaction>();

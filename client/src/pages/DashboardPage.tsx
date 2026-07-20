@@ -24,6 +24,7 @@ import {
   totalIncome,
   withCategoryName,
   withItemBill,
+  withItemMember,
   withItemName,
   withItemPaid,
   withItemPlanned,
@@ -45,6 +46,7 @@ import { CategoryAccordion } from '../components/CategoryAccordion'
 import { SavingsGroup } from '../components/SavingsGroup'
 import { IncomeGroup } from '../components/IncomeGroup'
 import { useMonth } from '../features/MonthContext'
+import { useHousehold } from '../features/HouseholdContext'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -54,6 +56,8 @@ const MONTH_NAMES = [
 export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // Building/editing the budget (groups, lines, months) needs Admin+ (canWrite).
   const { canWrite } = useAuth()
+  // Who earns each income line — shown only once the household is shared.
+  const { isShared, members: householdMembers } = useHousehold()
   // The viewed month comes from the app-wide top bar (MonthContext).
   const { year, month: monthNum } = useMonth()
   const [month, setMonth] = useState<MonthVM | null>(null)
@@ -208,6 +212,28 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     [month],
   )
 
+  // Attribute an income line to the household member who earns it (or clear with null).
+  const setItemMember = useCallback(
+    async (itemId: string, memberId: string | null) => {
+      if (!month) return
+
+      const snapshot = month
+      setError(null)
+      setSavingItemId(itemId)
+      setMonth(withItemMember(month, itemId, memberId)) // optimistic
+
+      try {
+        await api.put(`/budget/items/${itemId}/member`, { memberId })
+      } catch {
+        setMonth(snapshot)
+        setError('Could not update who earns that income — reverted.')
+      } finally {
+        setSavingItemId(null)
+      }
+    },
+    [month],
+  )
+
   // Mark a line as a bill due on a day of the month (or clear it with null).
   const setBill = useCallback(
     async (itemId: string, dueDay: number | null) => {
@@ -296,6 +322,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           displayOrder: Number.MAX_SAFE_INTEGER,
           plannedMinor: 0,
           actualMinor: 0,
+          memberId: null,
           savingsAvailableMinor: null,
           dueDay: null,
           isPaid: false,
@@ -689,6 +716,9 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                   category={category}
                   currency={month.currency}
                   savingItemId={savingItemId}
+                  members={householdMembers}
+                  showMemberPicker={isShared}
+                  onSetItemMember={setItemMember}
                   onRenameItem={renameItem}
                   onCommitPlanned={commitItem}
                   onDeleteItem={deleteItem}

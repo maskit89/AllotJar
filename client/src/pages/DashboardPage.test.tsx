@@ -22,6 +22,16 @@ vi.mock('../lib/api', async (importOriginal) => ({
   setToken: vi.fn(),
 }))
 
+// The household shape drives the income member picker; default = solo (hidden),
+// individual tests flip `household.current` to a shared fixture.
+const household = vi.hoisted(() => ({
+  current: { members: [] as unknown[], isShared: false, loading: false, refreshHousehold: async () => {} },
+}))
+vi.mock('../features/HouseholdContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../features/HouseholdContext')>()),
+  useHousehold: () => household.current,
+}))
+
 import { DashboardPage } from './DashboardPage'
 import { AuthProvider } from '../auth/AuthContext'
 import { MonthProvider } from '../features/MonthContext'
@@ -102,6 +112,7 @@ describe('DashboardPage optimistic editing', () => {
     mockPut.mockReset()
     mockPost.mockReset()
     mockDelete.mockReset()
+    household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
   })
 
   it('prompts for income on an empty month instead of celebrating it as balanced', { timeout: 15000 }, async () => {
@@ -493,6 +504,7 @@ describe('DashboardPage month navigation', () => {
     mockPut.mockReset()
     mockPost.mockReset()
     mockDelete.mockReset()
+    household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
   })
 
   it('offers to copy the previous month when navigating to an empty month', { timeout: 15000 }, async () => {
@@ -567,5 +579,55 @@ describe('DashboardPage month navigation', () => {
         templateKey: 'essentials',
       }),
     )
+  })
+
+  function sharedHousehold() {
+    return {
+      members: [
+        { id: 'mem-chris', name: 'Chris', netMonthlyIncome: 3000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 0.6 },
+        { id: 'mem-robin', name: 'Robin', netMonthlyIncome: 2000, personalSavingsAccountId: null, displayOrder: 1, isArchived: false, incomeSharePct: 0.4 },
+      ],
+      isShared: true,
+      loading: false,
+      refreshHousehold: async () => {},
+    }
+  }
+
+  it('hides the income member picker for solo households', { timeout: 15000 }, async () => {
+    mockGet.mockImplementation((url: string) =>
+      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: budget() }),
+    )
+
+    renderPage()
+
+    await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })
+    expect(screen.queryByLabelText('Who earns Take-home Pay')).not.toBeInTheDocument()
+  })
+
+  it('attributes an income line to a person and rolls back on failure', { timeout: 15000 }, async () => {
+    household.current = sharedHousehold()
+    mockGet.mockImplementation((url: string) =>
+      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: budget() }),
+    )
+    mockPut.mockResolvedValue({ data: budget() })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    // Shared household: every income line offers the picker; expense lines never do.
+    const picker = await screen.findByLabelText('Who earns Take-home Pay', {}, { timeout: 5000 })
+    expect(screen.queryByLabelText('Who earns Rent')).not.toBeInTheDocument()
+
+    await user.selectOptions(picker, 'mem-chris')
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith('/budget/items/i-pay/member', { memberId: 'mem-chris' }),
+    )
+
+    // A failing PUT reverts the optimistic pick (back to the last saved value) and
+    // surfaces the error.
+    mockPut.mockRejectedValue(new Error('network'))
+    await user.selectOptions(screen.getByLabelText('Who earns Take-home Pay'), 'mem-robin')
+    expect(await screen.findByText(/Could not update who earns that income — reverted\./, {}, { timeout: 5000 })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('Who earns Take-home Pay')).toHaveValue('mem-chris'))
   })
 })

@@ -70,6 +70,15 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         // not be treated as "archived".
         var archivedJarIds = allJars.Where(f => f.IsArchived).Select(f => f.Id).ToHashSet();
 
+        // Income attribution rolls forward, but not to archived people — their lines copy
+        // as whole-household (null) rather than crediting someone who left.
+        var archivedMemberIds = (await _db.HouseholdMembers
+                .AsNoTracking()
+                .Where(m => m.OwnerId == userId && m.IsArchived)
+                .Select(m => m.Id)
+                .ToListAsync(cancellationToken))
+            .ToHashSet();
+
         // One eligibility rule for accrual seeding, shared by the copy path and the
         // appended-lines step below.
         static bool IsSeedable(Jar f) => f.TargetAmount > 0m && f.Accrual != AccrualMethod.ProportionalPool;
@@ -174,6 +183,11 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                             SavingsId = i.SavingsId,
                             // Bills recur, so the due day carries; paid resets (new month).
                             DueDay = i.DueDay,
+                            // Who earns an income line carries too — losing it here would
+                            // silently revert the engine to static incomes every rollover.
+                            MemberId = i.MemberId is { } mid && archivedMemberIds.Contains(mid)
+                                ? null
+                                : i.MemberId,
                         })
                         .ToList(),
                 })

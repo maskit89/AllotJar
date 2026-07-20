@@ -859,3 +859,22 @@
   1. As the Admin, perform one of each: planned edit, rename line, add line, add group, set bill, toggle paid, delete line, reorder groups, create a missing month.
 - **Expected:** Every action succeeds identically to the Owner (canWrite = role ≤ Admin; no owner-only commands exist in this subsystem); no access banner is shown.
 - **Automated:** No (RoleGating.test.tsx exercises roles 0/2/3 but not Admin=1)
+
+### DASH-071 - Income lines carry a "Who earns this" picker in shared households
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Shared household (2+ active members), Admin+; a month with income lines.
+- **Steps:**
+  1. Read an income line in the Income card; open its "Who earns {line}" select.
+  2. Pick a person; then pick "Whole household".
+- **Expected:** The quiet select under the line name (aria-label `Who earns {name}`) lists "Whole household" + every active member. Picking one optimistically updates and `PUT /budget/items/{id}/member` persists `BudgetItem.MemberId` (FK → HouseholdMembers, SetNull); "Whole household" clears with `memberId: null`. A failed PUT rolls back to the last saved value with "Could not update who earns that income — reverted." Solo households and expense/savings lines never show the picker (the server also rejects non-income targets with "Only income lines can be assigned to a person.", and foreign/archived members 404). Read-only/Limited users see a static name instead. Add-a-line can attribute at creation (`AddBudgetItemRequest.MemberId`). This attribution is the budget-side half of per-person income — the allocation engine consumes it in the switchover PR.
+- **Automated:** Full (client `DashboardPage.test.tsx` picker cases; backend `BudgetItemMemberTests`; real-SQL `BudgetItemMemberForeignKeyTests`)
+
+### DASH-072 - Month copy rolls income attribution forward, dropping archived people
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** A month with attributed income lines; one attributed member archived since.
+- **Steps:**
+  1. Create the next month with "copy from previous".
+- **Expected:** Every income line's `MemberId` carries into the new month EXCEPT lines attributed to an archived member, which copy as whole-household (null) — never crediting someone who left. The one-time `AddBudgetItemMember` migration also backfills history conservatively: an income line is attributed only when exactly ONE active member's name prefixes the line name (the importer's "{Member} — Salary" shape); solo "Take-home Pay" and ambiguous prefixes stay null.
+- **Automated:** Full (backend `BudgetItemMemberTests.MonthCopy_CarriesAttribution_ButDropsArchivedMembers`; the migration applies in the real-SQL fixture)

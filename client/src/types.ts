@@ -16,6 +16,12 @@ export interface BudgetItemDto {
   dueDay: number | null
   /** Whether this month's instance of the bill has been paid. */
   isPaid: boolean
+  /**
+   * The household member this income line is attributed to (who earns it); null =
+   * whole-household. Always null on expense/savings lines. Optional so existing
+   * fixtures stay valid; absent reads as null.
+   */
+  memberId?: string | null
 }
 
 export interface BudgetCategoryDto {

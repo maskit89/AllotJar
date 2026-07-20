@@ -10,6 +10,7 @@ using AllotJar.Application.Budgets.Commands.RenameBudgetCategory;
 using AllotJar.Application.Budgets.Commands.ReorderBudgetCategories;
 using AllotJar.Application.Budgets.Commands.ReorderBudgetItems;
 using AllotJar.Application.Budgets.Commands.SetBudgetItemBill;
+using AllotJar.Application.Budgets.Commands.SetBudgetItemMember;
 using AllotJar.Application.Budgets.Commands.SetBudgetItemPaid;
 using AllotJar.Application.Budgets.Commands.UpdateBudgetItem;
 using AllotJar.Application.Budgets.Dtos;
@@ -198,7 +199,25 @@ public class BudgetController : ControllerBase
         CancellationToken ct)
     {
         var result = await _mediator.Send(
-            new AddBudgetItemCommand(categoryId, request.Name, request.PlannedAmount), ct);
+            new AddBudgetItemCommand(categoryId, request.Name, request.PlannedAmount, request.MemberId), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Attributes an income line to the household member who earns it (null clears back to
+    /// whole-household). Income lines only. Returns the recomputed month.
+    /// </summary>
+    [HttpPut("items/{id:guid}/member")]
+    [ProducesResponseType(typeof(BudgetMonthDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<BudgetMonthDto>> SetItemMember(
+        Guid id,
+        SetBudgetItemMemberRequest request,
+        CancellationToken ct)
+    {
+        var result = await _mediator.Send(new SetBudgetItemMemberCommand(id, request.MemberId), ct);
         return Ok(result);
     }
 
@@ -253,10 +272,13 @@ public record CreateBudgetMonthRequest(int Year, int Month, bool CopyFromPreviou
 public record UpdateBudgetItemRequest(decimal PlannedAmount, string? Name = null);
 
 /// <summary>Request body for adding a budget line (the category id comes from the route).</summary>
-public record AddBudgetItemRequest(string Name, decimal PlannedAmount = 0m);
+public record AddBudgetItemRequest(string Name, decimal PlannedAmount = 0m, Guid? MemberId = null);
 
 /// <summary>Request body for setting/clearing a line's bill due day (null clears the bill).</summary>
 public record SetBudgetItemBillRequest(int? DueDay);
+
+/// <summary>Request body for attributing an income line to a member (null clears).</summary>
+public record SetBudgetItemMemberRequest(Guid? MemberId);
 
 /// <summary>Request body for marking a bill paid/unpaid (the id comes from the route).</summary>
 public record SetBudgetItemPaidRequest(bool IsPaid);
