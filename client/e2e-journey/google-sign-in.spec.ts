@@ -52,7 +52,9 @@ test('a first Google sign-in creates a passwordless account and must accept term
   await page.goto('/account')
   await expect(page.getByRole('heading', { name: 'Password', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Change password' })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: 'Forgot password' })).toBeVisible()
+  // A passwordless Google login now also shows a "Connected accounts" card whose disabled-Disconnect
+  // hint links to Forgot password too, so there are two such links — assert at least one.
+  await expect(page.getByRole('link', { name: 'Forgot password' }).first()).toBeVisible()
 })
 
 test('a returning Google user keys on the sub and skips consent the second time', async ({ page }) => {

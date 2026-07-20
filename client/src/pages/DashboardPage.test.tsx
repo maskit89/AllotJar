@@ -179,6 +179,34 @@ describe('DashboardPage optimistic editing', () => {
     )
   })
 
+  it('typing into the planned editor replaces the selected value — no leading-zero amounts', { timeout: 15000 }, async () => {
+    mockGet.mockImplementation((url: string) =>
+      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: budget() }),
+    )
+    mockPut.mockResolvedValue({ data: budget() })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    // Open the editor; it mounts autofocused with the current value selected.
+    await user.click(await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 }))
+    const input = (await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })) as HTMLInputElement
+    await waitFor(() => expect(input).toHaveFocus(), { timeout: 5000 })
+    expect(input.selectionStart).toBe(0)
+    expect(input.selectionEnd).toBe(input.value.length)
+
+    // Type WITHOUT clearing — the focus-time selection makes "50" replace "1100"
+    // instead of appending into "110050".
+    await user.keyboard('50')
+    expect(input).toHaveValue('50')
+    await user.tab()
+
+    await waitFor(
+      () => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent', { plannedAmount: 50 }),
+      { timeout: 5000 },
+    )
+  })
+
   it('adds an income source and reconciles from the server response', { timeout: 15000 }, async () => {
     mockGet.mockImplementation((url: string) =>
       url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: budget() }),

@@ -689,7 +689,8 @@
   1. Inspect subject, text body and HTML body.
 - **Expected:**
   - Subject mentions the password reset; the SAME `/reset-password?email=…&token=…` link appears raw in the text body and HTML-encoded in the HTML body (button + copyable fallback); the 2-hour validity and the "if you didn't request this, ignore" note are present. No external images/trackers.
-- **Automated:** Full (AuthPasswordResetCoverageTests — REG-054)
+  - Branded layout (`EmailLayout`): AllotJar text wordmark + gold lid bar on a card, hidden preheader, and a footer stating why the recipient got the email — still with zero external requests (the reset link remains the only URL; the footer domain is schemeless; HTML5 doctype, no xmlns, no `<link>`/`@import`/`url(`/webfonts). The text body keeps the reset link as the single http-starting line (the link-extraction contract for integration + journey suites) and gains a schemeless "Why did I get this?" line.
+- **Automated:** Full (AuthPasswordResetCoverageTests — REG-054 + branding sibling; EmailLayoutTests pin the shared chrome)
 
 ### REG-055 - The Resend adapter posts the provider shape; a rejection throws (and is logged)
 - **Priority:** P3

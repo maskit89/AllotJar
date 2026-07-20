@@ -10,10 +10,12 @@ import { useAuth } from '../auth/AuthContext'
 import { useHousehold } from '../features/HouseholdContext'
 import { api } from '../lib/api'
 import { bucketCount, EVENTS, track } from '../analytics'
-import type { AccountDto, AllocationProfileDto, AllocationResultDto, BudgetMonthDto } from '../types'
-import { AllocationRuleType, SplitMethod } from '../types'
+import type { AccountDto, AllocationProfileDto, AllocationResultDto, BudgetMonthDto, MemberAllocationDto } from '../types'
+import { AccountType, AllocationRuleType, SplitMethod } from '../types'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount, toEditString } from '../lib/money'
 import { categoryPlanned, fromDto, remainingToBudget, totalIncome, type MonthVM } from '../budgetModel'
+import { accountOptionLabel, formatNames, savingsFirst } from '../lib/accountOptions'
+import { selectOnFocusProps } from '../lib/selectOnFocus'
 
 interface RuleSpec {
   order: number
@@ -59,6 +61,9 @@ export function AllocationPage() {
   // The viewed month's budget (integer-minor VM) — the other half of the reconciliation.
   const [monthVM, setMonthVM] = useState<MonthVM | null>(null)
   const [syncedMsg, setSyncedMsg] = useState<string | null>(null)
+  // Inline savings-link (member card) + the allocate-with-stranded-shares confirm.
+  const [linkingId, setLinkingId] = useState<string | null>(null)
+  const [showCommitConfirm, setShowCommitConfirm] = useState(false)
 
   // Setup/edit form (in a modal).
   const [showSettings, setShowSettings] = useState(false)
@@ -173,6 +178,33 @@ export function AllocationPage() {
     }
   }, [period, loadPreview])
 
+  // Link a savings account to a member straight from the warning on their card. Full-echo
+  // PUT: name + income come from the preview DTO, so a concurrent People-page income edit in
+  // the window between preview load and this PUT is overwritten (last write wins) — a narrow,
+  // accepted race for a link action.
+  const linkSavings = useCallback(
+    async (m: MemberAllocationDto, accountId: string) => {
+      if (!accountId) return
+      setLinkingId(m.memberId)
+      setError(null)
+      try {
+        await api.put(`/members/${m.memberId}`, {
+          name: m.name,
+          netMonthlyIncome: m.netIncome,
+          personalSavingsAccountId: accountId,
+        })
+        // The balance-tilt figures change once the link lands; a prior banner is stale.
+        setCommitted(null)
+        await loadPreview(period.year, period.month)
+      } catch {
+        setError(`Could not link a savings account for ${m.name}.`)
+      } finally {
+        setLinkingId(null)
+      }
+    },
+    [period, loadPreview],
+  )
+
   const commit = useCallback(async () => {
     setBusy(true)
     setError(null)
@@ -233,11 +265,32 @@ export function AllocationPage() {
   // What will actually transfer on commit vs. what's stranded because a member has no savings
   // account (a positive share with nowhere to go stays in the source account).
   const members = preview?.members ?? []
-  const strandedMinor = fromAmount(
-    members.filter((m) => !m.savingsAccountId && m.residual > 0).reduce((sum, m) => sum + m.residual, 0),
-  )
+  const strandedMembers = members.filter((m) => !m.savingsAccountId && m.residual > 0)
+  const strandedMinor = fromAmount(strandedMembers.reduce((sum, m) => sum + m.residual, 0))
+  const strandedNames = formatNames(strandedMembers.map((m) => m.name))
+  const strandedHasHave = strandedMembers.length === 1 ? 'has' : 'have'
   const nothingToSave = !!preview && toSavingsMinor <= 0
   const hasSource = !!profile?.sourceAccountId
+  const sourceAccountName = accounts.find((a) => a.id === profile?.sourceAccountId)?.name
+
+  // The inline link picker's offerings: savings accounts first, and a one-click suggestion
+  // when exactly ONE unlinked savings account's name contains the member's (offer-only —
+  // nothing is ever linked without a click).
+  const accountsForLinking = useMemo(() => savingsFirst(accounts), [accounts])
+  const savingsAccounts = useMemo(() => accounts.filter((a) => a.type === AccountType.Savings), [accounts])
+  const linkedAccountIds = useMemo(
+    () => new Set(members.map((m) => m.savingsAccountId).filter(Boolean)),
+    [members],
+  )
+  const suggestionFor = useCallback(
+    (m: MemberAllocationDto): AccountDto | null => {
+      const candidates = savingsAccounts.filter(
+        (a) => !linkedAccountIds.has(a.id) && a.name.toLowerCase().includes(m.name.toLowerCase()),
+      )
+      return candidates.length === 1 ? candidates[0] : null
+    },
+    [savingsAccounts, linkedAccountIds],
+  )
 
   // --- Budget ↔ engine reconciliation (issue: pocket money promised by the engine but
   // absent from the budget makes "zero" impossible on one side or the other) -------------
@@ -339,7 +392,11 @@ export function AllocationPage() {
                 </Button>
               )}
               {canEnterData && (
-                <Button onClick={commit} disabled={busy || !hasSource} aria-label="Commit allocation">
+                <Button
+                  onClick={() => (strandedMinor > 0 ? setShowCommitConfirm(true) : commit())}
+                  disabled={busy || !hasSource}
+                  aria-label="Commit allocation"
+                >
                   Allocate {monthName}
                 </Button>
               )}
@@ -395,6 +452,8 @@ export function AllocationPage() {
                   ? `Allocated ${monthName} — nothing was transferred because shared spending overshoots the pooled income.`
                   : `Allocated ${monthName} — no savings transfers were needed this month.`
                 : `Allocated ${monthName} — ${committed} savings transfer${committed === 1 ? '' : 's'} created. Re-running Allocate replaces them, never doubles up.`}
+              {strandedMinor > 0 &&
+                ` ${formatMoney(strandedMinor, CURRENCY)} stayed in ${sourceAccountName ?? 'the source account'} for ${strandedNames} (no savings account linked).`}
             </div>
           )}
 
@@ -447,14 +506,17 @@ export function AllocationPage() {
           )}
           {strandedMinor > 0 && (
             <p className="mt-4 text-sm text-amber-700 dark:text-amber-400">
-              {formatMoney(strandedMinor, CURRENCY)} has nowhere to go — a member has no savings account, so
-              that share stays in the source account instead of transferring.
+              {formatMoney(strandedMinor, CURRENCY)} won’t be transferred — {strandedNames} {strandedHasHave} no
+              savings account linked (see below).
             </p>
           )}
 
           {/* Each person's surplus → their savings. */}
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            {preview.members.map((m) => (
+            {preview.members.map((m) => {
+              const suggestion = suggestionFor(m)
+              const linking = linkingId === m.memberId
+              return (
               <div key={m.memberId} className="rounded-xl border border-slate-200/70 p-4">
                 <p className="text-sm font-semibold text-slate-800">{m.name}</p>
                 <p className="mt-0.5 text-xs text-slate-500">
@@ -471,14 +533,81 @@ export function AllocationPage() {
                   Projected balance {formatMoney(fromAmount(m.savingsBalance + m.residual), CURRENCY)}
                 </p>
                 {!m.savingsAccountId && (
-                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-                    No savings account set — won’t transfer on commit.
-                  </p>
+                  <div className="mt-2 space-y-1.5">
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      {canWrite
+                        ? `No savings account linked — ${m.name}’s share stays in ${sourceAccountName ?? 'the source account'} when you allocate.`
+                        : `No savings account linked — ${m.name}’s share will stay in the source account. Ask an admin to link one on the People page.`}
+                    </p>
+                    {canWrite && savingsAccounts.length === 0 && (
+                      <button
+                        type="button"
+                        onClick={() => navigate('/accounts')}
+                        className="text-xs font-semibold text-brand-700 hover:underline dark:text-brand-200"
+                      >
+                        Create a savings account
+                      </button>
+                    )}
+                    {canWrite && savingsAccounts.length > 0 && (
+                      <>
+                        {suggestion && (
+                          <button
+                            type="button"
+                            onClick={() => linkSavings(m, suggestion.id)}
+                            disabled={linking}
+                            className="rounded-full border border-brand-300 bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 disabled:opacity-50 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-200"
+                          >
+                            Use “{suggestion.name}”
+                          </button>
+                        )}
+                        <Select
+                          value=""
+                          aria-label={`Savings account for ${m.name}`}
+                          disabled={linking}
+                          onChange={(e) => linkSavings(m, e.target.value)}
+                          className="w-full text-xs"
+                        >
+                          <option value="">Link a savings account…</option>
+                          {accountsForLinking.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {accountOptionLabel(a)}
+                            </option>
+                          ))}
+                        </Select>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
-            ))}
+              )
+            })}
           </div>
         </Card>
+      )}
+
+      {/* Allocating while someone's share has nowhere to go: explicit confirm, never a silent skip. */}
+      {showCommitConfirm && (
+        <Modal title={`Allocate without ${strandedNames}?`} onClose={() => setShowCommitConfirm(false)}>
+          <p className="text-sm text-slate-600">
+            {formatMoney(strandedMinor, CURRENCY)} will stay in {sourceAccountName ?? 'the source account'}{' '}
+            because {strandedNames} {strandedHasHave} no savings account linked. You can link one on the
+            person’s card and re-run — re-running Allocate replaces the transfers, never doubles up.
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setShowCommitConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setShowCommitConfirm(false)
+                commit()
+              }}
+              aria-label="Allocate anyway"
+            >
+              Allocate anyway
+            </Button>
+          </div>
+        </Modal>
       )}
 
       {/* Allocation settings — a modal (mounted only while open so the focus trap engages). */}
@@ -520,6 +649,7 @@ export function AllocationPage() {
               <Input
                 type="text"
                 inputMode="decimal"
+                {...selectOnFocusProps}
                 value={pocket}
                 placeholder="0.00"
                 aria-label="Pocket money per member"
@@ -577,6 +707,7 @@ export function AllocationPage() {
                 <Input
                   type="text"
                   inputMode="numeric"
+                  {...selectOnFocusProps}
                   value={lean}
                   placeholder="25"
                   aria-label="Balance lean percent"

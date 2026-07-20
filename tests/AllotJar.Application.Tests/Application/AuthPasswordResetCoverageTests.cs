@@ -201,6 +201,39 @@ public class AuthPasswordResetCoverageTests
             "the reset link is the ONLY external URL — no tracking pixels, CDN assets or unsubscribe hosts");
     }
 
+    // REG-054 (branding) — the branded layout keeps the security posture: wordmark, hidden
+    // preheader and the why-you-got-this footer render with zero external requests, and the text
+    // body keeps the reset link as the single http-starting line the link-extraction contracts
+    // (integration ParseResetLink, journey waitForResetLink) depend on.
+    [Fact]
+    public void Reset_email_branding_adds_no_external_urls_and_keeps_the_text_link_contract()
+    {
+        const string link = "https://www.allotjar.com/reset-password?email=a%40b.com&token=x%2By";
+
+        var message = PasswordResetEmail.Build("a@b.com", link);
+
+        // Branded chrome present: wordmark halves, preheader, footer reason naming the recipient.
+        message.HtmlBody.Should().Contain("Allot").And.Contain(">Jar<");
+        message.HtmlBody.Should().Contain("Choose a new password for your AllotJar account");
+        message.HtmlBody.Should().Contain("because a password reset was requested");
+        message.HtmlBody.Should().Contain("a@b.com");
+
+        // The tracker tripwire, hardened: no stylesheets/imports/background-image vectors either.
+        message.HtmlBody.Should().NotContain("<link");
+        message.HtmlBody.Should().NotContain("@import");
+        message.HtmlBody.Should().NotContain("url(");
+        message.HtmlBody.Should().NotContain("xmlns");
+
+        // The text body carries the "why" line schemeless, and the reset link stays the ONE line
+        // that starts with http and contains /reset-password? — the extraction contract.
+        message.TextBody.Should().Contain("Why did I get this?");
+        var httpLines = message.TextBody.Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.StartsWith("http") && l.Contains("/reset-password?"))
+            .ToList();
+        httpLines.Should().ContainSingle().Which.Should().Be(link);
+    }
+
     // The dev-mailbox capture the journey e2e suite depends on: per-recipient, most recent first,
     // bounded so a long-lived dev server can't grow without limit.
     [Fact]

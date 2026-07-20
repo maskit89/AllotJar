@@ -516,6 +516,8 @@ export interface MeResponse {
   needsConsent?: boolean
   /** False for Google-created accounts with no password — the account page adapts change-password. */
   hasPassword?: boolean
+  /** True when a Google identity is linked — the account page shows Disconnect. */
+  hasGoogle?: boolean
 }
 
 /** The login's current name + money-display preferences (GET via /auth/me, PUT /auth/preferences). */

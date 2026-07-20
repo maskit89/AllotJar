@@ -20,6 +20,7 @@ import type {
 import { TransactionType } from '../types'
 import { buildItemOptions, type ItemOptionGroup } from '../lib/transactions'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount } from '../lib/money'
+import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { formatDate } from '../lib/dates'
 
 type Format = 'generic' | 'hsbc' | 'camt'
@@ -1071,6 +1072,7 @@ export function ImportPage() {
                                       <Input
                                         type="text"
                                         inputMode="decimal"
+                                        {...selectOnFocusProps}
                                         placeholder="0,00"
                                         aria-label={`Split line ${li + 1} amount for ${r.payee}`}
                                         value={line.amount}
