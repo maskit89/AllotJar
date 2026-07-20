@@ -513,4 +513,32 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     expect(lightBtn).toHaveAttribute('aria-pressed', 'true')
     expect(localStorage.getItem('zbb.theme')).toBe('light')
   })
+
+  // PREF-011 — a Google-created (passwordless) login sees no change-password form; instead an
+  // "add a password via Forgot password" note. A password login keeps the form.
+  it('PREF-011: a passwordless login gets an add-password note, not a change-password form', async () => {
+    meData = { ...ownerMe, hasPassword: false } as typeof ownerMe
+
+    renderPage()
+
+    // The card retitles and the form is gone.
+    expect(await screen.findByRole('heading', { name: 'Password' }, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Change password' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Current password')).not.toBeInTheDocument()
+
+    // The way to ADD a password is the (passwordless-safe) forgot-password flow.
+    const link = screen.getByRole('link', { name: 'Forgot password' })
+    expect(link).toHaveAttribute('href', '/forgot-password')
+    expect(screen.getByText(/sign in with Google/i)).toBeInTheDocument()
+  })
+
+  // PREF-011 — the ordinary password login is unchanged: the change-password form is present.
+  it('PREF-011: a password login keeps the change-password form', async () => {
+    meData = { ...ownerMe, hasPassword: true } as typeof ownerMe
+
+    renderPage()
+
+    expect(await screen.findByRole('heading', { name: 'Change password' }, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByLabelText('Current password')).toBeInTheDocument()
+  })
 })

@@ -508,6 +508,8 @@ export interface MeResponse {
   households?: HouseholdSummary[]
   /** True for invite-created logins that haven't accepted the terms yet (blocking consent prompt). */
   needsConsent?: boolean
+  /** False for Google-created accounts with no password — the account page adapts change-password. */
+  hasPassword?: boolean
 }
 
 /** The login's current name + money-display preferences (GET via /auth/me, PUT /auth/preferences). */
@@ -527,4 +529,6 @@ export interface AuthResponse {
   /** Numeric HouseholdRole. */
   role: number
   displayName: string | null
+  /** Google sign-in only: true when this call CREATED the account (drives sign_up vs login analytics). */
+  isNewAccount?: boolean | null
 }

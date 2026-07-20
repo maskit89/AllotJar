@@ -503,3 +503,15 @@
   - The document is dark from the first frame — no white flash before React mounts (`theme-init.js` stamps the `dark` class pre-paint: stored "dark", or no stored value + OS dark).
   - No CSP errors in the console; `theme-init.js` returns 200.
 - **Automated:** No
+
+
+### PREF-011 - A passwordless (Google) login gets an add-a-password note, not a change-password form
+- **Priority:** P2
+- **Type:** UX
+- **Preconditions:** A login created via Google sign-in (`/auth/me` returns `hasPassword:false`).
+- **Steps:**
+  1. Open `/account` as a Google-only login, then as an ordinary password login.
+- **Expected:**
+  - Google-only: the card is titled "Password" (not "Change password"), has NO current/new/confirm fields, and explains that the account signs in with Google — with a "Forgot password" link to `/forgot-password` to ADD a password (reset works for passwordless accounts; Google sign-in keeps working either way).
+  - Password login: unchanged — the "Change password" form with the current-password field is present.
+- **Automated:** Full (client/src/pages/AccountPage.catalog.test.tsx — PREF-011)

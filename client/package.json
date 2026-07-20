@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:quiet": "vitest run --reporter=dot --silent",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:journey": "playwright test --config playwright.journey.config.ts"
