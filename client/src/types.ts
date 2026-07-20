@@ -31,6 +31,12 @@ export interface BudgetCategoryDto {
   displayOrder: number
   totalPlanned: number
   totalActual: number
+  /**
+   * True for allocation-OUTPUT categories (pocket money, personal savings): counted in the
+   * budget's planned total but excluded from the allocation engine's shared-cost envelopes.
+   * Optional so existing fixtures stay valid; absent reads as false.
+   */
+  excludeFromAllocation?: boolean
   items: BudgetItemDto[]
 }
 
@@ -537,6 +543,8 @@ export interface MeResponse {
   needsConsent?: boolean
   /** False for Google-created accounts with no password — the account page adapts change-password. */
   hasPassword?: boolean
+  /** True when a Google identity is linked — the account page shows Disconnect. */
+  hasGoogle?: boolean
 }
 
 /** The login's current name + money-display preferences (GET via /auth/me, PUT /auth/preferences). */

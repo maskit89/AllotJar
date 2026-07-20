@@ -31,6 +31,14 @@ public class BudgetCategoryDto
     public int DisplayOrder { get; set; }
     public decimal TotalPlanned { get; set; }
     public decimal TotalActual { get; set; }
+
+    /// <summary>
+    /// True for allocation-OUTPUT categories (pocket money, personal savings): they count
+    /// into the budget's planned total (so "zero" includes them) but the allocation engine
+    /// leaves them out of its shared-obligation envelopes to avoid a double deduction.
+    /// </summary>
+    public bool ExcludeFromAllocation { get; set; }
+
     public List<BudgetItemDto> Items { get; set; } = new();
 }
 

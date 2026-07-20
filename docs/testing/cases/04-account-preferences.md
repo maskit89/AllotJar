@@ -505,7 +505,7 @@
 - **Automated:** No
 
 
-### PREF-011 - A passwordless (Google) login gets an add-a-password note, not a change-password form
+### PREF-040 - A passwordless (Google) login gets an add-a-password note, not a change-password form
 - **Priority:** P2
 - **Type:** UX
 - **Preconditions:** A login created via Google sign-in (`/auth/me` returns `hasPassword:false`).
@@ -514,4 +514,18 @@
 - **Expected:**
   - Google-only: the card is titled "Password" (not "Change password"), has NO current/new/confirm fields, and explains that the account signs in with Google — with a "Forgot password" link to `/forgot-password` to ADD a password (reset works for passwordless accounts; Google sign-in keeps working either way).
   - Password login: unchanged — the "Change password" form with the current-password field is present.
-- **Automated:** Full (client/src/pages/AccountPage.catalog.test.tsx — PREF-011)
+- **Automated:** Full (client/src/pages/AccountPage.catalog.test.tsx — PREF-040)
+
+### PREF-041 - Disconnect Google from the account page
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** A login with a linked Google identity (`/auth/me` `hasGoogle:true`).
+- **Steps:**
+  1. Open `/account` with `hasGoogle:true` + a password; click **Disconnect**.
+  2. Open `/account` with `hasGoogle:true` but NO password.
+  3. Open `/account` with `hasGoogle:false`.
+- **Expected:**
+  - 1: a "Connected accounts" card shows **Google · Disconnect** (enabled). Disconnect POSTs `/auth/google/unlink`; the server removes the login and — because that rotates the security stamp — returns a FRESH session (new token + cookie) the client adopts, so the user stays signed in. Success note shown; `hasGoogle` flips false.
+  - 2: Disconnect is **disabled** with a hint that Google is the only sign-in method and to add a password first (link to `/forgot-password`) — unlinking is refused server-side (400) too.
+  - 3: no "Connected accounts" card at all.
+- **Automated:** Full (client/src/pages/AccountPage.catalog.test.tsx — PREF-041; tests/AllotJar.IntegrationTests/Http/GoogleSignInFlowTests.cs — REG-085 for the server contract incl. the stamp-rotation reissue and the passwordless-refusal)

@@ -73,6 +73,10 @@ interface AuthState {
   leaveHousehold: (ownerId: string) => Promise<void>
   /** False when the login has no password (Google-created) — the account page adapts. */
   hasPassword: boolean
+  /** True when a Google identity is linked to this login. */
+  hasGoogle: boolean
+  /** Disconnects Google; rejects (throws) if it's the only sign-in method. Refreshes /auth/me. */
+  unlinkGoogle: () => Promise<void>
   login: (email: string, password: string) => Promise<void>
   /** Exchanges a Google ID token for a session; resolves with whether the account was just created. */
   loginWithGoogle: (credential: string) => Promise<{ isNewAccount: boolean }>
@@ -126,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Default TRUE so the change-password card doesn't flicker away for ordinary password logins
   // before /auth/me answers; Google-only accounts flip it to false from the /me payload.
   const [hasPassword, setHasPassword] = useState(true)
+  const [hasGoogle, setHasGoogle] = useState(false)
   // No in-memory access token on a cold load ⇒ try to restore the session from the refresh cookie.
   const [bootstrapping, setBootstrapping] = useState<boolean>(!getToken())
 
@@ -258,6 +263,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setActiveOwnerId(typeof data.ownerId === 'string' ? data.ownerId : null)
         setNeedsConsent(data.needsConsent === true)
         setHasPassword(data.hasPassword !== false)
+        setHasGoogle(data.hasGoogle === true)
         applyPrefs(data.preferredCurrency, data.numberFormat)
         localStorage.setItem(ROLE_KEY, String(data.role))
       })
@@ -283,6 +289,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
     apply(data)
     return { isNewAccount: data.isNewAccount === true }
+  }
+
+  async function unlinkGoogle() {
+    // The server rotates the security stamp when it removes the login, so it returns a fresh
+    // session (new token + cookie) to keep this device signed in — adopt it, exactly like
+    // change-password. The token change re-fires the /auth/me effect, which refreshes hasGoogle;
+    // set it here too for an immediate UI update.
+    const { data } = await api.post<AuthResponse>('/auth/google/unlink')
+    if (data?.token) apply(data)
+    setHasGoogle(false)
   }
 
   async function register(input: RegisterInput) {
@@ -375,6 +391,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setActiveOwnerId(null)
     setNeedsConsent(false)
     setHasPassword(true)
+    setHasGoogle(false)
     applyPrefs(DEFAULT_CURRENCY, DEFAULT_FORMAT)
     localStorage.removeItem(EMAIL_KEY)
     localStorage.removeItem(ROLE_KEY)
@@ -409,6 +426,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ownsHousehold: households.some((h) => h.isOwn),
       needsConsent,
       hasPassword,
+      hasGoogle,
+      unlinkGoogle,
       confirmConsent,
       switchHousehold,
       startOwnBudget,
@@ -423,7 +442,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updatePreferences,
       logout,
     }),
-    [token, email, displayName, firstName, lastName, preferredCurrency, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, hasPassword],
+    [token, email, displayName, firstName, lastName, preferredCurrency, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, hasPassword, hasGoogle],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

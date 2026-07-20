@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { BillStatus, ItemVM } from '../budgetModel'
 import { itemRemaining } from '../budgetModel'
 import { currencySymbol, formatMoney, parseMinor, toEditString, type Minor } from '../lib/money'
+import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { hueColor, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { useAuth } from '../auth/AuthContext'
 
@@ -183,6 +184,7 @@ export function BudgetItemRow({
           type="text"
           inputMode="decimal"
           autoFocus
+          {...selectOnFocusProps}
           value={draft}
           aria-label={`Planned amount for ${item.name}`}
           onChange={(e) => setDraft(e.target.value)}
@@ -316,9 +318,10 @@ export function BudgetItemRow({
           {canWrite && onSetBill && billEditing && (
             <span className="flex shrink-0 items-center gap-0.5">
               <input
-                type="number"
-                min={1}
-                max={31}
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                {...selectOnFocusProps}
                 value={billDraft}
                 aria-label={`Due day for ${item.name}`}
                 onChange={(e) => setBillDraft(e.target.value)}

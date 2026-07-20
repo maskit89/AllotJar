@@ -25,6 +25,8 @@ import {
   type MembershipDto,
 } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import { accountOptionLabel, savingsFirst } from '../lib/accountOptions'
+import { selectOnFocusProps } from '../lib/selectOnFocus'
 
 /** Roles the owner can grant (everything except Owner itself). */
 const GRANTABLE_ROLES = [HouseholdRole.Admin, HouseholdRole.Limited, HouseholdRole.ReadOnly]
@@ -468,6 +470,7 @@ export function PeoplePage() {
                           <input
                             type="text"
                             inputMode="decimal"
+                            {...selectOnFocusProps}
                             value={eIncome}
                             aria-label={`Net monthly income for ${m.name}`}
                             onChange={(e) => setEIncome(e.target.value)}
@@ -500,9 +503,9 @@ export function PeoplePage() {
                             className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-600"
                           >
                             <option value="">None</option>
-                            {accounts.map((a) => (
+                            {savingsFirst(accounts).map((a) => (
                               <option key={a.id} value={a.id}>
-                                {a.name}
+                                {accountOptionLabel(a)}
                               </option>
                             ))}
                           </select>
@@ -664,6 +667,7 @@ export function PeoplePage() {
               <Input
                 type="text"
                 inputMode="decimal"
+                {...selectOnFocusProps}
                 value={income}
                 placeholder="0.00"
                 aria-label="Net monthly income"
@@ -682,9 +686,9 @@ export function PeoplePage() {
                 Savings account
                 <Select value={savings} aria-label="Savings account" onChange={(e) => setSavings(e.target.value)} className="w-full">
                   <option value="">None</option>
-                  {accounts.map((a) => (
+                  {savingsFirst(accounts).map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.name}
+                      {accountOptionLabel(a)}
                     </option>
                   ))}
                 </Select>

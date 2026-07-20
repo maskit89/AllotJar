@@ -272,7 +272,9 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   // DASH-053: track Rent as a bill due day 1 — the Bill tag and strip appear.
   await page.getByRole('textbox', { name: 'Rename Rent' }).hover()
   await page.getByRole('button', { name: 'Add a due date to Rent' }).click()
-  await page.getByRole('spinbutton', { name: 'Due day for Rent' }).fill('1')
+  // The due-day editor is a text input (inputMode=numeric) — type=number has no selection APIs,
+  // which select-on-focus needs — so its role is textbox, not spinbutton.
+  await page.getByRole('textbox', { name: 'Due day for Rent' }).fill('1')
   await committed(page, 'PUT', '/bill', () =>
     page.getByRole('button', { name: 'Save due day for Rent' }).click(),
   )
