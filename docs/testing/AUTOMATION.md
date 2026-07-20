@@ -78,6 +78,24 @@ the journey harness's constraints:
   anonymous sweep 401-checks every endpoint outside a curated allowlist
   (`AnonymousEndpointSweepTests`), guarding against a forgotten `[Authorize]`.
 
+## Running the suites in a session (output thrift)
+
+The full suites are CI's job. When running tests interactively — especially in an agent/Claude session,
+where every line of test output consumes context — default to **targeted, quiet** runs and save the
+full sweep for one pre-PR pass:
+
+- **Mid-development:** run only what the change touches.
+  - Vitest, single spec: `cd client && npx vitest run src/pages/JarsPage.catalog.test.tsx`
+  - Backend, filtered: `dotnet test tests/AllotJar.Application.Tests --filter "FullyQualifiedName~Allocation" -v q`
+  - Playwright, single spec: `cd client && npx playwright test e2e/a11y.spec.ts` (journey: add
+    `--config playwright.journey.config.ts`)
+- **Pre-PR full pass:** use the quiet reporters — failures still print in full, passes cost one character.
+  - `cd client && npm run test:quiet` (dot reporter + `--silent`; drop `--silent` only when you need a
+    test's console output to debug)
+  - `dotnet test tests/AllotJar.Application.Tests -v q`
+- **CI is the real gate** (`backend` + `frontend` + `a11y` + `integration`) — don't re-run the full
+  matrix locally to prove what CI will prove anyway.
+
 ## Maintaining
 
 - New/changed behaviour → add the case to the catalog **and** a test at the lowest observing layer; flip
