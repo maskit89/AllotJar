@@ -21,13 +21,26 @@ public record LoginRequest(
     [Required, EmailAddress] string Email,
     [Required] string Password);
 
+/// <summary><see cref="IsNewAccount"/> is set only by Google sign-in (true = this call created the
+/// account), so the client can report sign_up vs login; every other endpoint leaves it null.</summary>
 public record AuthResponse(
     string Token,
     DateTime ExpiresAtUtc,
     string UserId,
     string Email,
     HouseholdRole Role,
-    string? DisplayName);
+    string? DisplayName,
+    bool? IsNewAccount = null);
+
+/// <summary>
+/// Exchanges a Google Identity Services ID token (the button's `credential`) for an AllotJar
+/// session. The optional currency/format are the CLIENT's locale-detected defaults, applied only
+/// when this sign-in creates the account (mirrors the register form's pre-selection).
+/// </summary>
+public record GoogleLoginRequest(
+    [Required] string Credential,
+    string? PreferredCurrency,
+    string? NumberFormat);
 
 /// <summary>
 /// Redeems a one-time invite link. A new user sets <see cref="Password"/> and must accept the terms
@@ -84,7 +97,8 @@ public record MeResponse(
     string PreferredCurrency,
     string NumberFormat,
     IReadOnlyList<HouseholdSummary> Households,
-    bool NeedsConsent);
+    bool NeedsConsent,
+    bool HasPassword);
 
 /// <summary>One household the login can act in, for the household switcher. The active one has <see cref="IsActive"/>.</summary>
 public record HouseholdSummary(string OwnerId, string Label, HouseholdRole Role, bool IsActive, bool IsOwn);

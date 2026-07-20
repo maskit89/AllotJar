@@ -16,6 +16,11 @@
     "AllowedOrigins": [ "https://your-domain.example" ]
   },
 
+  "Google": {
+    "//": "Sign in with Google. The client id is PUBLIC (it also ships in the SPA bundle); the same OAuth client covers every environment via its Authorized JavaScript origins. Empty = Google sign-in disabled server-side.",
+    "ClientId": "REPLACE_WITH_GOOGLE_OAUTH_WEB_CLIENT_ID.apps.googleusercontent.com"
+  },
+
   "Email": {
     "//": "Provider is 'cloudflare' (Cloudflare Email Service) or 'resend'; blank defaults to resend. The sending domain must be onboarded/verified with the chosen provider or sends are rejected. Without an ApiKey, password-reset emails are NOT sent (only logged as a warning) - the startup log states which provider resolved.",
     "Provider": "cloudflare",
