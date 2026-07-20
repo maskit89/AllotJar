@@ -8,17 +8,17 @@ automated, write the closest proxy and **flag the rest here** rather than preten
 
 | Layer | Location | Run | Tests | New |
 |---|---|---|---|---|
-| Backend unit (xUnit, EF InMemory) | `tests/AllotJar.Application.Tests` | `dotnet test tests/AllotJar.Application.Tests` | **711** | +206 |
-| Client component (Vitest + RTL) | `client/src/**/*.catalog*.test.tsx` | `cd client && npm run test` | **622** | +350 |
+| Backend unit (xUnit, EF InMemory) | `tests/AllotJar.Application.Tests` | `dotnet test tests/AllotJar.Application.Tests` | **716** | +206 |
+| Client component (Vitest + RTL) | `client/src/**/*.catalog*.test.tsx` | `cd client && npm run test` | **627** | +350 |
 | Journey e2e (live API + real SQL) | `client/e2e-journey` | `cd client && npm run test:e2e:journey` | **40** | +25 |
 | a11y / responsive / UX (stubbed API) | `client/e2e` | `cd client && npm run test:e2e` | **102** | +46 |
 | HTTP integration (in-process API + real SQL) | `tests/AllotJar.IntegrationTests` | `dotnet test tests/AllotJar.IntegrationTests` | **51** | +15 |
-| **Total** | | | **1,526** | **+642** |
+| **Total** | | | **1,536** | **+642** |
 
 Delivered as four PRs, each independently verified green and CI-passing: **#178** (backend, merged),
 **#179** (client, merged), **#180** (journey), **#181** (a11y). Every added test cites the catalog case
 id(s) it automates; coverage was cross-checked against `maps/automated-tests.md` to avoid duplication.
-The Tests column is the current measured count (2026-07-18) — it has since grown past the four-PR
+The Tests column is the current measured count (2026-07-20) — it has since grown past the four-PR
 delivery via the #183 bug-fix un-skips, the #184 regression pins, the residual-gap closure
 (`ExcludeFromAllocationCoverageTests` +2 backend; the UX-036 account-detail and OS-live theme
 e2e specs +3), the password-reset feature (REG-051..067: +11 backend, +9 Vitest, +6 HTTP
