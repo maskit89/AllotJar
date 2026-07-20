@@ -818,4 +818,27 @@ describe('LoginPage (REG catalog)', () => {
     expect(screen.queryByTestId('google-signin')).not.toBeInTheDocument()
     googleState.clientId = 'client-123.apps.googleusercontent.com'
   })
+
+  // REG-093 — registering an email that already has an UNVERIFIED account gets the neutral
+  // "check your inbox" panel (a claim link was emailed, no session): the form is replaced, and the
+  // app is NOT navigated to.
+  it('REG-093: a verification-pending register response shows check-your-inbox, no navigation', async () => {
+    const user = userEvent.setup()
+    // The server's reclaim response: no token, verificationPending true.
+    mockPost.mockResolvedValue({ data: { verificationPending: true, email: 'taken@example.test' } })
+    renderAt('/login?register=1')
+
+    await user.type(screen.getByLabelText('First name'), 'Ana')
+    await user.type(screen.getByLabelText('Last name'), 'Borg')
+    await user.type(screen.getByLabelText('Email'), 'taken@example.test')
+    await user.type(screen.getByLabelText('Password'), 'password123')
+    await user.click(screen.getByRole('checkbox', { name: /I agree to the/ }))
+    await user.click(submitButton('Create account'))
+
+    expect(await screen.findByText('Check your inbox', undefined, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText('taken@example.test')).toBeInTheDocument()
+    // Did NOT navigate (would render HOME) and the form is gone.
+    expect(screen.queryByText('HOME')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('First name')).not.toBeInTheDocument()
+  })
 })

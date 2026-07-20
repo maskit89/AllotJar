@@ -116,6 +116,47 @@ for (const theme of ['light', 'dark'] as const) {
       await expectNoViolations(page)
     })
 
+    // The confirm-email page (public) — success state (mockApi 200s the confirm POST) + the
+    // incomplete-link recovery state.
+    test('confirm-email page has no WCAG A/AA violations', async ({ page }) => {
+      await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)
+      await page.route('**/api/**', mockApi)
+
+      await page.goto('/confirm-email?email=owner%40example.com&token=tok')
+      await page.getByText('Email confirmed').waitFor()
+      await expectNoViolations(page)
+
+      await page.goto('/confirm-email')
+      await page.getByText("This link isn't complete").waitFor()
+      await expectNoViolations(page)
+    })
+
+    // The persistent "confirm your email" banner (shown in-app while unverified).
+    test('verify-email banner has no WCAG A/AA violations', async ({ page }) => {
+      await authedSetup(page, theme)
+      // /auth/me reports the login as unverified so the banner renders.
+      await page.route('**/api/auth/me', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            userId: 'u1',
+            email: 'e2e@allotjar.app',
+            displayName: 'Chris',
+            role: 0,
+            ownerId: 'u1',
+            memberId: null,
+            needsConsent: false,
+            emailConfirmed: false,
+            households: [{ ownerId: 'u1', label: 'Your household', role: 0, isActive: true, isOwn: true }],
+          }),
+        }),
+      )
+      await page.goto('/')
+      await page.getByText(/please confirm your email/i).waitFor()
+      await expectNoViolations(page)
+    })
+
     test('analytics consent banner + Help control have no WCAG A/AA violations', async ({ page }) => {
       await authedSetup(page, theme)
       // Turn the analytics flag on so the consent banner and the Help privacy control both render
