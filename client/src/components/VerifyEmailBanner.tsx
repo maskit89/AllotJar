@@ -23,8 +23,11 @@ export function VerifyEmailBanner() {
   }
 
   return (
+    // aria-live (not role="status") so the resend feedback is announced without adding a second
+    // `status` role to the page — journey/e2e specs query getByRole('status') for page banners and
+    // a persistent nag here would collide with every one of them.
     <div
-      role="status"
+      aria-live="polite"
       className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100"
     >
       <span>

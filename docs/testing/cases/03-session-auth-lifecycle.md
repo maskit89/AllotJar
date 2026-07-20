@@ -578,5 +578,5 @@
 - **Steps:**
   1. View any in-app page; click Resend. Also view with `emailConfirmed:true`, with `needsConsent:true`, and signed out.
 - **Expected:**
-  - Shown (persistent, non-dismissible, `role="status"`) only when authenticated AND unverified AND not awaiting consent. Resend calls `POST /auth/resend-verification` and confirms it sent (or a retry hint on failure). Hidden once confirmed, while consent is owed (that blocks the app first), or signed out.
+  - Shown (persistent, non-dismissible, `aria-live` (NOT `role="status"` — avoids colliding with page status banners)) only when authenticated AND unverified AND not awaiting consent. Resend calls `POST /auth/resend-verification` and confirms it sent (or a retry hint on failure). Hidden once confirmed, while consent is owed (that blocks the app first), or signed out.
 - **Automated:** Full (client/src/components/VerifyEmailBanner.catalog.test.tsx — SESS-043; client/e2e/a11y.spec.ts scans it)
