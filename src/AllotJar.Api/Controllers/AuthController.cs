@@ -337,15 +337,19 @@ public class AuthController : ControllerBase
     /// <summary>
     /// Disconnects the Google identity from the authenticated login. Refused when Google is the
     /// login's ONLY way in (no password) — unlinking then would lock the user out of their own
-    /// account; the account page tells them to set a password first (via forgot-password). Leaves
-    /// the session untouched: the user stays signed in, they just can't use Google next time.
+    /// account; the account page tells them to set a password first (via forgot-password).
+    ///
+    /// Removing the login rotates the security stamp (Identity does this), which would otherwise
+    /// invalidate THIS request's own access token and sign the user out mid-action — so, like
+    /// change-password, we re-issue a fresh token + cookie and return the new session. Already-
+    /// unlinked ⇒ 200 with the caller's current session unchanged (idempotent).
     /// </summary>
     [HttpPost("google/unlink")]
     [Authorize]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> UnlinkGoogle()
+    public async Task<IActionResult> UnlinkGoogle(CancellationToken ct)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null)
@@ -364,7 +368,7 @@ public class AuthController : ControllerBase
             .ToList();
         if (googleLogins.Count == 0)
         {
-            return NoContent(); // idempotent — nothing linked, nothing to do
+            return Ok(await BuildResponseAsync(user, ct)); // idempotent — nothing linked
         }
 
         if (!await _userManager.HasPasswordAsync(user))
@@ -381,7 +385,10 @@ public class AuthController : ControllerBase
             await _userManager.RemoveLoginAsync(user, login.LoginProvider, login.ProviderKey);
         }
 
-        return NoContent();
+        // RemoveLoginAsync rotated the stamp, killing this device's access token — re-issue so the
+        // user stays signed in (a fresh JWT carries the new stamp; the cookie is rotated too).
+        await IssueRefreshCookieAsync(user.Id, ct);
+        return Ok(await BuildResponseAsync(user, ct));
     }
 
     /// <summary>Redeems a one-time invite link, creates the login and returns a JWT.</summary>

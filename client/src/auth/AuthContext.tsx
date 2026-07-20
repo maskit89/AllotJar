@@ -292,12 +292,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function unlinkGoogle() {
-    await api.post('/auth/google/unlink')
-    // Re-read /auth/me so hasGoogle (and anything else) reflects the change; the token is
-    // unchanged, so nudge the effect by refetching directly.
-    const { data } = await api.get<MeResponse>('/auth/me')
-    setHasGoogle(data?.hasGoogle === true)
-    setHasPassword(data?.hasPassword !== false)
+    // The server rotates the security stamp when it removes the login, so it returns a fresh
+    // session (new token + cookie) to keep this device signed in — adopt it, exactly like
+    // change-password. The token change re-fires the /auth/me effect, which refreshes hasGoogle;
+    // set it here too for an immediate UI update.
+    const { data } = await api.post<AuthResponse>('/auth/google/unlink')
+    if (data?.token) apply(data)
+    setHasGoogle(false)
   }
 
   async function register(input: RegisterInput) {
