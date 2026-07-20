@@ -32,6 +32,10 @@ public sealed class HttpApiFixture : IAsyncLifetime
         {
             // The fixture makes ~15 auth-limited calls from one "IP"; never trip the limiter here.
             ["RateLimiting:AuthPermitLimit"] = "1000",
+            // Google sign-in flow tests use the Development-only fake validator (the harness
+            // runs as Development), driven by fake-google:{json} credentials — see
+            // FakeGoogleIdTokenValidator. Real Google tokens are rejected by the fake.
+            ["Google:UseFakeValidator"] = "true",
         });
 
     private readonly Dictionary<HouseholdRole, string> _tokens = new();

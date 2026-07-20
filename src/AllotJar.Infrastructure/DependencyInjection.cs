@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Infrastructure.Email;
@@ -135,6 +136,25 @@ public static class DependencyInjection
 
         // Refresh tokens backing the HttpOnly-cookie session (issue / rotate / revoke).
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+
+        // --- Google sign-in ----------------------------------------------------
+        // ID-token validation for POST /auth/google. The fake is DOUBLE-gated: the config flag AND
+        // a Development host — so the journey/integration harnesses can drive the flow without
+        // Google credentials, while production can never be pointed at the fake via config alone.
+        services.Configure<GoogleAuthSettings>(configuration.GetSection(GoogleAuthSettings.SectionName));
+        var googleSettings = configuration.GetSection(GoogleAuthSettings.SectionName).Get<GoogleAuthSettings>()
+            ?? new GoogleAuthSettings();
+        if (googleSettings.UseFakeValidator)
+        {
+            services.AddScoped<IGoogleIdTokenValidator>(sp =>
+                sp.GetRequiredService<IHostEnvironment>().IsDevelopment()
+                    ? ActivatorUtilities.CreateInstance<FakeGoogleIdTokenValidator>(sp)
+                    : ActivatorUtilities.CreateInstance<GoogleIdTokenValidator>(sp));
+        }
+        else
+        {
+            services.AddScoped<IGoogleIdTokenValidator, GoogleIdTokenValidator>();
+        }
 
         // --- JWT authentication ------------------------------------------------
         var jwtSection = configuration.GetSection(JwtSettings.SectionName);
