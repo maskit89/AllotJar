@@ -179,7 +179,8 @@ async function configureOwnerMember(
   await page.getByRole('button', { name: 'Edit Journey', exact: true }).click()
   await page.getByLabel('Name for Journey', { exact: true }).fill(m.newName)
   await page.getByLabel('Net monthly income for Journey', { exact: true }).fill(m.income)
-  await page.getByLabel('Savings account for Journey', { exact: true }).selectOption({ label: m.savings })
+  // The savings picker labels options "Name — Type"; journey accounts are all Current.
+  await page.getByLabel('Savings account for Journey', { exact: true }).selectOption({ label: `${m.savings} — Current` })
   await committed(page, 'PUT', '/api/members/', () =>
     page.getByRole('button', { name: 'Save Journey', exact: true }).click(),
   )
@@ -194,7 +195,7 @@ async function addPerson(page: Page, m: { name: string; income: string; savings?
   await dialog.getByLabel('Person name', { exact: true }).fill(m.name)
   await dialog.getByLabel('Net monthly income', { exact: true }).fill(m.income)
   if (m.savings) {
-    await dialog.getByLabel('Savings account', { exact: true }).selectOption({ label: m.savings })
+    await dialog.getByLabel('Savings account', { exact: true }).selectOption({ label: `${m.savings} — Current` })
   }
   await committed(page, 'POST', '/api/members', () =>
     dialog.getByRole('button', { name: 'Add person', exact: true }).click(),
@@ -281,11 +282,18 @@ async function saveAllocationSettings(page: Page): Promise<{ rules: unknown[]; s
 }
 
 /** Click Allocate and wait for the commit POST; returns the result DTO. */
-async function commitAllocation(page: Page): Promise<{ transfersCreated: number }> {
+async function commitAllocation(
+  page: Page,
+  opts: { confirmStranded?: boolean } = {},
+): Promise<{ transfersCreated: number }> {
   const post = page.waitForResponse(
     (r) => r.request().method() === 'POST' && new URL(r.url()).pathname.startsWith('/api/allocation/commit/') && r.ok(),
   )
   await page.getByRole('button', { name: 'Commit allocation', exact: true }).click()
+  if (opts.confirmStranded) {
+    // A stranded share opens the explicit confirm instead of committing straight away.
+    await page.getByRole('button', { name: 'Allocate anyway', exact: true }).click()
+  }
   return await (await post).json()
 }
 
@@ -540,17 +548,17 @@ test('a member without a savings account strands their share; over-committing th
   // --- ALLOC-046: Robin's tile carries the amber no-savings-account note and a 0.00
   // savings balance; the residual itself is a healthy 1,450.00.
   const robinTile = memberTile(page, 'Robin')
-  await expect(robinTile).toContainText('No savings account set')
+  await expect(robinTile).toContainText('No savings account linked')
   await expect(robinTile).toContainText('0.00 → saves')
   await expect(robinTile).toContainText('1,450.00')
 
   // --- ALLOC-055: Robin's positive share is stranded — the amber note names the amount.
-  const strandedNote = page.getByText(/has nowhere to go/)
+  const strandedNote = page.getByText(/won’t be transferred/)
   await expect(strandedNote).toBeVisible()
   await expect(strandedNote).toContainText('1,450.00')
 
   // --- ALLOC-057 + ALLOC-050 (singular): commit writes only Chris's transfer.
-  const first = await commitAllocation(page)
+  const first = await commitAllocation(page, { confirmStranded: true })
   expect(first.transfersCreated).toBe(1)
   await expect(page.getByRole('status')).toContainText('1 savings transfer created')
 
@@ -581,7 +589,7 @@ test('a member without a savings account strands their share; over-committing th
   // --- ALLOC-056: nothing stranded now (no positive share), so the slate note shows
   // instead of the amber one.
   await expect(page.getByText(/nothing left to move to savings/)).toBeVisible()
-  await expect(page.getByText(/has nowhere to go/)).toHaveCount(0)
+  await expect(page.getByText(/won’t be transferred/)).toHaveCount(0)
 
   // --- ALLOC-045: keep-own residuals gone negative render in the rose tone —
   // Chris −50.00 (3,000 − 3,000 − 50), Robin −1,050.00 (2,000 − 3,000 − 50).
