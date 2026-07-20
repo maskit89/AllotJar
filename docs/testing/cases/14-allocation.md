@@ -460,7 +460,7 @@
 - **Preconditions:** Robin has **no** `PersonalSavingsAccountId`; Robin's residual is positive (e.g. 1,150.00).
 - **Steps:**
   1. Read Robin's tile.
-- **Expected:** Robin's tile shows the amber note **"No savings account set — won't transfer on commit."**; `savingsBalance` reads €0.00 (no account). The positive residual becomes **stranded** on commit (see ALLOC-055).
+- **Expected:** Robin's tile shows the amber note **"No savings account linked — Robin's share stays in {source account} when you allocate."** (Admin+; Limited/Read-only instead see "…will stay in the source account. Ask an admin to link one on the People page."); `savingsBalance` reads €0.00 (no account). The warning is actionable: an inline **"Link a savings account…"** picker (savings-type accounts first, "Name — Type" labels) links via a full-echo `PUT /members/{id}` and reloads the preview so the warning clears (ALLOC-064); with no savings-type account a **"Create a savings account"** button deep-links to /accounts. The positive residual becomes **stranded** on commit (see ALLOC-055/067).
 - **Automated:** No
 
 ### ALLOC-047 - Member savings balance for the tilt excludes this month's own allocation transfers
@@ -549,7 +549,7 @@
 - **Preconditions:** Robin has no savings account but a positive residual of 1,150.00; Chris has one.
 - **Steps:**
   1. Open `/allocation`.
-- **Expected:** An amber note reads **"€1,150.00 has nowhere to go — a member has no savings account, so that share stays in the source account instead of transferring."** (`strandedMinor` = Σ residual of members with `!savingsAccountId && residual > 0`). Commit writes only Chris's transfer; Robin's share stays in the source account.
+- **Expected:** An amber note reads **"€1,150.00 won't be transferred — Robin has no savings account linked (see below)."** — it names the affected people and points at the inline fix on their cards (`strandedMinor` = Σ residual of members with `!savingsAccountId && residual > 0`). Commit requires an explicit confirm (ALLOC-067); confirmed, it writes only Chris's transfer and Robin's share stays in the source account, repeated in the success banner.
 - **Automated:** No
 
 ### ALLOC-056 - Nothing-to-save note when shared spending consumes the whole pool
@@ -629,3 +629,40 @@
   1. Open `/allocation`.
 - **Expected:** `GET /allocation/profile` → null and there are no jars/months, so the page shows **"No allocation set up yet"** — allocation tests must not assume a starter profile, Emergency Fund jar, or seeded budget exists. Only the opt-in sample seed (or a manual Set up) creates a profile.
 - **Automated:** Partial (register.spec.ts / HouseholdBootstrapTests — opt-in seeding; not the allocation page specifically)
+
+### ALLOC-064 - The inline savings-link picker on a member card links and reloads
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Admin+; Robin unlinked; at least one savings-type account exists (e.g. "Robin Savings").
+- **Steps:**
+  1. On Robin's Allocation card, pick "Robin Savings — Savings" in "Link a savings account…".
+- **Expected:** A full-echo `PUT /members/{robin}` carries `{name, netMonthlyIncome, personalSavingsAccountId}` (name + income echoed from the preview DTO), the preview reloads, the warning clears and the balance-tilt figures recompute. Any stale "Allocated" banner is cleared (the figures changed). A unique case-insensitive name match additionally offers a one-click **"Use 'Robin Savings'"** chip — offer-only, nothing links without a click; an ambiguous match (two candidates) offers no chip (ALLOC-065). The picker lists savings-type accounts first with type-label suffixes.
+- **Automated:** Full (`AllocationPage.catalog.test.tsx` ALLOC-064/065)
+
+### ALLOC-065 - No suggestion chip on an ambiguous name match
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** Two unlinked savings accounts both containing the member's name.
+- **Steps:**
+  1. Read the unlinked member's card.
+- **Expected:** No "Use '…'" chip renders — only the picker. Suggestions require exactly one candidate.
+- **Automated:** Full (`AllocationPage.catalog.test.tsx` ALLOC-065)
+
+### ALLOC-066 - Limited/Read-only see explanatory copy instead of the picker
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** Limited login; a member without a savings link.
+- **Steps:**
+  1. Open `/allocation` and read the unlinked member's card.
+- **Expected:** "No savings account linked — {name}'s share will stay in the source account. Ask an admin to link one on the People page." — no picker, no chip (member-edit is Admin+ while commit is Limited+). The Allocate button remains available.
+- **Automated:** Full (`AllocationPage.catalog.test.tsx` ALLOC-066)
+
+### ALLOC-067 - Allocating with a stranded share needs an explicit confirm
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** A member with a positive residual and no savings link (`strandedMinor > 0`).
+- **Steps:**
+  1. Press "Allocate {month}".
+  2. Cancel; press again; choose "Allocate anyway".
+- **Expected:** The first press opens a confirm modal — "Allocate without {names}?" / "€X will stay in {source account} because {names} has no savings account linked. You can link one on the person's card and re-run — re-running Allocate replaces the transfers, never doubles up." Cancel aborts with no POST. "Allocate anyway" commits (the loss-free skip stays possible for households that keep a member's savings off-app), and the success banner appends "€X stayed in {source account} for {names} (no savings account linked)." With no stranded share the modal never appears — commit fires directly.
+- **Automated:** Full (`AllocationPage.catalog.test.tsx` ALLOC-067; direct-commit path covered by ALLOC-020)

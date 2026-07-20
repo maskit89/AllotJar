@@ -33,10 +33,14 @@ import { AllocationPage } from './AllocationPage'
 import { AuthProvider } from '../auth/AuthContext'
 
 // Two owned accounts so the source-account select has more than one real option (ALLOC-011).
-const accountsData: AccountDto[] = [
-  { id: 'accJoint', name: 'Joint', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0 },
-  { id: 'accPot', name: 'Savings pot', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 1 },
-]
+// Mutable so the savings-link tests can add savings-type accounts; reset in beforeEach.
+function defaultAccounts(): AccountDto[] {
+  return [
+    { id: 'accJoint', name: 'Joint', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0 },
+    { id: 'accPot', name: 'Savings pot', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 1 },
+  ]
+}
+let accountsData: AccountDto[] = defaultAccounts()
 
 // The standard profile the client always writes: source Joint, pocket 0, split Equally,
 // send-savings-to Balance, lean 25, four rules FundEnvelopes/FundJars/FixedPerMember/SplitRemainder.
@@ -172,6 +176,7 @@ describe('AllocationPage (catalog)', () => {
     mockPost.mockReset()
     localStorage.clear() // role → Owner, currency → EUR, format → comma-dot (en-GB) by default
     profileData = null
+    accountsData = defaultAccounts()
     previewData = workedPreview()
     currentBudget = { year: 2026, month: 7, categories: [] }
     failProfile = false
@@ -659,9 +664,145 @@ describe('AllocationPage (catalog)', () => {
     renderPage()
 
     await screen.findByText('How July is allocated', {}, { timeout: 5000 })
-    expect(screen.getByText(/No savings account set/)).toBeInTheDocument()
-    // The stranded amount (Σ residual of accountless members with a positive share) is called out.
-    expect(screen.getByText(/€1,150.00 has nowhere to go/)).toBeInTheDocument()
+    // The card names the person and the consequence (Joint is the source account).
+    expect(screen.getByText(/No savings account linked — Robin’s share stays in Joint/)).toBeInTheDocument()
+    // The stranded amount (Σ residual of accountless members with a positive share) is called out by name.
+    expect(screen.getByText(/€1,150.00 won’t be transferred — Robin has no savings account linked/)).toBeInTheDocument()
+    // No savings-type account exists yet, so the fix path is creating one — not a picker.
+    expect(screen.getByRole('button', { name: 'Create a savings account' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Savings account for Robin')).not.toBeInTheDocument()
+  })
+
+  it('ALLOC-064: the inline picker links a savings account with a full-echo PUT and reloads the preview', async () => {
+    profileData = profile()
+    accountsData = [
+      ...defaultAccounts(),
+      { id: 'accRobinSav', name: 'Robin Savings', type: 1, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 2 },
+    ]
+    const stranded = () => mkPreview({
+      pool: 5000, env: 2000, jars: 500, pocketTotal: 200, pocketEach: 100, savingsTotal: 2300,
+      members: [
+        { memberId: 'm1', name: 'Chris', netIncome: 3000, residual: 1150, savingsBalance: 1000, savingsAccountId: 'accC' },
+        { memberId: 'm2', name: 'Robin', netIncome: 2000, residual: 1150, savingsBalance: 0, savingsAccountId: null },
+      ],
+    })
+    previewData = stranded()
+    mockPut.mockImplementation(() => {
+      // Once the link lands the next preview shows Robin linked — the warning must clear.
+      previewData = mkPreview({
+        pool: 5000, env: 2000, jars: 500, pocketTotal: 200, pocketEach: 100, savingsTotal: 2300,
+        members: [
+          { memberId: 'm1', name: 'Chris', netIncome: 3000, residual: 1150, savingsBalance: 1000, savingsAccountId: 'accC' },
+          { memberId: 'm2', name: 'Robin', netIncome: 2000, residual: 1150, savingsBalance: 0, savingsAccountId: 'accRobinSav' },
+        ],
+      })
+      return Promise.resolve({ data: {} })
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+
+    // A unique name match offers the one-click chip — offer-only, nothing links without a click.
+    expect(screen.getByRole('button', { name: 'Use “Robin Savings”' })).toBeInTheDocument()
+
+    // The picker sorts savings-type first and labels types.
+    const picker = screen.getByLabelText('Savings account for Robin') as HTMLSelectElement
+    const optionLabels = Array.from(picker.options).map((o) => o.textContent)
+    expect(optionLabels[1]).toBe('Robin Savings — Savings')
+
+    await user.selectOptions(picker, 'accRobinSav')
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith('/members/m2', {
+        name: 'Robin',
+        netMonthlyIncome: 2000,
+        personalSavingsAccountId: 'accRobinSav',
+      }),
+    )
+    // The preview reloaded and the warning cleared.
+    await waitFor(() =>
+      expect(screen.queryByText(/No savings account linked/)).not.toBeInTheDocument(),
+      { timeout: 5000 },
+    )
+  })
+
+  it('ALLOC-065: no suggestion chip when the name match is ambiguous', async () => {
+    profileData = profile()
+    accountsData = [
+      ...defaultAccounts(),
+      { id: 'accR1', name: 'Robin Savings', type: 1, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 2 },
+      { id: 'accR2', name: 'Robin Savings 2', type: 1, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 3 },
+    ]
+    previewData = mkPreview({
+      pool: 5000, env: 2000, jars: 500, pocketTotal: 0, savingsTotal: 2500,
+      members: [
+        { memberId: 'm1', name: 'Chris', netIncome: 3000, residual: 1250, savingsBalance: 1000, savingsAccountId: 'accC' },
+        { memberId: 'm2', name: 'Robin', netIncome: 2000, residual: 1250, savingsBalance: 0, savingsAccountId: null },
+      ],
+    })
+
+    renderPage()
+    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+
+    expect(screen.queryByRole('button', { name: /^Use “/ })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Savings account for Robin')).toBeInTheDocument()
+  })
+
+  it('ALLOC-066: a Limited user sees the ask-an-admin copy, no picker, and can still allocate', async () => {
+    localStorage.setItem('zbb.role', '2') // Limited → canEnterData true, canWrite false
+    profileData = profile()
+    accountsData = [
+      ...defaultAccounts(),
+      { id: 'accRobinSav', name: 'Robin Savings', type: 1, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 2 },
+    ]
+    previewData = mkPreview({
+      pool: 5000, env: 2000, jars: 500, pocketTotal: 0, savingsTotal: 2500,
+      members: [
+        { memberId: 'm1', name: 'Chris', netIncome: 3000, residual: 1250, savingsBalance: 1000, savingsAccountId: 'accC' },
+        { memberId: 'm2', name: 'Robin', netIncome: 2000, residual: 1250, savingsBalance: 0, savingsAccountId: null },
+      ],
+    })
+
+    renderPage()
+    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+
+    expect(screen.getByText(/Ask an admin to link one on the People page/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Savings account for Robin')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Commit allocation' })).toBeInTheDocument()
+  })
+
+  it('ALLOC-067: allocating with a stranded share needs an explicit confirm; the banner names it', async () => {
+    profileData = profile()
+    previewData = mkPreview({
+      pool: 5000, env: 2000, jars: 500, pocketTotal: 0, savingsTotal: 2500,
+      transfersCreated: 1,
+      members: [
+        { memberId: 'm1', name: 'Chris', netIncome: 3000, residual: 1250, savingsBalance: 1000, savingsAccountId: 'accC' },
+        { memberId: 'm2', name: 'Robin', netIncome: 2000, residual: 1250, savingsBalance: 0, savingsAccountId: null },
+      ],
+    })
+    mockPost.mockResolvedValue({ data: previewData })
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+
+    // First press opens the confirm instead of committing.
+    await user.click(screen.getByRole('button', { name: 'Commit allocation' }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByText(/€1,250\.00 will stay in Joint because Robin has no savings account linked/)).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+
+    // Cancel aborts entirely.
+    await user.click(dialog.getByRole('button', { name: 'Cancel' }))
+    expect(mockPost).not.toHaveBeenCalled()
+
+    // Allocate anyway commits, and the success banner repeats where the money stayed.
+    await user.click(screen.getByRole('button', { name: 'Commit allocation' }))
+    const dialog2 = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.click(dialog2.getByRole('button', { name: 'Allocate anyway' }))
+    await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText(/€1,250\.00 stayed in Joint for Robin/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
   // ---- Commit flow ----------------------------------------------------------
