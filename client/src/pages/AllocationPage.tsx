@@ -10,9 +10,11 @@ import { useAuth } from '../auth/AuthContext'
 import { useHousehold } from '../features/HouseholdContext'
 import { api } from '../lib/api'
 import { bucketCount, EVENTS, track } from '../analytics'
-import type { AccountDto, AllocationProfileDto, AllocationResultDto, BudgetMonthDto } from '../types'
-import { AllocationRuleType, SplitMethod } from '../types'
-import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import type { AccountDto, AllocationProfileDto, AllocationResultDto, BudgetMonthDto, MemberAllocationDto } from '../types'
+import { AccountType, AllocationRuleType, SplitMethod } from '../types'
+import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount, toEditString } from '../lib/money'
+import { categoryPlanned, fromDto, remainingToBudget, totalIncome, type MonthVM } from '../budgetModel'
+import { accountOptionLabel, formatNames, savingsFirst } from '../lib/accountOptions'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 
 interface RuleSpec {
@@ -56,6 +58,12 @@ export function AllocationPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [committed, setCommitted] = useState<number | null>(null)
+  // The viewed month's budget (integer-minor VM) — the other half of the reconciliation.
+  const [monthVM, setMonthVM] = useState<MonthVM | null>(null)
+  const [syncedMsg, setSyncedMsg] = useState<string | null>(null)
+  // Inline savings-link (member card) + the allocate-with-stranded-shares confirm.
+  const [linkingId, setLinkingId] = useState<string | null>(null)
+  const [showCommitConfirm, setShowCommitConfirm] = useState(false)
 
   // Setup/edit form (in a modal).
   const [showSettings, setShowSettings] = useState(false)
@@ -92,6 +100,9 @@ export function AllocationPage() {
         const year = budget?.data?.year ?? period.year
         const month = budget?.data?.month ?? period.month
         setPeriod({ year, month })
+        // Keep the budget itself too (not just year/month): the reconciliation banner
+        // compares its remaining-to-budget with the engine's promised outputs.
+        setMonthVM(budget?.data?.categories ? fromDto(budget.data) : null)
         if (p) {
           setSourceAccountId(p.sourceAccountId ?? '')
           const pocketRule = p.rules.find((r) => r.type === AllocationRuleType.FixedPerMember)
@@ -145,6 +156,54 @@ export function AllocationPage() {
       setBusy(false)
     }
   }, [pocket, lean, split, savingsSplit, sourceAccountId, profile, period, loadPreview])
+
+  // One click materializes the profile's pocket money as flagged budget lines (server-side,
+  // idempotent) — the flag combination that lets the budget zero out WITHOUT the engine
+  // double-deducting. Explicit only; the banner re-offers it when things drift.
+  const syncPocketLines = useCallback(async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const { data } = await api.post<BudgetMonthDto>(`/allocation/pocket-lines/${period.year}/${period.month}`, {})
+      setMonthVM(fromDto(data))
+      // The envelopes (and possibly a healed double-count) just changed — stale banner off,
+      // fresh preview in.
+      setCommitted(null)
+      await loadPreview(period.year, period.month)
+      setSyncedMsg(`Pocket money added to ${new Date(period.year, period.month - 1, 1).toLocaleDateString(undefined, { month: 'long' })}’s budget.`)
+    } catch {
+      setError('Could not add the pocket-money lines to the budget.')
+    } finally {
+      setBusy(false)
+    }
+  }, [period, loadPreview])
+
+  // Link a savings account to a member straight from the warning on their card. Full-echo
+  // PUT: name + income come from the preview DTO, so a concurrent People-page income edit in
+  // the window between preview load and this PUT is overwritten (last write wins) — a narrow,
+  // accepted race for a link action.
+  const linkSavings = useCallback(
+    async (m: MemberAllocationDto, accountId: string) => {
+      if (!accountId) return
+      setLinkingId(m.memberId)
+      setError(null)
+      try {
+        await api.put(`/members/${m.memberId}`, {
+          name: m.name,
+          netMonthlyIncome: m.netIncome,
+          personalSavingsAccountId: accountId,
+        })
+        // The balance-tilt figures change once the link lands; a prior banner is stale.
+        setCommitted(null)
+        await loadPreview(period.year, period.month)
+      } catch {
+        setError(`Could not link a savings account for ${m.name}.`)
+      } finally {
+        setLinkingId(null)
+      }
+    },
+    [period, loadPreview],
+  )
 
   const commit = useCallback(async () => {
     setBusy(true)
@@ -206,11 +265,65 @@ export function AllocationPage() {
   // What will actually transfer on commit vs. what's stranded because a member has no savings
   // account (a positive share with nowhere to go stays in the source account).
   const members = preview?.members ?? []
-  const strandedMinor = fromAmount(
-    members.filter((m) => !m.savingsAccountId && m.residual > 0).reduce((sum, m) => sum + m.residual, 0),
-  )
+  const strandedMembers = members.filter((m) => !m.savingsAccountId && m.residual > 0)
+  const strandedMinor = fromAmount(strandedMembers.reduce((sum, m) => sum + m.residual, 0))
+  const strandedNames = formatNames(strandedMembers.map((m) => m.name))
+  const strandedHasHave = strandedMembers.length === 1 ? 'has' : 'have'
   const nothingToSave = !!preview && toSavingsMinor <= 0
   const hasSource = !!profile?.sourceAccountId
+  const sourceAccountName = accounts.find((a) => a.id === profile?.sourceAccountId)?.name
+
+  // The inline link picker's offerings: savings accounts first, and a one-click suggestion
+  // when exactly ONE unlinked savings account's name contains the member's (offer-only —
+  // nothing is ever linked without a click).
+  const accountsForLinking = useMemo(() => savingsFirst(accounts), [accounts])
+  const savingsAccounts = useMemo(() => accounts.filter((a) => a.type === AccountType.Savings), [accounts])
+  const linkedAccountIds = useMemo(
+    () => new Set(members.map((m) => m.savingsAccountId).filter(Boolean)),
+    [members],
+  )
+  const suggestionFor = useCallback(
+    (m: MemberAllocationDto): AccountDto | null => {
+      const candidates = savingsAccounts.filter(
+        (a) => !linkedAccountIds.has(a.id) && a.name.toLowerCase().includes(m.name.toLowerCase()),
+      )
+      return candidates.length === 1 ? candidates[0] : null
+    },
+    [savingsAccounts, linkedAccountIds],
+  )
+
+  // --- Budget ↔ engine reconciliation (issue: pocket money promised by the engine but
+  // absent from the budget makes "zero" impossible on one side or the other) -------------
+  const pocketStepMinor = stepTotal(AllocationRuleType.FixedPerMember)
+  const positiveSavingsMinor = Math.max(toSavingsMinor, 0)
+  // Planned total of allocation-OUTPUT categories already materialized in the budget.
+  const flaggedPlannedMinor = monthVM
+    ? sumMinor(monthVM.categories.filter((c) => c.excludeFromAllocation).map(categoryPlanned))
+    : 0
+  // Engine promises not yet represented as budget lines.
+  const unrepresentedMinor = pocketStepMinor + positiveSavingsMinor - flaggedPlannedMinor
+  const budgetRemainingMinor = monthVM ? remainingToBudget(monthVM) : null
+  const budgetIncomeMinor = monthVM ? totalIncome(monthVM) : null
+  const poolMinor = fromAmount(preview?.pool ?? 0)
+  // A category named like the sync's target but UNFLAGGED while a pocket rule exists means
+  // pocket money is deducted twice (once as an envelope, once as the rule).
+  const doubleCounted =
+    !!monthVM &&
+    pocketStepMinor > 0 &&
+    monthVM.categories.some(
+      (c) => c.kind === 'expense' && !c.excludeFromAllocation && c.name.trim().toLowerCase() === 'pocket money',
+    )
+  // Scoped to the tester's scenario: fire when pocket money exists, or when a positive
+  // surplus is unrepresented in an otherwise balanced budget.
+  const showReconcile =
+    !!monthVM &&
+    !!preview &&
+    unrepresentedMinor > 0 &&
+    (pocketStepMinor > 0 || (positiveSavingsMinor > 0 && budgetRemainingMinor === 0))
+  // Only meaningful once the budget actually plans income — an empty/new month would
+  // otherwise nag about a €0.00 mismatch.
+  const incomeMismatch =
+    !!monthVM && !!preview && budgetIncomeMinor !== null && budgetIncomeMinor > 0 && budgetIncomeMinor !== poolMinor
 
   // Allocation only makes sense once the budget is shared. A solo user who reaches
   // this route directly gets a friendly nudge to add members rather than an empty engine.
@@ -237,7 +350,16 @@ export function AllocationPage() {
           amountLabel={`Income to allocate: ${formatMoney(fromAmount(preview.pool), CURRENCY)}`}
           tiles={[
             { label: 'Shared spending', value: formatMoney(sharedSpendingMinor, CURRENCY) },
-            { label: 'To savings', value: formatMoney(toSavingsMinor, CURRENCY) },
+            {
+              label: 'To savings',
+              // A negative figure is a shortfall, not savings — style it as one.
+              value:
+                toSavingsMinor < 0 ? (
+                  <span className="text-rose-300">{formatMoney(toSavingsMinor, CURRENCY)}</span>
+                ) : (
+                  formatMoney(toSavingsMinor, CURRENCY)
+                ),
+            },
           ]}
         />
       )}
@@ -270,7 +392,11 @@ export function AllocationPage() {
                 </Button>
               )}
               {canEnterData && (
-                <Button onClick={commit} disabled={busy || !hasSource} aria-label="Commit allocation">
+                <Button
+                  onClick={() => (strandedMinor > 0 ? setShowCommitConfirm(true) : commit())}
+                  disabled={busy || !hasSource}
+                  aria-label="Commit allocation"
+                >
                   Allocate {monthName}
                 </Button>
               )}
@@ -284,14 +410,74 @@ export function AllocationPage() {
             </p>
           )}
 
+          {/* Income-source honesty: the pool comes from the budget's attributed income lines
+              when any exist; unattributed lines are shared equally with a nudge to assign
+              them, and a month with no attribution falls back to People-page defaults. */}
+          {(preview.unattributedIncome ?? 0) > 0 && (
+            <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+              {formatMoney(fromAmount(preview.unattributedIncome ?? 0), CURRENCY)} of {monthName}’s income
+              isn’t assigned to a person, so it’s treated as shared equally.{' '}
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="font-semibold underline decoration-amber-400 underline-offset-2 hover:text-amber-900 dark:hover:text-amber-200"
+              >
+                Assign income lines on the Budget page
+              </button>{' '}
+              for an accurate split.
+            </p>
+          )}
+          {!preview.incomeFromBudget && (
+            <p className="mb-4 text-xs text-slate-500">
+              This split uses the default incomes from the People page — {monthName}’s budget has no income
+              assigned to people yet.
+            </p>
+          )}
+
+          {(showReconcile || doubleCounted) && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+              <p>
+                {doubleCounted
+                  ? 'Pocket money is currently counted twice — once as a budget group and once as the allocation’s pocket-money step.'
+                  : budgetRemainingMinor !== null && budgetRemainingMinor < unrepresentedMinor
+                    ? `Your budget and your allocation disagree. The budget leaves only ${formatMoney(budgetRemainingMinor, CURRENCY)} unassigned, but the allocation also promises ${formatMoney(pocketStepMinor, CURRENCY)} in pocket money${positiveSavingsMinor > 0 ? ` and ${formatMoney(positiveSavingsMinor, CURRENCY)} to personal savings` : ''}. That’s ${formatMoney(unrepresentedMinor - budgetRemainingMinor, CURRENCY)} more than your income covers — trim budget lines, or lower pocket money in Settings.`
+                    : `${formatMoney(unrepresentedMinor, CURRENCY)} of your income is already promised by the allocation (pocket money${positiveSavingsMinor > 0 ? ', personal savings' : ''}) but isn’t in your budget — the budget will keep showing it as “still to assign”.`}
+              </p>
+              {canWrite && pocketStepMinor > 0 && (
+                <Button
+                  size="sm"
+                  className="mt-2"
+                  onClick={syncPocketLines}
+                  disabled={busy}
+                  aria-label={`Add pocket money to ${monthName}'s budget`}
+                >
+                  Add pocket money to {monthName}’s budget
+                </Button>
+              )}
+            </div>
+          )}
+
+          {syncedMsg && (
+            <div
+              role="status"
+              className="mb-4 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
+            >
+              {syncedMsg}
+            </div>
+          )}
+
           {committed !== null && (
             <div
               role="status"
               className="mb-4 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
             >
               {committed === 0
-                ? `Allocated ${monthName} — no savings transfers were needed this month.`
+                ? toSavingsMinor < 0
+                  ? `Allocated ${monthName} — nothing was transferred because shared spending overshoots the pooled income.`
+                  : `Allocated ${monthName} — no savings transfers were needed this month.`
                 : `Allocated ${monthName} — ${committed} savings transfer${committed === 1 ? '' : 's'} created. Re-running Allocate replaces them, never doubles up.`}
+              {strandedMinor > 0 &&
+                ` ${formatMoney(strandedMinor, CURRENCY)} stayed in ${sourceAccountName ?? 'the source account'} for ${strandedNames} (no savings account linked).`}
             </div>
           )}
 
@@ -323,22 +509,38 @@ export function AllocationPage() {
             })}
           </ol>
 
-          {nothingToSave && strandedMinor === 0 && (
+          {!!preview && toSavingsMinor < 0 && (
+            <p className="mt-4 text-sm text-rose-600 dark:text-rose-400">
+              Shared costs, jars and pocket money overshoot the pooled income by{' '}
+              {formatMoney(-toSavingsMinor, CURRENCY)} — pocket money can’t be funded this month.
+            </p>
+          )}
+          {nothingToSave && toSavingsMinor === 0 && strandedMinor === 0 && (
             <p className="mt-4 text-sm text-slate-500">
               Shared spending uses up all the pooled income this month, so there’s nothing left to move to
               savings.
             </p>
           )}
+          {incomeMismatch && budgetIncomeMinor !== null && (
+            <p className="mt-4 text-xs text-slate-500">
+              Note: the pooled income here ({formatMoney(poolMinor, CURRENCY)}) comes from each person’s
+              income on the People page and doesn’t match {monthName}’s budgeted income lines (
+              {formatMoney(budgetIncomeMinor, CURRENCY)}).
+            </p>
+          )}
           {strandedMinor > 0 && (
             <p className="mt-4 text-sm text-amber-700 dark:text-amber-400">
-              {formatMoney(strandedMinor, CURRENCY)} has nowhere to go — a member has no savings account, so
-              that share stays in the source account instead of transferring.
+              {formatMoney(strandedMinor, CURRENCY)} won’t be transferred — {strandedNames} {strandedHasHave} no
+              savings account linked (see below).
             </p>
           )}
 
           {/* Each person's surplus → their savings. */}
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            {preview.members.map((m) => (
+            {preview.members.map((m) => {
+              const suggestion = suggestionFor(m)
+              const linking = linkingId === m.memberId
+              return (
               <div key={m.memberId} className="rounded-xl border border-slate-200/70 p-4">
                 <p className="text-sm font-semibold text-slate-800">{m.name}</p>
                 <p className="mt-0.5 text-xs text-slate-500">
@@ -355,14 +557,81 @@ export function AllocationPage() {
                   Projected balance {formatMoney(fromAmount(m.savingsBalance + m.residual), CURRENCY)}
                 </p>
                 {!m.savingsAccountId && (
-                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-                    No savings account set — won’t transfer on commit.
-                  </p>
+                  <div className="mt-2 space-y-1.5">
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      {canWrite
+                        ? `No savings account linked — ${m.name}’s share stays in ${sourceAccountName ?? 'the source account'} when you allocate.`
+                        : `No savings account linked — ${m.name}’s share will stay in the source account. Ask an admin to link one on the People page.`}
+                    </p>
+                    {canWrite && savingsAccounts.length === 0 && (
+                      <button
+                        type="button"
+                        onClick={() => navigate('/accounts')}
+                        className="text-xs font-semibold text-brand-700 hover:underline dark:text-brand-200"
+                      >
+                        Create a savings account
+                      </button>
+                    )}
+                    {canWrite && savingsAccounts.length > 0 && (
+                      <>
+                        {suggestion && (
+                          <button
+                            type="button"
+                            onClick={() => linkSavings(m, suggestion.id)}
+                            disabled={linking}
+                            className="rounded-full border border-brand-300 bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 disabled:opacity-50 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-200"
+                          >
+                            Use “{suggestion.name}”
+                          </button>
+                        )}
+                        <Select
+                          value=""
+                          aria-label={`Savings account for ${m.name}`}
+                          disabled={linking}
+                          onChange={(e) => linkSavings(m, e.target.value)}
+                          className="w-full text-xs"
+                        >
+                          <option value="">Link a savings account…</option>
+                          {accountsForLinking.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {accountOptionLabel(a)}
+                            </option>
+                          ))}
+                        </Select>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
-            ))}
+              )
+            })}
           </div>
         </Card>
+      )}
+
+      {/* Allocating while someone's share has nowhere to go: explicit confirm, never a silent skip. */}
+      {showCommitConfirm && (
+        <Modal title={`Allocate without ${strandedNames}?`} onClose={() => setShowCommitConfirm(false)}>
+          <p className="text-sm text-slate-600">
+            {formatMoney(strandedMinor, CURRENCY)} will stay in {sourceAccountName ?? 'the source account'}{' '}
+            because {strandedNames} {strandedHasHave} no savings account linked. You can link one on the
+            person’s card and re-run — re-running Allocate replaces the transfers, never doubles up.
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setShowCommitConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setShowCommitConfirm(false)
+                commit()
+              }}
+              aria-label="Allocate anyway"
+            >
+              Allocate anyway
+            </Button>
+          </div>
+        </Modal>
       )}
 
       {/* Allocation settings — a modal (mounted only while open so the focus trap engages). */}

@@ -19,10 +19,13 @@ import {
   type AccountDto,
   type HouseholdMemberDto,
   type InviteResultDto,
+  type MemberIncomeDto,
+  type MemberIncomeResultDto,
   type MemberSpendingDto,
   type MembershipDto,
 } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import { accountOptionLabel, savingsFirst } from '../lib/accountOptions'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 
 /** Roles the owner can grant (everything except Owner itself). */
@@ -93,6 +96,7 @@ export function PeoplePage() {
   const [iMethod, setIMethod] = useState<'direct' | 'link'>('link')
   const [iTempPassword, setITempPassword] = useState('')
   const [inviting, setInviting] = useState(false)
+  const [monthIncome, setMonthIncome] = useState<MemberIncomeResultDto | null>(null)
   const [inviteLink, setInviteLink] = useState<string | null>(null)
   const [directCreatedEmail, setDirectCreatedEmail] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -100,16 +104,24 @@ export function PeoplePage() {
   const canAccess = features.householdAccess && canManageHousehold
 
   const reloadAll = useCallback(async () => {
-    const [m, acc, spend, mem] = await Promise.all([
+    const now = new Date()
+    const [m, acc, spend, mem, inc] = await Promise.all([
       api.get<HouseholdMemberDto[]>('/members'),
       api.get<AccountDto[]>('/accounts').catch(() => ({ data: [] as AccountDto[] })),
       api.get<MemberSpendingDto[]>('/members/spending').catch(() => ({ data: [] as MemberSpendingDto[] })),
       api.get<MembershipDto[]>('/access/members').catch(() => ({ data: [] as MembershipDto[] })),
+      // Derived income for the CURRENT month — the budget-attributed figures.
+      api
+        .get<MemberIncomeResultDto>(`/members/income/${now.getFullYear()}/${now.getMonth() + 1}`)
+        .catch(() => ({ data: null as MemberIncomeResultDto | null })),
     ])
     setMembers(m.data)
     setAccounts(Array.isArray(acc?.data) ? acc.data : [])
     setSpending(Array.isArray(spend?.data) ? spend.data : [])
     setMemberships(Array.isArray(mem?.data) ? mem.data : [])
+    // Accept only a well-shaped payload — a failed/foreign response falls back to null
+    // (static incomes), never a partial object.
+    setMonthIncome(Array.isArray(inc?.data?.items) ? inc.data : null)
   }, [])
 
   useEffect(() => {
@@ -148,6 +160,21 @@ export function PeoplePage() {
     () => members.reduce((s, m) => s + fromAmount(m.netMonthlyIncome), 0),
     [members],
   )
+  // When the current month's budget attributes income to people, the hero reports THAT
+  // (planned attributed + unattributed) as "Income this month"; otherwise the static
+  // People-page defaults under the old label.
+  const incomeFromBudget = monthIncome?.incomeFromBudget === true
+  const monthIncomeMinor = useMemo(
+    () =>
+      (monthIncome?.items ?? []).reduce((s, i) => s + fromAmount(i.planned), 0) +
+      fromAmount(monthIncome?.unattributedPlanned ?? 0),
+    [monthIncome],
+  )
+  const incomeByMember = useMemo(() => {
+    const map = new Map<string, MemberIncomeDto>()
+    for (const i of monthIncome?.items ?? []) map.set(i.memberId, i)
+    return map
+  }, [monthIncome])
   const sharedSpentMinor = useMemo(
     () => spending.reduce((s, sp) => s + fromAmount(sp.spent), 0),
     [spending],
@@ -363,9 +390,9 @@ export function PeoplePage() {
   return (
     <AppShell active="people" title="People">
       <Hero
-        eyebrow="Combined income"
-        amount={formatMoney(combinedIncomeMinor, CURRENCY)}
-        amountLabel={`Combined income: ${formatMoney(combinedIncomeMinor, CURRENCY)}`}
+        eyebrow={incomeFromBudget ? 'Income this month' : 'Combined income'}
+        amount={formatMoney(incomeFromBudget ? monthIncomeMinor : combinedIncomeMinor, CURRENCY)}
+        amountLabel={`${incomeFromBudget ? 'Income this month' : 'Combined income'}: ${formatMoney(incomeFromBudget ? monthIncomeMinor : combinedIncomeMinor, CURRENCY)}`}
         tiles={[
           { label: 'People', value: `${members.length}` },
           { label: 'Shared this month', value: formatMoney(sharedSpentMinor, CURRENCY) },
@@ -449,6 +476,16 @@ export function PeoplePage() {
                             onChange={(e) => setEIncome(e.target.value)}
                             className="w-full rounded-md border border-slate-300 px-2 py-1 text-right text-sm tabular-nums"
                           />
+                        ) : incomeFromBudget ? (
+                          <div>
+                            {formatMoney(fromAmount(incomeByMember.get(m.id)?.planned ?? 0), CURRENCY)}
+                            {fromAmount(incomeByMember.get(m.id)?.planned ?? 0) !==
+                              fromAmount(m.netMonthlyIncome) && (
+                              <div className="text-xs font-normal text-slate-500">
+                                default {formatMoney(fromAmount(m.netMonthlyIncome), CURRENCY)}
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           formatMoney(fromAmount(m.netMonthlyIncome), CURRENCY)
                         )}
@@ -466,9 +503,9 @@ export function PeoplePage() {
                             className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-600"
                           >
                             <option value="">None</option>
-                            {accounts.map((a) => (
+                            {savingsFirst(accounts).map((a) => (
                               <option key={a.id} value={a.id}>
-                                {a.name}
+                                {accountOptionLabel(a)}
                               </option>
                             ))}
                           </select>
@@ -640,15 +677,18 @@ export function PeoplePage() {
                 }}
                 className="w-full text-right tabular-nums"
               />
+              <span className="font-normal text-slate-500">
+                Used as the default for months whose budget doesn’t assign income to people.
+              </span>
             </label>
             {accounts.length > 0 && (
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
                 Savings account
                 <Select value={savings} aria-label="Savings account" onChange={(e) => setSavings(e.target.value)} className="w-full">
                   <option value="">None</option>
-                  {accounts.map((a) => (
+                  {savingsFirst(accounts).map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.name}
+                      {accountOptionLabel(a)}
                     </option>
                   ))}
                 </Select>

@@ -17,7 +17,7 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.9")
+                .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -178,6 +178,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsPaid")
                         .HasColumnType("bit");
 
+                    b.Property<Guid?>("MemberId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(120)
@@ -193,6 +196,8 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("BudgetCategoryId");
+
+                    b.HasIndex("MemberId");
 
                     b.HasIndex("SavingsId");
 
@@ -796,6 +801,11 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasForeignKey("BudgetCategoryId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("AllotJar.Domain.Entities.HouseholdMember", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("AllotJar.Domain.Entities.Jar", null)
                         .WithMany()

@@ -80,6 +80,8 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        return plan.Result.ToDto(plan.EnvelopesTotal, plan.JarsTotal, created);
+        return plan.Result.ToDto(
+            plan.EnvelopesTotal, plan.JarsTotal, created,
+            unattributedIncome: plan.UnattributedIncome, incomeFromBudget: plan.IncomeFromBudget);
     }
 }

@@ -51,7 +51,8 @@ public class TransactionsController : ControllerBase
         var result = await _mediator.Send(
             new CreateTransactionCommand(
                 request.Date, request.Payee, request.Amount, request.Type,
-                request.BudgetItemId, request.AccountId, request.MemberId),
+                request.BudgetItemId, request.AccountId, request.MemberId,
+                request.Splits?.Select(a => new SplitAllocationInput(a.BudgetItemId, a.Amount, a.MemberId)).ToList()),
             ct);
         return CreatedAtAction(nameof(List), new { }, result);
     }
@@ -135,7 +136,11 @@ public class TransactionsController : ControllerBase
 /// <summary>Request body for assigning a transaction (null clears the assignment).</summary>
 public record AssignTransactionRequest(Guid? BudgetItemId);
 
-/// <summary>Request body for creating a manual transaction.</summary>
+/// <summary>
+/// Request body for creating a manual transaction. When <c>Splits</c> is given (two or more
+/// slices summing to <c>Amount</c>), the transaction is created already split and
+/// <c>BudgetItemId</c>/<c>MemberId</c> must be null — the slices carry the attribution.
+/// </summary>
 public record CreateTransactionRequest(
     DateOnly Date,
     string Payee,
@@ -143,7 +148,8 @@ public record CreateTransactionRequest(
     TransactionType Type,
     Guid? BudgetItemId,
     Guid? AccountId = null,
-    Guid? MemberId = null);
+    Guid? MemberId = null,
+    IReadOnlyList<SplitAllocationRequest>? Splits = null);
 
 /// <summary>Request body for transferring money between two accounts.</summary>
 public record CreateTransferRequest(

@@ -45,6 +45,25 @@ public class AddBudgetItemCommandHandler : IRequestHandler<AddBudgetItemCommand,
 
         var nextOrder = category.Items.Count == 0 ? 0 : category.Items.Max(i => i.DisplayOrder) + 1;
 
+        // Income attribution: only income lines carry a member, and the member must be
+        // this household's and active.
+        if (request.MemberId is Guid memberId)
+        {
+            if (category.Kind != CategoryKind.Income)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["MemberId"] = new[] { "Only income lines can be assigned to a person." },
+                });
+            }
+            var memberOk = await _db.HouseholdMembers
+                .AnyAsync(m => m.Id == memberId && m.OwnerId == userId && !m.IsArchived, cancellationToken);
+            if (!memberOk)
+            {
+                throw new NotFoundException($"Household member {memberId} was not found.");
+            }
+        }
+
         // A line in a Savings group is a jar's monthly contribution — backed by a
         // real jar (created here, shaped later on the Jars page), never a bare Guid,
         // which would violate the SavingsId FK on SQL Server.
@@ -59,6 +78,7 @@ public class AddBudgetItemCommandHandler : IRequestHandler<AddBudgetItemCommand,
             PlannedAmount = request.PlannedAmount,
             DisplayOrder = nextOrder,
             SavingsId = savingsId,
+            MemberId = request.MemberId,
         });
 
         await _db.SaveChangesAsync(cancellationToken);

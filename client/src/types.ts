@@ -16,6 +16,12 @@ export interface BudgetItemDto {
   dueDay: number | null
   /** Whether this month's instance of the bill has been paid. */
   isPaid: boolean
+  /**
+   * The household member this income line is attributed to (who earns it); null =
+   * whole-household. Always null on expense/savings lines. Optional so existing
+   * fixtures stay valid; absent reads as null.
+   */
+  memberId?: string | null
 }
 
 export interface BudgetCategoryDto {
@@ -25,6 +31,12 @@ export interface BudgetCategoryDto {
   displayOrder: number
   totalPlanned: number
   totalActual: number
+  /**
+   * True for allocation-OUTPUT categories (pocket money, personal savings): counted in the
+   * budget's planned total but excluded from the allocation engine's shared-cost envelopes.
+   * Optional so existing fixtures stay valid; absent reads as false.
+   */
+  excludeFromAllocation?: boolean
   items: BudgetItemDto[]
 }
 
@@ -424,6 +436,27 @@ export interface AllocationResultDto {
   steps: AllocationStepDto[]
   members: MemberAllocationDto[]
   transfersCreated: number
+  /**
+   * True when the pool came from the month's budgeted income lines (attributed to
+   * people). Optional so existing fixtures stay valid; absent reads as false.
+   */
+  incomeFromBudget?: boolean
+  /** Budgeted income not attributed to any person, shared equally when incomeFromBudget. */
+  unattributedIncome?: number
+}
+
+/** Per-member income for a month, derived from the budget (GET /members/income/{y}/{m}). */
+export interface MemberIncomeResultDto {
+  incomeFromBudget: boolean
+  unattributedPlanned: number
+  items: MemberIncomeDto[]
+}
+
+export interface MemberIncomeDto {
+  memberId: string
+  name: string
+  planned: number
+  received: number
 }
 
 /** Toggles for the features beyond core zero-based budgeting (from GET /api/features). */

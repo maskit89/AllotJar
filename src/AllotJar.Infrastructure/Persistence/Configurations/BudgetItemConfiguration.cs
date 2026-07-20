@@ -47,5 +47,14 @@ public class BudgetItemConfiguration : IEntityTypeConfiguration<BudgetItem>
             .WithOne(t => t.BudgetItem)
             .HasForeignKey(t => t.BudgetItemId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        // Who earns an income line. Same shape as the proven Transactions/TransactionSplits
+        // member FKs (SetNull; members are soft-archived in-app so the delete rarely fires).
+        // No navigation property — mirrors the SavingsId pattern above.
+        builder.HasIndex(i => i.MemberId);
+        builder.HasOne<HouseholdMember>()
+            .WithMany()
+            .HasForeignKey(i => i.MemberId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

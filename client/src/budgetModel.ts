@@ -20,6 +20,8 @@ export interface ItemVM {
   dueDay: number | null
   /** Whether this month's bill has been paid. */
   isPaid: boolean
+  /** Who earns this income line; null = whole-household (and always null off income lines). */
+  memberId: string | null
 }
 
 export interface CategoryVM {
@@ -27,6 +29,8 @@ export interface CategoryVM {
   name: string
   kind: CategoryKind
   displayOrder: number
+  /** Allocation-output category (pocket money, personal savings) — see BudgetCategoryDto. */
+  excludeFromAllocation: boolean
   items: ItemVM[]
 }
 
@@ -52,6 +56,7 @@ export function fromDto(dto: BudgetMonthDto): MonthVM {
       name: c.name,
       kind: c.kind === 'Income' ? 'income' : c.kind === 'Savings' ? 'savings' : 'expense',
       displayOrder: c.displayOrder,
+      excludeFromAllocation: c.excludeFromAllocation ?? false,
       items: c.items.map((i) => ({
         id: i.id,
         name: i.name,
@@ -61,6 +66,7 @@ export function fromDto(dto: BudgetMonthDto): MonthVM {
         savingsAvailableMinor: i.savingsAvailable == null ? null : fromAmount(i.savingsAvailable),
         dueDay: i.dueDay ?? null,
         isPaid: i.isPaid ?? false,
+        memberId: i.memberId ?? null,
       })),
     })),
   }
@@ -201,6 +207,17 @@ export function withItemPlanned(m: MonthVM, itemId: string, plannedMinor: Minor)
     categories: m.categories.map((c) => ({
       ...c,
       items: c.items.map((i) => (i.id === itemId ? { ...i, plannedMinor } : i)),
+    })),
+  }
+}
+
+/** Attribute (or clear, with null) who earns an income line. */
+export function withItemMember(m: MonthVM, itemId: string, memberId: string | null): MonthVM {
+  return {
+    ...m,
+    categories: m.categories.map((c) => ({
+      ...c,
+      items: c.items.map((i) => (i.id === itemId ? { ...i, memberId } : i)),
     })),
   }
 }

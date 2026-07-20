@@ -31,6 +31,14 @@ public class BudgetCategoryDto
     public int DisplayOrder { get; set; }
     public decimal TotalPlanned { get; set; }
     public decimal TotalActual { get; set; }
+
+    /// <summary>
+    /// True for allocation-OUTPUT categories (pocket money, personal savings): they count
+    /// into the budget's planned total (so "zero" includes them) but the allocation engine
+    /// leaves them out of its shared-obligation envelopes to avoid a double deduction.
+    /// </summary>
+    public bool ExcludeFromAllocation { get; set; }
+
     public List<BudgetItemDto> Items { get; set; } = new();
 }
 
@@ -57,4 +65,10 @@ public class BudgetItemDto
 
     /// <summary>Whether this month's instance of the bill has been paid.</summary>
     public bool IsPaid { get; set; }
+
+    /// <summary>
+    /// The household member this income line is attributed to (who earns it);
+    /// null = whole-household. Always null on expense/savings lines.
+    /// </summary>
+    public Guid? MemberId { get; set; }
 }

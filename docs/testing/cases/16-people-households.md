@@ -827,3 +827,21 @@
   - **Shared/solo gating flips back:** `refreshHousehold()` sets `members.length` back to 2 → `isShared` true (`HouseholdContext.tsx:97`, `SHARED_THRESHOLD = 2`) → the "Allocation" nav item (`data-tour="nav-allocation"`, → `/allocation`) reappears and the `/allocation` solo guard lifts; AccountPage "Sharing" card flips back to "shared between 2 people". This is the precise inverse of PPL-031 (archive-to-1 → shared→solo).
   - **Guards:** the restore obeys the same owner scoping as archive — `PUT …/archive` for a member whose `OwnerId != userId` → **403** (`ArchiveHouseholdMemberCommandHandler.cs:31-34`); an unknown id → **404 "Household member {id} was not found."** No sample/undo side effects; nothing was ever deleted by the earlier archive (PPL-023), so the restored member carries her original income and attributed transactions intact. A broken restore leg (IsArchived left true, or income not re-summed into the active pool) would leave Liza absent from the default list, the hero stuck at `€3,000.00`, and the Allocation nav hidden — all caught here.
 - **Automated:** No
+
+### PPL-078 - Budget-attributed income drives the People hero and income column
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** The current month's budget attributes income lines to people (`GET /members/income/{y}/{m}` → `incomeFromBudget: true`).
+- **Steps:**
+  1. Open `/people`; read the hero and each person's Income cell.
+- **Expected:** The hero relabels to **"Income this month"** = Σ attributed planned + unattributed planned. Each person's Income cell shows their derived month figure, with the static field as a "default €X" sub-line when the two differ. `Received` per member (whole income transactions + slices, month-dated) is available on the same endpoint for future surfacing.
+- **Automated:** Full (client PPL-078; backend `AllocationIncomeFromBudgetTests.GetMemberIncome_…`)
+
+### PPL-079 - Without attributed income the static figures and labels stay
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** No income line in the current month is attributed to a person (or the endpoint fails).
+- **Steps:**
+  1. Open `/people`.
+- **Expected:** Exactly the pre-switchover page: hero "Combined income" over the static `NetMonthlyIncome` sum, plain income cells, no "default" sub-lines. The add-person income field's helper text explains the field's new role: "Used as the default for months whose budget doesn't assign income to people." (labels/aria unchanged — the journey suite keys on them).
+- **Automated:** Full (client PPL-079)
