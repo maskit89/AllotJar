@@ -25,6 +25,12 @@ export interface BudgetCategoryDto {
   displayOrder: number
   totalPlanned: number
   totalActual: number
+  /**
+   * True for allocation-OUTPUT categories (pocket money, personal savings): counted in the
+   * budget's planned total but excluded from the allocation engine's shared-cost envelopes.
+   * Optional so existing fixtures stay valid; absent reads as false.
+   */
+  excludeFromAllocation?: boolean
   items: BudgetItemDto[]
 }
 

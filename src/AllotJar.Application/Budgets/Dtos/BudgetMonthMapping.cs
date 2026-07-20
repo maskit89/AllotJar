@@ -39,6 +39,7 @@ public static class BudgetMonthMapping
                 DisplayOrder = c.DisplayOrder,
                 TotalPlanned = c.TotalPlanned,
                 TotalActual = c.TotalActual,
+                ExcludeFromAllocation = c.ExcludeFromAllocation,
                 Items = c.Items
                     .OrderBy(i => i.DisplayOrder)
                     .Select(i => new BudgetItemDto
