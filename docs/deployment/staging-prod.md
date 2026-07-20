@@ -131,6 +131,40 @@ emailed link end-to-end.
 `Email:AppBaseUrl` is deliberately config-only (never derived from request Host headers — a
 spoofed header must not steer emailed links). Reset links are valid for 2 hours, single-use.
 
+## Sign in with Google
+
+Google sign-in is OFF until a client id is configured, on both the server (`Google:ClientId`, for
+ID-token audience validation) and the SPA build (`VITE_GOOGLE_CLIENT_ID`, to render the button).
+The client id is **public** — it ships in the SPA bundle — so unlike the Jwt key it may live in
+committed config; ONE OAuth client serves every environment via its authorized origins.
+
+One-time setup:
+
+1. **Google Cloud Console** → APIs & Services → Credentials → **Create OAuth client ID** → type
+   **Web application**. Under **Authorized JavaScript origins** add every host the button loads
+   from: `https://www.allotjar.com`, `https://allotjar.com`, and (if you ever enable it there)
+   `https://staging.allotjar.com`. No redirect URI is needed — this flow returns an ID token to the
+   page, it does not redirect. Complete the **OAuth consent screen** (external, the app name +
+   support email + the privacy/terms links already at allotjar.com) or Google shows an "unverified
+   app" warning.
+2. Copy the client id (`….apps.googleusercontent.com`).
+3. **Server**: add to `appsettings.Production.json` (preserved across deploys):
+   `"Google": { "ClientId": "….apps.googleusercontent.com" }`, then **recycle the app pool** (the
+   validator's audience is read via `IOptions` at startup — see the email note above for the
+   recycle rationale).
+4. **SPA**: set the repository variable **`VITE_GOOGLE_CLIENT_ID`** (Settings → Secrets and
+   variables → Actions → Variables) to the SAME client id. The production build step inlines it
+   (`deploy/deploy.yml`); the next deploy renders the button. Staging deliberately leaves it unset.
+5. **CSP** already allows `accounts.google.com/gsi/*` (script/frame/connect/style-src in
+   `deploy/web/web.config`) — no action, but don't strip those directives.
+6. **Smoke-test**: `https://www.allotjar.com/login` shows **Continue with Google**; completing it
+   signs in (first time: the Terms modal, then the empty dashboard).
+
+If the button doesn't appear, `VITE_GOOGLE_CLIENT_ID` wasn't inlined at build time. If it appears
+but sign-in 401s, the server's `Google:ClientId` is missing/mismatched (audience check) or the app
+pool wasn't recycled. A Google-created account has no password — the Account page routes such users
+to **Forgot password** to add one (reset works for passwordless accounts).
+
 ## Changing the staging IP allowlist
 
 The allowlist lives in ONE place: the Cloudflare WAF custom rule
