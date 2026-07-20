@@ -3,8 +3,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using AllotJar.Api.Features;
 using AllotJar.Application.Allocation.Commands.AllocateIncome;
+using AllotJar.Application.Allocation.Commands.SyncPocketMoneyLines;
 using AllotJar.Application.Allocation.Commands.UpsertAllocationProfile;
 using AllotJar.Application.Allocation.Dtos;
+using AllotJar.Application.Budgets.Dtos;
 using AllotJar.Application.Allocation.Queries.GetAllocationProfile;
 using AllotJar.Application.Allocation.Queries.PreviewIncomeAllocation;
 
@@ -62,6 +64,22 @@ public class AllocationController : ControllerBase
     public async Task<ActionResult<AllocationResultDto>> Preview(int year, int month, [FromQuery] Guid? profileId, CancellationToken ct)
     {
         var result = await _mediator.Send(new PreviewIncomeAllocationQuery(year, month, profileId), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Materializes the profile's pocket money as per-member budget lines in an
+    /// ExcludeFromAllocation Expense category (creating/adopting "Pocket Money"), so the
+    /// zero-based budget and the allocation engine agree. Explicit user action; idempotent.
+    /// Returns the refreshed month.
+    /// </summary>
+    [HttpPost("pocket-lines/{year:int}/{month:int}")]
+    [ProducesResponseType(typeof(BudgetMonthDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<BudgetMonthDto>> SyncPocketLines(int year, int month, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new SyncPocketMoneyLinesCommand(year, month), ct);
         return Ok(result);
     }
 

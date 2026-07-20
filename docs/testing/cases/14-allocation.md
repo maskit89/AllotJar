@@ -314,7 +314,7 @@
 - **Preconditions:** Envelopes 4,000.00 + jars 1,500.00 + pocket 0 = 5,500.00 shared spending vs pool 5,000.00 (remainder −500.00 ≤ 0 → keep-own terminal branch).
 - **Steps:**
   1. Open `/allocation`; read hero + per-member tiles.
-- **Expected:** Shared spending **€5,500.00**, To savings **−€500.00**; the two still sum to the pool **€5,000.00**. Terminal remainder ≤ 0 → keep-own: each member keeps their own (possibly negative) leftover shown as a rose residual; commit will skip members whose residual ≤ 0. The "nothing left to move to savings" note may show (see ALLOC-056).
+- **Expected:** Shared spending **€5,500.00**, To savings **−€500.00** rendered as a shortfall (rose value in the hero tile); the two still sum to the pool **€5,000.00**. Terminal remainder ≤ 0 → keep-own: each member keeps their own (possibly negative) leftover shown as a rose residual; commit will skip members whose residual ≤ 0. The rose overshoot note shows (see ALLOC-056).
 - **Automated:** No
 
 ### ALLOC-032 - Hero hidden until both profile and preview are present
@@ -460,7 +460,7 @@
 - **Preconditions:** Robin has **no** `PersonalSavingsAccountId`; Robin's residual is positive (e.g. 1,150.00).
 - **Steps:**
   1. Read Robin's tile.
-- **Expected:** Robin's tile shows the amber note **"No savings account set — won't transfer on commit."**; `savingsBalance` reads €0.00 (no account). The positive residual becomes **stranded** on commit (see ALLOC-055).
+- **Expected:** Robin's tile shows the amber note **"No savings account linked — Robin's share stays in {source account} when you allocate."** (Admin+; Limited/Read-only instead see "…will stay in the source account. Ask an admin to link one on the People page."); `savingsBalance` reads €0.00 (no account). The warning is actionable: an inline **"Link a savings account…"** picker (savings-type accounts first, "Name — Type" labels) links via a full-echo `PUT /members/{id}` and reloads the preview so the warning clears (ALLOC-064); with no savings-type account a **"Create a savings account"** button deep-links to /accounts. The positive residual becomes **stranded** on commit (see ALLOC-055/067).
 - **Automated:** No
 
 ### ALLOC-047 - Member savings balance for the tilt excludes this month's own allocation transfers
@@ -549,7 +549,7 @@
 - **Preconditions:** Robin has no savings account but a positive residual of 1,150.00; Chris has one.
 - **Steps:**
   1. Open `/allocation`.
-- **Expected:** An amber note reads **"€1,150.00 has nowhere to go — a member has no savings account, so that share stays in the source account instead of transferring."** (`strandedMinor` = Σ residual of members with `!savingsAccountId && residual > 0`). Commit writes only Chris's transfer; Robin's share stays in the source account.
+- **Expected:** An amber note reads **"€1,150.00 won't be transferred — Robin has no savings account linked (see below)."** — it names the affected people and points at the inline fix on their cards (`strandedMinor` = Σ residual of members with `!savingsAccountId && residual > 0`). Commit requires an explicit confirm (ALLOC-067); confirmed, it writes only Chris's transfer and Robin's share stays in the source account, repeated in the success banner.
 - **Automated:** No
 
 ### ALLOC-056 - Nothing-to-save note when shared spending consumes the whole pool
@@ -558,8 +558,8 @@
 - **Preconditions:** Envelopes+jars+pocket ≥ pool so `toSavings ≤ 0` and no stranded surplus (`strandedMinor === 0`).
 - **Steps:**
   1. Open `/allocation`.
-- **Expected:** A slate note reads **"Shared spending uses up all the pooled income this month, so there's nothing left to move to savings."** (shown only when `nothingToSave && strandedMinor === 0`). If instead a positive share is stranded, the stranded note (ALLOC-055) shows rather than this one.
-- **Automated:** No
+- **Expected:** Two honest variants: with `toSavings < 0` a **rose** note reads **"Shared costs, jars and pocket money overshoot the pooled income by €X — pocket money can't be funded this month."** and the commit banner's zero-transfer copy becomes "…nothing was transferred because shared spending overshoots the pooled income." (never the cheerful "no savings transfers were needed"). At exactly `toSavings === 0` the slate note reads **"Shared spending uses up all the pooled income this month, so there's nothing left to move to savings."** If instead a positive share is stranded, the stranded note (ALLOC-055) shows rather than either.
+- **Automated:** Yes (`AllocationPage.catalog.test.tsx` ALLOC-031/045/056 + ALLOC-070)
 
 ### ALLOC-057 - Commit only transfers members with residual > 0 AND a savings account
 - **Priority:** P1
@@ -629,3 +629,77 @@
   1. Open `/allocation`.
 - **Expected:** `GET /allocation/profile` → null and there are no jars/months, so the page shows **"No allocation set up yet"** — allocation tests must not assume a starter profile, Emergency Fund jar, or seeded budget exists. Only the opt-in sample seed (or a manual Set up) creates a profile.
 - **Automated:** Partial (register.spec.ts / HouseholdBootstrapTests — opt-in seeding; not the allocation page specifically)
+
+### ALLOC-064 - The inline savings-link picker on a member card links and reloads
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Admin+; Robin unlinked; at least one savings-type account exists (e.g. "Robin Savings").
+- **Steps:**
+  1. On Robin's Allocation card, pick "Robin Savings — Savings" in "Link a savings account…".
+- **Expected:** A full-echo `PUT /members/{robin}` carries `{name, netMonthlyIncome, personalSavingsAccountId}` (name + income echoed from the preview DTO), the preview reloads, the warning clears and the balance-tilt figures recompute. Any stale "Allocated" banner is cleared (the figures changed). A unique case-insensitive name match additionally offers a one-click **"Use 'Robin Savings'"** chip — offer-only, nothing links without a click; an ambiguous match (two candidates) offers no chip (ALLOC-065). The picker lists savings-type accounts first with type-label suffixes.
+- **Automated:** Full (`AllocationPage.catalog.test.tsx` ALLOC-064/065)
+
+### ALLOC-065 - No suggestion chip on an ambiguous name match
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** Two unlinked savings accounts both containing the member's name.
+- **Steps:**
+  1. Read the unlinked member's card.
+- **Expected:** No "Use '…'" chip renders — only the picker. Suggestions require exactly one candidate.
+- **Automated:** Full (`AllocationPage.catalog.test.tsx` ALLOC-065)
+
+### ALLOC-066 - Limited/Read-only see explanatory copy instead of the picker
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** Limited login; a member without a savings link.
+- **Steps:**
+  1. Open `/allocation` and read the unlinked member's card.
+- **Expected:** "No savings account linked — {name}'s share will stay in the source account. Ask an admin to link one on the People page." — no picker, no chip (member-edit is Admin+ while commit is Limited+). The Allocate button remains available.
+- **Automated:** Full (`AllocationPage.catalog.test.tsx` ALLOC-066)
+
+### ALLOC-067 - Allocating with a stranded share needs an explicit confirm
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** A member with a positive residual and no savings link (`strandedMinor > 0`).
+- **Steps:**
+  1. Press "Allocate {month}".
+  2. Cancel; press again; choose "Allocate anyway".
+- **Expected:** The first press opens a confirm modal — "Allocate without {names}?" / "€X will stay in {source account} because {names} has no savings account linked. You can link one on the person's card and re-run — re-running Allocate replaces the transfers, never doubles up." Cancel aborts with no POST. "Allocate anyway" commits (the loss-free skip stays possible for households that keep a member's savings off-app), and the success banner appends "€X stayed in {source account} for {names} (no savings account linked)." With no stranded share the modal never appears — commit fires directly.
+- **Automated:** Full (`AllocationPage.catalog.test.tsx` ALLOC-067; direct-commit path covered by ALLOC-020)
+
+### ALLOC-068 - The reconciliation banner: engine pocket money missing from the budget, one-click sync
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** A profile with pocket money > 0; the viewed month has no (or under-planned) flagged pocket lines, so `U = pocket + max(toSavings,0) − Σ planned(flagged categories) > 0`.
+- **Steps:**
+  1. Open `/allocation`; read the amber banner between the card header and the waterfall.
+  2. Click "Add pocket money to {month}'s budget".
+- **Expected:** With `remainingToBudget < U` the copy is the honest disagreement: "Your budget and your allocation disagree. The budget leaves only €R unassigned, but the allocation also promises €P in pocket money[ and €S to personal savings]. That's €(U−R) more than your income covers — trim budget lines, or lower pocket money in Settings." (with `remainingToBudget ≥ U`: "€U of your income is already promised by the allocation … the budget will keep showing it as 'still to assign'."). The CTA (Admin+ only, pocket > 0 only) POSTs `/allocation/pocket-lines/{y}/{m}` — the server creates/adopts a **"Pocket Money"** Expense category flagged `ExcludeFromAllocation` with one line per active member at the rule amount (idempotent; archived members skipped; unmatched lines left alone; pocket 0 zeroes lines) — then the budget and preview refresh, the banner clears once the flagged lines cover the promise, and a `role="status"` confirms "Pocket money added to {month}'s budget."
+- **Automated:** Full (backend `SyncPocketMoneyLinesTests` + `AllocationTests` end-to-end scenario; client ALLOC-068)
+
+### ALLOC-069 - The counted-twice banner: an unflagged "Pocket Money" category plus the rule
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** Pocket rule > 0 AND the month has an **unflagged** Expense category named "Pocket Money" (the imported household's shape).
+- **Steps:**
+  1. Open `/allocation`.
+- **Expected:** The banner's distinct variant: "Pocket money is currently counted twice — once as a budget group and once as the allocation's pocket-money step." The same CTA heals it: the sync ADOPTS the existing category (flags it, never duplicates), the envelopes total drops by the pocket lines' planned sum, and the engine's FixedPerMember rule becomes the single deduction. No blind name-based migration exists — the flag flips only via this user-invoked sync.
+- **Automated:** Full (backend adopt/heal test asserts EnvelopesTotal 2,500 → 2,000; client ALLOC-069)
+
+### ALLOC-070 - Negative To savings is styled and worded as a shortfall end-to-end
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** Envelopes + jars + pocket > pool (`toSavings < 0`).
+- **Steps:**
+  1. Read the hero tile, the note under the waterfall, then Allocate.
+- **Expected:** The "To savings" tile value renders rose; the rose note names the overshoot amount; committing yields "Allocated {month} — nothing was transferred because shared spending overshoots the pooled income." instead of the cheerful zero-transfer copy.
+- **Automated:** Full (client ALLOC-070; commit-skip math in AllocationTests)
+
+### ALLOC-071 - Pool vs budgeted income mismatch gets a source note
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** The month's budgeted income lines total > 0 and ≠ the members' combined `NetMonthlyIncome`.
+- **Steps:**
+  1. Open `/allocation` and read below the waterfall.
+- **Expected:** A muted note: "the pooled income here (€pool) comes from each person's income on the People page and doesn't match {month}'s budgeted income lines (€income)." — naming the two sources instead of letting the figures silently disagree (the full unification is the income-attribution workstream). Suppressed when the budget plans no income at all (empty month).
+- **Automated:** Full (client ALLOC-071)

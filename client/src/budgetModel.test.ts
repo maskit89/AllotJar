@@ -289,3 +289,17 @@ describe('bill reminders', () => {
     expect(billAlerts(month, today)).toEqual({ overdue: 2, dueSoon: 1 })
   })
 })
+
+describe('excludeFromAllocation mapping', () => {
+  it('maps the flag from the DTO and defaults to false when absent', () => {
+    const base = dto()
+    base.categories[1].excludeFromAllocation = true
+
+    const m = fromDto(base)
+
+    expect(m.categories.find((c) => c.name === 'Housing')?.excludeFromAllocation).toBe(true)
+    // The fixture's other categories carry no flag — absent reads as false.
+    expect(m.categories.find((c) => c.name === 'Income')?.excludeFromAllocation).toBe(false)
+    expect(m.categories.find((c) => c.name === 'Food')?.excludeFromAllocation).toBe(false)
+  })
+})

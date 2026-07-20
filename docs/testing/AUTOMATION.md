@@ -9,11 +9,11 @@ automated, write the closest proxy and **flag the rest here** rather than preten
 | Layer | Location | Run | Tests | New |
 |---|---|---|---|---|
 | Backend unit (xUnit, EF InMemory) | `tests/AllotJar.Application.Tests` | `dotnet test tests/AllotJar.Application.Tests` | **710** | +206 |
-| Client component (Vitest + RTL) | `client/src/**/*.catalog*.test.tsx` | `cd client && npm run test` | **610** | +350 |
+| Client component (Vitest + RTL) | `client/src/**/*.catalog*.test.tsx` | `cd client && npm run test` | **613** | +350 |
 | Journey e2e (live API + real SQL) | `client/e2e-journey` | `cd client && npm run test:e2e:journey` | **38** | +25 |
 | a11y / responsive / UX (stubbed API) | `client/e2e` | `cd client && npm run test:e2e` | **98** | +46 |
-| HTTP integration (in-process API + real SQL) | `tests/AllotJar.IntegrationTests` | `dotnet test tests/AllotJar.IntegrationTests` | **45** | +15 |
-| **Total** | | | **1,501** | **+642** |
+| HTTP integration (in-process API + real SQL) | `tests/AllotJar.IntegrationTests` | `dotnet test tests/AllotJar.IntegrationTests` | **46** | +15 |
+| **Total** | | | **1,505** | **+642** |
 
 Delivered as four PRs, each independently verified green and CI-passing: **#178** (backend, merged),
 **#179** (client, merged), **#180** (journey), **#181** (a11y). Every added test cites the catalog case
