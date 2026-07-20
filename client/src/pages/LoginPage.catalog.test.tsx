@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
@@ -60,9 +60,28 @@ vi.mock('../analytics', async (importOriginal) => ({
   track: vi.fn(),
 }))
 
+// Google Identity Services stub: exposes the captured credential callback so a test can act as
+// Google handing back a signed token. Client id present by default; a test can blank it.
+const { googleState } = vi.hoisted(() => ({
+  googleState: {
+    clientId: 'client-123.apps.googleusercontent.com',
+    callback: undefined as ((credential: string) => void) | undefined,
+  },
+}))
+vi.mock('../lib/googleAuth', () => ({
+  get GOOGLE_CLIENT_ID() {
+    return googleState.clientId
+  },
+  renderGoogleButton: (_el: HTMLElement, cb: (credential: string) => void) => {
+    googleState.callback = cb
+    return Promise.resolve()
+  },
+}))
+
 import { LoginPage } from './LoginPage'
 import { AuthProvider } from '../auth/AuthContext'
 import { track, EVENTS } from '../analytics'
+import { detectLocaleDefaults } from '../lib/money'
 
 function LocationProbe() {
   const loc = useLocation()
@@ -734,5 +753,69 @@ describe('LoginPage (REG catalog)', () => {
 
     await user.click(screen.getByRole('button', { name: 'Create account' }))
     expect(screen.queryByRole('link', { name: 'Forgot password?' })).not.toBeInTheDocument()
+  })
+
+  // REG-081 — the Google credential round-trip: Google's callback POSTs /auth/google with the
+  // credential AND the locale-detected money defaults, applies the session, navigates, and
+  // reports sign_up vs login from the server's isNewAccount verdict.
+  it('REG-081: a Google credential signs in, sends locale defaults, and tracks by isNewAccount', async () => {
+    mockPost.mockResolvedValue({ data: { ...authResponse(), isNewAccount: true } })
+    renderAt('/login')
+
+    // The divider appears only after the button reports ready.
+    await screen.findByText('or')
+    expect(googleState.callback).toBeDefined()
+
+    await act(async () => googleState.callback!('google-credential-xyz'))
+
+    await waitFor(() => expect(screen.getByText('HOME')).toBeInTheDocument())
+    // Pin the CONCRETE locale-detected values (not just "some string"): the server applies these
+    // as a new Google user's home currency, so forwarding the wrong field/a hardcoded value must
+    // fail here. jsdom's navigator.language is en-US → GBP/EUR-agnostic detectLocaleDefaults output.
+    const detected = detectLocaleDefaults()
+    expect(mockPost).toHaveBeenCalledWith('/auth/google', {
+      credential: 'google-credential-xyz',
+      preferredCurrency: detected.currency,
+      numberFormat: detected.numberFormat,
+    })
+    expect(track).toHaveBeenCalledWith(EVENTS.signUp, { method: 'google' })
+
+    // Existing account: same flow, but the event is login.
+    vi.mocked(track).mockClear()
+    mockPost.mockResolvedValue({ data: { ...authResponse(), isNewAccount: false } })
+    const second = renderAt('/login')
+    await second.findByText('or')
+    await act(async () => googleState.callback!('google-credential-2'))
+    await waitFor(() => expect(track).toHaveBeenCalledWith(EVENTS.login, { method: 'google' }))
+  })
+
+  // REG-081 — a rejected credential surfaces the server's error on the card (no bounce, no
+  // spurious session-expired redirect) and fires login_failed.
+  it('REG-081: a rejected Google credential shows the server error inline', async () => {
+    mockPost.mockRejectedValue(
+      axiosError({ error: 'Google sign-in could not be verified. Please try again.' }, 401),
+    )
+    renderAt('/login')
+    await screen.findByText('or')
+
+    await act(async () => googleState.callback!('bad-credential'))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('could not be verified')
+    expect(track).toHaveBeenCalledWith(EVENTS.loginFailed, { method: 'google' })
+    // Still on the login page, form intact.
+    expect(screen.getByLabelText('Email')).toBeInTheDocument()
+  })
+
+  // REG-080 — without a build-time client id there is no button and no divider: the card is
+  // byte-identical to the password-only experience.
+  it('REG-080: no client id means no Google button and no divider', async () => {
+    googleState.clientId = ''
+    renderAt('/login')
+
+    await waitFor(() => expect(screen.getByLabelText('Email')).toBeInTheDocument())
+    expect(screen.queryByText('or')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('google-signin')).not.toBeInTheDocument()
+    googleState.clientId = 'client-123.apps.googleusercontent.com'
   })
 })

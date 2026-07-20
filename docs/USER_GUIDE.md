@@ -61,6 +61,7 @@ AllotJar's big banner tracks that goal live as you type.
 - Your data is private to your login. (You can deliberately share a household with other people — see [People & sharing](#8-people--sharing).)
 - Your session is kept alive securely in the background, so you stay signed in between visits without re-entering your password.
 - Forgot your password? Use the **Forgot password?** link on the sign-in card — we'll email you a reset link (valid for 2 hours). Setting a new password signs you out everywhere else and signs you straight in on the device you used.
+- Prefer not to manage a password? Use **Continue with Google** on the sign-in card — it both signs you in and, the first time, creates your account (you'll just confirm the Terms). If you already have a password account with the same Google email, signing in with Google links to it, so either method works from then on. A Google-only account has no password; to add one later, use **Forgot password** with that email from the Account page.
 
 ### The layout: sidebar, top bar and your account menu
 
