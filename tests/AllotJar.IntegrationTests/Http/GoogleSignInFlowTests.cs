@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AllotJar.IntegrationTests.Http;
 
@@ -280,4 +281,81 @@ public class GoogleSignInFlowTests
         string? preferredCurrency = null, string? numberFormat = null) =>
         client.PostAsJsonAsync("/api/auth/google",
             new { credential, preferredCurrency, numberFormat }, HttpApiFixture.Json);
+
+    // REG-085 — a login with a password can disconnect Google: /auth/me flips hasGoogle to false,
+    // and a subsequent Google sign-in re-creates the link rather than being stuck.
+    [Fact]
+    public async Task A_password_login_can_disconnect_and_reconnect_google()
+    {
+        using var client = _fixture.CreateClient();
+        var run = Guid.NewGuid().ToString("N")[..8];
+        var email = $"unlink-{run}@httpsweep.test";
+        var password = $"Aa1x{Guid.NewGuid():N}";
+
+        // A password account, then a Google auto-link — which (pre-hijacking defence) removes the
+        // password, so ADD a password back via reset first would be one route; simpler: create the
+        // account passwordless via Google, then set a password via reset to satisfy the guard.
+        var google = await PostGoogleAsync(client, Credential($"g-unlink-{run}", email));
+        google.StatusCode.Should().Be(HttpStatusCode.OK);
+        var token = (await HttpApiFixture.ReadJsonAsync(google)).RootElement.GetProperty("token").GetString()!;
+
+        // hasGoogle is true, hasPassword false — so unlink is REFUSED (would orphan the login).
+        var me1 = await HttpApiFixture.ReadJsonAsync(
+            await HttpApiFixture.SendAsync(client, HttpMethod.Get, "/api/auth/me", token));
+        me1.RootElement.GetProperty("hasGoogle").GetBoolean().Should().BeTrue();
+        me1.RootElement.GetProperty("hasPassword").GetBoolean().Should().BeFalse();
+
+        var blocked = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/auth/google/unlink", token);
+        blocked.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await blocked.Content.ReadAsStringAsync()).Should().Contain("only way you sign in");
+
+        // Add a password via the reset flow (works on a passwordless account), then unlink is allowed.
+        var resetToken = await IssueResetTokenAsync(email);
+        var reset = await client.PostAsJsonAsync("/api/auth/reset-password",
+            new { email, token = resetToken, newPassword = password }, HttpApiFixture.Json);
+        reset.StatusCode.Should().Be(HttpStatusCode.OK);
+        var tokenAfterReset = (await HttpApiFixture.ReadJsonAsync(reset)).RootElement.GetProperty("token").GetString()!;
+
+        var unlink = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/auth/google/unlink", tokenAfterReset);
+        unlink.StatusCode.Should().Be(HttpStatusCode.OK);
+        // Unlink rotates the stamp (RemoveLoginAsync), so it returns a FRESH token to keep the user
+        // signed in — the pre-unlink token is now dead, the new one works.
+        var tokenAfterUnlink = (await HttpApiFixture.ReadJsonAsync(unlink)).RootElement.GetProperty("token").GetString()!;
+        (await HttpApiFixture.SendAsync(client, HttpMethod.Get, "/api/auth/me", tokenAfterReset))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized, "the pre-unlink access token is revoked by the stamp rotation");
+
+        var me2 = await HttpApiFixture.ReadJsonAsync(
+            await HttpApiFixture.SendAsync(client, HttpMethod.Get, "/api/auth/me", tokenAfterUnlink));
+        me2.RootElement.GetProperty("hasGoogle").GetBoolean().Should().BeFalse("Google was disconnected");
+        me2.RootElement.GetProperty("hasPassword").GetBoolean().Should().BeTrue();
+
+        // Signing in with Google again re-links it (verified-email match onto the now-password account).
+        var reconnect = await PostGoogleAsync(client, Credential($"g-unlink2-{run}", email));
+        reconnect.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    /// <summary>Runs forgot-password and reads the reset token back from the dev mailbox.</summary>
+    private async Task<string> IssueResetTokenAsync(string email)
+    {
+        using var client = _fixture.CreateClient();
+        (await client.PostAsJsonAsync("/api/auth/forgot-password", new { email }, HttpApiFixture.Json))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var sink = _fixture.Services.GetRequiredService<AllotJar.Infrastructure.Email.DevEmailSink>();
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            var messages = sink.ForRecipient(email);
+            if (messages.Count > 0)
+            {
+                var url = messages[0].TextBody.Split('\n').Select(l => l.Trim())
+                    .Single(l => l.StartsWith("http") && l.Contains("/reset-password?"));
+                var query = url[(url.IndexOf('?') + 1)..];
+                return query.Split('&').Select(p => p.Split('=', 2))
+                    .ToDictionary(p => p[0], p => Uri.UnescapeDataString(p[1]))["token"];
+            }
+            await Task.Delay(50);
+        }
+
+        throw new InvalidOperationException($"No reset email for {email}.");
+    }
 }

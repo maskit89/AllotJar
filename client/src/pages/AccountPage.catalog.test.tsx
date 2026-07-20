@@ -514,9 +514,9 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     expect(localStorage.getItem('zbb.theme')).toBe('light')
   })
 
-  // PREF-011 — a Google-created (passwordless) login sees no change-password form; instead an
+  // PREF-040 — a Google-created (passwordless) login sees no change-password form; instead an
   // "add a password via Forgot password" note. A password login keeps the form.
-  it('PREF-011: a passwordless login gets an add-password note, not a change-password form', async () => {
+  it('PREF-040: a passwordless login gets an add-password note, not a change-password form', async () => {
     meData = { ...ownerMe, hasPassword: false } as typeof ownerMe
 
     renderPage()
@@ -532,13 +532,59 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     expect(screen.getByText(/sign in with Google/i)).toBeInTheDocument()
   })
 
-  // PREF-011 — the ordinary password login is unchanged: the change-password form is present.
-  it('PREF-011: a password login keeps the change-password form', async () => {
+  // PREF-040 — the ordinary password login is unchanged: the change-password form is present.
+  it('PREF-040: a password login keeps the change-password form', async () => {
     meData = { ...ownerMe, hasPassword: true } as typeof ownerMe
 
     renderPage()
 
     expect(await screen.findByRole('heading', { name: 'Change password' }, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByLabelText('Current password')).toBeInTheDocument()
+  })
+
+  // PREF-041 — the "Connected accounts" card only shows when Google is linked; with a password,
+  // Disconnect is enabled and POSTs /auth/google/unlink; the reissued session is applied.
+  it('PREF-041: a linked login with a password can disconnect Google', async () => {
+    meData = { ...ownerMe, hasGoogle: true, hasPassword: true } as typeof ownerMe
+    mockPost.mockResolvedValue({
+      data: { token: 't2', expiresAtUtc: '2999-01-01T00:00:00Z', userId: 'u1', email: 'chris@x.com', role: 0, displayName: 'Chris' },
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    const disconnect = await screen.findByRole('button', { name: 'Disconnect' }, { timeout: 5000 })
+    expect(disconnect).toBeEnabled()
+    await user.click(disconnect)
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/auth/google/unlink'), { timeout: 5000 })
+    expect(await screen.findByText('Google has been disconnected.')).toBeInTheDocument()
+  })
+
+  // PREF-041 — a passwordless linked login can't disconnect (it's the only way in): the button is
+  // disabled and the card explains to set a password first.
+  it('PREF-041: a passwordless linked login sees Disconnect disabled with a set-a-password hint', async () => {
+    meData = { ...ownerMe, hasGoogle: true, hasPassword: false } as typeof ownerMe
+
+    renderPage()
+
+    const disconnect = await screen.findByRole('button', { name: 'Disconnect' }, { timeout: 5000 })
+    expect(disconnect).toBeDisabled()
+    expect(screen.getByText(/only way to sign in, so it can't be disconnected/i)).toBeInTheDocument()
+    // A passwordless account shows a "Forgot password" link in BOTH the Password card and this
+    // Connected-accounts hint — both point at /forgot-password.
+    const forgotLinks = screen.getAllByRole('link', { name: 'Forgot password' })
+    expect(forgotLinks.length).toBeGreaterThanOrEqual(1)
+    forgotLinks.forEach((l) => expect(l).toHaveAttribute('href', '/forgot-password'))
+  })
+
+  // PREF-041 — no Google linked ⇒ no "Connected accounts" card at all.
+  it('PREF-041: no card when Google is not linked', async () => {
+    meData = { ...ownerMe, hasGoogle: false } as typeof ownerMe
+
+    renderPage()
+
+    await screen.findByRole('heading', { name: 'Change password' }, {}, { timeout: 5000 })
+    expect(screen.queryByRole('heading', { name: 'Connected accounts' })).not.toBeInTheDocument()
   })
 })

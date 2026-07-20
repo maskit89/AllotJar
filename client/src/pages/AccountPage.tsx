@@ -25,6 +25,8 @@ export function AccountPage() {
     changePassword,
     updatePreferences,
     hasPassword,
+    hasGoogle,
+    unlinkGoogle,
   } = useAuth()
   const { isShared, members, loading: householdLoading } = useHousehold()
   const navigate = useNavigate()
@@ -113,6 +115,30 @@ export function AccountPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
+
+  // --- Disconnect Google ---
+  const [unlinkBusy, setUnlinkBusy] = useState(false)
+  const [unlinkError, setUnlinkError] = useState<string | null>(null)
+  const [unlinkDone, setUnlinkDone] = useState(false)
+
+  async function onUnlinkGoogle() {
+    setUnlinkError(null)
+    setUnlinkDone(false)
+    setUnlinkBusy(true)
+    try {
+      await unlinkGoogle()
+      setUnlinkDone(true)
+    } catch (err) {
+      if (axios.isAxiosError(err)) {
+        const data = err.response?.data as { error?: string } | undefined
+        setUnlinkError(data?.error ?? 'Could not disconnect Google. Please try again.')
+      } else {
+        setUnlinkError('Could not disconnect Google. Please try again.')
+      }
+    } finally {
+      setUnlinkBusy(false)
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -425,6 +451,49 @@ export function AccountPage() {
         </form>
         )}
       </Card>
+
+      {hasGoogle && (
+        <Card className="p-5">
+          <h2 className="mb-4 text-sm font-semibold text-slate-700">Connected accounts</h2>
+          <div className="flex max-w-sm items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-slate-800">Google</p>
+              <p className="text-sm text-slate-500">You can sign in with Google.</p>
+            </div>
+            <Button
+              variant="secondary"
+              disabled={unlinkBusy || !hasPassword}
+              onClick={onUnlinkGoogle}
+              title={
+                hasPassword
+                  ? undefined
+                  : 'Set a password first — Google is currently your only way to sign in.'
+              }
+            >
+              {unlinkBusy ? 'Disconnecting…' : 'Disconnect'}
+            </Button>
+          </div>
+          {!hasPassword && (
+            <p className="mt-3 max-w-sm text-sm text-slate-500">
+              Google is your only way to sign in, so it can't be disconnected yet. Add a password
+              first via{' '}
+              <Link
+                to="/forgot-password"
+                className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-500"
+              >
+                Forgot password
+              </Link>
+              .
+            </p>
+          )}
+          {unlinkError && <ErrorBanner>{unlinkError}</ErrorBanner>}
+          {unlinkDone && (
+            <p role="status" className="mt-3 text-sm font-medium text-emerald-700 dark:text-emerald-300">
+              Google has been disconnected.
+            </p>
+          )}
+        </Card>
+      )}
     </AppShell>
   )
 }
