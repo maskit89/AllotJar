@@ -52,7 +52,8 @@ public static class BudgetMonthMapping
                         SavingsId = i.SavingsId,
                         SavingsAvailable = i.SavingsAvailable,
                         DueDay = i.DueDay,
-                        IsPaid = i.IsPaid
+                        IsPaid = i.IsPaid,
+                        MemberId = i.MemberId
                     })
                     .ToList()
             })

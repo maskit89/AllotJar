@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ItemVM } from '../budgetModel'
+import type { HouseholdMemberDto } from '../types'
 import { currencySymbol, formatMoney, parseMinor, toEditString, type Minor } from '../lib/money'
 import { hueColor, hueTint } from '../lib/categoryColors'
 import { useAuth } from '../auth/AuthContext'
@@ -11,6 +12,10 @@ interface Props {
   onRename: (itemId: string, name: string) => void
   onCommitPlanned: (itemId: string, plannedMinor: Minor) => void
   onDelete: (itemId: string) => void
+  /** Shared households only: who earns this income line. */
+  members?: HouseholdMemberDto[]
+  showMemberPicker?: boolean
+  onSetMember?: (itemId: string, memberId: string | null) => void
 }
 
 /**
@@ -19,7 +24,17 @@ interface Props {
  * the planned amount inline-editable (formatted at rest, raw while focused) and
  * the transaction-derived received amount beneath it.
  */
-export function IncomeLineRow({ item, currency, saving, onRename, onCommitPlanned, onDelete }: Props) {
+export function IncomeLineRow({
+  item,
+  currency,
+  saving,
+  onRename,
+  onCommitPlanned,
+  onDelete,
+  members = [],
+  showMemberPicker = false,
+  onSetMember,
+}: Props) {
   // Editing income lines (structure + amounts) needs Admin+ (canWrite).
   const { canWrite } = useAuth()
   const [name, setName] = useState(item.name)
@@ -83,6 +98,29 @@ export function IncomeLineRow({ item, currency, saving, onRename, onCommitPlanne
         <div className="ml-1.5 mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: hueTint('emerald') }} aria-hidden>
           <div className="h-full rounded-full" style={{ width: `${pct}%`, background: hueColor('emerald') }} />
         </div>
+        {showMemberPicker && (
+          canWrite && onSetMember ? (
+            <select
+              value={item.memberId ?? ''}
+              aria-label={`Who earns ${item.name}`}
+              onChange={(e) => onSetMember(item.id, e.target.value || null)}
+              className="ml-1 mt-1.5 max-w-[14rem] rounded-md border border-transparent bg-transparent px-0.5 py-0.5 text-[11.5px] text-slate-500 hover:border-slate-200 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/30"
+            >
+              <option value="">Whole household</option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            item.memberId && (
+              <p className="ml-1.5 mt-1 text-[11.5px] text-slate-500">
+                {members.find((m) => m.id === item.memberId)?.name ?? 'Assigned'}
+              </p>
+            )
+          )
+        )}
       </div>
 
       <div className="min-w-[118px] text-right">

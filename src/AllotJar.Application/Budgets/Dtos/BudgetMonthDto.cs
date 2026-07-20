@@ -57,4 +57,10 @@ public class BudgetItemDto
 
     /// <summary>Whether this month's instance of the bill has been paid.</summary>
     public bool IsPaid { get; set; }
+
+    /// <summary>
+    /// The household member this income line is attributed to (who earns it);
+    /// null = whole-household. Always null on expense/savings lines.
+    /// </summary>
+    public Guid? MemberId { get; set; }
 }
