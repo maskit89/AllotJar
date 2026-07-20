@@ -555,8 +555,9 @@ describe('AllocationPage (catalog)', () => {
     expect(roseResiduals.length).toBe(2)
     expect(roseResiduals[0].className).toContain('text-rose-600')
 
-    // Both members have savings accounts (nothing stranded) and To savings ≤ 0 → the nothing-to-save note.
-    expect(screen.getByText(/nothing left to move to savings/)).toBeInTheDocument()
+    // Both members have savings accounts (nothing stranded) and To savings < 0 → the honest
+    // overshoot note (the bland nothing-to-save copy is reserved for exactly zero).
+    expect(screen.getByText(/overshoot the pooled income by €500\.00/)).toBeInTheDocument()
   })
 
   it('ALLOC-032: with a profile but a failed preview, no hero renders and the preview error shows', async () => {
@@ -662,6 +663,136 @@ describe('AllocationPage (catalog)', () => {
     expect(screen.getByText(/No savings account set/)).toBeInTheDocument()
     // The stranded amount (Σ residual of accountless members with a positive share) is called out.
     expect(screen.getByText(/€1,150.00 has nowhere to go/)).toBeInTheDocument()
+  })
+
+  // ---- Budget ↔ engine reconciliation (pocket-money coherence) ---------------
+
+  /** A real BudgetMonthDto for /budget/current: income 3,000; envelopes + optional flagged pocket. */
+  function budgetDto(opts: { envelopes: number; jars?: number; pocket?: { planned: number; flagged: boolean } }) {
+    const { envelopes, jars = 500, pocket } = opts
+    const categories = [
+      {
+        id: 'inc', name: 'Income', kind: 'Income', displayOrder: 0, totalPlanned: 3000, totalActual: 0,
+        items: [{ id: 'pay', name: 'Pay', displayOrder: 0, plannedAmount: 3000, actualAmount: 0, remaining: 3000 }],
+      },
+      {
+        id: 'liv', name: 'Living', kind: 'Expense', displayOrder: 0, totalPlanned: envelopes, totalActual: 0,
+        items: [{ id: 'rent', name: 'Rent', displayOrder: 0, plannedAmount: envelopes, actualAmount: 0, remaining: envelopes }],
+      },
+      {
+        id: 'sav', name: 'Jars', kind: 'Savings', displayOrder: 1, totalPlanned: jars, totalActual: 0,
+        items: [{ id: 'jar', name: 'Emergency', displayOrder: 0, plannedAmount: jars, actualAmount: 0, remaining: jars }],
+      },
+    ]
+    if (pocket) {
+      categories.push({
+        id: 'pm', name: 'Pocket Money', kind: 'Expense', displayOrder: 2, totalPlanned: pocket.planned, totalActual: 0,
+        // @ts-expect-error — the flag is optional on the wire type; present here.
+        excludeFromAllocation: pocket.flagged,
+        items: [
+          { id: 'pm1', name: 'Chris', displayOrder: 0, plannedAmount: pocket.planned / 2, actualAmount: 0, remaining: pocket.planned / 2 },
+          { id: 'pm2', name: 'Robin', displayOrder: 1, plannedAmount: pocket.planned / 2, actualAmount: 0, remaining: pocket.planned / 2 },
+        ],
+      })
+    }
+    return { id: 'bm1', key: '2026-07', year: 2026, month: 7, baseCurrency: 'EUR', totalIncome: 3000, totalPlanned: 0, remainingToBudget: 0, isBalanced: false, categories }
+  }
+
+  /** The tester's scenario: pool 3,000 fully budgeted, pocket 250×2 only in the engine. */
+  function overshootPreview() {
+    return mkPreview({
+      pool: 3000, env: 2500, jars: 500, pocketTotal: 500, pocketEach: 250, savingsTotal: -500,
+      members: [
+        { memberId: 'm1', name: 'Chris', netIncome: 1500, residual: -250, savingsBalance: 1000, savingsAccountId: 'accC' },
+        { memberId: 'm2', name: 'Robin', netIncome: 1500, residual: -250, savingsBalance: 500, savingsAccountId: 'accR' },
+      ],
+    })
+  }
+
+  it('ALLOC-068: engine-only pocket money on a balanced budget shows the disagree banner; the CTA syncs', async () => {
+    profileData = profile()
+    currentBudget = budgetDto({ envelopes: 2500 }) // income 3,000 = 2,500 + 500 → remaining 0
+    previewData = overshootPreview()
+    mockPost.mockImplementation((url: string) => {
+      if (url.startsWith('/allocation/pocket-lines/')) {
+        // The server reshaped the month: envelopes trimmed, pocket materialized + flagged.
+        previewData = mkPreview({
+          pool: 3000, env: 2000, jars: 500, pocketTotal: 500, pocketEach: 250, savingsTotal: 0,
+          members: [
+            { memberId: 'm1', name: 'Chris', netIncome: 1500, residual: 0, savingsBalance: 1000, savingsAccountId: 'accC' },
+            { memberId: 'm2', name: 'Robin', netIncome: 1500, residual: 0, savingsBalance: 500, savingsAccountId: 'accR' },
+          ],
+        })
+        return Promise.resolve({ data: budgetDto({ envelopes: 2000, pocket: { planned: 500, flagged: true } }) })
+      }
+      return Promise.resolve({ data: previewData })
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+
+    // R (0) < U (500): the honest disagree copy, with the overage named.
+    expect(screen.getByText(/Your budget and your allocation disagree/)).toBeInTheDocument()
+    expect(screen.getByText(/€500\.00 in pocket money/)).toBeInTheDocument()
+    expect(screen.getByText(/€500\.00 more than your income covers/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: "Add pocket money to July's budget" }))
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/allocation/pocket-lines/2026/7', {}), { timeout: 5000 })
+    // Banner clears (flagged lines now cover the promise) and a status confirms.
+    await waitFor(
+      () => expect(screen.queryByText(/Your budget and your allocation disagree/)).not.toBeInTheDocument(),
+      { timeout: 5000 },
+    )
+    expect(screen.getByText(/Pocket money added to July’s budget\./)).toBeInTheDocument()
+  })
+
+  it('ALLOC-069: an unflagged Pocket Money category plus the rule shows the counted-twice banner', async () => {
+    profileData = profile()
+    currentBudget = budgetDto({ envelopes: 2000, pocket: { planned: 500, flagged: false } })
+    previewData = overshootPreview()
+
+    renderPage()
+    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+
+    expect(screen.getByText(/Pocket money is currently counted twice/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: "Add pocket money to July's budget" })).toBeInTheDocument()
+  })
+
+  it('ALLOC-070: a negative To savings reads as a shortfall — tile, footer and commit copy', async () => {
+    profileData = profile()
+    currentBudget = budgetDto({ envelopes: 2500 })
+    previewData = overshootPreview()
+    mockPost.mockImplementation((url: string) =>
+      url.startsWith('/allocation/commit/')
+        ? Promise.resolve({ data: overshootPreview() })
+        : Promise.resolve({ data: previewData }),
+    )
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+
+    expect(heroTileValue('To savings')).toBe(-500)
+    expect(screen.getByText(/overshoot the pooled income by €500\.00 — pocket money can’t be funded/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Commit allocation' }))
+    expect(
+      await screen.findByText(/Allocated July — nothing was transferred because shared spending overshoots the pooled income\./, {}, { timeout: 5000 }),
+    ).toBeInTheDocument()
+  })
+
+  it('ALLOC-071: a pool that differs from the budgeted income gets the source note', async () => {
+    profileData = profile()
+    currentBudget = budgetDto({ envelopes: 2000 }) // budget income 3,000
+    previewData = workedPreview() // pool 5,000 from People-page incomes
+
+    renderPage()
+    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+
+    expect(screen.getByText(/pooled income here \(€5,000\.00\) comes from each person’s income on the People page/)).toBeInTheDocument()
+    expect(screen.getByText(/doesn’t match July’s budgeted income lines \(€3,000\.00\)/)).toBeInTheDocument()
   })
 
   // ---- Commit flow ----------------------------------------------------------

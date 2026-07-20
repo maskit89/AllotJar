@@ -353,6 +353,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           name,
           kind: asSavings ? 'savings' : 'expense',
           displayOrder: Number.MAX_SAFE_INTEGER,
+          excludeFromAllocation: false,
           items: [],
         }),
       )

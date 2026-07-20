@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 using AllotJar.Application.Allocation.Commands.AllocateIncome;
+using AllotJar.Application.Allocation.Commands.SyncPocketMoneyLines;
 using AllotJar.Application.Allocation.Commands.UpsertAllocationProfile;
 using AllotJar.Application.Allocation.Queries.GetAllocationProfile;
 using AllotJar.Application.Allocation.Queries.PreviewIncomeAllocation;
@@ -193,5 +194,48 @@ public class AllocationTests
         var second = await commit.Handle(new AllocateIncomeCommand(2026, 6), CancellationToken.None);
         second.TransfersCreated.Should().Be(2);
         (await db.Transactions.CountAsync(t => t.Type == TransactionType.Transfer)).Should().Be(2);
+    }
+
+    // The tester's incoherence scenario: a budget balanced WITHOUT pocket lines forces the
+    // engine's remainder to exactly minus the pocket total (zero transfers), and the sync's
+    // flagged lines are what reconcile the two systems.
+    [Fact]
+    public async Task BalancedBudgetWithoutPocketLines_ForcesNegativeRemainder_UntilSyncMaterializesThem()
+    {
+        await using var db = NewContext();
+        var user = new CurrentUserStub("user-1");
+        var source = SeedAccount(db, "user-1", "Joint");
+        var aSav = SeedAccount(db, "user-1", "A Savings");
+        var bSav = SeedAccount(db, "user-1", "B Savings");
+        SeedMember(db, "user-1", "A", 1500m, 0, aSav.Id);
+        SeedMember(db, "user-1", "B", 1500m, 1, bSav.Id);
+        // Pool 3,000 fully budgeted: envelopes 2,500 + jars 500. Pocket 250 each exists ONLY
+        // as the FixedPerMember rule.
+        SeedBudget(db, "user-1", 2026, 6, envelopes: 2500m, funds: 500m);
+        await new UpsertAllocationProfileCommandHandler(db, user)
+            .Handle(new UpsertAllocationProfileCommand(null, "P", source.Id, StandardRules()), CancellationToken.None);
+
+        var commit = new AllocateIncomeCommandHandler(db, user);
+        var before = await commit.Handle(new AllocateIncomeCommand(2026, 6), CancellationToken.None);
+
+        // Each member: 1500 − 1250 − 250 = −250; remainder −500 → keep-own, zero transfers.
+        before.TransfersCreated.Should().Be(0);
+        before.Members.Should().OnlyContain(m => m.Residual == -250m);
+
+        // The sync reshapes the budget: pocket becomes flagged lines. Trim envelopes by the
+        // pocket total (what the banner tells the user to do) and both systems land on zero.
+        var living = await db.BudgetItems.SingleAsync(i => i.Name == "Living");
+        living.PlannedAmount = 2000m;
+        await db.SaveChangesAsync();
+        await new SyncPocketMoneyLinesCommandHandler(db, user)
+            .Handle(new SyncPocketMoneyLinesCommand(2026, 6), CancellationToken.None);
+
+        var after = await commit.Handle(new AllocateIncomeCommand(2026, 6), CancellationToken.None);
+
+        // Engine: 3000 − 2000 − 500 − 500(pocket rule) = 0 remainder; budget: planned
+        // 2000 + 500 + 500(flagged pocket lines) = income 3000 — both coherent.
+        after.EnvelopesTotal.Should().Be(2000m, "the flagged pocket lines must not re-enter the envelopes");
+        after.Members.Should().OnlyContain(m => m.Residual == 0m);
+        after.TransfersCreated.Should().Be(0);
     }
 }

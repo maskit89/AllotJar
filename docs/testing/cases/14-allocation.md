@@ -314,7 +314,7 @@
 - **Preconditions:** Envelopes 4,000.00 + jars 1,500.00 + pocket 0 = 5,500.00 shared spending vs pool 5,000.00 (remainder −500.00 ≤ 0 → keep-own terminal branch).
 - **Steps:**
   1. Open `/allocation`; read hero + per-member tiles.
-- **Expected:** Shared spending **€5,500.00**, To savings **−€500.00**; the two still sum to the pool **€5,000.00**. Terminal remainder ≤ 0 → keep-own: each member keeps their own (possibly negative) leftover shown as a rose residual; commit will skip members whose residual ≤ 0. The "nothing left to move to savings" note may show (see ALLOC-056).
+- **Expected:** Shared spending **€5,500.00**, To savings **−€500.00** rendered as a shortfall (rose value in the hero tile); the two still sum to the pool **€5,000.00**. Terminal remainder ≤ 0 → keep-own: each member keeps their own (possibly negative) leftover shown as a rose residual; commit will skip members whose residual ≤ 0. The rose overshoot note shows (see ALLOC-056).
 - **Automated:** No
 
 ### ALLOC-032 - Hero hidden until both profile and preview are present
@@ -558,8 +558,8 @@
 - **Preconditions:** Envelopes+jars+pocket ≥ pool so `toSavings ≤ 0` and no stranded surplus (`strandedMinor === 0`).
 - **Steps:**
   1. Open `/allocation`.
-- **Expected:** A slate note reads **"Shared spending uses up all the pooled income this month, so there's nothing left to move to savings."** (shown only when `nothingToSave && strandedMinor === 0`). If instead a positive share is stranded, the stranded note (ALLOC-055) shows rather than this one.
-- **Automated:** No
+- **Expected:** Two honest variants: with `toSavings < 0` a **rose** note reads **"Shared costs, jars and pocket money overshoot the pooled income by €X — pocket money can't be funded this month."** and the commit banner's zero-transfer copy becomes "…nothing was transferred because shared spending overshoots the pooled income." (never the cheerful "no savings transfers were needed"). At exactly `toSavings === 0` the slate note reads **"Shared spending uses up all the pooled income this month, so there's nothing left to move to savings."** If instead a positive share is stranded, the stranded note (ALLOC-055) shows rather than either.
+- **Automated:** Yes (`AllocationPage.catalog.test.tsx` ALLOC-031/045/056 + ALLOC-070)
 
 ### ALLOC-057 - Commit only transfers members with residual > 0 AND a savings account
 - **Priority:** P1
@@ -629,3 +629,40 @@
   1. Open `/allocation`.
 - **Expected:** `GET /allocation/profile` → null and there are no jars/months, so the page shows **"No allocation set up yet"** — allocation tests must not assume a starter profile, Emergency Fund jar, or seeded budget exists. Only the opt-in sample seed (or a manual Set up) creates a profile.
 - **Automated:** Partial (register.spec.ts / HouseholdBootstrapTests — opt-in seeding; not the allocation page specifically)
+
+### ALLOC-068 - The reconciliation banner: engine pocket money missing from the budget, one-click sync
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** A profile with pocket money > 0; the viewed month has no (or under-planned) flagged pocket lines, so `U = pocket + max(toSavings,0) − Σ planned(flagged categories) > 0`.
+- **Steps:**
+  1. Open `/allocation`; read the amber banner between the card header and the waterfall.
+  2. Click "Add pocket money to {month}'s budget".
+- **Expected:** With `remainingToBudget < U` the copy is the honest disagreement: "Your budget and your allocation disagree. The budget leaves only €R unassigned, but the allocation also promises €P in pocket money[ and €S to personal savings]. That's €(U−R) more than your income covers — trim budget lines, or lower pocket money in Settings." (with `remainingToBudget ≥ U`: "€U of your income is already promised by the allocation … the budget will keep showing it as 'still to assign'."). The CTA (Admin+ only, pocket > 0 only) POSTs `/allocation/pocket-lines/{y}/{m}` — the server creates/adopts a **"Pocket Money"** Expense category flagged `ExcludeFromAllocation` with one line per active member at the rule amount (idempotent; archived members skipped; unmatched lines left alone; pocket 0 zeroes lines) — then the budget and preview refresh, the banner clears once the flagged lines cover the promise, and a `role="status"` confirms "Pocket money added to {month}'s budget."
+- **Automated:** Full (backend `SyncPocketMoneyLinesTests` + `AllocationTests` end-to-end scenario; client ALLOC-068)
+
+### ALLOC-069 - The counted-twice banner: an unflagged "Pocket Money" category plus the rule
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** Pocket rule > 0 AND the month has an **unflagged** Expense category named "Pocket Money" (the imported household's shape).
+- **Steps:**
+  1. Open `/allocation`.
+- **Expected:** The banner's distinct variant: "Pocket money is currently counted twice — once as a budget group and once as the allocation's pocket-money step." The same CTA heals it: the sync ADOPTS the existing category (flags it, never duplicates), the envelopes total drops by the pocket lines' planned sum, and the engine's FixedPerMember rule becomes the single deduction. No blind name-based migration exists — the flag flips only via this user-invoked sync.
+- **Automated:** Full (backend adopt/heal test asserts EnvelopesTotal 2,500 → 2,000; client ALLOC-069)
+
+### ALLOC-070 - Negative To savings is styled and worded as a shortfall end-to-end
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** Envelopes + jars + pocket > pool (`toSavings < 0`).
+- **Steps:**
+  1. Read the hero tile, the note under the waterfall, then Allocate.
+- **Expected:** The "To savings" tile value renders rose; the rose note names the overshoot amount; committing yields "Allocated {month} — nothing was transferred because shared spending overshoots the pooled income." instead of the cheerful zero-transfer copy.
+- **Automated:** Full (client ALLOC-070; commit-skip math in AllocationTests)
+
+### ALLOC-071 - Pool vs budgeted income mismatch gets a source note
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** The month's budgeted income lines total > 0 and ≠ the members' combined `NetMonthlyIncome`.
+- **Steps:**
+  1. Open `/allocation` and read below the waterfall.
+- **Expected:** A muted note: "the pooled income here (€pool) comes from each person's income on the People page and doesn't match {month}'s budgeted income lines (€income)." — naming the two sources instead of letting the figures silently disagree (the full unification is the income-attribution workstream). Suppressed when the budget plans no income at all (empty month).
+- **Automated:** Full (client ALLOC-071)

@@ -12,7 +12,8 @@ import { api } from '../lib/api'
 import { bucketCount, EVENTS, track } from '../analytics'
 import type { AccountDto, AllocationProfileDto, AllocationResultDto, BudgetMonthDto } from '../types'
 import { AllocationRuleType, SplitMethod } from '../types'
-import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount, toEditString } from '../lib/money'
+import { categoryPlanned, fromDto, remainingToBudget, totalIncome, type MonthVM } from '../budgetModel'
 
 interface RuleSpec {
   order: number
@@ -55,6 +56,9 @@ export function AllocationPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [committed, setCommitted] = useState<number | null>(null)
+  // The viewed month's budget (integer-minor VM) — the other half of the reconciliation.
+  const [monthVM, setMonthVM] = useState<MonthVM | null>(null)
+  const [syncedMsg, setSyncedMsg] = useState<string | null>(null)
 
   // Setup/edit form (in a modal).
   const [showSettings, setShowSettings] = useState(false)
@@ -91,6 +95,9 @@ export function AllocationPage() {
         const year = budget?.data?.year ?? period.year
         const month = budget?.data?.month ?? period.month
         setPeriod({ year, month })
+        // Keep the budget itself too (not just year/month): the reconciliation banner
+        // compares its remaining-to-budget with the engine's promised outputs.
+        setMonthVM(budget?.data?.categories ? fromDto(budget.data) : null)
         if (p) {
           setSourceAccountId(p.sourceAccountId ?? '')
           const pocketRule = p.rules.find((r) => r.type === AllocationRuleType.FixedPerMember)
@@ -144,6 +151,27 @@ export function AllocationPage() {
       setBusy(false)
     }
   }, [pocket, lean, split, savingsSplit, sourceAccountId, profile, period, loadPreview])
+
+  // One click materializes the profile's pocket money as flagged budget lines (server-side,
+  // idempotent) — the flag combination that lets the budget zero out WITHOUT the engine
+  // double-deducting. Explicit only; the banner re-offers it when things drift.
+  const syncPocketLines = useCallback(async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const { data } = await api.post<BudgetMonthDto>(`/allocation/pocket-lines/${period.year}/${period.month}`, {})
+      setMonthVM(fromDto(data))
+      // The envelopes (and possibly a healed double-count) just changed — stale banner off,
+      // fresh preview in.
+      setCommitted(null)
+      await loadPreview(period.year, period.month)
+      setSyncedMsg(`Pocket money added to ${new Date(period.year, period.month - 1, 1).toLocaleDateString(undefined, { month: 'long' })}’s budget.`)
+    } catch {
+      setError('Could not add the pocket-money lines to the budget.')
+    } finally {
+      setBusy(false)
+    }
+  }, [period, loadPreview])
 
   const commit = useCallback(async () => {
     setBusy(true)
@@ -211,6 +239,39 @@ export function AllocationPage() {
   const nothingToSave = !!preview && toSavingsMinor <= 0
   const hasSource = !!profile?.sourceAccountId
 
+  // --- Budget ↔ engine reconciliation (issue: pocket money promised by the engine but
+  // absent from the budget makes "zero" impossible on one side or the other) -------------
+  const pocketStepMinor = stepTotal(AllocationRuleType.FixedPerMember)
+  const positiveSavingsMinor = Math.max(toSavingsMinor, 0)
+  // Planned total of allocation-OUTPUT categories already materialized in the budget.
+  const flaggedPlannedMinor = monthVM
+    ? sumMinor(monthVM.categories.filter((c) => c.excludeFromAllocation).map(categoryPlanned))
+    : 0
+  // Engine promises not yet represented as budget lines.
+  const unrepresentedMinor = pocketStepMinor + positiveSavingsMinor - flaggedPlannedMinor
+  const budgetRemainingMinor = monthVM ? remainingToBudget(monthVM) : null
+  const budgetIncomeMinor = monthVM ? totalIncome(monthVM) : null
+  const poolMinor = fromAmount(preview?.pool ?? 0)
+  // A category named like the sync's target but UNFLAGGED while a pocket rule exists means
+  // pocket money is deducted twice (once as an envelope, once as the rule).
+  const doubleCounted =
+    !!monthVM &&
+    pocketStepMinor > 0 &&
+    monthVM.categories.some(
+      (c) => c.kind === 'expense' && !c.excludeFromAllocation && c.name.trim().toLowerCase() === 'pocket money',
+    )
+  // Scoped to the tester's scenario: fire when pocket money exists, or when a positive
+  // surplus is unrepresented in an otherwise balanced budget.
+  const showReconcile =
+    !!monthVM &&
+    !!preview &&
+    unrepresentedMinor > 0 &&
+    (pocketStepMinor > 0 || (positiveSavingsMinor > 0 && budgetRemainingMinor === 0))
+  // Only meaningful once the budget actually plans income — an empty/new month would
+  // otherwise nag about a €0.00 mismatch.
+  const incomeMismatch =
+    !!monthVM && !!preview && budgetIncomeMinor !== null && budgetIncomeMinor > 0 && budgetIncomeMinor !== poolMinor
+
   // Allocation only makes sense once the budget is shared. A solo user who reaches
   // this route directly gets a friendly nudge to add members rather than an empty engine.
   if (!householdLoading && !isShared) {
@@ -236,7 +297,16 @@ export function AllocationPage() {
           amountLabel={`Income to allocate: ${formatMoney(fromAmount(preview.pool), CURRENCY)}`}
           tiles={[
             { label: 'Shared spending', value: formatMoney(sharedSpendingMinor, CURRENCY) },
-            { label: 'To savings', value: formatMoney(toSavingsMinor, CURRENCY) },
+            {
+              label: 'To savings',
+              // A negative figure is a shortfall, not savings — style it as one.
+              value:
+                toSavingsMinor < 0 ? (
+                  <span className="text-rose-300">{formatMoney(toSavingsMinor, CURRENCY)}</span>
+                ) : (
+                  formatMoney(toSavingsMinor, CURRENCY)
+                ),
+            },
           ]}
         />
       )}
@@ -283,13 +353,47 @@ export function AllocationPage() {
             </p>
           )}
 
+          {(showReconcile || doubleCounted) && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+              <p>
+                {doubleCounted
+                  ? 'Pocket money is currently counted twice — once as a budget group and once as the allocation’s pocket-money step.'
+                  : budgetRemainingMinor !== null && budgetRemainingMinor < unrepresentedMinor
+                    ? `Your budget and your allocation disagree. The budget leaves only ${formatMoney(budgetRemainingMinor, CURRENCY)} unassigned, but the allocation also promises ${formatMoney(pocketStepMinor, CURRENCY)} in pocket money${positiveSavingsMinor > 0 ? ` and ${formatMoney(positiveSavingsMinor, CURRENCY)} to personal savings` : ''}. That’s ${formatMoney(unrepresentedMinor - budgetRemainingMinor, CURRENCY)} more than your income covers — trim budget lines, or lower pocket money in Settings.`
+                    : `${formatMoney(unrepresentedMinor, CURRENCY)} of your income is already promised by the allocation (pocket money${positiveSavingsMinor > 0 ? ', personal savings' : ''}) but isn’t in your budget — the budget will keep showing it as “still to assign”.`}
+              </p>
+              {canWrite && pocketStepMinor > 0 && (
+                <Button
+                  size="sm"
+                  className="mt-2"
+                  onClick={syncPocketLines}
+                  disabled={busy}
+                  aria-label={`Add pocket money to ${monthName}'s budget`}
+                >
+                  Add pocket money to {monthName}’s budget
+                </Button>
+              )}
+            </div>
+          )}
+
+          {syncedMsg && (
+            <div
+              role="status"
+              className="mb-4 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
+            >
+              {syncedMsg}
+            </div>
+          )}
+
           {committed !== null && (
             <div
               role="status"
               className="mb-4 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
             >
               {committed === 0
-                ? `Allocated ${monthName} — no savings transfers were needed this month.`
+                ? toSavingsMinor < 0
+                  ? `Allocated ${monthName} — nothing was transferred because shared spending overshoots the pooled income.`
+                  : `Allocated ${monthName} — no savings transfers were needed this month.`
                 : `Allocated ${monthName} — ${committed} savings transfer${committed === 1 ? '' : 's'} created. Re-running Allocate replaces them, never doubles up.`}
             </div>
           )}
@@ -322,10 +426,23 @@ export function AllocationPage() {
             })}
           </ol>
 
-          {nothingToSave && strandedMinor === 0 && (
+          {!!preview && toSavingsMinor < 0 && (
+            <p className="mt-4 text-sm text-rose-600 dark:text-rose-400">
+              Shared costs, jars and pocket money overshoot the pooled income by{' '}
+              {formatMoney(-toSavingsMinor, CURRENCY)} — pocket money can’t be funded this month.
+            </p>
+          )}
+          {nothingToSave && toSavingsMinor === 0 && strandedMinor === 0 && (
             <p className="mt-4 text-sm text-slate-500">
               Shared spending uses up all the pooled income this month, so there’s nothing left to move to
               savings.
+            </p>
+          )}
+          {incomeMismatch && budgetIncomeMinor !== null && (
+            <p className="mt-4 text-xs text-slate-500">
+              Note: the pooled income here ({formatMoney(poolMinor, CURRENCY)}) comes from each person’s
+              income on the People page and doesn’t match {monthName}’s budgeted income lines (
+              {formatMoney(budgetIncomeMinor, CURRENCY)}).
             </p>
           )}
           {strandedMinor > 0 && (

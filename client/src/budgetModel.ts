@@ -27,6 +27,8 @@ export interface CategoryVM {
   name: string
   kind: CategoryKind
   displayOrder: number
+  /** Allocation-output category (pocket money, personal savings) — see BudgetCategoryDto. */
+  excludeFromAllocation: boolean
   items: ItemVM[]
 }
 
@@ -52,6 +54,7 @@ export function fromDto(dto: BudgetMonthDto): MonthVM {
       name: c.name,
       kind: c.kind === 'Income' ? 'income' : c.kind === 'Savings' ? 'savings' : 'expense',
       displayOrder: c.displayOrder,
+      excludeFromAllocation: c.excludeFromAllocation ?? false,
       items: c.items.map((i) => ({
         id: i.id,
         name: i.name,
