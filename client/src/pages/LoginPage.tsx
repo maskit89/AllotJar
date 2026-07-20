@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { GoogleSignInButton } from '../components/GoogleSignInButton'
 import axios from 'axios'
 import { JarLogo } from '../components/Jar'
 import { StagingBanner } from '../components/StagingBanner'
@@ -12,7 +13,7 @@ import { safeInternalPath } from '../lib/returnUrl'
 import { EVENTS, track } from '../analytics'
 
 export function LoginPage() {
-  const { login, register } = useAuth()
+  const { login, register, loginWithGoogle } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
@@ -43,6 +44,29 @@ export function LoginPage() {
   const [includeSampleData, setIncludeSampleData] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // The "or" divider appears only once the Google button has actually rendered, so environments
+  // without a client id (or with the script blocked) show the unchanged password-only card.
+  const [googleReady, setGoogleReady] = useState(false)
+
+  async function onGoogleCredential(credential: string) {
+    setError(null)
+    setBusy(true)
+    try {
+      const { isNewAccount } = await loginWithGoogle(credential)
+      track(isNewAccount ? EVENTS.signUp : EVENTS.login, { method: 'google' })
+      navigate(returnUrl ?? '/', { replace: true })
+    } catch (err) {
+      track(EVENTS.loginFailed, { method: 'google' })
+      if (axios.isAxiosError(err)) {
+        const data = err.response?.data as { error?: string } | undefined
+        setError(data?.error ?? 'Google sign-in failed. Please try again.')
+      } else {
+        setError('Google sign-in failed. Please try again.')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
 
   function switchMode(next: 'login' | 'register') {
     setMode(next)
@@ -329,6 +353,18 @@ export function LoginPage() {
               {busy ? 'Please wait…' : registering ? 'Create account' : 'Sign in'}
             </Button>
           </form>
+
+          {/* Google sign-in: one button serves both modes (it signs in, or creates the account). */}
+          <div className={googleReady ? 'mt-6' : ''}>
+            {googleReady && (
+              <div className="mb-6 flex items-center gap-3" aria-hidden="true">
+                <div className="h-px flex-1 bg-slate-300" />
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">or</span>
+                <div className="h-px flex-1 bg-slate-300" />
+              </div>
+            )}
+            <GoogleSignInButton onCredential={onGoogleCredential} onReady={() => setGoogleReady(true)} />
+          </div>
         </Card>
 
         <p className="mt-6 text-center text-xs text-slate-500">

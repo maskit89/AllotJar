@@ -24,6 +24,7 @@ export function AccountPage() {
     leaveHousehold,
     changePassword,
     updatePreferences,
+    hasPassword,
   } = useAuth()
   const { isShared, members, loading: householdLoading } = useHousehold()
   const navigate = useNavigate()
@@ -345,7 +346,25 @@ export function AccountPage() {
       </Card>
 
       <Card className="p-5">
-        <h2 className="mb-4 text-sm font-semibold text-slate-700">Change password</h2>
+        <h2 className="mb-4 text-sm font-semibold text-slate-700">
+          {hasPassword ? 'Change password' : 'Password'}
+        </h2>
+        {!hasPassword ? (
+          // A Google-created login has no password to "change". The forgot-password flow SETS one
+          // (reset works for passwordless accounts), which also keeps password login usable if the
+          // Google account is ever lost.
+          <p className="max-w-sm text-sm text-slate-600">
+            You sign in with Google, so this account has no password yet. To add one, use{' '}
+            <Link
+              to="/forgot-password"
+              className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-500"
+            >
+              Forgot password
+            </Link>{' '}
+            with this account's email — the emailed link lets you set a password. Signing in with
+            Google keeps working either way.
+          </p>
+        ) : (
         <form onSubmit={onSubmit} className="max-w-sm space-y-4">
           <div>
             <label htmlFor="current" className="mb-1 block text-sm font-medium text-slate-600">
@@ -404,6 +423,7 @@ export function AccountPage() {
             {busy ? 'Saving…' : 'Change password'}
           </Button>
         </form>
+        )}
       </Card>
     </AppShell>
   )

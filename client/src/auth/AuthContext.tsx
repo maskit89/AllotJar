@@ -9,7 +9,7 @@ import {
   isAccessTokenExpired,
 } from '../lib/api'
 import { broadcastSignOut, onSignOutBroadcast } from '../lib/authChannel'
-import { setMoneyFormat, DEFAULT_CURRENCY_CODE, DEFAULT_FORMAT_KEY } from '../lib/money'
+import { setMoneyFormat, detectLocaleDefaults, DEFAULT_CURRENCY_CODE, DEFAULT_FORMAT_KEY } from '../lib/money'
 import { HouseholdRole, type AuthResponse, type HouseholdSummary, type MeResponse, type PreferencesResponse } from '../types'
 
 /** What the sign-up form collects. */
@@ -71,7 +71,11 @@ interface AuthState {
   startOwnBudget: () => Promise<void>
   /** Leave a household the login joined, then re-bootstrap into whatever remains active. */
   leaveHousehold: (ownerId: string) => Promise<void>
+  /** False when the login has no password (Google-created) — the account page adapts. */
+  hasPassword: boolean
   login: (email: string, password: string) => Promise<void>
+  /** Exchanges a Google ID token for a session; resolves with whether the account was just created. */
+  loginWithGoogle: (credential: string) => Promise<{ isNewAccount: boolean }>
   register: (input: RegisterInput) => Promise<void>
   acceptInvite: (token: string, password: string, displayName?: string, acceptedTerms?: boolean) => Promise<void>
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>
@@ -119,6 +123,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [households, setHouseholds] = useState<HouseholdSummary[]>([])
   const [activeOwnerId, setActiveOwnerId] = useState<string | null>(null)
   const [needsConsent, setNeedsConsent] = useState(false)
+  // Default TRUE so the change-password card doesn't flicker away for ordinary password logins
+  // before /auth/me answers; Google-only accounts flip it to false from the /me payload.
+  const [hasPassword, setHasPassword] = useState(true)
   // No in-memory access token on a cold load ⇒ try to restore the session from the refresh cookie.
   const [bootstrapping, setBootstrapping] = useState<boolean>(!getToken())
 
@@ -250,6 +257,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setHouseholds(Array.isArray(data.households) ? data.households : [])
         setActiveOwnerId(typeof data.ownerId === 'string' ? data.ownerId : null)
         setNeedsConsent(data.needsConsent === true)
+        setHasPassword(data.hasPassword !== false)
         applyPrefs(data.preferredCurrency, data.numberFormat)
         localStorage.setItem(ROLE_KEY, String(data.role))
       })
@@ -262,6 +270,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function login(email: string, password: string) {
     const { data } = await api.post<AuthResponse>('/auth/login', { email, password })
     apply(data)
+  }
+
+  async function loginWithGoogle(credential: string) {
+    // Send the browser's locale-detected money defaults along — applied only if this sign-in
+    // CREATES the account (register-form parity; the server ignores them otherwise).
+    const localeDefaults = detectLocaleDefaults()
+    const { data } = await api.post<AuthResponse>('/auth/google', {
+      credential,
+      preferredCurrency: localeDefaults.currency,
+      numberFormat: localeDefaults.numberFormat,
+    })
+    apply(data)
+    return { isNewAccount: data.isNewAccount === true }
   }
 
   async function register(input: RegisterInput) {
@@ -353,6 +374,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setHouseholds([])
     setActiveOwnerId(null)
     setNeedsConsent(false)
+    setHasPassword(true)
     applyPrefs(DEFAULT_CURRENCY, DEFAULT_FORMAT)
     localStorage.removeItem(EMAIL_KEY)
     localStorage.removeItem(ROLE_KEY)
@@ -386,11 +408,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       activeOwnerId,
       ownsHousehold: households.some((h) => h.isOwn),
       needsConsent,
+      hasPassword,
       confirmConsent,
       switchHousehold,
       startOwnBudget,
       leaveHousehold,
       login,
+      loginWithGoogle,
       register,
       acceptInvite,
       changePassword,
@@ -399,7 +423,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updatePreferences,
       logout,
     }),
-    [token, email, displayName, firstName, lastName, preferredCurrency, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent],
+    [token, email, displayName, firstName, lastName, preferredCurrency, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, hasPassword],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
