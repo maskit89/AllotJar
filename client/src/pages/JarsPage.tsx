@@ -18,6 +18,7 @@ import {
   RECUR_MONTHS_OPTIONS,
 } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { formatDate } from '../lib/dates'
 import { jarPaceLabel, jarStatusChip } from '../lib/jarStatus'
 
@@ -383,6 +384,7 @@ export function JarsPage() {
                 <Input
                   type="text"
                   inputMode="decimal"
+                  {...selectOnFocusProps}
                   value={form.target}
                   placeholder="0.00"
                   aria-label="Target amount"
@@ -398,6 +400,7 @@ export function JarsPage() {
                 <Input
                   type="text"
                   inputMode="decimal"
+                  {...selectOnFocusProps}
                   value={form.opening}
                   placeholder="0.00"
                   aria-label="Opening balance"

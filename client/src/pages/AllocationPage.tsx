@@ -14,6 +14,7 @@ import type { AccountDto, AllocationProfileDto, AllocationResultDto, BudgetMonth
 import { AccountType, AllocationRuleType, SplitMethod } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
 import { accountOptionLabel, formatNames, savingsFirst } from '../lib/accountOptions'
+import { selectOnFocusProps } from '../lib/selectOnFocus'
 
 interface RuleSpec {
   order: number
@@ -531,6 +532,7 @@ export function AllocationPage() {
               <Input
                 type="text"
                 inputMode="decimal"
+                {...selectOnFocusProps}
                 value={pocket}
                 placeholder="0.00"
                 aria-label="Pocket money per member"
@@ -588,6 +590,7 @@ export function AllocationPage() {
                 <Input
                   type="text"
                   inputMode="numeric"
+                  {...selectOnFocusProps}
                   value={lean}
                   placeholder="25"
                   aria-label="Balance lean percent"

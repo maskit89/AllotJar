@@ -13,12 +13,21 @@ import { EVENTS, track } from '../analytics'
 import type { AccountDto, BudgetMonthDto, HouseholdMemberDto, TransactionDto } from '../types'
 import { TransactionType } from '../types'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount } from '../lib/money'
+import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { shortDate } from '../lib/dates'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { buildItemOptions, transactionTypeLabel } from '../lib/transactions'
+import { SplitLinesEditor, SplitRemainderChip, type SplitRowDraft } from '../components/SplitLinesEditor'
 
 function today(): string {
   return new Date().toISOString().slice(0, 10)
+}
+
+function blankSplitRows(): SplitRowDraft[] {
+  return [
+    { budgetItemId: '', amount: '', memberId: '' },
+    { budgetItemId: '', amount: '', memberId: '' },
+  ]
 }
 
 export function TransactionsPage() {
@@ -47,6 +56,9 @@ export function TransactionsPage() {
   const [account, setAccount] = useState('')
   const [member, setMember] = useState('')
   const [adding, setAdding] = useState(false)
+  // Add-modal split mode: the expense is divided across 2+ budget lines at creation.
+  const [addSplit, setAddSplit] = useState(false)
+  const [addRows, setAddRows] = useState<SplitRowDraft[]>(blankSplitRows)
 
   // Transfer form state (move money between two of the user's own accounts).
   const [tDate, setTDate] = useState(today)
@@ -111,11 +123,38 @@ export function TransactionsPage() {
     }
   }, [])
 
+  // Add-modal split-row helpers (mirror updateSplitRow/addSplitRow/removeSplitRow for the register editor).
+  const resetAddSplit = useCallback(() => {
+    setAddSplit(false)
+    setAddRows(blankSplitRows())
+  }, [])
+  const updateAddRow = useCallback((index: number, patch: Partial<SplitRowDraft>) => {
+    setAddRows((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)))
+  }, [])
+  const addAddRow = useCallback(() => {
+    setAddRows((rows) => [...rows, { budgetItemId: '', amount: '', memberId: '' }])
+  }, [])
+  const removeAddRow = useCallback((index: number) => {
+    setAddRows((rows) => (rows.length > 2 ? rows.filter((_, i) => i !== index) : rows))
+  }, [])
+
   const addTransaction = useCallback(async () => {
     const minor = parseMinor(amount)
     if (minor === null || minor <= 0) {
       setError('Enter a valid amount greater than zero.')
       return
+    }
+    const splitting = addSplit && type === TransactionType.Expense
+    if (splitting) {
+      const rowMinors = addRows.map((r) => parseMinor(r.amount))
+      if (addRows.some((r, i) => !r.budgetItemId || rowMinors[i] === null || (rowMinors[i] ?? 0) <= 0)) {
+        setError('Give every split line a category and an amount greater than zero.')
+        return
+      }
+      if (sumMinor(rowMinors.map((m) => m ?? 0)) !== minor) {
+        setError('The split lines must add up to the transaction total.')
+        return
+      }
     }
     setAdding(true)
     setError(null)
@@ -125,26 +164,36 @@ export function TransactionsPage() {
         payee,
         amount: toAmount(minor),
         type,
-        budgetItemId: assignTo || null,
+        // A split transaction carries no whole-transaction category/member — the slices do.
+        budgetItemId: splitting ? null : assignTo || null,
         accountId: account || null,
-        memberId: member || null,
+        memberId: splitting ? null : member || null,
+        splits: splitting
+          ? addRows.map((r) => ({
+              budgetItemId: r.budgetItemId,
+              amount: toAmount(parseMinor(r.amount) ?? 0),
+              memberId: r.memberId || null,
+            }))
+          : null,
       })
       setTransactions((prev) => [data, ...prev])
       track(EVENTS.transactionAdded, {
         line_type: type === TransactionType.Income ? 'income' : 'expense',
+        ...(splitting ? { split: true } : {}),
       })
       setPayee('')
       setAmount('')
       // Reset the category back to its Unassigned default too — otherwise a later "unassigned" add
       // silently inherits the previous line and the server-side auto-categorizer never runs.
       setAssignTo('')
+      resetAddSplit()
       setShowAdd(false)
     } catch {
       setError('Could not add that transaction.')
     } finally {
       setAdding(false)
     }
-  }, [date, payee, amount, type, assignTo, account, member])
+  }, [date, payee, amount, type, assignTo, account, member, addSplit, addRows, resetAddSplit])
 
   const addTransfer = useCallback(async () => {
     const minor = parseMinor(tAmount)
@@ -322,6 +371,10 @@ export function TransactionsPage() {
   )
 
   const optionGroups = buildItemOptions(month)
+  // Split rows only ever target expense/savings lines (the add modal offers splits for expenses).
+  const expenseSplitOptions = buildItemOptions(month, TransactionType.Expense)
+  const addRemainderMinor = (parseMinor(amount) ?? 0) - sumMinor(addRows.map((r) => parseMinor(r.amount) ?? 0))
+  const addCurrency = month?.baseCurrency ?? 'EUR'
 
   // Map each budget line to its category's hue, so an assigned transaction's pill
   // carries the same colour dot as its group on the Budget screen. Income lines
@@ -407,7 +460,10 @@ export function TransactionsPage() {
         {showAdd && canEnterData && (
         <Modal
           title={mode === 'transfer' ? 'Record a transfer' : 'Add a transaction'}
-          onClose={() => setShowAdd(false)}
+          onClose={() => {
+            setShowAdd(false)
+            resetAddSplit()
+          }}
         >
           {accounts.length >= 2 && (
             <div className="mb-4">
@@ -417,6 +473,7 @@ export function TransactionsPage() {
                 onChange={(m) => {
                   setMode(m)
                   setError(null)
+                  resetAddSplit()
                 }}
                 options={[
                   { value: 'transaction', label: 'Transaction' },
@@ -434,7 +491,12 @@ export function TransactionsPage() {
                 <Select
                   value={type}
                   aria-label="Transaction type"
-                  onChange={(e) => setType(Number(e.target.value))}
+                  onChange={(e) => {
+                    const next = Number(e.target.value)
+                    setType(next)
+                    // Splits are an expense-only affordance in the add modal.
+                    if (next === TransactionType.Income) resetAddSplit()
+                  }}
                   className="w-full"
                 >
                   <option value={TransactionType.Expense}>Expense</option>
@@ -469,6 +531,7 @@ export function TransactionsPage() {
                 <Input
                   type="text"
                   inputMode="decimal"
+                  {...selectOnFocusProps}
                   value={amount}
                   placeholder="0.00"
                   aria-label="Transaction amount"
@@ -498,30 +561,70 @@ export function TransactionsPage() {
                 </label>
               )}
             </div>
-            {/* Category — hidden for income, per the design. */}
+            {/* Category — hidden for income, per the design. NOT a <label>: the split toggle
+                button must not become the label's control (the InfoHint lesson). */}
             {type === TransactionType.Expense && (
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Category
-                <Select
-                  value={assignTo}
-                  aria-label="Assign transaction to"
-                  onChange={(e) => setAssignTo(e.target.value)}
-                  className="w-full"
-                >
-                  <option value="">Unassigned</option>
-                  {optionGroups.map((g) => (
-                    <optgroup key={g.category} label={g.category}>
-                      {g.items.map((i) => (
-                        <option key={i.id} value={i.id}>
-                          {i.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </Select>
-              </label>
+              <div className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                <div className="flex items-center justify-between">
+                  <span>Category</span>
+                  {expenseSplitOptions.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => (addSplit ? resetAddSplit() : setAddSplit(true))}
+                      aria-pressed={addSplit}
+                      className="rounded px-1 text-xs font-semibold text-violet-600 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-500/10"
+                    >
+                      {addSplit ? "Don't split" : 'Split across categories'}
+                    </button>
+                  )}
+                </div>
+                {addSplit ? (
+                  <div className="space-y-2 rounded-lg border border-violet-200 bg-violet-50/40 p-3 dark:border-violet-500/30 dark:bg-violet-500/5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-600">Split lines</span>
+                      <SplitRemainderChip
+                        remainderMinor={addRemainderMinor}
+                        format={(m) => formatMoney(m, addCurrency)}
+                      />
+                    </div>
+                    <SplitLinesEditor
+                      rows={addRows}
+                      options={expenseSplitOptions}
+                      members={members}
+                      onChangeRow={updateAddRow}
+                      onRemoveRow={removeAddRow}
+                    />
+                    <button
+                      type="button"
+                      onClick={addAddRow}
+                      aria-label="Add split line"
+                      className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-surface"
+                    >
+                      + Add line
+                    </button>
+                  </div>
+                ) : (
+                  <Select
+                    value={assignTo}
+                    aria-label="Assign transaction to"
+                    onChange={(e) => setAssignTo(e.target.value)}
+                    className="w-full"
+                  >
+                    <option value="">Unassigned</option>
+                    {optionGroups.map((g) => (
+                      <optgroup key={g.category} label={g.category}>
+                        {g.items.map((i) => (
+                          <option key={i.id} value={i.id}>
+                            {i.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </Select>
+                )}
+              </div>
             )}
-            {members.length >= 2 && (
+            {members.length >= 2 && !(addSplit && type === TransactionType.Expense) && (
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
                 Member
                 <Select
@@ -540,10 +643,20 @@ export function TransactionsPage() {
               </label>
             )}
             <div className="flex justify-end gap-2 pt-1">
-              <Button variant="ghost" onClick={() => setShowAdd(false)}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setShowAdd(false)
+                  resetAddSplit()
+                }}
+              >
                 Cancel
               </Button>
-              <Button onClick={addTransaction} disabled={adding} aria-label="Add transaction">
+              <Button
+                onClick={addTransaction}
+                disabled={adding || (addSplit && type === TransactionType.Expense && addRemainderMinor !== 0)}
+                aria-label="Add transaction"
+              >
                 Add transaction
               </Button>
             </div>
@@ -566,6 +679,7 @@ export function TransactionsPage() {
                 <Input
                   type="text"
                   inputMode="decimal"
+                  {...selectOnFocusProps}
                   value={tAmount}
                   placeholder="0.00"
                   aria-label="Transfer amount"
@@ -668,6 +782,10 @@ export function TransactionsPage() {
                     onClick={() => {
                       setMode('transaction')
                       setError(null)
+                      // Close the register's inline split editor — the modal's split rows share
+                      // its aria-labels, and two mounted editors would collide.
+                      cancelSplit()
+                      resetAddSplit()
                       setShowAdd(true)
                     }}
                     aria-label="Add transaction"
@@ -738,6 +856,7 @@ export function TransactionsPage() {
                               <input
                                 type="text"
                                 inputMode="decimal"
+                                {...selectOnFocusProps}
                                 value={eAmount}
                                 aria-label="Edit amount"
                                 onChange={(e) => setEAmount(e.target.value)}
@@ -913,7 +1032,9 @@ export function TransactionsPage() {
                             </td>
                             <td className="px-4 py-3.5 text-right">
                               {canEnterData && (
-                              <div className="flex justify-end gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                              // Always visible (not hover-revealed): the tester never found the
+                              // split action, and touch devices have no hover at all.
+                              <div className="flex justify-end gap-1">
                                 {!isTransfer && (
                                   <>
                                     <button
@@ -960,16 +1081,10 @@ export function TransactionsPage() {
                                 <h4 className="text-sm font-semibold text-slate-700">
                                   Split “{t.payee || t.date}” ({formatMoney(totalMinor, t.currency)})
                                 </h4>
-                                <span
-                                  aria-label="Remaining to allocate"
-                                  className={`text-xs font-semibold tabular-nums ${
-                                    remainderMinor === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
-                                  }`}
-                                >
-                                  {remainderMinor === 0
-                                    ? 'Fully allocated'
-                                    : `${formatMoney(remainderMinor, t.currency)} left`}
-                                </span>
+                                <SplitRemainderChip
+                                  remainderMinor={remainderMinor}
+                                  format={(m) => formatMoney(m, t.currency)}
+                                />
                               </div>
 
                               {splitOptions.length === 0 && (
@@ -978,62 +1093,13 @@ export function TransactionsPage() {
                                 </p>
                               )}
 
-                              {splitRows.map((row, index) => (
-                                <div key={index} className="flex flex-wrap items-center gap-2">
-                                  <select
-                                    value={row.budgetItemId}
-                                    aria-label={`Split line ${index + 1} category`}
-                                    onChange={(e) => updateSplitRow(index, { budgetItemId: e.target.value })}
-                                    className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
-                                  >
-                                    <option value="">Choose a line…</option>
-                                    {splitOptions.map((g) => (
-                                      <optgroup key={g.category} label={g.category}>
-                                        {g.items.map((i) => (
-                                          <option key={i.id} value={i.id}>
-                                            {i.name}
-                                          </option>
-                                        ))}
-                                      </optgroup>
-                                    ))}
-                                  </select>
-                                  <input
-                                    type="text"
-                                    inputMode="decimal"
-                                    value={row.amount}
-                                    placeholder="0,00"
-                                    aria-label={`Split line ${index + 1} amount`}
-                                    onChange={(e) => updateSplitRow(index, { amount: e.target.value })}
-                                    className="w-28 rounded-md border border-slate-300 px-2 py-1 text-right text-sm tabular-nums focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
-                                  />
-                                  {members.length >= 2 && (
-                                    <select
-                                      value={row.memberId}
-                                      aria-label={`Split line ${index + 1} member`}
-                                      onChange={(e) => updateSplitRow(index, { memberId: e.target.value })}
-                                      className="w-36 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-600 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
-                                    >
-                                      <option value="">No member</option>
-                                      {members.map((m) => (
-                                        <option key={m.id} value={m.id}>
-                                          {m.name}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  )}
-                                  {splitRows.length > 2 && (
-                                    <button
-                                      type="button"
-                                      onClick={() => removeSplitRow(index)}
-                                      aria-label={`Remove split line ${index + 1}`}
-                                      title="Remove line"
-                                      className="rounded-md px-2 py-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
-                                    >
-                                      ✕
-                                    </button>
-                                  )}
-                                </div>
-                              ))}
+                              <SplitLinesEditor
+                                rows={splitRows}
+                                options={splitOptions}
+                                members={members}
+                                onChangeRow={updateSplitRow}
+                                onRemoveRow={removeSplitRow}
+                              />
 
                               <div className="flex items-center gap-2">
                                 <button

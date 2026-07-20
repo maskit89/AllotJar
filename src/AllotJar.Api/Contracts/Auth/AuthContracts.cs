@@ -98,7 +98,8 @@ public record MeResponse(
     string NumberFormat,
     IReadOnlyList<HouseholdSummary> Households,
     bool NeedsConsent,
-    bool HasPassword);
+    bool HasPassword,
+    bool HasGoogle);
 
 /// <summary>One household the login can act in, for the household switcher. The active one has <see cref="IsActive"/>.</summary>
 public record HouseholdSummary(string OwnerId, string Label, HouseholdRole Role, bool IsActive, bool IsOwn);

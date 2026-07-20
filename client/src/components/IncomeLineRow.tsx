@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ItemVM } from '../budgetModel'
 import { currencySymbol, formatMoney, parseMinor, toEditString, type Minor } from '../lib/money'
+import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { hueColor, hueTint } from '../lib/categoryColors'
 import { useAuth } from '../auth/AuthContext'
 
@@ -95,6 +96,7 @@ export function IncomeLineRow({ item, currency, saving, onRename, onCommitPlanne
                   type="text"
                   inputMode="decimal"
                   autoFocus
+                  {...selectOnFocusProps}
                   value={draft}
                   aria-label={`Planned amount for ${item.name}`}
                   onChange={(e) => setDraft(e.target.value)}
