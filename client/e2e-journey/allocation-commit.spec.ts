@@ -578,9 +578,11 @@ test('a member without a savings account strands their share; over-committing th
   await expect(heroTile(page, 'Shared spending')).toContainText('6,100.00')
   await expect(heroTile(page, 'To savings')).toContainText('1,100.00')
 
-  // --- ALLOC-056: nothing stranded now (no positive share), so the slate note shows
-  // instead of the amber one.
-  await expect(page.getByText(/nothing left to move to savings/)).toBeVisible()
+  // --- ALLOC-056/070: nothing stranded now (no positive share); To savings is
+  // NEGATIVE, so the rose overshoot note shows (the slate nothing-to-save copy is
+  // reserved for exactly zero).
+  await expect(page.getByText(/overshoot the pooled income by/)).toBeVisible()
+  await expect(page.getByText(/overshoot the pooled income by/)).toContainText('1,100.00')
   await expect(page.getByText(/has nowhere to go/)).toHaveCount(0)
 
   // --- ALLOC-045: keep-own residuals gone negative render in the rose tone —
@@ -594,7 +596,7 @@ test('a member without a savings account strands their share; over-committing th
   const second = await commitAllocation(page)
   expect(second.transfersCreated).toBe(0)
   await expect(page.getByRole('status')).toContainText(
-    `Allocated ${monthName} — no savings transfers were needed this month.`,
+    `Allocated ${monthName} — nothing was transferred because shared spending overshoots the pooled income.`,
   )
   await page.getByRole('link', { name: 'Transactions' }).click()
   await expect(page.locator('tbody tr').filter({ hasText: 'Income allocation' })).toHaveCount(0)
