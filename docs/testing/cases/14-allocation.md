@@ -703,3 +703,21 @@
   1. Open `/allocation` and read below the waterfall.
 - **Expected:** A muted note: "the pooled income here (€pool) comes from each person's income on the People page and doesn't match {month}'s budgeted income lines (€income)." — naming the two sources instead of letting the figures silently disagree (the full unification is the income-attribution workstream). Suppressed when the budget plans no income at all (empty month).
 - **Automated:** Full (client ALLOC-071)
+
+### ALLOC-072 - Unattributed budget income: shared equally with an assign-it banner
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** The month's budget attributes at least one income line to a person AND has income lines with no person (or attributed to an archived member).
+- **Steps:**
+  1. Open `/allocation`; read above the committed banner.
+- **Expected:** The unattributed planned total is shared equally across active members (last member absorbs the rounding remainder, the `Split` convention; sum-preserving) and an amber banner names it: "€X of {month}'s income isn't assigned to a person, so it's treated as shared equally." with an "Assign income lines on the Budget page" link. Commit is never blocked. `AllocationResultDto` carries `unattributedIncome`/`incomeFromBudget` on preview AND commit.
+- **Automated:** Full (backend `AllocationIncomeFromBudgetTests`; client ALLOC-072)
+
+### ALLOC-073 - Income-source precedence: attributed lines > static People-page defaults
+- **Priority:** P0
+- **Type:** Regression
+- **Preconditions:** Case A: a month whose income lines are attributed to people. Case B: a month with income lines but none attributed.
+- **Steps:**
+  1. Open `/allocation` on each month and compare the pool with the budget/People figures.
+- **Expected:** Case A: the pool = the month's PLANNED attributed income (+ equally-shared unattributed) — the budget is the single source of truth; each member's `netIncome` in the preview is their attributed sum. Case B: exact pre-attribution behavior — pool = Σ static `NetMonthlyIncome`, flagged by the muted note "This split uses the default incomes from the People page — {month}'s budget has no income assigned to people yet." Lines attributed to an archived member fold into the unattributed pot. PLANNED (not received) by design: the engine plans; a mid-month run must not see half a salary.
+- **Automated:** Full (backend `AllocationIncomeFromBudgetTests` incl. fallback + archived-fold; client ALLOC-073)

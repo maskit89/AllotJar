@@ -14,6 +14,18 @@ public class AllocationResultDto
 
     /// <summary>How many savings transfers a commit created (0 for a preview).</summary>
     public int TransfersCreated { get; set; }
+
+    /// <summary>
+    /// True when the pool came from the month's budgeted income lines (at least one line is
+    /// attributed to a person); false = the static People-page incomes fallback.
+    /// </summary>
+    public bool IncomeFromBudget { get; set; }
+
+    /// <summary>
+    /// Budgeted income not attributed to any active person, shared equally across members
+    /// when <see cref="IncomeFromBudget"/> is true (0 otherwise).
+    /// </summary>
+    public decimal UnattributedIncome { get; set; }
 }
 
 public class AllocationStepDto
@@ -45,12 +57,20 @@ public class MemberAllocationDto
 
 public static class AllocationResultMapping
 {
-    public static AllocationResultDto ToDto(this AllocationResult r, decimal envelopesTotal, decimal jarsTotal, int transfersCreated = 0) => new()
+    public static AllocationResultDto ToDto(
+        this AllocationResult r,
+        decimal envelopesTotal,
+        decimal jarsTotal,
+        int transfersCreated = 0,
+        decimal unattributedIncome = 0m,
+        bool incomeFromBudget = false) => new()
     {
         Pool = r.Pool,
         EnvelopesTotal = envelopesTotal,
         JarsTotal = jarsTotal,
         TransfersCreated = transfersCreated,
+        IncomeFromBudget = incomeFromBudget,
+        UnattributedIncome = unattributedIncome,
         Steps = r.Steps
             .Select(s => new AllocationStepDto
             {

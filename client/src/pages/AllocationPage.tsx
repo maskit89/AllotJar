@@ -410,6 +410,30 @@ export function AllocationPage() {
             </p>
           )}
 
+          {/* Income-source honesty: the pool comes from the budget's attributed income lines
+              when any exist; unattributed lines are shared equally with a nudge to assign
+              them, and a month with no attribution falls back to People-page defaults. */}
+          {(preview.unattributedIncome ?? 0) > 0 && (
+            <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+              {formatMoney(fromAmount(preview.unattributedIncome ?? 0), CURRENCY)} of {monthName}’s income
+              isn’t assigned to a person, so it’s treated as shared equally.{' '}
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="font-semibold underline decoration-amber-400 underline-offset-2 hover:text-amber-900 dark:hover:text-amber-200"
+              >
+                Assign income lines on the Budget page
+              </button>{' '}
+              for an accurate split.
+            </p>
+          )}
+          {!preview.incomeFromBudget && (
+            <p className="mb-4 text-xs text-slate-500">
+              This split uses the default incomes from the People page — {monthName}’s budget has no income
+              assigned to people yet.
+            </p>
+          )}
+
           {(showReconcile || doubleCounted) && (
             <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
               <p>

@@ -50,6 +50,25 @@ public static class AllocationPlanner
 
         var savingsBalances = await SavingsBalancesAsync(db, ownerId, members, year, month, ct);
 
+        // Per-member income precedence: when the month's budget attributes income lines to
+        // people, those PLANNED sums are the engine's income source (the budget is the single
+        // source of truth); unattributed income is shared equally (last member absorbs the
+        // rounding remainder, the IncomeAllocator.Split convention). A month with no attributed
+        // lines falls back to the static NetMonthlyIncome — exact pre-attribution behavior.
+        var budgetIncome = await MemberIncome.ForMonthAsync(
+            db, ownerId, year, month, members.Select(m => m.Id).ToList(), ct);
+        var equalShares = new Dictionary<Guid, decimal>();
+        if (budgetIncome.HasAttributedIncome && members.Count > 0 && budgetIncome.Unattributed != 0m)
+        {
+            var share = Math.Round(budgetIncome.Unattributed / members.Count, 4);
+            for (var i = 0; i < members.Count; i++)
+            {
+                equalShares[members[i].Id] = i == members.Count - 1
+                    ? budgetIncome.Unattributed - share * (members.Count - 1)
+                    : share;
+            }
+        }
+
         var allocMembers = members
             .Select(m =>
             {
@@ -61,8 +80,11 @@ public static class AllocationPlanner
                 var savingsId = m.PersonalSavingsAccountId is Guid sid && savingsBalances.ContainsKey(sid)
                     ? (Guid?)sid
                     : null;
+                var netIncome = budgetIncome.HasAttributedIncome
+                    ? budgetIncome.ByMember.GetValueOrDefault(m.Id) + equalShares.GetValueOrDefault(m.Id)
+                    : m.NetMonthlyIncome;
                 return new AllocationMember(
-                    m.Id, m.Name, m.NetMonthlyIncome, savingsId,
+                    m.Id, m.Name, netIncome, savingsId,
                     SavingsBalance: savingsId is Guid vid ? savingsBalances[vid] : 0m);
             })
             .ToList();
@@ -80,7 +102,10 @@ public static class AllocationPlanner
             .ToList();
 
         var result = IncomeAllocator.Compute(allocMembers, ruleInputs, profile?.BalanceLeanPercent ?? 25);
-        return new AllocationPlan(result, profile, envelopes, funds);
+        return new AllocationPlan(
+            result, profile, envelopes, funds,
+            UnattributedIncome: budgetIncome.HasAttributedIncome ? budgetIncome.Unattributed : 0m,
+            IncomeFromBudget: budgetIncome.HasAttributedIncome);
     }
 
     /// <summary>
@@ -135,4 +160,10 @@ public static class AllocationPlanner
     }
 }
 
-public record AllocationPlan(AllocationResult Result, AllocationProfile? Profile, decimal EnvelopesTotal, decimal JarsTotal);
+public record AllocationPlan(
+    AllocationResult Result,
+    AllocationProfile? Profile,
+    decimal EnvelopesTotal,
+    decimal JarsTotal,
+    decimal UnattributedIncome = 0m,
+    bool IncomeFromBudget = false);

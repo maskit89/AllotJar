@@ -7,6 +7,7 @@ using AllotJar.Application.Household.Commands.CreateHouseholdMember;
 using AllotJar.Application.Household.Commands.UpdateHouseholdMember;
 using AllotJar.Application.Household.Dtos;
 using AllotJar.Application.Household.Queries.GetHouseholdMembers;
+using AllotJar.Application.Household.Queries.GetMemberIncome;
 using AllotJar.Application.Household.Queries.GetMemberSpending;
 
 namespace AllotJar.Api.Controllers;
@@ -44,6 +45,18 @@ public class MembersController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<MemberSpendingDto>>> Spending(CancellationToken ct)
     {
         var result = await _mediator.Send(new GetMemberSpendingQuery(), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Per-member income for a month, derived from the budget's attributed income lines
+    /// (planned) and the month's attributed income transactions (received).
+    /// </summary>
+    [HttpGet("income/{year:int}/{month:int}")]
+    [ProducesResponseType(typeof(MemberIncomeResultDto), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MemberIncomeResultDto>> Income(int year, int month, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new GetMemberIncomeQuery(year, month), ct);
         return Ok(result);
     }
 
