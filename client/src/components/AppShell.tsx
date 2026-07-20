@@ -5,6 +5,7 @@ import { AppNav, type NavKey } from './AppNav'
 import { StagingBanner } from './StagingBanner'
 import { JarLogo } from './Jar'
 import { TopBar } from './TopBar'
+import { VerifyEmailBanner } from './VerifyEmailBanner'
 import { LogoutIcon, SettingsIcon } from './icons'
 import { EVENTS, track } from '../analytics'
 
@@ -233,6 +234,7 @@ export function AppShell({
         >
           {title && <h1 className="sr-only">{title}</h1>}
           <TopBar />
+          <VerifyEmailBanner />
 
           {greeting && (
             <div

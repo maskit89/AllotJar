@@ -512,6 +512,8 @@ export interface MeResponse {
   hasPassword?: boolean
   /** True when a Google identity is linked — the account page shows Disconnect. */
   hasGoogle?: boolean
+  /** False until the login's email address is verified — drives the "confirm your email" banner. */
+  emailConfirmed?: boolean
 }
 
 /** The login's current name + money-display preferences (GET via /auth/me, PUT /auth/preferences). */

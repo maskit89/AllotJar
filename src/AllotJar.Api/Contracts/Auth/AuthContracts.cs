@@ -43,6 +43,18 @@ public record GoogleLoginRequest(
     string? NumberFormat);
 
 /// <summary>
+/// Registration outcome when the email already belongs to an UNVERIFIED account: no session is
+/// issued (it isn't yet proven to be the registrant's), and a claim/reset link is emailed to the
+/// address so its true owner can take it over. The client shows a neutral "check your email".
+/// </summary>
+public record RegistrationPendingResponse(bool VerificationPending, string Email);
+
+/// <summary>Confirms an emailed address-verification token.</summary>
+public record ConfirmEmailRequest(
+    [Required, EmailAddress] string Email,
+    [Required] string Token);
+
+/// <summary>
 /// Redeems a one-time invite link. A new user sets <see cref="Password"/> and must accept the terms
 /// (<see cref="AcceptedTerms"/>); a signed-in user joining with their existing login omits both
 /// (and sends their bearer token instead).
@@ -99,7 +111,8 @@ public record MeResponse(
     IReadOnlyList<HouseholdSummary> Households,
     bool NeedsConsent,
     bool HasPassword,
-    bool HasGoogle);
+    bool HasGoogle,
+    bool EmailConfirmed);
 
 /// <summary>One household the login can act in, for the household switcher. The active one has <see cref="IsActive"/>.</summary>
 public record HouseholdSummary(string OwnerId, string Label, HouseholdRole Role, bool IsActive, bool IsOwn);

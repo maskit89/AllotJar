@@ -77,10 +77,16 @@ interface AuthState {
   hasGoogle: boolean
   /** Disconnects Google; rejects (throws) if it's the only sign-in method. Refreshes /auth/me. */
   unlinkGoogle: () => Promise<void>
+  /** False until the login's email is verified — drives the "confirm your email" banner. */
+  emailConfirmed: boolean
+  /** Resends the address-verification email for the current login. */
+  resendVerification: () => Promise<void>
   login: (email: string, password: string) => Promise<void>
   /** Exchanges a Google ID token for a session; resolves with whether the account was just created. */
   loginWithGoogle: (credential: string) => Promise<{ isNewAccount: boolean }>
-  register: (input: RegisterInput) => Promise<void>
+  /** Resolves { verificationPending: true } when the email already had an UNVERIFIED account (a
+   *  claim link was emailed and NO session was created); otherwise signs in and resolves {}. */
+  register: (input: RegisterInput) => Promise<{ verificationPending?: boolean }>
   acceptInvite: (token: string, password: string, displayName?: string, acceptedTerms?: boolean) => Promise<void>
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>
   /** Requests a reset email. Resolves on 204 whether or not the account exists (no enumeration). */
@@ -131,6 +137,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // before /auth/me answers; Google-only accounts flip it to false from the /me payload.
   const [hasPassword, setHasPassword] = useState(true)
   const [hasGoogle, setHasGoogle] = useState(false)
+  // Default true so the banner never flashes for a confirmed/returning login before /auth/me;
+  // register (new account) sets it false locally, and /auth/me is authoritative.
+  const [emailConfirmed, setEmailConfirmed] = useState(true)
   // No in-memory access token on a cold load ⇒ try to restore the session from the refresh cookie.
   const [bootstrapping, setBootstrapping] = useState<boolean>(!getToken())
 
@@ -264,6 +273,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setNeedsConsent(data.needsConsent === true)
         setHasPassword(data.hasPassword !== false)
         setHasGoogle(data.hasGoogle === true)
+        setEmailConfirmed(data.emailConfirmed !== false)
         applyPrefs(data.preferredCurrency, data.numberFormat)
         localStorage.setItem(ROLE_KEY, String(data.role))
       })
@@ -302,13 +312,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function register(input: RegisterInput) {
-    const { data } = await api.post<AuthResponse>('/auth/register', input)
+    const { data } = await api.post<AuthResponse & { verificationPending?: boolean }>(
+      '/auth/register',
+      input,
+    )
+    // Registering an email that already had an UNVERIFIED account emails a claim link and issues
+    // NO session (the caller isn't proven to own it) — surface that so the form says so.
+    if (!data?.token) {
+      return { verificationPending: data?.verificationPending === true }
+    }
     apply(data)
     // The new user picked these at sign-up — apply immediately so the app speaks their
-    // currency/format right away (the /auth/me refresh will confirm them).
+    // currency/format right away (the /auth/me refresh will confirm them). A brand-new account is
+    // unverified until they click the emailed link.
     setFirstName(input.firstName || null)
     setLastName(input.lastName || null)
+    setEmailConfirmed(false)
     applyPrefs(input.preferredCurrency, input.numberFormat)
+    return {}
+  }
+
+  async function resendVerification() {
+    await api.post('/auth/resend-verification')
   }
 
   async function acceptInvite(
@@ -392,6 +417,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setNeedsConsent(false)
     setHasPassword(true)
     setHasGoogle(false)
+    setEmailConfirmed(true)
     applyPrefs(DEFAULT_CURRENCY, DEFAULT_FORMAT)
     localStorage.removeItem(EMAIL_KEY)
     localStorage.removeItem(ROLE_KEY)
@@ -428,6 +454,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       hasPassword,
       hasGoogle,
       unlinkGoogle,
+      emailConfirmed,
+      resendVerification,
       confirmConsent,
       switchHousehold,
       startOwnBudget,
@@ -442,7 +470,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updatePreferences,
       logout,
     }),
-    [token, email, displayName, firstName, lastName, preferredCurrency, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, hasPassword, hasGoogle],
+    [token, email, displayName, firstName, lastName, preferredCurrency, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, hasPassword, hasGoogle, emailConfirmed],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
