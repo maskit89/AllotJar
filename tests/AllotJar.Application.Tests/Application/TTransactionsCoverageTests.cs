@@ -232,6 +232,35 @@ public class TTransactionsCoverageTests
         (await ActualOf(db, user, f.GroceriesId)).Should().Be(40m);
     }
 
+    // TX-037: a transaction can't be attached to an account whose currency differs from the
+    // transaction's — account balances sum raw amounts, so a EUR entry on a GBP account would
+    // corrupt the GBP balance (F6).
+    [Fact]
+    public async Task Create_OnAnAccountOfADifferentCurrency_IsRejected()
+    {
+        await using var db = NewContext();
+        SeedMonth(db); // EUR July 2026 month — a manual entry is stamped EUR
+        var user = new CurrentUserStub("user-1");
+
+        var gbpAccount = new Account
+        {
+            OwnerId = "user-1",
+            Name = "GBP Pot",
+            Currency = CurrencyCode.From("GBP"),
+            OpeningBalance = 0m,
+        };
+        db.Accounts.Add(gbpAccount);
+        await db.SaveChangesAsync();
+
+        var act = () => new CreateTransactionCommandHandler(db, user).Handle(
+            new CreateTransactionCommand(
+                new DateOnly(2026, 7, 10), "Tesco", 40m, TransactionType.Expense, BudgetItemId: null, AccountId: gbpAccount.Id),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<ValidationException>();
+        (await db.Transactions.CountAsync()).Should().Be(0);
+    }
+
     // TX-035: a mismatched whole-assignment "shows but never lands" — an income transaction
     // force-assigned to the Groceries expense line contributes 0 to that line's actual, because
     // actuals group by (BudgetItemId, Type) and an expense line only reads Expense transactions.

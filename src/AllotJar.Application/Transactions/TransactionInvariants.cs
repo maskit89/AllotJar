@@ -4,6 +4,7 @@ using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.ValueObjects;
 
 namespace AllotJar.Application.Transactions;
 
@@ -153,6 +154,22 @@ public static class TransactionInvariants
         }
 
         return item;
+    }
+
+    /// <summary>
+    /// A transaction attached to an account must be in that account's currency. Account balances
+    /// sum raw amounts (no FX), so a foreign-currency transaction on an account silently corrupts
+    /// its balance. We reject the mismatch (an account holds one currency; move foreign money via
+    /// a transfer/import in that currency) rather than trying to convert on an account leg.
+    /// </summary>
+    public static void EnsureAccountCurrency(Account? account, CurrencyCode transactionCurrency, string errorKey)
+    {
+        if (account is not null && account.Currency != transactionCurrency)
+        {
+            throw Validation(errorKey,
+                $"This account is in {account.Currency.Value}, but the transaction is in {transactionCurrency.Value}. " +
+                $"Record it in {account.Currency.Value}, or choose an account in the transaction's currency.");
+        }
     }
 
     private static bool IsIncomeLine(BudgetItem item) => item.BudgetCategory.Kind == CategoryKind.Income;
