@@ -27,6 +27,10 @@ public class GetTransactionsQueryHandler
         var query = _db.Transactions
             .AsNoTracking()
             .Include(t => t.BudgetItem)
+                // ThenInclude off the nullable BudgetItem nav: the expression is a navigation
+                // path EF never invokes, so null-forgive to keep the reference-type flow clean.
+                .ThenInclude(i => i!.BudgetCategory)
+                .ThenInclude(c => c.BudgetMonth)
             .Include(t => t.Account)
             .Include(t => t.TransferAccount)
             .Include(t => t.Member)

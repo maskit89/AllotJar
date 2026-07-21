@@ -21,6 +21,15 @@ public class TransactionDto
     public Guid? BudgetItemId { get; set; }
     public string? BudgetItemName { get; set; }
 
+    /// <summary>
+    /// The calendar year/month of the budget month the assigned line belongs to. A transaction can
+    /// legitimately be budgeted to a line in a different month than its own date (e.g. a 31 Jan
+    /// purchase budgeted to a February line); the register surfaces that. Null when unassigned or
+    /// when the line's month navigation wasn't loaded.
+    /// </summary>
+    public int? BudgetItemYear { get; set; }
+    public int? BudgetItemMonth { get; set; }
+
     /// <summary>The account this money moved in/out of, if any (the source for a transfer).</summary>
     public Guid? AccountId { get; set; }
     public string? AccountName { get; set; }
@@ -65,6 +74,9 @@ public static class TransactionMapping
         BankReference = t.BankReference,
         BudgetItemId = t.BudgetItemId,
         BudgetItemName = t.BudgetItem?.Name,
+        // Null-safe through the whole chain: stays null if any nav (or the month) isn't loaded.
+        BudgetItemYear = t.BudgetItem?.BudgetCategory?.BudgetMonth?.Year,
+        BudgetItemMonth = t.BudgetItem?.BudgetCategory?.BudgetMonth?.Month,
         AccountId = t.AccountId,
         AccountName = t.Account?.Name,
         TransferAccountId = t.TransferAccountId,

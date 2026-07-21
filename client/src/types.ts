@@ -84,6 +84,13 @@ export interface TransactionDto {
   bankReference: string | null
   budgetItemId: string | null
   budgetItemName: string | null
+  /**
+   * Calendar year/month of the budget month the assigned line belongs to. Present only when the
+   * assigned line's month was loaded; differs from the transaction's own date when it was budgeted
+   * to another month's line. Optional so existing fixtures stay valid; absent reads as null.
+   */
+  budgetItemYear?: number | null
+  budgetItemMonth?: number | null
   accountId: string | null
   accountName: string | null
   /** For a transfer, the destination account the money moved into. */
