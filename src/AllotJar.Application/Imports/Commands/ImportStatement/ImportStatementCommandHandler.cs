@@ -53,14 +53,17 @@ public class ImportStatementCommandHandler : IRequestHandler<ImportStatementComm
             ?? throw new NotFoundException($"No statement parser is registered for format '{request.Format}'.");
         var statement = parser.Parse(request.Content);
 
-        // Pre-load this user's existing references so re-importing the same
-        // statement is idempotent (we never create a duplicate Transaction).
+        // Pre-load this account's existing references so re-importing the same statement is
+        // idempotent. Scoped by account (matching the unique index) so a reference a bank reuses
+        // on a different account isn't mistaken for a duplicate; case-insensitive to agree with the
+        // index's CI collation.
+        var importAccountId = request.AccountId;
         var existingReferences = await _db.Transactions
-            .Where(t => t.OwnerId == userId && t.BankReference != null)
+            .Where(t => t.OwnerId == userId && t.AccountId == importAccountId && t.BankReference != null)
             .Select(t => t.BankReference!)
             .ToListAsync(cancellationToken);
 
-        var seen = new HashSet<string>(existingReferences, StringComparer.Ordinal);
+        var seen = new HashSet<string>(existingReferences, StringComparer.OrdinalIgnoreCase);
 
         int imported = 0, skipped = 0, credits = 0, debits = 0;
         var created = new List<Transaction>();
