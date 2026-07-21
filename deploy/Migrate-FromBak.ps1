@@ -1,28 +1,35 @@
 <#
 .SYNOPSIS
-    One-time data migration: restore a dev .bak over the production database.
-    Run ON THE VPS, in an elevated PowerShell.
+    Restore a .bak over a chosen environment's database (RESTORE ... WITH REPLACE).
+    Run ON THE VPS, in an elevated PowerShell. DESTRUCTIVE — overwrites the target DB.
 
 .DESCRIPTION
-    The production DB already exists (created empty + EF-migrated by the first
-    deploy). This RESTORE ... WITH REPLACE overwrites it with your real dev data,
-    relocating the data/log files into this instance's default data folder, then
-    re-grants the app-pool login (the restored DB carries dev's users, not prod's).
+    -Environment resolves the whole tuple (DB name, app pool, health port) so they
+    cannot drift apart. Post-GA-cutover:
+        staging     -> DB ZeroBudget,     pool ZeroBudget-Api,      health :5000
+        production  -> DB ZeroBudgetProd, pool ZeroBudget-Prod-Api, health :5001
+    The target DB already exists (created empty + EF-migrated by the first deploy).
+    This RESTORE ... WITH REPLACE overwrites it with the .bak's data, relocating the
+    data/log files into this instance's default data folder, then re-grants the app-pool
+    login (the restored DB carries the source's users, not the target's).
 
     Uses System.Data.SqlClient over Shared Memory -- no sqlcmd/sqlpackage needed.
     Restoring an older backup onto a newer SQL Server (dev -> SQL 2025) is supported.
+    Prompts for the target DB name to confirm before overwriting; pass -Force to skip.
 
     Example:
-        powershell -ExecutionPolicy Bypass -File .\Migrate-FromBak.ps1 -BakPath C:\deploy\incoming\ZeroBudget-migrate.bak
+        .\Migrate-FromBak.ps1 -Environment production -BakPath C:\deploy\incoming\migrate.bak
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string]$BakPath,
+    [Parameter(Mandatory)] [ValidateSet('staging', 'production')] [string]$Environment,
     [string]$SqlInstance = '.\SQLEXPRESS',
-    [string]$Database    = 'ZeroBudget',
-    [string]$ApiPool     = 'ZeroBudget-Api',
-    [string]$AppLogin    = 'IIS APPPOOL\ZeroBudget-Api',
-    [string]$HealthUrl   = 'http://127.0.0.1:5000/health'
+    [string]$Database,
+    [string]$ApiPool,
+    [string]$AppLogin,
+    [string]$HealthUrl,
+    [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,7 +37,26 @@ Add-Type -AssemblyName System.Data
 Import-Module WebAdministration
 function Info($m) { Write-Host "==> $m" -ForegroundColor Cyan }
 
+# Resolve the environment tuple so DB / pool / health port cannot be mixed across envs.
+$envMap = @{
+    staging    = @{ Database = 'ZeroBudget';     ApiPool = 'ZeroBudget-Api';      HealthUrl = 'http://127.0.0.1:5000/health' }
+    production = @{ Database = 'ZeroBudgetProd'; ApiPool = 'ZeroBudget-Prod-Api'; HealthUrl = 'http://127.0.0.1:5001/health' }
+}
+$tuple = $envMap[$Environment]
+if (-not $Database)  { $Database  = $tuple.Database }
+if (-not $ApiPool)   { $ApiPool   = $tuple.ApiPool }
+if (-not $HealthUrl) { $HealthUrl = $tuple.HealthUrl }
+if (-not $AppLogin)  { $AppLogin  = "IIS APPPOOL\$ApiPool" }
+
 if (-not (Test-Path $BakPath)) { throw "Backup file not found: $BakPath" }
+
+Info "Target [$Environment]: RESTORE [$Database] on $SqlInstance (pool $ApiPool, health $HealthUrl)"
+Info "Source: $BakPath"
+if (-not $Force) {
+    Write-Host "This OVERWRITES [$Database] via WITH REPLACE and is destructive." -ForegroundColor Yellow
+    $confirm = Read-Host "Type the target database name to proceed"
+    if ($confirm -ne $Database) { throw "Confirmation '$confirm' did not match '$Database'. Aborted." }
+}
 $masterCs = "Server=$SqlInstance;Database=master;Integrated Security=True;TrustServerCertificate=True;Connect Timeout=30"
 
 function Read-Sql([string]$query) {

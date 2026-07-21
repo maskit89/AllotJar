@@ -116,24 +116,31 @@ Recommended: **branch protection** on `main` requiring the existing `backend` / 
 
 ---
 
+> **Environment names (post-GA cutover):** production DB = `ZeroBudgetProd` (API :5001,
+> pool `ZeroBudget-Prod-Api`); `ZeroBudget` (API :5000) is now **staging**. See
+> [`staging-prod.md`](staging-prod.md) for the authoritative topology — the commands below
+> name the **production** database explicitly; swap in the staging values when targeting staging.
+
 ## Backups
 
-After SQL Server is installed, register the daily backup (runs as SYSTEM, prunes to 14 days):
+After SQL Server is installed, register the daily backup (runs as SYSTEM, prunes to 14 days).
+`Provision-Production.ps1` registers one task per environment; to (re)register by hand pass the
+target DB explicitly:
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\Register-BackupTask.ps1
-# verify:  Start-ScheduledTask -TaskName ZeroBudget-DbBackup ; Get-ChildItem C:\deploy\backups
+powershell -ExecutionPolicy Bypass -File .\Register-BackupTask.ps1 -Database ZeroBudgetProd -TaskName ZeroBudget-Prod-DbBackup
+# verify:  Start-ScheduledTask -TaskName ZeroBudget-Prod-DbBackup ; Get-ChildItem C:\deploy\backups
 ```
 `.bak` files land in `C:\deploy\backups`. Run `Register-BackupTask.ps1` again to change the time/retention. If the task can't back up, the SYSTEM account lacks rights on the instance — grant it (or re-run the task as your SQL admin).
 
 ## Rollback
 
-Re-run a previous successful **Deploy** workflow from the Actions tab (it re-pushes that commit's artifact), or check out the previous commit and `workflow_dispatch`. Take an ad-hoc backup before any deploy that includes a migration:
+Re-run a previous successful **Deploy** workflow from the Actions tab (it re-pushes that commit's artifact), or check out the previous commit and `workflow_dispatch`. Take an ad-hoc backup before any deploy that includes a migration (`-Database` is required — name the target env):
 ```powershell
-powershell -File C:\deploy\Backup-Database.ps1
+powershell -File C:\deploy\Backup-Database.ps1 -Database ZeroBudgetProd
 ```
 Restore a `.bak` if needed:
 ```powershell
-sqlcmd -S .\SQLEXPRESS -E -Q "RESTORE DATABASE [ZeroBudget] FROM DISK='C:\deploy\backups\ZeroBudget_<stamp>.bak' WITH REPLACE"
+sqlcmd -S .\SQLEXPRESS -E -Q "RESTORE DATABASE [ZeroBudgetProd] FROM DISK='C:\deploy\backups\ZeroBudgetProd_<stamp>.bak' WITH REPLACE"
 ```
 
 ## Troubleshooting

@@ -1,6 +1,8 @@
 <#
 .SYNOPSIS
-    Timestamped backup of the production database with retention pruning.
+    Timestamped backup of a target database with retention pruning. Pass -Database
+    explicitly (staging = ZeroBudget, production = ZeroBudgetProd) — there is no
+    default, so a by-hand run can't back up the wrong environment silently.
     Intended to run as a daily Scheduled Task (see Register-BackupTask.ps1),
     but can also be run by hand before a risky deploy.
 
@@ -13,7 +15,7 @@
 [CmdletBinding()]
 param(
     [string]$Server        = '.\SQLEXPRESS',
-    [string]$Database      = 'ZeroBudget',
+    [Parameter(Mandatory = $true)][string]$Database,
     [string]$BackupDir     = 'C:\deploy\backups',
     [int]   $RetentionDays = 14
 )
