@@ -8,6 +8,7 @@ import { ImportIcon, TransactionsIcon } from '../components/icons'
 import { useFeatures } from '../features/FeatureContext'
 import { useMonth } from '../features/MonthContext'
 import { useAuth } from '../auth/AuthContext'
+import axios from 'axios'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import type { AccountDto, BudgetMonthDto, HouseholdMemberDto, TransactionDto } from '../types'
@@ -41,6 +42,9 @@ export function TransactionsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [crossMonthPrompt, setCrossMonthPrompt] = useState<
+    { id: string; budgetItemId: string | null; message: string } | null
+  >(null)
 
   // The Add transaction / transfer modal (opened from the toolbar's + button).
   const [showAdd, setShowAdd] = useState(false)
@@ -110,18 +114,37 @@ export function TransactionsPage() {
     }
   }, [])
 
-  const assign = useCallback(async (id: string, budgetItemId: string | null) => {
-    setSavingId(id)
-    setError(null)
-    try {
-      const { data } = await api.put<TransactionDto>(`/transactions/${id}/assignment`, { budgetItemId })
-      setTransactions((prev) => prev.map((t) => (t.id === id ? data : t)))
-    } catch {
-      setError('Could not save that assignment.')
-    } finally {
-      setSavingId(null)
-    }
-  }, [])
+  const assign = useCallback(
+    async (id: string, budgetItemId: string | null, acknowledgeCrossMonth = false) => {
+      setSavingId(id)
+      setError(null)
+      try {
+        const body = acknowledgeCrossMonth ? { budgetItemId, acknowledgeCrossMonth: true } : { budgetItemId }
+        const { data } = await api.put<TransactionDto>(`/transactions/${id}/assignment`, body)
+        setTransactions((prev) => prev.map((t) => (t.id === id ? data : t)))
+        setCrossMonthPrompt(null)
+      } catch (err) {
+        // A cross-month assignment isn't a failure — it's a confirmable choice (a purchase dated
+        // last month that you want budgeted to this month's line). The server flags it under the
+        // `crossMonth` key; prompt, then re-send acknowledged.
+        const crossMonth = axios.isAxiosError(err)
+          ? (err.response?.data as { errors?: Record<string, string[]> } | undefined)?.errors?.crossMonth
+          : undefined
+        if (crossMonth && !acknowledgeCrossMonth) {
+          setCrossMonthPrompt({
+            id,
+            budgetItemId,
+            message: crossMonth[0] ?? 'This transaction is dated in a different month than that budget line.',
+          })
+        } else {
+          setError('Could not save that assignment.')
+        }
+      } finally {
+        setSavingId(null)
+      }
+    },
+    [],
+  )
 
   // Add-modal split-row helpers (mirror updateSplitRow/addSplitRow/removeSplitRow for the register editor).
   const resetAddSplit = useCallback(() => {
@@ -747,6 +770,26 @@ export function TransactionsPage() {
           </div>
           )}
         </Modal>
+        )}
+
+        {/* Cross-month confirm: assigning a transaction to a line in a different month than its
+            date is a deliberate choice (e.g. a purchase that cleared the following month). */}
+        {crossMonthPrompt && (
+          <Modal title="Budget to a different month?" onClose={() => setCrossMonthPrompt(null)}>
+            <p className="text-sm text-slate-600">{crossMonthPrompt.message}</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setCrossMonthPrompt(null)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => assign(crossMonthPrompt.id, crossMonthPrompt.budgetItemId, true)}
+                disabled={savingId === crossMonthPrompt.id}
+              >
+                Budget it anyway
+              </Button>
+            </div>
+          </Modal>
         )}
 
         {loading && <p className="text-slate-500">Loading…</p>}
