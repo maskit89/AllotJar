@@ -15,6 +15,10 @@ public class TransactionDto
     /// <summary>Amount in the budget base currency (Amount × ExchangeRate).</summary>
     public decimal BaseAmount { get; set; }
 
+    /// <summary>True when this foreign row's exchange rate is unresolved (ExchangeRate is a
+    /// placeholder 1); it counts at face value until reconciled. Lets the UI flag it.</summary>
+    public bool FxPending { get; set; }
+
     public TransactionType Type { get; set; }
     public string? BankReference { get; set; }
 
@@ -70,6 +74,7 @@ public static class TransactionMapping
         Currency = t.Currency.Value,
         ExchangeRate = t.ExchangeRate,
         BaseAmount = t.BaseAmount,
+        FxPending = t.FxPending,
         Type = t.Type,
         BankReference = t.BankReference,
         BudgetItemId = t.BudgetItemId,

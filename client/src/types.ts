@@ -80,6 +80,8 @@ export interface TransactionDto {
   currency: string
   exchangeRate: number
   baseAmount: number
+  /** True when this foreign row's exchange rate is unresolved (counted at face value until reconciled). */
+  fxPending?: boolean
   type: number
   bankReference: string | null
   budgetItemId: string | null

@@ -61,6 +61,7 @@ public class FxRateResolverTests
         converted.Should().Be(1);
         tx.ExchangeRate.Should().Be(1.15m);
         tx.BaseAmount.Should().Be(46.00m); // 40 GBP * 1.15
+        tx.FxPending.Should().BeFalse();
     }
 
     [Fact]
@@ -75,22 +76,46 @@ public class FxRateResolverTests
 
         converted.Should().Be(0);
         tx.ExchangeRate.Should().Be(1m);
+        tx.FxPending.Should().BeFalse(); // genuinely 1:1, not unresolved
         provider.Calls.Should().Be(0); // no lookup for same-currency
     }
 
     [Fact]
-    public async Task Apply_WhenRateUnavailable_FallsBackToOne()
+    public async Task Apply_WhenRateUnavailable_MarksFxPending_AndKeepsRateOne()
     {
         await using var db = NewContext();
         SeedEurMonth(db, "user-1", 2026, 6);
         var tx = ForeignTx("GBP", new DateOnly(2026, 6, 3));
 
-        // null = provider couldn't resolve a rate
+        // null = provider couldn't resolve a rate.
         var converted = await FxRateResolver.ApplyAsync(
             db, new FakeExchangeRateProvider(null), "user-1", new[] { tx }, CancellationToken.None);
 
         converted.Should().Be(0);
-        tx.ExchangeRate.Should().Be(1m); // import still completes
+        tx.ExchangeRate.Should().Be(1m);   // import still completes at face value…
+        tx.FxPending.Should().BeTrue();    // …but the unresolved state is explicit, not a silent 1:1
+    }
+
+    [Fact]
+    public async Task Apply_ReconcilesAPreviouslyPendingRow_WhenTheRateBecomesAvailable()
+    {
+        await using var db = NewContext();
+        SeedEurMonth(db, "user-1", 2026, 6);
+
+        // A foreign row imported earlier while the provider was down: rate 1, flagged pending.
+        var stuck = ForeignTx("GBP", new DateOnly(2026, 6, 3));
+        stuck.FxPending = true;
+        db.Transactions.Add(stuck);
+        await db.SaveChangesAsync();
+
+        // A later import (any new row) re-attempts the pending one — now the rate resolves.
+        var fresh = ForeignTx("GBP", new DateOnly(2026, 6, 10));
+        await FxRateResolver.ApplyAsync(
+            db, new FakeExchangeRateProvider(1.15m), "user-1", new[] { fresh }, CancellationToken.None);
+
+        stuck.ExchangeRate.Should().Be(1.15m);
+        stuck.FxPending.Should().BeFalse(); // reconciled
+        fresh.FxPending.Should().BeFalse();
     }
 
     [Fact]
