@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using NSubstitute;
 using Xunit;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonths;
@@ -112,6 +113,44 @@ public class CreateBudgetMonthTests
             new CreateBudgetMonthCommand(2026, 6, CopyFromPrevious: true), CancellationToken.None);
 
         june.Categories.Should().ContainSingle(c => c.Kind == "Income");
+    }
+
+    [Fact]
+    public async Task Create_FirstMonth_AdoptsTheUsersPreferredCurrency()
+    {
+        // The account form defaults new accounts to the user's preferred currency, so the
+        // first-ever month must adopt the same preference — a hardcoded EUR base would make
+        // every account-attached transaction fail the account-currency invariant for a
+        // non-EUR household (the CI journey regression behind this rule).
+        await using var db = NewContext();
+        var identity = Substitute.For<IIdentityService>();
+        identity.GetPreferredCurrencyAsync("user-1").Returns(CurrencyCode.From("USD"));
+        var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"), identity);
+
+        await handler.Handle(
+            new CreateBudgetMonthCommand(2026, 6, CopyFromPrevious: false), CancellationToken.None);
+
+        var stored = await db.BudgetMonths.SingleAsync(m => m.OwnerId == "user-1");
+        stored.BaseCurrency.Should().Be(CurrencyCode.From("USD"));
+    }
+
+    [Fact]
+    public async Task Create_LaterMonth_InheritsThePreviousBase_NotThePreference()
+    {
+        // Once a budget history exists its base currency is sticky: switching the display
+        // preference must not fork a household's months across currencies.
+        await using var db = NewContext();
+        SeedJune(db, "user-1"); // June is GBP-based
+        var identity = Substitute.For<IIdentityService>();
+        identity.GetPreferredCurrencyAsync("user-1").Returns(CurrencyCode.From("USD"));
+        var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"), identity);
+
+        await handler.Handle(
+            new CreateBudgetMonthCommand(2026, 7, CopyFromPrevious: true), CancellationToken.None);
+
+        var july = await db.BudgetMonths.SingleAsync(m => m.OwnerId == "user-1" && m.Month == 7);
+        july.BaseCurrency.Should().Be(CurrencyCode.From("GBP"));
+        await identity.DidNotReceive().GetPreferredCurrencyAsync(Arg.Any<string>());
     }
 
     [Fact]

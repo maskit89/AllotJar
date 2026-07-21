@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Jars;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.ValueObjects;
+using AllotJar.Infrastructure.Identity;
 
 namespace AllotJar.Infrastructure.Persistence;
 
@@ -17,6 +19,7 @@ public static class BudgetSeeder
         string ownerId,
         int year,
         int month,
+        string? baseCurrency = null,
         CancellationToken ct = default)
     {
         // Strictly a brand-new-household seed: any existing month (not just the target one) means
@@ -37,6 +40,11 @@ public static class BudgetSeeder
             OwnerId = ownerId,
             Year = year,
             Month = month,
+            // The sample month adopts the registrant's home currency (same rule as
+            // CreateBudgetMonth's first month) so accounts created at their preference
+            // default don't trip the account-currency invariant. EUR is the last resort.
+            BaseCurrency = CurrencyCode.From(
+                UserPreferences.NormalizeCurrency(baseCurrency) ?? UserPreferences.DefaultCurrency),
             Categories = new List<BudgetCategory>
             {
                 new()
