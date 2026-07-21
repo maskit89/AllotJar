@@ -29,19 +29,9 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
         BudgetItem? item = null;
         if (request.BudgetItemId is Guid itemId)
         {
-            item = await _db.BudgetItems
-                .Include(i => i.BudgetCategory)
-                    .ThenInclude(c => c.BudgetMonth)
-                .FirstOrDefaultAsync(i => i.Id == itemId, cancellationToken);
-
-            if (item is null)
-            {
-                throw new NotFoundException($"Budget item {itemId} was not found.");
-            }
-            if (item.BudgetCategory.BudgetMonth.OwnerId != userId)
-            {
-                throw new ForbiddenAccessException();
-            }
+            // Owner + direction/kind (an expense can't land on an income line).
+            item = await TransactionInvariants.ValidateWholeLineAsync(
+                _db, userId, request.Type, itemId, "BudgetItemId", cancellationToken);
         }
 
         Account? account = null;
@@ -111,7 +101,7 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
         var hasSplits = request.Splits is { Count: > 0 };
         if (request.Splits is { Count: > 0 } splits)
         {
-            await SplitGuards.ValidateSlicesAsync(
+            await TransactionInvariants.ValidateSlicesAsync(
                 _db, userId, request.Type, request.Amount, splits,
                 errorKey: "Splits", cancellationToken);
 

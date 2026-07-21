@@ -168,10 +168,11 @@ public class TTransactionsCoverageTests
         (await ActualOf(db, user, f.GroceriesId)).Should().Be(0m);
     }
 
-    // TX-034: the assign endpoint does NO kind/type check — an income transaction can be
-    // force-assigned to an expense line and the assignment succeeds (only splits validate kind).
+    // TX-034: the assign endpoint enforces direction/kind — an income transaction cannot be
+    // assigned to an expense line. (Previously this silently succeeded, producing a "shows but
+    // never lands" row; closed by the transaction-invariant guard.)
     [Fact]
-    public async Task Assign_IncomeTransactionToExpenseLine_Succeeds_NoKindCheck()
+    public async Task Assign_IncomeTransactionToExpenseLine_IsRejected()
     {
         await using var db = NewContext();
         var f = SeedMonth(db);
@@ -188,11 +189,12 @@ public class TTransactionsCoverageTests
         db.Transactions.Add(income);
         await db.SaveChangesAsync();
 
-        var dto = await new AssignTransactionCommandHandler(db, user)
+        var act = () => new AssignTransactionCommandHandler(db, user)
             .Handle(new AssignTransactionCommand(income.Id, f.GroceriesId), CancellationToken.None);
 
-        dto.BudgetItemId.Should().Be(f.GroceriesId);
-        dto.BudgetItemName.Should().Be("Groceries"); // the pill shows the mismatched line
+        await act.Should().ThrowAsync<ValidationException>();
+        // The income never landed on the expense line.
+        (await ActualOf(db, user, f.GroceriesId)).Should().Be(0m);
     }
 
     // TX-035: a mismatched whole-assignment "shows but never lands" — an income transaction
@@ -315,11 +317,11 @@ public class TTransactionsCoverageTests
 
     // --- Split-parent edit coherence edge ------------------------------------
 
-    // TX-067: editing a split parent's amount does NOT revalidate the slices. The Amount moves
-    // (so the account balance follows it) while the slices stay at their old sum, leaving the
-    // line actuals rolling up the stale figures — a known, unguarded coherence edge to pin.
+    // TX-067: editing a split parent's amount is REJECTED — the slices carry the attribution and
+    // must keep summing to the whole, so the generic update refuses an amount change on a split
+    // transaction (the caller re-splits instead). Closes the stale-slice coherence hole.
     [Fact]
-    public async Task EditingASplitParentsAmount_LeavesTheSlicesAndTheirActualsStale()
+    public async Task EditingASplitParentsAmount_IsRejected_AndLeavesEverythingCoherent()
     {
         await using var db = NewContext();
         var f = SeedMonth(db);
@@ -346,21 +348,82 @@ public class TTransactionsCoverageTests
             }),
             CancellationToken.None);
 
-        // Edit the parent's amount up to 120 (no UI reaches this on a split, but the API can).
-        await new UpdateTransactionCommandHandler(db, user).Handle(
+        // Changing the amount of a split transaction via the generic update is rejected.
+        var act = () => new UpdateTransactionCommandHandler(db, user).Handle(
             new UpdateTransactionCommand(
                 tx.Id, new DateOnly(2026, 7, 10), "Costco", 120m, TransactionType.Expense, joint.Id),
             CancellationToken.None);
 
-        var reloaded = await db.Transactions.Include(t => t.Splits).FirstAsync(t => t.Id == tx.Id);
-        reloaded.Amount.Should().Be(120m);
-        reloaded.Splits.Sum(s => s.Amount).Should().Be(100m); // slices never revalidated: 70 + 30
+        await act.Should().ThrowAsync<ValidationException>();
 
-        // Actuals roll up the stale 70 / 30...
+        // Nothing moved: parent, slices, derived actuals and balance all stay coherent.
+        var reloaded = await db.Transactions.Include(t => t.Splits).FirstAsync(t => t.Id == tx.Id);
+        reloaded.Amount.Should().Be(100m);
+        reloaded.Splits.Sum(s => s.Amount).Should().Be(100m);
         (await ActualOf(db, user, f.GroceriesId)).Should().Be(70m);
         (await ActualOf(db, user, f.InternetId)).Should().Be(30m);
-        // ...while the account balance moved by the full 120 — the two are now incoherent.
-        (await BalanceOf(db, user, joint.Id)).Should().Be(880m); // 1000 − 120
+        (await BalanceOf(db, user, joint.Id)).Should().Be(900m); // 1000 − 100, unchanged
+    }
+
+    // TX-034b: creating an income transaction directly on an expense line is rejected too — the
+    // whole-line kind guard applies at creation, not only on the assign endpoint.
+    [Fact]
+    public async Task Create_IncomeTransactionOnAnExpenseLine_IsRejected()
+    {
+        await using var db = NewContext();
+        var f = SeedMonth(db);
+        var user = new CurrentUserStub("user-1");
+
+        var act = () => new CreateTransactionCommandHandler(db, user).Handle(
+            new CreateTransactionCommand(
+                new DateOnly(2026, 7, 10), "Bonus", 100m, TransactionType.Income, f.GroceriesId),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<ValidationException>();
+    }
+
+    // TX-067b: editing only the non-amount fields of a split (payee, date) is still allowed — the
+    // guard blocks amount/type/member edits, not everything, so ordinary corrections keep working.
+    [Fact]
+    public async Task Update_NonAmountFieldsOfASplit_AreAllowed()
+    {
+        await using var db = NewContext();
+        var f = SeedMonth(db);
+        var user = new CurrentUserStub("user-1");
+        var joint = SeedAccount(db, "Joint", 1000m);
+
+        var tx = new Transaction
+        {
+            OwnerId = "user-1",
+            Date = new DateOnly(2026, 7, 10),
+            Payee = "Costco",
+            Amount = 100m,
+            Type = TransactionType.Expense,
+            AccountId = joint.Id,
+        };
+        db.Transactions.Add(tx);
+        await db.SaveChangesAsync();
+
+        await new SplitTransactionCommandHandler(db, user).Handle(
+            new SplitTransactionCommand(tx.Id, new List<SplitAllocationInput>
+            {
+                new(f.GroceriesId, 70m),
+                new(f.InternetId, 30m),
+            }),
+            CancellationToken.None);
+
+        // Same amount/type, just a corrected payee and date — allowed.
+        await new UpdateTransactionCommandHandler(db, user).Handle(
+            new UpdateTransactionCommand(
+                tx.Id, new DateOnly(2026, 7, 12), "Costco Wholesale", 100m, TransactionType.Expense, joint.Id),
+            CancellationToken.None);
+
+        var reloaded = await db.Transactions.Include(t => t.Splits).FirstAsync(t => t.Id == tx.Id);
+        reloaded.Payee.Should().Be("Costco Wholesale");
+        reloaded.Date.Should().Be(new DateOnly(2026, 7, 12));
+        reloaded.Splits.Sum(s => s.Amount).Should().Be(100m);
+        (await ActualOf(db, user, f.GroceriesId)).Should().Be(70m);
+        (await ActualOf(db, user, f.InternetId)).Should().Be(30m);
     }
 
     // --- Delete effects on derived actuals & balances ------------------------
