@@ -70,7 +70,12 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         // (double-click, two devices, two household logins) would each pass it and double-insert.
         // Unique-filtered, the database refuses the second insert and the commit handler recovers
         // by skipping the collided rows. Manual transactions (no reference) are exempt.
-        builder.HasIndex(t => new { t.OwnerId, t.BankReference })
+        //
+        // Scoped by ACCOUNT, not just owner: banks legitimately reuse a reference across accounts
+        // (a standing order's EndToEndId, a pooled AcctSvcrRef) and CSV imports synthesise a
+        // content hash, so two DIFFERENT accounts can carry the same reference for genuinely
+        // distinct transactions. An owner-wide unique key silently dropped the second one.
+        builder.HasIndex(t => new { t.OwnerId, t.AccountId, t.BankReference })
             .IsUnique()
             .HasFilter("[BankReference] IS NOT NULL");
     }

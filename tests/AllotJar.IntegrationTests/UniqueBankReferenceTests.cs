@@ -12,9 +12,10 @@ namespace AllotJar.IntegrationTests;
 /// <summary>
 /// Guards the import-dedup backstop on real SQL Server. The commit handler's duplicate check is
 /// per-request memory, so two OVERLAPPING commits (double-click, two devices, two logins in one
-/// household) would both pass it — only the unique filtered (OwnerId, BankReference) index stops
-/// the second insert, and the handler must then recover by skipping the collided rows. The EF
-/// in-memory provider can't validate either half of that contract.
+/// household) would both pass it — only the unique filtered (OwnerId, AccountId, BankReference)
+/// index stops the second insert, and the handler must then recover by skipping the collided rows.
+/// The account scope also lets a reference a bank reuses across accounts through as distinct. The
+/// EF in-memory provider can't validate either half of that contract.
 /// </summary>
 [Collection(nameof(SqlServerCollection))]
 public class UniqueBankReferenceTests
@@ -49,7 +50,7 @@ public class UniqueBankReferenceTests
     private static string NewOwner() => $"user-{Guid.NewGuid():N}";
 
     private static Transaction ImportedRow(
-        string ownerId, string? reference, decimal amount = 10m, string currency = "EUR") => new()
+        string ownerId, string? reference, decimal amount = 10m, string currency = "EUR", Guid? accountId = null) => new()
     {
         OwnerId = ownerId,
         Amount = amount,
@@ -59,7 +60,16 @@ public class UniqueBankReferenceTests
         Date = new DateOnly(2026, 6, 15),
         Payee = "GROCER",
         BankReference = reference,
+        AccountId = accountId,
     };
+
+    private static async Task<Account> SeedAccountAsync(ApplicationDbContext db, string ownerId, string name)
+    {
+        var account = new Account { OwnerId = ownerId, Name = name, Currency = CurrencyCode.Eur };
+        db.Accounts.Add(account);
+        await db.SaveChangesAsync();
+        return account;
+    }
 
     private static CommitImportItem Item(string reference, decimal amount = 10m, string currency = "EUR") =>
         new(reference, new DateOnly(2026, 6, 15), "GROCER", amount, currency,
@@ -95,6 +105,44 @@ public class UniqueBankReferenceTests
         await db.SaveChangesAsync(); // scoped per household — must not collide
 
         (await db.Transactions.CountAsync(t => t.BankReference == "ref-shared")).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Same_reference_on_different_accounts_is_allowed()
+    {
+        var owner = NewOwner();
+        await using var db = _fixture.CreateContext();
+        var accountA = await SeedAccountAsync(db, owner, "A");
+        var accountB = await SeedAccountAsync(db, owner, "B");
+
+        // Banks legitimately reuse a reference across accounts (standing orders, pooled refs),
+        // and CSV imports synthesise a content hash — so the same reference on two DIFFERENT
+        // accounts is a genuinely distinct transaction, not a duplicate (F7).
+        db.Transactions.Add(ImportedRow(owner, "reused-ref", accountId: accountA.Id));
+        db.Transactions.Add(ImportedRow(owner, "reused-ref", accountId: accountB.Id));
+
+        await db.SaveChangesAsync(); // account-scoped index must not collide these
+
+        (await db.Transactions.CountAsync(t => t.OwnerId == owner && t.BankReference == "reused-ref"))
+            .Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Duplicate_reference_on_the_same_account_still_collides()
+    {
+        var owner = NewOwner();
+        await using var db = _fixture.CreateContext();
+        var account = await SeedAccountAsync(db, owner, "A");
+
+        db.Transactions.Add(ImportedRow(owner, "same-acct-ref", accountId: account.Id));
+        await db.SaveChangesAsync();
+
+        await using var second = _fixture.CreateContext();
+        second.Transactions.Add(ImportedRow(owner, "same-acct-ref", accountId: account.Id));
+        Func<Task> act = () => second.SaveChangesAsync();
+
+        // Re-importing the same reference onto the SAME account is still a duplicate.
+        await act.Should().ThrowAsync<DbUpdateException>();
     }
 
     [Fact]

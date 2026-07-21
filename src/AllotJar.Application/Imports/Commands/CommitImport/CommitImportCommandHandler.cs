@@ -55,12 +55,17 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             });
         }
 
-        // Idempotency: never re-create a row we already have (double-submit, overlap, retry).
+        // Idempotency: never re-create a row we already have ON THIS ACCOUNT (double-submit,
+        // overlap, retry). Scoped by account to match the unique index — a bank reference reused
+        // on a different account is a genuinely distinct transaction, not a duplicate. Case-
+        // insensitive to agree with the index's CI collation (a case-variant would otherwise pass
+        // this check and then collide at the database).
+        var accountId = request.AccountId;
         var existing = await _db.Transactions
-            .Where(t => t.OwnerId == userId && t.BankReference != null)
+            .Where(t => t.OwnerId == userId && t.AccountId == accountId && t.BankReference != null)
             .Select(t => t.BankReference!)
             .ToListAsync(cancellationToken);
-        var seen = new HashSet<string>(existing, StringComparer.Ordinal);
+        var seen = new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase);
 
         int imported = 0, skipped = 0, credits = 0, debits = 0, transfers = 0;
         var created = new List<Transaction>();
@@ -167,8 +172,8 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
 
             // The dedup snapshot above is per-request memory; a CONCURRENT commit (double-click,
             // second device, another login in the household) can insert the same references after
-            // we read it. The unique (OwnerId, BankReference) index turns that race into a
-            // DbUpdateException here — recover by dropping the collided rows and saving the rest.
+            // we read it. The unique (OwnerId, AccountId, BankReference) index turns that race into
+            // a DbUpdateException here — recover by dropping the collided rows and saving the rest.
             for (var attempt = 0; ; attempt++)
             {
                 try
@@ -184,7 +189,8 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                         .ToList();
                     var taken = await _db.Transactions
                         .AsNoTracking()
-                        .Where(t => t.OwnerId == userId && t.BankReference != null && refs.Contains(t.BankReference))
+                        .Where(t => t.OwnerId == userId && t.AccountId == accountId
+                                    && t.BankReference != null && refs.Contains(t.BankReference))
                         .Select(t => t.BankReference!)
                         .ToListAsync(cancellationToken);
                     // Case-insensitive: the DB index compares with the column's CI collation, so a
@@ -231,11 +237,12 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
     }
 
     /// <summary>
-    /// True when the save failed on the unique (OwnerId, BankReference) dedup index. Matched by
-    /// index name in the provider's message so the Application layer needs no SqlClient reference.
+    /// True when the save failed on the unique (OwnerId, AccountId, BankReference) dedup index.
+    /// Matched by index name in the provider's message so the Application layer needs no SqlClient
+    /// reference.
     /// </summary>
     private static bool IsReferenceCollision(DbUpdateException ex) =>
-        ex.InnerException?.Message.Contains("IX_Transactions_OwnerId_BankReference", StringComparison.Ordinal) == true;
+        ex.InnerException?.Message.Contains("IX_Transactions_OwnerId_AccountId_BankReference", StringComparison.Ordinal) == true;
 
     private async Task EnsureAccountOwnedAsync(Guid? accountId, string userId, CancellationToken ct)
     {
