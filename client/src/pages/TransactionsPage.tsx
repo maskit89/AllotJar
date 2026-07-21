@@ -15,13 +15,27 @@ import type { AccountDto, BudgetMonthDto, HouseholdMemberDto, TransactionDto } f
 import { TransactionType } from '../types'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
-import { shortDate } from '../lib/dates'
+import { monthYear, shortDate } from '../lib/dates'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { buildItemOptions, transactionTypeLabel } from '../lib/transactions'
 import { SplitLinesEditor, SplitRemainderChip, type SplitRowDraft } from '../components/SplitLinesEditor'
 
 function today(): string {
   return new Date().toISOString().slice(0, 10)
+}
+
+/**
+ * When an assigned transaction is budgeted to a line in a *different* month than its own date
+ * (e.g. a 31 Jan purchase budgeted to a February line), returns a compact "Feb 2026"-style label
+ * for that line's month so the register can show a "Budgeted to <month>" tag. Returns null when
+ * the transaction is unassigned, the line's month wasn't loaded, or the months already match.
+ */
+function budgetedToLabel(t: TransactionDto): string | null {
+  if (!t.budgetItemId || t.budgetItemYear == null || t.budgetItemMonth == null) return null
+  const txYear = Number(t.date.slice(0, 4))
+  const txMonth = Number(t.date.slice(5, 7))
+  if (t.budgetItemYear === txYear && t.budgetItemMonth === txMonth) return null
+  return monthYear(`${t.budgetItemYear}-${String(t.budgetItemMonth).padStart(2, '0')}-01`)
 }
 
 function blankSplitRows(): SplitRowDraft[] {
@@ -967,6 +981,18 @@ export function TransactionsPage() {
                                     Bill
                                   </span>
                                 )}
+                                {/* Budgeted to a line in a different month than the transaction's date. */}
+                                {!isTransfer && (() => {
+                                  const label = budgetedToLabel(t)
+                                  return label ? (
+                                    <span
+                                      title={`Budgeted to a ${label} line, not this transaction's own month`}
+                                      className="shrink-0 rounded-[5px] border border-amber-200 bg-amber-50 px-1.5 py-px text-[9.5px] font-semibold text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300"
+                                    >
+                                      Budgeted to {label}
+                                    </span>
+                                  ) : null
+                                })()}
                               </span>
                             </td>
                             <td className="px-4 py-3.5">

@@ -31,6 +31,7 @@ vi.mock('../lib/api', async (importOriginal) => ({
 
 import { TransactionsPage } from './TransactionsPage'
 import { AuthProvider } from '../auth/AuthContext'
+import { monthYear } from '../lib/dates'
 
 // --- Fixtures ---------------------------------------------------------------
 // The catalog's default month: Income group (Salary), Expense group (Groceries + Internet, the
@@ -996,5 +997,52 @@ describe('TransactionsPage catalog — add resets category (TX-094)', () => {
     await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
     await screen.findByRole('dialog', {}, { timeout: 5000 })
     expect((screen.getByLabelText('Assign transaction to') as HTMLSelectElement).value).toBe('')
+  })
+})
+
+describe('TransactionsPage catalog — cross-month "Budgeted to" tag', () => {
+  // A transaction can be budgeted to a line in a different month than its own date (e.g. a
+  // 31 Jul purchase budgeted to a February line). The register surfaces that with a compact
+  // "Budgeted to <Mon YYYY>" tag; a same-month assignment carries no tag.
+  it('tags a cross-month assignment but not a same-month one', { timeout: 15000 }, async () => {
+    const feb = monthYear('2026-02-01') // locale-consistent with the component's own formatter
+    mockLoad([
+      // Dated in July, budgeted to a February line → the cross-month tag shows.
+      tx({
+        id: 't-cross', payee: 'Cross buy', date: '2026-07-31',
+        budgetItemId: 'i-groceries', budgetItemName: 'Groceries',
+        budgetItemYear: 2026, budgetItemMonth: 2,
+      }),
+      // Dated in July, budgeted to a July line → no tag (same month).
+      tx({
+        id: 't-same', payee: 'Same buy', date: '2026-07-10',
+        budgetItemId: 'i-groceries', budgetItemName: 'Groceries',
+        budgetItemYear: 2026, budgetItemMonth: 7,
+      }),
+    ])
+    renderPage()
+
+    await screen.findByText('Cross buy', {}, { timeout: 5000 })
+
+    expect(within(rowFor('Cross buy')).getByText(`Budgeted to ${feb}`)).toBeInTheDocument()
+    expect(within(rowFor('Same buy')).queryByText(/Budgeted to/)).not.toBeInTheDocument()
+  })
+
+  // Null-safe: when the assigned line's month wasn't loaded (fields absent), no tag renders —
+  // an unassigned row never carries it either.
+  it('shows no tag when the line month is absent or the row is unassigned', { timeout: 15000 }, async () => {
+    mockLoad([
+      tx({
+        id: 't-nomonth', payee: 'No month', date: '2026-07-31',
+        budgetItemId: 'i-groceries', budgetItemName: 'Groceries',
+      }),
+      tx({ id: 't-unassigned', payee: 'Unassigned buy', date: '2026-07-31', budgetItemId: null }),
+    ])
+    renderPage()
+
+    await screen.findByText('No month', {}, { timeout: 5000 })
+
+    expect(within(rowFor('No month')).queryByText(/Budgeted to/)).not.toBeInTheDocument()
+    expect(within(rowFor('Unassigned buy')).queryByText(/Budgeted to/)).not.toBeInTheDocument()
   })
 })
