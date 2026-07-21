@@ -33,29 +33,87 @@ describe('money — integer minor units', () => {
 })
 
 describe('parseMinor', () => {
+  // Reset to the app default (comma-dot / en-GB) so a per-test format can't leak.
+  afterEach(() => setMoneyFormat('comma-dot'))
+
+  // Format-agnostic cases: no separator, a dot decimal (the default format's
+  // decimal), and dual-separator amounts whose right-most separator is the decimal.
   it.each([
     ['1100', 11_000_000],
-    ['1100,50', 11_005_000], // comma decimal separator
-    ['1100.50', 11_005_000],
+    ['1100.50', 11_005_000], // dot decimal (comma-dot default)
     ['33.3333', 333_333],
     ['0', 0],
     ['12.99999', 130_000], // rounds half-up beyond 4 dp -> 13.0000
-    // European thousands separators (incomes are the biggest figures in a budget)
-    ['2.500,00', 25_000_000], // de-DE: dot grouping, comma decimal
+    // Thousands separators (incomes are the biggest figures in a budget)
+    ['2.500,00', 25_000_000], // dot grouping, comma decimal (right-most is decimal)
     ['1.234.567,89', 12_345_678_900], // multiple grouping separators
-    ['1,234.56', 12_345_600], // en: comma grouping, dot decimal
-    ["1'234.56", 12_345_600], // de-CH: apostrophe grouping, dot decimal
-    ['1’234.56', 12_345_600], // de-CH with a curly apostrophe
-    ['1 234,56', 12_345_600], // fr-FR: space grouping, comma decimal
-    ['1,23,456.78', 1_234_567_800], // en-IN: lakh grouping, dot decimal
-  ])('parses %s -> %i', (input, expected) => {
+    ['1,234.56', 12_345_600], // comma grouping, dot decimal
+    ["1'234.56", 12_345_600], // apostrophe grouping, dot decimal
+    ['1’234.56', 12_345_600], // curly apostrophe grouping
+    ['1,23,456.78', 1_234_567_800], // lakh grouping, dot decimal
+  ])('parses %s -> %i (default comma-dot)', (input, expected) => {
     expect(parseMinor(input)).toBe(expected)
   })
 
-  // Single-separator ambiguity is preserved: a lone "." or "," is the decimal
-  // point, and these malformed inputs still fail the strict check.
+  // A lone separator now takes its role from the active money format, so parsing
+  // agrees with formatting (audit F14). Grouped whole numbers round-trip and
+  // decimals still parse — verified across every format the picker offers.
+  describe('single separator resolves by active format', () => {
+    it('comma-dot: comma groups, dot is the decimal', () => {
+      setMoneyFormat('comma-dot')
+      expect(parseMinor('1,500')).toBe(15_000_000) // grouped 1500.00
+      expect(parseMinor('12,345')).toBe(123_450_000) // grouped 12345.00
+      expect(parseMinor('1.50')).toBe(15_000) // decimal 1.50
+      expect(parseMinor('1.234')).toBe(12_340) // decimal 1.234 (three dp)
+    })
+
+    it('dot-comma: dot groups, comma is the decimal', () => {
+      setMoneyFormat('dot-comma')
+      expect(parseMinor('1.500')).toBe(15_000_000) // grouped 1500,00
+      expect(parseMinor('12.345')).toBe(123_450_000) // grouped 12345,00
+      expect(parseMinor('1,50')).toBe(15_000) // decimal 1,50
+      expect(parseMinor('1100,50')).toBe(11_005_000) // decimal 1100,50
+    })
+
+    it('space-comma: comma is the decimal, a stray dot groups', () => {
+      setMoneyFormat('space-comma')
+      expect(parseMinor('1 234,56')).toBe(12_345_600) // space grouping + comma decimal
+      expect(parseMinor('1,50')).toBe(15_000) // decimal 1,50
+      expect(parseMinor('1.500')).toBe(15_000_000) // stray dot treated as grouping
+    })
+
+    it('apostrophe: dot is the decimal, a stray comma groups', () => {
+      setMoneyFormat('apostrophe')
+      expect(parseMinor("1'234.56")).toBe(12_345_600) // apostrophe grouping + dot decimal
+      expect(parseMinor('1.50')).toBe(15_000) // decimal 1.50
+      expect(parseMinor('1,500')).toBe(15_000_000) // stray comma treated as grouping
+    })
+
+    it('lakh: comma groups (incl. lakh grouping), dot is the decimal', () => {
+      setMoneyFormat('lakh')
+      expect(parseMinor('1,500')).toBe(15_000_000) // grouped 1500.00
+      expect(parseMinor('1,23,456')).toBe(1_234_560_000) // lakh grouping
+      expect(parseMinor('1.50')).toBe(15_000) // decimal 1.50
+    })
+  })
+
+  // Genuinely malformed input still returns null (a lone "." or "," collapses to a
+  // decimal, so "1.2.3" / "1,2,3" still fail the strict check).
   it.each(['', '  ', '-5', 'abc', '1.2.3', '1,2,3'])('rejects %j -> null', (input) => {
     expect(parseMinor(input)).toBeNull()
+  })
+
+  // When the lone separator is the format's non-decimal char but the digits can't
+  // be valid grouping (a 2-digit trailing group), the user typed the sibling
+  // separator as a decimal point — a common habit. We read it as a decimal rather
+  // than mangling it, so "12,50" under comma-dot stays 12.50 (only the F14
+  // valid-grouping case, "1,500" -> 1500, changes behaviour).
+  it('reads the sibling separator as a decimal when it cannot be grouping', () => {
+    setMoneyFormat('comma-dot')
+    expect(parseMinor('12,50')).toBe(125_000) // 12.50, not 1250 or null
+    expect(parseMinor('1,5')).toBe(15_000) // 1.5
+    setMoneyFormat('dot-comma')
+    expect(parseMinor('12.50')).toBe(125_000) // 12.50
   })
 })
 

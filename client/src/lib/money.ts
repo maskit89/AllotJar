@@ -251,15 +251,46 @@ export function currencySymbol(currency: string): string {
   return part?.value ?? currency
 }
 
+/** The active format's decimal separator (',' or '.'), derived from its locale. */
+function activeDecimalSeparator(): string {
+  try {
+    const parts = new Intl.NumberFormat(activeLocale).formatToParts(12345.6)
+    return parts.find((p) => p.type === 'decimal')?.value ?? '.'
+  } catch {
+    return '.'
+  }
+}
+
+/**
+ * True when `str` is a validly-grouped whole number using `sep` as the grouping
+ * separator — Western triples ("1,234,567") or Indian lakh/crore grouping
+ * ("12,34,567"). Used to decide whether a lone separator is grouping we can strip
+ * or genuinely malformed input we must reject.
+ */
+function isGroupedInteger(str: string, sep: string): boolean {
+  const s = sep === '.' ? '\\.' : sep
+  const western = new RegExp(`^\\d{1,3}(?:${s}\\d{3})+$`)
+  const lakh = new RegExp(`^\\d{1,2}(?:${s}\\d{2})+${s}\\d{3}$`)
+  return western.test(str) || lakh.test(str)
+}
+
 /**
  * Parse a user-entered decimal string into integer minor units WITHOUT going
  * through floating point. Accepts '.' or ',' as the decimal separator, and
- * tolerates a European thousands separator when the amount carries both — e.g.
- * "2.500,00" (de-DE) or "1,234.56" (en): the right-most separator is taken as
- * the decimal point and the other is stripped as grouping. Income figures are
- * the largest in the budget, so this is where grouping separators show up.
- * Returns null for empty / negative / non-numeric input. Anything beyond 4 dp
- * is rounded half-up to scale 4.
+ * tolerates a thousands separator when the amount carries both — e.g. "2.500,00"
+ * (de-DE) or "1,234.56" (en): the right-most separator is taken as the decimal
+ * point and the other is stripped as grouping.
+ *
+ * When only ONE separator type is present, its role is resolved by the active
+ * money format (see setMoneyFormat): the separator that equals the format's
+ * decimal character is the decimal point; the other is a grouping separator and
+ * is stripped. So under comma-dot "1,500" -> 1500 (grouping) while "1.50" -> 1.50
+ * (decimal); under dot-comma the two swap. This makes parsing agree with
+ * formatting instead of always assuming a lone separator is decimal (audit F14).
+ *
+ * Income figures are the largest in the budget, so this is where grouping
+ * separators show up. Returns null for empty / negative / non-numeric input.
+ * Anything beyond 4 dp is rounded half-up to scale 4.
  */
 export function parseMinor(input: string): Minor | null {
   // Strip unambiguous grouping separators first — spaces (fr-FR "1 234,56"),
@@ -268,18 +299,34 @@ export function parseMinor(input: string): Minor | null {
   // ambiguous and are resolved below.
   let trimmed = input.trim().replace(/[\s'’]/g, '')
 
-  const lastComma = trimmed.lastIndexOf(',')
-  const lastDot = trimmed.lastIndexOf('.')
-  if (lastComma !== -1 && lastDot !== -1) {
+  const hasComma = trimmed.indexOf(',') !== -1
+  const hasDot = trimmed.indexOf('.') !== -1
+  if (hasComma && hasDot) {
     // Both present: the right-most is the decimal separator; strip the grouping one.
-    const decimalSep = lastComma > lastDot ? ',' : '.'
+    const decimalSep = trimmed.lastIndexOf(',') > trimmed.lastIndexOf('.') ? ',' : '.'
     const groupSep = decimalSep === ',' ? '.' : ','
     trimmed = trimmed.split(groupSep).join('').replace(decimalSep, '.')
-  } else {
-    // A single separator is the decimal separator (preserves prior behaviour:
-    // a malformed "1.2.3" / "1,2,3" still fails the strict check below).
-    trimmed = trimmed.replace(',', '.')
+  } else if (hasComma || hasDot) {
+    // A single separator type is present; the active format fixes its role.
+    const sep = hasComma ? ',' : '.'
+    if (sep === activeDecimalSeparator()) {
+      // Decimal separator. Collapsing every occurrence to '.' keeps a genuinely
+      // malformed "1.2.3" / "1,2,3" failing the strict check below.
+      trimmed = trimmed.split(sep).join('.')
+    } else if (isGroupedInteger(trimmed, sep)) {
+      // Well-formed grouping for this format: strip it entirely (e.g. "1,500" -> 1500).
+      // This is the case audit F14 fixes — previously "1,500" became 1.5.
+      trimmed = trimmed.split(sep).join('')
+    } else {
+      // Not the format's decimal, and not valid grouping either (e.g. "12,50" under
+      // comma-dot, where a 2-digit trailing group can't be grouping). The user typed
+      // the sibling separator as a decimal point — a common habit — so read it as the
+      // decimal. Collapsing every occurrence to '.' also keeps a genuinely malformed
+      // "1,2,3" failing the strict check below.
+      trimmed = trimmed.split(sep).join('.')
+    }
   }
+  // (No separator at all: `trimmed` is already the integer part.)
 
   if (trimmed === '' || !/^\d+(\.\d+)?$/.test(trimmed)) {
     return null
