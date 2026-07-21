@@ -17,11 +17,13 @@ public sealed class FakeExchangeRateProvider : IExchangeRateProvider
 
     public Task<decimal?> GetRateAsync(CurrencyCode from, CurrencyCode to, DateOnly date, CancellationToken cancellationToken)
     {
+        // Counted BEFORE the same-currency shortcut so "no provider lookup" assertions
+        // actually fail if a caller starts routing same-currency pairs through here.
+        Calls++;
         if (Equals(from, to))
         {
             return Task.FromResult<decimal?>(1m);
         }
-        Calls++;
         return Task.FromResult(_rate);
     }
 }

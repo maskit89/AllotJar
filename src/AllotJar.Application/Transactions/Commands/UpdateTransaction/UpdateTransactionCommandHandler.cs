@@ -105,6 +105,15 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             }
         }
 
+        // A pending-FX row counts at face value (placeholder rate 1). If the user edits the
+        // amount they are correcting that face value by hand — clear the flag so a later
+        // reconcile pass can't stamp a real rate onto the corrected figure, which would
+        // double-convert it. (There is no endpoint for entering a rate manually.)
+        if (transaction.FxPending && request.Amount != transaction.Amount)
+        {
+            transaction.FxPending = false;
+        }
+
         transaction.Date = request.Date;
         transaction.Payee = request.Payee.Trim();
         transaction.Amount = request.Amount;

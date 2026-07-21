@@ -225,6 +225,12 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             }
         }
 
+        // Reconcile previously-pending FX rows even when this commit added nothing new — an
+        // all-duplicates re-commit is the natural retry after an outage. Runs after (and
+        // outside) the commit's own save so it can neither fail nor roll back the import,
+        // and so the all-collided break above can't discard a reconcile.
+        await FxRateResolver.ReconcilePendingAsync(_db, _exchangeRates, userId, cancellationToken);
+
         return new ImportStatementResult(
             TotalEntries: request.Items.Count,
             Imported: imported,
