@@ -95,9 +95,14 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
         // statement previously imported through a different format or column mapping).
         var possibleDuplicates = await FindPossibleDuplicatesAsync(userId, fresh, cancellationToken);
 
-        // Suggest a budget line per row from the user's past categorisations (no writes).
-        var suggestions = await AutoCategorizer.BuildSuggestionsAsync(
-            _db, userId, new HashSet<Guid>(), cancellationToken);
+        // Suggest a budget line per row from the user's past categorisations, resolved to the
+        // ROW'S OWN month (no writes) — so the preview shows exactly what a commit would assign,
+        // never a prior month's line.
+        var requests = fresh
+            .Select(e => (e.Payee, e.BookingDate.Year, e.BookingDate.Month))
+            .ToList();
+        var suggestions = await AutoCategorizer.ResolveLinesAsync(
+            _db, userId, new HashSet<Guid>(), requests, cancellationToken);
 
         var suggestedIds = suggestions.Values.ToHashSet();
         var nameById = suggestedIds.Count == 0
@@ -109,7 +114,8 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
 
         var items = fresh.Select((e, index) =>
         {
-            Guid? suggestedId = suggestions.TryGetValue(AutoCategorizer.NormalizeKey(e.Payee), out var id)
+            Guid? suggestedId = suggestions.TryGetValue(
+                (AutoCategorizer.NormalizeKey(e.Payee), e.BookingDate.Year, e.BookingDate.Month), out var id)
                 ? id
                 : null;
             var suggestedName = suggestedId is Guid sid && nameById.TryGetValue(sid, out var n) ? n : null;
