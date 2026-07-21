@@ -48,10 +48,11 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
 
         if (request.BudgetItemId is Guid itemId)
         {
-            // Owner + direction/kind: an income transaction can't be assigned to an expense
-            // line (or vice-versa), which BudgetActuals would otherwise roll up incoherently.
+            // Owner + direction/kind + month coherence. Cross-month is allowed only when the
+            // request explicitly acknowledges it (the client sets that after a confirm dialog).
             var item = await TransactionInvariants.ValidateWholeLineAsync(
-                _db, userId, transaction.Type, itemId, "BudgetItemId", cancellationToken);
+                _db, userId, transaction.Type, itemId, transaction.Date, request.AcknowledgeCrossMonth,
+                "BudgetItemId", cancellationToken);
 
             transaction.BudgetItem = item;
             transaction.BudgetItemId = item.Id;

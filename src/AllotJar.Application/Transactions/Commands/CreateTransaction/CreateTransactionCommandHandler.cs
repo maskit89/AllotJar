@@ -29,9 +29,11 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
         BudgetItem? item = null;
         if (request.BudgetItemId is Guid itemId)
         {
-            // Owner + direction/kind (an expense can't land on an income line).
+            // Owner + direction/kind + month coherence (cross-month allowed only when the
+            // request acknowledges it).
             item = await TransactionInvariants.ValidateWholeLineAsync(
-                _db, userId, request.Type, itemId, "BudgetItemId", cancellationToken);
+                _db, userId, request.Type, itemId, request.Date, request.AcknowledgeCrossMonth,
+                "BudgetItemId", cancellationToken);
         }
 
         Account? account = null;
