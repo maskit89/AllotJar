@@ -10,5 +10,10 @@ namespace AllotJar.Application.Transactions.Commands.AssignTransaction;
 /// reflects this transaction on the next budget read.
 /// </summary>
 [AllowLimited]
-public record AssignTransactionCommand(Guid TransactionId, Guid? BudgetItemId)
+public record AssignTransactionCommand(
+    Guid TransactionId,
+    Guid? BudgetItemId,
+    // Set only after the user confirms budgeting a transaction to a line in a different month
+    // than its date (see TransactionInvariants.CrossMonthKey).
+    bool AcknowledgeCrossMonth = false)
     : IRequest<TransactionDto>;

@@ -45,6 +45,7 @@ public class TransactionHandlersTests
         var tx = new Transaction
         {
             OwnerId = ownerId,
+            Date = new DateOnly(2026, 6, 15), // same month as SeedMonthWithItem's line
             Amount = 25m,
             Type = TransactionType.Expense,
             Payee = "Supermarket",

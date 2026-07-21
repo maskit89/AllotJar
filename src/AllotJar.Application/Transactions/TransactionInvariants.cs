@@ -100,11 +100,19 @@ public static class TransactionInvariants
     /// checked only ownership, letting an expense land on an income line (which BudgetActuals then
     /// rolled up incoherently).
     /// </summary>
+    /// <summary>
+    /// The error key a cross-month assignment reports under, so the client can recognise it and
+    /// offer to re-send with <c>acknowledgeCrossMonth</c> rather than showing a generic failure.
+    /// </summary>
+    public const string CrossMonthKey = "crossMonth";
+
     public static async Task<BudgetItem> ValidateWholeLineAsync(
         IApplicationDbContext db,
         string userId,
         TransactionType type,
         Guid budgetItemId,
+        DateOnly transactionDate,
+        bool acknowledgeCrossMonth,
         string errorKey,
         CancellationToken cancellationToken)
     {
@@ -129,6 +137,19 @@ public static class TransactionInvariants
             throw Validation(errorKey, IsIncomeTx(type)
                 ? "Income can only be assigned to income lines."
                 : "An expense can only be assigned to expense lines.");
+        }
+
+        // Month coherence: budget actuals group by the line's month, so a transaction assigned to a
+        // line in a different month than its date lands on the wrong month's numbers. Reject unless
+        // the caller explicitly acknowledges it (the deliberate "purchase 31 Jan, cleared 1 Feb —
+        // budget it to January" case), which the client only sets after the user confirms.
+        var month = item.BudgetCategory.BudgetMonth;
+        if (!acknowledgeCrossMonth && (month.Year != transactionDate.Year || month.Month != transactionDate.Month))
+        {
+            throw Validation(CrossMonthKey,
+                $"This transaction is dated {transactionDate:yyyy-MM} but that budget line is in " +
+                $"{month.Year:0000}-{month.Month:00}. Confirm to budget it to {month.Year:0000}-{month.Month:00}, " +
+                "or pick a line in the transaction's own month.");
         }
 
         return item;

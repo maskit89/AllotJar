@@ -5,6 +5,7 @@ using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Transactions;
 using AllotJar.Application.Transactions.Commands.AssignTransaction;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.CreateTransfer;
@@ -195,6 +196,40 @@ public class TTransactionsCoverageTests
         await act.Should().ThrowAsync<ValidationException>();
         // The income never landed on the expense line.
         (await ActualOf(db, user, f.GroceriesId)).Should().Be(0m);
+    }
+
+    // TX-036: assigning a transaction to a line in a DIFFERENT month than its date is rejected
+    // (under the cross-month key) unless the request acknowledges it — the deliberate "purchase
+    // dated last month, budget it to this month's line" case (e.g. an end-of-month clearing).
+    [Fact]
+    public async Task Assign_ToALineInADifferentMonth_IsRejected_UnlessAcknowledged()
+    {
+        await using var db = NewContext();
+        var f = SeedMonth(db); // July 2026 lines
+        var user = new CurrentUserStub("user-1");
+
+        var tx = new Transaction
+        {
+            OwnerId = "user-1",
+            Date = new DateOnly(2026, 6, 20), // June — a month before the July line
+            Payee = "Tesco",
+            Amount = 40m,
+            Type = TransactionType.Expense,
+        };
+        db.Transactions.Add(tx);
+        await db.SaveChangesAsync();
+
+        // Without acknowledgement: rejected, flagged under the cross-month key.
+        var act = () => new AssignTransactionCommandHandler(db, user)
+            .Handle(new AssignTransactionCommand(tx.Id, f.GroceriesId), CancellationToken.None);
+        var ex = (await act.Should().ThrowAsync<ValidationException>()).Which;
+        ex.Errors.Should().ContainKey(TransactionInvariants.CrossMonthKey);
+        (await ActualOf(db, user, f.GroceriesId)).Should().Be(0m);
+
+        // With acknowledgement: it lands, budgeted to the July line.
+        await new AssignTransactionCommandHandler(db, user)
+            .Handle(new AssignTransactionCommand(tx.Id, f.GroceriesId, AcknowledgeCrossMonth: true), CancellationToken.None);
+        (await ActualOf(db, user, f.GroceriesId)).Should().Be(40m);
     }
 
     // TX-035: a mismatched whole-assignment "shows but never lands" — an income transaction

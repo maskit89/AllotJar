@@ -23,4 +23,7 @@ public record CreateTransactionCommand(
     Guid? BudgetItemId,
     Guid? AccountId = null,
     Guid? MemberId = null,
-    IReadOnlyList<SplitAllocationInput>? Splits = null) : IRequest<TransactionDto>;
+    IReadOnlyList<SplitAllocationInput>? Splits = null,
+    // Set only after the user confirms budgeting to a line in a different month than the
+    // transaction's date (see TransactionInvariants.CrossMonthKey).
+    bool AcknowledgeCrossMonth = false) : IRequest<TransactionDto>;
