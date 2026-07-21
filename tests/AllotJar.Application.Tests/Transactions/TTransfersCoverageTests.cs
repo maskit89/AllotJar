@@ -181,12 +181,11 @@ public class TTransfersCoverageTests
             .ActualAmount.Should().Be(0m);
     }
 
-    // ── TRF-029: even when a transfer is force-assigned to an expense line via the assign
-    // endpoint (which has no type check), BudgetActuals groups by (line, Type) and only
-    // counts the line's own kind — a Type=Transfer row contributes 0. The pill sticks; no
-    // money lands.
+    // ── TRF-029: a transfer cannot be assigned to a budget line — the assign endpoint rejects it
+    // (transfers are excluded from the budget entirely). Previously the assign silently accepted
+    // it and relied on the read-side (line, Type) filter to keep it out of actuals.
     [Fact]
-    public async Task Transfer_ForceAssignedToABudgetLine_StillContributesZeroToActuals()
+    public async Task Transfer_CannotBeAssignedToABudgetLine()
     {
         await using var db = NewContext();
         var from = SeedAccount(db, "user-1", "Current", 2000m);
@@ -208,12 +207,12 @@ public class TTransfersCoverageTests
         var transfer = await new CreateTransferCommandHandler(db, new CurrentUserStub("user-1"))
             .Handle(new CreateTransferCommand(new DateOnly(2026, 7, 16), 300m, from.Id, to.Id), CancellationToken.None);
 
-        // The assign endpoint accepts it (no type/kind guard) …
-        var assigned = await new AssignTransactionCommandHandler(db, new CurrentUserStub("user-1"))
+        // The assign endpoint refuses to put a budget line on a transfer.
+        var act = () => new AssignTransactionCommandHandler(db, new CurrentUserStub("user-1"))
             .Handle(new AssignTransactionCommand(transfer.Id, groceries.Id), CancellationToken.None);
-        assigned.BudgetItemId.Should().Be(groceries.Id);
+        await act.Should().ThrowAsync<ValidationException>();
 
-        // … but the line's Spent stays 0 — the transfer never lands on actuals.
+        // The line's Spent stays 0 and the transfer keeps no line.
         var month = await new GetBudgetMonthQueryHandler(db, new CurrentUserStub("user-1"))
             .Handle(new GetBudgetMonthQuery(2026, 7), CancellationToken.None);
         month.Categories.Single(c => c.Kind == "Expense").Items.Single(i => i.Id == groceries.Id)

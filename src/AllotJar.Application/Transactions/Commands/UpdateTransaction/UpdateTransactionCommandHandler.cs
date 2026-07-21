@@ -27,6 +27,7 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         var transaction = await _db.Transactions
             .Include(t => t.BudgetItem)
             .Include(t => t.Account)
+            .Include(t => t.Splits)
             .FirstOrDefaultAsync(t => t.Id == request.TransactionId, cancellationToken);
 
         if (transaction is null)
@@ -67,6 +68,35 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             if (member.OwnerId != userId)
             {
                 throw new ForbiddenAccessException();
+            }
+        }
+
+        // A split transaction's slices carry its attribution and must keep summing to the whole.
+        // Editing the amount, direction, or whole-transaction member of a split via the generic
+        // update would silently desync the slices (double-counting in budget actuals), so reject
+        // those edits — the caller re-splits instead. Other fields (date, payee, account) are fine.
+        if (transaction.Splits.Count > 0)
+        {
+            var errors = new Dictionary<string, string[]>();
+            var sliceSum = transaction.Splits.Sum(s => s.Amount);
+            if (request.Amount != sliceSum)
+            {
+                errors["Amount"] = new[]
+                {
+                    $"This transaction is split across {transaction.Splits.Count} lines totalling {sliceSum:0.####}. Change the split before changing the amount.",
+                };
+            }
+            if (request.Type != transaction.Type)
+            {
+                errors["Type"] = new[] { "Change the split before changing a split transaction's type." };
+            }
+            if (request.MemberId is not null)
+            {
+                errors["MemberId"] = new[] { "This transaction is split; attribute members on the individual slices, not the whole transaction." };
+            }
+            if (errors.Count > 0)
+            {
+                throw new ValidationException(errors);
             }
         }
 

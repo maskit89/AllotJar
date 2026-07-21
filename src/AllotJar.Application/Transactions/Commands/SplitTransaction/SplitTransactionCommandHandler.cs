@@ -38,7 +38,7 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
 
         // Shared slice rules (sum, ownership, direction match, member ownership) — the
         // same guard CreateTransaction uses for split-at-creation.
-        var items = await SplitGuards.ValidateSlicesAsync(
+        var items = await TransactionInvariants.ValidateSlicesAsync(
             _db, userId, transaction.Type, transaction.Amount, request.Allocations,
             errorKey: "Allocations", cancellationToken);
 

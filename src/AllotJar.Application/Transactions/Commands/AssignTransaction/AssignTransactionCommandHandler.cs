@@ -48,20 +48,10 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
 
         if (request.BudgetItemId is Guid itemId)
         {
-            // The target line must belong to the same user (defence in depth).
-            var item = await _db.BudgetItems
-                .Include(i => i.BudgetCategory)
-                    .ThenInclude(c => c.BudgetMonth)
-                .FirstOrDefaultAsync(i => i.Id == itemId, cancellationToken);
-
-            if (item is null)
-            {
-                throw new NotFoundException($"Budget item {itemId} was not found.");
-            }
-            if (item.BudgetCategory.BudgetMonth.OwnerId != userId)
-            {
-                throw new ForbiddenAccessException();
-            }
+            // Owner + direction/kind: an income transaction can't be assigned to an expense
+            // line (or vice-versa), which BudgetActuals would otherwise roll up incoherently.
+            var item = await TransactionInvariants.ValidateWholeLineAsync(
+                _db, userId, transaction.Type, itemId, "BudgetItemId", cancellationToken);
 
             transaction.BudgetItem = item;
             transaction.BudgetItemId = item.Id;
