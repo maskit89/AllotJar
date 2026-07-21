@@ -129,13 +129,41 @@ New-ItemProperty -Path 'HKLM:\SOFTWARE\OpenSSH' -Name DefaultShell `
     -PropertyType String -Force | Out-Null
 
 # --- 8. Firewall ------------------------------------------------------------
-Info 'Opening firewall ports (80, 443, 22)'
-foreach ($p in @(80, 443, 22)) {
-    $name = "ZeroBudget-TCP-$p"
-    if (-not (Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue)) {
-        New-NetFirewallRule -DisplayName $name -Direction Inbound -Action Allow `
-            -Protocol TCP -LocalPort $p | Out-Null
+# Web traffic reaches this box ONLY through Cloudflare, so scope 80/443 to Cloudflare's
+# published edge ranges. That is what actually backstops the staging IP-allowlist: the
+# Cloudflare WAF rule is edge-only and is bypassed by connecting straight to the origin IP,
+# so without this host rule a direct hit reaches IIS unfiltered. SSH (22) stays open for the
+# GitHub Actions deploy — tighten it to a known admin/bastion IP if you can.
+Info 'Fetching Cloudflare IP ranges'
+try {
+    $cfRanges = @()
+    foreach ($u in @('https://www.cloudflare.com/ips-v4', 'https://www.cloudflare.com/ips-v6')) {
+        $body = Invoke-RestMethod -Uri $u
+        $cfRanges += ($body -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     }
+}
+catch {
+    throw "Could not fetch Cloudflare IP ranges ($_). Refusing to open 80/443 to the whole internet; re-run when online."
+}
+if ($cfRanges.Count -lt 1) {
+    throw 'Cloudflare IP range list was empty; aborting rather than opening 80/443 to Any.'
+}
+
+Info "Restricting web ports 80/443 to $($cfRanges.Count) Cloudflare ranges"
+foreach ($p in @(80, 443)) {
+    $name = "ZeroBudget-TCP-$p"
+    # Recreate each run so re-provisioning re-applies the scope. Windows Allow rules union,
+    # so an older Allow-from-Any rule would otherwise linger and defeat the restriction.
+    Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+    New-NetFirewallRule -DisplayName $name -Direction Inbound -Action Allow `
+        -Protocol TCP -LocalPort $p -RemoteAddress $cfRanges | Out-Null
+}
+
+Info 'Opening firewall port 22 (SSH, for the deploy pipeline)'
+$sshName = 'ZeroBudget-TCP-22'
+if (-not (Get-NetFirewallRule -DisplayName $sshName -ErrorAction SilentlyContinue)) {
+    New-NetFirewallRule -DisplayName $sshName -Direction Inbound -Action Allow `
+        -Protocol TCP -LocalPort 22 | Out-Null
 }
 
 Info 'Server setup complete.'
