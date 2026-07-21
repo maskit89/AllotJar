@@ -131,6 +131,12 @@ emailed link end-to-end.
 `Email:AppBaseUrl` is deliberately config-only (never derived from request Host headers — a
 spoofed header must not steer emailed links). Reset links are valid for 2 hours, single-use.
 
+Registration also sends a **"confirm your email"** message through the same provider (no extra
+config), and re-uses the reset link as a **claim** email when someone registers an address that
+already has an *unverified* account. So once the email provider is configured, verification and
+reclaim work automatically. With NO provider configured, accounts still register and work — they
+just stay unverified (the in-app banner shows, but there's nothing to click).
+
 ## Sign in with Google
 
 Google sign-in is OFF until a client id is configured, on both the server (`Google:ClientId`, for

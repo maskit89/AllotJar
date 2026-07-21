@@ -29,6 +29,8 @@ public class AnonymousEndpointSweepTests
     ///     cookie-only refresh, and sign-out that must work with an expired access token).
     ///   - auth forgot-password / reset-password: explicitly [AllowAnonymous] — a user who lost
     ///     their password has no credential to present; both are rate-limited and non-enumerating.
+    ///   - auth confirm-email: explicitly [AllowAnonymous] — the emailed token IS the proof; a user
+    ///     clicking the link may not be signed in on that device. Rate-limited, generic failures.
     ///   - auth google: explicitly [AllowAnonymous] — the Google ID token IS the credential; the
     ///     endpoint validates it against Google's keys and is rate-limited like its siblings.
     ///   - features: explicitly anonymous feature-flag read the SPA needs before sign-in.
@@ -46,6 +48,7 @@ public class AnonymousEndpointSweepTests
         "POST api/auth/logout",
         "POST api/auth/forgot-password",
         "POST api/auth/reset-password",
+        "POST api/auth/confirm-email",
         "POST api/auth/google",
         "GET api/features",
         "GET api/dev/emails",

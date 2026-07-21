@@ -88,7 +88,18 @@ public class AuthController : ControllerBase
         var existing = await _userManager.FindByEmailAsync(request.Email);
         if (existing is not null)
         {
-            return BadRequest(new { error = "An account with that email already exists." });
+            // A VERIFIED account genuinely belongs to someone — say so (registration already reveals
+            // existence; accepted trade-off). An UNVERIFIED account, though, may be a pre-hijack
+            // squat (we never verified the email at its registration): rather than let the new
+            // registrant in OR leave them stuck, email a claim link to the address so its TRUE
+            // owner can take it over. Same neutral response either way — no session is issued.
+            if (await _userManager.IsEmailConfirmedAsync(existing))
+            {
+                return BadRequest(new { error = "An account with that email already exists." });
+            }
+
+            DispatchReclaimEmail(request.Email);
+            return Ok(new RegistrationPendingResponse(VerificationPending: true, request.Email));
         }
 
         var firstName = NullIfBlank(request.FirstName);
@@ -118,9 +129,114 @@ public class AuthController : ControllerBase
         await HouseholdBootstrap.EnsureOwnHouseholdAsync(
             _db, user, DateTime.UtcNow, seedSampleBudget: request.IncludeSampleData, ct);
 
+        // Send the "confirm your email" link. The user is signed in immediately (below) and can use
+        // the app right away — a persistent banner nudges them to confirm; sending is off-request.
+        DispatchVerificationEmail(user.Id);
+
         await IssueRefreshCookieAsync(user.Id, ct);
         return Ok(await BuildResponseAsync(user, ct));
     }
+
+    /// <summary>
+    /// Confirms an emailed address-verification token (the normal path: a registrant clicks the
+    /// link). Failures share one generic message so a dead/foreign token gives no token-validity
+    /// signal. Note the idempotent 204-on-already-confirmed short-circuit (below) does distinguish a
+    /// confirmed account from an unverified/unknown one for a known email — an existence/verified
+    /// oracle strictly weaker than what registration already exposes, rate-limited, and accepted
+    /// under the same registration-enumeration trade-off (docs/testing/maps/auth.md §8/§17).
+    /// </summary>
+    [HttpPost("confirm-email")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ConfirmEmail(ConfirmEmailRequest request)
+    {
+        const string invalid = "That confirmation link is invalid or has expired. Please request a new one.";
+
+        var user = await _userManager.FindByEmailAsync(request.Email);
+        if (user is null)
+        {
+            return BadRequest(new { error = invalid });
+        }
+
+        if (await _userManager.IsEmailConfirmedAsync(user))
+        {
+            return NoContent(); // idempotent — clicking a still-valid link twice is fine
+        }
+
+        var result = await _userManager.ConfirmEmailAsync(user, request.Token);
+        return result.Succeeded ? NoContent() : BadRequest(new { error = invalid });
+    }
+
+    /// <summary>Resends the address-verification email for the authenticated login (no-op + 204 if
+    /// already confirmed, so it never leaks confirmation state to a different response).</summary>
+    [HttpPost("resend-verification")]
+    [Authorize]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> ResendVerification()
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null)
+        {
+            return Unauthorized();
+        }
+
+        if (!await _userManager.IsEmailConfirmedAsync(user))
+        {
+            DispatchVerificationEmail(user.Id);
+        }
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Sends the address-verification email off the request path (like the reset dispatch): a fresh
+    /// DI scope because the request scope's UserManager is disposed when we return. The link's token
+    /// is Identity's email-confirmation token (2h lifespan, shared DataProtection lifetime).
+    /// </summary>
+    private void DispatchVerificationEmail(string userId)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+                var user = await users.FindByIdAsync(userId);
+                if (user is null || string.IsNullOrEmpty(user.Email))
+                {
+                    return;
+                }
+
+                var token = await users.GenerateEmailConfirmationTokenAsync(user);
+                var link = $"{_emailSettings.AppBaseUrl.TrimEnd('/')}/confirm-email" +
+                           $"?email={Uri.EscapeDataString(user.Email)}&token={Uri.EscapeDataString(token)}";
+                var sender = scope.ServiceProvider.GetRequiredService<IEmailSender>();
+                await sender.SendAsync(EmailVerificationEmail.Build(user.Email, link));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send an email-verification message.");
+            }
+        });
+    }
+
+    /// <summary>
+    /// The safe-reclaim dispatch: register hit an existing UNVERIFIED email, so email a
+    /// PASSWORD-RESET link to that address. Whoever controls the inbox (the true owner) redeems it,
+    /// and the reset flow takes the account over — sets a new password, marks the email confirmed,
+    /// and revokes any sessions a squatter held. Reuses the reset machinery wholesale.
+    /// </summary>
+    private void DispatchReclaimEmail(string email) => DispatchResetEmail(email);
 
     /// <summary>Validates credentials and returns a JWT.</summary>
     [HttpPost("login")]
@@ -575,6 +691,15 @@ public class AuthController : ControllerBase
         await _userManager.SetLockoutEndDateAsync(user, null);
         await _userManager.ResetAccessFailedCountAsync(user);
 
+        // Redeeming an emailed link proves control of the address, so confirm it. This is what
+        // makes forgot-password double as the safe-RECLAIM of a pre-hijack squat: the true owner
+        // resets, and the account is now verified + password-rotated + sessions revoked.
+        if (!user.EmailConfirmed)
+        {
+            user.EmailConfirmed = true;
+            await _userManager.UpdateAsync(user);
+        }
+
         await _refreshTokens.RevokeAllForUserAsync(user.Id, ct);
         await IssueRefreshCookieAsync(user.Id, ct);
         return Ok(await BuildResponseAsync(user, ct));
@@ -656,7 +781,10 @@ public class AuthController : ControllerBase
             HasPassword: await _userManager.HasPasswordAsync(user),
             // Whether a Google identity is linked — drives the account page's "Connected accounts"
             // row (Disconnect) and guards against removing the login's ONLY sign-in method.
-            HasGoogle: await HasGoogleLinkAsync(user)));
+            HasGoogle: await HasGoogleLinkAsync(user),
+            // Drives the persistent "confirm your email" banner. Google-created accounts are
+            // confirmed on creation; password/invite accounts confirm via the emailed link.
+            EmailConfirmed: user.EmailConfirmed));
     }
 
     private async Task<bool> HasGoogleLinkAsync(ApplicationUser user) =>

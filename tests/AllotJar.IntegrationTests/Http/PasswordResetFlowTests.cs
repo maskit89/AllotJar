@@ -219,11 +219,12 @@ public class PasswordResetFlowTests
 
         doc.RootElement.ValueKind.Should().Be(JsonValueKind.Array);
         doc.RootElement.GetArrayLength().Should().BeGreaterThan(0);
-        var first = doc.RootElement[0];
-        first.TryGetProperty("subject", out var subject).Should().BeTrue("journey specs read camelCase `subject`");
-        first.TryGetProperty("textBody", out var textBody).Should().BeTrue("journey specs read camelCase `textBody`");
+        // The mailbox now also holds the registration verification email, so find the RESET one by
+        // its textBody rather than assuming index 0 — the camelCase field names are what's pinned.
+        var reset = doc.RootElement.EnumerateArray()
+            .First(m => m.GetProperty("textBody").GetString()!.Contains("/reset-password?"));
+        reset.TryGetProperty("subject", out var subject).Should().BeTrue("journey specs read camelCase `subject`");
         subject.GetString().Should().Contain("password");
-        textBody.GetString().Should().Contain("/reset-password?");
     }
 
     // ----- helpers -------------------------------------------------------------------------------
@@ -250,10 +251,12 @@ public class PasswordResetFlowTests
     {
         for (var attempt = 0; attempt < 100; attempt++)
         {
-            var messages = Sink.ForRecipient(email);
-            if (messages.Count > 0)
+            // Registration also sends a verification email now, so filter for the RESET link
+            // specifically rather than grabbing whatever landed first.
+            var message = Sink.ForRecipient(email).FirstOrDefault(m => m.TextBody.Contains("/reset-password?"));
+            if (message is not null)
             {
-                return messages[0];
+                return message;
             }
             await Task.Delay(50);
         }

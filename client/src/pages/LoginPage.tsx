@@ -44,6 +44,8 @@ export function LoginPage() {
   const [includeSampleData, setIncludeSampleData] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Register hit an existing UNVERIFIED email → a claim link was emailed, no session created.
+  const [claimPending, setClaimPending] = useState(false)
   // The "or" divider appears only once the Google button has actually rendered, so environments
   // without a client id (or with the script blocked) show the unchanged password-only card.
   const [googleReady, setGoogleReady] = useState(false)
@@ -81,7 +83,7 @@ export function LoginPage() {
       if (mode === 'login') {
         await login(email, password)
       } else {
-        await register({
+        const result = await register({
           email,
           password,
           firstName: firstName.trim(),
@@ -91,6 +93,12 @@ export function LoginPage() {
           acceptedTerms,
           includeSampleData,
         })
+        // The email already had an UNVERIFIED account: no session was created; a claim link was
+        // emailed to that address so its true owner can take it over. Show that, don't navigate.
+        if (result.verificationPending) {
+          setClaimPending(true)
+          return
+        }
       }
       if (mode === 'login') {
         track(EVENTS.login, { method: 'password' })
@@ -150,6 +158,25 @@ export function LoginPage() {
               in to pick up where you left off.
             </p>
           )}
+          {claimPending ? (
+            <div role="status" className="space-y-4 text-sm text-slate-600">
+              <h2 className="text-base font-semibold text-slate-900">Check your inbox</h2>
+              <p>
+                An account with <span className="font-medium text-slate-900">{email}</span> already
+                exists but hasn't been confirmed. We've emailed a link to that address so its owner
+                can confirm it and set a password.
+              </p>
+              <p>If that's you, follow the link to take it over. If not, you can ignore this.</p>
+              <button
+                type="button"
+                onClick={() => setClaimPending(false)}
+                className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-500"
+              >
+                Use a different email
+              </button>
+            </div>
+          ) : (
+          <>
           {/* Segmented sign-in / register toggle. */}
           <div className="mb-6">
             <SegmentedControl
@@ -365,6 +392,8 @@ export function LoginPage() {
             )}
             <GoogleSignInButton onCredential={onGoogleCredential} onReady={() => setGoogleReady(true)} />
           </div>
+          </>
+          )}
         </Card>
 
         <p className="mt-6 text-center text-xs text-slate-500">
