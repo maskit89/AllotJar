@@ -7,12 +7,14 @@ using AllotJar.Domain.Enums;
 namespace AllotJar.Application.Transactions;
 
 /// <summary>
-/// A lightweight, behind-the-scenes categorizer. When a transaction is logged
-/// without a budget line, it inherits the line of the user's most recent earlier
-/// transaction with the same description (payee). This is a zero-configuration
-/// default — there are no user-managed rules — and applies both to manually-added
-/// transactions and to any future statement import. Returns how many of the given
-/// candidates were assigned.
+/// A lightweight, behind-the-scenes categorizer. When a transaction is logged without a budget
+/// line, it inherits the line the user last used for the same description (payee) — but resolved
+/// to the line IN THE TRANSACTION'S OWN MONTH, never a prior month's line. Budget lines are
+/// month-scoped rows, so replaying a concrete prior-month line id onto a later transaction would
+/// mis-bucket it (a July spend landing on June's actuals). Instead we learn a payee's recurring
+/// line by its stable cross-month identity and look that identity up in the transaction's month;
+/// if that month has no matching line, the payee is left unassigned. Zero-configuration — there
+/// are no user-managed rules. Used by manual create, statement import, and the import preview.
 /// </summary>
 public static partial class AutoCategorizer
 {
@@ -31,12 +33,14 @@ public static partial class AutoCategorizer
             return 0;
         }
 
-        // Never let a candidate match against itself (the import batch isn't saved
-        // yet, but be defensive).
+        // Never let a candidate match against itself (the batch may already be tracked).
         var candidateIds = candidates.Select(t => t.Id).ToHashSet();
+        var requests = candidates
+            .Select(t => (t.Payee, t.Date.Year, t.Date.Month))
+            .ToList();
 
-        var lineByDescription = await BuildSuggestionsAsync(db, ownerId, candidateIds, cancellationToken);
-        if (lineByDescription.Count == 0)
+        var resolved = await ResolveLinesAsync(db, ownerId, candidateIds, requests, cancellationToken);
+        if (resolved.Count == 0)
         {
             return 0;
         }
@@ -44,7 +48,7 @@ public static partial class AutoCategorizer
         var assigned = 0;
         foreach (var tx in candidates)
         {
-            if (lineByDescription.TryGetValue(NormalizeDescription(tx.Payee), out var itemId))
+            if (resolved.TryGetValue((NormalizeDescription(tx.Payee), tx.Date.Year, tx.Date.Month), out var itemId))
             {
                 tx.BudgetItemId = itemId;
                 assigned++;
@@ -55,18 +59,34 @@ public static partial class AutoCategorizer
     }
 
     /// <summary>
-    /// Build the payee → budget-line suggestion index from the user's already-categorized
-    /// transactions (most recent assignment wins). Used both by <see cref="ApplyAsync"/> and by
-    /// the statement-import preview to suggest a line for each candidate before anything is saved.
-    /// The key is the normalized payee (see <see cref="NormalizeKey"/>).
+    /// For each requested (payee, year, month), resolve the budget line to suggest/assign: the
+    /// recurring line the user last used for that payee, looked up IN THE REQUEST'S OWN MONTH.
+    /// A line's cross-month identity is its fund <c>SavingsId</c>, else (category kind, category
+    /// name, line name) — all of which the monthly rollover copies forward. If the request's month
+    /// has no matching line, the payee is left unresolved (rather than borrowing another month's
+    /// line, which mis-buckets the budget). Shared by <see cref="ApplyAsync"/> and the import
+    /// preview so the suggestion always matches what a commit would actually do.
     /// </summary>
-    public static async Task<Dictionary<string, Guid>> BuildSuggestionsAsync(
+    public static async Task<IReadOnlyDictionary<(string PayeeKey, int Year, int Month), Guid>> ResolveLinesAsync(
         IApplicationDbContext db,
         string ownerId,
         IReadOnlySet<Guid> excludeTransactionIds,
+        IReadOnlyCollection<(string Payee, int Year, int Month)> requests,
         CancellationToken cancellationToken)
     {
-        // Most recent first, so the first write per description wins.
+        var result = new Dictionary<(string, int, int), Guid>();
+
+        var payeeKeys = requests
+            .Select(r => NormalizeDescription(r.Payee))
+            .Where(k => k.Length > 0)
+            .ToHashSet();
+        if (payeeKeys.Count == 0)
+        {
+            return result;
+        }
+
+        // payee -> the recurring-line identity of the most recent prior categorized transaction
+        // with that payee (most recent Date wins).
         var prior = await db.Transactions
             .AsNoTracking()
             .Where(t => t.OwnerId == ownerId
@@ -74,27 +94,92 @@ public static partial class AutoCategorizer
                         && !excludeTransactionIds.Contains(t.Id))
             .OrderByDescending(t => t.Date)
             .ThenByDescending(t => t.Id)
-            .Select(t => new { t.Payee, t.BudgetItemId })
+            .Select(t => new
+            {
+                t.Payee,
+                Kind = t.BudgetItem!.BudgetCategory.Kind,
+                CategoryName = t.BudgetItem.BudgetCategory.Name,
+                ItemName = t.BudgetItem.Name,
+                t.BudgetItem.SavingsId,
+            })
             .ToListAsync(cancellationToken);
 
-        var lineByDescription = new Dictionary<string, Guid>();
+        var identityByPayee = new Dictionary<string, string>();
         foreach (var p in prior)
         {
             var key = NormalizeDescription(p.Payee);
-            if (key.Length > 0 && !lineByDescription.ContainsKey(key))
+            if (key.Length > 0 && payeeKeys.Contains(key) && !identityByPayee.ContainsKey(key))
             {
-                lineByDescription[key] = p.BudgetItemId!.Value;
+                identityByPayee[key] = LineIdentity(p.Kind, p.CategoryName, p.ItemName, p.SavingsId);
             }
         }
-        return lineByDescription;
+        if (identityByPayee.Count == 0)
+        {
+            return result;
+        }
+
+        // Index the lines of every requested month by their identity. (EF can't filter on a set of
+        // (year, month) tuples, so query the years×months superset and drop the cross-terms.)
+        var months = requests.Select(r => (r.Year, r.Month)).Distinct().ToHashSet();
+        var years = months.Select(m => m.Year).Distinct().ToList();
+        var monthNumbers = months.Select(m => m.Month).Distinct().ToList();
+
+        var lines = await db.BudgetItems
+            .AsNoTracking()
+            .Where(i => i.BudgetCategory.BudgetMonth.OwnerId == ownerId
+                        && years.Contains(i.BudgetCategory.BudgetMonth.Year)
+                        && monthNumbers.Contains(i.BudgetCategory.BudgetMonth.Month))
+            .Select(i => new
+            {
+                i.Id,
+                i.BudgetCategory.BudgetMonth.Year,
+                i.BudgetCategory.BudgetMonth.Month,
+                Kind = i.BudgetCategory.Kind,
+                CategoryName = i.BudgetCategory.Name,
+                ItemName = i.Name,
+                i.SavingsId,
+            })
+            .ToListAsync(cancellationToken);
+
+        var lineIdByMonthIdentity = new Dictionary<(int Year, int Month, string Identity), Guid>();
+        foreach (var l in lines)
+        {
+            if (!months.Contains((l.Year, l.Month)))
+            {
+                continue;
+            }
+            var identity = LineIdentity(l.Kind, l.CategoryName, l.ItemName, l.SavingsId);
+            lineIdByMonthIdentity.TryAdd((l.Year, l.Month, identity), l.Id);
+        }
+
+        foreach (var r in requests)
+        {
+            var key = NormalizeDescription(r.Payee);
+            if (identityByPayee.TryGetValue(key, out var identity)
+                && lineIdByMonthIdentity.TryGetValue((r.Year, r.Month, identity), out var itemId))
+            {
+                result[(key, r.Year, r.Month)] = itemId;
+            }
+        }
+
+        return result;
     }
 
-    /// <summary>Public access to the normalization used for suggestion keys.</summary>
+    /// <summary>
+    /// The stable cross-month identity of a budget line: a fund's <c>SavingsId</c> (which the
+    /// rollover carries), else its category kind + category name + line name (also carried).
+    /// </summary>
+    private static string LineIdentity(CategoryKind kind, string? categoryName, string? itemName, Guid? savingsId)
+        => savingsId is { } sid
+            ? "s:" + sid.ToString("N")
+            : $"k:{(int)kind}|c:{NormalizeDescription(categoryName)}|i:{NormalizeDescription(itemName)}";
+
+    /// <summary>Public access to the normalization used for suggestion/dedup keys.</summary>
     public static string NormalizeKey(string? description) => NormalizeDescription(description);
 
     /// <summary>
-    /// Normalize a description into a stable match key: trimmed, lower-cased, with
-    /// internal whitespace collapsed. Returns "" for blank input.
+    /// Normalize a description into a stable match key: trimmed, lower-cased, with internal
+    /// whitespace collapsed. Returns "" for blank input.
     /// </summary>
     private static string NormalizeDescription(string? description)
     {

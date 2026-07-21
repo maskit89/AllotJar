@@ -147,6 +147,56 @@ public class AutoCategorizationTests
         tx.BudgetItemId.Should().Be(dining.Id);
     }
 
+    // F4: a payee learned in one month resolves to the SAME line in the candidate's OWN month —
+    // not the prior month's line. This is the fix for cross-month mis-bucketing after a rollover
+    // (previously a July spend would inherit June's line id and land on June's actuals).
+    [Fact]
+    public async Task Apply_ResolvesToTheSameLineInTheCandidatesOwnMonth_NotThePriorMonth()
+    {
+        await using var db = NewContext();
+        var juneGroceries = SeedMonthWithFood(db, "user-1", 2026, 6);
+        var julyGroceries = SeedMonthWithFood(db, "user-1", 2026, 7);
+        // Learned from June: REWE -> June's Groceries.
+        SeedAssignedTransaction(db, "user-1", "REWE", juneGroceries.Id, new DateOnly(2026, 6, 1));
+
+        var july = new Transaction { OwnerId = "user-1", Payee = "REWE", Date = new DateOnly(2026, 7, 3), Type = TransactionType.Expense };
+
+        var count = await AutoCategorizer.ApplyAsync(db, "user-1", new[] { july }, CancellationToken.None);
+
+        count.Should().Be(1);
+        july.BudgetItemId.Should().Be(julyGroceries.Id);   // July's line…
+        july.BudgetItemId.Should().NotBe(juneGroceries.Id); // …never June's
+    }
+
+    // If the candidate's month has no matching line, the payee is left unassigned rather than
+    // borrowing another month's line.
+    [Fact]
+    public async Task Apply_LeavesUnassigned_WhenTheCandidatesMonthHasNoMatchingLine()
+    {
+        await using var db = NewContext();
+        var juneGroceries = SeedMonthWithFood(db, "user-1", 2026, 6);
+        // July exists but with no Groceries line.
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = "user-1",
+            Year = 2026,
+            Month = 7,
+            Categories = new List<BudgetCategory>
+            {
+                new() { Name = "Food", Items = new List<BudgetItem> { new() { Name = "Dining Out" } } },
+            },
+        });
+        await db.SaveChangesAsync();
+        SeedAssignedTransaction(db, "user-1", "REWE", juneGroceries.Id, new DateOnly(2026, 6, 1));
+
+        var july = new Transaction { OwnerId = "user-1", Payee = "REWE", Date = new DateOnly(2026, 7, 3), Type = TransactionType.Expense };
+
+        var count = await AutoCategorizer.ApplyAsync(db, "user-1", new[] { july }, CancellationToken.None);
+
+        count.Should().Be(0);
+        july.BudgetItemId.Should().BeNull();
+    }
+
     // --- Manual create integration ------------------------------------------
 
     [Fact]
