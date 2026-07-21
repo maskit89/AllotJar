@@ -11,13 +11,26 @@
     RESTORE VERIFYONLY, then deletes backups older than -RetentionDays. Uses
     Windows auth (-E), so the calling identity needs BACKUP rights on the
     instance (NT AUTHORITY\SYSTEM is a sysadmin by default on SQL Server).
+
+    When -R2Bucket is set, the verified backup is also copied off-host to Cloudflare
+    R2 (via Upload-BackupToR2.ps1 next to this script) so a disk/host/ransomware event
+    can't take out the data and every recovery point at once. Only verified backups
+    are shipped, and the R2 upload failing fails the whole run.
 #>
 [CmdletBinding()]
 param(
     [string]$Server        = '.\SQLEXPRESS',
     [Parameter(Mandatory = $true)][string]$Database,
     [string]$BackupDir     = 'C:\deploy\backups',
-    [int]   $RetentionDays = 14
+    [int]   $RetentionDays = 14,
+
+    # Off-host copy to Cloudflare R2. Optional: when -R2Bucket is empty the script
+    # behaves exactly as before (so the staging task is unaffected).
+    [string]$R2Bucket,
+    [string]$Rclone        = 'C:\deploy\rclone\rclone.exe',
+    [string]$RcloneConf    = 'C:\deploy\rclone.conf',
+    [string]$R2Remote      = 'r2',
+    [string]$R2Prefix      = 'db-backups'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,7 +57,19 @@ try {
     }
 } finally { $cn.Close() }
 
-# Prune old backups.
+# Ship the just-verified backup off-host BEFORE pruning, so a failure here can't
+# leave us having deleted an old copy without a new remote one. Only runs when
+# -R2Bucket is set.
+if ($R2Bucket) {
+    $uploader = Join-Path $PSScriptRoot 'Upload-BackupToR2.ps1'
+    if (-not (Test-Path $uploader)) {
+        throw "Upload-BackupToR2.ps1 not found next to this script ($uploader) - needed for -R2Bucket."
+    }
+    & $uploader -File $file -Bucket $R2Bucket -Database $Database `
+        -Rclone $Rclone -RcloneConf $RcloneConf -Remote $R2Remote -Prefix $R2Prefix
+}
+
+# Prune old LOCAL backups (remote retention is enforced by the R2 lifecycle/Object Lock).
 $cutoff = (Get-Date).AddDays(-$RetentionDays)
 Get-ChildItem -Path $BackupDir -Filter "$($Database)_*.bak" |
     Where-Object { $_.LastWriteTime -lt $cutoff } |

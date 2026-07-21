@@ -132,6 +132,45 @@ powershell -ExecutionPolicy Bypass -File .\Register-BackupTask.ps1 -Database Zer
 ```
 `.bak` files land in `C:\deploy\backups`. Run `Register-BackupTask.ps1` again to change the time/retention. If the task can't back up, the SYSTEM account lacks rights on the instance — grant it (or re-run the task as your SQL admin).
 
+### Off-host backups (Cloudflare R2)
+
+Local `.bak` files are point-in-time recovery only — a disk/host/ransomware event takes out the
+data **and** the backups together. `Backup-Database.ps1 -R2Bucket <bucket>` also ships each
+**verified** backup to Cloudflare R2 (via `Upload-BackupToR2.ps1`), where the bucket's **Object
+Lock** retention makes copies immutable — unremovable even by a compromised server.
+
+One-time setup on the VPS:
+
+1. **Install rclone** (single portable binary) to `C:\deploy\rclone\rclone.exe` — from <https://rclone.org/downloads/> (Windows AMD64). Verify the download's SHA-256 against the published `SHA256SUMS` before trusting it.
+2. **Create the R2 remote** — an rclone config file **outside the repo**, e.g. `C:\deploy\rclone.conf`:
+   ```ini
+   [r2]
+   type = s3
+   provider = Cloudflare
+   access_key_id = <R2 Access Key ID>
+   secret_access_key = <R2 Secret Access Key>
+   endpoint = https://<account-id>.r2.cloudflarestorage.com
+   acl = private
+   ```
+   Use an **Account API token** scoped to the one bucket with **Object Read & Write**. The secret
+   sits here in plaintext, so lock the file down:
+   ```powershell
+   icacls C:\deploy\rclone.conf /inheritance:r /grant:r "SYSTEM:R" "BUILTIN\Administrators:F"
+   ```
+3. **Test it** — one verified backup, shipped off-host and size-checked:
+   ```powershell
+   powershell -File C:\deploy\Backup-Database.ps1 -Database ZeroBudgetProd -R2Bucket <bucket>
+   ```
+4. **Automate it** — re-register the daily prod task with the R2 flag so every night's verified
+   backup goes off-host:
+   ```powershell
+   powershell -File .\Register-BackupTask.ps1 -Database ZeroBudgetProd -TaskName ZeroBudget-Prod-DbBackup -R2Bucket <bucket>
+   ```
+
+Remote retention is enforced by the bucket's Object Lock + lifecycle rules (set in the Cloudflare
+dashboard), independent of the local `-RetentionDays` prune. Periodically restore from R2 into a
+scratch SQL instance to prove the off-host copies are usable.
+
 ## Rollback
 
 Re-run a previous successful **Deploy** workflow from the Actions tab (it re-pushes that commit's artifact), or check out the previous commit and `workflow_dispatch`. Take an ad-hoc backup before any deploy that includes a migration (`-Database` is required — name the target env):
