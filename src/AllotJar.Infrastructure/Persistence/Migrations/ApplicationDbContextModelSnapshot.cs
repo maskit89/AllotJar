@@ -470,6 +470,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasColumnType("decimal(18,6)")
                         .HasDefaultValue(1m);
 
+                    b.Property<bool>("FxPending")
+                        .HasColumnType("bit");
+
                     b.Property<Guid?>("MemberId")
                         .HasColumnType("uniqueidentifier");
 

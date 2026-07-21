@@ -55,6 +55,15 @@ public class Transaction : BaseEntity
     /// <summary>The amount expressed in the budget's base currency (<see cref="Amount"/> × <see cref="ExchangeRate"/>).</summary>
     public decimal BaseAmount => Amount * ExchangeRate;
 
+    /// <summary>
+    /// True when this is a foreign-currency transaction whose exchange rate could NOT be
+    /// resolved, so <see cref="ExchangeRate"/> is a placeholder 1 (the amount is counted at face
+    /// value in the base currency until reconciled). Distinguishes "genuinely 1:1" from
+    /// "unknown rate", so a provider outage no longer silently distorts base-currency totals; a
+    /// later resolution pass clears it.
+    /// </summary>
+    public bool FxPending { get; set; }
+
     public TransactionType Type { get; set; } = TransactionType.Expense;
 
     public DateOnly Date { get; set; }

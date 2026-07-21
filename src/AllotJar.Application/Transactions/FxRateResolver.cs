@@ -6,10 +6,12 @@ using AllotJar.Domain.ValueObjects;
 namespace AllotJar.Application.Transactions;
 
 /// <summary>
-/// Sets the exchange rate (to the budget's base currency) on a batch of
-/// transactions. Same-currency entries get rate 1 with no lookup; foreign
-/// entries are resolved via <see cref="IExchangeRateProvider"/>, falling back to
-/// 1 when no rate is available so an import always completes.
+/// Sets the exchange rate (to the budget's base currency) on a batch of transactions. Same-
+/// currency entries get rate 1 with no lookup; foreign entries are resolved via
+/// <see cref="IExchangeRateProvider"/>. When a rate can't be resolved the import still completes,
+/// but the row is marked <see cref="Transaction.FxPending"/> (an explicit unresolved state, not a
+/// silent 1:1) so a provider outage doesn't quietly distort base-currency totals — and each pass
+/// also re-attempts any previously-pending rows, so they reconcile on the next import.
 /// </summary>
 public static class FxRateResolver
 {
@@ -20,7 +22,17 @@ public static class FxRateResolver
         IReadOnlyList<Transaction> transactions,
         CancellationToken cancellationToken)
     {
-        if (transactions.Count == 0)
+        // Re-attempt any previously-unresolved foreign rows for this owner alongside the incoming
+        // batch — an import is a natural moment to reconcile amounts whose rate was unavailable
+        // before. (The incoming batch may be unsaved, so dedup by reference against it.)
+        var pending = await db.Transactions
+            .Where(t => t.OwnerId == ownerId && t.FxPending)
+            .ToListAsync(cancellationToken);
+        var batch = pending.Count == 0
+            ? transactions
+            : transactions.Concat(pending.Where(p => !transactions.Contains(p))).ToList();
+
+        if (batch.Count == 0)
         {
             return 0;
         }
@@ -35,7 +47,7 @@ public static class FxRateResolver
         var cache = new Dictionary<(string, string, DateOnly), decimal?>();
         var converted = 0;
 
-        foreach (var tx in transactions)
+        foreach (var tx in batch)
         {
             var baseCurrency = baseByMonth.TryGetValue((tx.Date.Year, tx.Date.Month), out var c)
                 ? c
@@ -44,6 +56,7 @@ public static class FxRateResolver
             if (Equals(tx.Currency, baseCurrency))
             {
                 tx.ExchangeRate = 1m;
+                tx.FxPending = false;
                 continue;
             }
 
@@ -57,12 +70,16 @@ public static class FxRateResolver
             if (rate is decimal resolved and > 0m)
             {
                 tx.ExchangeRate = resolved;
+                tx.FxPending = false;
                 converted++;
             }
             else
             {
-                // Couldn't resolve — keep 1 so the amount still counts (in its own currency).
+                // Couldn't resolve — record an explicit UNRESOLVED state instead of a silent 1:1.
+                // The amount still counts at face value so the import completes, but FxPending marks
+                // it so reads can flag it and the next resolution pass retries it.
                 tx.ExchangeRate = 1m;
+                tx.FxPending = true;
             }
         }
 
