@@ -14,9 +14,11 @@
       * IIS sites   'ZeroBudget-Prod'      -> the SPA front, host-bound to allotjar.com + www.allotjar.com
                     'ZeroBudget-Prod-Api'  -> ANCM API on 127.0.0.1:5001
       * TLS         SNI 443 bindings for apex/www (and staging.allotjar.com on the
-                    staging site), reusing the certificate already bound on 443
-                    (Cloudflare connects with SSL mode Full, so the origin cert
-                    only has to exist, not be publicly trusted)
+                    staging site), using the cert pinned by -CertThumbprint. Every
+                    binding is checked against the cert's SAN list first, so a cert
+                    that doesn't cover a hostname fails loudly instead of producing a
+                    Cloudflare 526 under SSL mode Full (strict). Use ONE origin cert
+                    covering '*.allotjar.com' AND 'allotjar.com'.
       * SQL         database 'ZeroBudgetProd' + db_owner for the prod app-pool identity
       * config      appsettings.Production.json cloned from the staging API's copy
                     with the prod DB name and a FRESH random JWT signing key
@@ -47,6 +49,12 @@ param(
     [string]$StagingHost    = 'staging.allotjar.com',
 
     [string]$SqlServer     = '.\SQLEXPRESS',
+
+    # Thumbprint of the origin certificate to bind (from LocalMachine\My). Strongly
+    # preferred: without it the script inherits whatever cert is on the first 443
+    # binding, which is how staging once ended up on an apex/www-only cert. The cert
+    # must cover every hostname bound below, or provisioning aborts.
+    [string]$CertThumbprint,
 
     # Post-cutover cleanup: remove catch-all/apex/www/app.allotjar.com bindings from
     # the staging site (leaving only $StagingHost). Run this only AFTER DNS moved
@@ -160,17 +168,96 @@ function Add-HttpBinding {
 }
 
 # =============================================================================
-# 4. TLS: SNI 443 bindings reusing the certificate already on the box
+# 4. TLS: SNI 443 bindings, pinned to a certificate that covers each hostname
 # =============================================================================
-Info 'Resolving the existing origin certificate'
-$ssl = Get-ChildItem IIS:\SslBindings | Where-Object { $_.Port -eq 443 } | Select-Object -First 1
-if (-not $ssl) { throw 'No existing 443 SSL binding found to copy the certificate from.' }
-$store = if ($ssl.Store) { $ssl.Store } else { 'My' }
-$cert = Get-Item "Cert:\LocalMachine\$store\$($ssl.Thumbprint)"
-Info "  using cert $($ssl.Thumbprint) from LocalMachine\$store"
+# Prefer -CertThumbprint. Discovering "whatever cert is on the first 443 binding" is a
+# trap: it silently binds an apex/www-only cert to staging.allotjar.com, which Cloudflare
+# then rejects with a 526 (invalid SSL certificate) under SSL mode Full (strict). The
+# coverage guard below turns that silent mis-bind into a loud failure.
+
+<#
+.SYNOPSIS
+    The DNS names a certificate is valid for (SAN list, lower-cased).
+#>
+function Get-CertDnsNames {
+    param([System.Security.Cryptography.X509Certificates.X509Certificate2]$Cert)
+    $names = @()
+    try { $names = @($Cert.DnsNameList | ForEach-Object { $_.Unicode }) } catch { }
+    if (-not $names -or $names.Count -eq 0) {
+        # Fall back to parsing the SAN extension (OID 2.5.29.17) text.
+        $san = $Cert.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.17' }
+        if ($san) {
+            $names = ($san.Format($false) -split ',') |
+                ForEach-Object { ($_ -replace '(?i)\s*DNS Name\s*=', '' -replace '(?i)\s*DNS\s*:', '').Trim() }
+        }
+    }
+    return @($names | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() } | Select-Object -Unique)
+}
+
+<#
+.SYNOPSIS
+    True if $Cert is valid for $HostHeader. A wildcard matches exactly one label.
+#>
+function Test-CertCoversHost {
+    param([System.Security.Cryptography.X509Certificates.X509Certificate2]$Cert, [string]$HostHeader)
+    $h = $HostHeader.ToLowerInvariant()
+    foreach ($n in (Get-CertDnsNames -Cert $Cert)) {
+        if ($n -eq $h) { return $true }
+        if ($n.StartsWith('*.')) {
+            $suffix = $n.Substring(1)                       # '*.allotjar.com' -> '.allotjar.com'
+            if ($h.EndsWith($suffix)) {
+                $left = $h.Substring(0, $h.Length - $suffix.Length)
+                # '*.allotjar.com' covers 'staging.allotjar.com' but NOT 'a.b.allotjar.com'
+                # and NOT the bare apex 'allotjar.com'.
+                if ($left -and $left.IndexOf('.') -lt 0) { return $true }
+            }
+        }
+    }
+    return $false
+}
+
+Info 'Resolving the origin certificate'
+if ($CertThumbprint) {
+    $thumb = ($CertThumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+    $cert = Get-ChildItem Cert:\LocalMachine\My |
+        Where-Object { $_.Thumbprint -eq $thumb } | Select-Object -First 1
+    if (-not $cert) {
+        throw "No certificate with thumbprint $thumb in LocalMachine\My. Import the origin cert (PFX) first."
+    }
+    Info "  using pinned cert $thumb"
+}
+else {
+    $ssl = Get-ChildItem IIS:\SslBindings | Where-Object { $_.Port -eq 443 } | Select-Object -First 1
+    if (-not $ssl) {
+        throw 'No existing 443 SSL binding found to copy the certificate from. Pass -CertThumbprint to pin one explicitly.'
+    }
+    $store = if ($ssl.Store) { $ssl.Store } else { 'My' }
+    $cert = Get-Item "Cert:\LocalMachine\$store\$($ssl.Thumbprint)"
+    Info "  using cert $($ssl.Thumbprint) discovered from an existing 443 binding"
+    Info '  (pass -CertThumbprint to pin this explicitly instead of inheriting it)'
+}
+
+if (-not $cert.HasPrivateKey) {
+    throw "Certificate $($cert.Thumbprint) has no private key on this machine - IIS cannot serve TLS with it."
+}
+if ($cert.NotAfter -lt (Get-Date)) {
+    throw "Certificate $($cert.Thumbprint) expired on $($cert.NotAfter.ToString('yyyy-MM-dd'))."
+}
+Info "  subject : $($cert.Subject)"
+Info "  covers  : $((Get-CertDnsNames -Cert $cert) -join ', ')"
+Info "  expires : $($cert.NotAfter.ToString('yyyy-MM-dd'))"
 
 function Add-HttpsSniBinding {
     param([string]$Site, [string]$HostHeader)
+
+    # Fail loudly rather than binding a cert that doesn't cover this hostname.
+    if (-not (Test-CertCoversHost -Cert $cert -HostHeader $HostHeader)) {
+        throw ("Certificate $($cert.Thumbprint) does not cover '$HostHeader' " +
+               "(covers: $((Get-CertDnsNames -Cert $cert) -join ', ')). " +
+               "Issue an origin certificate that includes '$HostHeader' - e.g. hosts " +
+               "'*.allotjar.com' AND 'allotjar.com' - import it, then re-run with -CertThumbprint.")
+    }
+
     $existing = Get-WebBinding -Name $Site -Protocol https | Where-Object {
         ($_.bindingInformation -split ':', 3)[2] -eq $HostHeader
     }
