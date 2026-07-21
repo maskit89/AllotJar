@@ -78,6 +78,10 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
                 cancellationToken);
         var currency = month?.BaseCurrency ?? CurrencyCode.Eur;
 
+        // A transaction on an account must be in that account's currency (balances sum raw
+        // amounts with no FX), so reject e.g. a EUR-budget entry pinned to a GBP account.
+        TransactionInvariants.EnsureAccountCurrency(account, currency, "AccountId");
+
         var transaction = new Transaction
         {
             OwnerId = userId,

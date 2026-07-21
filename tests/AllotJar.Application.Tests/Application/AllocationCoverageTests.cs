@@ -364,7 +364,7 @@ public class AllocationCoverageTests
     // household the transfer currency is the hardcoded EUR, and the idempotency key's month is NOT
     // zero-padded ("alloc:2026-7:", not "2026-07").
     [Fact]
-    public async Task SoloCommit_WritesOneTransfer_WithEurHardcoded_AndNonPaddedReference()
+    public async Task SoloCommit_WritesOneTransfer_InTheAccountsCurrency_AndNonPaddedReference()
     {
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
@@ -382,12 +382,33 @@ public class AllocationCoverageTests
         transfer.Date.Should().Be(new DateOnly(2026, 7, 1));
         transfer.Payee.Should().Be("Income allocation — Chris");
         transfer.Amount.Should().Be(1000m);
-        transfer.Currency.Should().Be(CurrencyCode.Eur); // hardcoded EUR even for a GBP household
+        transfer.Currency.Should().Be(gbp); // the source/savings currency, not a hardcoded EUR
         transfer.ExchangeRate.Should().Be(1m);
         transfer.AccountId.Should().Be(source.Id);
         transfer.TransferAccountId.Should().Be(chrisSavings.Id);
         transfer.BankReference.Should().Be($"alloc:2026-7:{chris.Id}");
         transfer.BankReference.Should().NotContain("2026-07"); // month not zero-padded
+    }
+
+    // A member's savings account in a different currency than the source is rejected — an allocation
+    // transfer, like any transfer, must stay in one currency (previously it was silently stamped EUR).
+    [Fact]
+    public async Task Commit_WithASavingsAccountInADifferentCurrency_IsRejected()
+    {
+        await using var db = NewContext();
+        var user = new CurrentUserStub(Owner);
+        var gbp = CurrencyCode.From("GBP");
+        var source = SeedAccount(db, "Joint", currency: gbp);
+        var eurSavings = SeedAccount(db, "Chris Savings", currency: CurrencyCode.Eur); // mismatched
+        var chris = SeedMember(db, "Chris", 3000m, 0, eurSavings.Id);
+        SeedBudget(db, 2026, 7, envelopes: 2000m, funds: 0m, currency: gbp);
+        await Upsert(db, user, StandardRules(savingsSplit: SplitMethod.Equal), source.Id);
+
+        Func<Task> act = () => Commit(db, user, 2026, 7);
+
+        var ex = (await act.Should().ThrowAsync<ValidationException>()).Which;
+        ex.Errors.Should().ContainKey("Allocation");
+        (await db.Transactions.CountAsync(t => t.Type == TransactionType.Transfer)).Should().Be(0);
     }
 
     // ALLOC-049, ALLOC-053 — committing a profile with no source account is a 400 ValidationException

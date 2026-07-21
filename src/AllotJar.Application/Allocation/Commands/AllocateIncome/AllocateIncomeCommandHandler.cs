@@ -53,6 +53,19 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
             .ToListAsync(cancellationToken);
         _db.Transactions.RemoveRange(prior);
 
+        // Load every target savings account up front to validate ownership and currency. An
+        // allocation transfer, like any transfer, must stay in one currency (the source's), or the
+        // currency-blind account balances drift. (Previously the transfer was hardcoded to EUR and
+        // the destination account was never re-validated.)
+        var savingsIds = plan.Result.Members
+            .Where(m => m.Residual > 0m && m.SavingsAccountId is Guid)
+            .Select(m => m.SavingsAccountId!.Value)
+            .Distinct()
+            .ToList();
+        var savingsAccounts = await _db.Accounts
+            .Where(a => savingsIds.Contains(a.Id) && a.OwnerId == userId)
+            .ToDictionaryAsync(a => a.Id, cancellationToken);
+
         var date = new DateOnly(request.Year, request.Month, 1);
         var created = 0;
         foreach (var m in plan.Result.Members)
@@ -61,6 +74,21 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
             {
                 continue;
             }
+            if (!savingsAccounts.TryGetValue(savingsId, out var savings))
+            {
+                throw new NotFoundException($"Savings account {savingsId} was not found.");
+            }
+            if (savings.Currency != source.Currency)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["Allocation"] = new[]
+                    {
+                        $"{m.Name}'s savings account is in {savings.Currency.Value} but the source account is in " +
+                        $"{source.Currency.Value}. Allocation transfers must stay in one currency.",
+                    },
+                });
+            }
 
             _db.Transactions.Add(new Transaction
             {
@@ -68,7 +96,8 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                 Date = date,
                 Payee = $"Income allocation — {m.Name}",
                 Amount = m.Residual,
-                Currency = CurrencyCode.Eur,
+                // Stamp the source account's currency (both legs share it, guarded above), not EUR.
+                Currency = source.Currency,
                 ExchangeRate = 1m,
                 Type = TransactionType.Transfer,
                 AccountId = sourceId,

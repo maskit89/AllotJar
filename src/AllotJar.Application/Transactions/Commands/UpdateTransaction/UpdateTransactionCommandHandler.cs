@@ -55,6 +55,11 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             }
         }
 
+        // Moving a transaction onto an account of a different currency would corrupt that
+        // account's (currency-blind) balance — reject it. The transaction's currency is not
+        // changed here, so it must already match the account it's being attached to.
+        TransactionInvariants.EnsureAccountCurrency(account, transaction.Currency, "AccountId");
+
         HouseholdMember? member = null;
         if (request.MemberId is Guid memberId)
         {
