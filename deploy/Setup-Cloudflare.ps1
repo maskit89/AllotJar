@@ -27,16 +27,19 @@
       all         both, in that order
 
 .EXAMPLE
-    .\Setup-Cloudflare.ps1 -ApiToken $token -Phase staging
-    .\Setup-Cloudflare.ps1 -ApiToken $token -Phase production
+    .\Setup-Cloudflare.ps1 -ApiToken $token -OriginIp <vps-ip> -AllowedIps <admin-ip> -Phase staging
+    .\Setup-Cloudflare.ps1 -ApiToken $token -OriginIp <vps-ip> -AllowedIps <admin-ip> -Phase production
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$ApiToken,
     [string]$Zone       = 'allotjar.com',
-    [string]$OriginIp   = '74.50.82.13',
+    # No origin IP is committed to the repo: pass -OriginIp <addr> at run time. Publishing the
+    # origin address lets an attacker target the VPS directly and skip Cloudflare's edge.
+    [Parameter(Mandatory = $true)][string]$OriginIp,
     [string]$StagingHost = 'staging.allotjar.com',
-    [string[]]$AllowedIps = @('141.8.106.105'),
+    # The staging allowlist source IP(s) — supply per run rather than committing them.
+    [Parameter(Mandatory = $true)][string[]]$AllowedIps,
     [ValidateSet('staging', 'production', 'all')][string]$Phase = 'all'
 )
 

@@ -3,69 +3,83 @@ using ClosedXML.Excel;
 namespace AllotJar.Importer;
 
 /// <summary>
-/// One-off seeder that reads the household "Bank Account Summary 2026" workbook and
-/// loads the real reference data (accounts, members, sinking funds) — and later the
-/// year's transactions — into the AllotJar database via the Application layer.
+/// One-off seeder that reads a household "Bank Account Summary" workbook and loads its
+/// reference data (accounts, members, sinking funds) — and later the year's transactions —
+/// into the AllotJar database via the Application layer.
 ///
 /// Verbs:
 ///   dump &lt;sheet&gt; [startRow] [endRow]   Print non-empty cells of a sheet (exploration).
 ///   reconcile                            Parse the reference data and tie it out to the
 ///                                        spreadsheet totals (read-only; no database).
 ///
-/// The workbook path defaults to the user's Downloads copy and can be overridden with
-/// --file &lt;path&gt;.
+/// No workbook path or owner email is baked in: supply them per run with --file / --email
+/// (or the ALLOTJAR_IMPORT_FILE / ALLOTJAR_IMPORT_EMAIL environment variables), so nothing
+/// about a real household is committed to the repository.
 /// </summary>
 internal static class Program
 {
-    private const string DefaultWorkbook =
-        @"C:\Users\Laptop\Downloads\Bank Account Summary 2026 - copy.xlsx";
-
-    private const string DefaultEmail = "chrismuscat89@gmail.com";
-
     private static async Task<int> Main(string[] args)
     {
         try
         {
             var (positional, options) = ParseArgs(args);
-            var file = options.GetValueOrDefault("file", DefaultWorkbook);
-            var email = options.GetValueOrDefault("email", DefaultEmail);
+            var file = options.GetValueOrDefault("file")
+                ?? Environment.GetEnvironmentVariable("ALLOTJAR_IMPORT_FILE");
+            var email = options.GetValueOrDefault("email")
+                ?? Environment.GetEnvironmentVariable("ALLOTJAR_IMPORT_EMAIL");
             var conn = options.GetValueOrDefault("conn", ImporterHost.DefaultConnection);
 
             var verb = positional.Count > 0 ? positional[0].ToLowerInvariant() : "help";
+
+            // No personal defaults are baked in. Verbs that read the workbook need --file;
+            // verbs that touch the database need --email. Fail loudly if either is missing.
+            var needsFile = verb is "dump" or "reconcile" or "import" or "budget" or "transactions" or "members";
+            var needsEmail = verb is "status" or "import" or "budget" or "transactions" or "members" or "convert-living";
+            if (needsFile && string.IsNullOrWhiteSpace(file))
+            {
+                Console.Error.WriteLine("Missing workbook path. Pass --file <path> or set ALLOTJAR_IMPORT_FILE.");
+                return 1;
+            }
+            if (needsEmail && string.IsNullOrWhiteSpace(email))
+            {
+                Console.Error.WriteLine("Missing owner email. Pass --email <addr> or set ALLOTJAR_IMPORT_EMAIL.");
+                return 1;
+            }
+
             switch (verb)
             {
                 case "dump":
-                    return Dump(file, positional);
+                    return Dump(file!, positional);
                 case "reconcile":
-                    return ReconcileReport.Print(file, ReferenceReader.Read(file)) ? 0 : 2;
+                    return ReconcileReport.Print(file!, ReferenceReader.Read(file!)) ? 0 : 2;
                 case "status":
-                    return await DbCommands.Status(conn, email);
+                    return await DbCommands.Status(conn, email!);
                 case "import":
                 {
-                    var data = ReferenceReader.Read(file);
-                    var ok = ReconcileReport.Print(file, data);
+                    var data = ReferenceReader.Read(file!);
+                    var ok = ReconcileReport.Print(file!, data);
                     if (!ok && options.ContainsKey("commit"))
                     {
                         Console.Error.WriteLine("Refusing to commit: reconciliation failed.");
                         return 2;
                     }
-                    return await ImportRunner.RunAsync(conn, email, data,
+                    return await ImportRunner.RunAsync(conn, email!, data,
                         commit: options.ContainsKey("commit"),
                         reset: options.ContainsKey("reset"));
                 }
                 case "budget":
                 {
-                    var reference = ReferenceReader.Read(file);
-                    var budgetData = BudgetReader.Read(file, reference.Members);
-                    return await BudgetSeeder.RunAsync(conn, email, reference, budgetData,
+                    var reference = ReferenceReader.Read(file!);
+                    var budgetData = BudgetReader.Read(file!, reference.Members);
+                    return await BudgetSeeder.RunAsync(conn, email!, reference, budgetData,
                         commit: options.ContainsKey("commit"));
                 }
                 case "transactions":
                     TransactionSeeder.Verbose = options.ContainsKey("verbose");
-                    return await TransactionSeeder.RunAsync(conn, email, file,
+                    return await TransactionSeeder.RunAsync(conn, email!, file!,
                         commit: options.ContainsKey("commit"));
                 case "members":
-                    return await MemberAttributor.RunAsync(conn, email, file,
+                    return await MemberAttributor.RunAsync(conn, email!, file!,
                         commit: options.ContainsKey("commit"));
                 case "convert-living":
                 {
@@ -76,7 +90,7 @@ internal static class Program
                         Console.Error.WriteLine("--from must be YYYY-MM (e.g. 2026-06).");
                         return 1;
                     }
-                    return await DbCommands.ConvertLivingCostsToFunds(conn, email, fy, fm,
+                    return await DbCommands.ConvertLivingCostsToFunds(conn, email!, fy, fm,
                         commit: options.ContainsKey("commit"));
                 }
                 default:

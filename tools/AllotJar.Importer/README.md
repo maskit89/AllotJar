@@ -1,17 +1,22 @@
-# The 2026 Workbook Importer — explained simply
+# The Workbook Importer — explained simply
 
-This little program is a **robot that reads your big money notebook** (the
-`Bank Account Summary 2026` Excel file) and **types everything into the AllotJar
+This little program is a **robot that reads your big money notebook** (a
+`Bank Account Summary` Excel file) and **types everything into the AllotJar
 app for you** — then **double-checks its own typing** against the notebook's own totals,
 down to the last cent.
 
 You only run it by hand, once. It is not part of the website and never runs on its own.
 
+> **No real data lives in this repo.** The workbook path and owner email are supplied per
+> run (`--file` / `--email`, or the `ALLOTJAR_IMPORT_FILE` / `ALLOTJAR_IMPORT_EMAIL`
+> environment variables). Every account, name, and figure below is a **made-up example** to
+> illustrate the shape of the data — not anyone's real finances.
+
 ---
 
 ## 🧸 The 5-year-old version
 
-Imagine mum and dad keep all their money in a big notebook.
+Imagine a household keeps all their money in a big notebook.
 
 - They have a few **piggy banks** (a spending one, some savings ones, a coins jar, and a credit card).
 - They have lots of little **jars** for big things later — a *holiday jar*, an *insurance jar*, a *presents jar* — and every month they drop a few coins in each.
@@ -29,7 +34,7 @@ bottom?”* If yes ✅ it keeps going. If no ❌ it stops and shouts, so nothing
 
 ```mermaid
 flowchart LR
-    XLSX[("📒 Bank Account<br/>Summary 2026.xlsx")] --> READ["🤖 Robot reads<br/>the sheets"]
+    XLSX[("📒 Bank Account<br/>Summary.xlsx")] --> READ["🤖 Robot reads<br/>the sheets"]
     READ --> CHECK{"🧮 Do my totals match<br/>the notebook's totals?"}
     CHECK -- "✅ matches to the cent" --> DB[("🗄️ AllotJar<br/>database")]
     CHECK -- "❌ off by even 1 cent" --> STOP["🛑 Stop &<br/>don't save"]
@@ -43,18 +48,20 @@ answer key it marks its homework against.
 
 ## 🏦 Where the money lives (the accounts)
 
-These are the "piggy banks". Each one's balance in the app now matches the spreadsheet exactly:
+These are the "piggy banks". Each one's balance in the app matches the spreadsheet exactly.
+The rows below are **illustrative placeholders**, not real balances:
 
-| Piggy bank | What it's for | Balance imported |
+| Piggy bank | What it's for | Example balance |
 | --- | --- | ---: |
-| Current Joint Account | day-to-day spending | €13,290.40 |
-| Savings Joint Account | living-cost savings | €12,319.98 |
-| Liza – Savings Account | Liza's assets | €46,033.38 |
-| Chris – Savings Account | Chris's assets | €35,631.96 |
-| Cash at Home | physical cash | €580.00 |
-| Visa | a credit card (money you *owe*, so it's negative) | −€1,144.87 |
+| Current Joint Account | day-to-day spending | €0,000.00 |
+| Savings Joint Account | living-cost savings | €0,000.00 |
+| Member A – Savings Account | member A's assets | €0,000.00 |
+| Member B – Savings Account | member B's assets | €0,000.00 |
+| Cash at Home | physical cash | €000.00 |
+| Visa | a credit card (money you *owe*, so it's negative) | −€000.00 |
 
-There are also **2 people** (Chris & Liza) and **41 saving jars** (sinking funds).
+There are also the **household members** (e.g. member A and member B) and however many
+**saving jars** (sinking funds) the notebook defines.
 
 ---
 
@@ -96,39 +103,39 @@ The robot works in three passes, smallest first, checking its work after each on
 
 ```mermaid
 flowchart LR
-    A["Read accounts,<br/>people, jars"] --> B["Check totals vs sheet"] --> C["Save: 6 accounts,<br/>2 people, 41 jars"]
+    A["Read accounts,<br/>people, jars"] --> B["Check totals vs sheet"] --> C["Save accounts,<br/>people, jars"]
 ```
 
 The "things" that exist before any money moves: the **piggy banks** (with their starting
-balances), the **people** (with their monthly pay), and the **41 jars** (each with a *target*
-— how much it should hold — and how much it *started* 2026 with).
+balances), the **people** (with their monthly pay), and the **jars** (each with a *target*
+— how much it should hold — and how much it *started* the year with).
 
-> ✔️ Checked: jar targets add up to €41,137.30 and starting amounts to €16,165.97 — exactly what the sheet says.
+> ✔️ Checked: jar targets and starting amounts add up to exactly what the sheet says.
 
 ### Step 2 — the *plan* (budget)
 
 ```mermaid
 flowchart LR
-    A["Build one monthly plan"] --> B["Copy it for all 12 months"] --> C["Save: 12 budget months<br/>(59 lines each)"]
+    A["Build one monthly plan"] --> B["Copy it for all 12 months"] --> C["Save 12 budget months"]
 ```
 
-A budget is the **plan for where every euro goes** each month: pay comes in (€8,411.61),
-then it's shared out across living costs, pocket money, savings, and the jar top-ups —
-until almost nothing is left unplanned. The same plan is made for all 12 months of 2026.
+A budget is the **plan for where every euro goes** each month: pay comes in, then it's shared
+out across living costs, pocket money, savings, and the jar top-ups — until almost nothing is
+left unplanned. The same plan is made for all 12 months of the year.
 
 ### Step 3 — the *money moves* (transactions)
 
 ```mermaid
 flowchart LR
-    A["Read every line in<br/>all 12 month sheets + Visa"] --> B["Each line = one transaction<br/>on its piggy bank"] --> C["Add up & check vs<br/>each month's TOTAL"] --> D["Save: 425 transactions"]
+    A["Read every line in<br/>all 12 month sheets + Visa"] --> B["Each line = one transaction<br/>on its piggy bank"] --> C["Add up & check vs<br/>each month's TOTAL"] --> D["Save transactions"]
 ```
 
-Every single line where money moved — **425 of them** — becomes one transaction in the
-app, attached to the right piggy bank. Living-cost spends (groceries, petrol…) are also
-**tagged to their budget line** using the short codes in the sheet (`F&D`, `EE`, `SOAP`…),
-so the app can show how much was spent on each.
+Every single line where money moved becomes one transaction in the app, attached to the
+right piggy bank. Living-cost spends (groceries, petrol…) are also **tagged to their budget
+line** using the short codes in the sheet (`F&D`, `EE`, `SOAP`…), so the app can show how
+much was spent on each.
 
-> ✔️ Checked: after importing, all 6 piggy banks match the spreadsheet's TOTAL for every month, to the cent.
+> ✔️ Checked: after importing, all piggy banks match the spreadsheet's TOTAL for every month, to the cent.
 
 ---
 
@@ -160,13 +167,13 @@ This answers “what do you mean about fund-spending tracking?”.
 Each jar should show **how much is left = money put in − money taken out**.
 
 - 💰 **Money put in** — the monthly top-ups — is tracked **perfectly**. Every month’s plan
-  budgets the right amount into each of the 41 jars.
+  budgets the right amount into each jar.
 - 🛒 **Money taken out** — the spending *from* a jar — is the tricky bit.
 
 Here’s the snag, in kid terms: the notebook labels jar-spending only by **big group**, not by
 the **exact jar**. When you buy Netflix *and* Google One *and* Disney+, the notebook just
 writes `LIC` ("Licenses") on all of them — it doesn’t say *which* subscription jar. But the app
-has a **separate jar for each** (Netflix jar, Google One jar, Disney+ jar… 26 jars in total).
+has a **separate jar for each** (Netflix jar, Google One jar, Disney+ jar…).
 
 So the robot now **guesses the jar from the shop name**: if a charge clearly matches a jar —
 “GOOGLE ONE” → the Google One jar, “NETFLIX” → the Netflix jar, the loan and car insurances →
@@ -181,14 +188,14 @@ flowchart LR
     Q -- "not sure" --> BANK["🐷 keep it on the<br/>piggy bank only"]
 ```
 
-Today that lands **207 of the 425** spends in a jar (all the living-cost ones, plus the obvious
-yearly and monthly matches). The rest are clear on the piggy bank but left out of the jars on
+That lands the clearly-matchable spends (all the living-cost ones, plus the obvious yearly and
+monthly matches) in a jar. The rest are clear on the piggy bank but left out of the jars on
 purpose.
 
 If you ever want **every** yearly spend in a jar, the alternative is to **make the app’s jars
-match the notebook’s 6 groups** (Maintenance, Licenses, Accessories, Health, Gifts, Liz
-Maintenance) instead of 26 separate jars — then the group codes line up exactly, at the cost of
-the per-item jars (Netflix vs Google One).
+match the notebook’s groups** (Maintenance, Licenses, Accessories, Health, Gifts, …) instead of
+one jar per item — then the group codes line up exactly, at the cost of the per-item jars
+(Netflix vs Google One).
 
 Either way, **all account balances and all living-cost spending** reconcile to the cent.
 
@@ -196,10 +203,14 @@ Either way, **all account balances and all living-cost spending** reconcile to t
 
 ## ▶️ How to run it
 
-From the repo root. Each verb **reads** unless you add `--commit`, and prints a reconciliation
-table you can eyeball first.
+From the repo root. Supply the workbook and owner email each run (nothing is baked in). Each
+verb **reads** unless you add `--commit`, and prints a reconciliation table you can eyeball first.
 
 ```bash
+# tell the tool which workbook and which owner (or set the env vars once)
+export ALLOTJAR_IMPORT_FILE="/path/to/Bank Account Summary.xlsx"
+export ALLOTJAR_IMPORT_EMAIL="owner@example.com"
+
 # read-only: look at a sheet, or tie reference data out to the sheet, or see what's in the DB
 dotnet run --project tools/AllotJar.Importer -- dump "Yearly Expenses"
 dotnet run --project tools/AllotJar.Importer -- reconcile
@@ -215,14 +226,16 @@ dotnet run --project tools/AllotJar.Importer -- members --commit
 ```
 
 **Step 4 (`members`)** back-fills household-member attribution onto the already-imported Visa
-transactions from the sheet's per-person columns (D = Liz, E = Chris; Marisa isn't a household
-member, so her share is left unattributed). A charge wholly one person's gets a whole-transaction
-member tag; a shared charge becomes per-member split slices that still sum to the total — so
-account balances and budget actuals are unchanged. It needs the `AddTransactionMember` migration
-applied (it auto-applies when the app runs). Safe to re-run (it resets its own tags first).
+transactions from the sheet's per-person columns (e.g. column D = first member, E = second
+member; a non-member payer's column is left unattributed). A charge wholly one person's gets a
+whole-transaction member tag; a shared charge becomes per-member split slices that still sum to
+the total — so account balances and budget actuals are unchanged. It needs the
+`AddTransactionMember` migration applied (it auto-applies when the app runs). Safe to re-run
+(it resets its own tags first).
 
-Useful flags: `--file <path>` (which workbook), `--email <addr>` (whose data — defaults to the
-household owner), `--conn <string>` (which database), and `--verbose` (per-month detail when a
+Useful flags: `--file <path>` (which workbook — **required**, or `ALLOTJAR_IMPORT_FILE`),
+`--email <addr>` (whose data — **required**, or `ALLOTJAR_IMPORT_EMAIL`), `--conn <string>`
+(which database — defaults to the localdb dev DB), and `--verbose` (per-month detail when a
 transaction reconciliation is off).
 
 It’s **safe to re-run**: each step clears the previous import for that owner first, so you
@@ -237,12 +250,12 @@ always get a clean, identical result.
 | `Program.cs` | reads the command word (`dump`, `reconcile`, `import`, `budget`, `transactions`, `members`) |
 | `Workbook.cs` | opens the Excel file *even while it's open in Excel* |
 | `ReferenceReader.cs` / `BudgetReader.cs` / `Ledger.cs` | read the sheets into plain data |
-| `VisaShareReader.cs` | reads the Visa per-person columns (D = Liz, E = Chris, F = Marisa) for step 4 |
+| `VisaShareReader.cs` | reads the Visa per-person columns for step 4 |
 | `Model.cs` | the plain data shapes (account, member, fund, transaction…) |
 | `ReconcileReport.cs` | the "mark my homework vs the sheet" report for step 1 |
 | `ImportRunner.cs` | writes step 1 (accounts, members, funds) |
 | `BudgetSeeder.cs` | writes step 2 (the 12 budget months) |
-| `TransactionSeeder.cs` | writes step 3 (the 425 transactions) + reconciles |
+| `TransactionSeeder.cs` | writes step 3 (the transactions) + reconciles |
 | `MemberAttributor.cs` | writes step 4 (member attribution onto the Visa transactions) |
 | `ImporterHost.cs` / `DbCommands.cs` | the database plumbing |
 
