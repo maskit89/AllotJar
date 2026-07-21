@@ -512,6 +512,43 @@ describe('TransactionsPage catalog — inline assign picker', () => {
     expect(await screen.findByRole('button', { name: 'Assign Tesco' }, { timeout: 5000 })).toHaveTextContent('+ Assign')
   })
 
+  // TX-033 — assigning to a line in a different month than the transaction's date prompts to
+  // confirm, then re-sends the assignment acknowledged (never a silent cross-month write).
+  it('confirms a cross-month assignment and re-sends it acknowledged', { timeout: 15000 }, async () => {
+    mockLoad([tx({ payee: 'Tesco', budgetItemId: null })])
+    mockPut
+      .mockRejectedValueOnce({
+        isAxiosError: true,
+        response: {
+          status: 400,
+          data: { errors: { crossMonth: ['This transaction is dated 2026-06 but that budget line is in 2026-07.'] } },
+        },
+      })
+      .mockResolvedValueOnce({ data: tx({ payee: 'Tesco', budgetItemId: 'i-groceries', budgetItemName: 'Groceries' }) })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Assign Tesco', hidden: false }, { timeout: 5000 }))
+    await user.selectOptions(await screen.findByLabelText('Assign Tesco', {}, { timeout: 5000 }), 'i-groceries')
+
+    // First attempt is rejected as cross-month → the confirm dialog appears, not a generic error.
+    const confirm = await screen.findByRole('button', { name: 'Budget it anyway' }, { timeout: 5000 })
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith('/transactions/t1/assignment', { budgetItemId: 'i-groceries' }),
+    )
+    expect(screen.queryByText('Could not save that assignment.')).not.toBeInTheDocument()
+
+    // Confirm → re-send acknowledged; the row reassigns.
+    await user.click(confirm)
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith('/transactions/t1/assignment', {
+        budgetItemId: 'i-groceries',
+        acknowledgeCrossMonth: true,
+      }),
+    )
+    expect(await screen.findByRole('button', { name: 'Reassign Tesco' }, { timeout: 5000 })).toBeInTheDocument()
+  })
+
   // TX-033 — blurring the assign picker (no selection) closes it without a PUT.
   it('cancels the assign picker on blur without calling the API', { timeout: 15000 }, async () => {
     mockLoad([tx({ payee: 'Tesco', budgetItemId: null })])
