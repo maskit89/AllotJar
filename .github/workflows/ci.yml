@@ -239,3 +239,17 @@ jobs:
       - name: npm audit (client)
         working-directory: client
         run: npm audit --audit-level=high
+
+  # Guards the pure decision logic behind the provisioning scripts (wildcard cert
+  # coverage, SSL rebind decisions, the backup task's R2 arguments). Seconds to run;
+  # not a required check, but red here means a provisioning run could mis-bind TLS
+  # or downgrade the off-host backup task.
+  deploy-scripts:
+    name: deploy-scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Deploy helper tests
+        shell: pwsh
+        run: ./deploy/tests/Test-DeployHelpers.ps1
