@@ -36,20 +36,26 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
             throw new ForbiddenAccessException();
         }
 
-        // Shared slice rules (sum, ownership, direction match, member ownership) — the
-        // same guard CreateTransaction uses for split-at-creation.
+        // Shared slice rules (transfer rejection, sum, ownership, direction match, month
+        // coherence, member ownership) — the same guard CreateTransaction uses for
+        // split-at-creation.
         var items = await TransactionInvariants.ValidateSlicesAsync(
             _db, userId, transaction.Type, transaction.Amount, request.Allocations,
+            transaction.Date, request.AcknowledgeCrossMonth,
             errorKey: "Allocations", cancellationToken);
 
-        // Replace any previous split, and drop the whole-transaction assignment —
-        // the slices carry the attribution now.
+        // Replace any previous split, and drop BOTH whole-transaction attributions — line AND
+        // member — since the slices carry them now. Leaving the whole-member in place would let
+        // a stale attribution silently reappear if the split is later removed (unsplit via
+        // AssignTransaction), double-attributing the member's history.
         if (transaction.Splits.Count > 0)
         {
             _db.TransactionSplits.RemoveRange(transaction.Splits);
             transaction.Splits.Clear();
         }
         transaction.BudgetItemId = null;
+        transaction.Member = null;
+        transaction.MemberId = null;
 
         foreach (var allocation in request.Allocations)
         {

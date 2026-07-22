@@ -45,6 +45,19 @@ function blankSplitRows(): SplitRowDraft[] {
   ]
 }
 
+/**
+ * The server's cross-month rejection message, if that is what this error is. Every attribution
+ * write (assign, edit, split, add) can report it under the `crossMonth` key; the caller then
+ * offers to re-send the same request acknowledged instead of showing a generic failure.
+ */
+function crossMonthError(err: unknown): string | undefined {
+  const messages = axios.isAxiosError(err)
+    ? (err.response?.data as { errors?: Record<string, string[]> } | undefined)?.errors?.crossMonth
+    : undefined
+  if (!messages) return undefined
+  return messages[0] ?? 'This transaction is dated in a different month than that budget line.'
+}
+
 export function TransactionsPage() {
   const features = useFeatures()
   // Recording/editing transactions is day-to-day entry (Limited+); importing needs Admin+.
@@ -56,8 +69,10 @@ export function TransactionsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
+  // One prompt for every cross-month confirmation (assign, edit, split, add): the server
+  // rejected under the `crossMonth` key; Confirm re-runs the same action acknowledged.
   const [crossMonthPrompt, setCrossMonthPrompt] = useState<
-    { id: string; budgetItemId: string | null; message: string } | null
+    { message: string; retry: () => void } | null
   >(null)
 
   // The Add transaction / transfer modal (opened from the toolbar's + button).
@@ -141,15 +156,9 @@ export function TransactionsPage() {
         // A cross-month assignment isn't a failure — it's a confirmable choice (a purchase dated
         // last month that you want budgeted to this month's line). The server flags it under the
         // `crossMonth` key; prompt, then re-send acknowledged.
-        const crossMonth = axios.isAxiosError(err)
-          ? (err.response?.data as { errors?: Record<string, string[]> } | undefined)?.errors?.crossMonth
-          : undefined
+        const crossMonth = crossMonthError(err)
         if (crossMonth && !acknowledgeCrossMonth) {
-          setCrossMonthPrompt({
-            id,
-            budgetItemId,
-            message: crossMonth[0] ?? 'This transaction is dated in a different month than that budget line.',
-          })
+          setCrossMonthPrompt({ message: crossMonth, retry: () => assign(id, budgetItemId, true) })
         } else {
           setError('Could not save that assignment.')
         }
@@ -175,7 +184,7 @@ export function TransactionsPage() {
     setAddRows((rows) => (rows.length > 2 ? rows.filter((_, i) => i !== index) : rows))
   }, [])
 
-  const addTransaction = useCallback(async () => {
+  const addTransaction = useCallback(async (acknowledgeCrossMonth = false) => {
     const minor = parseMinor(amount)
     if (minor === null || minor <= 0) {
       setError('Enter a valid amount greater than zero.')
@@ -212,6 +221,7 @@ export function TransactionsPage() {
               memberId: r.memberId || null,
             }))
           : null,
+        ...(acknowledgeCrossMonth ? { acknowledgeCrossMonth: true } : {}),
       })
       setTransactions((prev) => [data, ...prev])
       track(EVENTS.transactionAdded, {
@@ -225,8 +235,15 @@ export function TransactionsPage() {
       setAssignTo('')
       resetAddSplit()
       setShowAdd(false)
-    } catch {
-      setError('Could not add that transaction.')
+      setCrossMonthPrompt(null)
+    } catch (err) {
+      // A backdated entry put on this month's line is the same confirmable cross-month choice.
+      const crossMonth = crossMonthError(err)
+      if (crossMonth && !acknowledgeCrossMonth) {
+        setCrossMonthPrompt({ message: crossMonth, retry: () => addTransaction(true) })
+      } else {
+        setError('Could not add that transaction.')
+      }
     } finally {
       setAdding(false)
     }
@@ -294,7 +311,7 @@ export function TransactionsPage() {
   }
 
   const saveEdit = useCallback(
-    async (id: string) => {
+    async (id: string, acknowledgeCrossMonth = false) => {
       const minor = parseMinor(eAmount)
       if (minor === null || minor <= 0) {
         setError('Enter a valid amount greater than zero.')
@@ -310,12 +327,21 @@ export function TransactionsPage() {
           type: eType,
           accountId: eAccount || null,
           memberId: eMember || null,
+          ...(acknowledgeCrossMonth ? { acknowledgeCrossMonth: true } : {}),
         })
         setTransactions((prev) => prev.map((t) => (t.id === id ? data : t)))
         track(EVENTS.transactionEdited)
         setEditingId(null)
-      } catch {
-        setError('Could not save that change.')
+        setCrossMonthPrompt(null)
+      } catch (err) {
+        // Moving an assigned/split transaction into another month keeps it budgeted to the
+        // original month's line — a confirmable choice, not a failure.
+        const crossMonth = crossMonthError(err)
+        if (crossMonth && !acknowledgeCrossMonth) {
+          setCrossMonthPrompt({ message: crossMonth, retry: () => saveEdit(id, true) })
+        } else {
+          setError('Could not save that change.')
+        }
       } finally {
         setSavingId(null)
       }
@@ -371,7 +397,7 @@ export function TransactionsPage() {
   }
 
   const saveSplit = useCallback(
-    async (t: TransactionDto) => {
+    async (t: TransactionDto, acknowledgeCrossMonth = false) => {
       const parsed = splitRows.map((r) => ({
         budgetItemId: r.budgetItemId,
         memberId: r.memberId,
@@ -395,11 +421,20 @@ export function TransactionsPage() {
             amount: toAmount(a.minor as number),
             memberId: a.memberId || null,
           })),
+          ...(acknowledgeCrossMonth ? { acknowledgeCrossMonth: true } : {}),
         })
         setTransactions((prev) => prev.map((x) => (x.id === t.id ? data : x)))
         cancelSplit()
-      } catch {
-        setError('Could not save that split.')
+        setCrossMonthPrompt(null)
+      } catch (err) {
+        // Splitting an older transaction across this month's lines is the same confirmable
+        // cross-month choice as a whole assignment.
+        const crossMonth = crossMonthError(err)
+        if (crossMonth && !acknowledgeCrossMonth) {
+          setCrossMonthPrompt({ message: crossMonth, retry: () => saveSplit(t, true) })
+        } else {
+          setError('Could not save that split.')
+        }
       } finally {
         setSavingId(null)
       }
@@ -690,7 +725,7 @@ export function TransactionsPage() {
                 Cancel
               </Button>
               <Button
-                onClick={addTransaction}
+                onClick={() => addTransaction()}
                 disabled={adding || (addSplit && type === TransactionType.Expense && addRemainderMinor !== 0)}
                 aria-label="Add transaction"
               >
@@ -786,8 +821,10 @@ export function TransactionsPage() {
         </Modal>
         )}
 
-        {/* Cross-month confirm: assigning a transaction to a line in a different month than its
-            date is a deliberate choice (e.g. a purchase that cleared the following month). */}
+        {/* Cross-month confirm: budgeting a transaction to a line in a different month than its
+            date is a deliberate choice (e.g. a purchase that cleared the following month). The
+            same prompt serves assign, edit, split and add — Confirm re-runs the action
+            acknowledged. */}
         {crossMonthPrompt && (
           <Modal title="Budget to a different month?" onClose={() => setCrossMonthPrompt(null)}>
             <p className="text-sm text-slate-600">{crossMonthPrompt.message}</p>
@@ -795,11 +832,7 @@ export function TransactionsPage() {
               <Button variant="secondary" size="sm" onClick={() => setCrossMonthPrompt(null)}>
                 Cancel
               </Button>
-              <Button
-                size="sm"
-                onClick={() => assign(crossMonthPrompt.id, crossMonthPrompt.budgetItemId, true)}
-                disabled={savingId === crossMonthPrompt.id}
-              >
+              <Button size="sm" onClick={crossMonthPrompt.retry} disabled={savingId !== null || adding}>
                 Budget it anyway
               </Button>
             </div>

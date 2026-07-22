@@ -584,4 +584,131 @@ public class ImportPreviewCommitTests
             .Should().ThrowAsync<ForbiddenAccessException>();
         (await db.Transactions.CountAsync()).Should().Be(0);
     }
+
+    // --- Shared financial invariants on the reviewed import (2026-07-22 re-review F3) ----
+
+    private static CommitImportItem Item(
+        string reference, DateOnly date, string payee, decimal amount, bool isCredit = false,
+        string currency = "EUR", Guid? budgetItemId = null, Guid? transferAccountId = null,
+        bool acknowledgeCrossMonth = false) =>
+        new(reference, date, payee, amount, currency, isCredit,
+            BudgetItemId: budgetItemId, MemberId: null, Splits: null,
+            TransferAccountId: transferAccountId, AcknowledgeCrossMonth: acknowledgeCrossMonth);
+
+    [Fact]
+    public async Task Commit_RejectsAssigningACreditToAnExpenseLine()
+    {
+        // Direction↔kind now holds on the import path too: a credit (income) on an expense
+        // line would sit invisible to BudgetActuals' kind-matched roll-up.
+        await using var db = NewContext();
+        var groceries = SeedGroceries(db, "user-1"); // expense line, June 2026
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            NewCommit(db, "user-1").Handle(
+                new CommitImportCommand(null, new List<CommitImportItem>
+                {
+                    Item("REF-1", new DateOnly(2026, 6, 10), "Refund", 25m, isCredit: true, budgetItemId: groceries.Id),
+                }),
+                CancellationToken.None));
+
+        ex.Errors["Items"].Single().Should().Contain("income lines");
+        (await db.Transactions.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Commit_AssigningAHistoricalRowToAnotherMonthsLine_NeedsAcknowledgment()
+    {
+        // A statement row dated May assigned to a June line: rejected under the crossMonth
+        // key unless the reviewer explicitly confirmed budgeting it there.
+        await using var db = NewContext();
+        var groceries = SeedGroceries(db, "user-1"); // June 2026
+        var may = new DateOnly(2026, 5, 27);
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            NewCommit(db, "user-1").Handle(
+                new CommitImportCommand(null, new List<CommitImportItem>
+                {
+                    Item("REF-MAY", may, "4 PILLARS", 1770m, budgetItemId: groceries.Id),
+                }),
+                CancellationToken.None));
+        ex.Errors.Should().ContainKey("crossMonth");
+        (await db.Transactions.CountAsync()).Should().Be(0);
+
+        var result = await NewCommit(db, "user-1").Handle(
+            new CommitImportCommand(null, new List<CommitImportItem>
+            {
+                Item("REF-MAY", may, "4 PILLARS", 1770m, budgetItemId: groceries.Id, acknowledgeCrossMonth: true),
+            }),
+            CancellationToken.None);
+
+        result.Imported.Should().Be(1);
+        (await db.Transactions.SingleAsync()).BudgetItemId.Should().Be(groceries.Id);
+    }
+
+    [Fact]
+    public async Task Commit_RejectsARowWhoseCurrencyDiffersFromTheImportAccount()
+    {
+        // The account-currency invariant every other write path enforces: a GBP row on an
+        // EUR account would silently corrupt the (currency-blind) account balance.
+        await using var db = NewContext();
+        var card = SeedAccount(db, "user-1", "HSBC card"); // EUR by default
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            NewCommit(db, "user-1").Handle(
+                new CommitImportCommand(card.Id, new List<CommitImportItem>
+                {
+                    Item("REF-GBP", new DateOnly(2026, 6, 10), "London Cab", 45.50m, currency: "GBP"),
+                }),
+                CancellationToken.None));
+
+        ex.Errors["Items"].Single().Should().Contain("EUR");
+        (await db.Transactions.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Commit_RejectsACrossCurrencyTransfer()
+    {
+        // Same rule as /transfer: both legs move the raw amount, so a EUR->GBP transfer
+        // would silently change net worth.
+        await using var db = NewContext();
+        var card = SeedAccount(db, "user-1", "HSBC card"); // EUR
+        var gbp = new Account
+        {
+            OwnerId = "user-1", Name = "UK savings", Type = AccountType.Savings,
+            Currency = CurrencyCode.From("GBP"),
+        };
+        db.Accounts.Add(gbp);
+        await db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            NewCommit(db, "user-1").Handle(
+                new CommitImportCommand(card.Id, new List<CommitImportItem>
+                {
+                    Item("REF-T", new DateOnly(2026, 6, 10), "To UK", 100m, transferAccountId: gbp.Id),
+                }),
+                CancellationToken.None));
+
+        ex.Errors["Items"].Single().Should().Contain("same currency");
+        (await db.Transactions.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Commit_IsAtomic_OneInvalidRowImportsNothing()
+    {
+        // The whole batch validates before the single save: a bad row anywhere means no row
+        // is persisted — never a half-imported statement.
+        await using var db = NewContext();
+        var groceries = SeedGroceries(db, "user-1");
+
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            NewCommit(db, "user-1").Handle(
+                new CommitImportCommand(null, new List<CommitImportItem>
+                {
+                    Item("REF-OK", new DateOnly(2026, 6, 10), "Fine unassigned row", 10m),
+                    Item("REF-BAD", new DateOnly(2026, 6, 11), "Refund", 25m, isCredit: true, budgetItemId: groceries.Id),
+                }),
+                CancellationToken.None));
+
+        (await db.Transactions.CountAsync()).Should().Be(0);
+    }
 }

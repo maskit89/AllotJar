@@ -179,4 +179,139 @@ public class UpdateTransactionTests
         reloaded.Type.Should().Be(TransactionType.Expense);
         reloaded.TransferAccountId.Should().BeNull();
     }
+
+    // --- Retained-assignment revalidation: an edit must never leave the transaction on a
+    // line it could not be assigned to (expense line carrying income, or a silently
+    // cross-month date). ------------------------------------------------------------------
+
+    /// <summary>June 2026 with one expense line ("Rent"); returns the line.</summary>
+    private static BudgetItem SeedJuneRentLine(ApplicationDbContext db, string ownerId)
+    {
+        var rent = new BudgetItem { Name = "Rent", PlannedAmount = 1000m };
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = ownerId, Year = 2026, Month = 6,
+            Categories = new List<BudgetCategory>
+            {
+                new() { Name = "Housing", Kind = CategoryKind.Expense, Items = new List<BudgetItem> { rent } },
+            },
+        });
+        db.SaveChanges();
+        return rent;
+    }
+
+    private static Transaction SeedAssignedExpense(ApplicationDbContext db, string ownerId, Guid lineId)
+    {
+        var tx = new Transaction
+        {
+            OwnerId = ownerId, Date = new DateOnly(2026, 6, 10), Payee = "Landlord",
+            Amount = 750m, Type = TransactionType.Expense, BudgetItemId = lineId,
+        };
+        db.Transactions.Add(tx);
+        db.SaveChanges();
+        return tx;
+    }
+
+    [Fact]
+    public async Task Update_RejectsEditingAnAssignedExpenseIntoIncome_WhileKeepingTheExpenseLine()
+    {
+        // The old behavior kept the line: BudgetActuals then matched neither kind and the
+        // amount silently vanished from every meaningful total.
+        await using var db = NewContext();
+        var rent = SeedJuneRentLine(db, "user-1");
+        var tx = SeedAssignedExpense(db, "user-1", rent.Id);
+        var handler = new UpdateTransactionCommandHandler(db, new CurrentUserStub("user-1"));
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            handler.Handle(
+                new UpdateTransactionCommand(tx.Id, tx.Date, "Refund", 750m, TransactionType.Income),
+                CancellationToken.None));
+
+        ex.Errors.Should().ContainKey("Type");
+        (await db.Transactions.SingleAsync(t => t.Id == tx.Id)).Type.Should().Be(TransactionType.Expense);
+    }
+
+    [Fact]
+    public async Task Update_MovingAnAssignedTransactionToAnotherMonth_NeedsTheCrossMonthAcknowledgment()
+    {
+        await using var db = NewContext();
+        var rent = SeedJuneRentLine(db, "user-1");
+        var tx = SeedAssignedExpense(db, "user-1", rent.Id);
+        var handler = new UpdateTransactionCommandHandler(db, new CurrentUserStub("user-1"));
+
+        // Silent cross-month move: rejected under the crossMonth key the client recognises.
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            handler.Handle(
+                new UpdateTransactionCommand(tx.Id, new DateOnly(2026, 7, 2), "Landlord", 750m, TransactionType.Expense),
+                CancellationToken.None));
+        ex.Errors.Should().ContainKey("crossMonth");
+
+        // The same edit, acknowledged after the confirm dialog: allowed, assignment retained.
+        var dto = await handler.Handle(
+            new UpdateTransactionCommand(tx.Id, new DateOnly(2026, 7, 2), "Landlord", 750m, TransactionType.Expense,
+                AcknowledgeCrossMonth: true),
+            CancellationToken.None);
+        dto.Date.Should().Be(new DateOnly(2026, 7, 2));
+        dto.BudgetItemId.Should().Be(rent.Id);
+    }
+
+    [Fact]
+    public async Task Update_UnrelatedEdit_DoesNotRePromptAnExistingCrossMonthAssignment()
+    {
+        // A deliberately-acknowledged cross-month assignment (dated July, budgeted to June)
+        // must survive a payee/amount edit without demanding a fresh acknowledgment.
+        await using var db = NewContext();
+        var rent = SeedJuneRentLine(db, "user-1");
+        var tx = new Transaction
+        {
+            OwnerId = "user-1", Date = new DateOnly(2026, 7, 1), Payee = "Landlord",
+            Amount = 750m, Type = TransactionType.Expense, BudgetItemId = rent.Id,
+        };
+        db.Transactions.Add(tx);
+        await db.SaveChangesAsync();
+        var handler = new UpdateTransactionCommandHandler(db, new CurrentUserStub("user-1"));
+
+        var dto = await handler.Handle(
+            new UpdateTransactionCommand(tx.Id, tx.Date, "Landlord GmbH", 760m, TransactionType.Expense),
+            CancellationToken.None);
+
+        dto.Payee.Should().Be("Landlord GmbH");
+        dto.BudgetItemId.Should().Be(rent.Id);
+    }
+
+    [Fact]
+    public async Task Update_MovingASplitTransactionToAnotherMonth_RevalidatesTheSlices()
+    {
+        await using var db = NewContext();
+        var rent = SeedJuneRentLine(db, "user-1");
+        var tx = new Transaction
+        {
+            OwnerId = "user-1", Date = new DateOnly(2026, 6, 10), Payee = "Costco",
+            Amount = 100m, Type = TransactionType.Expense,
+        };
+        db.Transactions.Add(tx);
+        db.SaveChanges();
+        db.TransactionSplits.Add(new TransactionSplit { TransactionId = tx.Id, BudgetItemId = rent.Id, Amount = 100m });
+        await db.SaveChangesAsync();
+        var handler = new UpdateTransactionCommandHandler(db, new CurrentUserStub("user-1"));
+
+        // A same-month date edit is fine without any acknowledgment…
+        await handler.Handle(
+            new UpdateTransactionCommand(tx.Id, new DateOnly(2026, 6, 12), "Costco", 100m, TransactionType.Expense),
+            CancellationToken.None);
+
+        // …but moving to July silently would leave the slices on June's actuals: rejected,
+        // then allowed with the acknowledgment.
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            handler.Handle(
+                new UpdateTransactionCommand(tx.Id, new DateOnly(2026, 7, 3), "Costco", 100m, TransactionType.Expense),
+                CancellationToken.None));
+        ex.Errors.Should().ContainKey("crossMonth");
+
+        var dto = await handler.Handle(
+            new UpdateTransactionCommand(tx.Id, new DateOnly(2026, 7, 3), "Costco", 100m, TransactionType.Expense,
+                AcknowledgeCrossMonth: true),
+            CancellationToken.None);
+        dto.Date.Should().Be(new DateOnly(2026, 7, 3));
+    }
 }

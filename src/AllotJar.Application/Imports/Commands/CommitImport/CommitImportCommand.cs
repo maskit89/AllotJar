@@ -26,7 +26,10 @@ public record CommitImportItem(
     IReadOnlyList<CommitImportSplit>? Splits = null,
     // When set, the row is imported as a transfer between the import account and this counterparty
     // account (direction follows IsCredit) instead of an income/expense — see the commit handler.
-    Guid? TransferAccountId = null);
+    Guid? TransferAccountId = null,
+    // Set only after the user confirms budgeting this row (or its slices) to a line in a
+    // different month than the row's date (see TransactionInvariants.CrossMonthKey).
+    bool AcknowledgeCrossMonth = false);
 
 /// <summary>
 /// Persists the rows the user kept after reviewing an import. Idempotent: any row whose

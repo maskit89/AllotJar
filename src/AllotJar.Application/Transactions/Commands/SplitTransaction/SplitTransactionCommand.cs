@@ -14,7 +14,10 @@ namespace AllotJar.Application.Transactions.Commands.SplitTransaction;
 [AllowLimited]
 public record SplitTransactionCommand(
     Guid TransactionId,
-    IReadOnlyList<SplitAllocationInput> Allocations) : IRequest<TransactionDto>;
+    IReadOnlyList<SplitAllocationInput> Allocations,
+    // Set only after the user confirms budgeting a slice to a line in a different month than the
+    // transaction's date (see TransactionInvariants.CrossMonthKey).
+    bool AcknowledgeCrossMonth = false) : IRequest<TransactionDto>;
 
 /// <summary>One requested slice: an amount attributed to a budget line and, optionally, a household member.</summary>
 public record SplitAllocationInput(Guid BudgetItemId, decimal Amount, Guid? MemberId = null);

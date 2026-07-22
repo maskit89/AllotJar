@@ -49,4 +49,41 @@ public static class Camt053Samples
           </BkToCstmrStmt>
         </Document>
         """;
+
+    // Two EUR-only entries (rent + salary) — for tests that pin the import to an account,
+    // where the account-currency invariant requires every entry in the account's currency.
+    public const string TwoEurEntries = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+          <BkToCstmrStmt>
+            <Stmt>
+              <Id>STMT-2026-06-EUR</Id>
+              <Acct>
+                <Id><IBAN>DE89370400440532013000</IBAN></Id>
+                <Ccy>EUR</Ccy>
+              </Acct>
+              <Ntry>
+                <Amt Ccy="EUR">1100.00</Amt>
+                <CdtDbtInd>DBIT</CdtDbtInd>
+                <Sts>BOOK</Sts>
+                <BookgDt><Dt>2026-06-01</Dt></BookgDt>
+                <AcctSvcrRef>REF-RENT-001</AcctSvcrRef>
+                <NtryDtls><TxDtls>
+                  <RltdPties><Cdtr><Nm>Landlord GmbH</Nm></Cdtr></RltdPties>
+                  <RmtInf><Ustrd>June rent</Ustrd></RmtInf>
+                </TxDtls></NtryDtls>
+              </Ntry>
+              <Ntry>
+                <Amt Ccy="EUR">3000.00</Amt>
+                <CdtDbtInd>CRDT</CdtDbtInd>
+                <BookgDt><Dt>2026-06-02</Dt></BookgDt>
+                <AcctSvcrRef>REF-SALARY-001</AcctSvcrRef>
+                <NtryDtls><TxDtls>
+                  <RltdPties><Dbtr><Nm>ACME Payroll</Nm></Dbtr></RltdPties>
+                </TxDtls></NtryDtls>
+              </Ntry>
+            </Stmt>
+          </BkToCstmrStmt>
+        </Document>
+        """;
 }

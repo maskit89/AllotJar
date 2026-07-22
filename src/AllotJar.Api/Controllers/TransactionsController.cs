@@ -52,7 +52,8 @@ public class TransactionsController : ControllerBase
             new CreateTransactionCommand(
                 request.Date, request.Payee, request.Amount, request.Type,
                 request.BudgetItemId, request.AccountId, request.MemberId,
-                request.Splits?.Select(a => new SplitAllocationInput(a.BudgetItemId, a.Amount, a.MemberId)).ToList()),
+                request.Splits?.Select(a => new SplitAllocationInput(a.BudgetItemId, a.Amount, a.MemberId)).ToList(),
+                request.AcknowledgeCrossMonth),
             ct);
         return CreatedAtAction(nameof(List), new { }, result);
     }
@@ -84,7 +85,8 @@ public class TransactionsController : ControllerBase
     {
         var result = await _mediator.Send(
             new UpdateTransactionCommand(
-                id, request.Date, request.Payee, request.Amount, request.Type, request.AccountId, request.MemberId),
+                id, request.Date, request.Payee, request.Amount, request.Type, request.AccountId, request.MemberId,
+                request.AcknowledgeCrossMonth),
             ct);
         return Ok(result);
     }
@@ -114,7 +116,8 @@ public class TransactionsController : ControllerBase
         var allocations = (request.Allocations ?? new List<SplitAllocationRequest>())
             .Select(a => new SplitAllocationInput(a.BudgetItemId, a.Amount, a.MemberId))
             .ToList();
-        var result = await _mediator.Send(new SplitTransactionCommand(id, allocations), ct);
+        var result = await _mediator.Send(
+            new SplitTransactionCommand(id, allocations, request.AcknowledgeCrossMonth), ct);
         return Ok(result);
     }
 
@@ -128,13 +131,17 @@ public class TransactionsController : ControllerBase
         AssignTransactionRequest request,
         CancellationToken ct)
     {
-        var result = await _mediator.Send(new AssignTransactionCommand(id, request.BudgetItemId), ct);
+        // AcknowledgeCrossMonth MUST reach the command: the client's cross-month confirm dialog
+        // re-sends with it set, and dropping it here (as an earlier revision did) makes the
+        // confirmed retry fail with the same 400 it is acknowledging.
+        var result = await _mediator.Send(
+            new AssignTransactionCommand(id, request.BudgetItemId, request.AcknowledgeCrossMonth), ct);
         return Ok(result);
     }
 }
 
 /// <summary>Request body for assigning a transaction (null clears the assignment).</summary>
-public record AssignTransactionRequest(Guid? BudgetItemId);
+public record AssignTransactionRequest(Guid? BudgetItemId, bool AcknowledgeCrossMonth = false);
 
 /// <summary>
 /// Request body for creating a manual transaction. When <c>Splits</c> is given (two or more
@@ -149,7 +156,8 @@ public record CreateTransactionRequest(
     Guid? BudgetItemId,
     Guid? AccountId = null,
     Guid? MemberId = null,
-    IReadOnlyList<SplitAllocationRequest>? Splits = null);
+    IReadOnlyList<SplitAllocationRequest>? Splits = null,
+    bool AcknowledgeCrossMonth = false);
 
 /// <summary>Request body for transferring money between two accounts.</summary>
 public record CreateTransferRequest(
@@ -166,10 +174,13 @@ public record UpdateTransactionRequest(
     decimal Amount,
     TransactionType Type,
     Guid? AccountId = null,
-    Guid? MemberId = null);
+    Guid? MemberId = null,
+    bool AcknowledgeCrossMonth = false);
 
 /// <summary>Request body for splitting a transaction across budget lines.</summary>
-public record SplitTransactionRequest(IReadOnlyList<SplitAllocationRequest> Allocations);
+public record SplitTransactionRequest(
+    IReadOnlyList<SplitAllocationRequest> Allocations,
+    bool AcknowledgeCrossMonth = false);
 
 /// <summary>One slice of a split: an amount attributed to a budget line and, optionally, a household member.</summary>
 public record SplitAllocationRequest(Guid BudgetItemId, decimal Amount, Guid? MemberId = null);

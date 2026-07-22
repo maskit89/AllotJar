@@ -219,6 +219,8 @@ export interface CommitImportItem {
   splits?: CommitImportSplit[] | null
   /** When set, the row is imported as a transfer between the import account and this counterparty. */
   transferAccountId?: string | null
+  /** Set after the user confirms budgeting this row to a line in a different month than its date. */
+  acknowledgeCrossMonth?: boolean
 }
 
 /** Summary returned by a statement import (CAMT.053 or HSBC CSV). */
