@@ -498,3 +498,27 @@ describe('TransactionsPage manual sheet', () => {
     expect(screen.queryByLabelText('Split line 1 category')).not.toBeInTheDocument()
   })
 })
+
+describe('TransactionsPage FX-pending flag', () => {
+  beforeEach(() => {
+    mockGet.mockReset()
+    mockPut.mockReset()
+    mockPost.mockReset()
+    mockDelete.mockReset()
+  })
+
+  it('flags an FX-pending row next to its amount and leaves settled rows unmarked', { timeout: 15000 }, async () => {
+    // fxPending = the server resolved no exchange rate (amount counts at face value);
+    // the register must say so instead of presenting the figure as settled.
+    mockLoad([
+      { ...tx(), id: 't-fx', payee: 'London Cab', currency: 'GBP', fxPending: true },
+      tx(),
+    ])
+
+    renderPage()
+
+    const tag = await screen.findByText('Rate pending', {}, { timeout: 5000 })
+    expect(tag).toHaveAttribute('title', expect.stringContaining('face value'))
+    expect(screen.getAllByText('Rate pending')).toHaveLength(1) // only the unresolved row
+  })
+})
