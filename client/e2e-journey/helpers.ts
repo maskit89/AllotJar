@@ -39,7 +39,14 @@ export async function suppressOnboarding(page: Page, email: string): Promise<voi
  */
 export async function register(
   page: Page,
-  opts: { email?: string; password?: string; firstName?: string; sampleBudget?: boolean } = {},
+  opts: {
+    email?: string
+    password?: string
+    firstName?: string
+    sampleBudget?: boolean
+    /** ISO currency code to register with (default EUR — see the comment below). */
+    currency?: string
+  } = {},
 ): Promise<{ email: string; password: string }> {
   const email = opts.email ?? uniqueEmail()
   const password = opts.password ?? JOURNEY_PASSWORD
@@ -54,8 +61,9 @@ export async function register(
   // Pin the home currency: the form's default is locale-derived (GBP under this suite's
   // en-GB locale), the first budget month adopts it, and the suite's money assertions
   // are written in €. Registering in EUR keeps months, accounts and transactions
-  // coherent in one currency regardless of the runner's locale.
-  await page.getByLabel('Currency').selectOption('EUR')
+  // coherent in one currency regardless of the runner's locale. A spec that exercises the
+  // non-EUR path (first-month-currency.spec.ts) overrides this explicitly.
+  await page.getByLabel('Currency').selectOption(opts.currency ?? 'EUR')
   if (opts.sampleBudget) {
     // The optional sample-figures box — like Terms, reached through its wrapping label text.
     await page.locator('label', { hasText: 'Start with sample figures' }).getByRole('checkbox').check()
