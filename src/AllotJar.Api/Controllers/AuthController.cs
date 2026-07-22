@@ -520,6 +520,15 @@ public class AuthController : ControllerBase
         var result = await _mediator.Send(
             new AcceptInviteCommand(request.Token, request.Password, request.DisplayName, request.AcceptedTerms), ct);
 
+        // An anonymous accept CREATED an (unverified) login — send the initial verification email
+        // exactly like registration does, off the request path. Without this the verify banner
+        // told invite-created users to "check your inbox" while nothing had ever been sent
+        // (only the Resend button would generate the first email).
+        if (result.CreatedNewLogin)
+        {
+            DispatchVerificationEmail(result.UserId);
+        }
+
         var user = await _userManager.FindByIdAsync(result.UserId);
         var stamp = user is null ? null : await _userManager.GetSecurityStampAsync(user);
         var (token, expiresAt) = _tokenGenerator.Generate(result.UserId, result.Email, stamp);
