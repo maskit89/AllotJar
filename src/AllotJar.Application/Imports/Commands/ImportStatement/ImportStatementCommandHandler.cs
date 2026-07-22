@@ -35,9 +35,10 @@ public class ImportStatementCommandHandler : IRequestHandler<ImportStatementComm
 
         // Validate the target account up front (when one was chosen) so we never
         // stamp transactions onto an account that isn't the caller's.
+        Account? account = null;
         if (request.AccountId is Guid accountId)
         {
-            var account = await _db.Accounts
+            account = await _db.Accounts
                 .FirstOrDefaultAsync(a => a.Id == accountId, cancellationToken);
             if (account is null)
             {
@@ -52,6 +53,18 @@ public class ImportStatementCommandHandler : IRequestHandler<ImportStatementComm
         var parser = _parsers.FirstOrDefault(p => p.Format == request.Format)
             ?? throw new NotFoundException($"No statement parser is registered for format '{request.Format}'.");
         var statement = parser.Parse(request.Content);
+
+        // Every entry pinned to the account must be in its currency — the same invariant manual
+        // entry and the reviewed import enforce (balances sum raw amounts, no FX). Checked over
+        // the WHOLE statement before anything is created, so a bad file changes nothing.
+        if (account is not null)
+        {
+            foreach (var entry in statement.Entries)
+            {
+                TransactionInvariants.EnsureAccountCurrency(
+                    account, CurrencyCode.From(entry.Currency), "AccountId");
+            }
+        }
 
         // Pre-load this account's existing references so re-importing the same statement is
         // idempotent. Scoped by account (matching the unique index) so a reference a bank reuses

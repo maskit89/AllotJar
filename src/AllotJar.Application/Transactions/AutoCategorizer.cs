@@ -8,13 +8,24 @@ namespace AllotJar.Application.Transactions;
 
 /// <summary>
 /// A lightweight, behind-the-scenes categorizer. When a transaction is logged without a budget
-/// line, it inherits the line the user last used for the same description (payee) — but resolved
-/// to the line IN THE TRANSACTION'S OWN MONTH, never a prior month's line. Budget lines are
-/// month-scoped rows, so replaying a concrete prior-month line id onto a later transaction would
-/// mis-bucket it (a July spend landing on June's actuals). Instead we learn a payee's recurring
-/// line by its stable cross-month identity and look that identity up in the transaction's month;
-/// if that month has no matching line, the payee is left unassigned. Zero-configuration — there
-/// are no user-managed rules. Used by manual create, statement import, and the import preview.
+/// line, it inherits the line the user last used for the same description (payee) — but only
+/// from PRIOR history in the SAME DIRECTION, resolved to the line IN THE TRANSACTION'S OWN
+/// MONTH:
+///
+///   * Direction-aware: an income (e.g. a merchant refund) never inherits the expense line the
+///     purchases used, and vice versa — the learned key includes the transaction's type, and a
+///     resolved line is only applied when its kind matches the direction (the same
+///     <see cref="TransactionInvariants.LineKindMatches"/> rule every write path enforces), so
+///     legacy mis-categorized history can't propagate either.
+///   * Truly prior: a candidate only learns from transactions dated on or before its own date —
+///     a backdated entry can't inherit from the future. Candidates with different dates resolve
+///     independently.
+///   * Month-scoped: budget lines are month-scoped rows, so the learned line's stable
+///     cross-month identity is looked up in the candidate's month; if that month has no
+///     matching line, the payee is left unassigned. Transfers are never candidates.
+///
+/// Zero-configuration — there are no user-managed rules. Used by manual create, statement
+/// import, and the import preview.
 /// </summary>
 public static partial class AutoCategorizer
 {
@@ -24,9 +35,12 @@ public static partial class AutoCategorizer
         IReadOnlyList<Transaction> transactions,
         CancellationToken cancellationToken)
     {
-        // Only unassigned transactions with a usable description are candidates.
+        // Only unassigned income/expense transactions with a usable description are candidates —
+        // a transfer never carries a line, so it never inherits one.
         var candidates = transactions
-            .Where(t => t.BudgetItemId is null && NormalizeDescription(t.Payee).Length > 0)
+            .Where(t => t.BudgetItemId is null
+                        && t.Type != TransactionType.Transfer
+                        && NormalizeDescription(t.Payee).Length > 0)
             .ToList();
         if (candidates.Count == 0)
         {
@@ -36,7 +50,7 @@ public static partial class AutoCategorizer
         // Never let a candidate match against itself (the batch may already be tracked).
         var candidateIds = candidates.Select(t => t.Id).ToHashSet();
         var requests = candidates
-            .Select(t => (t.Payee, t.Date.Year, t.Date.Month))
+            .Select(t => (t.Payee, t.Type, t.Date))
             .ToList();
 
         var resolved = await ResolveLinesAsync(db, ownerId, candidateIds, requests, cancellationToken);
@@ -48,7 +62,7 @@ public static partial class AutoCategorizer
         var assigned = 0;
         foreach (var tx in candidates)
         {
-            if (resolved.TryGetValue((NormalizeDescription(tx.Payee), tx.Date.Year, tx.Date.Month), out var itemId))
+            if (resolved.TryGetValue((NormalizeDescription(tx.Payee), tx.Type, tx.Date), out var itemId))
             {
                 tx.BudgetItemId = itemId;
                 assigned++;
@@ -59,22 +73,26 @@ public static partial class AutoCategorizer
     }
 
     /// <summary>
-    /// For each requested (payee, year, month), resolve the budget line to suggest/assign: the
-    /// recurring line the user last used for that payee, looked up IN THE REQUEST'S OWN MONTH.
-    /// A line's cross-month identity is its fund <c>SavingsId</c>, else (category kind, category
-    /// name, line name) — all of which the monthly rollover copies forward. If the request's month
-    /// has no matching line, the payee is left unresolved (rather than borrowing another month's
-    /// line, which mis-buckets the budget). Shared by <see cref="ApplyAsync"/> and the import
-    /// preview so the suggestion always matches what a commit would actually do.
+    /// For each requested (payee, type, date), resolve the budget line to suggest/assign: the
+    /// recurring line of the most recent SAME-DIRECTION transaction with that payee dated on or
+    /// before the request, looked up IN THE REQUEST'S OWN MONTH. A line's cross-month identity
+    /// is its fund <c>SavingsId</c>, else (category kind, category name, line name) — all of
+    /// which the monthly rollover copies forward. If nothing qualifies, the payee is left
+    /// unresolved. Shared by <see cref="ApplyAsync"/> and the import preview so the suggestion
+    /// always matches what a commit would actually do.
     /// </summary>
-    public static async Task<IReadOnlyDictionary<(string PayeeKey, int Year, int Month), Guid>> ResolveLinesAsync(
+    public static async Task<IReadOnlyDictionary<(string PayeeKey, TransactionType Type, DateOnly Date), Guid>> ResolveLinesAsync(
         IApplicationDbContext db,
         string ownerId,
         IReadOnlySet<Guid> excludeTransactionIds,
-        IReadOnlyCollection<(string Payee, int Year, int Month)> requests,
+        IReadOnlyCollection<(string Payee, TransactionType Type, DateOnly Date)> requests,
         CancellationToken cancellationToken)
     {
-        var result = new Dictionary<(string, int, int), Guid>();
+        var result = new Dictionary<(string, TransactionType, DateOnly), Guid>();
+        if (requests.Count == 0)
+        {
+            return result;
+        }
 
         var payeeKeys = requests
             .Select(r => NormalizeDescription(r.Payee))
@@ -85,42 +103,70 @@ public static partial class AutoCategorizer
             return result;
         }
 
-        // payee -> the recurring-line identity of the most recent prior categorized transaction
-        // with that payee (most recent Date wins).
-        var prior = await db.Transactions
-            .AsNoTracking()
-            .Where(t => t.OwnerId == ownerId
-                        && t.BudgetItemId != null
-                        && !excludeTransactionIds.Contains(t.Id))
-            .OrderByDescending(t => t.Date)
-            .ThenByDescending(t => t.Id)
-            .Select(t => new
+        // Every categorized prior transaction up to the newest request, newest first. Only rows
+        // whose line's kind matches their own direction are teachers — a legacy
+        // income-on-expense-line row must not propagate its mistake to new transactions.
+        var latestRequestDate = requests.Max(r => r.Date);
+        var prior = (await db.Transactions
+                .AsNoTracking()
+                .Where(t => t.OwnerId == ownerId
+                            && t.BudgetItemId != null
+                            && t.Type != TransactionType.Transfer
+                            && t.Date <= latestRequestDate
+                            && !excludeTransactionIds.Contains(t.Id))
+                .OrderByDescending(t => t.Date)
+                .ThenByDescending(t => t.Id)
+                .Select(t => new
+                {
+                    t.Payee,
+                    t.Type,
+                    t.Date,
+                    Kind = t.BudgetItem!.BudgetCategory.Kind,
+                    CategoryName = t.BudgetItem.BudgetCategory.Name,
+                    ItemName = t.BudgetItem.Name,
+                    t.BudgetItem.SavingsId,
+                })
+                .ToListAsync(cancellationToken))
+            .Where(p => TransactionInvariants.LineKindMatches(p.Kind, p.Type))
+            .Select(p => new
             {
-                t.Payee,
-                Kind = t.BudgetItem!.BudgetCategory.Kind,
-                CategoryName = t.BudgetItem.BudgetCategory.Name,
-                ItemName = t.BudgetItem.Name,
-                t.BudgetItem.SavingsId,
+                Key = NormalizeDescription(p.Payee),
+                p.Type,
+                p.Date,
+                Identity = LineIdentity(p.Kind, p.CategoryName, p.ItemName, p.SavingsId),
             })
-            .ToListAsync(cancellationToken);
-
-        var identityByPayee = new Dictionary<string, string>();
-        foreach (var p in prior)
+            .Where(p => p.Key.Length > 0 && payeeKeys.Contains(p.Key))
+            .ToList();
+        if (prior.Count == 0)
         {
-            var key = NormalizeDescription(p.Payee);
-            if (key.Length > 0 && payeeKeys.Contains(key) && !identityByPayee.ContainsKey(key))
+            return result;
+        }
+
+        // Per request: the most recent prior of the SAME payee and direction dated on or before
+        // the request. `prior` is newest-first, so the first match wins.
+        var identityByRequest = new Dictionary<(string, TransactionType, DateOnly), string>();
+        foreach (var r in requests)
+        {
+            var key = NormalizeDescription(r.Payee);
+            var reqKey = (key, r.Type, r.Date);
+            if (key.Length == 0 || identityByRequest.ContainsKey(reqKey))
             {
-                identityByPayee[key] = LineIdentity(p.Kind, p.CategoryName, p.ItemName, p.SavingsId);
+                continue;
+            }
+            var teacher = prior.FirstOrDefault(p => p.Key == key && p.Type == r.Type && p.Date <= r.Date);
+            if (teacher is not null)
+            {
+                identityByRequest[reqKey] = teacher.Identity;
             }
         }
-        if (identityByPayee.Count == 0)
+        if (identityByRequest.Count == 0)
         {
             return result;
         }
 
         // Index the lines of every requested month by their identity. (EF can't filter on a set of
         // (year, month) tuples, so query the years×months superset and drop the cross-terms.)
-        var months = requests.Select(r => (r.Year, r.Month)).Distinct().ToHashSet();
+        var months = requests.Select(r => (r.Date.Year, r.Date.Month)).Distinct().ToHashSet();
         var years = months.Select(m => m.Year).Distinct().ToList();
         var monthNumbers = months.Select(m => m.Month).Distinct().ToList();
 
@@ -141,7 +187,7 @@ public static partial class AutoCategorizer
             })
             .ToListAsync(cancellationToken);
 
-        var lineIdByMonthIdentity = new Dictionary<(int Year, int Month, string Identity), Guid>();
+        var linesByMonthIdentity = new Dictionary<(int Year, int Month, string Identity), (Guid Id, CategoryKind Kind)>();
         foreach (var l in lines)
         {
             if (!months.Contains((l.Year, l.Month)))
@@ -149,16 +195,18 @@ public static partial class AutoCategorizer
                 continue;
             }
             var identity = LineIdentity(l.Kind, l.CategoryName, l.ItemName, l.SavingsId);
-            lineIdByMonthIdentity.TryAdd((l.Year, l.Month, identity), l.Id);
+            linesByMonthIdentity.TryAdd((l.Year, l.Month, identity), (l.Id, l.Kind));
         }
 
-        foreach (var r in requests)
+        foreach (var pair in identityByRequest)
         {
-            var key = NormalizeDescription(r.Payee);
-            if (identityByPayee.TryGetValue(key, out var identity)
-                && lineIdByMonthIdentity.TryGetValue((r.Year, r.Month, identity), out var itemId))
+            var (_, type, date) = pair.Key;
+            if (linesByMonthIdentity.TryGetValue((date.Year, date.Month, pair.Value), out var line)
+                // Belt and braces: the resolved line must satisfy the same direction↔kind rule
+                // the write paths enforce, or the suggestion is dropped.
+                && TransactionInvariants.LineKindMatches(line.Kind, type))
             {
-                result[(key, r.Year, r.Month)] = itemId;
+                result[pair.Key] = line.Id;
             }
         }
 

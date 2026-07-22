@@ -98,12 +98,28 @@ public class ImportStatementHandlerTests
     public async Task Handle_StampsImportedTransactions_WithTheChosenAccount()
     {
         await using var db = NewContext();
-        var account = SeedAccount(db, "user-1");
+        var account = SeedAccount(db, "user-1"); // EUR, matching the EUR-only statement
 
         await NewHandler(db, "user-1").Handle(
-            new ImportStatementCommand(Camt053Samples.ThreeEntries, account.Id), CancellationToken.None);
+            new ImportStatementCommand(Camt053Samples.TwoEurEntries, account.Id), CancellationToken.None);
 
-        Assert.Equal(3, await db.Transactions.CountAsync(t => t.AccountId == account.Id));
+        Assert.Equal(2, await db.Transactions.CountAsync(t => t.AccountId == account.Id));
+    }
+
+    [Fact]
+    public async Task Handle_RejectsAForeignCurrencyEntry_OnAnAccountImport_AtomicallyImportingNothing()
+    {
+        // The statement mixes EUR and GBP rows; pinned to an EUR account, the GBP row violates
+        // the account-currency invariant — and the WHOLE import must fail (validated before
+        // anything is persisted), not leave a partial statement behind.
+        await using var db = NewContext();
+        var account = SeedAccount(db, "user-1"); // EUR
+
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            NewHandler(db, "user-1").Handle(
+                new ImportStatementCommand(Camt053Samples.ThreeEntries, account.Id), CancellationToken.None));
+
+        Assert.Equal(0, await db.Transactions.CountAsync());
     }
 
     [Fact]

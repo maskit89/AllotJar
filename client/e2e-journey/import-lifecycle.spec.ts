@@ -182,6 +182,11 @@ test('a re-scan carries per-row work forward for unchanged rows, and the commit 
   // --- IMP-040 + IMP-067: only the included row is committed, and the success sums cover just
   // that row (12.40 out, nothing in) — not the whole file.
   await page.getByRole('button', { name: 'Import 1 transaction' }).click()
+  // The statement's rows are dated June 2026 while the journey runs in the live current month,
+  // so budgeting them to this month's lines is the deliberate cross-month case — confirm it
+  // (the server would reject an unacknowledged commit).
+  await expect(page.getByText('Budget to a different month?')).toBeVisible()
+  await page.getByRole('button', { name: 'Import anyway' }).click()
   await expect(page.getByRole('heading', { name: 'Import complete' })).toBeVisible()
   await expect(page.getByText('1 transaction added')).toBeVisible()
   const moneyIn = page.locator('div', { has: page.getByText('Money in', { exact: true }) }).last()

@@ -550,6 +550,40 @@ describe('TransactionsPage catalog — inline assign picker', () => {
     expect(await screen.findByRole('button', { name: 'Reassign Tesco' }, { timeout: 5000 })).toBeInTheDocument()
   })
 
+  // Re-review F1 — an EDIT that moves an assigned transaction across months gets the same
+  // confirm-then-acknowledge flow (the server re-validates the retained assignment now).
+  it('confirms a cross-month edit and re-sends it acknowledged', { timeout: 15000 }, async () => {
+    mockLoad([tx({ payee: 'Tesco', budgetItemId: 'i-groceries', budgetItemName: 'Groceries' })])
+    mockPut
+      .mockRejectedValueOnce({
+        isAxiosError: true,
+        response: {
+          status: 400,
+          data: { errors: { crossMonth: ['This transaction is dated 2026-07 but that budget line is in 2026-06.'] } },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: tx({ payee: 'Tesco', budgetItemId: 'i-groceries', budgetItemName: 'Groceries' }),
+      })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit transaction: Tesco', {}, { timeout: 5000 }))
+    await user.click(screen.getByLabelText('Save transaction'))
+
+    // Rejected as cross-month → the confirm dialog, not the generic edit error.
+    const confirm = await screen.findByRole('button', { name: 'Budget it anyway' }, { timeout: 5000 })
+    expect(screen.queryByText('Could not save that change.')).not.toBeInTheDocument()
+
+    await user.click(confirm)
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenLastCalledWith(
+        '/transactions/t1',
+        expect.objectContaining({ acknowledgeCrossMonth: true }),
+      ),
+    )
+  })
+
   // TX-033 — blurring the assign picker (no selection) closes it without a PUT.
   it('cancels the assign picker on blur without calling the API', { timeout: 15000 }, async () => {
     mockLoad([tx({ payee: 'Tesco', budgetItemId: null })])

@@ -122,6 +122,7 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
         {
             await TransactionInvariants.ValidateSlicesAsync(
                 _db, userId, request.Type, request.Amount, splits,
+                request.Date, request.AcknowledgeCrossMonth,
                 errorKey: "Splits", cancellationToken);
 
             // Scalar FKs only, exactly like CommitImport — setting the BudgetItem
