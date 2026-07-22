@@ -14,11 +14,16 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly IIdentityService? _identity;
 
-    public CreateTransactionCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    // The identity service is optional (same pattern as CreateBudgetMonth) so the existing test
+    // constructions stand; it is only consulted when the transaction's month has no budget yet.
+    public CreateTransactionCommandHandler(
+        IApplicationDbContext db, ICurrentUser currentUser, IIdentityService? identity = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _identity = identity;
     }
 
     public async Task<TransactionDto> Handle(CreateTransactionCommand request, CancellationToken cancellationToken)
@@ -68,7 +73,10 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
             }
         }
 
-        // Manual entries are in the budget's base currency for that month (no FX).
+        // Manual entries are in the budget's base currency for that month (no FX). A date with no
+        // budget yet falls back to the owner's preferred currency — the same rule the first month
+        // follows (#216) — not a hardcoded EUR, which would wrongly clash with a non-EUR
+        // household's accounts on the check below.
         var month = await _db.BudgetMonths
             .AsNoTracking()
             .FirstOrDefaultAsync(
@@ -76,7 +84,12 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
                      && m.Year == request.Date.Year
                      && m.Month == request.Date.Month,
                 cancellationToken);
-        var currency = month?.BaseCurrency ?? CurrencyCode.Eur;
+        var currency = month?.BaseCurrency;
+        if (currency is null && _identity is not null)
+        {
+            currency = await _identity.GetPreferredCurrencyAsync(userId);
+        }
+        currency ??= CurrencyCode.Eur;
 
         // A transaction on an account must be in that account's currency (balances sum raw
         // amounts with no FX), so reject e.g. a EUR-budget entry pinned to a GBP account.
