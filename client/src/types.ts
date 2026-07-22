@@ -50,6 +50,8 @@ export interface BudgetMonthDto {
   totalPlanned: number
   remainingToBudget: number
   isBalanced: boolean
+  /** Transactions this month still awaiting an exchange rate — excluded from every actual, so >0 marks the totals incomplete. */
+  fxPendingCount?: number
   categories: BudgetCategoryDto[]
 }
 

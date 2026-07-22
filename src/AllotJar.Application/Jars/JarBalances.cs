@@ -54,8 +54,11 @@ public static class JarBalances
 
         var lineItemIds = lines.Select(l => l.ItemId).ToList();
 
+        // Pending-FX rows are excluded (their rate is a placeholder 1, not real base-currency
+        // money) — the same rule BudgetActuals applies, so the two fund-balance views agree.
         var txByItem = (await db.Transactions
             .Where(t => t.OwnerId == ownerId
+                        && !t.FxPending
                         && t.Type == TransactionType.Expense
                         && t.BudgetItemId != null
                         && lineItemIds.Contains(t.BudgetItemId.Value))
@@ -68,6 +71,7 @@ public static class JarBalances
             from s in db.TransactionSplits
             join t in db.Transactions on s.TransactionId equals t.Id
             where t.OwnerId == ownerId
+                  && !t.FxPending
                   && t.Type == TransactionType.Expense
                   && s.BudgetItemId != null
                   && lineItemIds.Contains(s.BudgetItemId.Value)

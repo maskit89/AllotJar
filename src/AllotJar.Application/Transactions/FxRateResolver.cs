@@ -75,6 +75,32 @@ public static class FxRateResolver
         }
     }
 
+    /// <summary>
+    /// Re-attempts pending rows for EVERY owner that has any — the entry point of the background
+    /// reconciliation pass, so pending rows resolve on their own instead of waiting for that
+    /// user's next import. Owners are processed independently: one owner's failure (or an
+    /// unreachable provider) never blocks the others. Returns the number of rows resolved.
+    /// </summary>
+    public static async Task<int> ReconcileAllPendingAsync(
+        IApplicationDbContext db,
+        IExchangeRateProvider provider,
+        CancellationToken cancellationToken)
+    {
+        var owners = await db.Transactions
+            .Where(t => t.FxPending)
+            .Select(t => t.OwnerId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var reconciled = 0;
+        foreach (var ownerId in owners)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            reconciled += await ReconcilePendingAsync(db, provider, ownerId, cancellationToken);
+        }
+        return reconciled;
+    }
+
     private static async Task<int> ResolveAsync(
         IApplicationDbContext db,
         IExchangeRateProvider provider,

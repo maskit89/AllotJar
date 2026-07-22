@@ -54,6 +54,10 @@ public static class DependencyInjection
             client.Timeout = TimeSpan.FromSeconds(5);
         });
 
+        // Background pass that re-attempts pending-FX rows for every owner, so an unresolved
+        // rate reconciles once the provider recovers — not only on that user's next import.
+        services.AddHostedService<FxReconciliationService>();
+
         // Have I Been Pwned "Pwned Passwords" range API for the breached-password check
         // (k-anonymity; see BreachedPasswordValidator). A short timeout keeps register/change-password
         // snappy, and the validator fails open if this call doesn't come back.

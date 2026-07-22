@@ -570,3 +570,24 @@ describe('DashboardPage — reorder gating, templates & jars shelf', () => {
     expect(screen.getByText('Funded')).toBeInTheDocument()
   })
 })
+
+describe('DashboardPage catalog — pending-FX honesty (re-review F5)', () => {
+  // Rows awaiting an exchange rate are EXCLUDED from the actuals server-side; the month
+  // must say so instead of presenting the incomplete totals as final.
+  it('shows the pending-FX notice when the month reports pending rows', { timeout: 15000 }, async () => {
+    mockLoads({ month: { ...jul26(), fxPendingCount: 2 } })
+    renderPage()
+
+    const notice = await screen.findByRole('status', {}, { timeout: 5000 })
+    expect(notice.textContent).toContain('2 imported transactions await an exchange rate')
+    expect(notice.textContent).toContain('totals exclude them')
+  })
+
+  it('renders no pending-FX notice when nothing is pending', { timeout: 15000 }, async () => {
+    mockLoads({ month: jul26() })
+    renderPage()
+
+    await screen.findByText('Remaining to budget', {}, { timeout: 5000 })
+    expect(screen.queryByText(/await(s)? an exchange rate/)).not.toBeInTheDocument()
+  })
+})
