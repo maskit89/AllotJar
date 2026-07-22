@@ -75,4 +75,26 @@ describe('AccountDetailPage', () => {
 
     expect(await screen.findByText(/Account not found/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
+
+  it('flags an FX-pending row and leaves settled rows unmarked', { timeout: 15000 }, async () => {
+    // fxPending = the server resolved no exchange rate (amount counts at face value);
+    // the register must say so instead of presenting the figure as settled.
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/accounts') return Promise.resolve({ data: [account()] })
+      if (url === '/transactions')
+        return Promise.resolve({
+          data: [
+            tx({ id: 't-pending', payee: 'London Cab', currency: 'GBP', fxPending: true }),
+            tx({ id: 't-settled' }),
+          ],
+        })
+      return Promise.resolve({ data: {} })
+    })
+
+    renderPage()
+
+    const tag = await screen.findByText('Rate pending', {}, { timeout: 5000 })
+    expect(tag).toHaveAttribute('title', expect.stringContaining('face value'))
+    expect(screen.getAllByText('Rate pending')).toHaveLength(1) // only the unresolved row
+  })
 })

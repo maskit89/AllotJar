@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { Badge, Button, Card, EmptyState, ErrorBanner, Input, SegmentedControl, Select } from '../components/ui'
+import { FxPendingTag } from '../components/FxPendingTag'
 import { Hero } from '../components/Hero'
 import { Modal } from '../components/Modal'
 import { ImportIcon, TransactionsIcon } from '../components/icons'
@@ -1129,6 +1130,7 @@ export function TransactionsPage() {
                                     : 'text-slate-900'
                               }`}
                             >
+                              {t.fxPending && <FxPendingTag />}
                               {isTransfer ? '' : isIncome ? '+' : '−'}
                               {formatMoney(fromAmount(t.amount), t.currency)}
                             </td>

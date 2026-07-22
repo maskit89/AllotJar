@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { Card, EmptyState } from '../components/ui'
+import { FxPendingTag } from '../components/FxPendingTag'
 import { Hero } from '../components/Hero'
 import { TransactionsIcon } from '../components/icons'
 import { api } from '../lib/api'
@@ -170,6 +171,7 @@ export function AccountDetailPage() {
                             isTransfer ? 'text-slate-500' : isIncome ? 'text-brand-700 dark:text-brand-200' : 'text-slate-900'
                           }`}
                         >
+                          {t.fxPending && <FxPendingTag />}
                           {/* On a single-account register a transfer is signed by direction:
                               − when this account is the source, + when it's the destination. */}
                           {isTransfer ? (t.accountId === id ? '−' : '+') : isIncome ? '+' : '−'}
