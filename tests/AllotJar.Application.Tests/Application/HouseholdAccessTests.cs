@@ -181,6 +181,9 @@ public class HouseholdAccessTests
         result.Role.Should().Be(HouseholdRole.Limited);
         result.Email.Should().Be("liza@x.com");
         result.DisplayName.Should().Be("Liza");
+        // The API keys the initial verification-email dispatch off this flag — an invite-created
+        // login is unverified and must get its "confirm your email" message like a registration.
+        result.CreatedNewLogin.Should().BeTrue();
         identity.CreatedEmails.Should().ContainSingle();
         // The invitee accepted the terms themselves, so consent is recorded on the new login.
         identity.ConsentedEmails.Should().Contain("liza@x.com");
@@ -379,6 +382,7 @@ public class HouseholdAccessTests
 
         result.UserId.Should().Be("user-liza");
         result.DisplayName.Should().Be("Liza"); // the account's stored name, not the invite's
+        result.CreatedNewLogin.Should().BeFalse(); // no fresh login → no initial verification email
         identity.CreatedEmails.Should().BeEmpty(); // joined with the existing login — no new one
         // Accepting lands them in the household they joined, not back in their own budget.
         identity.ActiveHouseholds.Should().ContainKey("user-liza").WhoseValue.Should().Be(OwnerId);

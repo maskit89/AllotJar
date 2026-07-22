@@ -51,6 +51,23 @@ test('an owner invites a new person who accepts and lands in the shared househol
   await expect(guest.getByText(/joined this household/)).toBeVisible()
   await expect(guest.getByText('Remaining to budget')).toBeVisible()
 
+  // The accept CREATED their (unverified) login, so the INITIAL verification email must arrive
+  // without touching Resend — the banner says "check your inbox", and now something is there.
+  // Filter by the /confirm-email link path: the invite flow may send other mail to this address.
+  await expect
+    .poll(
+      async () => {
+        const res = await guest.request.get(`/api/dev/emails?to=${encodeURIComponent(robinEmail)}`)
+        const messages: Array<{ textBody: string }> = await res.json()
+        return messages
+          .flatMap((m) => m.textBody.split('\n'))
+          .map((l) => l.trim())
+          .some((l) => l.startsWith('http') && l.includes('/confirm-email?'))
+      },
+      { timeout: 15000, message: `no verification email for ${robinEmail}` },
+    )
+    .toBe(true)
+
   // --- Invitee leaves again: lands in their own household, explained, with NO sample data ---
   // The leave path materializes a pure invitee's own household without sample figures
   // (seedSampleBudget: false), so the landing is the create-month hero plus the ?left greeting.
