@@ -4,10 +4,12 @@ name: Provision production stack
 # idempotent). Ships deploy/Provision-Production.ps1 to the VPS over the same
 # SSH secrets the deploys use and runs it there:
 #   * production IIS sites/pools/dirs, API on 127.0.0.1:5001
-#   * SNI 443 bindings for allotjar.com/www (prod) + staging.allotjar.com (staging)
+#   * SNI 443 bindings for allotjar.com/www (prod) + staging.allotjar.com (staging),
+#     pinned to the ORIGIN_CERT_THUMBPRINT secret (a differing bound cert is REBOUND)
 #   * SQL database ZeroBudgetProd + app-pool grant
 #   * prod appsettings.Production.json (cloned, own DB + fresh JWT key)
-#   * daily backup tasks for BOTH databases
+#   * daily backup tasks for BOTH databases — the prod task always ships off-host to the
+#     BACKUP_R2_BUCKET secret's R2 bucket (the job fails closed if the secret is missing)
 #
 # Run it once BEFORE approving the first production deploy. After the Cloudflare
 # DNS cutover, run it again with trim_staging_bindings=true to strip the retired
@@ -55,8 +57,10 @@ jobs:
             "$USER@$HOST" \
             'powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path C:\deploy\provision | Out-Null"'
 
-      # The provision script re-registers the backup tasks, which need
-      # Backup-Database.ps1 + Register-BackupTask.ps1 sitting next to it.
+      # The provision script re-registers the backup tasks, which need Backup-Database.ps1 +
+      # Register-BackupTask.ps1 + Upload-BackupToR2.ps1 (the off-host R2 leg) + the shared
+      # ProvisionHelpers.psm1 module sitting next to it. Omitting the upload script here is
+      # what used to leave a freshly-provisioned host unable to ship backups off-host.
       - name: Copy provisioning scripts to VPS
         env:
           PORT: ${{ secrets.VPS_SSH_PORT }}
@@ -66,7 +70,26 @@ jobs:
           scp -i ~/.ssh/deploy_key -P "$PORT" \
             -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             deploy/Provision-Production.ps1 deploy/Register-BackupTask.ps1 deploy/Backup-Database.ps1 \
+            deploy/Upload-BackupToR2.ps1 deploy/ProvisionHelpers.psm1 \
             "$USER@$HOST:C:/deploy/provision/"
+
+      # A full provisioning run must carry the production TLS pin and the off-host backup
+      # bucket — fail HERE, before touching the VPS, when either secret is missing. The
+      # trim_staging_bindings cleanup path needs neither (it returns before both).
+      - name: Require production TLS + backup secrets
+        if: ${{ inputs.trim_staging_bindings != true }}
+        env:
+          CERT_THUMBPRINT: ${{ secrets.ORIGIN_CERT_THUMBPRINT }}
+          R2_BUCKET: ${{ secrets.BACKUP_R2_BUCKET }}
+        run: |
+          if [ -z "$CERT_THUMBPRINT" ]; then
+            echo "::error::Secret ORIGIN_CERT_THUMBPRINT is not set - the origin certificate must be pinned explicitly." >&2
+            exit 1
+          fi
+          if [ -z "$R2_BUCKET" ]; then
+            echo "::error::Secret BACKUP_R2_BUCKET is not set - production backups must ship off-host." >&2
+            exit 1
+          fi
 
       - name: Run provisioning on VPS
         env:
@@ -74,10 +97,16 @@ jobs:
           USER: ${{ secrets.VPS_SSH_USER }}
           HOST: ${{ secrets.VPS_HOST }}
           TRIM: ${{ inputs.trim_staging_bindings }}
+          CERT_THUMBPRINT: ${{ secrets.ORIGIN_CERT_THUMBPRINT }}
+          R2_BUCKET: ${{ secrets.BACKUP_R2_BUCKET }}
         run: |
-          SWITCH=""
-          if [ "$TRIM" = "true" ]; then SWITCH=" -TrimStagingBindings"; fi
+          ARGS=""
+          if [ "$TRIM" = "true" ]; then
+            ARGS=" -TrimStagingBindings"
+          else
+            ARGS=" -CertThumbprint '$CERT_THUMBPRINT' -ProdR2Bucket '$R2_BUCKET'"
+          fi
           ssh -i ~/.ssh/deploy_key -p "$PORT" \
             -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             "$USER@$HOST" \
-            "powershell -NoProfile -ExecutionPolicy Bypass -Command \"& C:\\deploy\\provision\\Provision-Production.ps1$SWITCH\""
+            "powershell -NoProfile -ExecutionPolicy Bypass -Command \"& C:\\deploy\\provision\\Provision-Production.ps1$ARGS\""

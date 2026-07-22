@@ -30,6 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'ProvisionHelpers.psm1') -Force
 
 if (-not (Test-Path $BackupScript)) { throw "Backup script not found: $BackupScript" }
 New-Item -ItemType Directory -Force -Path $InstallDir, $BackupDir | Out-Null
@@ -39,14 +40,15 @@ $target = Join-Path $InstallDir 'Backup-Database.ps1'
 Copy-Item $BackupScript $target -Force
 if (Test-Path $UploadScript) {
     Copy-Item $UploadScript (Join-Path $InstallDir 'Upload-BackupToR2.ps1') -Force
+} elseif ($R2Bucket) {
+    # An R2-enabled task without its upload script would fail every night — refuse now,
+    # loudly, rather than discovering it after the host is lost.
+    throw "R2 upload requested (-R2Bucket $R2Bucket) but the upload script is missing: $UploadScript"
 }
 
-$argLine = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -Server "{1}" -Database "{2}" -BackupDir "{3}" -RetentionDays {4}' -f `
-    $target, $Server, $Database, $BackupDir, $RetentionDays
-if ($R2Bucket) {
-    $argLine += ' -R2Bucket "{0}" -Rclone "{1}" -RcloneConf "{2}" -R2Remote "{3}" -R2Prefix "{4}"' -f `
-        $R2Bucket, $Rclone, $RcloneConf, $R2Remote, $R2Prefix
-}
+$argLine = New-BackupTaskArgumentLine -ScriptPath $target -Server $Server -Database $Database `
+    -BackupDir $BackupDir -RetentionDays $RetentionDays `
+    -R2Bucket $R2Bucket -Rclone $Rclone -RcloneConf $RcloneConf -R2Remote $R2Remote -R2Prefix $R2Prefix
 
 $action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argLine
 $trigger   = New-ScheduledTaskTrigger -Daily -At $Time
@@ -56,6 +58,17 @@ $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
     -Principal $principal -Settings $settings -Force | Out-Null
 
+# Read the task BACK and, when R2 was requested, require the R2 arguments on the stored
+# action — the assertion is about what the scheduler will actually run.
+$stored = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+$storedArgs = ($stored.Actions | Select-Object -First 1).Arguments
+if ($R2Bucket -and -not (Get-R2BucketFromArgumentLine -ArgumentLine $storedArgs)) {
+    throw "Task '$TaskName' was registered WITHOUT the R2 arguments: $storedArgs"
+}
+
 Write-Host "Scheduled task '$TaskName' registered: daily at $Time as SYSTEM." -ForegroundColor Green
+if ($R2Bucket) {
+    Write-Host "Off-host copy: each verified backup ships to R2 bucket '$R2Bucket'." -ForegroundColor Green
+}
 Write-Host "Backups -> $BackupDir (retain $RetentionDays days). Test it now with:"
 Write-Host "  Start-ScheduledTask -TaskName $TaskName"
