@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Domain.ValueObjects;
 
 namespace AllotJar.Infrastructure.Identity;
 
@@ -35,6 +36,15 @@ public class IdentityService : IIdentityService
     {
         var user = await _userManager.FindByIdAsync(userId);
         return user is null ? null : new UserAccount(user.Id, user.Email!, user.DisplayName);
+    }
+
+    public async Task<CurrencyCode?> GetPreferredCurrencyAsync(string userId)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        // NormalizeCurrency maps blank to the app default and rejects garbage, so a stored
+        // value that predates validation can never leak an invalid code into the domain.
+        var normalized = UserPreferences.NormalizeCurrency(user?.PreferredCurrency);
+        return normalized is null ? null : CurrencyCode.From(normalized);
     }
 
     public async Task<CreateUserResult> CreateUserAsync(

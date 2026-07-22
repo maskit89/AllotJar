@@ -51,6 +51,11 @@ export async function register(
   await page.getByLabel('Last name').fill('Tester')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
+  // Pin the home currency: the form's default is locale-derived (GBP under this suite's
+  // en-GB locale), the first budget month adopts it, and the suite's money assertions
+  // are written in €. Registering in EUR keeps months, accounts and transactions
+  // coherent in one currency regardless of the runner's locale.
+  await page.getByLabel('Currency').selectOption('EUR')
   if (opts.sampleBudget) {
     // The optional sample-figures box — like Terms, reached through its wrapping label text.
     await page.locator('label', { hasText: 'Start with sample figures' }).getByRole('checkbox').check()

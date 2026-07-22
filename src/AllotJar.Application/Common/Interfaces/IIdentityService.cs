@@ -1,3 +1,5 @@
+using AllotJar.Domain.ValueObjects;
+
 namespace AllotJar.Application.Common.Interfaces;
 
 /// <summary>
@@ -11,6 +13,12 @@ public interface IIdentityService
     Task<UserAccount?> FindByEmailAsync(string email);
 
     Task<UserAccount?> FindByIdAsync(string userId);
+
+    /// <summary>
+    /// The login's preferred (home) currency, already validated. Null only for an unknown user
+    /// whose default cannot be resolved — callers fall back to EUR.
+    /// </summary>
+    Task<CurrencyCode?> GetPreferredCurrencyAsync(string userId);
 
     /// <summary>
     /// Creates a login. <paramref name="consented"/> records terms acceptance and must be true only
