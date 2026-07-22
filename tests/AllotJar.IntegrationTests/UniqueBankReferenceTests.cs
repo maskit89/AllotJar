@@ -208,4 +208,141 @@ public class UniqueBankReferenceTests
         second.Imported.Should().Be(0);
         second.SkippedDuplicates.Should().Be(2);
     }
+
+    // --- Transfer-direction dedup (2026-07-22 re-review F6): a row from account A's statement
+    // marked as an INBOUND transfer is stored with the counterparty as its source
+    // (AccountId = B, TransferAccountId = A) — the dedup snapshot and the collision recovery
+    // must both account for that, or re-importing A's statement crashes. --------------------
+
+    private static CommitImportItem TransferItem(string reference, Guid counterpartyId, bool isCredit) =>
+        new(reference, new DateOnly(2026, 6, 15), "TOP-UP", 100m, "EUR",
+            IsCredit: isCredit, BudgetItemId: null, MemberId: null,
+            Splits: null, TransferAccountId: counterpartyId);
+
+    [Fact]
+    public async Task Reimporting_a_statement_with_an_inbound_transfer_skips_it()
+    {
+        var owner = NewOwner();
+        await using var db = _fixture.CreateContext();
+        var accountA = await SeedAccountAsync(db, owner, "A"); // the statement account
+        var accountB = await SeedAccountAsync(db, owner, "B"); // the counterparty
+
+        // A credit into A from B: the saved row's AccountId is B (the source).
+        var first = await new CommitImportCommandHandler(db, new CurrentUserStub(owner), new TrapRateProvider())
+            .Handle(new CommitImportCommand(accountA.Id, new[]
+            {
+                TransferItem("in-ref", accountB.Id, isCredit: true),
+            }), CancellationToken.None);
+        first.Imported.Should().Be(1);
+
+        // Re-import the same statement into A. The old account-scoped snapshot queried
+        // AccountId == A, missed the row (stored on B), re-inserted, collided on (owner, B, ref),
+        // and the recovery — also searching A — rethrew: the whole re-import 500ed.
+        await using var db2 = _fixture.CreateContext();
+        var second = await new CommitImportCommandHandler(db2, new CurrentUserStub(owner), new TrapRateProvider())
+            .Handle(new CommitImportCommand(accountA.Id, new[]
+            {
+                TransferItem("in-ref", accountB.Id, isCredit: true),
+            }), CancellationToken.None);
+
+        second.Imported.Should().Be(0);
+        second.SkippedDuplicates.Should().Be(1);
+        await using var verify = _fixture.CreateContext();
+        (await verify.Transactions.CountAsync(t => t.OwnerId == owner && t.BankReference == "in-ref"))
+            .Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Reimporting_a_statement_with_an_outbound_transfer_skips_it()
+    {
+        var owner = NewOwner();
+        await using var db = _fixture.CreateContext();
+        var accountA = await SeedAccountAsync(db, owner, "A");
+        var accountB = await SeedAccountAsync(db, owner, "B");
+
+        // A debit out of A to B: the saved row's AccountId is A — the straightforward case,
+        // guarded so the inbound fix can't regress it.
+        await new CommitImportCommandHandler(db, new CurrentUserStub(owner), new TrapRateProvider())
+            .Handle(new CommitImportCommand(accountA.Id, new[]
+            {
+                TransferItem("out-ref", accountB.Id, isCredit: false),
+            }), CancellationToken.None);
+
+        await using var db2 = _fixture.CreateContext();
+        var second = await new CommitImportCommandHandler(db2, new CurrentUserStub(owner), new TrapRateProvider())
+            .Handle(new CommitImportCommand(accountA.Id, new[]
+            {
+                TransferItem("out-ref", accountB.Id, isCredit: false),
+            }), CancellationToken.None);
+
+        second.Imported.Should().Be(0);
+        second.SkippedDuplicates.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Case_variant_reference_is_skipped_on_reimport()
+    {
+        var owner = NewOwner();
+        await using var db = _fixture.CreateContext();
+        var account = await SeedAccountAsync(db, owner, "A");
+
+        await new CommitImportCommandHandler(db, new CurrentUserStub(owner), new TrapRateProvider())
+            .Handle(new CommitImportCommand(account.Id, new[] { Item("Ref-Case") }), CancellationToken.None);
+
+        // The database index compares with the CI collation, so the case-variant WOULD collide —
+        // the snapshot must skip it up front rather than fall into recovery.
+        await using var db2 = _fixture.CreateContext();
+        var second = await new CommitImportCommandHandler(db2, new CurrentUserStub(owner), new TrapRateProvider())
+            .Handle(new CommitImportCommand(account.Id, new[] { Item("REF-CASE") }), CancellationToken.None);
+
+        second.Imported.Should().Be(0);
+        second.SkippedDuplicates.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Commit_recovers_when_a_concurrent_commit_wins_the_race_on_an_inbound_transfer()
+    {
+        var owner = NewOwner();
+        await using var db = _fixture.CreateContext();
+        // USD accounts + USD rows: foreign against the (EUR-default) budget base, so BOTH rows
+        // trigger a rate lookup — the trap's window between the dedup snapshot and the save —
+        // while still matching the account currency the import invariant enforces.
+        var accountA = new Account { OwnerId = owner, Name = "A", Currency = CurrencyCode.From("USD") };
+        var accountB = new Account { OwnerId = owner, Name = "B", Currency = CurrencyCode.From("USD") };
+        db.Accounts.AddRange(accountA, accountB);
+        await db.SaveChangesAsync();
+
+        // The rival inserts the SAME inbound-transfer row inside the trap window (stored with the
+        // counterparty B as its source), so our save collides on (owner, B, ref).
+        var trap = new TrapRateProvider(async () =>
+        {
+            await using var rival = _fixture.CreateContext();
+            rival.Transactions.Add(new Transaction
+            {
+                OwnerId = owner, Amount = 100m, Currency = CurrencyCode.From("USD"), ExchangeRate = 1m,
+                Type = TransactionType.Transfer, Date = new DateOnly(2026, 6, 15), Payee = "TOP-UP",
+                BankReference = "race-in", AccountId = accountB.Id, TransferAccountId = accountA.Id,
+            });
+            await rival.SaveChangesAsync();
+        });
+
+        var result = await new CommitImportCommandHandler(db, new CurrentUserStub(owner), trap)
+            .Handle(new CommitImportCommand(accountA.Id, new[]
+            {
+                new CommitImportItem("race-in", new DateOnly(2026, 6, 15), "TOP-UP", 100m, "USD",
+                    IsCredit: true, BudgetItemId: null, MemberId: null,
+                    Splits: null, TransferAccountId: accountB.Id),
+                Item("race-plain", currency: "USD"),
+            }), CancellationToken.None);
+
+        // The old recovery searched the STATEMENT account (A), found nothing for the transfer
+        // (stored on B), and rethrew. It must skip the collided transfer and keep the plain row.
+        result.Imported.Should().Be(1);
+        result.SkippedDuplicates.Should().Be(1);
+        await using var verify = _fixture.CreateContext();
+        (await verify.Transactions.CountAsync(t => t.OwnerId == owner && t.BankReference == "race-in"))
+            .Should().Be(1);
+        (await verify.Transactions.CountAsync(t => t.OwnerId == owner && t.BankReference == "race-plain"))
+            .Should().Be(1);
+    }
 }

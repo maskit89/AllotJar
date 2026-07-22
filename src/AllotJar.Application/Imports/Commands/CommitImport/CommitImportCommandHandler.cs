@@ -71,14 +71,20 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             .Where(i => wholeLineIds.Contains(i.Id))
             .ToDictionaryAsync(i => i.Id, cancellationToken);
 
-        // Idempotency: never re-create a row we already have ON THIS ACCOUNT (double-submit,
-        // overlap, retry). Scoped by account to match the unique index — a bank reference reused
-        // on a different account is a genuinely distinct transaction, not a duplicate. Case-
-        // insensitive to agree with the index's CI collation (a case-variant would otherwise pass
-        // this check and then collide at the database).
+        // Idempotency: never re-create a row this STATEMENT ACCOUNT already knows (double-submit,
+        // overlap, retry). A row from account A's statement can be persisted on EITHER leg: a
+        // plain income/expense sits on A itself, but an INBOUND transfer is stored with the
+        // counterparty as its source (AccountId = B, TransferAccountId = A) — so the snapshot must
+        // match references on either side, or re-importing A's statement re-inserts its inbound
+        // transfers and dies on the unique index with a recovery that searches the wrong account.
+        // A bank reference reused on a DIFFERENT statement account remains a genuinely distinct
+        // transaction, not a duplicate. Case-insensitive to agree with the index's CI collation.
         var accountId = request.AccountId;
         var existing = await _db.Transactions
-            .Where(t => t.OwnerId == userId && t.AccountId == accountId && t.BankReference != null)
+            .Where(t => t.OwnerId == userId
+                        && t.BankReference != null
+                        && (t.AccountId == accountId
+                            || (accountId != null && t.TransferAccountId == accountId)))
             .Select(t => t.BankReference!)
             .ToListAsync(cancellationToken);
         var seen = new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase);
@@ -228,23 +234,41 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 }
                 catch (DbUpdateException ex) when (attempt < 3 && IsReferenceCollision(ex))
                 {
-                    var refs = created
+                    // The index guards (OwnerId, AccountId, BankReference) — and an inbound
+                    // transfer's stored AccountId is the COUNTERPARTY, not the statement account.
+                    // So the recovery must look for existing rows on each created row's OWN
+                    // AccountId (exactly the pairs the failed insert tried), not on the statement
+                    // account: searching only the statement account finds nothing for an inbound
+                    // transfer and rethrows instead of skipping it.
+                    var refsByAccount = created
                         .Where(t => t.BankReference != null)
-                        .Select(t => t.BankReference!)
+                        .GroupBy(t => t.AccountId)
                         .ToList();
-                    var taken = await _db.Transactions
-                        .AsNoTracking()
-                        .Where(t => t.OwnerId == userId && t.AccountId == accountId
-                                    && t.BankReference != null && refs.Contains(t.BankReference))
-                        .Select(t => t.BankReference!)
-                        .ToListAsync(cancellationToken);
-                    // Case-insensitive: the DB index compares with the column's CI collation, so a
-                    // case-variant reference blocks the insert — the recovery match must agree or
-                    // it would rethrow instead of skipping.
-                    var takenSet = new HashSet<string>(taken, StringComparer.OrdinalIgnoreCase);
+
+                    // Keyed by the row's account with Guid.Empty standing in for "no account"
+                    // (a Dictionary rejects a null key; an account id can never be Guid.Empty).
+                    var takenByAccount = new Dictionary<Guid, HashSet<string>>();
+                    foreach (var group in refsByAccount)
+                    {
+                        var rowAccountId = group.Key;
+                        var refs = group.Select(t => t.BankReference!).ToList();
+                        var taken = await _db.Transactions
+                            .AsNoTracking()
+                            .Where(t => t.OwnerId == userId && t.AccountId == rowAccountId
+                                        && t.BankReference != null && refs.Contains(t.BankReference))
+                            .Select(t => t.BankReference!)
+                            .ToListAsync(cancellationToken);
+                        // Case-insensitive: the DB index compares with the column's CI collation, so
+                        // a case-variant reference blocks the insert — the recovery match must agree
+                        // or it would rethrow instead of skipping.
+                        takenByAccount[rowAccountId ?? Guid.Empty] =
+                            new HashSet<string>(taken, StringComparer.OrdinalIgnoreCase);
+                    }
 
                     var collided = created
-                        .Where(t => t.BankReference is string r && takenSet.Contains(r))
+                        .Where(t => t.BankReference is string r
+                                    && takenByAccount.TryGetValue(t.AccountId ?? Guid.Empty, out var taken)
+                                    && taken.Contains(r))
                         .ToList();
                     if (collided.Count == 0)
                     {

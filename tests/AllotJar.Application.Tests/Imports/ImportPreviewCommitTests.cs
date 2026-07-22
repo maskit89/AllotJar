@@ -132,6 +132,67 @@ public class ImportPreviewCommitTests
     }
 
     [Fact]
+    public async Task Preview_Dedup_MatchesTheCommitsAccountScope_EitherLeg_CaseInsensitive()
+    {
+        // 2026-07-22 re-review F6: the preview's already-imported filter must agree with the
+        // commit's — scoped to the statement account (either transaction leg, since an inbound
+        // transfer is stored with the counterparty as its source), case-insensitive to match the
+        // index collation. The old filter was owner-wide AND case-sensitive.
+        await using var db = NewContext();
+        var statementAccount = SeedAccount(db, "user-1", "Statement");
+        var otherAccount = SeedAccount(db, "user-1", "Other");
+
+        // Learn the parser's synthesized references from a clean preview.
+        var clean = await NewPreview(db, "user-1").Handle(
+            new PreviewImportCommand(HsbcCsvSamples.Mixed, StatementFormat.HsbcCsv,
+                AccountId: statementAccount.Id),
+            CancellationToken.None);
+        var refs = clean.Items.Select(i => i.Reference).Distinct().ToList();
+        refs.Count.Should().BeGreaterThan(2);
+
+        Transaction Row(string reference, Guid? accountId, Guid? transferAccountId = null) => new()
+        {
+            OwnerId = "user-1", Amount = 10m, Currency = CurrencyCode.Eur, ExchangeRate = 1m,
+            Type = transferAccountId is null ? TransactionType.Expense : TransactionType.Transfer,
+            Date = new DateOnly(2026, 6, 15), Payee = "SEEDED", BankReference = reference,
+            AccountId = accountId, TransferAccountId = transferAccountId,
+        };
+
+        db.Transactions.AddRange(
+            // On the statement account, as a CASE VARIANT — must hide (the commit would skip it).
+            Row(refs[0].ToUpperInvariant(), statementAccount.Id),
+            // An inbound transfer: stored on the OTHER leg, statement account as destination — must hide.
+            Row(refs[1], otherAccount.Id, transferAccountId: statementAccount.Id),
+            // The same reference on a DIFFERENT account entirely — genuinely distinct, must stay visible.
+            Row(refs[2], otherAccount.Id));
+        await db.SaveChangesAsync();
+
+        var result = await NewPreview(db, "user-1").Handle(
+            new PreviewImportCommand(HsbcCsvSamples.Mixed, StatementFormat.HsbcCsv,
+                AccountId: statementAccount.Id),
+            CancellationToken.None);
+
+        var visible = result.Items.Select(i => i.Reference).ToList();
+        visible.Should().NotContain(refs[0]);
+        visible.Should().NotContain(refs[1]);
+        visible.Should().Contain(refs[2]);
+        result.SkippedDuplicates.Should().Be(clean.TotalEntries - result.NewCount);
+    }
+
+    [Fact]
+    public async Task Preview_Rejects_AnAccountTheCallerDoesNotOwn()
+    {
+        await using var db = NewContext();
+        var foreign = SeedAccount(db, "user-2", "Their account");
+
+        await FluentActions.Invoking(() => NewPreview(db, "user-1").Handle(
+                new PreviewImportCommand(HsbcCsvSamples.Mixed, StatementFormat.HsbcCsv,
+                    AccountId: foreign.Id),
+                CancellationToken.None))
+            .Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
     public async Task Preview_GenericCsv_DetectsLayout_AndStampsTheDefaultCurrency()
     {
         await using var db = NewContext();

@@ -145,8 +145,13 @@ describe('ImportPage', () => {
     // review row's unique include checkbox.
     await screen.findByLabelText('Include TESCO on 2026-06-20')
 
-    // First preview sent no mapping, just the home currency fallback.
-    expect(mockPreview).toHaveBeenCalledWith(expect.any(File), 'GenericCsv', { defaultCurrency: 'EUR' })
+    // First preview sent no mapping — the home currency fallback plus the (unchosen) account
+    // that scopes the server's already-imported filter.
+    expect(mockPreview).toHaveBeenCalledWith(
+      expect.any(File),
+      'GenericCsv',
+      { defaultCurrency: 'EUR', accountId: null },
+    )
 
     // The mapping panel is shown, prefilled from the detected layout (amount = column index 2).
     expect(screen.getByRole('heading', { name: 'Column mapping' })).toBeInTheDocument()

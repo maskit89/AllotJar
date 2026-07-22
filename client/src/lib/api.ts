@@ -171,7 +171,7 @@ api.interceptors.response.use(
 export async function previewImport(
   file: File,
   format: StatementFormat,
-  opts?: { mapping?: CsvMapping | null; defaultCurrency?: string },
+  opts?: { mapping?: CsvMapping | null; defaultCurrency?: string; accountId?: string | null },
 ): Promise<ImportPreviewResult> {
   const form = new FormData()
   form.append('file', file)
@@ -179,6 +179,8 @@ export async function previewImport(
   // Generic CSV: send the confirmed column mapping (omit on the first upload → server auto-detects).
   if (opts?.mapping) form.append('mapping', JSON.stringify(opts.mapping))
   if (opts?.defaultCurrency) form.append('defaultCurrency', opts.defaultCurrency)
+  // Scope the already-imported filter to the statement's account, matching the commit's dedup.
+  if (opts?.accountId) form.append('accountId', opts.accountId)
   const { data } = await api.post<ImportPreviewResult>('/import/preview', form)
   return data
 }

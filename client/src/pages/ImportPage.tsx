@@ -295,8 +295,13 @@ export function ImportPage() {
     setBusy(true)
     setError(null)
     try {
-      // Generic CSV auto-detects the layout on first upload; send the home currency as the fallback.
-      const opts = format === 'generic' ? { defaultCurrency: preferredCurrency } : undefined
+      // Generic CSV auto-detects the layout on first upload; send the home currency as the
+      // fallback. The chosen account scopes the server's already-imported filter to the same
+      // account the commit will dedup against.
+      const opts = {
+        ...(format === 'generic' ? { defaultCurrency: preferredCurrency } : {}),
+        accountId: accountId || null,
+      }
       const data = await previewImport(file, FORMATS[format].wire, opts)
       applyPreview(data)
       setPhase('review')
@@ -316,7 +321,11 @@ export function ImportPage() {
     setError(null)
     try {
       const priorRows = rows
-      const data = await previewImport(file, 'GenericCsv', { mapping, defaultCurrency: preferredCurrency })
+      const data = await previewImport(file, 'GenericCsv', {
+        mapping,
+        defaultCurrency: preferredCurrency,
+        accountId: accountId || null,
+      })
       applyPreview(data, priorRows)
     } catch (err) {
       setError(errorMessage(err))

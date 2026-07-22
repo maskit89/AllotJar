@@ -93,6 +93,7 @@ public class ImportController : ControllerBase
         [FromForm] StatementFormat format,
         [FromForm] string? mapping,
         [FromForm] string? defaultCurrency,
+        [FromForm] Guid? accountId,
         CancellationToken ct)
     {
         if (file is null || file.Length == 0)
@@ -119,7 +120,7 @@ public class ImportController : ControllerBase
         }
 
         var result = await _mediator.Send(
-            new PreviewImportCommand(content, format, csvMapping, defaultCurrency), ct);
+            new PreviewImportCommand(content, format, csvMapping, defaultCurrency, accountId), ct);
         return Ok(result);
     }
 
