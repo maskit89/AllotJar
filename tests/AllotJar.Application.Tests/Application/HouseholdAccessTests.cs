@@ -10,6 +10,7 @@ using AllotJar.Application.HouseholdAccess.Commands.InviteMember;
 using AllotJar.Application.HouseholdAccess.Commands.LinkMembershipMember;
 using AllotJar.Application.HouseholdAccess.Commands.RevokeMember;
 using AllotJar.Domain.Entities;
+using AllotJar.Domain.ValueObjects;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Persistence;
 
@@ -53,6 +54,8 @@ public class HouseholdAccessTests
         public Task<UserAccount?> FindByEmailAsync(string email) => Task.FromResult<UserAccount?>(null);
         public Task<UserAccount?> FindByIdAsync(string userId) =>
             Task.FromResult(ById.TryGetValue(userId, out var u) ? u : null);
+        public Task<CurrencyCode?> GetPreferredCurrencyAsync(string userId) =>
+            Task.FromResult<CurrencyCode?>(null); // no preference -> callers use the EUR default
 
         public Task<CreateUserResult> CreateUserAsync(
             string email, string password, string? displayName, bool consented = false)

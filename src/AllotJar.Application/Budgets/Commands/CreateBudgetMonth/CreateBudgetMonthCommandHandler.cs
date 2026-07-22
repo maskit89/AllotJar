@@ -16,11 +16,17 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly IIdentityService? _identity;
 
-    public CreateBudgetMonthCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    // identity stays optional (DI supplies it in production) so the many handler tests that
+    // don't care about currency keep constructing the handler with two arguments — without it
+    // a first month falls back to the EUR default, exactly the pre-existing test behaviour.
+    public CreateBudgetMonthCommandHandler(
+        IApplicationDbContext db, ICurrentUser currentUser, IIdentityService? identity = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _identity = identity;
     }
 
     public async Task<BudgetMonthDto> Handle(CreateBudgetMonthCommand request, CancellationToken cancellationToken)
@@ -96,12 +102,22 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
 
         var seedAsOf = new DateOnly(request.Year, request.Month, 1);
 
+        // A later month inherits its predecessor's base. The FIRST month adopts the creating
+        // login's preferred currency instead of assuming EUR: the account form defaults to that
+        // same preference, so a hardcoded EUR base would make every account-attached transaction
+        // fail the account-currency invariant for a non-EUR household.
+        var baseCurrency = previous?.BaseCurrency
+            ?? (_identity is not null && _currentUser.UserId is string loginId
+                ? await _identity.GetPreferredCurrencyAsync(loginId)
+                : null)
+            ?? CurrencyCode.Eur;
+
         var budget = new BudgetMonth
         {
             OwnerId = userId,
             Year = request.Year,
             Month = request.Month,
-            BaseCurrency = previous?.BaseCurrency ?? CurrencyCode.Eur,
+            BaseCurrency = baseCurrency,
         };
 
         var template = BudgetTemplates.Find(request.TemplateKey);

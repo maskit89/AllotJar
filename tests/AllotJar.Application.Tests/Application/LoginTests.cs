@@ -5,6 +5,7 @@ using AllotJar.Application.Auth.Commands.Login;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.ValueObjects;
 using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Application;
@@ -30,6 +31,8 @@ public class LoginTests
         public Task<bool> EmailExistsAsync(string email) => Task.FromResult(false);
         public Task<UserAccount?> FindByEmailAsync(string email) => Task.FromResult<UserAccount?>(null);
         public Task<UserAccount?> FindByIdAsync(string userId) => Task.FromResult<UserAccount?>(null);
+        public Task<CurrencyCode?> GetPreferredCurrencyAsync(string userId) =>
+            Task.FromResult<CurrencyCode?>(null); // no preference -> callers use the EUR default
         public Task<CreateUserResult> CreateUserAsync(
             string email, string password, string? displayName, bool consented = false) =>
             Task.FromResult(CreateUserResult.Success("x"));

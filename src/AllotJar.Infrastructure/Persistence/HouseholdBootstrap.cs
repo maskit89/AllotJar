@@ -49,7 +49,8 @@ public static class HouseholdBootstrap
         // it helps, and the dashboard has a first-class create-month flow (blank or template).
         if (seedSampleBudget)
         {
-            await BudgetSeeder.SeedDefaultMonthAsync(db, user.Id, nowUtc.Year, nowUtc.Month, ct);
+            await BudgetSeeder.SeedDefaultMonthAsync(
+                db, user.Id, nowUtc.Year, nowUtc.Month, user.PreferredCurrency, ct);
         }
 
         // The owner as member #1, so the household is never "0 members". Idempotent.
