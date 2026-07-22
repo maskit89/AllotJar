@@ -26,7 +26,7 @@ public class TransactionSplit : BaseEntity
 
     /// <summary>
     /// The household member this slice is attributed to (optional) — this is how a single
-    /// shared purchase is divided across people (e.g. the workbook's Visa Liz/Chris/Marisa
+    /// shared purchase is divided across people (e.g. the workbook's Visa Liz/Alex/Marisa
     /// columns). Independent of <see cref="BudgetItemId"/>: a slice can carry both a budget
     /// line and a member.
     /// </summary>

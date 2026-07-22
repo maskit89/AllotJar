@@ -323,7 +323,7 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   // --- Fixture: three accounts, a jar held in the source account, a planned month ---
   await page.getByRole('link', { name: 'Accounts' }).click()
   await addAccount(page, { name: 'Joint', opening: '10000' })
-  await addAccount(page, { name: 'Chris Pot', opening: '1000' })
+  await addAccount(page, { name: 'Alex Pot', opening: '1000' })
   await addAccount(page, { name: 'Robin Pot', opening: '500' })
 
   // A Goal jar (6,000 ÷ 12 = 500.00/mo) held in the Joint funding account — created
@@ -341,9 +341,9 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   await addLine(page, 'Essentials', 'Rent')
   await setPlanned(page, 'Rent', '2000', '2,000.00')
 
-  // --- Members: owner becomes Chris (3,000, Chris Pot); Robin joins (2,000, Robin Pot) ---
+  // --- Members: owner becomes Alex (3,000, Alex Pot); Robin joins (2,000, Robin Pot) ---
   await page.getByRole('link', { name: 'People' }).click()
-  await configureOwnerMember(page, { newName: 'Chris', income: '3000', savings: 'Chris Pot' })
+  await configureOwnerMember(page, { newName: 'Alex', income: '3000', savings: 'Alex Pot' })
   await addPerson(page, { name: 'Robin', income: '2000', savings: 'Robin Pot' })
   await expect(page.getByLabel(/^Combined income:/)).toContainText('5,000.00')
 
@@ -385,7 +385,7 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
 
   // --- ALLOC-039 + ALLOC-044: savings sent Equally — the pooled 2,500.00 remainder
   // splits 1,250.00 each; tiles show pre-allocation balance → residual → projected.
-  const chrisTile = memberTile(page, 'Chris')
+  const chrisTile = memberTile(page, 'Alex')
   await expect(chrisTile).toContainText('1,000.00 → saves')
   await expect(chrisTile).toContainText('1,250.00')
   await expect(chrisTile).toContainText('Projected balance')
@@ -441,8 +441,8 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   // balances (this month's alloc: transfers are excluded), so a re-run sees the same
   // tilt inputs as the first — tiles are byte-stable across runs.
   await page.reload()
-  await expect(memberTile(page, 'Chris')).toContainText('1,000.00 → saves')
-  await expect(memberTile(page, 'Chris')).toContainText('1,250.00')
+  await expect(memberTile(page, 'Alex')).toContainText('1,000.00 → saves')
+  await expect(memberTile(page, 'Alex')).toContainText('1,250.00')
   await expect(memberTile(page, 'Robin')).toContainText('500.00 → saves')
 
   // --- ALLOC-052: re-running the commit replaces the prior transfers, never doubles.
@@ -456,7 +456,7 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   await page.getByRole('link', { name: 'Transactions' }).click()
   const allocRows = page.locator('tbody tr').filter({ hasText: 'Income allocation' })
   await expect(allocRows).toHaveCount(2)
-  const chrisRow = allocRows.filter({ hasText: 'Joint → Chris Pot' })
+  const chrisRow = allocRows.filter({ hasText: 'Joint → Alex Pot' })
   await expect(chrisRow).toHaveCount(1)
   await expect(chrisRow.getByText('Transfer', { exact: true })).toBeVisible() // the badge
   await expect(chrisRow).toContainText('1,250.00')
@@ -471,8 +471,8 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   await page.getByRole('link', { name: 'View Joint', exact: true }).click()
   await expect(detailBalance(page, 'Joint')).toContainText('7,500.00')
   await page.getByRole('link', { name: '‹ Accounts' }).click()
-  await page.getByRole('link', { name: 'View Chris Pot', exact: true }).click()
-  await expect(detailBalance(page, 'Chris Pot')).toContainText('2,250.00')
+  await page.getByRole('link', { name: 'View Alex Pot', exact: true }).click()
+  await expect(detailBalance(page, 'Alex Pot')).toContainText('2,250.00')
   await page.getByRole('link', { name: '‹ Accounts' }).click()
   await page.getByRole('link', { name: 'View Robin Pot', exact: true }).click()
   await expect(detailBalance(page, 'Robin Pot')).toContainText('1,750.00')
@@ -514,10 +514,10 @@ test('a member without a savings account strands their share; over-committing th
   await register(page)
   await startBlankBudget(page)
 
-  // Chris will have a pot; Robin deliberately gets NO savings account.
+  // Alex will have a pot; Robin deliberately gets NO savings account.
   await page.getByRole('link', { name: 'Accounts' }).click()
   await addAccount(page, { name: 'Joint', opening: '5000' })
-  await addAccount(page, { name: 'Chris Pot', opening: '0' })
+  await addAccount(page, { name: 'Alex Pot', opening: '0' })
 
   await page.getByRole('link', { name: 'Budget' }).click()
   await addExpenseGroup(page, 'Essentials')
@@ -525,7 +525,7 @@ test('a member without a savings account strands their share; over-committing th
   await setPlanned(page, 'Rent', '2000', '2,000.00')
 
   await page.getByRole('link', { name: 'People' }).click()
-  await configureOwnerMember(page, { newName: 'Chris', income: '3000', savings: 'Chris Pot' })
+  await configureOwnerMember(page, { newName: 'Alex', income: '3000', savings: 'Alex Pot' })
   await addPerson(page, { name: 'Robin', income: '2000' }) // savings left "None"
 
   // Profile: source Joint, pocket 50.00 each, savings sent Equally (raw-API seed —
@@ -557,7 +557,7 @@ test('a member without a savings account strands their share; over-committing th
   await expect(strandedNote).toBeVisible()
   await expect(strandedNote).toContainText('1,450.00')
 
-  // --- ALLOC-057 + ALLOC-050 (singular): commit writes only Chris's transfer.
+  // --- ALLOC-057 + ALLOC-050 (singular): commit writes only Alex's transfer.
   const first = await commitAllocation(page, { confirmStranded: true })
   expect(first.transfersCreated).toBe(1)
   await expect(page.getByRole('status')).toContainText('1 savings transfer created')
@@ -566,14 +566,14 @@ test('a member without a savings account strands their share; over-committing th
   await page.getByRole('link', { name: 'Transactions' }).click()
   const allocRows = page.locator('tbody tr').filter({ hasText: 'Income allocation' })
   await expect(allocRows).toHaveCount(1)
-  await expect(allocRows.first()).toContainText('Joint → Chris Pot')
+  await expect(allocRows.first()).toContainText('Joint → Alex Pot')
   await expect(allocRows.first()).toContainText('1,450.00')
   await page.getByRole('link', { name: 'Accounts' }).click()
   await page.getByRole('link', { name: 'View Joint', exact: true }).click()
   await expect(detailBalance(page, 'Joint')).toContainText('3,550.00') // 5,000 − 1,450 only
   await page.getByRole('link', { name: '‹ Accounts' }).click()
-  await page.getByRole('link', { name: 'View Chris Pot', exact: true }).click()
-  await expect(detailBalance(page, 'Chris Pot')).toContainText('1,450.00')
+  await page.getByRole('link', { name: 'View Alex Pot', exact: true }).click()
+  await expect(detailBalance(page, 'Alex Pot')).toContainText('1,450.00')
 
   // --- Over-commit the month: Rent 6,000.00 now exceeds the 5,000.00 pool ---
   await page.getByRole('link', { name: 'Budget' }).click()
@@ -594,12 +594,12 @@ test('a member without a savings account strands their share; over-committing th
   await expect(page.getByText(/won’t be transferred/)).toHaveCount(0)
 
   // --- ALLOC-045: keep-own residuals gone negative render in the rose tone —
-  // Chris −50.00 (3,000 − 3,000 − 50), Robin −1,050.00 (2,000 − 3,000 − 50).
-  await expect(memberTile(page, 'Chris').locator('.text-rose-600')).toContainText('50.00')
+  // Alex −50.00 (3,000 − 3,000 − 50), Robin −1,050.00 (2,000 − 3,000 − 50).
+  await expect(memberTile(page, 'Alex').locator('.text-rose-600')).toContainText('50.00')
   await expect(memberTile(page, 'Robin').locator('.text-rose-600')).toContainText('1,050.00')
 
   // --- ALLOC-051 + ALLOC-052 (replace-to-zero leg): the re-commit needs no transfers,
-  // says so in the 0-variant banner, and REPLACES the prior run — deleting Chris's
+  // says so in the 0-variant banner, and REPLACES the prior run — deleting Alex's
   // earlier 1,450.00 transfer rather than leaving it stacked.
   const second = await commitAllocation(page)
   expect(second.transfersCreated).toBe(0)
@@ -612,8 +612,8 @@ test('a member without a savings account strands their share; over-committing th
   await page.getByRole('link', { name: 'View Joint', exact: true }).click()
   await expect(detailBalance(page, 'Joint')).toContainText('5,000.00') // fully reverted
   await page.getByRole('link', { name: '‹ Accounts' }).click()
-  await page.getByRole('link', { name: 'View Chris Pot', exact: true }).click()
-  await expect(detailBalance(page, 'Chris Pot')).toContainText('0.00')
+  await page.getByRole('link', { name: 'View Alex Pot', exact: true }).click()
+  await expect(detailBalance(page, 'Alex Pot')).toContainText('0.00')
   await expect(page.getByText('No transactions on this account yet.')).toBeVisible()
 })
 

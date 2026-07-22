@@ -6,8 +6,8 @@ namespace AllotJar.Domain.Services;
 /// Pure (no I/O) income-allocation waterfall. Given each member's net income and an
 /// ordered set of rules, it deducts each shared obligation from every member's running
 /// balance and reports what each member is left with (their savings). Deterministic and
-/// dependency-free, so it can be unit-tested directly against the source spreadsheet
-/// (Chris 1259.14 / Liza 847.47).
+/// dependency-free, so it can be unit-tested directly against hand-computed fixtures
+/// (see IncomeAllocatorTests' worked example).
 ///
 /// Amounts for the fund-* rules are resolved by the caller (from the month's budget) and
 /// passed in as <see cref="AllocationRuleInput.ResolvedTotal"/>, keeping this pure.

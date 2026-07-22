@@ -331,7 +331,7 @@
 - **Type:** Edge
 - **Preconditions:** Anonymous browser on `/login?register=1`.
 - **Steps:**
-  1. Try `chris@bücher.example` in the email field and submit.
+  1. Try `alex@bücher.example` in the email field and submit.
   2. Direct API: same address.
 - **Expected:**
   - Step 1: blocked client-side (browsers reject non-ASCII domains in `type=email` unless punycoded).

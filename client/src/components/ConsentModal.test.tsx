@@ -25,8 +25,8 @@ function me(needsConsent: boolean) {
   return {
     data: {
       userId: 'u2',
-      email: 'liza@x.com',
-      displayName: 'Liza',
+      email: 'sam@x.com',
+      displayName: 'Sam',
       role: 1,
       ownerId: 'owner-1',
       memberId: null,

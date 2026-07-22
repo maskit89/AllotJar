@@ -44,20 +44,20 @@ function profile(): AllocationProfileDto {
 
 function preview(transfersCreated = 0): AllocationResultDto {
   return {
-    pool: 8411.61,
-    envelopesTotal: 3641,
-    jarsTotal: 2164,
+    pool: 8000.75,
+    envelopesTotal: 3500,
+    jarsTotal: 2000,
     transfersCreated,
     steps: [
-      { type: 0, total: 3641, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1820.5 }, { memberId: 'm2', name: 'Liza', amount: 1820.5 }] },
-      { type: 1, total: 2164, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1082 }, { memberId: 'm2', name: 'Liza', amount: 1082 }] },
-      { type: 2, total: 500, perMember: [{ memberId: 'm1', name: 'Chris', amount: 250 }, { memberId: 'm2', name: 'Liza', amount: 250 }] },
-      // Terminal step is BalanceTilt (rule r3 split:2), tilting the 2106.61 toward Chris's lower balance.
-      { type: 3, total: 2106.61, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1316.63 }, { memberId: 'm2', name: 'Liza', amount: 789.98 }] },
+      { type: 0, total: 3500, perMember: [{ memberId: 'm1', name: 'Alex', amount: 1750 }, { memberId: 'm2', name: 'Sam', amount: 1750 }] },
+      { type: 1, total: 2000, perMember: [{ memberId: 'm1', name: 'Alex', amount: 1000 }, { memberId: 'm2', name: 'Sam', amount: 1000 }] },
+      { type: 2, total: 500, perMember: [{ memberId: 'm1', name: 'Alex', amount: 250 }, { memberId: 'm2', name: 'Sam', amount: 250 }] },
+      // Terminal step is BalanceTilt (rule r3 split:2), tilting the 2000.75 toward Alex's lower balance.
+      { type: 3, total: 2000.75, perMember: [{ memberId: 'm1', name: 'Alex', amount: 1250.47 }, { memberId: 'm2', name: 'Sam', amount: 750.28 }] },
     ],
     members: [
-      { memberId: 'm1', name: 'Chris', netIncome: 4411.64, residual: 1316.63, savingsBalance: 35631.96, savingsAccountId: 'acc1' },
-      { memberId: 'm2', name: 'Liza', netIncome: 3999.97, residual: 789.98, savingsBalance: 46033.38, savingsAccountId: 'acc2' },
+      { memberId: 'm1', name: 'Alex', netIncome: 4200.50, residual: 1250.47, savingsBalance: 30000, savingsAccountId: 'acc1' },
+      { memberId: 'm2', name: 'Sam', netIncome: 3800.25, residual: 750.28, savingsBalance: 40000, savingsAccountId: 'acc2' },
     ],
   }
 }
@@ -150,13 +150,13 @@ describe('AllocationPage', () => {
     renderPage()
 
     expect(await screen.findByText('How June is allocated', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText(/8,411\.61/)).toBeInTheDocument() // pool (hero)
+    expect(screen.getByText(/8,000\.75/)).toBeInTheDocument() // pool (hero)
     expect(screen.getByText('Pocket money')).toBeInTheDocument()
     expect(screen.getByText('To savings')).toBeInTheDocument() // hero tile
     expect(screen.getByText('Shared spending')).toBeInTheDocument() // hero tile reconciles to the pool
     // Each member's tilted surplus appears in both the step breakdown and their surplus card.
-    expect(screen.getAllByText(/1,316\.63/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/789\.98/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/1,250\.47/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/750\.28/).length).toBeGreaterThan(0)
   })
 
   it('disables Allocate and explains when no source account is set', { timeout: 15000 }, async () => {

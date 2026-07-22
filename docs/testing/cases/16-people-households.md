@@ -2,7 +2,7 @@
 
 **ID prefix:** PPL | **Scope:** The `/people` page (PeoplePage) — budget-person CRUD (add a person with no login, inline rename/income/savings edit, archive/remove, incl. a member who has income & attributed transactions), the owner materialized as member #1 (no 0-member state), the solo→shared transition and `isShared` gating flips (Allocation nav appears, member selects enable), the "Sign-in & access" cell that displays the member↔login linkage (invite pill, "This is me" claim, role select, Remove, "Other sign-ins"), inviting a person to sign in (link + direct temp-password), plus the `/account` household cards (Start my own budget, Leave this household, Sharing) and the UserMenu household switcher with data isolation between households. | **Out of scope:** the exhaustive **invite/accept validation matrix** — every invite-modal field rule, the `AcceptInvitePage` path/error permutations, token/expiry/reuse semantics — is owned by `17-invites.md` (INV-*). This file keeps the People-page **linkage display** (the "Sign-in & access" cell: Invited pill, role select, Remove, "This is me", "Other sign-ins"), the People-page-initiated invite *flow* (creating a link / direct login from a person row) and the household-**landing** consequences of accepting (which household you end up in), each cross-referencing `17-invites.md` for full depth — the two files are designed to overlap, with 17 reciprocally ceding member CRUD, the switcher, start-own and leave back to this file. Deep role/permission enforcement matrices (UI-hidden + server 403/404 for every denied cell) → `25-roles-permissions.md`; auth/session/JWT/refresh, cross-tab logout, ConsentModal internals, `safeInternalPath` unit semantics → `03-session-auth-lifecycle.md`; login/register and the sample-budget opt-in → `02-registration-login.md`; onboarding/welcome/checklist → `05-onboarding.md`; the allocation engine itself (waterfall, splits, commit) → `14-allocation.md`; per-account balances/currency → `12-accounts-reconciliation.md`; transaction attribution mechanics → `10-transactions.md`; dashboard hero/empty-month states → `06-dashboard-budget-view.md`; responsive/dark/a11y sweeps and multi-feature journeys → their dedicated files (`26-ux-states.md`, `20-journeys.md`, `22-concurrency-multiuser.md`).
 
-**Test data setup:** Three reusable fixtures unless a case overrides them. **(A) Solo owner** — login `chris@x.eu` (Owner), household "Your household" with exactly one member ("Chris", income 0), no other logins, no EUR accounts. **(B) Shared household** — Owner `chris@x.eu` + members "Chris" (income 3,000.00, linked to Chris's login) and "Liza" (income 1,000.00, linked to an Active `liza@x.eu` membership, role Admin); an EUR account "Joint". Combined income = 4,000.00; shares 75% / 25%. **(C) Pure invitee** — login `robin@x.eu` created by accepting an invite link into household B; has **no own household** (`ownsHousehold=false`), one Active membership in B. Money is `decimal(18,4)` server-side / integer minor units client-side. Feature flags `HouseholdAllocation` + `HouseholdAccess` default ON. All exact labels/messages below were read from source at repo `C:\Users\Laptop\Documents\Projects\ZeroBudget` (`PeoplePage.tsx`, `AccountPage.tsx`, `AcceptInvitePage.tsx`, `AppShell.tsx`, `HouseholdsController.cs`) on 2026-07-15.
+**Test data setup:** Three reusable fixtures unless a case overrides them. **(A) Solo owner** — login `alex@x.eu` (Owner), household "Your household" with exactly one member ("Alex", income 0), no other logins, no EUR accounts. **(B) Shared household** — Owner `alex@x.eu` + members "Alex" (income 3,000.00, linked to Alex's login) and "Sam" (income 1,000.00, linked to an Active `sam@x.eu` membership, role Admin); an EUR account "Joint". Combined income = 4,000.00; shares 75% / 25%. **(C) Pure invitee** — login `robin@x.eu` created by accepting an invite link into household B; has **no own household** (`ownsHousehold=false`), one Active membership in B. Money is `decimal(18,4)` server-side / integer minor units client-side. Feature flags `HouseholdAllocation` + `HouseholdAccess` default ON. All exact labels/messages below were read from source at repo `<local>\Documents\Projects\ZeroBudget` (`PeoplePage.tsx`, `AccountPage.tsx`, `AcceptInvitePage.tsx`, `AppShell.tsx`, `HouseholdsController.cs`) on 2026-07-15.
 
 ---
 
@@ -15,7 +15,7 @@
 - **Steps:**
   1. Navigate to `/people` (or click the "People" nav item).
   2. Observe the hero and the "Your household" table.
-- **Expected:** Hero eyebrow "Combined income" with amount `€4,000.00`; tiles "People" = `2` and "Shared this month" = the summed member spending. Section header "Your household". Table columns in order: Person, Income, Share, Spent, Savings, "Sign-in & access". Chris row shows income `€3,000.00`, share `75%`; Liza row `€1,000.00`, `25%`. The "You" sub-label appears under the person linked to the current login (Chris).
+- **Expected:** Hero eyebrow "Combined income" with amount `€4,000.00`; tiles "People" = `2` and "Shared this month" = the summed member spending. Section header "Your household". Table columns in order: Person, Income, Share, Spent, Savings, "Sign-in & access". Alex row shows income `€3,000.00`, share `75%`; Sam row `€1,000.00`, `25%`. The "You" sub-label appears under the person linked to the current login (Alex).
 - **Automated:** Partial (`client/src/pages/PeoplePage.test.tsx`)
 
 ### PPL-002 - People nav item is always visible (even solo)
@@ -58,11 +58,11 @@
 - **Priority:** P2
 - **Type:** Regression
 - **Origin:** PR — gotcha #12 (`GetMemberSpendingQueryHandler` has NO date/month filter, but the hero tile + code comment say "this month")
-- **Preconditions:** Fixture B; Liza has attributed expense transactions of €120 in the current month and €80 in a prior month.
+- **Preconditions:** Fixture B; Sam has attributed expense transactions of €120 in the current month and €80 in a prior month.
 - **Steps:**
   1. Open `/people`; read the "Shared this month" tile and the per-row "Spent" column.
   2. Navigate the TopBar month to a different month and re-open `/people`.
-- **Expected:** The tile and per-member "Spent" sum **all-time** attributed expenses (€200 for Liza), unchanged by the selected month — despite the "this month" label. Flag as a copy/scope defect: either the label must say "shared" (all-time) or the query must gain a month filter. Split transactions attribute per-slice `MemberId`; unsplit via `t.MemberId`; unattributed count for no one.
+- **Expected:** The tile and per-member "Spent" sum **all-time** attributed expenses (€200 for Sam), unchanged by the selected month — despite the "this month" label. Flag as a copy/scope defect: either the label must say "shared" (all-time) or the query must gain a month filter. Split transactions attribute per-slice `MemberId`; unsplit via `t.MemberId`; unattributed count for no one.
 - **Automated:** Partial (`tests/AllotJar.Application.Tests/Application/MemberSpendingTests.cs` covers the sum, not the label)
 
 ---
@@ -75,10 +75,10 @@
 - **Preconditions:** Fixture A (solo owner), signed in as owner (canWrite).
 - **Steps:**
   1. Click "+ Add person" (aria-label "Add person").
-  2. In the "Add a person" modal, type "Liza" into "Name" (placeholder "First name").
+  2. In the "Add a person" modal, type "Sam" into "Name" (placeholder "First name").
   3. Type `1000` into "Net monthly income" (placeholder "0.00").
   4. Click "Add person".
-- **Expected:** `POST /members {name:"Liza", netMonthlyIncome:1000, personalSavingsAccountId:null}` → 201. Modal closes; Liza appears in the table with income `€1,000.00`; a login is NOT created (Sign-in cell shows the invite/claim controls, not an email). `member_added` analytics event fires. Household refreshes; because there are now 2 members it flips solo→shared (PPL-030).
+- **Expected:** `POST /members {name:"Sam", netMonthlyIncome:1000, personalSavingsAccountId:null}` → 201. Modal closes; Sam appears in the table with income `€1,000.00`; a login is NOT created (Sign-in cell shows the invite/claim controls, not an email). `member_added` analytics event fires. Household refreshes; because there are now 2 members it flips solo→shared (PPL-030).
 - **Automated:** Yes (`client/src/pages/PeoplePage.test.tsx`, `client/e2e-journey/invite.spec.ts`)
 
 ### PPL-008 - Add person with Enter key submits
@@ -183,16 +183,16 @@
 - **Type:** Happy
 - **Preconditions:** Fixture B; signed in as owner; hover reveals row actions.
 - **Steps:**
-  1. Hover Liza's row and click "✎" (aria "Edit Liza", title "Edit person").
-  2. The row switches to inputs: "Name for Liza", "Net monthly income for Liza", "Savings account for Liza" (with a "None" option).
-  3. Change name to "Liza M", income to `1200`, savings to "Joint"; click "Save" (aria "Save Liza").
-- **Expected:** `PUT /members/{id} {name:"Liza M", netMonthlyIncome:1200, personalSavingsAccountId:<Joint>}`; `member_edited` fires; row re-renders with the new values; Combined income hero recomputes to `€4,200.00` and shares to ~71% / 29%.
+  1. Hover Sam's row and click "✎" (aria "Edit Sam", title "Edit person").
+  2. The row switches to inputs: "Name for Sam", "Net monthly income for Sam", "Savings account for Sam" (with a "None" option).
+  3. Change name to "Sam M", income to `1200`, savings to "Joint"; click "Save" (aria "Save Sam").
+- **Expected:** `PUT /members/{id} {name:"Sam M", netMonthlyIncome:1200, personalSavingsAccountId:<Joint>}`; `member_edited` fires; row re-renders with the new values; Combined income hero recomputes to `€4,200.00` and shares to ~71% / 29%.
 - **Automated:** No
 
 ### PPL-019 - Cancel inline edit discards changes
 - **Priority:** P2
 - **Type:** Happy
-- **Preconditions:** Fixture B; Liza's row in edit mode with a changed name.
+- **Preconditions:** Fixture B; Sam's row in edit mode with a changed name.
 - **Steps:**
   1. Click "Cancel" (aria "Cancel edit").
 - **Expected:** Row reverts to display mode with the original values; no `PUT` is sent.
@@ -201,7 +201,7 @@
 ### PPL-020 - Inline edit validation mirrors add
 - **Priority:** P2
 - **Type:** Negative
-- **Preconditions:** Fixture B; Liza's row in edit mode.
+- **Preconditions:** Fixture B; Sam's row in edit mode.
 - **Steps:**
   1. Clear the name, click "Save". Then restore the name, set income to `abc`, click "Save".
 - **Expected:** "Give the person a name." then "Enter a valid monthly income." respectively; no `PUT` until both are valid. On a server failure the row shows "Could not save that person."
@@ -210,9 +210,9 @@
 ### PPL-021 - Editing the owner's own person
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Fixture A/B; the owner's own person ("Chris", the "You" row).
+- **Preconditions:** Fixture A/B; the owner's own person ("Alex", the "You" row).
 - **Steps:**
-  1. Edit Chris's income from 0 to `3000` and Save.
+  1. Edit Alex's income from 0 to `3000` and Save.
 - **Expected:** Succeeds (no special guard on the owner's person); the owner is a normal member for CRUD purposes. Combined income and shares update accordingly.
 - **Automated:** No
 
@@ -226,28 +226,28 @@
 - **Origin:** gotcha #21 (archive has no confirmation, no in-UI undo)
 - **Preconditions:** Fixture B; signed in as owner.
 - **Steps:**
-  1. Hover Liza's row and click "✕" (aria "Archive Liza", title "Archive person").
-- **Expected:** `PUT /members/{id}/archive {archived:true}` fires on the single click — **no confirmation modal**. Liza disappears from the table; Combined income drops to `€3,000.00`; Chris's share becomes `100%`. Household refreshes; 1 remaining member flips shared→solo (Allocation nav hides). There is no restore UI — restore is API-only.
+  1. Hover Sam's row and click "✕" (aria "Archive Sam", title "Archive person").
+- **Expected:** `PUT /members/{id}/archive {archived:true}` fires on the single click — **no confirmation modal**. Sam disappears from the table; Combined income drops to `€3,000.00`; Alex's share becomes `100%`. Household refreshes; 1 remaining member flips shared→solo (Allocation nav hides). There is no restore UI — restore is API-only.
 - **Automated:** No
 
 ### PPL-023 - Archive a member who has income AND attributed transactions
 - **Priority:** P0
 - **Type:** Edge
 - **Origin:** gotcha #6 (leave/revoke/archive keep the budget person's attributed data; "Nothing was deleted")
-- **Preconditions:** Fixture B; Liza has income 1,000.00 and €500 of attributed expense transactions in the register.
+- **Preconditions:** Fixture B; Sam has income 1,000.00 and €500 of attributed expense transactions in the register.
 - **Steps:**
-  1. Archive Liza from `/people`.
-  2. Open `/transactions` and check Liza's previously-attributed transactions.
-- **Expected:** Liza is excluded from `GET /members` (default), from the spending totals, and from income-share math (Combined income → €3,000.00). Her transactions are NOT deleted — they remain in the register (the `HouseholdMember` and all attributed data persist). No money is lost or moved.
+  1. Archive Sam from `/people`.
+  2. Open `/transactions` and check Sam's previously-attributed transactions.
+- **Expected:** Sam is excluded from `GET /members` (default), from the spending totals, and from income-share math (Combined income → €3,000.00). Her transactions are NOT deleted — they remain in the register (the `HouseholdMember` and all attributed data persist). No money is lost or moved.
 - **Automated:** Partial (`tests/AllotJar.Application.Tests/Application/HouseholdMembersTests.cs` archive-hides-from-default; `MemberSpendingTests.cs` excludes-archived)
 
 ### PPL-024 - Archived member is absent from the People table (no restore control)
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Fixture B with Liza already archived.
+- **Preconditions:** Fixture B with Sam already archived.
 - **Steps:**
   1. Open `/people`.
-- **Expected:** Liza does not appear (PeoplePage never passes `includeArchived=true`); there is no toggle to view or restore archived people from the UI. Restore requires `PUT /members/{id}/archive {archived:false}` via API.
+- **Expected:** Sam does not appear (PeoplePage never passes `includeArchived=true`); there is no toggle to view or restore archived people from the UI. Restore requires `PUT /members/{id}/archive {archived:false}` via API.
 - **Automated:** No
 
 ### PPL-025 - Archived earner's income share is NOT zeroed when fetched with includeArchived
@@ -256,9 +256,9 @@
 - **Origin:** gotcha (HouseholdMemberDto mapping applies `income/activeTotal` to archived members too, contradicting the handler comment)
 - **Preconditions:** Household B; call `GET /members?includeArchived=true` directly (API-only; no UI path).
 - **Steps:**
-  1. Archive Liza (income 1,000; active total after archive = 3,000).
-  2. `GET /members?includeArchived=true` and read Liza's `incomeSharePct`.
-- **Expected:** Liza's `incomeSharePct` is `1000/3000 ≈ 0.3333` (NOT 0), so the returned shares can exceed 100% across the full list. Confirms the mapping bug; the default (active-only) list is unaffected. Purely an API-surface edge — the People UI never requests archived members.
+  1. Archive Sam (income 1,000; active total after archive = 3,000).
+  2. `GET /members?includeArchived=true` and read Sam's `incomeSharePct`.
+- **Expected:** Sam's `incomeSharePct` is `1000/3000 ≈ 0.3333` (NOT 0), so the returned shares can exceed 100% across the full list. Confirms the mapping bug; the default (active-only) list is unaffected. Purely an API-surface edge — the People UI never requests archived members.
 - **Automated:** No
 
 ### PPL-026 - Archive button hidden for non-writers
@@ -356,15 +356,15 @@
 - **Preconditions:** Fixture B; signed in as owner (`canAccess` = `householdAccess && canManageHousehold`).
 - **Steps:**
   1. Open `/people`; inspect the "Sign-in & access" cell for each row.
-- **Expected:** Chris's row (the owner's own login) shows the email + a brand Badge with the role label (Owner is not editable). Liza's row (another Active login) shows her email + a role `<select>` (aria "Access level for Liza") with options Admin / Limited / Read-only, plus a "Remove" button (aria "Remove sign-in for Liza"). The current login's own row renders a static bordered role label (no select on yourself).
+- **Expected:** Alex's row (the owner's own login) shows the email + a brand Badge with the role label (Owner is not editable). Sam's row (another Active login) shows her email + a role `<select>` (aria "Access level for Sam") with options Admin / Limited / Read-only, plus a "Remove" button (aria "Remove sign-in for Sam"). The current login's own row renders a static bordered role label (no select on yourself).
 - **Automated:** Partial (`client/src/pages/PeoplePage.test.tsx`)
 
 ### PPL-035 - Change a member's role
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Fixture B; owner viewing Liza (Admin).
+- **Preconditions:** Fixture B; owner viewing Sam (Admin).
 - **Steps:**
-  1. In Liza's "Access level for Liza" select, choose "Limited".
+  1. In Sam's "Access level for Sam" select, choose "Limited".
 - **Expected:** `PUT /access/members/{id}/role {role:2}`; `member_role_changed {kind:"Limited"}` fires; row updates. On failure: "Could not change that role." Role change is server-live but the SPA's own `canWrite`/`canAccess` only re-resolve on `/auth/me` (a demoted admin keeps buttons until reload). Full role behavior → `25-roles-permissions.md`.
 - **Automated:** No
 
@@ -372,10 +372,10 @@
 - **Priority:** P1
 - **Type:** Happy
 - **Origin:** gotcha #6 (revoke hard-deletes the membership row; the budget person stays)
-- **Preconditions:** Fixture B; owner viewing Liza's login.
+- **Preconditions:** Fixture B; owner viewing Sam's login.
 - **Steps:**
-  1. Click "Remove" (aria "Remove sign-in for Liza").
-- **Expected:** `DELETE /access/members/{id}` → 204; `member_revoked` fires; the membership row is hard-deleted (no Revoked tombstone) so Liza's row now shows "Invite to sign in" again; Liza the budget person remains with her income/data. Re-inviting creates a brand-new membership. On failure: "Could not remove that sign-in."
+  1. Click "Remove" (aria "Remove sign-in for Sam").
+- **Expected:** `DELETE /access/members/{id}` → 204; `member_revoked` fires; the membership row is hard-deleted (no Revoked tombstone) so Sam's row now shows "Invite to sign in" again; Sam the budget person remains with her income/data. Re-inviting creates a brand-new membership. On failure: "Could not remove that sign-in."
 - **Automated:** Partial (`tests/AllotJar.Application.Tests/Application/HouseholdAccessTests.cs`)
 
 ### PPL-037 - Owner sign-in cannot be changed or removed
@@ -401,11 +401,11 @@
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** PR #107 (imported/pre-existing households leave the owner login unlinked; auto-inference impossible)
-- **Preconditions:** A household where the current owner login has `memberId=null` (`myUnlinked`), and an unlinked person "Chris" exists.
+- **Preconditions:** A household where the current owner login has `memberId=null` (`myUnlinked`), and an unlinked person "Alex" exists.
 - **Steps:**
-  1. Open `/people`; on Chris's row (no login) a "This is me" button appears (title "Connect your sign-in to this person") alongside "Invite to sign in".
+  1. Open `/people`; on Alex's row (no login) a "This is me" button appears (title "Connect your sign-in to this person") alongside "Invite to sign in".
   2. Click "This is me".
-- **Expected:** `PUT /access/members/{myMembershipId}/link {memberId:<Chris>}`; the row now shows the owner's email + role Badge and the "You" sub-label; the current login is dropped from the "Other sign-ins" list. The button appears on every unlinked person row while the current login is unlinked.
+- **Expected:** `PUT /access/members/{myMembershipId}/link {memberId:<Alex>}`; the row now shows the owner's email + role Badge and the "You" sub-label; the current login is dropped from the "Other sign-ins" list. The button appears on every unlinked person row while the current login is unlinked.
 - **Automated:** Partial (`client/src/pages/PeoplePage.test.tsx`)
 
 ### PPL-040 - Unlinked person offers "Invite to sign in"; not-canAccess shows "No sign-in"
@@ -431,10 +431,10 @@
 - **Priority:** P2
 - **Type:** Edge
 - **Origin:** gotcha (person filtered out of members table; `memberId != null` excludes it from "Other sign-ins")
-- **Preconditions:** Fixture B; archive Liza while her login membership still has `memberId` = Liza.
+- **Preconditions:** Fixture B; archive Sam while her login membership still has `memberId` = Sam.
 - **Steps:**
   1. As owner, open `/people` and scan the members table and "Other sign-ins".
-- **Expected:** Liza's login appears NOWHERE — not in the members table (person archived/filtered) and not in "Other sign-ins" (its `memberId` is non-null). Her access cannot be viewed or revoked from the UI in this state. Real edge case: revoking requires un-archiving the member first (API) or removing via the access API by id. Flag as a coverage gap.
+- **Expected:** Sam's login appears NOWHERE — not in the members table (person archived/filtered) and not in "Other sign-ins" (its `memberId` is non-null). Her access cannot be viewed or revoked from the UI in this state. Real edge case: revoking requires un-archiving the member first (API) or removing via the access API by id. Flag as a coverage gap.
 - **Automated:** No
 
 ---
@@ -476,9 +476,9 @@
 - **Priority:** P2
 - **Type:** Negative
 - **Origin:** gotcha #14 (a pending/active membership for that email blocks re-invite; expired links linger)
-- **Preconditions:** Fixture B; `liza@x.eu` already has a membership (Active or pending Invited, incl. an expired-but-not-removed link).
+- **Preconditions:** Fixture B; `sam@x.eu` already has a membership (Active or pending Invited, incl. an expired-but-not-removed link).
 - **Steps:**
-  1. Invite `liza@x.eu` again.
+  1. Invite `sam@x.eu` again.
 - **Expected:** Server 400 field `Email`: "That email already has access to this household."; the modal surfaces the flattened field error. An expired invite still blocks re-inviting until the owner clicks "Remove" on that pending row (no expiry-cleanup job).
 - **Automated:** Partial (`tests/AllotJar.Application.Tests/Application/HouseholdAccessTests.cs`)
 
@@ -513,9 +513,9 @@
 - **Priority:** P2
 - **Type:** Negative
 - **Origin:** gotcha #9 (link enforced at invite-time, link-time, and by a global filtered unique index)
-- **Preconditions:** Fixture B; person "Liza" already linked to a login.
+- **Preconditions:** Fixture B; person "Sam" already linked to a login.
 - **Steps:**
-  1. Attempt to invite a new email with `memberId` = Liza, or link an orphan login to Liza via the "Link to a person…" select.
+  1. Attempt to invite a new email with `memberId` = Sam, or link an orphan login to Sam via the "Link to a person…" select.
 - **Expected:** 400 field `MemberId`: "That budget person is already linked to another login." A person can be linked to at most one login; the DB unique index on `MemberId` is global (across all households), stronger than the per-household handler checks.
 - **Automated:** Partial (`HouseholdAccessTests.cs`)
 
@@ -595,7 +595,7 @@
 - **Priority:** P1
 - **Type:** Happy
 - **Origin:** gotcha #11 (the live switcher is in the UserMenu; `HouseholdSwitcher.tsx` is dead code) / gotcha #17 (switch returns 204, client must full-reload)
-- **Preconditions:** A login with 2 households ("Your household" + joined "Chris's household").
+- **Preconditions:** A login with 2 households ("Your household" + joined "Alex's household").
 - **Steps:**
   1. Open the account/user menu (avatar, aria "Account menu"). Note the "Household" section listing each household, the active one bold with "✓".
   2. Click the non-active household.
@@ -605,11 +605,11 @@
 ### PPL-058 - Data isolation: switching households scopes ALL data
 - **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** Login with household "Own" (member "Chris") and joined household B (members Chris+Liza, account "Joint", budget with income).
+- **Preconditions:** Login with household "Own" (member "Alex") and joined household B (members Alex+Sam, account "Joint", budget with income).
 - **Steps:**
   1. While active in "Own", open `/people`, `/accounts`, dashboard.
   2. Switch to B; re-open the same pages.
-- **Expected:** Everything is partitioned by the active `OwnerId`: "Own" shows only its 1 member and no "Joint" account; B shows Chris+Liza, "Joint", and B's budget/months. No member, account, transaction, or budget line from one household leaks into the other. `member` CRUD from B mutates B (the active household), never "Own".
+- **Expected:** Everything is partitioned by the active `OwnerId`: "Own" shows only its 1 member and no "Joint" account; B shows Alex+Sam, "Joint", and B's budget/months. No member, account, transaction, or budget line from one household leaks into the other. `member` CRUD from B mutates B (the active household), never "Own".
 - **Automated:** No
 
 ### PPL-059 - Switching to a household you no longer have access to falls back gracefully
@@ -651,7 +651,7 @@
 ### PPL-062 - "Your own budget" card hidden for a login that already owns a household
 - **Priority:** P1
 - **Type:** Negative
-- **Preconditions:** Owner `chris@x.eu` (owns "Your household").
+- **Preconditions:** Owner `alex@x.eu` (owns "Your household").
 - **Steps:**
   1. Open `/account`.
 - **Expected:** No "Your own budget" / "Start my own budget" card (gated on `!ownsHousehold` where `ownsHousehold = households.some(h => h.isOwn)`). An owner also never sees the "Leave this household" card while viewing their own household.
@@ -705,7 +705,7 @@
 ### PPL-067 - Leave card hidden while viewing your own household
 - **Priority:** P1
 - **Type:** Negative
-- **Preconditions:** Owner `chris@x.eu` viewing "Your household".
+- **Preconditions:** Owner `alex@x.eu` viewing "Your household".
 - **Steps:**
   1. Open `/account`.
 - **Expected:** No "Leave this household" card (shown only when `activeHousehold && !activeHousehold.isOwn`). Guards: `POST /households/leave` with `ownerId==userId` → 400 "You can't leave your own household."; with no Active membership → 404 "You don't have access to that household."; on the Owner-role row → 400 "The owner can't leave their own household."
@@ -779,10 +779,10 @@
 - **Priority:** P2
 - **Type:** Regression
 - **Origin:** gotcha #13 (invite dupe-check compares `InvitedEmail == email` trimmed, NOT lowercased — case-INSENSITIVE on prod SQL Server, case-SENSITIVE under the EF InMemory CI job; accept-path email match is explicitly `OrdinalIgnoreCase`)
-- **Preconditions:** Fixture B; `liza@x.eu` already has a membership (Active or pending Invited).
+- **Preconditions:** Fixture B; `sam@x.eu` already has a membership (Active or pending Invited).
 - **Steps:**
   1. As owner, invite `LIZA@x.eu` (different case) from a person row.
-  2. Separately, invite `  liza@x.eu  ` (surrounding whitespace).
+  2. Separately, invite `  sam@x.eu  ` (surrounding whitespace).
 - **Expected:** On production (SQL Server, case-insensitive collation) BOTH are rejected with 400 field `Email`: "That email already has access to this household." (email is trimmed before the dupe check, so the whitespace variant is caught). The case-variant `LIZA@x.eu` is the divergence point: it is rejected on prod but WOULD slip through under the EF InMemory `backend` CI job (case-sensitive equality) — so any automated assertion on case-variant dupes must run against the SQL integration layer, not InMemory. The accept endpoint always matches the invited email case-insensitively (`OrdinalIgnoreCase`), so a case-variant accepter is still recognised. Flag the prod-vs-InMemory split for test placement.
 - **Automated:** Partial (`tests/AllotJar.Application.Tests/Application/HouseholdAccessTests.cs` asserts same-email dupe rejection under InMemory; case-variant divergence is not pinned by an integration test)
 
@@ -794,7 +794,7 @@
 - **Priority:** P2
 - **Type:** Negative
 - **Origin:** guard — `CreateHouseholdMemberCommandHandler` (`Household/Commands/CreateHouseholdMember`, lines ~31-39): a `PersonalSavingsAccountId` is a soft hint with NO foreign key, so the handler requires an `Account` with that id AND `a.OwnerId == userId`, else `throw new NotFoundException($"Account {savingsId} was not found.")`. The comment states this exists so a stale/foreign id can't later be booked as an allocation transfer into a non-existent (crash) or another household's (leak) account. PPL-009 only covers the happy path and asserts the validation in prose — the negative was never fired.
-- **Preconditions:** Fixture B (owner `chris@x.eu`, household B has EUR account "Joint"). A SECOND, unrelated household owned by a different login `mallory@x.eu`, holding its own EUR account "Mallory-Savings" (id `A_other`, `OwnerId` = Mallory). The People "Savings account" select only lists the active household's own accounts, so a foreign or nonexistent id is reachable only via a crafted request — mirror the raw-API style of INV-025 / ALLOC-028.
+- **Preconditions:** Fixture B (owner `alex@x.eu`, household B has EUR account "Joint"). A SECOND, unrelated household owned by a different login `mallory@x.eu`, holding its own EUR account "Mallory-Savings" (id `A_other`, `OwnerId` = Mallory). The People "Savings account" select only lists the active household's own accounts, so a foreign or nonexistent id is reachable only via a crafted request — mirror the raw-API style of INV-025 / ALLOC-028.
 - **Steps:**
   1. As owner of B, send `POST /api/members {name:"Sam", netMonthlyIncome:500, personalSavingsAccountId:<A_other>}` (an account owned by the OTHER household).
   2. Repeat with `personalSavingsAccountId:<a random GUID>` that matches no account in any household.
@@ -805,27 +805,27 @@
 - **Priority:** P2
 - **Type:** Negative
 - **Origin:** guard — `UpdateHouseholdMemberCommandHandler` (`Household/Commands/UpdateHouseholdMember`, lines ~39-47): same soft-hint ownership check as PPL-075 (`Accounts.AnyAsync(a => a.Id == savingsId && a.OwnerId == userId)` else `NotFoundException`). It runs AFTER the member-exists lookup (404 "Household member {id} was not found.") and the owner check (`member.OwnerId != userId` → `ForbiddenAccessException` 403), and BEFORE any field assignment or `SaveChangesAsync`. PPL-018 only covers the happy inline-edit and asserts the check in prose.
-- **Preconditions:** Fixture B; member "Liza" (`lizaId`, savings currently "Joint" or none) owned by household B. The same unrelated household owned by `mallory@x.eu` with account "Mallory-Savings" (id `A_other`). Reachable only via a crafted `PUT` (the inline-edit "Savings account for Liza" select offers only B's own accounts + "None").
+- **Preconditions:** Fixture B; member "Sam" (`lizaId`, savings currently "Joint" or none) owned by household B. The same unrelated household owned by `mallory@x.eu` with account "Mallory-Savings" (id `A_other`). Reachable only via a crafted `PUT` (the inline-edit "Savings account for Sam" select offers only B's own accounts + "None").
 - **Steps:**
-  1. As owner of B, send `PUT /api/members/{lizaId} {name:"Liza", netMonthlyIncome:1000, personalSavingsAccountId:<A_other>}` (foreign account).
+  1. As owner of B, send `PUT /api/members/{lizaId} {name:"Sam", netMonthlyIncome:1000, personalSavingsAccountId:<A_other>}` (foreign account).
   2. Repeat with `personalSavingsAccountId:<a random GUID>` that matches no account.
-- **Expected:** Both requests → **404 "Account {id} was not found."** Because the throw precedes the `member.Name` / `member.NetMonthlyIncome` / `member.PersonalSavingsAccountId` assignments and `SaveChangesAsync`, NO field change is persisted: a subsequent `GET /api/members` shows Liza's `personalSavingsAccountId`, name and income exactly as before (no partial write, no foreign link). Same cross-household-leak regression rationale as PPL-075; distinct from a nonexistent-member `PUT` (→ 404 "Household member {id} was not found.") and a not-owned-member `PUT` (→ 403).
+- **Expected:** Both requests → **404 "Account {id} was not found."** Because the throw precedes the `member.Name` / `member.NetMonthlyIncome` / `member.PersonalSavingsAccountId` assignments and `SaveChangesAsync`, NO field change is persisted: a subsequent `GET /api/members` shows Sam's `personalSavingsAccountId`, name and income exactly as before (no partial write, no foreign link). Same cross-household-leak regression rationale as PPL-075; distinct from a nonexistent-member `PUT` (→ 404 "Household member {id} was not found.") and a not-owned-member `PUT` (→ 403).
 - **Automated:** No
 
 ### PPL-077 - Restore an archived member re-adds them to the default list, income share & shared gating (API-surface, reverse of PPL-031)
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** write leg — `ArchiveHouseholdMemberCommand(Guid Id, bool Archived = true)` (`Household/Commands/ArchiveHouseholdMember/ArchiveHouseholdMemberCommand.cs:7`) is a **toggle**, so `Archived:false` RESTORES. `ArchiveHouseholdMemberCommandHandler.cs:36` does `member.IsArchived = request.Archived;` then (lines 39-41) recomputes `totalActiveNet` over `OwnerId == userId && !IsArchived` — which now re-includes the restored member — and returns `member.ToDto(totalActiveNet)`. `MembersController.cs:79-82` maps `PUT /api/members/{id}/archive` → the command with `request.Archived` (`ArchiveMemberRequest(bool Archived = true)`, line 93). Every existing case (PPL-022/023/029/031 archive; PPL-025 `includeArchived=true` read) only ever sets `Archived:true` or reads archived members; PPL-024 (16-people-households.md:250) documents restore as "requires `PUT /members/{id}/archive {archived:false}` via API" but never runs it. There is **no restore control in the People UI** (PPL-024), so this leg is only reachable via a crafted request, mirroring the raw-API style of PPL-075/076. Without it a broken restore (e.g. `IsArchived` not cleared, or the active-pool income not re-summed) is invisible to a tester following the catalog.
-- **Preconditions:** Fixture B with **Liza already archived** (the PPL-024 starting state): the household is currently **solo** — default `GET /api/members` returns only Chris (income 3,000.00, share 100%), Combined income hero `€3,000.00`, Allocation nav absent, AccountPage "Sharing" card reads solo. Note Liza's `lizaId` (recoverable via `GET /api/members?includeArchived=true`, PPL-025). Signed in as owner `chris@x.eu`.
+- **Preconditions:** Fixture B with **Sam already archived** (the PPL-024 starting state): the household is currently **solo** — default `GET /api/members` returns only Alex (income 3,000.00, share 100%), Combined income hero `€3,000.00`, Allocation nav absent, AccountPage "Sharing" card reads solo. Note Sam's `lizaId` (recoverable via `GET /api/members?includeArchived=true`, PPL-025). Signed in as owner `alex@x.eu`.
 - **Steps:**
-  1. Confirm the starting solo state on `/people`: only Chris in the table, hero `€3,000.00`, no "Allocation" nav item (there is no restore toggle in the UI — PPL-024).
+  1. Confirm the starting solo state on `/people`: only Alex in the table, hero `€3,000.00`, no "Allocation" nav item (there is no restore toggle in the UI — PPL-024).
   2. Send `PUT /api/members/{lizaId}/archive {"archived":false}` (raw API — no People-page control exists for this).
   3. Reload `/people` (a fresh load runs `refreshHousehold()`, which re-fetches the default `/members`).
-- **Expected:** Step 2 → **200** with Liza's DTO where `isArchived:false` and `incomeSharePct` recomputed against the restored active pool: `1000/(3000+1000) = 0.25` (the handler's post-save `totalActiveNet` now sums 4,000.00, NOT the pre-restore 3,000). Then:
-  - **Default list re-includes her:** a follow-up `GET /api/members` (no `includeArchived` → `false`; `MembersController.cs:35` + `GetHouseholdMembersQueryHandler.cs:29`) now returns **both** Chris and Liza — the restored member re-appears in the exact list the People UI always requests, so on reload Liza's row is back in "Your household".
-  - **Income & shares recompute to include her again:** Combined income hero returns to `€4,000.00`; Chris's share recomputes back to `75%` and Liza's to `25%` (`GetHouseholdMembersQueryHandler.cs:36` sums `totalActiveNet` over active members = 4,000, so both are divided by the restored pool — the exact reverse of the archive in PPL-022/031, not a stale 3,000 divisor).
+- **Expected:** Step 2 → **200** with Sam's DTO where `isArchived:false` and `incomeSharePct` recomputed against the restored active pool: `1000/(3000+1000) = 0.25` (the handler's post-save `totalActiveNet` now sums 4,000.00, NOT the pre-restore 3,000). Then:
+  - **Default list re-includes her:** a follow-up `GET /api/members` (no `includeArchived` → `false`; `MembersController.cs:35` + `GetHouseholdMembersQueryHandler.cs:29`) now returns **both** Alex and Sam — the restored member re-appears in the exact list the People UI always requests, so on reload Sam's row is back in "Your household".
+  - **Income & shares recompute to include her again:** Combined income hero returns to `€4,000.00`; Alex's share recomputes back to `75%` and Sam's to `25%` (`GetHouseholdMembersQueryHandler.cs:36` sums `totalActiveNet` over active members = 4,000, so both are divided by the restored pool — the exact reverse of the archive in PPL-022/031, not a stale 3,000 divisor).
   - **Shared/solo gating flips back:** `refreshHousehold()` sets `members.length` back to 2 → `isShared` true (`HouseholdContext.tsx:97`, `SHARED_THRESHOLD = 2`) → the "Allocation" nav item (`data-tour="nav-allocation"`, → `/allocation`) reappears and the `/allocation` solo guard lifts; AccountPage "Sharing" card flips back to "shared between 2 people". This is the precise inverse of PPL-031 (archive-to-1 → shared→solo).
-  - **Guards:** the restore obeys the same owner scoping as archive — `PUT …/archive` for a member whose `OwnerId != userId` → **403** (`ArchiveHouseholdMemberCommandHandler.cs:31-34`); an unknown id → **404 "Household member {id} was not found."** No sample/undo side effects; nothing was ever deleted by the earlier archive (PPL-023), so the restored member carries her original income and attributed transactions intact. A broken restore leg (IsArchived left true, or income not re-summed into the active pool) would leave Liza absent from the default list, the hero stuck at `€3,000.00`, and the Allocation nav hidden — all caught here.
+  - **Guards:** the restore obeys the same owner scoping as archive — `PUT …/archive` for a member whose `OwnerId != userId` → **403** (`ArchiveHouseholdMemberCommandHandler.cs:31-34`); an unknown id → **404 "Household member {id} was not found."** No sample/undo side effects; nothing was ever deleted by the earlier archive (PPL-023), so the restored member carries her original income and attributed transactions intact. A broken restore leg (IsArchived left true, or income not re-summed into the active pool) would leave Sam absent from the default list, the hero stuck at `€3,000.00`, and the Allocation nav hidden — all caught here.
 - **Automated:** No
 
 ### PPL-078 - Budget-attributed income drives the People hero and income column

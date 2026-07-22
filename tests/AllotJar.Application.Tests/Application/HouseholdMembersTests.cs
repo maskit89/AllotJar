@@ -43,41 +43,41 @@ public class HouseholdMembersTests
         await using var db = NewContext();
         var handler = new CreateHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"));
 
-        var a = await handler.Handle(new CreateHouseholdMemberCommand("Chris", 4411.64m, null), CancellationToken.None);
-        var b = await handler.Handle(new CreateHouseholdMemberCommand("Liza", 3999.97m, null), CancellationToken.None);
+        var a = await handler.Handle(new CreateHouseholdMemberCommand("Alex", 4200.50m, null), CancellationToken.None);
+        var b = await handler.Handle(new CreateHouseholdMemberCommand("Sam", 3800.25m, null), CancellationToken.None);
 
         a.DisplayOrder.Should().Be(0);
         b.DisplayOrder.Should().Be(1);
         (await db.HouseholdMembers.CountAsync()).Should().Be(2);
-        (await db.HouseholdMembers.FirstAsync(m => m.Name == "Chris")).OwnerId.Should().Be("user-1");
+        (await db.HouseholdMembers.FirstAsync(m => m.Name == "Alex")).OwnerId.Should().Be("user-1");
     }
 
     [Fact]
     public async Task Get_ComputesIncomeShare_AcrossActiveMembers()
     {
         await using var db = NewContext();
-        await Seed(db, "user-1", "Chris", 6000m);
-        await Seed(db, "user-1", "Liza", 4000m);
+        await Seed(db, "user-1", "Alex", 6000m);
+        await Seed(db, "user-1", "Sam", 4000m);
 
         var members = await new GetHouseholdMembersQueryHandler(db, new CurrentUserStub("user-1"))
             .Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
 
-        members.Single(m => m.Name == "Chris").IncomeSharePct.Should().Be(0.6m); // 6000 / 10000
-        members.Single(m => m.Name == "Liza").IncomeSharePct.Should().Be(0.4m);
+        members.Single(m => m.Name == "Alex").IncomeSharePct.Should().Be(0.6m); // 6000 / 10000
+        members.Single(m => m.Name == "Sam").IncomeSharePct.Should().Be(0.4m);
     }
 
     [Fact]
     public async Task Get_IsOwnerScoped_AndExcludesArchivedByDefault()
     {
         await using var db = NewContext();
-        await Seed(db, "user-1", "Chris", 5000m);
+        await Seed(db, "user-1", "Alex", 5000m);
         await Seed(db, "user-1", "Old", 1000m, archived: true);
         await Seed(db, "user-2", "Other", 9000m);
 
         var handler = new GetHouseholdMembersQueryHandler(db, new CurrentUserStub("user-1"));
 
         var active = await handler.Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
-        active.Should().ContainSingle().Which.Name.Should().Be("Chris");
+        active.Should().ContainSingle().Which.Name.Should().Be("Alex");
 
         var all = await handler.Handle(new GetHouseholdMembersQuery(IncludeArchived: true), CancellationToken.None);
         all.Should().HaveCount(2);
@@ -87,7 +87,7 @@ public class HouseholdMembersTests
     public async Task Update_EditsFields()
     {
         await using var db = NewContext();
-        var m = await Seed(db, "user-1", "Chris", 5000m);
+        var m = await Seed(db, "user-1", "Alex", 5000m);
 
         var dto = await new UpdateHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"))
             .Handle(new UpdateHouseholdMemberCommand(m.Id, "Christopher", 5500m, null), CancellationToken.None);
@@ -100,13 +100,13 @@ public class HouseholdMembersTests
     public async Task Update_LinksAnOwnedSavingsAccount()
     {
         await using var db = NewContext();
-        var m = await Seed(db, "user-1", "Chris", 5000m);
-        var account = new Account { OwnerId = "user-1", Name = "Chris Savings", Currency = CurrencyCode.Eur, DisplayOrder = 0 };
+        var m = await Seed(db, "user-1", "Alex", 5000m);
+        var account = new Account { OwnerId = "user-1", Name = "Alex Savings", Currency = CurrencyCode.Eur, DisplayOrder = 0 };
         db.Accounts.Add(account);
         await db.SaveChangesAsync();
 
         var dto = await new UpdateHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new UpdateHouseholdMemberCommand(m.Id, "Chris", 5000m, account.Id), CancellationToken.None);
+            .Handle(new UpdateHouseholdMemberCommand(m.Id, "Alex", 5000m, account.Id), CancellationToken.None);
 
         dto.PersonalSavingsAccountId.Should().Be(account.Id);
     }
@@ -115,7 +115,7 @@ public class HouseholdMembersTests
     public async Task Update_Throws_WhenSavingsAccountIsMissingOrForeign()
     {
         await using var db = NewContext();
-        var m = await Seed(db, "user-1", "Chris", 5000m);
+        var m = await Seed(db, "user-1", "Alex", 5000m);
         var foreign = new Account { OwnerId = "user-2", Name = "Someone else", Currency = CurrencyCode.Eur, DisplayOrder = 0 };
         db.Accounts.Add(foreign);
         await db.SaveChangesAsync();
@@ -124,10 +124,10 @@ public class HouseholdMembersTests
 
         // A non-existent id is rejected (would dangle → crash the allocation commit on SQL Server).
         await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
-            new UpdateHouseholdMemberCommand(m.Id, "Chris", 5000m, Guid.NewGuid()), CancellationToken.None));
+            new UpdateHouseholdMemberCommand(m.Id, "Alex", 5000m, Guid.NewGuid()), CancellationToken.None));
         // Another household's account is rejected (would leak an allocation transfer cross-tenant).
         await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
-            new UpdateHouseholdMemberCommand(m.Id, "Chris", 5000m, foreign.Id), CancellationToken.None));
+            new UpdateHouseholdMemberCommand(m.Id, "Alex", 5000m, foreign.Id), CancellationToken.None));
     }
 
     [Fact]
@@ -141,16 +141,16 @@ public class HouseholdMembersTests
         var handler = new CreateHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"));
 
         await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
-            new CreateHouseholdMemberCommand("Chris", 5000m, Guid.NewGuid()), CancellationToken.None));
+            new CreateHouseholdMemberCommand("Alex", 5000m, Guid.NewGuid()), CancellationToken.None));
         await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
-            new CreateHouseholdMemberCommand("Chris", 5000m, foreign.Id), CancellationToken.None));
+            new CreateHouseholdMemberCommand("Alex", 5000m, foreign.Id), CancellationToken.None));
     }
 
     [Fact]
     public async Task Update_Throws_WhenOwnedByAnotherUser()
     {
         await using var db = NewContext();
-        var m = await Seed(db, "user-1", "Chris", 5000m);
+        var m = await Seed(db, "user-1", "Alex", 5000m);
 
         var handler = new UpdateHouseholdMemberCommandHandler(db, new CurrentUserStub("user-2"));
 
@@ -162,7 +162,7 @@ public class HouseholdMembersTests
     public async Task Archive_HidesFromDefaultList()
     {
         await using var db = NewContext();
-        var m = await Seed(db, "user-1", "Chris", 5000m);
+        var m = await Seed(db, "user-1", "Alex", 5000m);
 
         await new ArchiveHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"))
             .Handle(new ArchiveHouseholdMemberCommand(m.Id), CancellationToken.None);

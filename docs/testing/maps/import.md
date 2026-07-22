@@ -1,6 +1,6 @@
 # Subsystem map: Bank statement import
 
-Ground-truth feature inventory for QA test design. All paths relative to repo root `C:\Users\Laptop\Documents\Projects\ZeroBudget`. Verified against current code 2026-07-15.
+Ground-truth feature inventory for QA test design. All paths relative to repo root `<local>\Documents\Projects\ZeroBudget`. Verified against current code 2026-07-15.
 
 ---
 

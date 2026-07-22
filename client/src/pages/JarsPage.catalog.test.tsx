@@ -60,7 +60,7 @@ const JOINT: AccountDto = {
 }
 
 function me(role: number): MeResponse {
-  return { userId: 'u1', email: 'chris@x.com', displayName: 'Chris', role, ownerId: 'u1', memberId: null }
+  return { userId: 'u1', email: 'alex@x.com', displayName: 'Alex', role, ownerId: 'u1', memberId: null }
 }
 
 // Route the three endpoints JarsPage + AuthProvider hit on mount: /jars, /accounts and

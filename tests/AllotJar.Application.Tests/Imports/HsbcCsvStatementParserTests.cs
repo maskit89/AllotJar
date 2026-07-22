@@ -88,11 +88,13 @@ public class HsbcCsvStatementParserTests
         // (posting date|purchase date|last4|signed amount|UPPER description, SHA-256/128,
         // per-signature occurrence). If this test breaks, a re-import of any previously-imported
         // statement will DUPLICATE every transaction — do not update the expected string without
-        // a data-migration plan.
+        // a data-migration plan. (The expectation below was recomputed ONCE when the sample's
+        // synthetic card digits changed — a fixture-input change, not a composition change;
+        // references from real statements were unaffected.)
         var entry = Parser.Parse(HsbcCsvSamples.Mixed).Entries[0];
 
-        // SHA-256("2026-06-19|2026-06-17|7406|-35.00|AUTOMARKET SER STATION"), first 128 bits.
-        entry.Reference.Should().Be("hsbc:ba2d0e8daca082bf72460e1655d771da#0");
+        // SHA-256("2026-06-19|2026-06-17|4242|-35.00|AUTOMARKET SER STATION"), first 128 bits.
+        entry.Reference.Should().Be("hsbc:b966bb89e64de1f4435d9939ae05831a#0");
     }
 
     [Fact]

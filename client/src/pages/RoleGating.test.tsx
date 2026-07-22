@@ -25,7 +25,7 @@ import { AuthProvider } from '../auth/AuthContext'
 import { FeatureProvider } from '../features/FeatureContext'
 
 function me(role: number): MeResponse {
-  return { userId: 'u1', email: 'chris@x.com', displayName: 'Chris', role, ownerId: 'u1', memberId: null }
+  return { userId: 'u1', email: 'alex@x.com', displayName: 'Alex', role, ownerId: 'u1', memberId: null }
 }
 
 function tx(): TransactionDto {

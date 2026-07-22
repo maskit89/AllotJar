@@ -33,7 +33,7 @@ public class OwnerMemberSeederTests
     public async Task Backfills_one_owner_member_named_from_first_name_and_is_idempotent()
     {
         using var db = NewContext();
-        db.Users.Add(new ApplicationUser { Id = "user-1", Email = "chris@x.com", UserName = "chris@x.com", FirstName = "Chris", DisplayName = "Chris M" });
+        db.Users.Add(new ApplicationUser { Id = "user-1", Email = "alex@x.com", UserName = "alex@x.com", FirstName = "Alex", DisplayName = "Alex M" });
         db.HouseholdMemberships.Add(Owner("user-1"));
         await db.SaveChangesAsync();
 
@@ -43,7 +43,7 @@ public class OwnerMemberSeederTests
         var members = await db.HouseholdMembers.AsNoTracking().ToListAsync();
         members.Should().ContainSingle();
         members[0].OwnerId.Should().Be("user-1");
-        members[0].Name.Should().Be("Chris"); // first name wins
+        members[0].Name.Should().Be("Alex"); // first name wins
         members[0].NetMonthlyIncome.Should().Be(0m);
         members[0].DisplayOrder.Should().Be(0);
         members[0].IsArchived.Should().BeFalse();
@@ -73,15 +73,15 @@ public class OwnerMemberSeederTests
         using var db = NewContext();
         db.Users.Add(new ApplicationUser { Id = "owner-1", Email = "owner@x.com", UserName = "owner@x.com", FirstName = "Owner" });
         db.HouseholdMemberships.Add(Owner("owner-1"));
-        db.HouseholdMembers.Add(new HouseholdMember { OwnerId = "owner-1", Name = "Chris", DisplayOrder = 0 });
-        db.HouseholdMembers.Add(new HouseholdMember { OwnerId = "owner-1", Name = "Liza", DisplayOrder = 1 });
+        db.HouseholdMembers.Add(new HouseholdMember { OwnerId = "owner-1", Name = "Alex", DisplayOrder = 0 });
+        db.HouseholdMembers.Add(new HouseholdMember { OwnerId = "owner-1", Name = "Sam", DisplayOrder = 1 });
         await db.SaveChangesAsync();
 
         await OwnerMemberSeeder.BackfillOwnerMembersAsync(db);
 
         var members = await db.HouseholdMembers.AsNoTracking().Where(m => m.OwnerId == "owner-1").ToListAsync();
         members.Should().HaveCount(2); // no third member added
-        members.Select(m => m.Name).Should().BeEquivalentTo(new[] { "Chris", "Liza" });
+        members.Select(m => m.Name).Should().BeEquivalentTo(new[] { "Alex", "Sam" });
     }
 
     [Fact]
@@ -98,9 +98,9 @@ public class OwnerMemberSeederTests
     }
 
     [Theory]
-    [InlineData("Chris", "Chris M", "chris@x.com", "Chris")]
-    [InlineData("  ", "Chris M", "chris@x.com", "Chris M")]
-    [InlineData(null, null, "chris@x.com", "chris")]
+    [InlineData("Alex", "Alex M", "alex@x.com", "Alex")]
+    [InlineData("  ", "Alex M", "alex@x.com", "Alex M")]
+    [InlineData(null, null, "alex@x.com", "alex")]
     [InlineData(null, null, null, "You")]
     public void ResolveOwnerName_falls_back_first_name_then_display_then_email_then_generic(
         string? firstName, string? displayName, string? email, string expected)

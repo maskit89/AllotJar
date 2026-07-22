@@ -1,6 +1,6 @@
 # Subsystem map: Auth (server + client), registration, session, account prefs
 
-Source of truth: worktree `C:\Users\Laptop\Documents\Projects\ZeroBudget-wt-test-catalog` (branch `docs/functional-test-catalog`, includes PRs #169, #170, #171, #172 — commit `99ec47f` and earlier). NOTE: the main clone `C:\Users\Laptop\Documents\Projects\ZeroBudget` is 1 commit behind (missing #171); all citations below are from the worktree. Paths below are repo-relative.
+Source of truth: worktree `<local>\Documents\Projects\ZeroBudget-wt-test-catalog` (branch `docs/functional-test-catalog`, includes PRs #169, #170, #171, #172 — commit `99ec47f` and earlier). NOTE: the main clone `<local>\Documents\Projects\ZeroBudget` is 1 commit behind (missing #171); all citations below are from the worktree. Paths below are repo-relative.
 
 ---
 
@@ -71,7 +71,7 @@ Guard mechanics:
 - Shown for logins with `MeResponse.NeedsConsent == true` (i.e. `ConsentedUtc == null` — owner-created logins with temp passwords, or legacy accounts). Registration and invite acceptance record consent up front, so most users never see it.
 
 ### AcceptInvitePage (`client/src/pages/AcceptInvitePage.tsx`) — auth-relevant parts
-- Anonymous path: "Display name" (placeholder "e.g. Liza") + "Password" (placeholder "At least 8 characters") + terms; signed-in path: heading "Join the household" + join button. Calls `POST /api/auth/accept-invite` (full page detail belongs to the invites subsystem map).
+- Anonymous path: "Display name" (placeholder "e.g. Sam") + "Password" (placeholder "At least 8 characters") + terms; signed-in path: heading "Join the household" + join button. Calls `POST /api/auth/accept-invite` (full page detail belongs to the invites subsystem map).
 
 ---
 
@@ -244,4 +244,4 @@ Client:
 - `client/src/types.ts` (HouseholdRole labels/hints)
 - `client/e2e-journey/` spec names (session-expiry, concurrent-refresh, register, invite)
 
-Memory/audit notes cross-checked: `auth-refresh-single-flight.md`, `security-review.md`, `auth-registration-roadmap.md`, `session-expiry-login-prompt.md`, `refresh-replay-grace.md`, `optional-sample-budget.md` (all under `C:\Users\Laptop\.claude\projects\C--Users-Laptop-Documents-Projects\memory\`). All behavioral claims above were verified against the worktree code.
+Memory/audit notes cross-checked: `auth-refresh-single-flight.md`, `security-review.md`, `auth-registration-roadmap.md`, `session-expiry-login-prompt.md`, `refresh-replay-grace.md`, `optional-sample-budget.md` (all under `<local>\.claude\projects\C--Users-Laptop-Documents-Projects\memory\`). All behavioral claims above were verified against the worktree code.

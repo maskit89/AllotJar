@@ -43,8 +43,8 @@ import { HouseholdProvider } from '../features/HouseholdContext'
 // defaults (EUR / comma-dot) — matching a login that has never customised them.
 const ownerMe = {
   userId: 'u1',
-  email: 'chris@x.com',
-  displayName: 'Chris',
+  email: 'alex@x.com',
+  displayName: 'Alex',
   role: 0,
   ownerId: 'u1',
   memberId: null,
@@ -54,16 +54,16 @@ const ownerMe = {
 // A Read-only member (role 3) viewing a household they only joined.
 const readOnlyMe = {
   userId: 'u3',
-  email: 'liza@x.com',
-  displayName: 'Liza',
+  email: 'sam@x.com',
+  displayName: 'Sam',
   role: 3,
   ownerId: 'owner-1',
   memberId: null,
-  households: [{ ownerId: 'owner-1', label: 'Chris', role: 3, isActive: true, isOwn: false }],
+  households: [{ ownerId: 'owner-1', label: 'Alex', role: 3, isActive: true, isOwn: false }],
 }
 
 function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
-  return { id: 'm1', name: 'Chris', netMonthlyIncome: 6000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1, ...over }
+  return { id: 'm1', name: 'Alex', netMonthlyIncome: 6000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1, ...over }
 }
 
 /** A plain object axios treats as an AxiosError (isAxiosError flag) so the page's catch
@@ -190,7 +190,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
   // the new code, localStorage['zbb.currency'] updates, and the PUT keeps names/format as-is.
   it('PREF-011: changing the currency re-labels the chip and stores it, untouched names/format', async () => {
     mockPut.mockResolvedValue({
-      data: { firstName: null, lastName: null, displayName: 'Chris', preferredCurrency: 'USD', numberFormat: 'comma-dot' },
+      data: { firstName: null, lastName: null, displayName: 'Alex', preferredCurrency: 'USD', numberFormat: 'comma-dot' },
     })
     const user = userEvent.setup()
 
@@ -224,7 +224,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
   // conversion (regression PR #125), driven through the preferences save.
   it('PREF-013: switching to JPY re-labels the chip and renders 0-decimal amounts (no FX)', async () => {
     mockPut.mockResolvedValue({
-      data: { firstName: null, lastName: null, displayName: 'Chris', preferredCurrency: 'JPY', numberFormat: 'comma-dot' },
+      data: { firstName: null, lastName: null, displayName: 'Alex', preferredCurrency: 'JPY', numberFormat: 'comma-dot' },
     })
     const user = userEvent.setup()
 
@@ -251,7 +251,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
   // choice is stored. Currency is independent and unchanged.
   it('PREF-015: saving a number format re-renders money app-wide immediately and stores it', async () => {
     mockPut.mockResolvedValue({
-      data: { firstName: null, lastName: null, displayName: 'Chris', preferredCurrency: 'EUR', numberFormat: 'dot-comma' },
+      data: { firstName: null, lastName: null, displayName: 'Alex', preferredCurrency: 'EUR', numberFormat: 'dot-comma' },
     })
     const user = userEvent.setup()
 
@@ -306,7 +306,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
   // which asserts only the POST + success line.
   it('PREF-022: a successful password change clears the fields and keeps this device signed in', async () => {
     mockPost.mockResolvedValue({
-      data: { token: 'fresh-token', expiresAtUtc: '2999-01-01T00:00:00Z', userId: 'u1', email: 'chris@x.com', role: 0, displayName: 'Chris' },
+      data: { token: 'fresh-token', expiresAtUtc: '2999-01-01T00:00:00Z', userId: 'u1', email: 'alex@x.com', role: 0, displayName: 'Alex' },
     })
     const user = userEvent.setup()
 
@@ -446,7 +446,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
   it('PREF-033: a read-only member can still edit their own preferences and password', async () => {
     meData = readOnlyMe
     mockPut.mockResolvedValue({
-      data: { firstName: 'Liza', lastName: null, displayName: 'Liza', preferredCurrency: 'EUR', numberFormat: 'dot-comma' },
+      data: { firstName: 'Sam', lastName: null, displayName: 'Sam', preferredCurrency: 'EUR', numberFormat: 'dot-comma' },
     })
     const user = userEvent.setup()
 
@@ -547,7 +547,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
   it('PREF-041: a linked login with a password can disconnect Google', async () => {
     meData = { ...ownerMe, hasGoogle: true, hasPassword: true } as typeof ownerMe
     mockPost.mockResolvedValue({
-      data: { token: 't2', expiresAtUtc: '2999-01-01T00:00:00Z', userId: 'u1', email: 'chris@x.com', role: 0, displayName: 'Chris' },
+      data: { token: 't2', expiresAtUtc: '2999-01-01T00:00:00Z', userId: 'u1', email: 'alex@x.com', role: 0, displayName: 'Alex' },
     })
     const user = userEvent.setup()
 

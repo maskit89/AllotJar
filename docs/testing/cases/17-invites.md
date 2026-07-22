@@ -2,7 +2,7 @@
 
 **ID prefix:** INV | **Scope:** Inviting a login to share a household from the People page (`PeoplePage.tsx` invite modal, opened per person via "Invite to sign in") — the one-time **link** invite and the **direct temporary-password** invite, the access-level chosen at invite time, linking the invite to the clicked budget person, and the "Invited" pill / success boxes. The public `AcceptInvitePage` (`/accept-invite?code=…`): accepting as a brand-new user (login creation + terms consent), as an already-signed-in existing user (join with existing login, own budget untouched — the reconcile path), and as an existing-but-logged-out user (`/login?returnUrl=…` round-trip). Landing IN the joined household after accept (`ActiveOwnerId` set server-side, `?joined=1` banner). Invite/accept validation and error paths: expired / reused / invalid / wrong-email / missing-code links, HIBP-breached and complexity-failing temp passwords, duplicate access, the 1:1 person↔login link, invite rate-limiting, the assigned role the accepter lands with, and revoking a pending invite. | **Out of scope:** People-page member CRUD, the "This is me" self-claim, the "Other sign-ins" orphan-login card, changing a role or removing an already-active member, the solo↔shared flip, the household switcher, and Start-my-own-budget / Leave-household → `16-people-households.md` (PPL-*). Deep role-enforcement matrices across every page → `25-roles-permissions.md`. Auth/session/JWT/refresh mechanics, the `ConsentModal` internals, `safeInternalPath` unit semantics, and generic login/register → `02-registration-login.md` / `03-session-auth-lifecycle.md`. Responsive/dark/a11y sweeps and multi-feature journeys → their dedicated files.
 
-**Test data setup:** Three reusable fixtures unless a case overrides them. **(B) Shared household** — Owner login `chris@x.eu` (household key = Chris's OwnerId, "Your household"), members "Chris" (linked to Chris's login, income 3,000.00) and "Liza" (linked to Active `liza@x.eu`, role Admin), EUR account "Joint". **(R) Invitable person** — household B with an extra budget person "Robin", income 0, **no login** (Sign-in cell shows the dashed "Invite to sign in" pill). **(D) Existing outsider** — `dana@x.eu` already has her own AllotJar account + own household elsewhere, no membership in B. Invite tokens: raw 256-bit URL-safe string returned once; only its hex SHA-256 (`InviteToken.Hash`) is stored in `HouseholdMembership.InviteTokenHash`; `InviteExpiresUtc = now + 7 days`; link membership `Status = Invited`; direct membership `Status = Active`. Enums (client): `InviteMethod = {Direct:0, Link:1}`, `HouseholdRole = {Owner:0, Admin:1, Limited:2, ReadOnly:3}`, `MembershipStatus = {Active:0, Invited:1}`. `canAccess = features.householdAccess && canManageHousehold` (owner only, flag on). Money `decimal(18,4)` server / integer minor client. All exact labels/messages below were read from source at `C:\Users\Laptop\Documents\Projects\ZeroBudget` (`PeoplePage.tsx`, `AcceptInvitePage.tsx`, `AuthContext.tsx`, `AppShell.tsx`, `HouseholdAccessController.cs`, `AuthController.cs`, `InviteMemberCommand{Handler,Validator}.cs`, `AcceptInviteCommand{Handler,Validator}.cs`, `RevokeMemberCommandHandler.cs`, `AuthorizationBehaviour.cs`, `InviteToken.cs`, `types.ts`) and re-verified on 2026-07-16.
+**Test data setup:** Three reusable fixtures unless a case overrides them. **(B) Shared household** — Owner login `alex@x.eu` (household key = Alex's OwnerId, "Your household"), members "Alex" (linked to Alex's login, income 3,000.00) and "Sam" (linked to Active `sam@x.eu`, role Admin), EUR account "Joint". **(R) Invitable person** — household B with an extra budget person "Robin", income 0, **no login** (Sign-in cell shows the dashed "Invite to sign in" pill). **(D) Existing outsider** — `dana@x.eu` already has her own AllotJar account + own household elsewhere, no membership in B. Invite tokens: raw 256-bit URL-safe string returned once; only its hex SHA-256 (`InviteToken.Hash`) is stored in `HouseholdMembership.InviteTokenHash`; `InviteExpiresUtc = now + 7 days`; link membership `Status = Invited`; direct membership `Status = Active`. Enums (client): `InviteMethod = {Direct:0, Link:1}`, `HouseholdRole = {Owner:0, Admin:1, Limited:2, ReadOnly:3}`, `MembershipStatus = {Active:0, Invited:1}`. `canAccess = features.householdAccess && canManageHousehold` (owner only, flag on). Money `decimal(18,4)` server / integer minor client. All exact labels/messages below were read from source at `<local>\Documents\Projects\ZeroBudget` (`PeoplePage.tsx`, `AcceptInvitePage.tsx`, `AuthContext.tsx`, `AppShell.tsx`, `HouseholdAccessController.cs`, `AuthController.cs`, `InviteMemberCommand{Handler,Validator}.cs`, `AcceptInviteCommand{Handler,Validator}.cs`, `RevokeMemberCommandHandler.cs`, `AuthorizationBehaviour.cs`, `InviteToken.cs`, `types.ts`) and re-verified on 2026-07-16.
 
 ---
 
@@ -15,7 +15,7 @@
 - **Steps:**
   1. Open `/people`; on Robin's row (no login), locate the dashed pill "Invite to sign in".
   2. Click it.
-- **Expected:** A Modal opens titled `Invite Robin to sign in` (name resolved from the clicked person; the literal fallback title is "Invite someone to sign in" only if the id no longer resolves — e.g. the person was archived between open and render). It contains: "Email" input (placeholder `liza@example.eu`, aria-label "Invitee email"), "Access level" select (aria-label "Access level"), the "How should they get access?" method control (aria-label "Invite method"), and a submit button. `openInviteFor` seeds the internal display-name state (`iName`) with the person's name "Robin" — this is sent later as the invite's `displayName`; there is **no visible name field** in the invite modal — and it resets Email, temp-password and method to link.
+- **Expected:** A Modal opens titled `Invite Robin to sign in` (name resolved from the clicked person; the literal fallback title is "Invite someone to sign in" only if the id no longer resolves — e.g. the person was archived between open and render). It contains: "Email" input (placeholder `sam@example.eu`, aria-label "Invitee email"), "Access level" select (aria-label "Access level"), the "How should they get access?" method control (aria-label "Invite method"), and a submit button. `openInviteFor` seeds the internal display-name state (`iName`) with the person's name "Robin" — this is sent later as the invite's `displayName`; there is **no visible name field** in the invite modal — and it resets Email, temp-password and method to link.
 - **Automated:** No
 
 ### INV-002 - Modal defaults: method = link, role = Admin, email blank
@@ -228,9 +228,9 @@
 - **Priority:** P2
 - **Type:** Negative
 - **Origin:** invite-household-coherence gotcha #14 (an existing membership for that email — Active OR pending Invited, including an expired-but-not-removed link — blocks re-invite; no expiry-cleanup job)
-- **Preconditions:** Fixture B; `liza@x.eu` already has a membership in B.
+- **Preconditions:** Fixture B; `sam@x.eu` already has a membership in B.
 - **Steps:**
-  1. Invite `liza@x.eu` again (either method).
+  1. Invite `sam@x.eu` again (either method).
 - **Expected:** Server 400 field `Email`: "That email already has access to this household." (`AnyAsync(m => m.OwnerId==owner && m.InvitedEmail==email)` where `email = request.Email.Trim()`). The modal shows the flattened error. An expired-but-unremoved link still counts — the owner must Remove that pending row first (INV-051).
 - **Automated:** Partial (`HouseholdAccessTests.cs::Invite_rejects_an_email_already_in_the_household`)
 
@@ -238,9 +238,9 @@
 - **Priority:** P3
 - **Type:** Regression
 - **Origin:** invite-household-coherence gotcha #13 (the dupe check compares `InvitedEmail == email` trimmed but **not** lowercased; SQL Server default collation is case-insensitive, EF InMemory is case-sensitive)
-- **Preconditions:** Fixture B; `liza@x.eu` already has a membership; invite modal open.
+- **Preconditions:** Fixture B; `sam@x.eu` already has a membership; invite modal open.
 - **Steps:**
-  1. Invite `Liza@X.eu` (same address, different casing).
+  1. Invite `Sam@X.eu` (same address, different casing).
 - **Expected:** On staging/prod (SQL Server, case-insensitive collation) the dupe check matches → 400 field `Email` "That email already has access to this household." — the intended block. **Divergence to note:** the EF InMemory backend used by the `backend` CI job compares case-sensitively, so the same input would slip past the handler check there (a duplicate-looking membership); the accept path, however, matches emails `OrdinalIgnoreCase`, so a case-variant accept still reconciles. Verify the real behavior against staging, not the unit-test layer.
 - **Automated:** No
 
@@ -299,9 +299,9 @@
 - **Priority:** P2
 - **Type:** Negative
 - **Origin:** gotcha #9 (person↔login link is 1:1, enforced at invite-time, link-time, and by a global filtered unique index on `MemberId`)
-- **Preconditions:** Fixture B; "Liza" already linked to `liza@x.eu`.
+- **Preconditions:** Fixture B; "Sam" already linked to `sam@x.eu`.
 - **Steps:**
-  1. Craft an invite for a new email with `memberId = <Liza>` (or use "Link to a person…" to attach an orphan login to Liza).
+  1. Craft an invite for a new email with `memberId = <Sam>` (or use "Link to a person…" to attach an orphan login to Sam).
 - **Expected:** Server 400 field `MemberId`: "That budget person is already linked to another login." (`HouseholdMemberships.AnyAsync(m => m.OwnerId==owner && m.MemberId==memberId)`). The link handler returns the same message. The DB unique index on `MemberId` is global across households, stronger than the per-household check.
 - **Automated:** Partial (`HouseholdAccessTests.cs::Invite_rejects_linking_a_budget_person_already_linked_to_another_login`, `Link_rejects_a_budget_person_already_linked_to_another_login`)
 
@@ -416,7 +416,7 @@
 ### INV-041 - Signed-in accept when already a member of that household
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Signed in as `liza@x.eu`, already an Active member of B; someone mints a second pending invite for `liza@x.eu` to B; Liza opens it while signed in.
+- **Preconditions:** Signed in as `sam@x.eu`, already an Active member of B; someone mints a second pending invite for `sam@x.eu` to B; Sam opens it while signed in.
 - **Steps:**
   1. Click "Accept invite".
 - **Expected:** Path A finds an existing membership with the same `UserId`+`OwnerId` and `Id != this pending one` → 400 field `Email` "You already have access to this household." The duplicate pending invite is not activated (it lingers until removed). No data change.

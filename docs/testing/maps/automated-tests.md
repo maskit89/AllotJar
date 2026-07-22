@@ -1,6 +1,6 @@
 # AllotJar — Existing Automated Test Inventory (ground truth for the QA catalog's "Automated" field)
 
-Repo root: `C:\Users\Laptop\Documents\Projects\ZeroBudget` (GitHub `maskit89/AllotJar`).
+Repo root: `<local>\Documents\Projects\ZeroBudget` (GitHub `maskit89/AllotJar`).
 Snapshot: local checkout at `7fd79a7` (PR #172), **3 commits behind last-fetched `origin/main` (`3b36ffe`)** — the missing commits are `99ec47f` (PR #171, refresh-replay grace window) plus two Dependabot bumps (`95bb342`, `3b36ffe`, #164/#165, dependency-only). The functionally relevant gap is PR #171. Everything below was read from the working tree except the two PR #171 test files, which were fetched read-only from GitHub at `99ec47f` and are flagged as such.
 
 There are **five automated layers** plus two non-test CI jobs. Per-layer counts: client unit = 30 files / 218 `it()` cases; stubbed Playwright e2e = 4 specs + 1 mock module; journey e2e = 4 specs + helpers locally (5 specs on origin/main); backend unit = 52 files / 385 `[Fact]`/`[Theory]`; SQL integration = 4 test files + fixture.

@@ -35,7 +35,7 @@ const accounts: AccountDto[] = [
   { id: 'acc2', name: 'Joint Savings', type: 1, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 1 },
 ]
 const members: HouseholdMemberDto[] = [
-  { id: 'm1', name: 'Chris', netMonthlyIncome: 0, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1 } as unknown as HouseholdMemberDto,
+  { id: 'm1', name: 'Alex', netMonthlyIncome: 0, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1 } as unknown as HouseholdMemberDto,
 ]
 const month = {
   id: 'mo1', key: '2026-06', year: 2026, month: 6, baseCurrency: 'EUR',

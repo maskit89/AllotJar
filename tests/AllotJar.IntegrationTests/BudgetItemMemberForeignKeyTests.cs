@@ -28,11 +28,11 @@ public class BudgetItemMemberForeignKeyTests
 
     private static string NewOwner() => $"user-{Guid.NewGuid():N}";
 
-    private sealed record Seeded(Guid IncomeLineId, HouseholdMember Chris);
+    private sealed record Seeded(Guid IncomeLineId, HouseholdMember Alex);
 
     private static async Task<Seeded> SeedAsync(ApplicationDbContext db, string ownerId)
     {
-        var pay = new BudgetItem { Name = "Chris — Salary", PlannedAmount = 3000m };
+        var pay = new BudgetItem { Name = "Alex — Salary", PlannedAmount = 3000m };
         db.BudgetMonths.Add(new BudgetMonth
         {
             OwnerId = ownerId, Year = 2026, Month = 6,
@@ -41,10 +41,10 @@ public class BudgetItemMemberForeignKeyTests
                 new() { Name = "Income", Kind = CategoryKind.Income, Items = { pay } },
             },
         });
-        var chris = new HouseholdMember { OwnerId = ownerId, Name = "Chris", NetMonthlyIncome = 3000m };
-        db.HouseholdMembers.Add(chris);
+        var alex = new HouseholdMember { OwnerId = ownerId, Name = "Alex", NetMonthlyIncome = 3000m };
+        db.HouseholdMembers.Add(alex);
         await db.SaveChangesAsync();
-        return new Seeded(pay.Id, chris);
+        return new Seeded(pay.Id, alex);
     }
 
     [Fact]
@@ -55,9 +55,9 @@ public class BudgetItemMemberForeignKeyTests
         var s = await SeedAsync(db, owner);
 
         var dto = await new SetBudgetItemMemberCommandHandler(db, new CurrentUserStub(owner))
-            .Handle(new SetBudgetItemMemberCommand(s.IncomeLineId, s.Chris.Id), CancellationToken.None);
+            .Handle(new SetBudgetItemMemberCommand(s.IncomeLineId, s.Alex.Id), CancellationToken.None);
 
-        dto.Categories.Single(c => c.Kind == "Income").Items.Single().MemberId.Should().Be(s.Chris.Id);
+        dto.Categories.Single(c => c.Kind == "Income").Items.Single().MemberId.Should().Be(s.Alex.Id);
     }
 
     [Fact]
@@ -81,12 +81,12 @@ public class BudgetItemMemberForeignKeyTests
         await using var db = _fixture.CreateContext();
         var s = await SeedAsync(db, owner);
         await new SetBudgetItemMemberCommandHandler(db, new CurrentUserStub(owner))
-            .Handle(new SetBudgetItemMemberCommand(s.IncomeLineId, s.Chris.Id), CancellationToken.None);
+            .Handle(new SetBudgetItemMemberCommand(s.IncomeLineId, s.Alex.Id), CancellationToken.None);
 
         await using (var deleter = _fixture.CreateContext())
         {
-            var chris = await deleter.HouseholdMembers.SingleAsync(m => m.Id == s.Chris.Id);
-            deleter.HouseholdMembers.Remove(chris);
+            var alex = await deleter.HouseholdMembers.SingleAsync(m => m.Id == s.Alex.Id);
+            deleter.HouseholdMembers.Remove(alex);
             await deleter.SaveChangesAsync();
         }
 

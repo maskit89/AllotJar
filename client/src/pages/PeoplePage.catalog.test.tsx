@@ -37,7 +37,7 @@ import { HouseholdProvider } from '../features/HouseholdContext'
 function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
   return {
     id: 'm1',
-    name: 'Chris',
+    name: 'Alex',
     netMonthlyIncome: 3000,
     personalSavingsAccountId: null,
     displayOrder: 0,
@@ -50,8 +50,8 @@ function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
 function membership(over: Partial<MembershipDto> = {}): MembershipDto {
   return {
     id: 'mem1',
-    email: 'chris@x.eu',
-    displayName: 'Chris',
+    email: 'alex@x.eu',
+    displayName: 'Alex',
     role: 0,
     status: 0,
     memberId: 'm1',
@@ -135,10 +135,10 @@ describe('PeoplePage — catalog (PPL)', () => {
   // PPL-001 — hero combined income, per-row share, and the "You" sub-label on the linked login.
   it('PPL-001: hero sums combined income and rows show share + the "You" sub-label', { timeout: 15000 }, async () => {
     membersData = [
-      member({ id: 'm1', name: 'Chris', netMonthlyIncome: 3000, incomeSharePct: 0.75 }),
-      member({ id: 'm2', name: 'Liza', netMonthlyIncome: 1000, incomeSharePct: 0.25 }),
+      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, incomeSharePct: 0.75 }),
+      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 }),
     ]
-    membershipsData = [membership()] // Chris is the current login (isSelf), linked to m1
+    membershipsData = [membership()] // Alex is the current login (isSelf), linked to m1
 
     renderPage()
 
@@ -154,7 +154,7 @@ describe('PeoplePage — catalog (PPL)', () => {
   // PPL-073 — every active member income 0: combined €0.00, all shares 0% (no divide-by-zero / NaN).
   it('PPL-073: all-zero incomes render €0.00 combined and 0% shares (no NaN)', { timeout: 15000 }, async () => {
     membersData = [
-      member({ id: 'm1', name: 'Chris', netMonthlyIncome: 0, incomeSharePct: 0 }),
+      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 0, incomeSharePct: 0 }),
       member({ id: 'm2', name: 'Sam', netMonthlyIncome: 0, incomeSharePct: 0 }),
     ]
 
@@ -296,40 +296,40 @@ describe('PeoplePage — catalog (PPL)', () => {
       () => expect(screen.queryByRole('button', { name: 'Add person' })).not.toBeInTheDocument(),
       { timeout: 5000 },
     )
-    expect(screen.getByText('Chris')).toBeInTheDocument()
+    expect(screen.getByText('Alex')).toBeInTheDocument()
   })
 
   // PPL-018 — inline edit rewrites name/income/savings via PUT /members/{id} with the new values.
   it('PPL-018: inline edit saves name, income and savings account via PUT', { timeout: 15000 }, async () => {
-    membersData = [member({ id: 'm2', name: 'Liza', netMonthlyIncome: 1000, incomeSharePct: 0.25 })]
+    membersData = [member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 })]
     accountsData = [account({ id: 'a1', name: 'Joint' })]
-    mockPut.mockResolvedValue({ data: member({ id: 'm2', name: 'Liza M' }) })
+    mockPut.mockResolvedValue({ data: member({ id: 'm2', name: 'Sam M' }) })
     const user = userEvent.setup()
 
     renderPage()
 
     await screen.findByRole('table', {}, { timeout: 5000 })
-    await user.click(screen.getByRole('button', { name: 'Edit Liza' }))
+    await user.click(screen.getByRole('button', { name: 'Edit Sam' }))
 
-    const nameInput = screen.getByLabelText('Name for Liza')
-    const incomeInput = screen.getByLabelText('Net monthly income for Liza')
+    const nameInput = screen.getByLabelText('Name for Sam')
+    const incomeInput = screen.getByLabelText('Net monthly income for Sam')
     await user.clear(nameInput)
-    await user.type(nameInput, 'Liza M')
+    await user.type(nameInput, 'Sam M')
     await user.clear(incomeInput)
     await user.type(incomeInput, '1200')
-    await user.selectOptions(screen.getByLabelText('Savings account for Liza'), 'a1')
+    await user.selectOptions(screen.getByLabelText('Savings account for Sam'), 'a1')
 
     // Determinism: wait until the controlled inputs actually hold the new values before saving.
-    await waitFor(() => expect((nameInput as HTMLInputElement).value).toBe('Liza M'), { timeout: 5000 })
+    await waitFor(() => expect((nameInput as HTMLInputElement).value).toBe('Sam M'), { timeout: 5000 })
     await waitFor(() => expect((incomeInput as HTMLInputElement).value).toBe('1200'), { timeout: 5000 })
 
-    await user.click(screen.getByRole('button', { name: 'Save Liza' }))
+    await user.click(screen.getByRole('button', { name: 'Save Sam' }))
 
     await waitFor(
       () =>
         expect(mockPut).toHaveBeenCalledWith(
           '/members/m2',
-          expect.objectContaining({ name: 'Liza M', netMonthlyIncome: 1200, personalSavingsAccountId: 'a1' }),
+          expect.objectContaining({ name: 'Sam M', netMonthlyIncome: 1200, personalSavingsAccountId: 'a1' }),
         ),
       { timeout: 5000 },
     )
@@ -337,43 +337,43 @@ describe('PeoplePage — catalog (PPL)', () => {
 
   // PPL-019 — Cancel leaves display mode with the original values and sends no PUT.
   it('PPL-019: cancelling an inline edit discards changes and does not PUT', { timeout: 15000 }, async () => {
-    membersData = [member({ id: 'm2', name: 'Liza', netMonthlyIncome: 1000, incomeSharePct: 0.25 })]
+    membersData = [member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 })]
     const user = userEvent.setup()
 
     renderPage()
 
     await screen.findByRole('table', {}, { timeout: 5000 })
-    await user.click(screen.getByRole('button', { name: 'Edit Liza' }))
-    const nameInput = screen.getByLabelText('Name for Liza')
+    await user.click(screen.getByRole('button', { name: 'Edit Sam' }))
+    const nameInput = screen.getByLabelText('Name for Sam')
     await user.clear(nameInput)
     await user.type(nameInput, 'Changed')
     await user.click(screen.getByRole('button', { name: 'Cancel edit' }))
 
-    await waitFor(() => expect(screen.queryByLabelText('Name for Liza')).not.toBeInTheDocument(), { timeout: 5000 })
-    expect(screen.getByText('Liza')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByLabelText('Name for Sam')).not.toBeInTheDocument(), { timeout: 5000 })
+    expect(screen.getByText('Sam')).toBeInTheDocument()
     expect(mockPut).not.toHaveBeenCalled()
   })
 
   // PPL-020 — inline edit validation mirrors add: empty name, then bad income; no PUT until valid.
   it('PPL-020: inline edit validation rejects empty name then bad income without PUT', { timeout: 15000 }, async () => {
-    membersData = [member({ id: 'm2', name: 'Liza', netMonthlyIncome: 1000, incomeSharePct: 0.25 })]
+    membersData = [member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 })]
     const user = userEvent.setup()
 
     renderPage()
 
     await screen.findByRole('table', {}, { timeout: 5000 })
-    await user.click(screen.getByRole('button', { name: 'Edit Liza' }))
+    await user.click(screen.getByRole('button', { name: 'Edit Sam' }))
 
-    const nameInput = screen.getByLabelText('Name for Liza')
+    const nameInput = screen.getByLabelText('Name for Sam')
     await user.clear(nameInput)
-    await user.click(screen.getByRole('button', { name: 'Save Liza' }))
+    await user.click(screen.getByRole('button', { name: 'Save Sam' }))
     expect(await screen.findByText('Give the person a name.', {}, { timeout: 5000 })).toBeInTheDocument()
 
-    await user.type(nameInput, 'Liza')
-    const incomeInput = screen.getByLabelText('Net monthly income for Liza')
+    await user.type(nameInput, 'Sam')
+    const incomeInput = screen.getByLabelText('Net monthly income for Sam')
     await user.clear(incomeInput)
     await user.type(incomeInput, 'abc')
-    await user.click(screen.getByRole('button', { name: 'Save Liza' }))
+    await user.click(screen.getByRole('button', { name: 'Save Sam' }))
     expect(await screen.findByText('Enter a valid monthly income.', {}, { timeout: 5000 })).toBeInTheDocument()
 
     expect(mockPut).not.toHaveBeenCalled()
@@ -384,12 +384,12 @@ describe('PeoplePage — catalog (PPL)', () => {
   // PPL-023 is backend-only — see the deferred note.)
   it('PPL-022/PPL-023: archiving fires PUT {archived:true} on one click and removes the row', { timeout: 15000 }, async () => {
     membersData = [
-      member({ id: 'm1', name: 'Chris', netMonthlyIncome: 3000, incomeSharePct: 0.75 }),
-      member({ id: 'm2', name: 'Liza', netMonthlyIncome: 1000, incomeSharePct: 0.25 }),
+      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, incomeSharePct: 0.75 }),
+      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 }),
     ]
     mockPut.mockImplementation((url: string) => {
       if (url === '/members/m2/archive') {
-        membersData = [member({ id: 'm1', name: 'Chris', netMonthlyIncome: 3000, incomeSharePct: 1 })]
+        membersData = [member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, incomeSharePct: 1 })]
         return Promise.resolve({ data: {} })
       }
       return Promise.resolve({ data: {} })
@@ -401,7 +401,7 @@ describe('PeoplePage — catalog (PPL)', () => {
     await screen.findByRole('table', {}, { timeout: 5000 })
     expect(screen.getByText('€4,000.00')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Archive Liza' }))
+    await user.click(screen.getByRole('button', { name: 'Archive Sam' }))
 
     // No confirmation modal — the archive fired directly.
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -409,69 +409,69 @@ describe('PeoplePage — catalog (PPL)', () => {
       () => expect(mockPut).toHaveBeenCalledWith('/members/m2/archive', { archived: true }),
       { timeout: 5000 },
     )
-    await waitFor(() => expect(screen.queryByText('Liza')).not.toBeInTheDocument(), { timeout: 5000 })
+    await waitFor(() => expect(screen.queryByText('Sam')).not.toBeInTheDocument(), { timeout: 5000 })
     expect(screen.queryByText('€4,000.00')).not.toBeInTheDocument()
   })
 
   // PPL-026 — a Limited member gets no edit/archive hover actions.
   it('PPL-026: edit and archive row actions are hidden for a non-writer (Limited)', { timeout: 15000 }, async () => {
-    membersData = [member({ id: 'm2', name: 'Liza' })]
+    membersData = [member({ id: 'm2', name: 'Sam' })]
     meData = { role: 2 } // Limited
 
     renderPage()
 
     await screen.findByRole('table', {}, { timeout: 5000 })
     await waitFor(
-      () => expect(screen.queryByRole('button', { name: 'Archive Liza' })).not.toBeInTheDocument(),
+      () => expect(screen.queryByRole('button', { name: 'Archive Sam' })).not.toBeInTheDocument(),
       { timeout: 5000 },
     )
-    expect(screen.queryByRole('button', { name: 'Edit Liza' })).not.toBeInTheDocument()
-    expect(screen.getByText('Liza')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit Sam' })).not.toBeInTheDocument()
+    expect(screen.getByText('Sam')).toBeInTheDocument()
   })
 
   // PPL-034 / PPL-037 — a linked non-owner login shows a role <select> + Remove; the owner shows a
   // static role Badge with no select and no Remove (owner sign-in is immovable in the UI).
   it('PPL-034/PPL-037: linked member shows role select + Remove; owner shows a Badge only', { timeout: 15000 }, async () => {
     membersData = [
-      member({ id: 'm1', name: 'Chris' }),
-      member({ id: 'm2', name: 'Liza', netMonthlyIncome: 1000, incomeSharePct: 0.25 }),
+      member({ id: 'm1', name: 'Alex' }),
+      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 }),
     ]
     membershipsData = [
-      membership(), // Chris: owner + self
-      membership({ id: 'mem2', email: 'liza@x.eu', displayName: 'Liza', role: 1, status: 0, memberId: 'm2', isOwner: false, isSelf: false }),
+      membership(), // Alex: owner + self
+      membership({ id: 'mem2', email: 'sam@x.eu', displayName: 'Sam', role: 1, status: 0, memberId: 'm2', isOwner: false, isSelf: false }),
     ]
 
     renderPage()
 
     await screen.findByRole('table', {}, { timeout: 5000 })
 
-    // Liza (Active, Admin) — editable role select with exactly Admin/Limited/Read-only + Remove.
-    const roleSelect = screen.getByLabelText('Access level for Liza')
+    // Sam (Active, Admin) — editable role select with exactly Admin/Limited/Read-only + Remove.
+    const roleSelect = screen.getByLabelText('Access level for Sam')
     const options = within(roleSelect).getAllByRole('option').map((o) => o.textContent)
     expect(options).toEqual(['Admin', 'Limited', 'Read-only'])
     expect(within(roleSelect).queryByRole('option', { name: 'Owner' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Remove sign-in for Liza' })).toBeInTheDocument()
-    expect(screen.getByText('liza@x.eu')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove sign-in for Sam' })).toBeInTheDocument()
+    expect(screen.getByText('sam@x.eu')).toBeInTheDocument()
 
-    // Chris (owner + self) — a role Badge, no select, no Remove.
+    // Alex (owner + self) — a role Badge, no select, no Remove.
     expect(screen.getByText('Owner')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Access level for Chris')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Remove sign-in for Chris' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Access level for Alex')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove sign-in for Alex' })).not.toBeInTheDocument()
   })
 
   // PPL-035 — choosing a new role fires PUT /access/members/{id}/role {role:<n>}.
   it('PPL-035: changing a member role PUTs the numeric role', { timeout: 15000 }, async () => {
-    membersData = [member({ id: 'm1', name: 'Chris' }), member({ id: 'm2', name: 'Liza', incomeSharePct: 0.25 })]
+    membersData = [member({ id: 'm1', name: 'Alex' }), member({ id: 'm2', name: 'Sam', incomeSharePct: 0.25 })]
     membershipsData = [
       membership(),
-      membership({ id: 'mem2', email: 'liza@x.eu', displayName: 'Liza', role: 1, status: 0, memberId: 'm2', isOwner: false, isSelf: false }),
+      membership({ id: 'mem2', email: 'sam@x.eu', displayName: 'Sam', role: 1, status: 0, memberId: 'm2', isOwner: false, isSelf: false }),
     ]
     const user = userEvent.setup()
 
     renderPage()
 
     await screen.findByRole('table', {}, { timeout: 5000 })
-    await user.selectOptions(screen.getByLabelText('Access level for Liza'), 'Limited')
+    await user.selectOptions(screen.getByLabelText('Access level for Sam'), 'Limited')
 
     await waitFor(
       () => expect(mockPut).toHaveBeenCalledWith('/access/members/mem2/role', { role: 2 }),
@@ -481,17 +481,17 @@ describe('PeoplePage — catalog (PPL)', () => {
 
   // PPL-036 — Remove hard-deletes the membership via DELETE /access/members/{id}.
   it('PPL-036: removing a sign-in DELETEs the membership', { timeout: 15000 }, async () => {
-    membersData = [member({ id: 'm1', name: 'Chris' }), member({ id: 'm2', name: 'Liza', incomeSharePct: 0.25 })]
+    membersData = [member({ id: 'm1', name: 'Alex' }), member({ id: 'm2', name: 'Sam', incomeSharePct: 0.25 })]
     membershipsData = [
       membership(),
-      membership({ id: 'mem2', email: 'liza@x.eu', displayName: 'Liza', role: 1, status: 0, memberId: 'm2', isOwner: false, isSelf: false }),
+      membership({ id: 'mem2', email: 'sam@x.eu', displayName: 'Sam', role: 1, status: 0, memberId: 'm2', isOwner: false, isSelf: false }),
     ]
     const user = userEvent.setup()
 
     renderPage()
 
     await screen.findByRole('table', {}, { timeout: 5000 })
-    await user.click(screen.getByRole('button', { name: 'Remove sign-in for Liza' }))
+    await user.click(screen.getByRole('button', { name: 'Remove sign-in for Sam' }))
 
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/access/members/mem2'), { timeout: 5000 })
   })
@@ -499,7 +499,7 @@ describe('PeoplePage — catalog (PPL)', () => {
   // PPL-038 — a pending (Status=Invited) login shows the amber "Invited" badge and still exposes the
   // owner's role select + Remove on that row.
   it('PPL-038: an invited (pending) login shows the amber "Invited" badge plus role/Remove controls', { timeout: 15000 }, async () => {
-    membersData = [member({ id: 'm1', name: 'Chris' }), member({ id: 'm2', name: 'Robin', incomeSharePct: 0.25 })]
+    membersData = [member({ id: 'm1', name: 'Alex' }), member({ id: 'm2', name: 'Robin', incomeSharePct: 0.25 })]
     membershipsData = [
       membership(),
       membership({ id: 'mem2', email: 'robin@x.eu', displayName: 'Robin', role: 1, status: 1, memberId: 'm2', isOwner: false, isSelf: false }),
@@ -531,9 +531,9 @@ describe('PeoplePage — catalog (PPL)', () => {
   // PPL-041 — the "Other sign-ins" card lists an orphan login (memberId=null, isSelf=false) with a
   // status badge, a role badge, a "Link to a person…" select, and a Remove control.
   it('PPL-041: the "Other sign-ins" card lists orphan logins with link + remove', { timeout: 15000 }, async () => {
-    membersData = [member({ id: 'm1', name: 'Chris' }), member({ id: 'm2', name: 'Sam', incomeSharePct: 0.5 })]
+    membersData = [member({ id: 'm1', name: 'Alex' }), member({ id: 'm2', name: 'Sam', incomeSharePct: 0.5 })]
     membershipsData = [
-      membership(), // Chris, linked to m1 (self/owner)
+      membership(), // Alex, linked to m1 (self/owner)
       membership({ id: 'mem9', email: 'robin@x.eu', displayName: 'Robin', role: 1, status: 0, memberId: null, isOwner: false, isSelf: false }),
     ]
 
@@ -545,9 +545,9 @@ describe('PeoplePage — catalog (PPL)', () => {
     expect(screen.getByText('Active')).toBeInTheDocument()
 
     const linkSelect = screen.getByLabelText('Link robin@x.eu to a person')
-    // Only the unlinked person (Sam) is offered — Chris is already claimed.
+    // Only the unlinked person (Sam) is offered — Alex is already claimed.
     expect(within(linkSelect).getByRole('option', { name: 'Sam' })).toBeInTheDocument()
-    expect(within(linkSelect).queryByRole('option', { name: 'Chris' })).not.toBeInTheDocument()
+    expect(within(linkSelect).queryByRole('option', { name: 'Alex' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Remove Robin' })).toBeInTheDocument()
   })
 
@@ -636,12 +636,12 @@ describe('PeoplePage — catalog (PPL)', () => {
   // PPL-030 — adding a 2nd member calls refreshHousehold(); isShared flips true live and the
   // "Allocation" nav item appears without a manual reload.
   it('PPL-030: adding a 2nd member flips solo→shared live (Allocation nav appears)', { timeout: 15000 }, async () => {
-    membersData = [member({ id: 'm1', name: 'Chris', netMonthlyIncome: 3000, incomeSharePct: 1 })]
+    membersData = [member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, incomeSharePct: 1 })]
     mockPost.mockImplementation((url: string) => {
       if (url === '/members') {
         membersData = [
-          member({ id: 'm1', name: 'Chris', netMonthlyIncome: 3000, incomeSharePct: 0.75 }),
-          member({ id: 'm2', name: 'Liza', netMonthlyIncome: 1000, incomeSharePct: 0.25 }),
+          member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, incomeSharePct: 0.75 }),
+          member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 }),
         ]
         return Promise.resolve({ data: membersData[1] })
       }
@@ -657,7 +657,7 @@ describe('PeoplePage — catalog (PPL)', () => {
 
     await user.click(screen.getByRole('button', { name: 'Add person' }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.type(dialog.getByLabelText('Person name'), 'Liza')
+    await user.type(dialog.getByLabelText('Person name'), 'Sam')
     await user.type(dialog.getByLabelText('Net monthly income'), '1000')
     await user.click(dialog.getByRole('button', { name: 'Add person' }))
 
@@ -671,12 +671,12 @@ describe('PeoplePage — catalog (PPL)', () => {
   // PPL-031 — archiving back down to 1 member flips isShared false live and hides "Allocation".
   it('PPL-031: archiving back to 1 member flips shared→solo live (Allocation nav disappears)', { timeout: 15000 }, async () => {
     membersData = [
-      member({ id: 'm1', name: 'Chris', netMonthlyIncome: 3000, incomeSharePct: 0.75 }),
-      member({ id: 'm2', name: 'Liza', netMonthlyIncome: 1000, incomeSharePct: 0.25 }),
+      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, incomeSharePct: 0.75 }),
+      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 }),
     ]
     mockPut.mockImplementation((url: string) => {
       if (url === '/members/m2/archive') {
-        membersData = [member({ id: 'm1', name: 'Chris', netMonthlyIncome: 3000, incomeSharePct: 1 })]
+        membersData = [member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, incomeSharePct: 1 })]
         return Promise.resolve({ data: {} })
       }
       return Promise.resolve({ data: {} })
@@ -692,7 +692,7 @@ describe('PeoplePage — catalog (PPL)', () => {
       { timeout: 5000 },
     )
 
-    await user.click(screen.getByRole('button', { name: 'Archive Liza' }))
+    await user.click(screen.getByRole('button', { name: 'Archive Sam' }))
 
     // Solo again: Allocation gone.
     await waitFor(() => expect(screen.queryAllByRole('link', { name: 'Allocation' })).toHaveLength(0), { timeout: 5000 })
@@ -703,7 +703,7 @@ describe('PeoplePage — catalog (PPL)', () => {
   it('PPL-078: budget-attributed income drives the hero and the income column', async () => {
     membersData = [
       member(),
-      { ...member(), id: 'm2', name: 'Liza', netMonthlyIncome: 2000 },
+      { ...member(), id: 'm2', name: 'Sam', netMonthlyIncome: 2000 },
     ]
     setupGet()
     mockGet.mockImplementation((url: string) => {
@@ -717,8 +717,8 @@ describe('PeoplePage — catalog (PPL)', () => {
             incomeFromBudget: true,
             unattributedPlanned: 100,
             items: [
-              { memberId: 'm1', name: 'Chris', planned: 3200, received: 1500 },
-              { memberId: 'm2', name: 'Liza', planned: 2000, received: 0 },
+              { memberId: 'm1', name: 'Alex', planned: 3200, received: 1500 },
+              { memberId: 'm2', name: 'Sam', planned: 2000, received: 0 },
             ],
           },
         })
@@ -731,7 +731,7 @@ describe('PeoplePage — catalog (PPL)', () => {
     // Hero: this month's budgeted income (3,200 + 2,000 + 100 unattributed).
     expect(await screen.findByText('Income this month', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByLabelText(/^Income this month:/)).toHaveTextContent('5,300.00')
-    // Chris's cell shows the derived figure with the static default as a sub-line.
+    // Alex's cell shows the derived figure with the static default as a sub-line.
     expect(screen.getByText('€3,200.00')).toBeInTheDocument()
     expect(screen.getByText(/default\s+€3,000\.00/)).toBeInTheDocument()
   })

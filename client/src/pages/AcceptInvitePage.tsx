@@ -130,7 +130,7 @@ export function AcceptInvitePage() {
                       autoComplete="name"
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
-                      placeholder="e.g. Liza"
+                      placeholder="e.g. Sam"
                       className="w-full"
                     />
                   </div>

@@ -4,7 +4,7 @@
 
 **Test data setup:** These journeys assume a clean staging environment (`staging.allotjar.com`, `IS_STAGING` true, `RateLimiting__AuthPermitLimit` raised for serial e2e). Passwords must be HIBP-safe randoms (`Aa1-<uuid>`), never fixed common strings. Canonical fixtures used across journeys:
 - **Solo user "Sam":** EUR, number format `comma-dot` (en-GB), registers with the sample checkbox **unticked** (PR #170 default = empty account).
-- **Couple "Chris + Liza":** Chris owns the household (net monthly income 3,000.00), Liza is member #2 (net 2,000.00); joint EUR account "Joint" opening 1,250.00, plus each member's personal savings account. The allocation golden anchor figures (keep-own remainder Chris 1,259.14 / Liza 847.47) are the Bank-Summary-2026 reference numbers.
+- **Couple "Alex + Sam":** Alex owns the household (net monthly income 3,000.00), Sam is member #2 (net 2,000.00); joint EUR account "Joint" opening 1,250.00, plus each member's personal savings account. The allocation golden anchor figures (keep-own remainder Alex 1,200.50 / Sam 800.25) are the Bank-Summary-2026 reference numbers.
 - **Multi-currency household:** one EUR account "Joint" and one GBP account "UK Savings" (currency fixed at create).
 - All money is decimal(18,4) server-side / integer minor units client-side; actuals are ALWAYS transaction-derived at read time; `ExchangeRate` is hardcoded 1 app-wide today (FX deferred).
 
@@ -74,37 +74,37 @@
 ### JRN-003 - Solo owner grows into a couple: add partner, set allocation, invite a login, partner accepts and both use it
 - **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** Chris is a registered solo owner (own household, 1 member, EUR) with a funded "Joint" account (opening 1,250.00) and a current month that has income planned. A second fresh email is available for Liza.
+- **Preconditions:** Alex is a registered solo owner (own household, 1 member, EUR) with a funded "Joint" account (opening 1,250.00) and a current month that has income planned. A second fresh email is available for Sam.
 - **Steps:**
-  1. As Chris, open `/people`. Note the solo state (1 member = "You"; Allocation nav item hidden).
-  2. Click **"+ Add person"**, add "Liza" with **"Net monthly income"** 2,000.00 and a **"Savings account"** = "Liza Savings" (create that account first on `/accounts` if needed), submit **"Add person"** (people suite).
+  1. As Alex, open `/people`. Note the solo state (1 member = "You"; Allocation nav item hidden).
+  2. Click **"+ Add person"**, add "Sam" with **"Net monthly income"** 2,000.00 and a **"Savings account"** = "Sam Savings" (create that account first on `/accounts` if needed), submit **"Add person"** (people suite).
   3. Observe the nav after the add.
-  4. Set Chris's own person income to 3,000.00 via the row **✎** inline edit.
+  4. Set Alex's own person income to 3,000.00 via the row **✎** inline edit.
   5. Go to `/allocation`; if prompted, click **"Set up allocation"**; in **"Allocation settings"** set **"Pay shared costs from"** = "Joint", **"Split shared costs"** = "By income", **"Send savings to"** = "Balance", **"Balance lean (0–100)"** = 25; **"Set up"** (as ALLOC-010).
   6. Read the waterfall preview and per-member tiles.
-  7. Back on `/people`, on Liza's row click **"Invite to sign in"** → in the modal keep **"Generate an invite link"**, set **"Access level"** = "Admin", submit **"Create invite link"**, then **"Copy"** the link (`{origin}/accept-invite?code=…`).
-  8. In a separate signed-out browser context, open the copied `/accept-invite?code=…` link. Fill **"Your name (optional)"** "Liza", **"Password"** (random), tick terms, click **"Accept invite"** (as invite.spec).
-  9. Observe Liza's landing.
-  10. As Liza, add a transaction on `/transactions` attributed to herself (Member = Liza) against a shared expense line.
-  11. As Chris, refresh `/people` and read the members table (income shares, "Shared this month").
-  12. As Chris, run **"Allocate {month}"** on `/allocation`; then open `/accounts` reconciliation.
+  7. Back on `/people`, on Sam's row click **"Invite to sign in"** → in the modal keep **"Generate an invite link"**, set **"Access level"** = "Admin", submit **"Create invite link"**, then **"Copy"** the link (`{origin}/accept-invite?code=…`).
+  8. In a separate signed-out browser context, open the copied `/accept-invite?code=…` link. Fill **"Your name (optional)"** "Sam", **"Password"** (random), tick terms, click **"Accept invite"** (as invite.spec).
+  9. Observe Sam's landing.
+  10. As Sam, add a transaction on `/transactions` attributed to herself (Member = Sam) against a shared expense line.
+  11. As Alex, refresh `/people` and read the members table (income shares, "Shared this month").
+  12. As Alex, run **"Allocate {month}"** on `/allocation`; then open `/accounts` reconciliation.
 - **Expected:**
   - CP1: `/people` shows the "You"-tagged owner row only; **Allocation** nav is absent (isShared requires ≥2 members).
   - CP2-CP3: after the add, `HouseholdContext.refresh()` makes `isShared` true → the **Allocation** nav item appears live without reload; combined-income hero updates.
   - CP5-CP6: the profile saves; the preview reproduces the waterfall (Cover shared costs → Fund the jars → Pocket money → Split remainder to savings) with By-income cost split; the two hero tiles ("Shared spending" + "To savings") reconcile to the pool by construction.
-  - CP7: the link modal returns the raw token **once**; the pending membership shows the amber **"Invited"** badge on Liza's row; re-opening cannot retrieve the token again.
-  - CP8-CP9: acceptance creates Liza's login with `ConsentedUtc` stamped (terms on the form) — **no** ConsentModal later — and the server sets Liza's active household to Chris's (`SetActiveHouseholdAsync`). Liza lands via full reload on `/?joined=1` showing the **"You've joined this household…"** greeting and Chris's shared budget (Remaining-to-budget matches Chris's), NOT an own empty budget (PR #156). Liza is a **pure invitee**: `ownsHousehold=false` → her `/account` shows the "Your own budget" card.
-  - CP10: Liza (Admin) can add/attribute a transaction; the actual lands on the shared line the moment it's read (tx-derived).
-  - CP11: Liza's spending appears attributed to her member row; income shares compute over active members (Chris 60% / Liza 40% by 3000/2000; rounded display may not sum to exactly 100%).
+  - CP7: the link modal returns the raw token **once**; the pending membership shows the amber **"Invited"** badge on Sam's row; re-opening cannot retrieve the token again.
+  - CP8-CP9: acceptance creates Sam's login with `ConsentedUtc` stamped (terms on the form) — **no** ConsentModal later — and the server sets Sam's active household to Alex's (`SetActiveHouseholdAsync`). Sam lands via full reload on `/?joined=1` showing the **"You've joined this household…"** greeting and Alex's shared budget (Remaining-to-budget matches Alex's), NOT an own empty budget (PR #156). Sam is a **pure invitee**: `ownsHousehold=false` → her `/account` shows the "Your own budget" card.
+  - CP10: Sam (Admin) can add/attribute a transaction; the actual lands on the shared line the moment it's read (tx-derived).
+  - CP11: Sam's spending appears attributed to her member row; income shares compute over active members (Alex 60% / Sam 40% by 3000/2000; rounded display may not sum to exactly 100%).
   - CP12: Allocate writes one `Transfer` per member with `Residual > 0` and a valid savings account (`BankReference = "alloc:{y}-{m}:{memberId}"`), moving money Joint → each personal savings; reconciliation on `/accounts` now shows the Joint float against any jars it backs. Re-running Allocate replaces, never doubles.
 - **Automated:** Partial (`client/e2e-journey/invite.spec.ts` covers owner-adds-person → invite link → accept → lands-in-household; allocation/reconciliation legs unautomated against a real backend)
 
 ### JRN-004 - Direct temp-password invite: first sign-in hits the consent gate, then limited daily use
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Chris owns a shared household with a budget-person "Robin" (no login yet). Robin has a real email but no AllotJar account.
+- **Preconditions:** Alex owns a shared household with a budget-person "Robin" (no login yet). Robin has a real email but no AllotJar account.
 - **Steps:**
-  1. As Chris, `/people` → Robin's row → **"Invite to sign in"** → switch **"How should they get access?"** to **"Set a temporary password"**, set **"Access level"** = "Limited", type a temporary password (≥8, HIBP-safe), submit **"Create login"** (people suite).
+  1. As Alex, `/people` → Robin's row → **"Invite to sign in"** → switch **"How should they get access?"** to **"Set a temporary password"**, set **"Access level"** = "Limited", type a temporary password (≥8, HIBP-safe), submit **"Create login"** (people suite).
   2. Read the success box.
   3. In a signed-out context, go to `/login`, sign in as Robin with the email + temporary password.
   4. Observe the very first authed screen.
@@ -116,7 +116,7 @@
 - **Expected:**
   - CP1-CP2: a login is created with membership Active, role Limited, and `ConsentedUtc = null`; the success box reads "Login created … They'll accept the terms on their first sign-in…".
   - CP3-CP4: Robin signs in and is immediately blocked by the **ConsentModal** ("One thing before you start") — Onboarding is NOT mounted underneath (App gates it on `!needsConsent`); the modal is non-dismissible (only "I agree" / "Sign out") and disappears if Robin navigates to `/terms`//`/privacy` so it never covers the text.
-  - CP5-CP6: `POST /auth/consent` stamps `ConsentedUtc`; `needsConsent` flips false; the onboarding welcome may then appear; the dashboard shows the shared household's budget (Robin acts in Chris's household).
+  - CP5-CP6: `POST /auth/consent` stamps `ConsentedUtc`; `needsConsent` flips false; the onboarding welcome may then appear; the dashboard shows the shared household's budget (Robin acts in Alex's household).
   - CP7: Limited role CAN record transactions and toggle Paid on bill lines (`[AllowLimited]`); the AppShell shows the amber "limited access" banner.
   - CP8: structure edits are hidden client-side and 403 server-side ("Your access level (Limited) does not permit this action."); `/accounts` shows a read-only register (no "+ Add account"), and account create 403s.
   - CP9: change-password succeeds for THIS device (fresh token + rotated cookie) and revokes all other refresh tokens; analytics `password_changed`.
@@ -125,7 +125,7 @@
 ### JRN-005 - Invited-first user with no account: accept → start own budget → switch households → leave
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** A fresh person (no account) has been sent a valid 7-day invite **link** into Chris's shared household (role Admin). Chris's household has a populated month.
+- **Preconditions:** A fresh person (no account) has been sent a valid 7-day invite **link** into Alex's shared household (role Admin). Alex's household has a populated month.
 - **Steps:**
   1. Open the `/accept-invite?code=…` link signed-out. Complete the anonymous form ("Your name (optional)", "Password", terms), **"Accept invite"**.
   2. Confirm the landing household and greeting.
@@ -137,11 +137,11 @@
   8. Return to `/account`; on the **"Leave this household"** card click **"Leave household"** → **"Yes, leave"**.
   9. Observe the final landing.
 - **Expected:**
-  - CP1-CP2: new login created with consent stamped; server sets active household to Chris's; full reload to `/?joined=1` with the joined greeting; the invitee sees Chris's shared budget. `ownsHousehold=false` at this point.
+  - CP1-CP2: new login created with consent stamped; server sets active household to Alex's; full reload to `/?joined=1` with the joined greeting; the invitee sees Alex's shared budget. `ownsHousehold=false` at this point.
   - CP3: with only ONE household the account menu shows **no** "Household" switcher section.
   - CP4-CP5: `POST /households/start-own` bootstraps the invitee's OWN household with `seedSampleBudget:false` and switches into it → full reload to `/?started=1` with the **"This is your own budget…"** greeting and a **create-month hero** (never seeded samples, PR #170). If they later add a jar, a fresh blank month lands over-budgeted, not empty (PR #172).
-  - CP6-CP7: now `households.length > 1`, so the switcher section appears; switching to Chris's household `POST /households/switch` then full `window.location.assign('/')` re-bootstrap; MonthContext resets to the current calendar month; the active-household label in the user chip flips.
-  - CP8-CP9: leaving (`POST /households/leave {ownerId}`) hard-deletes the membership row, re-materialises the invitee's own household without samples, and resets `ActiveOwnerId` → full reload to `/?left=1` with **"You've left that household — … Nothing was deleted…"**; the invitee lands in their own (never-seeded) budget. Their attributed data in Chris's household is untouched.
+  - CP6-CP7: now `households.length > 1`, so the switcher section appears; switching to Alex's household `POST /households/switch` then full `window.location.assign('/')` re-bootstrap; MonthContext resets to the current calendar month; the active-household label in the user chip flips.
+  - CP8-CP9: leaving (`POST /households/leave {ownerId}`) hard-deletes the membership row, re-materialises the invitee's own household without samples, and resets `ActiveOwnerId` → full reload to `/?left=1` with **"You've left that household — … Nothing was deleted…"**; the invitee lands in their own (never-seeded) budget. Their attributed data in Alex's household is untouched.
 - **Automated:** Partial (`client/e2e-journey/invite.spec.ts` covers accept → lands-in-household → leave-lands-in-own-never-seeded; the start-own + switch legs are unautomated)
 
 ---
@@ -181,7 +181,7 @@
 ### JRN-007 - Quarter-long month-end close: jars fill, allocation commits, months roll and jar lines re-seed
 - **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** Shared couple household (Chris owner + Liza), Joint account funded, a saved allocation profile, and at least one Goal jar "Holiday" (target 1,200.00, target date ~10 months out, opening 0.00) plus one Recurring jar "Car insurance" (target 600.00, next due ~6 months out). Start on month M1 with income planned and balanced.
+- **Preconditions:** Shared couple household (Alex owner + Sam), Joint account funded, a saved allocation profile, and at least one Goal jar "Holiday" (target 1,200.00, target date ~10 months out, opening 0.00) plus one Recurring jar "Car insurance" (target 600.00, next due ~6 months out). Start on month M1 with income planned and balanced.
 - **Steps:**
   1. In M1, confirm the Savings group carries a funded line per jar (accrual-planned) and the month is balanced (Remaining 0).
   2. Record real spending and income transactions for M1 across expense + savings lines.
@@ -205,7 +205,7 @@
 ### JRN-008 - Payday allocation routine end-to-end: preview reconciles, commit transfers money, balances and reconciliation update
 - **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** Shared couple household with the canonical figures — Chris net 3,000.00, Liza net 2,000.00, Joint EUR source account, each member with a personal savings account, a saved profile (cost split By income, savings split Balance lean 25). Current month has expense + savings planned so the waterfall has real deductions.
+- **Preconditions:** Shared couple household with the canonical figures — Alex net 3,000.00, Sam net 2,000.00, Joint EUR source account, each member with a personal savings account, a saved profile (cost split By income, savings split Balance lean 25). Current month has expense + savings planned so the waterfall has real deductions.
 - **Steps:**
   1. On `/allocation` read the hero ("Income to allocate" = pool) and the four waterfall steps.
   2. Read each per-member tile (Savings →, residual, Projected balance).
@@ -215,7 +215,7 @@
   6. Open `/accounts` and read the Joint balance + the **"Jar reconciliation"** float.
   7. Change one member's savings account to blank on `/people`, return to `/allocation`, and re-preview + re-commit.
 - **Expected:**
-  - CP1-CP2: pool = 3,000 + 2,000 = 5,000.00; the two hero tiles reconcile to the pool by construction; residuals reflect the keep-own / tilt math (golden anchor Chris 1,259.14 / Liza 847.47 when the profile is keep-own; with Balance-tilt the shares differ but sum exactly).
+  - CP1-CP2: pool = 3,000 + 2,000 = 5,000.00; the two hero tiles reconcile to the pool by construction; residuals reflect the keep-own / tilt math (golden anchor Alex 1,200.50 / Sam 800.25 when the profile is keep-own; with Balance-tilt the shares differ but sum exactly).
   - CP3-CP4: commit writes one Joint→personal-savings `Transfer` per member with residual > 0 and a valid savings account; banner reads "Allocated {month} — N savings transfer(s) created. Re-running Allocate replaces them, never doubles up." A brand-new equal/zero-balance couple must NOT 500 (WaterFill overflow fix, PR #162 / ALLOC-057).
   - CP5: the register shows the alloc transfers as unsigned grey Transfer rows (excluded from money-in/out).
   - CP6: the Joint balance dropped by the sum of transfers out; personal savings accounts rose; reconciliation float recomputes.
@@ -292,12 +292,12 @@
 ### JRN-012 - Role-scoped daily use: a Limited member works, then is downgraded to Read-only mid-session
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** Shared household with an owner (Chris) and a member "Alex" whose login has role **Limited** and is linked to a budget person. Both signed in on separate contexts.
+- **Preconditions:** Shared household with an owner (Alex) and a member "Alex" whose login has role **Limited** and is linked to a budget person. Both signed in on separate contexts.
 - **Steps:**
   1. As Alex, confirm the AppShell amber "limited access" banner and the nav (Transactions always shown; Import link absent).
   2. As Alex, record a transaction, split it across lines, and mark a bill **"Paid"** on `/`.
   3. As Alex, attempt structure edits: rename a group, add a line, add an account, and (via URL) open `/import`.
-  4. As Chris, on `/people` change Alex's **"Access level"** select from "Limited" to "Read-only".
+  4. As Alex, on `/people` change Alex's **"Access level"** select from "Limited" to "Read-only".
   5. As Alex, WITHOUT reloading, attempt to record another transaction; then reload.
   6. After reload, confirm Alex's affordances and banners.
 - **Expected:**
@@ -316,20 +316,20 @@
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** PR #170 (start-own/leave never seed samples) / PR #172 (empty ≠ balanced; jar-owning blank month over-budgeted) / PR #156 (accept lands you IN the household)
-- **Preconditions:** "Jordan" is an Admin member of Chris's shared household via an accepted link (pure invitee, `ownsHousehold=false`). Jordan has attributed transactions in that household. Jordan owns no jars yet.
+- **Preconditions:** "Jordan" is an Admin member of Alex's shared household via an accepted link (pure invitee, `ownsHousehold=false`). Jordan has attributed transactions in that household. Jordan owns no jars yet.
 - **Steps:**
   1. As Jordan, `/account` → **"Leave this household"** → **"Leave household"** → **"Yes, leave"**.
   2. Observe the landing.
   3. Confirm no sample figures were seeded.
   4. On the create-month hero, **"Start a blank budget"** for a jar-less own household.
   5. Create a jar on `/jars`, then create a fresh month with **"Start a blank budget"** again for a later month.
-  6. As Chris, confirm Jordan's attributed data is intact and re-invite Jordan.
+  6. As Alex, confirm Jordan's attributed data is intact and re-invite Jordan.
   7. As Jordan, accept the new invite.
 - **Expected:**
   - CP1-CP2: `POST /households/leave` hard-deletes Jordan's membership, materialises Jordan's own household **without samples**, and resets `ActiveOwnerId` → full reload to `/?left=1` with "You've left that household — … Nothing was deleted…".
   - CP3-CP4: Jordan's own household has zero months, zero jars; the blank month is a **truly empty** month → Hero shows "Plan your income, then give every euro a job", NOT the gold badge and NOT over-budgeted (PR #172).
   - CP5: after Jordan owns a jar, the next blank month is born **over-budgeted** (appended accrual-planned savings line vs 0 income) — "…over-budgeted — trim a line", never the empty prompt (PR #172 corollary / BUDG-028).
-  - CP6-CP7: leave/revoke only removed the membership row (Active/Invited are the only statuses — no tombstone); the budget person + attributed data remain in Chris's household; a re-invite is a brand-new membership; accepting it lands Jordan back IN Chris's household (`/?joined=1`) with `SetActiveHouseholdAsync` (PR #156).
+  - CP6-CP7: leave/revoke only removed the membership row (Active/Invited are the only statuses — no tombstone); the budget person + attributed data remain in Alex's household; a re-invite is a brand-new membership; accepting it lands Jordan back IN Alex's household (`/?joined=1`) with `SetActiveHouseholdAsync` (PR #156).
 - **Automated:** Partial (`client/e2e-journey/invite.spec.ts` pins leave → own-household-without-samples; the jar-owner-over-budgeted and re-invite legs are unautomated)
 
 ### JRN-014 - Empty-account explorer: a brand-new opt-out user walks every feature surface and sees honest empty states

@@ -20,7 +20,7 @@ internal sealed record AccountSeed(
     decimal Opening,
     decimal JanClose);
 
-/// <summary>A household member (Chris, Liza) with their net monthly income.</summary>
+/// <summary>A household member (Alex, Sam) with their net monthly income.</summary>
 internal sealed record MemberSeed(
     string Name,
     decimal NetMonthlyIncome,

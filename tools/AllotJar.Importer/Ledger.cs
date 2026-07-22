@@ -43,8 +43,8 @@ internal static class Ledger
     {
         new("Current Joint Account",  1,  2,  null,  3,  4,  3),
         new("Savings Joint Account",  6,  7,  8,     9, 10,  9),
-        new("Liza - Savings Account", 13, 14, null, 16, 17, 16),
-        new("Chris - Savings Account",19, 20, null, 22, 23, 22),
+        new("Sam - Savings Account", 13, 14, null, 16, 17, 16),
+        new("Alex - Savings Account",19, 20, null, 22, 23, 22),
         new("Cash at Home",           26, 27, null, 29, 30, 29),
     };
 
@@ -97,7 +97,7 @@ internal static class Ledger
 
     // --- Visa ---------------------------------------------------------------
     // Ledger at rows 12..(total). Col A date, B details, C total charge (negative = a
-    // payment/cashback). D/E are the Liz/Chris split — ignored (the app has no member tag).
+    // payment/cashback). D/E are the Liz/Alex split — ignored (the app has no member tag).
     private static decimal ReadVisa(XLWorkbook wb, List<TransactionRow> rows)
     {
         if (!wb.TryGetWorksheet("Visa", out var ws)) return 0m;

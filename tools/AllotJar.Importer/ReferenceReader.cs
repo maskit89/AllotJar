@@ -43,7 +43,7 @@ internal static class ReferenceReader
         new(CleanName(Str(ws, nameCell)), type, Num(ws, opening), Num(ws, janClose));
 
     // --- Members ------------------------------------------------------------
-    // Future Savings rows 3 (Chris) and 4 (Liza): col A name, col C net monthly.
+    // Future Savings rows 3 (Alex) and 4 (Sam): col A name, col C net monthly.
     private static IReadOnlyList<MemberSeed> ReadMembers(IXLWorksheet ws)
     {
         var members = new List<MemberSeed>();

@@ -1,7 +1,7 @@
 # Subsystem map: Jars & the Allocation engine
 
 Ground-truth feature inventory for QA test design. Verified against the working tree at
-`C:\Users\Laptop\Documents\Projects\ZeroBudget` (repo `maskit89/AllotJar`, main) on 2026-07-15.
+`<local>\Documents\Projects\ZeroBudget` (repo `maskit89/AllotJar`, main) on 2026-07-15.
 All server money values are `decimal(18,4)`; the client works in integer minor units
 (`client/src/lib/money.ts`). Jar/allocation enums are serialized as **numbers** on the wire.
 
@@ -205,7 +205,7 @@ All jar math in `src/AllotJar.Domain/Services/JarAccrualCalculator.cs`; results 
 - FundEnvelopes/FundJars: ResolvedTotal = month's Σ PlannedAmount of Expense / Savings categories respectively, EXCLUDING categories with `ExcludeFromAllocation` (allocation outputs like "Personal Savings"; the flag is only ever set by the importer and carried by month-copy).
 - Split (Equal or ByIncomeRatio): per-member = Round2(total/n) or Round2(total × income/totalNet); **LAST member absorbs the rounding remainder** (exact sum).
 - FixedPerMember: each member pays the same fixed amount (step total = amount × n).
-- SplitRemainderToMembers (terminal): remainder = Σ balances. If remainder ≤ 0 → keep-own (each keeps their own, possibly negative, leftover). Else BalanceTilt → `BalanceTiltSplit`; Equal/ByIncomeRatio → pooled and `Split()` (PR #162 made these real; keep-own was the old always-behaviour and is what the golden spreadsheet figures Chris 1259.14 / Liza 847.47 anchor).
+- SplitRemainderToMembers (terminal): remainder = Σ balances. If remainder ≤ 0 → keep-own (each keeps their own, possibly negative, leftover). Else BalanceTilt → `BalanceTiltSplit`; Equal/ByIncomeRatio → pooled and `Split()` (PR #162 made these real; keep-own was the old always-behaviour and is what the golden spreadsheet figures Alex 1200.50 / Sam 800.25 anchor).
 - BalanceTiltSplit: share = Round2((1−α)·even + α·waterFill), α = clamp(lean,0,100)/100; **rounding drift pushed onto the LARGEST share** (different member than Equal's last-member rule — assert invariants, not exact cents). WaterFill levels the k lowest savings balances to a common level; top tier levelled directly via `FillToLevel` (overflow fix).
 - Terminal step SETS balances = shares; `Members[].Residual` reads them back. Hero reconciliation is by construction: terminal total = pool − (envelopes+jars+pocket), so "Shared spending" + "To savings" always = pool (even with negative To savings).
 

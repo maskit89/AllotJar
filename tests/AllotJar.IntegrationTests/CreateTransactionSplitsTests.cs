@@ -30,7 +30,7 @@ public class CreateTransactionSplitsTests
 
     private static string NewOwner() => $"user-{Guid.NewGuid():N}";
 
-    private sealed record Seeded(BudgetItem Groceries, BudgetItem Household, HouseholdMember Chris);
+    private sealed record Seeded(BudgetItem Groceries, BudgetItem Household, HouseholdMember Alex);
 
     private static async Task<Seeded> SeedAsync(ApplicationDbContext db, string ownerId)
     {
@@ -46,10 +46,10 @@ public class CreateTransactionSplitsTests
                 new() { Name = "Food", Kind = CategoryKind.Expense, Items = new List<BudgetItem> { groceries, household } },
             },
         });
-        var chris = new HouseholdMember { OwnerId = ownerId, Name = "Chris" };
-        db.HouseholdMembers.Add(chris);
+        var alex = new HouseholdMember { OwnerId = ownerId, Name = "Alex" };
+        db.HouseholdMembers.Add(alex);
         await db.SaveChangesAsync();
-        return new Seeded(groceries, household, chris);
+        return new Seeded(groceries, household, alex);
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public class CreateTransactionSplitsTests
                 BudgetItemId: null,
                 Splits: new List<SplitAllocationInput>
                 {
-                    new(s.Groceries.Id, 70m, s.Chris.Id),
+                    new(s.Groceries.Id, 70m, s.Alex.Id),
                     new(s.Household.Id, 30m),
                 }),
             CancellationToken.None);
@@ -74,7 +74,7 @@ public class CreateTransactionSplitsTests
         dto.IsSplit.Should().BeTrue();
         dto.BudgetItemId.Should().BeNull();
         dto.Splits.Select(x => x.BudgetItemName).Should().BeEquivalentTo(new[] { "Groceries", "Household" });
-        dto.Splits.Single(x => x.MemberName == "Chris").Amount.Should().Be(70m);
+        dto.Splits.Single(x => x.MemberName == "Alex").Amount.Should().Be(70m);
 
         await using var verify = _fixture.CreateContext();
         var saved = await verify.Transactions

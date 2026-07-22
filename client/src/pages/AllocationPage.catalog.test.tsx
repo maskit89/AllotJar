@@ -99,7 +99,7 @@ function workedPreview(transfersCreated = 0): AllocationResultDto {
     savingsTotal: 2500,
     transfersCreated,
     members: [
-      { memberId: 'm1', name: 'Chris', netIncome: 3000, residual: 1250, savingsBalance: 1000, savingsAccountId: 'accC' },
+      { memberId: 'm1', name: 'Alex', netIncome: 3000, residual: 1250, savingsBalance: 1000, savingsAccountId: 'accC' },
       { memberId: 'm2', name: 'Robin', netIncome: 2000, residual: 1250, savingsBalance: 500, savingsAccountId: 'accR' },
     ],
   })
@@ -561,7 +561,7 @@ describe('AllocationPage (catalog)', () => {
       pocketTotal: 0,
       savingsTotal: -500,
       members: [
-        { memberId: 'm1', name: 'Chris', netIncome: 3000, residual: -250, savingsBalance: 1000, savingsAccountId: 'accC' },
+        { memberId: 'm1', name: 'Alex', netIncome: 3000, residual: -250, savingsBalance: 1000, savingsAccountId: 'accC' },
         { memberId: 'm2', name: 'Robin', netIncome: 2000, residual: -250, savingsBalance: 500, savingsAccountId: 'accR' },
       ],
     })
@@ -610,7 +610,7 @@ describe('AllocationPage (catalog)', () => {
       pocketEach: 50,
       savingsTotal: 2400,
       members: [
-        { memberId: 'm1', name: 'Chris', netIncome: 3000, residual: 1200, savingsBalance: 1000, savingsAccountId: 'accC' },
+        { memberId: 'm1', name: 'Alex', netIncome: 3000, residual: 1200, savingsBalance: 1000, savingsAccountId: 'accC' },
         { memberId: 'm2', name: 'Robin', netIncome: 2000, residual: 1200, savingsBalance: 500, savingsAccountId: 'accR' },
       ],
     })
@@ -648,7 +648,7 @@ describe('AllocationPage (catalog)', () => {
       pocketEach: 100,
       savingsTotal: 2300,
       members: [
-        { memberId: 'm1', name: 'Chris', netIncome: 3000, residual: 1150, savingsBalance: 1000, savingsAccountId: 'accC' },
+        { memberId: 'm1', name: 'Alex', netIncome: 3000, residual: 1150, savingsBalance: 1000, savingsAccountId: 'accC' },
         { memberId: 'm2', name: 'Robin', netIncome: 2000, residual: 1150, savingsBalance: 500, savingsAccountId: 'accR' },
       ],
     })
@@ -656,13 +656,13 @@ describe('AllocationPage (catalog)', () => {
     renderPage()
 
     await screen.findByText('How July is allocated', {}, { timeout: 5000 })
-    expect(screen.getByText('Chris')).toBeInTheDocument()
+    expect(screen.getByText('Alex')).toBeInTheDocument()
     expect(screen.getByText('Robin')).toBeInTheDocument()
-    // "Savings €X → saves" + residual + "Projected balance €Y" (Chris 1,000+1,150=2,150; Robin 500+1,150=1,650).
+    // "Savings €X → saves" + residual + "Projected balance €Y" (Alex 1,000+1,150=2,150; Robin 500+1,150=1,650).
     expect(screen.getAllByText(/→ saves/).length).toBe(2)
     expect(screen.getAllByText('€1,150.00').length).toBe(2) // both residuals
     expect(screen.getAllByText(/Projected balance/).length).toBe(2)
-    expect(screen.getByText(/Projected balance €2,150\.00/)).toBeInTheDocument() // Chris 1,000 + 1,150
+    expect(screen.getByText(/Projected balance €2,150\.00/)).toBeInTheDocument() // Alex 1,000 + 1,150
     expect(screen.getByText(/Projected balance €1,650\.00/)).toBeInTheDocument() // Robin 500 + 1,150
   })
 
@@ -676,7 +676,7 @@ describe('AllocationPage (catalog)', () => {
       pocketEach: 100,
       savingsTotal: 2300,
       members: [
-        { memberId: 'm1', name: 'Chris', netIncome: 3000, residual: 1150, savingsBalance: 1000, savingsAccountId: 'accC' },
+        { memberId: 'm1', name: 'Alex', netIncome: 3000, residual: 1150, savingsBalance: 1000, savingsAccountId: 'accC' },
         // Robin: positive residual but no savings account → stranded.
         { memberId: 'm2', name: 'Robin', netIncome: 2000, residual: 1150, savingsBalance: 0, savingsAccountId: null },
       ],
@@ -703,7 +703,7 @@ describe('AllocationPage (catalog)', () => {
     const stranded = () => mkPreview({
       pool: 5000, env: 2000, jars: 500, pocketTotal: 200, pocketEach: 100, savingsTotal: 2300,
       members: [
-        { memberId: 'm1', name: 'Chris', netIncome: 3000, residual: 1150, savingsBalance: 1000, savingsAccountId: 'accC' },
+        { memberId: 'm1', name: 'Alex', netIncome: 3000, residual: 1150, savingsBalance: 1000, savingsAccountId: 'accC' },
         { memberId: 'm2', name: 'Robin', netIncome: 2000, residual: 1150, savingsBalance: 0, savingsAccountId: null },
       ],
     })
@@ -713,7 +713,7 @@ describe('AllocationPage (catalog)', () => {
       previewData = mkPreview({
         pool: 5000, env: 2000, jars: 500, pocketTotal: 200, pocketEach: 100, savingsTotal: 2300,
         members: [
-          { memberId: 'm1', name: 'Chris', netIncome: 3000, residual: 1150, savingsBalance: 1000, savingsAccountId: 'accC' },
+          { memberId: 'm1', name: 'Alex', netIncome: 3000, residual: 1150, savingsBalance: 1000, savingsAccountId: 'accC' },
           { memberId: 'm2', name: 'Robin', netIncome: 2000, residual: 1150, savingsBalance: 0, savingsAccountId: 'accRobinSav' },
         ],
       })
@@ -757,7 +757,7 @@ describe('AllocationPage (catalog)', () => {
     previewData = mkPreview({
       pool: 5000, env: 2000, jars: 500, pocketTotal: 0, savingsTotal: 2500,
       members: [
-        { memberId: 'm1', name: 'Chris', netIncome: 3000, residual: 1250, savingsBalance: 1000, savingsAccountId: 'accC' },
+        { memberId: 'm1', name: 'Alex', netIncome: 3000, residual: 1250, savingsBalance: 1000, savingsAccountId: 'accC' },
         { memberId: 'm2', name: 'Robin', netIncome: 2000, residual: 1250, savingsBalance: 0, savingsAccountId: null },
       ],
     })
@@ -779,7 +779,7 @@ describe('AllocationPage (catalog)', () => {
     previewData = mkPreview({
       pool: 5000, env: 2000, jars: 500, pocketTotal: 0, savingsTotal: 2500,
       members: [
-        { memberId: 'm1', name: 'Chris', netIncome: 3000, residual: 1250, savingsBalance: 1000, savingsAccountId: 'accC' },
+        { memberId: 'm1', name: 'Alex', netIncome: 3000, residual: 1250, savingsBalance: 1000, savingsAccountId: 'accC' },
         { memberId: 'm2', name: 'Robin', netIncome: 2000, residual: 1250, savingsBalance: 0, savingsAccountId: null },
       ],
     })
@@ -798,7 +798,7 @@ describe('AllocationPage (catalog)', () => {
       pool: 5000, env: 2000, jars: 500, pocketTotal: 0, savingsTotal: 2500,
       transfersCreated: 1,
       members: [
-        { memberId: 'm1', name: 'Chris', netIncome: 3000, residual: 1250, savingsBalance: 1000, savingsAccountId: 'accC' },
+        { memberId: 'm1', name: 'Alex', netIncome: 3000, residual: 1250, savingsBalance: 1000, savingsAccountId: 'accC' },
         { memberId: 'm2', name: 'Robin', netIncome: 2000, residual: 1250, savingsBalance: 0, savingsAccountId: null },
       ],
     })
@@ -851,7 +851,7 @@ describe('AllocationPage (catalog)', () => {
         // @ts-expect-error — the flag is optional on the wire type; present here.
         excludeFromAllocation: pocket.flagged,
         items: [
-          { id: 'pm1', name: 'Chris', displayOrder: 0, plannedAmount: pocket.planned / 2, actualAmount: 0, remaining: pocket.planned / 2 },
+          { id: 'pm1', name: 'Alex', displayOrder: 0, plannedAmount: pocket.planned / 2, actualAmount: 0, remaining: pocket.planned / 2 },
           { id: 'pm2', name: 'Robin', displayOrder: 1, plannedAmount: pocket.planned / 2, actualAmount: 0, remaining: pocket.planned / 2 },
         ],
       })
@@ -864,7 +864,7 @@ describe('AllocationPage (catalog)', () => {
     return mkPreview({
       pool: 3000, env: 2500, jars: 500, pocketTotal: 500, pocketEach: 250, savingsTotal: -500,
       members: [
-        { memberId: 'm1', name: 'Chris', netIncome: 1500, residual: -250, savingsBalance: 1000, savingsAccountId: 'accC' },
+        { memberId: 'm1', name: 'Alex', netIncome: 1500, residual: -250, savingsBalance: 1000, savingsAccountId: 'accC' },
         { memberId: 'm2', name: 'Robin', netIncome: 1500, residual: -250, savingsBalance: 500, savingsAccountId: 'accR' },
       ],
     })
@@ -880,7 +880,7 @@ describe('AllocationPage (catalog)', () => {
         previewData = mkPreview({
           pool: 3000, env: 2000, jars: 500, pocketTotal: 500, pocketEach: 250, savingsTotal: 0,
           members: [
-            { memberId: 'm1', name: 'Chris', netIncome: 1500, residual: 0, savingsBalance: 1000, savingsAccountId: 'accC' },
+            { memberId: 'm1', name: 'Alex', netIncome: 1500, residual: 0, savingsBalance: 1000, savingsAccountId: 'accC' },
             { memberId: 'm2', name: 'Robin', netIncome: 1500, residual: 0, savingsBalance: 500, savingsAccountId: 'accR' },
           ],
         })

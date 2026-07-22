@@ -8,7 +8,7 @@ namespace AllotJar.Importer;
 ///     budget). Rows 16-21 are deliberately skipped — they are category sums of the
 ///     Yearly sinking-fund contributions, which the budget represents as fund lines.
 ///   - "Future Savings" → pocket money (€250 each) and the per-member personal-savings
-///     surplus from the allocation waterfall (Chris F9 1259.14, Liza E9 847.47).
+///     surplus from the allocation waterfall (Alex F9 1200.50, Sam E9 800.25).
 /// </summary>
 internal static class BudgetReader
 {
@@ -28,12 +28,12 @@ internal static class BudgetReader
         }
 
         // Pocket money: Future Savings C8 = -(250 * 2). Personal-savings surplus per member:
-        // E9 (Liza) / F9 (Chris), matched to the parsed member names by income (Chris higher).
+        // E9 (Sam) / F9 (Alex), matched to the parsed member names by income (Alex higher).
         var pocket = Math.Abs(Num(future, "C8")) / 2m;
         var ordered = members.OrderByDescending(m => m.NetMonthlyIncome).ToList();
         var surplus = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-        if (ordered.Count > 0) surplus[ordered[0].Name] = Num(future, "F9"); // higher earner = Chris
-        if (ordered.Count > 1) surplus[ordered[1].Name] = Num(future, "E9"); // Liza
+        if (ordered.Count > 0) surplus[ordered[0].Name] = Num(future, "F9"); // higher earner = Alex
+        if (ordered.Count > 1) surplus[ordered[1].Name] = Num(future, "E9"); // Sam
 
         return new BudgetSheetData(lines, pocket, surplus);
     }

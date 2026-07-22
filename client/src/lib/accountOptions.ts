@@ -12,12 +12,12 @@ export function savingsFirst(accounts: AccountDto[]): AccountDto[] {
   )
 }
 
-/** "Chris Savings — Savings" — the type suffix keeps mixed pickers scannable. */
+/** "Alex Savings — Savings" — the type suffix keeps mixed pickers scannable. */
 export function accountOptionLabel(a: AccountDto): string {
   return `${a.name} — ${ACCOUNT_TYPE_LABELS[a.type] ?? 'Other'}`
 }
 
-/** "Chris" / "Chris and Robin" / "Chris, Robin and Sam" — for warning copy. */
+/** "Alex" / "Alex and Robin" / "Alex, Robin and Sam" — for warning copy. */
 export function formatNames(names: string[]): string {
   if (names.length <= 1) return names[0] ?? ''
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`

@@ -1,7 +1,7 @@
 # Subsystem map: Reports, Landing page, Legal pages, Feature flags
 
 Ground-truth feature inventory for QA test design. All paths are relative to the repo root
-`C:\Users\Laptop\Documents\Projects\ZeroBudget` unless stated otherwise. Verified against the
+`<local>\Documents\Projects\ZeroBudget` unless stated otherwise. Verified against the
 working tree on 2026-07-15.
 
 ---
@@ -407,5 +407,5 @@ Client:
   client/public/og/allotjar-og.png (existence)
 - client/e2e/landing.spec.ts, client/e2e/legal.spec.ts
 
-Memory/audit notes consulted: C:\Users\Laptop\.claude\projects\C--Users-Laptop-Documents-Projects\memory\seo-landing.md
+Memory/audit notes consulted: <local>\.claude\projects\C--Users-Laptop-Documents-Projects\memory\seo-landing.md
 (claims re-verified against current code above).
