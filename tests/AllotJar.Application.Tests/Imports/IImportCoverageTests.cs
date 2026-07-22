@@ -102,8 +102,8 @@ public class IImportCoverageTests
     {
         const string wideCsv =
             "Date,Details,Amount,Balance\n" +
-            "19/06/2026,AUTOMARKET SER STATION * 17/06/2026 •••• •••• •••• 7406 -35.00 EUR,-35.00,1000.00\n" +
-            "17/06/2026,PLANET PLAY 15/06/2026 •••• •••• •••• 7406 -67.75 EUR,-67.75,932.25\n";
+            "19/06/2026,AUTOMARKET SER STATION * 17/06/2026 •••• •••• •••• 4242 -35.00 EUR,-35.00,1000.00\n" +
+            "17/06/2026,PLANET PLAY 15/06/2026 •••• •••• •••• 4242 -67.75 EUR,-67.75,932.25\n";
 
         // The four-column shape defeats the 3-column HSBC sniffer.
         new HsbcCsvStatementParser().CanParse(wideCsv).Should().BeFalse();

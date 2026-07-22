@@ -126,7 +126,7 @@ public class AllocationCoverageTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
-        SeedMember(db, "Chris", 3000m, 0, null);
+        SeedMember(db, "Alex", 3000m, 0, null);
         SeedMember(db, "Robin", 2000m, 1, null);
         SeedBudget(db, 2026, 7, envelopes: 2000m, funds: 500m);
         await Upsert(db, user, StandardRules());
@@ -156,7 +156,7 @@ public class AllocationCoverageTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
-        SeedMember(db, "Chris", 3000m, 0, null);
+        SeedMember(db, "Alex", 3000m, 0, null);
         SeedMember(db, "Robin", 2000m, 1, null);
         SeedBudget(db, 2026, 7, envelopes: 4000m, funds: 1500m); // shared spending 5500 > pool 5000
         await Upsert(db, user, StandardRules());
@@ -173,7 +173,7 @@ public class AllocationCoverageTests
         (sharedSpending + toSavings).Should().Be(result.Pool); // still reconciles
 
         // Keep-own: each keeps their own leftover; Robin's income can't cover his equal share.
-        result.Members.Single(m => m.Name == "Chris").Residual.Should().Be(250m);
+        result.Members.Single(m => m.Name == "Alex").Residual.Should().Be(250m);
         result.Members.Single(m => m.Name == "Robin").Residual.Should().Be(-750m);
         result.Members.Sum(m => m.Residual).Should().Be(-500m);
     }
@@ -186,7 +186,7 @@ public class AllocationCoverageTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
-        SeedMember(db, "Chris", 3000m, 0, null); // 60% of the 5000 pool
+        SeedMember(db, "Alex", 3000m, 0, null); // 60% of the 5000 pool
         SeedMember(db, "Robin", 2000m, 1, null); // 40%
         SeedBudget(db, 2026, 7, envelopes: 2000m, funds: 500m);
         await Upsert(db, user, StandardRules(costSplit: SplitMethod.ByIncomeRatio));
@@ -195,16 +195,16 @@ public class AllocationCoverageTests
 
         var env = result.Steps.Single(s => s.Type == AllocationRuleType.FundEnvelopes);
         env.Total.Should().Be(2000m); // total unchanged
-        env.PerMember.Single(p => p.Name == "Chris").Amount.Should().Be(1200m); // 2000 * 3000/5000
+        env.PerMember.Single(p => p.Name == "Alex").Amount.Should().Be(1200m); // 2000 * 3000/5000
         env.PerMember.Single(p => p.Name == "Robin").Amount.Should().Be(800m);
 
         var jars = result.Steps.Single(s => s.Type == AllocationRuleType.FundJars);
         jars.Total.Should().Be(500m);
-        jars.PerMember.Single(p => p.Name == "Chris").Amount.Should().Be(300m); // 500 * 0.6
+        jars.PerMember.Single(p => p.Name == "Alex").Amount.Should().Be(300m); // 500 * 0.6
         jars.PerMember.Single(p => p.Name == "Robin").Amount.Should().Be(200m);
 
-        // Combined shared-cost charge per member: Chris 1500, Robin 1000 (Round2(2500 * ratio)).
-        (env.PerMember.Single(p => p.Name == "Chris").Amount + jars.PerMember.Single(p => p.Name == "Chris").Amount)
+        // Combined shared-cost charge per member: Alex 1500, Robin 1000 (Round2(2500 * ratio)).
+        (env.PerMember.Single(p => p.Name == "Alex").Amount + jars.PerMember.Single(p => p.Name == "Alex").Amount)
             .Should().Be(1500m);
         (env.PerMember.Single(p => p.Name == "Robin").Amount + jars.PerMember.Single(p => p.Name == "Robin").Amount)
             .Should().Be(1000m);
@@ -219,9 +219,9 @@ public class AllocationCoverageTests
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
         var source = SeedAccount(db, "Joint");
-        var chrisSavings = SeedAccount(db, "Chris Savings", opening: 0m);
+        var chrisSavings = SeedAccount(db, "Alex Savings", opening: 0m);
         var robinSavings = SeedAccount(db, "Robin Savings", opening: 0m);
-        SeedMember(db, "Chris", 3000m, 0, chrisSavings.Id);
+        SeedMember(db, "Alex", 3000m, 0, chrisSavings.Id);
         SeedMember(db, "Robin", 2000m, 1, robinSavings.Id);
         SeedBudget(db, 2026, 7, envelopes: 2000m, funds: 500m); // remainder 2500
         await Upsert(db, user, StandardRules(savingsSplit: SplitMethod.BalanceTilt), source.Id, lean: 25);
@@ -248,15 +248,15 @@ public class AllocationCoverageTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
-        var chrisSavings = SeedAccount(db, "Chris Savings", opening: 1000m);
+        var chrisSavings = SeedAccount(db, "Alex Savings", opening: 1000m);
         var robinSavings = SeedAccount(db, "Robin Savings", opening: 500m);
-        SeedMember(db, "Chris", 3000m, 0, chrisSavings.Id);
+        SeedMember(db, "Alex", 3000m, 0, chrisSavings.Id);
         SeedMember(db, "Robin", 2000m, 1, robinSavings.Id);
         SeedBudget(db, 2026, 7, envelopes: 2000m, funds: 500m);
 
-        // This month's own allocation transfer INTO Chris's savings — must be excluded from the tilt.
+        // This month's own allocation transfer INTO Alex's savings — must be excluded from the tilt.
         SeedTransferInto(db, chrisSavings.Id, amount: 500m, bankRef: "alloc:2026-7:someone");
-        // An ordinary transfer INTO Chris's savings — must be included.
+        // An ordinary transfer INTO Alex's savings — must be included.
         SeedTransferInto(db, chrisSavings.Id, amount: 200m, bankRef: null);
 
         await Upsert(db, user, StandardRules(savingsSplit: SplitMethod.BalanceTilt));
@@ -264,7 +264,7 @@ public class AllocationCoverageTests
         var result = await Preview(db, user, 2026, 7);
 
         // 1000 opening + 200 ordinary transfer; the 500 alloc transfer is filtered out.
-        result.Members.Single(m => m.Name == "Chris").SavingsBalance.Should().Be(1200m);
+        result.Members.Single(m => m.Name == "Alex").SavingsBalance.Should().Be(1200m);
         result.Members.Single(m => m.Name == "Robin").SavingsBalance.Should().Be(500m);
     }
 
@@ -276,9 +276,9 @@ public class AllocationCoverageTests
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
         var source = SeedAccount(db, "Joint");
-        var chrisSavings = SeedAccount(db, "Chris Savings");
+        var chrisSavings = SeedAccount(db, "Alex Savings");
         var robinSavings = SeedAccount(db, "Robin Savings");
-        SeedMember(db, "Chris", 3000m, 0, chrisSavings.Id);
+        SeedMember(db, "Alex", 3000m, 0, chrisSavings.Id);
         SeedMember(db, "Robin", 2000m, 1, robinSavings.Id);
         SeedBudget(db, 2026, 7, envelopes: 6000m, funds: 0m); // equal share 3000 each, exhausts the pool
         await Upsert(db, user, StandardRules(), source.Id);
@@ -298,9 +298,9 @@ public class AllocationCoverageTests
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
         var source = SeedAccount(db, "Joint");
-        var chrisSavings = SeedAccount(db, "Chris Savings", opening: 0m);
+        var chrisSavings = SeedAccount(db, "Alex Savings", opening: 0m);
         var ghostId = Guid.NewGuid(); // an account that no longer exists
-        SeedMember(db, "Chris", 3000m, 0, chrisSavings.Id);
+        SeedMember(db, "Alex", 3000m, 0, chrisSavings.Id);
         SeedMember(db, "Robin", 2000m, 1, ghostId);
         SeedBudget(db, 2026, 7, envelopes: 2000m, funds: 500m); // remainder 2500 → 1250 each
         await Upsert(db, user, StandardRules(savingsSplit: SplitMethod.BalanceTilt), source.Id);
@@ -312,7 +312,7 @@ public class AllocationCoverageTests
         robin.Residual.Should().Be(1250m);          // still allocated a positive share
 
         var commit = await Commit(db, user, 2026, 7);
-        commit.TransfersCreated.Should().Be(1);     // only Chris
+        commit.TransfersCreated.Should().Be(1);     // only Alex
         var transfers = await db.Transactions.Where(t => t.Type == TransactionType.Transfer).ToListAsync();
         transfers.Should().ContainSingle(t => t.TransferAccountId == chrisSavings.Id && t.Amount == 1250m);
         transfers.Should().NotContain(t => t.TransferAccountId == ghostId);
@@ -370,8 +370,8 @@ public class AllocationCoverageTests
         var user = new CurrentUserStub(Owner);
         var gbp = CurrencyCode.From("GBP");
         var source = SeedAccount(db, "Joint", currency: gbp);
-        var chrisSavings = SeedAccount(db, "Chris Savings", currency: gbp);
-        var chris = SeedMember(db, "Chris", 3000m, 0, chrisSavings.Id);
+        var chrisSavings = SeedAccount(db, "Alex Savings", currency: gbp);
+        var alex = SeedMember(db, "Alex", 3000m, 0, chrisSavings.Id);
         SeedBudget(db, 2026, 7, envelopes: 2000m, funds: 0m, currency: gbp); // remainder 1000
         await Upsert(db, user, StandardRules(savingsSplit: SplitMethod.Equal), source.Id);
 
@@ -380,13 +380,13 @@ public class AllocationCoverageTests
 
         var transfer = (await db.Transactions.Where(t => t.Type == TransactionType.Transfer).ToListAsync()).Single();
         transfer.Date.Should().Be(new DateOnly(2026, 7, 1));
-        transfer.Payee.Should().Be("Income allocation — Chris");
+        transfer.Payee.Should().Be("Income allocation — Alex");
         transfer.Amount.Should().Be(1000m);
         transfer.Currency.Should().Be(gbp); // the source/savings currency, not a hardcoded EUR
         transfer.ExchangeRate.Should().Be(1m);
         transfer.AccountId.Should().Be(source.Id);
         transfer.TransferAccountId.Should().Be(chrisSavings.Id);
-        transfer.BankReference.Should().Be($"alloc:2026-7:{chris.Id}");
+        transfer.BankReference.Should().Be($"alloc:2026-7:{alex.Id}");
         transfer.BankReference.Should().NotContain("2026-07"); // month not zero-padded
     }
 
@@ -399,8 +399,8 @@ public class AllocationCoverageTests
         var user = new CurrentUserStub(Owner);
         var gbp = CurrencyCode.From("GBP");
         var source = SeedAccount(db, "Joint", currency: gbp);
-        var eurSavings = SeedAccount(db, "Chris Savings", currency: CurrencyCode.Eur); // mismatched
-        var chris = SeedMember(db, "Chris", 3000m, 0, eurSavings.Id);
+        var eurSavings = SeedAccount(db, "Alex Savings", currency: CurrencyCode.Eur); // mismatched
+        var alex = SeedMember(db, "Alex", 3000m, 0, eurSavings.Id);
         SeedBudget(db, 2026, 7, envelopes: 2000m, funds: 0m, currency: gbp);
         await Upsert(db, user, StandardRules(savingsSplit: SplitMethod.Equal), source.Id);
 
@@ -418,7 +418,7 @@ public class AllocationCoverageTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
-        SeedMember(db, "Chris", 3000m, 0, null);
+        SeedMember(db, "Alex", 3000m, 0, null);
         SeedBudget(db, 2026, 7, envelopes: 2000m, funds: 500m);
         await Upsert(db, user, StandardRules(), source: null);
 
@@ -437,7 +437,7 @@ public class AllocationCoverageTests
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
         SeedAccount(db, "Joint");
-        SeedMember(db, "Chris", 3000m, 0, null);
+        SeedMember(db, "Alex", 3000m, 0, null);
         SeedBudget(db, 2026, 7, envelopes: 2000m, funds: 500m);
 
         Func<Task> act = () => Commit(db, user, 2026, 7);
@@ -468,7 +468,7 @@ public class AllocationCoverageTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
-        SeedMember(db, "Chris", 0m, 0, null);
+        SeedMember(db, "Alex", 0m, 0, null);
         SeedMember(db, "Robin", 0m, 1, null);
         SeedBudget(db, 2026, 7, envelopes: 1000m, funds: 500m); // 750 charged to each, nothing to pay it
         await Upsert(db, user, StandardRules(savingsSplit: SplitMethod.BalanceTilt));

@@ -30,13 +30,13 @@ public class AllocationIncomeFromBudgetTests
             .UseInMemoryDatabase($"zbb-income-budget-{Guid.NewGuid()}")
             .Options);
 
-    private sealed record Seeded(HouseholdMember Chris, HouseholdMember Robin, BudgetCategory Income);
+    private sealed record Seeded(HouseholdMember Alex, HouseholdMember Robin, BudgetCategory Income);
 
     private static Seeded Seed(ApplicationDbContext db, string owner = "user-1")
     {
-        var chris = new HouseholdMember { OwnerId = owner, Name = "Chris", NetMonthlyIncome = 9999m, DisplayOrder = 0 };
+        var alex = new HouseholdMember { OwnerId = owner, Name = "Alex", NetMonthlyIncome = 9999m, DisplayOrder = 0 };
         var robin = new HouseholdMember { OwnerId = owner, Name = "Robin", NetMonthlyIncome = 8888m, DisplayOrder = 1 };
-        db.HouseholdMembers.AddRange(chris, robin);
+        db.HouseholdMembers.AddRange(alex, robin);
         var income = new BudgetCategory { Name = "Income", Kind = CategoryKind.Income };
         db.BudgetMonths.Add(new BudgetMonth
         {
@@ -48,7 +48,7 @@ public class AllocationIncomeFromBudgetTests
             },
         });
         db.SaveChanges();
-        return new Seeded(chris, robin, income);
+        return new Seeded(alex, robin, income);
     }
 
     private static void AddIncomeLine(ApplicationDbContext db, Seeded s, string name, decimal planned, Guid? memberId)
@@ -78,7 +78,7 @@ public class AllocationIncomeFromBudgetTests
         await using var db = NewContext();
         var s = Seed(db);
         await SeedProfileAsync(db);
-        AddIncomeLine(db, s, "Chris — Salary", 3000m, s.Chris.Id);
+        AddIncomeLine(db, s, "Alex — Salary", 3000m, s.Alex.Id);
         AddIncomeLine(db, s, "Robin — Salary", 2000m, s.Robin.Id);
 
         var dto = await new PreviewIncomeAllocationQueryHandler(db, new CurrentUserStub("user-1"))
@@ -88,7 +88,7 @@ public class AllocationIncomeFromBudgetTests
         dto.UnattributedIncome.Should().Be(0m);
         // The pool is the budget's income, NOT the static 9999/8888 defaults.
         dto.Pool.Should().Be(5000m);
-        dto.Members.Single(m => m.Name == "Chris").NetIncome.Should().Be(3000m);
+        dto.Members.Single(m => m.Name == "Alex").NetIncome.Should().Be(3000m);
         dto.Members.Single(m => m.Name == "Robin").NetIncome.Should().Be(2000m);
     }
 
@@ -98,7 +98,7 @@ public class AllocationIncomeFromBudgetTests
         await using var db = NewContext();
         var s = Seed(db);
         await SeedProfileAsync(db);
-        AddIncomeLine(db, s, "Chris — Salary", 3000m, s.Chris.Id);
+        AddIncomeLine(db, s, "Alex — Salary", 3000m, s.Alex.Id);
         // The split convention is sum-preserving (last member absorbs whatever rounding
         // leaves over), so assert the invariant rather than a fragile exact cent.
         AddIncomeLine(db, s, "Child benefit", 100.01m, null);
@@ -110,10 +110,10 @@ public class AllocationIncomeFromBudgetTests
         dto.UnattributedIncome.Should().Be(100.01m);
         dto.Pool.Should().Be(3100.01m);
         // Sum-preserving: whatever the rounding, the shares add back to the unattributed total.
-        var chris = dto.Members.Single(m => m.Name == "Chris").NetIncome;
+        var alex = dto.Members.Single(m => m.Name == "Alex").NetIncome;
         var robin = dto.Members.Single(m => m.Name == "Robin").NetIncome;
-        (chris + robin).Should().Be(3100.01m);
-        chris.Should().BeGreaterThan(3000m);
+        (alex + robin).Should().Be(3100.01m);
+        alex.Should().BeGreaterThan(3000m);
         robin.Should().BeGreaterThan(0m);
     }
 
@@ -140,7 +140,7 @@ public class AllocationIncomeFromBudgetTests
         await using var db = NewContext();
         var s = Seed(db);
         await SeedProfileAsync(db);
-        AddIncomeLine(db, s, "Chris — Salary", 3000m, s.Chris.Id);
+        AddIncomeLine(db, s, "Alex — Salary", 3000m, s.Alex.Id);
         AddIncomeLine(db, s, "Robin — Salary", 2000m, s.Robin.Id);
         s.Robin.IsArchived = true;
         await db.SaveChangesAsync();
@@ -160,18 +160,18 @@ public class AllocationIncomeFromBudgetTests
     {
         await using var db = NewContext();
         var s = Seed(db);
-        AddIncomeLine(db, s, "Chris — Salary", 3000m, s.Chris.Id);
+        AddIncomeLine(db, s, "Alex — Salary", 3000m, s.Alex.Id);
         AddIncomeLine(db, s, "Child benefit", 100m, null);
         // Received: one whole income tx in-month, one out-of-month, one split slice.
         db.Transactions.Add(new Transaction
         {
             OwnerId = "user-1", Date = new DateOnly(2026, 7, 5), Payee = "Employer",
-            Amount = 1500m, Type = TransactionType.Income, MemberId = s.Chris.Id,
+            Amount = 1500m, Type = TransactionType.Income, MemberId = s.Alex.Id,
         });
         db.Transactions.Add(new Transaction
         {
             OwnerId = "user-1", Date = new DateOnly(2026, 6, 28), Payee = "Employer",
-            Amount = 999m, Type = TransactionType.Income, MemberId = s.Chris.Id,
+            Amount = 999m, Type = TransactionType.Income, MemberId = s.Alex.Id,
         });
         var splitTx = new Transaction
         {
@@ -182,7 +182,7 @@ public class AllocationIncomeFromBudgetTests
         db.SaveChanges();
         db.TransactionSplits.Add(new TransactionSplit
         {
-            TransactionId = splitTx.Id, BudgetItemId = db.BudgetItems.First(i => i.Name == "Chris — Salary").Id,
+            TransactionId = splitTx.Id, BudgetItemId = db.BudgetItems.First(i => i.Name == "Alex — Salary").Id,
             MemberId = s.Robin.Id, Amount = 100m,
         });
         db.SaveChanges();
@@ -192,9 +192,9 @@ public class AllocationIncomeFromBudgetTests
 
         dto.IncomeFromBudget.Should().BeTrue();
         dto.UnattributedPlanned.Should().Be(100m);
-        var chris = dto.Items.Single(i => i.Name == "Chris");
-        chris.Planned.Should().Be(3000m);
-        chris.Received.Should().Be(1500m, "the June transaction is out of the window");
+        var alex = dto.Items.Single(i => i.Name == "Alex");
+        alex.Planned.Should().Be(3000m);
+        alex.Received.Should().Be(1500m, "the June transaction is out of the window");
         dto.Items.Single(i => i.Name == "Robin").Received.Should().Be(100m, "split slices attribute per member");
     }
 }

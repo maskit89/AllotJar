@@ -57,8 +57,8 @@ function tx(): TransactionDto {
 
 function membersFixture(): HouseholdMemberDto[] {
   return [
-    { id: 'mem-chris', name: 'Chris', netMonthlyIncome: 4000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 0.5 },
-    { id: 'mem-liza', name: 'Liza', netMonthlyIncome: 4000, personalSavingsAccountId: null, displayOrder: 1, isArchived: false, incomeSharePct: 0.5 },
+    { id: 'mem-alex', name: 'Alex', netMonthlyIncome: 4000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 0.5 },
+    { id: 'mem-sam', name: 'Sam', netMonthlyIncome: 4000, personalSavingsAccountId: null, displayOrder: 1, isArchived: false, incomeSharePct: 0.5 },
   ]
 }
 
@@ -208,7 +208,7 @@ describe('TransactionsPage manual sheet', () => {
   it('attributes a new transaction to a household member', { timeout: 15000 }, async () => {
     mockLoad([], [], membersFixture())
     mockPost.mockResolvedValue({
-      data: { ...tx(), payee: 'Pharmacy', memberId: 'mem-chris', memberName: 'Chris' },
+      data: { ...tx(), payee: 'Pharmacy', memberId: 'mem-alex', memberName: 'Alex' },
     })
     const user = userEvent.setup()
 
@@ -219,13 +219,13 @@ describe('TransactionsPage manual sheet', () => {
     await user.type(screen.getByLabelText('Transaction payee'), 'Pharmacy')
     await user.type(screen.getByLabelText('Transaction amount'), '12,50')
     // The member select appears once members have loaded.
-    await user.selectOptions(await screen.findByLabelText('Transaction member', {}, { timeout: 5000 }), 'mem-chris')
+    await user.selectOptions(await screen.findByLabelText('Transaction member', {}, { timeout: 5000 }), 'mem-alex')
     await user.click(dialog.getByRole('button', { name: 'Add transaction' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(
         '/transactions',
-        expect.objectContaining({ payee: 'Pharmacy', memberId: 'mem-chris' }),
+        expect.objectContaining({ payee: 'Pharmacy', memberId: 'mem-alex' }),
       ),
     )
     // The member isn't a register column in the redesign, so just confirm the row landed.
@@ -399,7 +399,7 @@ describe('TransactionsPage manual sheet', () => {
         amount: 100,
         isSplit: true,
         splits: [
-          { id: 's1', budgetItemId: 'i-rent', budgetItemName: 'Rent', memberId: 'mem-chris', memberName: 'Chris', amount: 70 },
+          { id: 's1', budgetItemId: 'i-rent', budgetItemName: 'Rent', memberId: 'mem-alex', memberName: 'Alex', amount: 70 },
           { id: 's2', budgetItemId: 'i-food', budgetItemName: 'Groceries', memberId: null, memberName: null, amount: 30 },
         ],
       },
@@ -417,7 +417,7 @@ describe('TransactionsPage manual sheet', () => {
     // Unallocated remainder disables the submit.
     await user.selectOptions(screen.getByLabelText('Split line 1 category'), 'i-rent')
     await user.type(screen.getByLabelText('Split line 1 amount'), '70')
-    await user.selectOptions(screen.getByLabelText('Split line 1 member'), 'mem-chris')
+    await user.selectOptions(screen.getByLabelText('Split line 1 member'), 'mem-alex')
     expect(dialog.getByRole('button', { name: 'Add transaction' })).toBeDisabled()
 
     await user.selectOptions(screen.getByLabelText('Split line 2 category'), 'i-food')
@@ -436,7 +436,7 @@ describe('TransactionsPage manual sheet', () => {
         accountId: null,
         memberId: null,
         splits: [
-          { budgetItemId: 'i-rent', amount: 70, memberId: 'mem-chris' },
+          { budgetItemId: 'i-rent', amount: 70, memberId: 'mem-alex' },
           { budgetItemId: 'i-food', amount: 30, memberId: null },
         ],
       }),

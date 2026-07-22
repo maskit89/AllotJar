@@ -584,7 +584,7 @@ describe('DashboardPage month navigation', () => {
   function sharedHousehold() {
     return {
       members: [
-        { id: 'mem-chris', name: 'Chris', netMonthlyIncome: 3000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 0.6 },
+        { id: 'mem-alex', name: 'Alex', netMonthlyIncome: 3000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 0.6 },
         { id: 'mem-robin', name: 'Robin', netMonthlyIncome: 2000, personalSavingsAccountId: null, displayOrder: 1, isArchived: false, incomeSharePct: 0.4 },
       ],
       isShared: true,
@@ -618,9 +618,9 @@ describe('DashboardPage month navigation', () => {
     const picker = await screen.findByLabelText('Who earns Take-home Pay', {}, { timeout: 5000 })
     expect(screen.queryByLabelText('Who earns Rent')).not.toBeInTheDocument()
 
-    await user.selectOptions(picker, 'mem-chris')
+    await user.selectOptions(picker, 'mem-alex')
     await waitFor(() =>
-      expect(mockPut).toHaveBeenCalledWith('/budget/items/i-pay/member', { memberId: 'mem-chris' }),
+      expect(mockPut).toHaveBeenCalledWith('/budget/items/i-pay/member', { memberId: 'mem-alex' }),
     )
 
     // A failing PUT reverts the optimistic pick (back to the last saved value) and
@@ -628,6 +628,6 @@ describe('DashboardPage month navigation', () => {
     mockPut.mockRejectedValue(new Error('network'))
     await user.selectOptions(screen.getByLabelText('Who earns Take-home Pay'), 'mem-robin')
     expect(await screen.findByText(/Could not update who earns that income — reverted\./, {}, { timeout: 5000 })).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByLabelText('Who earns Take-home Pay')).toHaveValue('mem-chris'))
+    await waitFor(() => expect(screen.getByLabelText('Who earns Take-home Pay')).toHaveValue('mem-alex'))
   })
 })

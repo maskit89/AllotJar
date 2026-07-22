@@ -2,7 +2,7 @@
 
 **ID prefix:** CMB | **Scope:** Cross-feature, pairwise/three-way interactions that no single area file can see — the seams where import, dedup, transfers, allocation, jars, savings lines, splits, bills, month-copy/templates, reports, reconciliation, members, currency-format preferences, feature flags and the solo↔shared transition meet. Each case asserts a behaviour that emerges only from two or more features acting together, and references the single-feature cases it builds on rather than repeating them. | **Out of scope:** single-feature mechanics live in their area files — categories/lines `08-categories-budget-lines.md`, bills `09-bills.md`, transactions/splits `10-transactions.md`, transfers `11-transfers.md`, accounts/reconciliation `12-accounts-reconciliation.md`, jars `13-jars.md`, allocation `14-allocation.md`, import `15-import.md`, people/households `16-people-households.md`, invites `17-invites.md`, reports `18-reports.md`; end-to-end multi-feature *journeys* live in `20-journeys.md` (CMB cases isolate ONE seam; JRN cases walk a whole user story).
 
-**Test data setup:** unless a case says otherwise, assume a shared household `OwnerId=H1`, two active members **Chris** (net income 1,259.14) and **Liza** (net income 847.47), base currency EUR with the default number format `comma-dot` (`1,234.56`), two EUR accounts **Joint** (opening 1,250.00) and **Savings** (opening 0.00), the `HouseholdAllocation`, `HouseholdAccess`, `Accounts`, `Jars`, `Reports`, `MultiCurrency` and `CamtImport` flags all **on**, and at least one budget month present. "Solo" fixtures use a one-member household `S1` (member Sam). Money is integer minor units at scale 4 on the client and `decimal(18,4)` server-side; actuals/balances are always transaction-derived at read time.
+**Test data setup:** unless a case says otherwise, assume a shared household `OwnerId=H1`, two active members **Alex** (net income 1,200.50) and **Sam** (net income 800.25), base currency EUR with the default number format `comma-dot` (`1,234.56`), two EUR accounts **Joint** (opening 1,250.00) and **Savings** (opening 0.00), the `HouseholdAllocation`, `HouseholdAccess`, `Accounts`, `Jars`, `Reports`, `MultiCurrency` and `CamtImport` flags all **on**, and at least one budget month present. "Solo" fixtures use a one-member household `S1` (member Sam). Money is integer minor units at scale 4 on the client and `decimal(18,4)` server-side; actuals/balances are always transaction-derived at read time.
 
 ---
 
@@ -149,11 +149,11 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 ### CMB-007 - Committing allocation moves the source account down and each member savings account up
 - **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** shared household; allocation profile with source account **Joint**; Chris's personal savings account **Chris-Savings** (opening 0.00) and Liza's **Liza-Savings** (opening 0.00) set on the People page; a balanced/positive month so both residuals > 0.
+- **Preconditions:** shared household; allocation profile with source account **Joint**; Alex's personal savings account **Alex-Savings** (opening 0.00) and Sam's **Sam-Savings** (opening 0.00) set on the People page; a balanced/positive month so both residuals > 0.
 - **Steps:**
   1. On `/allocation` press **Allocate** and confirm the transfers-created banner (ALLOC-050).
   2. Open `/accounts` and read the balances; open **Joint**'s register.
-- **Expected:** one `Transfer` transaction per member with residual > 0 is written from **Joint** to that member's savings account, `BankReference = alloc:{year}-{month}:{memberId}`. **Joint**'s derived balance drops by the sum of residuals; **Chris-Savings** and **Liza-Savings** rise by each residual (AccountBalances: `− transferOut + transferIn`). Net worth across accounts is unchanged (a transfer moves, never creates, money — TRF-028).
+- **Expected:** one `Transfer` transaction per member with residual > 0 is written from **Joint** to that member's savings account, `BankReference = alloc:{year}-{month}:{memberId}`. **Joint**'s derived balance drops by the sum of residuals; **Alex-Savings** and **Sam-Savings** rise by each residual (AccountBalances: `− transferOut + transferIn`). Net worth across accounts is unchanged (a transfer moves, never creates, money — TRF-028).
 - **Automated:** Partial (tests/AllotJar.IntegrationTests/AllocationRerunTests.cs + tests/AllotJar.Application.Tests/Application/AllocationTests.cs)
 
 ### CMB-008 - Re-running allocation replaces its own transfers so balances never double
@@ -162,7 +162,7 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 - **Origin:** `AllocateIncomeCommandHandler` removes prior rows whose `BankReference` starts with `alloc:{year}-{month}:` before recreating (ALLOC-052).
 - **Preconditions:** CMB-007 already committed once.
 - **Steps:**
-  1. Change Liza's net income on `/people`, return to `/allocation`, press **Allocate** again.
+  1. Change Sam's net income on `/people`, return to `/allocation`, press **Allocate** again.
   2. Re-read `/accounts` balances.
 - **Expected:** the month's previous alloc transfers are deleted and re-created, so each savings account reflects the NEW residuals only — not the old plus new. Running Allocate five times leaves exactly the last run's transfers. Balances are idempotent in the month.
 - **Automated:** Yes (tests/AllotJar.IntegrationTests/AllocationRerunTests.cs)
@@ -170,22 +170,22 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 ### CMB-009 - The balance-tilt ignores this month's own alloc transfers but sees a prior manual/imported one
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** shared household; "Send savings to" = **Balance** with a balance lean (ALLOC-014/015); Chris-Savings and Liza-Savings set.
+- **Preconditions:** shared household; "Send savings to" = **Balance** with a balance lean (ALLOC-014/015); Alex-Savings and Sam-Savings set.
 - **Steps:**
-  1. Before allocating, record a manual transfer of 500.00 into **Chris-Savings** (or import one).
+  1. Before allocating, record a manual transfer of 500.00 into **Alex-Savings** (or import one).
   2. Open `/allocation`, note the per-member tilt in the waterfall, press **Allocate**, then press **Allocate** a second time.
-- **Expected:** the water-fill tilt leans the pooled remainder toward **Liza** (lower savings balance) because `SavingsBalancesAsync` counts the pre-existing 500.00 transfer into Chris-Savings. On the SECOND Allocate the tilt is IDENTICAL to the first, because balances used for the tilt EXCLUDE transfers whose reference starts with `alloc:{year}-{month}:` — the commit stays stable and idempotent, and a member's own just-written allocation never feeds back into their next tilt.
+- **Expected:** the water-fill tilt leans the pooled remainder toward **Sam** (lower savings balance) because `SavingsBalancesAsync` counts the pre-existing 500.00 transfer into Alex-Savings. On the SECOND Allocate the tilt is IDENTICAL to the first, because balances used for the tilt EXCLUDE transfers whose reference starts with `alloc:{year}-{month}:` — the commit stays stable and idempotent, and a member's own just-written allocation never feeds back into their next tilt.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/AllocationTests.cs covers balance-tilt inputs)
 
 ### CMB-010 - Actual received income (transactions/imports) never changes the allocation pool
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** shared household; members Chris (1,259.14) and Liza (847.47); an income budget line.
+- **Preconditions:** shared household; members Alex (1,200.50) and Sam (800.25); an income budget line.
 - **Steps:**
-  1. Note the "Income to allocate" hero on `/allocation` (= 2,106.61, the sum of member net incomes).
+  1. Note the "Income to allocate" hero on `/allocation` (= 2,000.75, the sum of member net incomes).
   2. Add a 3,000.00 income transaction and import several more income rows.
   3. Return to `/allocation` (re-preview).
-- **Expected:** the pool is UNCHANGED at 2,106.61 — `IncomeAllocator.Compute` sums `AllocationMember.NetIncome` (each member's `NetMonthlyIncome` field), not transactions. Received income drives reports/actuals and the dashboard, but the allocation pool is member-record-driven. To change the pool you edit a member's income on `/people`, not the register. (This is why TRF-030 "transfer excluded from the split pool" holds trivially — no transaction of any type feeds the pool.)
+- **Expected:** the pool is UNCHANGED at 2,000.75 — `IncomeAllocator.Compute` sums `AllocationMember.NetIncome` (each member's `NetMonthlyIncome` field), not transactions. Received income drives reports/actuals and the dashboard, but the allocation pool is member-record-driven. To change the pool you edit a member's income on `/people`, not the register. (This is why TRF-030 "transfer excluded from the split pool" holds trivially — no transaction of any type feeds the pool.)
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Domain/IncomeAllocatorTests.cs)
 
 ### CMB-011 - Allocating into a non-EUR account writes a EUR-stamped transfer the balance treats in account currency
@@ -341,21 +341,21 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 ### CMB-025 - Archiving a member keeps their transactions but removes them from the allocation split
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** shared household; members Chris and Liza; several expense transactions attributed to Liza; an allocation profile.
+- **Preconditions:** shared household; members Alex and Sam; several expense transactions attributed to Sam; an allocation profile.
 - **Steps:**
-  1. Archive Liza on `/people` (PPL-022).
+  1. Archive Sam on `/people` (PPL-022).
   2. Open `/reports` member spending (with archived shown) and `/transactions`; then open `/allocation`.
-- **Expected:** Liza's transactions retain their `MemberId` (attribution survives — reports/member-spending still attribute them, PPL-023/025), but `AllocationPlanner` loads only `!IsArchived` members, so the pool drops to Chris's income alone (2,106.61 → 1,259.14), the waterfall splits shared costs across Chris only, and the per-member tiles no longer include Liza. Archiving is a household-membership change that reshapes allocation without orphaning history.
+- **Expected:** Sam's transactions retain their `MemberId` (attribution survives — reports/member-spending still attribute them, PPL-023/025), but `AllocationPlanner` loads only `!IsArchived` members, so the pool drops to Alex's income alone (2,000.75 → 1,200.50), the waterfall splits shared costs across Alex only, and the per-member tiles no longer include Sam. Archiving is a household-membership change that reshapes allocation without orphaning history.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/AllocationTests.cs + HouseholdMembersTests.cs + MemberSpendingTests.cs)
 
 ### CMB-026 - Un-archiving a member restores them to the allocation pool with income intact
 - **Priority:** P2
 - **Type:** Regression
-- **Preconditions:** CMB-025 state (Liza archived).
+- **Preconditions:** CMB-025 state (Sam archived).
 - **Steps:**
   1. There is no restore control on `/people` (PPL-024); un-archive via the members API `includeArchived`/update path, or re-add.
   2. Re-open `/allocation`.
-- **Expected:** once Liza is active again she reappears in the pool at her stored `NetMonthlyIncome` (847.47) and the split returns to the two-member shape — her income was never zeroed while archived (PPL-025), so nothing needs re-entering. Confirms archive/un-archive is non-destructive to the allocation inputs.
+- **Expected:** once Sam is active again she reappears in the pool at her stored `NetMonthlyIncome` (800.25) and the split returns to the two-member shape — her income was never zeroed while archived (PPL-025), so nothing needs re-entering. Confirms archive/un-archive is non-destructive to the allocation inputs.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/HouseholdMembersTests.cs)
 
 ### CMB-027 - An ExcludeFromAllocation category is left out of BOTH the envelopes and funds totals and survives copy
@@ -592,7 +592,7 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 ### CMB-048 - One transfer row is excluded from every money rollup yet shown signed on both account registers
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** shared household; accounts **Joint** and **Savings**; a single 500.00 transfer **Joint → Savings** (TRF-005); at least one genuine 800.00 expense assigned to a line and attributed to Liza; a budget month and ≥2 report points exist.
+- **Preconditions:** shared household; accounts **Joint** and **Savings**; a single 500.00 transfer **Joint → Savings** (TRF-005); at least one genuine 800.00 expense assigned to a line and attributed to Sam; a budget month and ≥2 report points exist.
 - **Steps:**
   1. Open `/reports` — read the trend "Spent"/"Income" bars, the Annual overview, and the Spending-by-category breakdown %.
   2. Open `/people` — read the "Shared this month" hero tile and the per-member "Spent" column.
@@ -674,13 +674,13 @@ Four seams that the single-feature files and the cases above leave uncovered: th
 - **Type:** Regression
 - **Origin:** `IncomeAllocator.Compute` sets `pool = members.Sum(m => m.NetIncome)` (`IncomeAllocator.cs:30`); `AllocationPlanner` fills that `NetIncome` from each member's static `HouseholdMember.NetMonthlyIncome` (`AllocationPlanner.cs:65`) and derives ONLY the FundEnvelopes/FundJars deductions from the month's planned Expense/Savings totals (`AllocationPlanner.cs:37-49`, `Kind == Expense || Kind == Savings`) — the budget's **Income** category is never read by allocation at all. Independently, the dashboard's `TotalIncome`/`IsBalanced` (PR #172) read the month's planned **Income** lines. Two unrelated notions of "income".
 - **Resolution note (income-per-person switchover):** the decoupling is now CONDITIONAL: when the viewed month attributes income lines to people, `AllocationPlanner` derives per-member income from those PLANNED lines (unattributed shared equally; `incomeFromBudget`/`unattributedIncome` on the DTO) — the two notions converge on the budget. A month with NO attributed lines behaves exactly as described above (static fallback), which this case continues to pin.
-- **Preconditions:** shared household; members Chris (`NetMonthlyIncome` 1,259.14) and Liza (847.47) → pool **2,106.61**; both have a personal savings account set on `/people`; a blank month **2026-09** with an Income group (planned 0) and one Expense line "Groceries"; no jars (so appended savings lines don't muddy the numbers — CMB-020).
+- **Preconditions:** shared household; members Alex (`NetMonthlyIncome` 1,200.50) and Sam (800.25) → pool **2,000.75**; both have a personal savings account set on `/people`; a blank month **2026-09** with an Income group (planned 0) and one Expense line "Groceries"; no jars (so appended savings lines don't muddy the numbers — CMB-020).
 - **Steps:**
   1. Open the 2026-09 dashboard hero and `/allocation`; compare the hero **Income** figure with the "Income to allocate" pool.
   2. **Direction A — kill the budget income, keep member income:** leave the Income group at 0 and plan Groceries at **400.00**. Re-read the dashboard hero and `/allocation`; press **Allocate**.
   3. **Direction B — kill the member income, keep budget income:** on `/people` set BOTH members' `NetMonthlyIncome` to **0**, then plan the 2026-09 Income group at **5,000.00**. Re-read the dashboard hero and `/allocation`; press **Allocate**.
 - **Expected:**
-  - **Direction A:** the dashboard reads `TotalIncome = 0`, `TotalPlanned = 400` → `RemainingToBudget = −400` → the hero shows **"€400.00 over-budgeted"** and never the gold balanced badge (`IsBalanced` false — needs `TotalIncome > 0`, PR #172 / CMB-020). Yet `/allocation`'s pool is **UNCHANGED at 2,106.61** (Σ `NetMonthlyIncome`); FundEnvelopes deducts the 400, residuals ≈ 1,706.61, and **Allocate still writes transfers into each member's savings** (CMB-007). Money moves on `/allocation` even though the dashboard says the month has no income.
+  - **Direction A:** the dashboard reads `TotalIncome = 0`, `TotalPlanned = 400` → `RemainingToBudget = −400` → the hero shows **"€400.00 over-budgeted"** and never the gold balanced badge (`IsBalanced` false — needs `TotalIncome > 0`, PR #172 / CMB-020). Yet `/allocation`'s pool is **UNCHANGED at 2,000.75** (Σ `NetMonthlyIncome`); FundEnvelopes deducts the 400, residuals ≈ 1,706.61, and **Allocate still writes transfers into each member's savings** (CMB-007). Money moves on `/allocation` even though the dashboard says the month has no income.
   - **Direction B:** the dashboard reads `TotalIncome = 5,000.00` (a real, plannable income), but `/allocation`'s pool is **€0.00** (Σ `NetMonthlyIncome` = 0) — the waterfall has nothing to split, every residual is 0, and **Allocate writes no transfers**. Planned/received income never feeds the pool (CMB-010); member `NetMonthlyIncome` never feeds the dashboard.
   - Net: "budget income" and "allocation pool" are independent axes — **either can be zero while the other is large**. A tester must NOT assert the pool is 0 just because the month's Income lines are empty (nor assert positive-pool from a positive Income line). To move the pool you edit member income on `/people`; to move the dashboard income you edit the month's Income lines. (The blank-month PR #172 rule of CMB-020 governs only the dashboard side of this seam.)
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Domain/IncomeAllocatorTests.cs asserts `pool = Σ NetIncome`; Domain/RemainingToBudgetTests.cs asserts the `TotalIncome`-gated `IsBalanced`; the two-notion decoupling is not asserted together)
@@ -689,23 +689,23 @@ Four seams that the single-feature files and the cases above leave uncovered: th
 - **Priority:** P1
 - **Type:** Boundary
 - **Origin:** `AllocateIncomeCommandHandler` writes one `Transfer` per positive-residual member FROM the profile source account (`AccountId = sourceId`) to that member's personal savings account, with **no** check that the source can cover the total (`AllocateIncomeCommandHandler.cs:56-79` — the only gate is `Residual > 0 && SavingsAccountId is Guid`). `AccountBalances` then moves the source down by Σ residuals; reconciliation is `Float = CurrentBalance − BackedJarsTotal` (`GetAccountReconciliationQueryHandler.cs:62`) where `BackedJarsTotal` sums, for jars whose `FundingAccountId` is that account, `OpeningBalance + JarBalances` (planned − spend) — a figure allocation transfers never change.
-- **Preconditions:** shared household; allocation profile source account **Joint** (opening **1,250.00**); Chris-Savings and Liza-Savings set on `/people` (opening 0); a Recurring jar **"Emergency Fund"** Held in **Joint** (JAR-021) with tracked balance **300.00**; the 2026-mm month carries little/no shared obligation, so both residuals are large and Σ residuals ≈ the pool **2,106.61** — comfortably more than Joint's 1,250.00.
+- **Preconditions:** shared household; allocation profile source account **Joint** (opening **1,250.00**); Alex-Savings and Sam-Savings set on `/people` (opening 0); a Recurring jar **"Emergency Fund"** Held in **Joint** (JAR-021) with tracked balance **300.00**; the 2026-mm month carries little/no shared obligation, so both residuals are large and Σ residuals ≈ the pool **2,000.75** — comfortably more than Joint's 1,250.00.
 - **Steps:**
   1. On `/allocation` press **Allocate** and confirm the transfers-created banner (ALLOC-050).
   2. Open `/accounts` (Joint's balance and its reconciliation Float), `/jars` (Emergency Fund), and Joint's detail reconciliation table (ACCT-052).
-- **Expected:** the commit **SUCCEEDS with no overdraft or validation error** — there is no guard, so allocation happily moves more out of Joint than it holds. Joint's derived balance goes **1,250.00 − 2,106.61 = −856.61** (AccountBalances nets both transfers out; Chris-Savings and Liza-Savings rise by each residual — CMB-007). The jar's tracked balance on `/jars` is **UNCHANGED at 300.00** (JarBalances = planned − spend; allocation transfers are not contributions — CMB-012). So Joint's reconciliation row reads `CurrentBalance = −856.61`, `BackedJarsTotal = 300.00`, **Float = −1,156.61**, rendered in the rose tone (ACCT-054) with **no 500** (Float is a plain subtraction that tolerates a negative). Allocation has physically emptied — and overdrawn — the very account backing the jars, while the jars still "promise" 300; the honest shortfall surfaces exactly in the Float, but nothing blocks the drain. This is the allocation-OUT mirror of CMB-012 (transfer IN raising Float): CMB-007's happy path only asserts a positive-remainder drop, never the overdraft × jar-backing interaction.
+- **Expected:** the commit **SUCCEEDS with no overdraft or validation error** — there is no guard, so allocation happily moves more out of Joint than it holds. Joint's derived balance goes **1,250.00 − 2,000.75 = −856.61** (AccountBalances nets both transfers out; Alex-Savings and Sam-Savings rise by each residual — CMB-007). The jar's tracked balance on `/jars` is **UNCHANGED at 300.00** (JarBalances = planned − spend; allocation transfers are not contributions — CMB-012). So Joint's reconciliation row reads `CurrentBalance = −856.61`, `BackedJarsTotal = 300.00`, **Float = −1,156.61**, rendered in the rose tone (ACCT-054) with **no 500** (Float is a plain subtraction that tolerates a negative). Allocation has physically emptied — and overdrawn — the very account backing the jars, while the jars still "promise" 300; the honest shortfall surfaces exactly in the Float, but nothing blocks the drain. This is the allocation-OUT mirror of CMB-012 (transfer IN raising Float): CMB-007's happy path only asserts a positive-remainder drop, never the overdraft × jar-backing interaction.
 - **Automated:** No (tests/AllotJar.IntegrationTests/AllocationRerunTests.cs covers the happy-path transfers; the source-overdraft driving a negative jar-backing Float is not covered)
 
 ### CMB-055 - Archiving a member whose spend is entirely via split slices silently drops it from member-spending while the line, reports and account stay whole
 - **Priority:** P1
 - **Type:** Edge
 - **Origin:** `GetMemberSpendingQueryHandler` attributes a split by `slice.MemberId` and a whole tx by `t.MemberId` — **never both** — and filters BOTH against the non-archived member set (`GetMemberSpendingQueryHandler.cs:30` loads `!IsArchived`; the `memberIds` guard is applied at lines 58 and 64). A split parent carries no whole-tx member. Meanwhile category actuals and `/reports` are member-blind and transaction-derived (each slice counts once at the parent's rate — CMB-022, RPT-028), and the account moves by the WHOLE parent amount (ACCT-040, CMB-022).
-- **Preconditions:** shared household; members **Chris** and **Liza**; account **Joint**; an Expense line **"Furniture"**; a **200.00** Ikea expense on Joint split **150.00 → Furniture (Chris)** + **50.00 → Furniture (Liza)** — a split whose slices carry per-member attribution (TX-044 + TX-015), so neither member holds a whole-transaction `MemberId`.
+- **Preconditions:** shared household; members **Alex** and **Sam**; account **Joint**; an Expense line **"Furniture"**; a **200.00** Ikea expense on Joint split **150.00 → Furniture (Alex)** + **50.00 → Furniture (Sam)** — a split whose slices carry per-member attribution (TX-044 + TX-015), so neither member holds a whole-transaction `MemberId`.
 - **Steps:**
   1. Before archiving, read `/people` member-spending ("Shared this month" + the per-member Spent column), the Furniture line actual on the budget grid, `/reports` (Furniture category), and Joint's balance.
-  2. Archive **Liza** on `/people` (PPL-022 — immediate, no confirm).
+  2. Archive **Sam** on `/people` (PPL-022 — immediate, no confirm).
   3. Re-read the same four surfaces.
-- **Expected:** before archiving, `/people` shows **Chris 150 + Liza 50** (per-slice), Furniture actual **200.00**, `/reports` **200.00**, Joint down **200.00**. After archiving Liza, her **50 slice silently drops** from member-spending (the query keeps only slices whose `MemberId` is in the active set), so `/people` now shows **Chris 150 only** — a household "Shared this month" that no longer sums to the 200 the account actually moved. But the Furniture line actual stays **200.00** and `/reports` stays **200.00** (both member-blind and tx-derived — the slice itself is untouched), and Joint's balance is **unchanged at −200.00** (archiving never rewrites transactions — CMB-045; attribution survives per PPL-025). The seam: per-slice member attribution is roster-scoped (archive hides it) while line actuals, reports and account balance are not, so member-spending can under-count by exactly the archived member's slices while every money rollup stays intact. This is distinct from CMB-025, which archived a member holding WHOLE-transaction attribution.
+- **Expected:** before archiving, `/people` shows **Alex 150 + Sam 50** (per-slice), Furniture actual **200.00**, `/reports` **200.00**, Joint down **200.00**. After archiving Sam, her **50 slice silently drops** from member-spending (the query keeps only slices whose `MemberId` is in the active set), so `/people` now shows **Alex 150 only** — a household "Shared this month" that no longer sums to the 200 the account actually moved. But the Furniture line actual stays **200.00** and `/reports` stays **200.00** (both member-blind and tx-derived — the slice itself is untouched), and Joint's balance is **unchanged at −200.00** (archiving never rewrites transactions — CMB-045; attribution survives per PPL-025). The seam: per-slice member attribution is roster-scoped (archive hides it) while line actuals, reports and account balance are not, so member-spending can under-count by exactly the archived member's slices while every money rollup stays intact. This is distinct from CMB-025, which archived a member holding WHOLE-transaction attribution.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/MemberSpendingTests.cs covers split-slice attribution and the active-member filter; the split-slice × archive drop combined with the intact line/report/balance is not pinned together)
 
 ### CMB-056 - An imported row dated in a not-yet-created month is permanently unattachable from the UI, even after that month is created

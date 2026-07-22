@@ -92,7 +92,7 @@ public class HouseholdAccessTests
         UserId = OwnerId,
         Role = HouseholdRole.Owner,
         Status = MembershipStatus.Active,
-        InvitedEmail = "chris@x.com",
+        InvitedEmail = "alex@x.com",
     };
 
     [Fact]
@@ -105,12 +105,12 @@ public class HouseholdAccessTests
 
         var handler = new InviteMemberCommandHandler(db, new CurrentUserStub(OwnerId), identity);
         var result = await handler.Handle(new InviteMemberCommand(
-            "liza@x.com", HouseholdRole.Admin, InviteMethod.Direct, "password123", "Liza", null), default);
+            "sam@x.com", HouseholdRole.Admin, InviteMethod.Direct, "password123", "Sam", null), default);
 
         result.InviteToken.Should().BeNull();
-        identity.CreatedEmails.Should().ContainSingle().Which.Should().Be("liza@x.com");
+        identity.CreatedEmails.Should().ContainSingle().Which.Should().Be("sam@x.com");
 
-        var membership = await db.HouseholdMemberships.SingleAsync(m => m.InvitedEmail == "liza@x.com");
+        var membership = await db.HouseholdMemberships.SingleAsync(m => m.InvitedEmail == "sam@x.com");
         membership.Status.Should().Be(MembershipStatus.Active);
         membership.Role.Should().Be(HouseholdRole.Admin);
         membership.OwnerId.Should().Be(OwnerId);
@@ -127,12 +127,12 @@ public class HouseholdAccessTests
 
         var handler = new InviteMemberCommandHandler(db, new CurrentUserStub(OwnerId), identity);
         var result = await handler.Handle(new InviteMemberCommand(
-            "liza@x.com", HouseholdRole.ReadOnly, InviteMethod.Link, null, null, null), default);
+            "sam@x.com", HouseholdRole.ReadOnly, InviteMethod.Link, null, null, null), default);
 
         result.InviteToken.Should().NotBeNullOrWhiteSpace();
         identity.CreatedEmails.Should().BeEmpty(); // no login until redeemed
 
-        var membership = await db.HouseholdMemberships.SingleAsync(m => m.InvitedEmail == "liza@x.com");
+        var membership = await db.HouseholdMemberships.SingleAsync(m => m.InvitedEmail == "sam@x.com");
         membership.Status.Should().Be(MembershipStatus.Invited);
         membership.UserId.Should().BeNull();
         membership.InviteTokenHash.Should().Be(InviteToken.Hash(result.InviteToken!));
@@ -146,13 +146,13 @@ public class HouseholdAccessTests
         db.HouseholdMemberships.Add(Owner());
         db.HouseholdMemberships.Add(new HouseholdMembership
         {
-            OwnerId = OwnerId, Role = HouseholdRole.Admin, Status = MembershipStatus.Invited, InvitedEmail = "liza@x.com",
+            OwnerId = OwnerId, Role = HouseholdRole.Admin, Status = MembershipStatus.Invited, InvitedEmail = "sam@x.com",
         });
         await db.SaveChangesAsync();
 
         var handler = new InviteMemberCommandHandler(db, new CurrentUserStub(OwnerId), new FakeIdentity());
         var act = () => handler.Handle(new InviteMemberCommand(
-            "liza@x.com", HouseholdRole.Admin, InviteMethod.Link, null, null, null), default);
+            "sam@x.com", HouseholdRole.Admin, InviteMethod.Link, null, null, null), default);
 
         await act.Should().ThrowAsync<ValidationException>();
     }
@@ -167,7 +167,7 @@ public class HouseholdAccessTests
             OwnerId = OwnerId,
             Role = HouseholdRole.Limited,
             Status = MembershipStatus.Invited,
-            InvitedEmail = "liza@x.com",
+            InvitedEmail = "sam@x.com",
             InviteTokenHash = InviteToken.Hash(token),
             InviteExpiresUtc = DateTime.UtcNow.AddDays(3),
         });
@@ -176,17 +176,17 @@ public class HouseholdAccessTests
 
         var handler = new AcceptInviteCommandHandler(db, identity, new AnonymousUserStub());
         var result = await handler.Handle(
-            new AcceptInviteCommand(token, "password123", "Liza", AcceptedTerms: true), default);
+            new AcceptInviteCommand(token, "password123", "Sam", AcceptedTerms: true), default);
 
         result.Role.Should().Be(HouseholdRole.Limited);
-        result.Email.Should().Be("liza@x.com");
-        result.DisplayName.Should().Be("Liza");
+        result.Email.Should().Be("sam@x.com");
+        result.DisplayName.Should().Be("Sam");
         // The API keys the initial verification-email dispatch off this flag — an invite-created
         // login is unverified and must get its "confirm your email" message like a registration.
         result.CreatedNewLogin.Should().BeTrue();
         identity.CreatedEmails.Should().ContainSingle();
         // The invitee accepted the terms themselves, so consent is recorded on the new login.
-        identity.ConsentedEmails.Should().Contain("liza@x.com");
+        identity.ConsentedEmails.Should().Contain("sam@x.com");
         // Their landing household is the one they joined, even if they start their own later.
         identity.ActiveHouseholds.Should().ContainKey(result.UserId).WhoseValue.Should().Be(OwnerId);
 
@@ -201,13 +201,13 @@ public class HouseholdAccessTests
     public async Task Accept_invite_creating_a_new_login_requires_accepting_the_terms()
     {
         using var db = NewContext();
-        var (membership, token) = PendingInvite("liza@x.com");
+        var (membership, token) = PendingInvite("sam@x.com");
         db.HouseholdMemberships.Add(membership);
         await db.SaveChangesAsync();
         var identity = new FakeIdentity();
 
         var handler = new AcceptInviteCommandHandler(db, identity, new AnonymousUserStub());
-        var act = () => handler.Handle(new AcceptInviteCommand(token, "password123", "Liza"), default);
+        var act = () => handler.Handle(new AcceptInviteCommand(token, "password123", "Sam"), default);
 
         await act.Should().ThrowAsync<ValidationException>();
         identity.CreatedEmails.Should().BeEmpty(); // rejected before any login is created
@@ -224,7 +224,7 @@ public class HouseholdAccessTests
             OwnerId = OwnerId,
             Role = HouseholdRole.Limited,
             Status = MembershipStatus.Invited,
-            InvitedEmail = "liza@x.com",
+            InvitedEmail = "sam@x.com",
             InviteTokenHash = InviteToken.Hash(token),
             InviteExpiresUtc = DateTime.UtcNow.AddDays(-1),
         });
@@ -255,7 +255,7 @@ public class HouseholdAccessTests
         var member = new HouseholdMembership
         {
             OwnerId = OwnerId, UserId = "user-2", Role = HouseholdRole.Admin,
-            Status = MembershipStatus.Active, InvitedEmail = "liza@x.com",
+            Status = MembershipStatus.Active, InvitedEmail = "sam@x.com",
         };
         db.HouseholdMemberships.Add(member);
         await db.SaveChangesAsync();
@@ -278,7 +278,7 @@ public class HouseholdAccessTests
         var member = new HouseholdMembership
         {
             OwnerId = OwnerId, UserId = "user-2", Role = HouseholdRole.Limited,
-            Status = MembershipStatus.Active, InvitedEmail = "liza@x.com",
+            Status = MembershipStatus.Active, InvitedEmail = "sam@x.com",
         };
         db.HouseholdMemberships.Add(member);
         await db.SaveChangesAsync();
@@ -302,9 +302,9 @@ public class HouseholdAccessTests
     {
         using var db = NewContext();
         db.HouseholdMemberships.Add(Owner());
-        var member = new HouseholdMember { OwnerId = OwnerId, Name = "Liza", DisplayOrder = 0 };
+        var member = new HouseholdMember { OwnerId = OwnerId, Name = "Sam", DisplayOrder = 0 };
         db.HouseholdMembers.Add(member);
-        db.HouseholdMemberships.Add(ActiveLogin("user-2", "liza@x.com", member.Id));
+        db.HouseholdMemberships.Add(ActiveLogin("user-2", "sam@x.com", member.Id));
         await db.SaveChangesAsync();
 
         var handler = new InviteMemberCommandHandler(db, new CurrentUserStub(OwnerId), new FakeIdentity());
@@ -319,9 +319,9 @@ public class HouseholdAccessTests
     {
         using var db = NewContext();
         db.HouseholdMemberships.Add(Owner());
-        var member = new HouseholdMember { OwnerId = OwnerId, Name = "Liza", DisplayOrder = 0 };
+        var member = new HouseholdMember { OwnerId = OwnerId, Name = "Sam", DisplayOrder = 0 };
         db.HouseholdMembers.Add(member);
-        var login = ActiveLogin("user-2", "liza@x.com");
+        var login = ActiveLogin("user-2", "sam@x.com");
         db.HouseholdMemberships.Add(login);
         await db.SaveChangesAsync();
 
@@ -339,9 +339,9 @@ public class HouseholdAccessTests
     {
         using var db = NewContext();
         db.HouseholdMemberships.Add(Owner());
-        var member = new HouseholdMember { OwnerId = OwnerId, Name = "Liza", DisplayOrder = 0 };
+        var member = new HouseholdMember { OwnerId = OwnerId, Name = "Sam", DisplayOrder = 0 };
         db.HouseholdMembers.Add(member);
-        db.HouseholdMemberships.Add(ActiveLogin("user-2", "liza@x.com", member.Id));
+        db.HouseholdMemberships.Add(ActiveLogin("user-2", "sam@x.com", member.Id));
         var other = ActiveLogin("user-3", "sam@x.com");
         db.HouseholdMemberships.Add(other);
         await db.SaveChangesAsync();
@@ -371,24 +371,24 @@ public class HouseholdAccessTests
     public async Task Accept_invite_by_a_signed_in_existing_user_joins_without_a_new_login()
     {
         using var db = NewContext();
-        var (membership, token) = PendingInvite("liza@x.com");
+        var (membership, token) = PendingInvite("sam@x.com");
         db.HouseholdMemberships.Add(membership);
         await db.SaveChangesAsync();
         var identity = new FakeIdentity();
-        identity.ById["user-liza"] = new UserAccount("user-liza", "liza@x.com", "Liza"); // already has an account
+        identity.ById["user-sam"] = new UserAccount("user-sam", "sam@x.com", "Sam"); // already has an account
 
-        var handler = new AcceptInviteCommandHandler(db, identity, new CurrentUserStub("user-liza"));
+        var handler = new AcceptInviteCommandHandler(db, identity, new CurrentUserStub("user-sam"));
         var result = await handler.Handle(new AcceptInviteCommand(token, null, null), default);
 
-        result.UserId.Should().Be("user-liza");
-        result.DisplayName.Should().Be("Liza"); // the account's stored name, not the invite's
+        result.UserId.Should().Be("user-sam");
+        result.DisplayName.Should().Be("Sam"); // the account's stored name, not the invite's
         result.CreatedNewLogin.Should().BeFalse(); // no fresh login → no initial verification email
         identity.CreatedEmails.Should().BeEmpty(); // joined with the existing login — no new one
         // Accepting lands them in the household they joined, not back in their own budget.
-        identity.ActiveHouseholds.Should().ContainKey("user-liza").WhoseValue.Should().Be(OwnerId);
+        identity.ActiveHouseholds.Should().ContainKey("user-sam").WhoseValue.Should().Be(OwnerId);
         var saved = await db.HouseholdMemberships.SingleAsync();
         saved.Status.Should().Be(MembershipStatus.Active);
-        saved.UserId.Should().Be("user-liza");
+        saved.UserId.Should().Be("user-sam");
         saved.InviteTokenHash.Should().BeNull();
     }
 
@@ -396,13 +396,14 @@ public class HouseholdAccessTests
     public async Task Accept_invite_by_a_signed_in_user_with_a_different_email_is_rejected()
     {
         using var db = NewContext();
-        var (membership, token) = PendingInvite("liza@x.com");
+        var (membership, token) = PendingInvite("sam@x.com");
         db.HouseholdMemberships.Add(membership);
         await db.SaveChangesAsync();
         var identity = new FakeIdentity();
-        identity.ById["user-sam"] = new UserAccount("user-sam", "sam@x.com", "Sam");
+        // A DIFFERENT person is signed in — the invite is addressed to sam@x.com, not them.
+        identity.ById["user-riley"] = new UserAccount("user-riley", "riley@x.com", "Riley");
 
-        var handler = new AcceptInviteCommandHandler(db, identity, new CurrentUserStub("user-sam"));
+        var handler = new AcceptInviteCommandHandler(db, identity, new CurrentUserStub("user-riley"));
         var act = () => handler.Handle(new AcceptInviteCommand(token, null, null), default);
 
         await act.Should().ThrowAsync<ValidationException>();
@@ -412,11 +413,11 @@ public class HouseholdAccessTests
     public async Task Accept_invite_anonymously_with_an_existing_email_tells_them_to_sign_in()
     {
         using var db = NewContext();
-        var (membership, token) = PendingInvite("liza@x.com");
+        var (membership, token) = PendingInvite("sam@x.com");
         db.HouseholdMemberships.Add(membership);
         await db.SaveChangesAsync();
         var identity = new FakeIdentity();
-        identity.Existing.Add("liza@x.com"); // an account exists, but the accepter isn't signed in
+        identity.Existing.Add("sam@x.com"); // an account exists, but the accepter isn't signed in
 
         var handler = new AcceptInviteCommandHandler(db, identity, new AnonymousUserStub());
         var act = () => handler.Handle(new AcceptInviteCommand(token, "password123", null), default);

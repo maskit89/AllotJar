@@ -17,7 +17,7 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class LoginTests
 {
-    private const string Email = "chris@x.com";
+    private const string Email = "alex@x.com";
     private const string UserId = "user-1";
 
     private sealed class StubIdentity : IIdentityService
@@ -93,7 +93,7 @@ public class LoginTests
         await db.SaveChangesAsync();
 
         var handler = new LoginCommandHandler(
-            new StubIdentity(CredentialCheckResult.Success(UserId, Email, "Chris", "stamp-1")), db, new StubTokenGenerator());
+            new StubIdentity(CredentialCheckResult.Success(UserId, Email, "Alex", "stamp-1")), db, new StubTokenGenerator());
 
         var result = await handler.Handle(new LoginCommand(Email, "correct"), default);
 
@@ -102,7 +102,7 @@ public class LoginTests
         result.ExpiresAtUtc.Should().BeAfter(DateTime.UtcNow);
         result.UserId.Should().Be(UserId);
         result.Email.Should().Be(Email);
-        result.DisplayName.Should().Be("Chris");
+        result.DisplayName.Should().Be("Alex");
         result.Role.Should().Be(HouseholdRole.Admin);
     }
 

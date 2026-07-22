@@ -80,7 +80,7 @@ public class SyncPocketMoneyLinesTests
     {
         await using var db = NewContext();
         SeedProfile(db, "user-1", 250m);
-        SeedMembers(db, "user-1", "Chris", "Robin");
+        SeedMembers(db, "user-1", "Alex", "Robin");
         SeedMonth(db, "user-1",
             new BudgetCategory { Name = "Living", Kind = CategoryKind.Expense, Items = { new BudgetItem { Name = "Rent", PlannedAmount = 2000m } } });
 
@@ -90,7 +90,7 @@ public class SyncPocketMoneyLinesTests
         pocket.Kind.Should().Be("Expense");
         pocket.ExcludeFromAllocation.Should().BeTrue();
         pocket.Items.Select(i => (i.Name, i.PlannedAmount))
-            .Should().BeEquivalentTo(new[] { ("Chris", 250m), ("Robin", 250m) });
+            .Should().BeEquivalentTo(new[] { ("Alex", 250m), ("Robin", 250m) });
         // The budget's planned total now includes pocket money — that is the point.
         dto.TotalPlanned.Should().Be(2000m + 500m);
     }
@@ -100,7 +100,7 @@ public class SyncPocketMoneyLinesTests
     {
         await using var db = NewContext();
         SeedProfile(db, "user-1", 250m);
-        SeedMembers(db, "user-1", "Chris", "Robin");
+        SeedMembers(db, "user-1", "Alex", "Robin");
         SeedMonth(db, "user-1");
 
         await Handler(db).Handle(new SyncPocketMoneyLinesCommand(2026, 7), CancellationToken.None);
@@ -121,14 +121,14 @@ public class SyncPocketMoneyLinesTests
     {
         await using var db = NewContext();
         SeedProfile(db, "user-1", 250m);
-        SeedMembers(db, "user-1", "Chris", "Robin");
+        SeedMembers(db, "user-1", "Alex", "Robin");
         // The imported-household shape: a REAL unflagged "Pocket Money" envelope + the rule.
         SeedMonth(db, "user-1",
             new BudgetCategory { Name = "Living", Kind = CategoryKind.Expense, Items = { new BudgetItem { Name = "Rent", PlannedAmount = 2000m } } },
             new BudgetCategory
             {
                 Name = "Pocket Money", Kind = CategoryKind.Expense,
-                Items = { new BudgetItem { Name = "Chris", PlannedAmount = 250m }, new BudgetItem { Name = "Robin", PlannedAmount = 250m } },
+                Items = { new BudgetItem { Name = "Alex", PlannedAmount = 250m }, new BudgetItem { Name = "Robin", PlannedAmount = 250m } },
             });
 
         var before = await new PreviewIncomeAllocationQueryHandler(db, new CurrentUserStub("user-1"))
@@ -152,7 +152,7 @@ public class SyncPocketMoneyLinesTests
     {
         await using var db = NewContext();
         SeedProfile(db, "user-1", 250m);
-        SeedMembers(db, "user-1", "Chris");
+        SeedMembers(db, "user-1", "Alex");
         db.HouseholdMembers.Add(new HouseholdMember { OwnerId = "user-1", Name = "Old Flame", IsArchived = true, DisplayOrder = 9 });
         db.SaveChanges();
         SeedMonth(db, "user-1",
@@ -168,7 +168,7 @@ public class SyncPocketMoneyLinesTests
         pocket.Items.Select(i => (i.Name, i.PlannedAmount)).Should().BeEquivalentTo(new[]
         {
             ("Somebody Renamed", 99m), // left untouched — visible leftovers beat silent deletion
-            ("Chris", 250m),
+            ("Alex", 250m),
         });
         pocket.Items.Should().NotContain(i => i.Name == "Old Flame");
     }
@@ -178,12 +178,12 @@ public class SyncPocketMoneyLinesTests
     {
         await using var db = NewContext();
         SeedProfile(db, "user-1", 0m);
-        SeedMembers(db, "user-1", "Chris", "Robin");
+        SeedMembers(db, "user-1", "Alex", "Robin");
         SeedMonth(db, "user-1",
             new BudgetCategory
             {
                 Name = "Pocket Money", Kind = CategoryKind.Expense, ExcludeFromAllocation = true,
-                Items = { new BudgetItem { Name = "Chris", PlannedAmount = 250m }, new BudgetItem { Name = "Robin", PlannedAmount = 250m } },
+                Items = { new BudgetItem { Name = "Alex", PlannedAmount = 250m }, new BudgetItem { Name = "Robin", PlannedAmount = 250m } },
             });
 
         var dto = await Handler(db).Handle(new SyncPocketMoneyLinesCommand(2026, 7), CancellationToken.None);
@@ -203,7 +203,7 @@ public class SyncPocketMoneyLinesTests
 
         // Profile but no month.
         SeedProfile(db, "user-1", 250m);
-        SeedMembers(db, "user-1", "Chris");
+        SeedMembers(db, "user-1", "Alex");
         var noMonth = () => Handler(db).Handle(new SyncPocketMoneyLinesCommand(2026, 7), CancellationToken.None);
         await noMonth.Should().ThrowAsync<NotFoundException>();
 

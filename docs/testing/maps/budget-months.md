@@ -1,7 +1,7 @@
 # Feature map — Budget months, categories, lines, bills, dashboard
 
 Subsystem ground truth for QA test design. Verified against the working tree at
-`C:\Users\Laptop\Documents\Projects\ZeroBudget` on 2026-07-15 (post PR #172). All paths below are repo-relative
+`<local>\Documents\Projects\ZeroBudget` on 2026-07-15 (post PR #172). All paths below are repo-relative
 to that folder unless absolute.
 
 ---
@@ -312,4 +312,4 @@ Client:
 - `client/src/auth/AuthContext.tsx` (role-flag excerpt)
 - `client/src/onboarding/GettingStartedChecklist.tsx`
 
-Memory notes consulted: `empty-month-not-balanced.md`, `months-accounts-coherence-audit-2026-07.md` (both under `C:\Users\Laptop\.claude\projects\C--Users-Laptop-Documents-Projects\memory\`).
+Memory notes consulted: `empty-month-not-balanced.md`, `months-accounts-coherence-audit-2026-07.md` (both under `<local>\.claude\projects\C--Users-Laptop-Documents-Projects\memory\`).

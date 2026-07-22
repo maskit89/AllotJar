@@ -87,38 +87,38 @@ public class PPeopleHouseholdsCoverageTests
     public async Task Archive_KeepsHerAttributedTransactions_AndDropsHerFromSpendingAndShares()
     {
         // PPL-023 (P0) — archiving is soft: leave/revoke/archive keep the budget person's
-        // attributed data ("Nothing was deleted"). After archiving Liza she leaves the default
+        // attributed data ("Nothing was deleted"). After archiving Sam she leaves the default
         // member list, the spending lens and the income-share pool, but her HouseholdMember row
         // and every transaction attributed to her stay exactly where they were. Existing tests
         // cover archive-hides-from-default and spending-excludes-archived, but never assert the
         // transactions survive the archive.
         await using var db = NewContext();
-        var chris = await SeedMember(db, "user-1", "Chris", 3000m, order: 0);
-        var liza = await SeedMember(db, "user-1", "Liza", 1000m, order: 1);
-        await SeedExpense(db, "user-1", liza.Id, 200m, new DateOnly(2026, 6, 1));
-        await SeedExpense(db, "user-1", liza.Id, 300m, new DateOnly(2026, 6, 2));
+        var alex = await SeedMember(db, "user-1", "Alex", 3000m, order: 0);
+        var sam = await SeedMember(db, "user-1", "Sam", 1000m, order: 1);
+        await SeedExpense(db, "user-1", sam.Id, 200m, new DateOnly(2026, 6, 1));
+        await SeedExpense(db, "user-1", sam.Id, 300m, new DateOnly(2026, 6, 2));
 
         await new ArchiveHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new ArchiveHouseholdMemberCommand(liza.Id), CancellationToken.None);
+            .Handle(new ArchiveHouseholdMemberCommand(sam.Id), CancellationToken.None);
 
         // Nothing was deleted: her HouseholdMember row persists (soft-archived) and both of her
         // €500 of attributed transactions remain in the register still tagged to her.
-        var savedLiza = await db.HouseholdMembers.SingleAsync(m => m.Id == liza.Id);
+        var savedLiza = await db.HouseholdMembers.SingleAsync(m => m.Id == sam.Id);
         savedLiza.IsArchived.Should().BeTrue();
-        var lizaTx = await db.Transactions.Where(t => t.MemberId == liza.Id).ToListAsync();
+        var lizaTx = await db.Transactions.Where(t => t.MemberId == sam.Id).ToListAsync();
         lizaTx.Should().HaveCount(2);
         lizaTx.Sum(t => t.Amount).Should().Be(500m);
 
-        // Default member list now excludes her; Chris carries the whole active pool (share 100%).
+        // Default member list now excludes her; Alex carries the whole active pool (share 100%).
         var members = await new GetHouseholdMembersQueryHandler(db, new CurrentUserStub("user-1"))
             .Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
-        members.Should().ContainSingle().Which.Name.Should().Be("Chris");
-        members.Single().IncomeSharePct.Should().Be(1m); // 3000 / 3000 — Liza's 1000 no longer in the pool
+        members.Should().ContainSingle().Which.Name.Should().Be("Alex");
+        members.Single().IncomeSharePct.Should().Be(1m); // 3000 / 3000 — Sam's 1000 no longer in the pool
 
         // Spending lens drops her €500 too (she is out of the active member set).
         var spending = await new GetMemberSpendingQueryHandler(db, new CurrentUserStub("user-1"))
             .Handle(new GetMemberSpendingQuery(), CancellationToken.None);
-        spending.Should().ContainSingle().Which.Name.Should().Be("Chris");
+        spending.Should().ContainSingle().Which.Name.Should().Be("Alex");
         spending.Single().Spent.Should().Be(0m);
     }
 
@@ -134,11 +134,11 @@ public class PPeopleHouseholdsCoverageTests
         // partition at once.
         await using var db = NewContext();
         // "own" household: a single member and one account, no transactions.
-        var chrisOwn = await SeedMember(db, "own", "Chris", 500m);
+        var chrisOwn = await SeedMember(db, "own", "Alex", 500m);
         await SeedAccount(db, "own", "Solo");
-        // Household B: two members, an account, and €200 of spend attributed to Liza.
-        var chrisB = await SeedMember(db, "houseB", "Chris", 3000m, order: 0);
-        var lizaB = await SeedMember(db, "houseB", "Liza", 1000m, order: 1);
+        // Household B: two members, an account, and €200 of spend attributed to Sam.
+        var chrisB = await SeedMember(db, "houseB", "Alex", 3000m, order: 0);
+        var lizaB = await SeedMember(db, "houseB", "Sam", 1000m, order: 1);
         await SeedAccount(db, "houseB", "Joint");
         await SeedExpense(db, "houseB", lizaB.Id, 200m, new DateOnly(2026, 6, 1));
 
@@ -166,7 +166,7 @@ public class PPeopleHouseholdsCoverageTests
 
         var bSpending = await new GetMemberSpendingQueryHandler(db, new CurrentUserStub("houseB"))
             .Handle(new GetMemberSpendingQuery(), CancellationToken.None);
-        bSpending.Single(m => m.Name == "Liza").Spent.Should().Be(200m);
+        bSpending.Single(m => m.Name == "Sam").Spent.Should().Be(200m);
     }
 
     [Fact]
@@ -176,8 +176,8 @@ public class PPeopleHouseholdsCoverageTests
         // into the caller's other household. Creating a person while acting as "houseB" must not
         // appear in "own".
         await using var db = NewContext();
-        var chrisOwn = await SeedMember(db, "own", "Chris", 500m);
-        await SeedMember(db, "houseB", "Chris", 3000m);
+        var chrisOwn = await SeedMember(db, "own", "Alex", 500m);
+        await SeedMember(db, "houseB", "Alex", 3000m);
 
         var created = await new CreateHouseholdMemberCommandHandler(db, new CurrentUserStub("houseB"))
             .Handle(new CreateHouseholdMemberCommand("Sam", 800m, null), CancellationToken.None);
@@ -190,7 +190,7 @@ public class PPeopleHouseholdsCoverageTests
         // The new person landed in household B.
         var bMembers = await new GetHouseholdMembersQueryHandler(db, new CurrentUserStub("houseB"))
             .Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
-        bMembers.Select(m => m.Name).Should().BeEquivalentTo(new[] { "Chris", "Sam" });
+        bMembers.Select(m => m.Name).Should().BeEquivalentTo(new[] { "Alex", "Sam" });
         (await db.HouseholdMembers.SingleAsync(m => m.Id == created.Id)).OwnerId.Should().Be("houseB");
     }
 
@@ -201,21 +201,21 @@ public class PPeopleHouseholdsCoverageTests
     {
         // PPL-077 (P1) — ArchiveHouseholdMemberCommand(Id, Archived) is a set-to-value toggle,
         // so {archived:false} RESTORES. The handler re-sums totalActiveNet over the now-larger
-        // active pool. Starting solo (Liza archived → Chris alone at 100%, combined €3,000), a
-        // restore must return Liza to the default list, recompute shares to 75/25 against the
+        // active pool. Starting solo (Sam archived → Alex alone at 100%, combined €3,000), a
+        // restore must return Sam to the default list, recompute shares to 75/25 against the
         // restored €4,000 pool (not the stale €3,000 divisor), and carry her original income back.
         // The restore leg has no UI control and was never exercised.
         await using var db = NewContext();
-        var chris = await SeedMember(db, "user-1", "Chris", 3000m, order: 0);
-        var liza = await SeedMember(db, "user-1", "Liza", 1000m, archived: true, order: 1);
+        var alex = await SeedMember(db, "user-1", "Alex", 3000m, order: 0);
+        var sam = await SeedMember(db, "user-1", "Sam", 1000m, archived: true, order: 1);
 
-        // Baseline: solo — the default list is Chris alone at 100%.
+        // Baseline: solo — the default list is Alex alone at 100%.
         var before = await new GetHouseholdMembersQueryHandler(db, new CurrentUserStub("user-1"))
             .Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
         before.Should().ContainSingle().Which.IncomeSharePct.Should().Be(1m);
 
         var restored = await new ArchiveHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new ArchiveHouseholdMemberCommand(liza.Id, Archived: false), CancellationToken.None);
+            .Handle(new ArchiveHouseholdMemberCommand(sam.Id, Archived: false), CancellationToken.None);
 
         // The returned DTO reflects the restored active pool: share = 1000 / (3000 + 1000) = 0.25.
         restored.IsArchived.Should().BeFalse();
@@ -226,9 +226,9 @@ public class PPeopleHouseholdsCoverageTests
         var after = await new GetHouseholdMembersQueryHandler(db, new CurrentUserStub("user-1"))
             .Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
         after.Should().HaveCount(2); // 2 active members → the data behind the shared/solo flip (PPL-031 inverse)
-        after.Single(m => m.Id == chris.Id).IncomeSharePct.Should().Be(0.75m);
-        after.Single(m => m.Id == liza.Id).IncomeSharePct.Should().Be(0.25m);
-        (await db.HouseholdMembers.SingleAsync(m => m.Id == liza.Id)).IsArchived.Should().BeFalse();
+        after.Single(m => m.Id == alex.Id).IncomeSharePct.Should().Be(0.75m);
+        after.Single(m => m.Id == sam.Id).IncomeSharePct.Should().Be(0.25m);
+        (await db.HouseholdMembers.SingleAsync(m => m.Id == sam.Id)).IsArchived.Should().BeFalse();
     }
 
     [Fact]
@@ -238,12 +238,12 @@ public class PPeopleHouseholdsCoverageTests
         // guards: a member owned by another household → 403 (ForbiddenAccessException); an unknown
         // id → 404 (NotFoundException). Neither guard was pinned for the {archived:false} path.
         await using var db = NewContext();
-        var liza = await SeedMember(db, "user-1", "Liza", 1000m, archived: true);
+        var sam = await SeedMember(db, "user-1", "Sam", 1000m, archived: true);
 
         // Another login trying to restore user-1's member is forbidden.
         await Assert.ThrowsAsync<ForbiddenAccessException>(() =>
             new ArchiveHouseholdMemberCommandHandler(db, new CurrentUserStub("user-2"))
-                .Handle(new ArchiveHouseholdMemberCommand(liza.Id, Archived: false), CancellationToken.None));
+                .Handle(new ArchiveHouseholdMemberCommand(sam.Id, Archived: false), CancellationToken.None));
 
         // An unknown member id is a 404.
         await Assert.ThrowsAsync<NotFoundException>(() =>
@@ -251,7 +251,7 @@ public class PPeopleHouseholdsCoverageTests
                 .Handle(new ArchiveHouseholdMemberCommand(Guid.NewGuid(), Archived: false), CancellationToken.None));
 
         // The forbidden attempt changed nothing.
-        (await db.HouseholdMembers.SingleAsync(m => m.Id == liza.Id)).IsArchived.Should().BeTrue();
+        (await db.HouseholdMembers.SingleAsync(m => m.Id == sam.Id)).IsArchived.Should().BeTrue();
     }
 
     // ---- PPL-073: income shares when total active income is zero (no divide-by-zero) --
@@ -264,7 +264,7 @@ public class PPeopleHouseholdsCoverageTests
         // and no NaN/Infinity. Adding income to one member makes the shares recompute against the
         // new pool. Existing coverage only exercises a non-zero pool (6000/4000).
         await using var db = NewContext();
-        var chris = await SeedMember(db, "user-1", "Chris", 0m, order: 0);
+        var alex = await SeedMember(db, "user-1", "Alex", 0m, order: 0);
         var sam = await SeedMember(db, "user-1", "Sam", 0m, order: 1);
 
         var handler = new GetHouseholdMembersQueryHandler(db, new CurrentUserStub("user-1"));
@@ -272,12 +272,12 @@ public class PPeopleHouseholdsCoverageTests
         zero.Should().OnlyContain(m => m.IncomeSharePct == 0m);
         zero.Sum(m => m.NetMonthlyIncome).Should().Be(0m);
 
-        // Give Chris an income; the pool becomes 1000 and the shares recompute (100% / 0%).
+        // Give Alex an income; the pool becomes 1000 and the shares recompute (100% / 0%).
         await new UpdateHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new UpdateHouseholdMemberCommand(chris.Id, "Chris", 1000m, null), CancellationToken.None);
+            .Handle(new UpdateHouseholdMemberCommand(alex.Id, "Alex", 1000m, null), CancellationToken.None);
 
         var recomputed = await handler.Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
-        recomputed.Single(m => m.Id == chris.Id).IncomeSharePct.Should().Be(1m);
+        recomputed.Single(m => m.Id == alex.Id).IncomeSharePct.Should().Be(1m);
         recomputed.Single(m => m.Id == sam.Id).IncomeSharePct.Should().Be(0m);
     }
 
@@ -292,17 +292,17 @@ public class PPeopleHouseholdsCoverageTests
         // with a non-zero share and the shares across the full list can sum past 100%. The default
         // (active-only) list is unaffected. This pins the documented mapping quirk.
         await using var db = NewContext();
-        var chris = await SeedMember(db, "user-1", "Chris", 3000m, order: 0);
-        var liza = await SeedMember(db, "user-1", "Liza", 1000m, archived: true, order: 1);
+        var alex = await SeedMember(db, "user-1", "Alex", 3000m, order: 0);
+        var sam = await SeedMember(db, "user-1", "Sam", 1000m, archived: true, order: 1);
         var handler = new GetHouseholdMembersQueryHandler(db, new CurrentUserStub("user-1"));
 
         var all = await handler.Handle(new GetHouseholdMembersQuery(IncludeArchived: true), CancellationToken.None);
-        // totalActiveNet excludes Liza (= 3000), but the mapping still divides HER income by it.
-        all.Single(m => m.Id == liza.Id).IncomeSharePct.Should().Be(0.3333m); // 1000 / 3000, 4dp away-from-zero
-        all.Single(m => m.Id == chris.Id).IncomeSharePct.Should().Be(1m);     // 3000 / 3000
+        // totalActiveNet excludes Sam (= 3000), but the mapping still divides HER income by it.
+        all.Single(m => m.Id == sam.Id).IncomeSharePct.Should().Be(0.3333m); // 1000 / 3000, 4dp away-from-zero
+        all.Single(m => m.Id == alex.Id).IncomeSharePct.Should().Be(1m);     // 3000 / 3000
         all.Sum(m => m.IncomeSharePct).Should().BeGreaterThan(1m);            // exceeds 100%
 
-        // The default list the People UI actually requests is unaffected: Chris alone at 100%.
+        // The default list the People UI actually requests is unaffected: Alex alone at 100%.
         var active = await handler.Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
         active.Should().ContainSingle().Which.IncomeSharePct.Should().Be(1m);
     }
@@ -343,8 +343,8 @@ public class PPeopleHouseholdsCoverageTests
         await using var db = NewContext();
         var ownSav = await SeedAccount(db, "user-1", "Own-Savings");
         var foreign = await SeedAccount(db, "user-2", "Mallory-Savings");
-        var liza = await SeedMember(db, "user-1", "Liza", 1000m);
-        liza.PersonalSavingsAccountId = ownSav.Id;
+        var sam = await SeedMember(db, "user-1", "Sam", 1000m);
+        sam.PersonalSavingsAccountId = ownSav.Id;
         await db.SaveChangesAsync();
 
         var handler = new UpdateHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"));
@@ -352,12 +352,12 @@ public class PPeopleHouseholdsCoverageTests
         // Both failing updates also try to change the name/income — proving the throw precedes any
         // field assignment (nothing must stick).
         await Assert.ThrowsAsync<NotFoundException>(() =>
-            handler.Handle(new UpdateHouseholdMemberCommand(liza.Id, "Liza CHANGED", 9999m, foreign.Id), CancellationToken.None));
+            handler.Handle(new UpdateHouseholdMemberCommand(sam.Id, "Sam CHANGED", 9999m, foreign.Id), CancellationToken.None));
         await Assert.ThrowsAsync<NotFoundException>(() =>
-            handler.Handle(new UpdateHouseholdMemberCommand(liza.Id, "Liza CHANGED", 9999m, Guid.NewGuid()), CancellationToken.None));
+            handler.Handle(new UpdateHouseholdMemberCommand(sam.Id, "Sam CHANGED", 9999m, Guid.NewGuid()), CancellationToken.None));
 
-        var saved = await db.HouseholdMembers.SingleAsync(m => m.Id == liza.Id);
-        saved.Name.Should().Be("Liza");
+        var saved = await db.HouseholdMembers.SingleAsync(m => m.Id == sam.Id);
+        saved.Name.Should().Be("Sam");
         saved.NetMonthlyIncome.Should().Be(1000m);
         saved.PersonalSavingsAccountId.Should().Be(ownSav.Id); // the owned link is untouched
     }

@@ -115,7 +115,7 @@ public class ExcludeFromAllocationCoverageTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
-        db.HouseholdMembers.Add(new HouseholdMember { OwnerId = Owner, Name = "Chris", NetMonthlyIncome = 3000m, DisplayOrder = 0 });
+        db.HouseholdMembers.Add(new HouseholdMember { OwnerId = Owner, Name = "Alex", NetMonthlyIncome = 3000m, DisplayOrder = 0 });
         db.HouseholdMembers.Add(new HouseholdMember { OwnerId = Owner, Name = "Robin", NetMonthlyIncome = 2000m, DisplayOrder = 1 });
 
         db.BudgetMonths.Add(new BudgetMonth

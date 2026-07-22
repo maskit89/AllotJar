@@ -16,7 +16,7 @@ function meResponse() {
   return {
     userId: 'u1',
     email: 'e2e@allotjar.app',
-    displayName: 'Chris',
+    displayName: 'Alex',
     role: 0,
     ownerId: 'u1',
     memberId: null,
@@ -29,16 +29,16 @@ function meResponse() {
 // Invited), the per-row role <select> and the Remove button.
 function memberships() {
   return [
-    { id: 'mem1', email: 'e2e@allotjar.app', displayName: 'Chris', role: 0, status: 0, memberId: null, isOwner: true, isSelf: true, createdUtc: '2026-01-01T00:00:00Z' },
-    { id: 'mem2', email: 'liza@example.eu', displayName: 'Liza', role: 1, status: 0, memberId: null, isOwner: false, isSelf: false, createdUtc: '2026-02-01T00:00:00Z' },
+    { id: 'mem1', email: 'e2e@allotjar.app', displayName: 'Alex', role: 0, status: 0, memberId: null, isOwner: true, isSelf: true, createdUtc: '2026-01-01T00:00:00Z' },
+    { id: 'mem2', email: 'sam@example.eu', displayName: 'Sam', role: 1, status: 0, memberId: null, isOwner: false, isSelf: false, createdUtc: '2026-02-01T00:00:00Z' },
     { id: 'mem3', email: 'guest@example.eu', displayName: null, role: 3, status: 1, memberId: null, isOwner: false, isSelf: false, createdUtc: '2026-03-01T00:00:00Z' },
   ]
 }
 
 function householdMembers() {
   return [
-    { id: 'm1', name: 'Chris', netMonthlyIncome: 6000, personalSavingsAccountId: 'acc1', displayOrder: 0, isArchived: false, incomeSharePct: 0.6 },
-    { id: 'm2', name: 'Liza', netMonthlyIncome: 4000, personalSavingsAccountId: null, displayOrder: 1, isArchived: false, incomeSharePct: 0.4 },
+    { id: 'm1', name: 'Alex', netMonthlyIncome: 6000, personalSavingsAccountId: 'acc1', displayOrder: 0, isArchived: false, incomeSharePct: 0.6 },
+    { id: 'm2', name: 'Sam', netMonthlyIncome: 4000, personalSavingsAccountId: null, displayOrder: 1, isArchived: false, incomeSharePct: 0.4 },
   ]
 }
 
@@ -100,16 +100,16 @@ function allocationProfile() {
 
 function allocationPreview() {
   return {
-    pool: 8411.61, envelopesTotal: 3641, jarsTotal: 2164, transfersCreated: 0,
+    pool: 8000.75, envelopesTotal: 3500, jarsTotal: 2000, transfersCreated: 0,
     steps: [
-      { type: 0, total: 3641, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1820.5 }, { memberId: 'm2', name: 'Liza', amount: 1820.5 }] },
-      { type: 1, total: 2164, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1082 }, { memberId: 'm2', name: 'Liza', amount: 1082 }] },
-      { type: 2, total: 500, perMember: [{ memberId: 'm1', name: 'Chris', amount: 250 }, { memberId: 'm2', name: 'Liza', amount: 250 }] },
-      { type: 3, total: 2106.61, perMember: [{ memberId: 'm1', name: 'Chris', amount: 1316.63 }, { memberId: 'm2', name: 'Liza', amount: 789.98 }] },
+      { type: 0, total: 3500, perMember: [{ memberId: 'm1', name: 'Alex', amount: 1750 }, { memberId: 'm2', name: 'Sam', amount: 1750 }] },
+      { type: 1, total: 2000, perMember: [{ memberId: 'm1', name: 'Alex', amount: 1000 }, { memberId: 'm2', name: 'Sam', amount: 1000 }] },
+      { type: 2, total: 500, perMember: [{ memberId: 'm1', name: 'Alex', amount: 250 }, { memberId: 'm2', name: 'Sam', amount: 250 }] },
+      { type: 3, total: 2000.75, perMember: [{ memberId: 'm1', name: 'Alex', amount: 1250.47 }, { memberId: 'm2', name: 'Sam', amount: 750.28 }] },
     ],
     members: [
-      { memberId: 'm1', name: 'Chris', netIncome: 4411.64, residual: 1316.63, savingsBalance: 35631.96, savingsAccountId: 'acc1' },
-      { memberId: 'm2', name: 'Liza', netIncome: 3999.97, residual: 789.98, savingsBalance: 46033.38, savingsAccountId: 'acc2' },
+      { memberId: 'm1', name: 'Alex', netIncome: 4200.50, residual: 1250.47, savingsBalance: 30000, savingsAccountId: 'acc1' },
+      { memberId: 'm2', name: 'Sam', netIncome: 3800.25, residual: 750.28, savingsBalance: 40000, savingsAccountId: 'acc2' },
     ],
   }
 }
@@ -255,7 +255,7 @@ const ONBOARDING_DONE = JSON.stringify({ v: 1, welcomeSeen: true, tourDone: true
 
 /** The session body returned by /auth/refresh (and login) for the e2e user. */
 export function authResponse(email = 'e2e@allotjar.app') {
-  return { token: 'e2e-token', expiresAtUtc: '2030-01-01T00:00:00Z', userId: 'u1', email, role: 0, displayName: 'Chris' }
+  return { token: 'e2e-token', expiresAtUtc: '2030-01-01T00:00:00Z', userId: 'u1', email, role: 0, displayName: 'Alex' }
 }
 
 /**

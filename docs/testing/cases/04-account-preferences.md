@@ -2,7 +2,7 @@
 
 **ID prefix:** PREF | **Scope:** The `/account` page (route always mounted under `RequireAuth`, reached via the UserMenu item "Account settings"): the read-only details card (Email / Name / Access level), the "Preferences" card (First name, Last name, Currency select, Number format select, "Save preferences") including the display-only currency label change (no FX conversion, ever) and the number/money format change with its immediate app-wide effect via `setMoneyFormat`, the "Change password" card (Current password check, new-password rules incl. Identity policy + HIBP, session continuity on this device), the Sharing card as an entry point to `/people`, and theme-toggle persistence (per device/browser, `zbb.theme`). Server side: `PUT /api/auth/preferences` and `POST /api/auth/change-password` on `src/AllotJar.Api/Controllers/AuthController.cs`, normalisation in `src/AllotJar.Infrastructure/Identity/UserPreferences.cs`. | **Out of scope:** currency/format defaults and pickers at sign-up, HIBP at registration, lockout/anti-enumeration on login (02-registration-login.md); refresh mechanics, the cross-device sign-out that a password change causes, replay grace window, cross-tab sign-out broadcast (03-session-auth-lifecycle.md — only the *this-device* side of a password change and the silent-refresh-on-/account regression live here); the "Your own budget" / "Leave this household" cards, household switcher, invites, ConsentModal (households & people file); UserMenu general behavior, greetings, onboarding, month TopBar (routing & app shell file); deep role matrices (roles & access file — only the "read-only can still self-serve" area-specific case lives here); dark/responsive/a11y sweeps (cross-cutting files — `/account` is already axe-scanned light+dark by `client/e2e/a11y.spec.ts` and width-guarded by `client/e2e/mobile-layout.spec.ts`). **Do not test for:** a `GET /auth/preferences` endpoint (only PUT exists; reads come via `/auth/me`), password reset / "Forgot password?", email change (no UI or endpoint), avatar upload, per-user theme sync across devices (theme is deliberately device-local).
 
-**Test data setup:** (a) Solo owner login `owner@example.test` / `Sunlit-Meadow-42a` (non-breached, meets digit+upper+lower policy), preferences EUR / `comma-dot` (1,234.56), First name "Chris", Last name "Muscat"; its household has one budget month with income 2,500.00 and planned lines summing 1,234.56, one jar "Emergency Fund" with balance 350.00, and one EUR account "Main" — so currency- and format-changes are observable on real amounts. (b) A shared household (2 members) owned by `owner2@example.test` with an invited member login `member@example.test` (role Read-only where a case says so; invite display name "Liza", no first/last name). (c) Fresh browser profile per case unless stated; locale `en-GB`. (d) "Direct API" steps: any HTTP client with a valid bearer token (copy from devtools) against the JSON endpoints — the UI selects block invalid values client-side. (e) Local stack (API :5099, `ASPNETCORE_ENVIRONMENT=Development`) or staging (staging.allotjar.com); for token-expiry cases run locally with `Jwt__ExpiryMinutes=1` or genuinely wait >15 min. (f) New passwords in positive cases: random non-breached shape `Aa1-<uuid>` (HIBP rejects fixed common passwords).
+**Test data setup:** (a) Solo owner login `owner@example.test` / `Sunlit-Meadow-42a` (non-breached, meets digit+upper+lower policy), preferences EUR / `comma-dot` (1,234.56), First name "Alex", Last name "Muscat"; its household has one budget month with income 2,500.00 and planned lines summing 1,234.56, one jar "Emergency Fund" with balance 350.00, and one EUR account "Main" — so currency- and format-changes are observable on real amounts. (b) A shared household (2 members) owned by `owner2@example.test` with an invited member login `member@example.test` (role Read-only where a case says so; invite display name "Sam", no first/last name). (c) Fresh browser profile per case unless stated; locale `en-GB`. (d) "Direct API" steps: any HTTP client with a valid bearer token (copy from devtools) against the JSON endpoints — the UI selects block invalid values client-side. (e) Local stack (API :5099, `ASPNETCORE_ENVIRONMENT=Development`) or staging (staging.allotjar.com); for token-expiry cases run locally with `Jwt__ExpiryMinutes=1` or genuinely wait >15 min. (f) New passwords in positive cases: random non-breached shape `Aa1-<uuid>` (HIBP rejects fixed common passwords).
 
 ## Page access & details card
 
@@ -16,7 +16,7 @@
   3. Inspect the page top-to-bottom.
 - **Expected:**
   - URL is `/account`; PageHeader title "Account", subtitle "Your details, preferences and password."
-  - Details card shows three labelled values: "Email" = `owner@example.test`, "Name" = "Chris Muscat", "Access level" = "Owner".
+  - Details card shows three labelled values: "Email" = `owner@example.test`, "Name" = "Alex Muscat", "Access level" = "Owner".
   - Cards in order for this solo owner: details, "Sharing" (solo copy), "Preferences", "Change password". No "Your own budget" and no "Leave this household" card (owner viewing their own household).
   - The TopBar (month arrows + ThemeToggle) still renders — `/account` is a normal authenticated page.
 - **Automated:** Partial (client/src/pages/AccountPage.test.tsx — card presence per role/household shape; client/e2e/a11y.spec.ts + mobile-layout.spec.ts — /account rendered in both themes / at 375px)
@@ -62,7 +62,7 @@
 ### PREF-005 - Edit first and last name and save
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Signed in as `owner@example.test` ("Chris" / "Muscat"), on `/account`.
+- **Preconditions:** Signed in as `owner@example.test` ("Alex" / "Muscat"), on `/account`.
 - **Steps:**
   1. In the "Preferences" card, change "First name" to "Christopher" and "Last name" to "Borg".
   2. Click "Save preferences" (button shows "Saving…" and is disabled while in flight).
@@ -125,12 +125,12 @@
 ### PREF-010 - Saving preferences recomposes the display name, dropping an invite-provided one
 - **Priority:** P3
 - **Type:** Edge
-- **Preconditions:** Signed in as `member@example.test` — invite-created login with DisplayName "Liza" but null First/Last name (the accept-invite form collects only a display name).
+- **Preconditions:** Signed in as `member@example.test` — invite-created login with DisplayName "Sam" but null First/Last name (the accept-invite form collects only a display name).
 - **Steps:**
-  1. Open `/account`; note "Name" = "Liza" and both name fields empty.
+  1. Open `/account`; note "Name" = "Sam" and both name fields empty.
   2. Change only the "Number format" select and click "Save preferences".
 - **Expected:**
-  - The save succeeds, but because DisplayName is recomposed from First + Last on every save (`ComposeDisplayName`) and both are blank, "Name" becomes "—" and the chip falls back to the email initial — the invite-provided "Liza" is not preserved. Known quirk of the current implementation: verify the documented behavior and that filling First name "Liza" + saving restores the name.
+  - The save succeeds, but because DisplayName is recomposed from First + Last on every save (`ComposeDisplayName`) and both are blank, "Name" becomes "—" and the chip falls back to the email initial — the invite-provided "Sam" is not preserved. Known quirk of the current implementation: verify the documented behavior and that filling First name "Sam" + saving restores the name.
 - **Automated:** No
 
 ## Currency display label (display-only, no FX)
@@ -179,7 +179,7 @@
 - **Type:** Edge
 - **Preconditions:** Bearer token for `owner@example.test`; HTTP client.
 - **Steps:**
-  1. `PUT /api/auth/preferences` with `{"preferredCurrency":"xxx","numberFormat":"comma-dot","firstName":"Chris","lastName":"Muscat"}`.
+  1. `PUT /api/auth/preferences` with `{"preferredCurrency":"xxx","numberFormat":"comma-dot","firstName":"Alex","lastName":"Muscat"}`.
   2. Reload `/account` in the browser.
 - **Expected:**
   - 200 — validation is `^[A-Z]{3}$` after trim+uppercase, so "xxx" normalises to "XXX" and saves (documented lenient behavior; the 24-option picker is only a shortlist).
@@ -267,7 +267,7 @@
 - **Type:** Edge
 - **Preconditions:** `owner@example.test` has saved USD / `lakh`. Bearer token; HTTP client.
 - **Steps:**
-  1. `PUT /api/auth/preferences` with `{"firstName":"Chris","lastName":"Muscat","preferredCurrency":"","numberFormat":""}`.
+  1. `PUT /api/auth/preferences` with `{"firstName":"Alex","lastName":"Muscat","preferredCurrency":"","numberFormat":""}`.
   2. `GET /api/auth/me`.
 - **Expected:**
   - 200; the response echoes `preferredCurrency:"USD"`, `numberFormat:"lakh"` — blank values resolve to the user's stored preference, not the app default (guard in `AuthController.UpdatePreferences`). `/auth/me` confirms USD/lakh; the name change is applied.

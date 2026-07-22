@@ -26,8 +26,8 @@ import { HouseholdProvider } from '../features/HouseholdContext'
 // An owner viewing their own household (the common case).
 const ownerMe = {
   userId: 'u1',
-  email: 'chris@x.com',
-  displayName: 'Chris',
+  email: 'alex@x.com',
+  displayName: 'Alex',
   role: 0,
   ownerId: 'u1',
   memberId: null,
@@ -37,16 +37,16 @@ const ownerMe = {
 // A member who only joined someone else's household (no own household of their own).
 const joinedMe = {
   userId: 'u2',
-  email: 'liza@x.com',
-  displayName: 'Liza',
+  email: 'sam@x.com',
+  displayName: 'Sam',
   role: 2,
   ownerId: 'owner-1',
   memberId: null,
-  households: [{ ownerId: 'owner-1', label: 'Chris', role: 2, isActive: true, isOwn: false }],
+  households: [{ ownerId: 'owner-1', label: 'Alex', role: 2, isActive: true, isOwn: false }],
 }
 
 function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
-  return { id: 'm1', name: 'Chris', netMonthlyIncome: 6000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1, ...over }
+  return { id: 'm1', name: 'Alex', netMonthlyIncome: 6000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1, ...over }
 }
 
 // The Sharing card reads /members; everything else (/auth/me) returns the login.
@@ -101,9 +101,9 @@ describe('AccountPage', () => {
   it('saves name + money-display preferences', async () => {
     mockPut.mockResolvedValue({
       data: {
-        firstName: 'Chris',
+        firstName: 'Alex',
         lastName: 'M',
-        displayName: 'Chris M',
+        displayName: 'Alex M',
         preferredCurrency: 'GBP',
         numberFormat: 'comma-dot',
       },
@@ -112,7 +112,7 @@ describe('AccountPage', () => {
 
     renderPage()
 
-    await user.type(await screen.findByLabelText('First name'), 'Chris')
+    await user.type(await screen.findByLabelText('First name'), 'Alex')
     await user.type(screen.getByLabelText('Last name'), 'M')
     await user.selectOptions(screen.getByLabelText('Currency'), 'GBP')
     await user.selectOptions(screen.getByLabelText('Number format'), 'comma-dot')
@@ -120,7 +120,7 @@ describe('AccountPage', () => {
 
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/auth/preferences', {
-        firstName: 'Chris',
+        firstName: 'Alex',
         lastName: 'M',
         preferredCurrency: 'GBP',
         numberFormat: 'comma-dot',
@@ -166,7 +166,7 @@ describe('AccountPage', () => {
   })
 
   it('links to manage members when the budget is shared (2+ members)', async () => {
-    membersData = [member(), member({ id: 'm2', name: 'Liza' })]
+    membersData = [member(), member({ id: 'm2', name: 'Sam' })]
 
     renderPage()
 

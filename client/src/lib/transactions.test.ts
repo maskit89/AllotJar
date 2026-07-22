@@ -29,7 +29,7 @@ describe('transactions helpers', () => {
       categories: [
         { kind: 'Income', name: 'Pay', items: [{ id: 'inc', name: 'Salary' }] },
         { kind: 'Expense', name: 'Food', items: [{ id: 'exp', name: 'Groceries' }] },
-        { kind: 'Savings', name: 'Personal Savings', items: [{ id: 'sav', name: 'Chris' }] },
+        { kind: 'Savings', name: 'Personal Savings', items: [{ id: 'sav', name: 'Alex' }] },
       ],
     } as unknown as BudgetMonthDto
     // An expense (type 0) can be assigned to expense or savings lines — not income.

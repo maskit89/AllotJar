@@ -5,10 +5,10 @@ namespace AllotJar.Importer;
 
 /// <summary>One Visa charge's per-person split, in the same row order the ledger imports them.</summary>
 internal sealed record VisaShare(
-    DateOnly Date, string Details, decimal Total, decimal Liz, decimal Chris, decimal Marisa, TransactionType Type);
+    DateOnly Date, string Details, decimal Total, decimal Liz, decimal Alex, decimal Marisa, TransactionType Type);
 
 /// <summary>
-/// Reads the "Visa" sheet's per-person columns (C total, D = Liz, E = Chris, F = Marisa) that
+/// Reads the "Visa" sheet's per-person columns (C total, D = Liz, E = Alex, F = Marisa) that
 /// the main <see cref="Ledger"/> import deliberately ignores. The iteration mirrors
 /// <c>Ledger.ReadVisa</c> exactly (rows 12..200, same blank/zero skipping), so the produced
 /// list is 1:1 and in the same order as the imported Visa transactions — letting the member
@@ -39,7 +39,7 @@ internal static class VisaShareReader
                 date, details,
                 Total: Math.Abs(amount),
                 Liz: Math.Max(0m, NumberAt(ws, r, 4)),   // col D
-                Chris: Math.Max(0m, NumberAt(ws, r, 5)),  // col E
+                Alex: Math.Max(0m, NumberAt(ws, r, 5)),  // col E
                 Marisa: Math.Max(0m, NumberAt(ws, r, 6)), // col F
                 Type: type));
         }

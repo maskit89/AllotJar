@@ -29,11 +29,11 @@ public class BudgetItemMemberTests
             .UseInMemoryDatabase($"zbb-item-member-{Guid.NewGuid()}")
             .Options);
 
-    private sealed record Seeded(Guid IncomeCategoryId, Guid ExpenseCategoryId, Guid IncomeLineId, HouseholdMember Chris, HouseholdMember Robin);
+    private sealed record Seeded(Guid IncomeCategoryId, Guid ExpenseCategoryId, Guid IncomeLineId, HouseholdMember Alex, HouseholdMember Robin);
 
     private static Seeded Seed(ApplicationDbContext db, string ownerId = "user-1")
     {
-        var pay = new BudgetItem { Name = "Chris — Salary", PlannedAmount = 3000m };
+        var pay = new BudgetItem { Name = "Alex — Salary", PlannedAmount = 3000m };
         var income = new BudgetCategory
         {
             Name = "Income", Kind = CategoryKind.Income, Items = new List<BudgetItem> { pay },
@@ -47,11 +47,11 @@ public class BudgetItemMemberTests
             OwnerId = ownerId, Year = 2026, Month = 6,
             Categories = new List<BudgetCategory> { income, housing },
         });
-        var chris = new HouseholdMember { OwnerId = ownerId, Name = "Chris", NetMonthlyIncome = 3000m };
+        var alex = new HouseholdMember { OwnerId = ownerId, Name = "Alex", NetMonthlyIncome = 3000m };
         var robin = new HouseholdMember { OwnerId = ownerId, Name = "Robin", NetMonthlyIncome = 2000m };
-        db.HouseholdMembers.AddRange(chris, robin);
+        db.HouseholdMembers.AddRange(alex, robin);
         db.SaveChanges();
-        return new Seeded(income.Id, housing.Id, pay.Id, chris, robin);
+        return new Seeded(income.Id, housing.Id, pay.Id, alex, robin);
     }
 
     [Fact]
@@ -61,8 +61,8 @@ public class BudgetItemMemberTests
         var s = Seed(db);
         var handler = new SetBudgetItemMemberCommandHandler(db, new CurrentUserStub("user-1"));
 
-        var dto = await handler.Handle(new SetBudgetItemMemberCommand(s.IncomeLineId, s.Chris.Id), CancellationToken.None);
-        dto.Categories.Single(c => c.Kind == "Income").Items.Single().MemberId.Should().Be(s.Chris.Id);
+        var dto = await handler.Handle(new SetBudgetItemMemberCommand(s.IncomeLineId, s.Alex.Id), CancellationToken.None);
+        dto.Categories.Single(c => c.Kind == "Income").Items.Single().MemberId.Should().Be(s.Alex.Id);
 
         var cleared = await handler.Handle(new SetBudgetItemMemberCommand(s.IncomeLineId, null), CancellationToken.None);
         cleared.Categories.Single(c => c.Kind == "Income").Items.Single().MemberId.Should().BeNull();
@@ -76,7 +76,7 @@ public class BudgetItemMemberTests
         var rentId = (await db.BudgetItems.SingleAsync(i => i.Name == "Rent")).Id;
         var handler = new SetBudgetItemMemberCommandHandler(db, new CurrentUserStub("user-1"));
 
-        var expense = () => handler.Handle(new SetBudgetItemMemberCommand(rentId, s.Chris.Id), CancellationToken.None);
+        var expense = () => handler.Handle(new SetBudgetItemMemberCommand(rentId, s.Alex.Id), CancellationToken.None);
         (await expense.Should().ThrowAsync<ValidationException>())
             .Which.Errors["MemberId"].Should().Contain("Only income lines can be assigned to a person.");
 
@@ -115,7 +115,7 @@ public class BudgetItemMemberTests
         await using var db = NewContext();
         var s = Seed(db);
         var setter = new SetBudgetItemMemberCommandHandler(db, new CurrentUserStub("user-1"));
-        await setter.Handle(new SetBudgetItemMemberCommand(s.IncomeLineId, s.Chris.Id), CancellationToken.None);
+        await setter.Handle(new SetBudgetItemMemberCommand(s.IncomeLineId, s.Alex.Id), CancellationToken.None);
         var add = new AddBudgetItemCommandHandler(db, new CurrentUserStub("user-1"));
         await add.Handle(new AddBudgetItemCommand(s.IncomeCategoryId, "Robin — Salary", 2000m, s.Robin.Id), CancellationToken.None);
 
@@ -128,7 +128,7 @@ public class BudgetItemMemberTests
             new CreateBudgetMonthCommand(2026, 7, CopyFromPrevious: true), CancellationToken.None);
 
         var incomeItems = next.Categories.Single(c => c.Kind == "Income").Items;
-        incomeItems.Single(i => i.Name == "Chris — Salary").MemberId.Should().Be(s.Chris.Id);
+        incomeItems.Single(i => i.Name == "Alex — Salary").MemberId.Should().Be(s.Alex.Id);
         // The archived person's line copies as whole-household, not attributed to someone gone.
         incomeItems.Single(i => i.Name == "Robin — Salary").MemberId.Should().BeNull();
     }

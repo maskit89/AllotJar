@@ -24,8 +24,8 @@ public class MembershipSeederTests
     public async Task Seeds_exactly_one_owner_per_user_and_is_idempotent()
     {
         using var db = NewContext();
-        db.Users.Add(new ApplicationUser { Id = "user-1", Email = "chris@x.com", UserName = "chris@x.com", DisplayName = "Chris" });
-        db.Users.Add(new ApplicationUser { Id = "user-2", Email = "liza@x.com", UserName = "liza@x.com" });
+        db.Users.Add(new ApplicationUser { Id = "user-1", Email = "alex@x.com", UserName = "alex@x.com", DisplayName = "Alex" });
+        db.Users.Add(new ApplicationUser { Id = "user-2", Email = "sam@x.com", UserName = "sam@x.com" });
         await db.SaveChangesAsync();
 
         await MembershipSeeder.BackfillOwnerMembershipsAsync(db);
@@ -43,14 +43,14 @@ public class MembershipSeederTests
     public async Task Leaves_existing_memberships_untouched()
     {
         using var db = NewContext();
-        db.Users.Add(new ApplicationUser { Id = "user-1", Email = "liza@x.com", UserName = "liza@x.com" });
+        db.Users.Add(new ApplicationUser { Id = "user-1", Email = "sam@x.com", UserName = "sam@x.com" });
         db.HouseholdMemberships.Add(new HouseholdMembership
         {
             OwnerId = "owner-x",
             UserId = "user-1",
             Role = HouseholdRole.Admin,
             Status = MembershipStatus.Active,
-            InvitedEmail = "liza@x.com",
+            InvitedEmail = "sam@x.com",
         });
         await db.SaveChangesAsync();
 

@@ -2,7 +2,7 @@
 
 **ID prefix:** ALLOC | **Scope:** Everything on the Allocation screen at `/allocation` (`client/src/pages/AllocationPage.tsx`) for shared households: the solo "Add people first" gate and the no-profile "Set up allocation" state; the **Income to allocate / Shared spending / To savings** hero and its by-construction reconciliation to the pool; the **How {month} is allocated** waterfall card (step labels "Cover shared costs" / "Fund the jars" / "Pocket money" / "Split remainder to savings", the terminal-row highlight, per-step totals); the per-member savings tiles ("Savings … → saves", residual, "Projected balance", "No savings account set" note); the **Allocation settings** / **Set up allocation** modal (source account, pocket money, split-shared-costs Equally/By income, send-savings-to Balance/Equally/By income, balance lean, InfoHints) with client + server validation; **Cancel/backdrop revert** of unsaved edits (PR #163); the **Allocate {month}** commit flow (idempotency banner, no-source guard, stranded-surplus + nothing-to-save notes); and the underlying `IncomeAllocator`/`AllocationPlanner` math — Equal / By income / BalanceTilt+WaterFill splits, `ExcludeFromAllocation` exclusion, member savings balances, the WaterFill-overflow and dangling-savings-account regressions, and the EUR-hardcoded / non-zero-padded `BankReference` transfer composition. | **Out of scope:** The **Jars** page, jar accrual and the dashboard jar shelf → `13-jars.md`; per-member **Savings account** selects, `NetMonthlyIncome`, add/archive member, `isShared` derivation and the full role matrix → the households/people sibling (only allocation-page `canWrite`/`canEnterData` gating and the solo gate appear here); the Savings-group budget grid and month create/copy that seed the planned figures the engine reads → `08-categories-budget-lines.md` and `07-month-lifecycle.md`; the account **reconciliation**/earmark panel and account balances feeding the tilt → `12-accounts-reconciliation.md`; the transfers the commit writes, viewed as register rows → `11-transfers.md`; session/refresh, cross-tab logout and responsive/dark/a11y sweeps → their own files (referenced only where behaviour is allocation-specific, e.g. the InfoHint-in-label gotcha).
 
-**Test data setup:** Unless a case says otherwise, assume an authenticated **Owner** (`canWrite = true`, `canEnterData = true`) of a **shared EUR household "Home"** with **2 active members** — *Chris* (`NetMonthlyIncome` 3,000.00, personal savings account **"Chris Savings"** balance 1,000.00) and *Robin* (`NetMonthlyIncome` 2,000.00, personal savings account **"Robin Savings"** balance 500.00). The browser locale is **en-GB** and today (browser clock + server UTC) is **2026-07-15**, so `GET /budget/current` returns **July 2026** and `monthName` renders **"July"**. One EUR source account **"Joint"** exists. The `householdAllocation` feature flag is **on**. The **standard profile** (what the client always writes) is: source `Joint`, pocket money `0.00`, split shared costs **Equally**, send savings to **Balance**, balance lean **25**, name "Household allocation", four rules in order `FundEnvelopes(0)`, `FundJars(1)`, `FixedPerMember(2)`, `SplitRemainderToMembers(3)`. The **worked-example July budget** has planned **expense** categories totalling **2,000.00** (envelopes) and planned **Savings** categories totalling **500.00** (jars); with pocket **0** that gives pool **5,000.00** (3,000+2,000), shared spending **2,500.00** (2,000+500+0) and **To savings 2,500.00**. Enums go over the wire as **numbers**: `AllocationRuleType {FundEnvelopes:0, FundJars:1, FixedPerMember:2, SplitRemainderToMembers:3}`, `SplitMethod {Equal:0, ByIncomeRatio:1, BalanceTilt:2}`. Money is `decimal(18,4)` server-side and integer minor units (scale 4) client-side. Commit idempotency key is `BankReference = "alloc:{year}-{month}:{memberId}"` (month **not** zero-padded). Client wiring is exercised by `client/src/pages/AllocationPage.test.tsx`; engine math by `tests/AllotJar.Application.Tests/Domain/IncomeAllocatorTests.cs` + `Application/AllocationTests.cs`; the dangling-account and idempotent-rerun crash paths by `tests/AllotJar.IntegrationTests/AllocationRerunTests.cs`.
+**Test data setup:** Unless a case says otherwise, assume an authenticated **Owner** (`canWrite = true`, `canEnterData = true`) of a **shared EUR household "Home"** with **2 active members** — *Alex* (`NetMonthlyIncome` 3,000.00, personal savings account **"Alex Savings"** balance 1,000.00) and *Robin* (`NetMonthlyIncome` 2,000.00, personal savings account **"Robin Savings"** balance 500.00). The browser locale is **en-GB** and today (browser clock + server UTC) is **2026-07-15**, so `GET /budget/current` returns **July 2026** and `monthName` renders **"July"**. One EUR source account **"Joint"** exists. The `householdAllocation` feature flag is **on**. The **standard profile** (what the client always writes) is: source `Joint`, pocket money `0.00`, split shared costs **Equally**, send savings to **Balance**, balance lean **25**, name "Household allocation", four rules in order `FundEnvelopes(0)`, `FundJars(1)`, `FixedPerMember(2)`, `SplitRemainderToMembers(3)`. The **worked-example July budget** has planned **expense** categories totalling **2,000.00** (envelopes) and planned **Savings** categories totalling **500.00** (jars); with pocket **0** that gives pool **5,000.00** (3,000+2,000), shared spending **2,500.00** (2,000+500+0) and **To savings 2,500.00**. Enums go over the wire as **numbers**: `AllocationRuleType {FundEnvelopes:0, FundJars:1, FixedPerMember:2, SplitRemainderToMembers:3}`, `SplitMethod {Equal:0, ByIncomeRatio:1, BalanceTilt:2}`. Money is `decimal(18,4)` server-side and integer minor units (scale 4) client-side. Commit idempotency key is `BankReference = "alloc:{year}-{month}:{memberId}"` (month **not** zero-padded). Client wiring is exercised by `client/src/pages/AllocationPage.test.tsx`; engine math by `tests/AllotJar.Application.Tests/Domain/IncomeAllocatorTests.cs` + `Application/AllocationTests.cs`; the dangling-account and idempotent-rerun crash paths by `tests/AllotJar.IntegrationTests/AllocationRerunTests.cs`.
 
 ---
 
@@ -379,10 +379,10 @@
 ### ALLOC-038 - By-income cost split charges in proportion to net income
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Split shared costs **By income**; envelopes+jars 2,500.00; Chris 3,000 / Robin 2,000 (ratio 60/40).
+- **Preconditions:** Split shared costs **By income**; envelopes+jars 2,500.00; Alex 3,000 / Robin 2,000 (ratio 60/40).
 - **Steps:**
   1. Read the cost deductions.
-- **Expected:** Chris charged `Round2(2500 × 3000/5000)` = 1,500.00, Robin `Round2(2500 × 2000/5000)` = 1,000.00; last member absorbs any remainder so the sum is exactly 2,500.00. Step totals (Cover shared costs / Fund the jars) are unchanged — the split only redistributes *who* pays.
+- **Expected:** Alex charged `Round2(2500 × 3000/5000)` = 1,500.00, Robin `Round2(2500 × 2000/5000)` = 1,000.00; last member absorbs any remainder so the sum is exactly 2,500.00. Step totals (Cover shared costs / Fund the jars) are unchanged — the split only redistributes *who* pays.
 - **Automated:** Partial (Domain/IncomeAllocatorTests.cs — "by-income split sums exactly to the total")
 
 ### ALLOC-039 - Send savings to "Equally" pools the remainder then splits evenly
@@ -397,19 +397,19 @@
 ### ALLOC-040 - Send savings to "By income" splits the pooled remainder by income ratio
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Send savings to **By income**; remainder 2,300.00; Chris 3,000 / Robin 2,000.
+- **Preconditions:** Send savings to **By income**; remainder 2,300.00; Alex 3,000 / Robin 2,000.
 - **Steps:**
   1. Read the per-member residuals.
-- **Expected:** Chris residual `Round2(2300 × 3000/5000)` = 1,380.00, Robin 920.00; sum exactly 2,300.00 (last member absorbs remainder). (Pre-PR #162 this was also inert.)
+- **Expected:** Alex residual `Round2(2300 × 3000/5000)` = 1,380.00, Robin 920.00; sum exactly 2,300.00 (last member absorbs remainder). (Pre-PR #162 this was also inert.)
 - **Automated:** Yes (Domain/IncomeAllocatorTests.cs — "ByIncome pool-and-split")
 
 ### ALLOC-041 - Balance (default) leans the remainder toward the lower savings balance
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Send savings to **Balance**, lean 25; remainder 2,300.00; Chris savings 1,000.00, Robin savings 500.00.
+- **Preconditions:** Send savings to **Balance**, lean 25; remainder 2,300.00; Alex savings 1,000.00, Robin savings 500.00.
 - **Steps:**
   1. Read the per-member residuals and projected balances.
-- **Expected:** `BalanceTiltSplit` gives Robin (lower balance) a **larger** share than Chris while both still save; residuals sum **exactly** to 2,300.00 (rounding drift pushed onto the **largest** share). Assert the invariants — sum-exact, lower-balance-gets-more, both non-negative — not fragile per-member cents. Full lean 100 would pour everything into the lowest balance first.
+- **Expected:** `BalanceTiltSplit` gives Robin (lower balance) a **larger** share than Alex while both still save; residuals sum **exactly** to 2,300.00 (rounding drift pushed onto the **largest** share). Assert the invariants — sum-exact, lower-balance-gets-more, both non-negative — not fragile per-member cents. Full lean 100 would pour everything into the lowest balance first.
 - **Automated:** Yes (Domain/IncomeAllocatorTests.cs — "BalanceTilt leans toward the lower balance", "full lean pours into the lower account")
 
 ### ALLOC-042 - New/equal-balance couple: default savings split must not 500 (WaterFill overflow)
@@ -439,10 +439,10 @@
 ### ALLOC-044 - Per-member tile anatomy
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Standard profile; remainder split gives Chris residual 1,150.00 (savings 1,000.00), Robin 1,150.00 (savings 500.00).
+- **Preconditions:** Standard profile; remainder split gives Alex residual 1,150.00 (savings 1,000.00), Robin 1,150.00 (savings 500.00).
 - **Steps:**
   1. Read each member card in the 2-up grid below the waterfall.
-- **Expected:** Each tile shows the member **name**, **"Savings €X → saves"** (X = pre-allocation `savingsBalance`, e.g. "Savings €1,000.00 → saves"), the residual as a large figure (**€1,150.00**, brand tone when ≥ 0), and **"Projected balance €Y"** where Y = `savingsBalance + residual` (Chris €2,150.00, Robin €1,650.00).
+- **Expected:** Each tile shows the member **name**, **"Savings €X → saves"** (X = pre-allocation `savingsBalance`, e.g. "Savings €1,000.00 → saves"), the residual as a large figure (**€1,150.00**, brand tone when ≥ 0), and **"Projected balance €Y"** where Y = `savingsBalance + residual` (Alex €2,150.00, Robin €1,650.00).
 - **Automated:** Partial (AllocationPage.test.tsx — per-member surplus renders)
 
 ### ALLOC-045 - Negative residual is rendered in the rose tone
@@ -467,7 +467,7 @@
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** PR #162 / preview == re-commit view (`SavingsBalancesAsync` prefix filter)
-- **Preconditions:** Standard profile already committed once for July (alloc transfers exist in Chris/Robin savings accounts).
+- **Preconditions:** Standard profile already committed once for July (alloc transfers exist in Alex/Robin savings accounts).
 - **Steps:**
   1. Reopen `/allocation` and read the "Savings €X → saves" figure, then re-commit.
 - **Expected:** The savings balances used for BalanceTilt **exclude** transactions whose `BankReference` starts `alloc:2026-7:` for the viewed month, so the preview's tilt matches a fresh re-commit (no feedback loop where each run tilts differently). The pre-allocation balance shown is stable across re-runs.
@@ -540,16 +540,16 @@
 - **Preconditions:** Robin's `PersonalSavingsAccountId` points at an account that has since been **deleted**; Robin's residual is positive.
 - **Steps:**
   1. Open `/allocation` (preview) then **Allocate July**.
-- **Expected:** `AllocationPlanner` nulls the link not present in the owned/existing balances dict, so the preview shows Robin's "No savings account set" note and the **commit skips Robin** (no broken FK insert, no 500). Chris's transfer still writes. `Create/UpdateHouseholdMember` also validate the account exists+owned, closing the vector at the source.
+- **Expected:** `AllocationPlanner` nulls the link not present in the owned/existing balances dict, so the preview shows Robin's "No savings account set" note and the **commit skips Robin** (no broken FK insert, no 500). Alex's transfer still writes. `Create/UpdateHouseholdMember` also validate the account exists+owned, closing the vector at the source.
 - **Automated:** Yes (AllocationRerunTests.cs — "commit skips a member whose savings account is gone")
 
 ### ALLOC-055 - Stranded-surplus note when a member with a positive share has no savings account
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** Robin has no savings account but a positive residual of 1,150.00; Chris has one.
+- **Preconditions:** Robin has no savings account but a positive residual of 1,150.00; Alex has one.
 - **Steps:**
   1. Open `/allocation`.
-- **Expected:** An amber note reads **"€1,150.00 won't be transferred — Robin has no savings account linked (see below)."** — it names the affected people and points at the inline fix on their cards (`strandedMinor` = Σ residual of members with `!savingsAccountId && residual > 0`). Commit requires an explicit confirm (ALLOC-067); confirmed, it writes only Chris's transfer and Robin's share stays in the source account, repeated in the success banner.
+- **Expected:** An amber note reads **"€1,150.00 won't be transferred — Robin has no savings account linked (see below)."** — it names the affected people and points at the inline fix on their cards (`strandedMinor` = Σ residual of members with `!savingsAccountId && residual > 0`). Commit requires an explicit confirm (ALLOC-067); confirmed, it writes only Alex's transfer and Robin's share stays in the source account, repeated in the success banner.
 - **Automated:** No
 
 ### ALLOC-056 - Nothing-to-save note when shared spending consumes the whole pool

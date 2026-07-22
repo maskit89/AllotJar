@@ -725,7 +725,7 @@ export function PeoplePage() {
                 type="email"
                 value={iEmail}
                 onChange={(e) => setIEmail(e.target.value)}
-                placeholder="liza@example.eu"
+                placeholder="sam@example.eu"
                 aria-label="Invitee email"
                 className="w-full"
               />

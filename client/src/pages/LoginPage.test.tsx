@@ -67,7 +67,7 @@ describe('LoginPage', () => {
         token: 'tok',
         expiresAtUtc: '2030-01-01T00:00:00Z',
         userId: 'u1',
-        email: 'liza@x.com',
+        email: 'sam@x.com',
         role: 0,
         displayName: null,
       },
@@ -86,7 +86,7 @@ describe('LoginPage', () => {
       </MemoryRouter>,
     )
 
-    await user.type(screen.getByLabelText('Email'), 'liza@x.com')
+    await user.type(screen.getByLabelText('Email'), 'sam@x.com')
     await user.type(screen.getByLabelText('Password'), 'password123')
     // Both the mode toggle and the submit button are named "Sign in" — take the submit.
     const submit = screen

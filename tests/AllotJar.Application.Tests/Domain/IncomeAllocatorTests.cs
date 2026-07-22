@@ -6,75 +6,76 @@ using Xunit;
 namespace AllotJar.Application.Tests.Domain;
 
 /// <summary>
-/// The income-allocation waterfall, validated against the source spreadsheet's
-/// Future Savings figures.
+/// The income-allocation waterfall, validated against a hand-computed worked example
+/// (synthetic figures: two members earning 4200.50 / 3800.25 against shared obligations
+/// of 3500 + 2000 + 250-per-member, leaving a 2000.75 remainder).
 /// </summary>
 public class IncomeAllocatorTests
 {
-    private static readonly Guid Chris = Guid.NewGuid();
-    private static readonly Guid Liza = Guid.NewGuid();
+    private static readonly Guid Alex = Guid.NewGuid();
+    private static readonly Guid Sam = Guid.NewGuid();
 
     private static List<AllocationMember> Couple() => new()
     {
-        new(Chris, "Chris", 4411.64m, null),
-        new(Liza, "Liza", 3999.97m, null),
+        new(Alex, "Alex", 4200.50m, null),
+        new(Sam, "Sam", 3800.25m, null),
     };
 
     // The three shared obligations funded before the terminal savings split, reused across tests.
     private static List<AllocationRuleInput> Obligations() => new()
     {
-        new(0, AllocationRuleType.FundEnvelopes, SplitMethod.Equal, 0m, ResolvedTotal: 3641m),
-        new(1, AllocationRuleType.FundJars, SplitMethod.Equal, 0m, ResolvedTotal: 2164m),
+        new(0, AllocationRuleType.FundEnvelopes, SplitMethod.Equal, 0m, ResolvedTotal: 3500m),
+        new(1, AllocationRuleType.FundJars, SplitMethod.Equal, 0m, ResolvedTotal: 2000m),
         new(2, AllocationRuleType.FixedPerMember, SplitMethod.Equal, FixedAmountPerMember: 250m, ResolvedTotal: 0m),
     };
 
     [Fact]
-    public void Reproduces_TheSpreadsheet_Waterfall()
+    public void Reproduces_TheWorkedExample_Waterfall()
     {
-        // No terminal split rule → each member keeps their own post-obligation leftover, which is the
-        // source spreadsheet's model (a terminal split would instead pool this 2106.61 remainder).
+        // No terminal split rule → each member keeps their own post-obligation leftover — the
+        // keep-your-own model (a terminal split would instead pool this 2000.75 remainder).
         var result = IncomeAllocator.Compute(Couple(), Obligations());
 
-        result.Pool.Should().Be(8411.61m);
-        result.Members.Single(m => m.MemberId == Chris).Residual.Should().Be(1259.14m);
-        result.Members.Single(m => m.MemberId == Liza).Residual.Should().Be(847.47m);
+        result.Pool.Should().Be(8000.75m);
+        result.Members.Single(m => m.MemberId == Alex).Residual.Should().Be(1200.50m);
+        result.Members.Single(m => m.MemberId == Sam).Residual.Should().Be(800.25m);
 
-        // The leftover equals the pool minus the funded obligations (3641 + 2164 + 500).
-        result.Members.Sum(m => m.Residual).Should().Be(8411.61m - 3641m - 2164m - 500m);
+        // The leftover equals the pool minus the funded obligations (3500 + 2000 + 500).
+        result.Members.Sum(m => m.Residual).Should().Be(8000.75m - 3500m - 2000m - 500m);
     }
 
     [Fact]
     public void SplitRemainderToMembers_Equally_PoolsAndSplitsEvenly()
     {
-        // "Send savings to: Equally" now pools the 2106.61 remainder and splits it evenly, instead of
-        // silently letting each member keep their own (1259.14 / 847.47).
+        // "Send savings to: Equally" now pools the 2000.75 remainder and splits it evenly, instead of
+        // silently letting each member keep their own (1200.50 / 800.25).
         var rules = Obligations();
         rules.Add(new(3, AllocationRuleType.SplitRemainderToMembers, SplitMethod.Equal, 0m, 0m));
 
         var result = IncomeAllocator.Compute(Couple(), rules);
 
-        result.Members.Sum(m => m.Residual).Should().Be(2106.61m); // conserved to the cent
-        var chris = result.Members.Single(m => m.MemberId == Chris).Residual;
-        var liza = result.Members.Single(m => m.MemberId == Liza).Residual;
-        chris.Should().Be(1053.31m); // 2106.61 / 2, last member absorbs the odd cent
-        liza.Should().Be(1053.30m);
+        result.Members.Sum(m => m.Residual).Should().Be(2000.75m); // conserved to the cent
+        var alex = result.Members.Single(m => m.MemberId == Alex).Residual;
+        var sam = result.Members.Single(m => m.MemberId == Sam).Residual;
+        alex.Should().Be(1000.38m); // 2000.75 / 2, last member absorbs the odd cent
+        sam.Should().Be(1000.37m);
     }
 
     [Fact]
     public void SplitRemainderToMembers_ByIncome_PoolsAndSplitsByIncome()
     {
         // "Send savings to: By income" pools the remainder and splits it in proportion to income —
-        // distinct from both Equal and keep-own; Chris earns more so he saves more.
+        // distinct from both Equal and keep-own; Alex earns more so he saves more.
         var rules = Obligations();
         rules.Add(new(3, AllocationRuleType.SplitRemainderToMembers, SplitMethod.ByIncomeRatio, 0m, 0m));
 
         var result = IncomeAllocator.Compute(Couple(), rules);
 
-        result.Members.Sum(m => m.Residual).Should().Be(2106.61m);
-        var chris = result.Members.Single(m => m.MemberId == Chris).Residual;
-        var liza = result.Members.Single(m => m.MemberId == Liza).Residual;
-        chris.Should().BeGreaterThan(liza); // 4411.64 vs 3999.97 income
-        chris.Should().BeGreaterThan(1053.31m); // and more than an even split
+        result.Members.Sum(m => m.Residual).Should().Be(2000.75m);
+        var alex = result.Members.Single(m => m.MemberId == Alex).Residual;
+        var sam = result.Members.Single(m => m.MemberId == Sam).Residual;
+        alex.Should().BeGreaterThan(sam); // 4200.50 vs 3800.25 income
+        alex.Should().BeGreaterThan(1000.38m); // and more than an even split
     }
 
     [Fact]
@@ -84,8 +85,8 @@ public class IncomeAllocatorTests
         // `n * decimal.MaxValue` at the top tier and throw OverflowException, 500-ing preview/commit.
         var members = new List<AllocationMember>
         {
-            new(Chris, "Chris", 4411.64m, null, SavingsBalance: 0m),
-            new(Liza, "Liza", 3999.97m, null, SavingsBalance: 0m),
+            new(Alex, "Alex", 4200.50m, null, SavingsBalance: 0m),
+            new(Sam, "Sam", 3800.25m, null, SavingsBalance: 0m),
         };
         var rules = Obligations();
         rules.Add(new(3, AllocationRuleType.SplitRemainderToMembers, SplitMethod.BalanceTilt, 0m, 0m));
@@ -95,8 +96,8 @@ public class IncomeAllocatorTests
         var result = act.Should().NotThrow().Subject;
         // Equal starting balances → the balance-aware split degenerates to an even split; the odd
         // cent lands on one member (whichever absorbs the rounding drift), so assert the invariants.
-        result.Members.Sum(m => m.Residual).Should().Be(2106.61m);
-        result.Members.Should().OnlyContain(m => m.Residual == 1053.30m || m.Residual == 1053.31m);
+        result.Members.Sum(m => m.Residual).Should().Be(2000.75m);
+        result.Members.Should().OnlyContain(m => m.Residual == 1000.37m || m.Residual == 1000.38m);
     }
 
     [Theory]
@@ -109,9 +110,9 @@ public class IncomeAllocatorTests
         var third = Guid.NewGuid();
         var members = new List<AllocationMember>
         {
-            new(Chris, "Chris", 3000m, null, SavingsBalance: 500m),
-            new(Liza, "Liza", 3000m, null, SavingsBalance: 500m),
-            new(third, "Sam", 3000m, null, SavingsBalance: 500m),
+            new(Alex, "Alex", 3000m, null, SavingsBalance: 500m),
+            new(Sam, "Sam", 3000m, null, SavingsBalance: 500m),
+            new(third, "Riley", 3000m, null, SavingsBalance: 500m),
         };
         var rules = new List<AllocationRuleInput>
         {
@@ -142,33 +143,33 @@ public class IncomeAllocatorTests
     [Fact]
     public void BalanceTilt_LeansSavingsTowardTheLowerBalance_ButBothStillSave()
     {
-        // Chris earns more but has the lower savings balance; Liza is ahead by ~10.4k.
+        // Alex earns more but has the lower savings balance; Sam is ahead by ~10.4k.
         var members = new List<AllocationMember>
         {
-            new(Chris, "Chris", 4411.64m, null, SavingsBalance: 35631.96m),
-            new(Liza, "Liza", 3999.97m, null, SavingsBalance: 46033.38m),
+            new(Alex, "Alex", 4200.50m, null, SavingsBalance: 30000m),
+            new(Sam, "Sam", 3800.25m, null, SavingsBalance: 40000m),
         };
         var rules = new List<AllocationRuleInput>
         {
-            new(0, AllocationRuleType.FundEnvelopes, SplitMethod.Equal, 0m, ResolvedTotal: 3641m),
-            new(1, AllocationRuleType.FundJars, SplitMethod.Equal, 0m, ResolvedTotal: 2164m),
+            new(0, AllocationRuleType.FundEnvelopes, SplitMethod.Equal, 0m, ResolvedTotal: 3500m),
+            new(1, AllocationRuleType.FundJars, SplitMethod.Equal, 0m, ResolvedTotal: 2000m),
             new(2, AllocationRuleType.FixedPerMember, SplitMethod.Equal, FixedAmountPerMember: 250m, ResolvedTotal: 0m),
             new(3, AllocationRuleType.SplitRemainderToMembers, SplitMethod.BalanceTilt, 0m, 0m),
         };
 
         var result = IncomeAllocator.Compute(members, rules, balanceLeanPercent: 25);
-        var chris = result.Members.Single(m => m.MemberId == Chris);
-        var liza = result.Members.Single(m => m.MemberId == Liza);
+        var alex = result.Members.Single(m => m.MemberId == Alex);
+        var sam = result.Members.Single(m => m.MemberId == Sam);
 
-        // The whole 2106.61 remainder is preserved, just tilted toward Chris (the lower balance).
-        (chris.Residual + liza.Residual).Should().Be(2106.61m);
-        chris.Residual.Should().Be(1316.63m);
-        liza.Residual.Should().Be(789.98m);
+        // The whole 2000.75 remainder is preserved, just tilted toward Alex (the lower balance).
+        (alex.Residual + sam.Residual).Should().Be(2000.75m);
+        alex.Residual.Should().Be(1250.47m);
+        sam.Residual.Should().Be(750.28m);
 
         // Gentle: both still save, and the gap between the two balances narrows.
-        liza.Residual.Should().BeGreaterThan(0m);
-        chris.Residual.Should().BeGreaterThan(liza.Residual);
-        (chris.SavingsBalance + chris.Residual).Should().BeLessThan(liza.SavingsBalance + liza.Residual);
+        sam.Residual.Should().BeGreaterThan(0m);
+        alex.Residual.Should().BeGreaterThan(sam.Residual);
+        (alex.SavingsBalance + alex.Residual).Should().BeLessThan(sam.SavingsBalance + sam.Residual);
     }
 
     [Fact]
@@ -176,22 +177,22 @@ public class IncomeAllocatorTests
     {
         var members = new List<AllocationMember>
         {
-            new(Chris, "Chris", 4411.64m, null, SavingsBalance: 35631.96m),
-            new(Liza, "Liza", 3999.97m, null, SavingsBalance: 46033.38m),
+            new(Alex, "Alex", 4200.50m, null, SavingsBalance: 30000m),
+            new(Sam, "Sam", 3800.25m, null, SavingsBalance: 40000m),
         };
         var rules = new List<AllocationRuleInput>
         {
-            new(0, AllocationRuleType.FundEnvelopes, SplitMethod.Equal, 0m, ResolvedTotal: 3641m),
-            new(1, AllocationRuleType.FundJars, SplitMethod.Equal, 0m, ResolvedTotal: 2164m),
+            new(0, AllocationRuleType.FundEnvelopes, SplitMethod.Equal, 0m, ResolvedTotal: 3500m),
+            new(1, AllocationRuleType.FundJars, SplitMethod.Equal, 0m, ResolvedTotal: 2000m),
             new(2, AllocationRuleType.FixedPerMember, SplitMethod.Equal, FixedAmountPerMember: 250m, ResolvedTotal: 0m),
             new(3, AllocationRuleType.SplitRemainderToMembers, SplitMethod.BalanceTilt, 0m, 0m),
         };
 
         var result = IncomeAllocator.Compute(members, rules, balanceLeanPercent: 100);
 
-        // The ~10.4k gap dwarfs the remainder, so at full lean Chris takes all of it.
-        result.Members.Single(m => m.MemberId == Chris).Residual.Should().Be(2106.61m);
-        result.Members.Single(m => m.MemberId == Liza).Residual.Should().Be(0m);
+        // The ~10.4k gap dwarfs the remainder, so at full lean Alex takes all of it.
+        result.Members.Single(m => m.MemberId == Alex).Residual.Should().Be(2000.75m);
+        result.Members.Single(m => m.MemberId == Sam).Residual.Should().Be(0m);
     }
 
     [Fact]
@@ -206,8 +207,8 @@ public class IncomeAllocatorTests
         var step = IncomeAllocator.Compute(Couple(), rules).Steps.First();
 
         step.PerMember.Sum(s => s.Amount).Should().Be(1000m);
-        // Chris earns more, so he covers more of the shared cost.
-        step.PerMember.Single(s => s.MemberId == Chris).Amount
-            .Should().BeGreaterThan(step.PerMember.Single(s => s.MemberId == Liza).Amount);
+        // Alex earns more, so he covers more of the shared cost.
+        step.PerMember.Single(s => s.MemberId == Alex).Amount
+            .Should().BeGreaterThan(step.PerMember.Single(s => s.MemberId == Sam).Amount);
     }
 }

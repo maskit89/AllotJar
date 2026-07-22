@@ -83,12 +83,12 @@ public class AllocationRerunTests
         await using var db = _fixture.CreateContext();
 
         var source = new Account { OwnerId = owner, Name = "Joint", Currency = CurrencyCode.Eur, DisplayOrder = 0 };
-        var chrisSavings = new Account { OwnerId = owner, Name = "Chris savings", Currency = CurrencyCode.Eur, DisplayOrder = 1 };
+        var chrisSavings = new Account { OwnerId = owner, Name = "Alex savings", Currency = CurrencyCode.Eur, DisplayOrder = 1 };
         db.Accounts.AddRange(source, chrisSavings);
         db.HouseholdMembers.AddRange(
-            new HouseholdMember { OwnerId = owner, Name = "Chris", NetMonthlyIncome = 1500m, PersonalSavingsAccountId = chrisSavings.Id, DisplayOrder = 0 },
-            // Liza's savings account was deleted; the soft-hint id now dangles (no Account row, no FK).
-            new HouseholdMember { OwnerId = owner, Name = "Liza", NetMonthlyIncome = 1200m, PersonalSavingsAccountId = Guid.NewGuid(), DisplayOrder = 1 });
+            new HouseholdMember { OwnerId = owner, Name = "Alex", NetMonthlyIncome = 1500m, PersonalSavingsAccountId = chrisSavings.Id, DisplayOrder = 0 },
+            // Sam's savings account was deleted; the soft-hint id now dangles (no Account row, no FK).
+            new HouseholdMember { OwnerId = owner, Name = "Sam", NetMonthlyIncome = 1200m, PersonalSavingsAccountId = Guid.NewGuid(), DisplayOrder = 1 });
         db.AllocationProfiles.Add(new AllocationProfile { OwnerId = owner, Name = "Default", SourceAccountId = source.Id });
         await db.SaveChangesAsync();
 
@@ -99,7 +99,7 @@ public class AllocationRerunTests
         var act = async () => await handler.Handle(new AllocateIncomeCommand(2026, 7, null), CancellationToken.None);
         var result = (await act.Should().NotThrowAsync()).Subject;
 
-        result.TransfersCreated.Should().Be(1); // Chris only; Liza is skipped (no valid savings account)
+        result.TransfersCreated.Should().Be(1); // Alex only; Sam is skipped (no valid savings account)
         await using var verify = _fixture.CreateContext();
         var transfers = await verify.Transactions.AsNoTracking()
             .Where(t => t.OwnerId == owner && t.Type == TransactionType.Transfer)

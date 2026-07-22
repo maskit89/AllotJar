@@ -105,7 +105,7 @@ function accountsFixture(): AccountDto[] {
 
 function membersFixture(): HouseholdMemberDto[] {
   return [
-    { id: 'mem-chris', name: 'Chris', netMonthlyIncome: 4000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 0.5 },
+    { id: 'mem-alex', name: 'Alex', netMonthlyIncome: 4000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 0.5 },
     { id: 'mem-robin', name: 'Robin', netMonthlyIncome: 4000, personalSavingsAccountId: null, displayOrder: 1, isArchived: false, incomeSharePct: 0.5 },
   ]
 }

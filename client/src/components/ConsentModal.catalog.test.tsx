@@ -33,8 +33,8 @@ function me(needsConsent: boolean) {
   return {
     data: {
       userId: 'u2',
-      email: 'liza@x.com',
-      displayName: 'Liza',
+      email: 'sam@x.com',
+      displayName: 'Sam',
       role: 1,
       ownerId: 'owner-1',
       memberId: null,
@@ -89,9 +89,9 @@ describe('SESS: ConsentModal session-side surfaces', () => {
   it('SESS-042: "Sign out" runs logout — POST /auth/logout, identity hints wiped, blocking dialog unmounts', async () => {
     mockGet.mockResolvedValue(me(true))
     // Identity hints a signed-in session would have stored (apply() writes these).
-    localStorage.setItem('zbb.email', 'liza@x.com')
+    localStorage.setItem('zbb.email', 'sam@x.com')
     localStorage.setItem('zbb.role', '1')
-    localStorage.setItem('zbb.displayName', 'Liza')
+    localStorage.setItem('zbb.displayName', 'Sam')
     const user = userEvent.setup()
     renderModal()
 

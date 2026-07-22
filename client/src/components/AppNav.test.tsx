@@ -38,7 +38,7 @@ const flags = (over: Partial<FeatureFlags>): FeatureFlags => ({
 })
 
 function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
-  return { id: 'm1', name: 'Chris', netMonthlyIncome: 6000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1, ...over }
+  return { id: 'm1', name: 'Alex', netMonthlyIncome: 6000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1, ...over }
 }
 
 // The nav reads /features and /members; AuthProvider also reads /auth/me (ignored here).
@@ -106,7 +106,7 @@ describe('AppNav (feature flags)', () => {
 
   it('reveals Allocation once the household is shared (2+ members)', { timeout: 15000 }, async () => {
     flagsValue = flags({})
-    membersData = [member(), member({ id: 'm2', name: 'Liza' })]
+    membersData = [member(), member({ id: 'm2', name: 'Sam' })]
 
     renderNav()
 

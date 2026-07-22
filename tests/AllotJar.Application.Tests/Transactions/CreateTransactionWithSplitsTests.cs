@@ -92,19 +92,19 @@ public class CreateTransactionWithSplitsTests
     {
         await using var db = NewContext();
         var s = Seed(db);
-        var chris = new HouseholdMember { OwnerId = "user-1", Name = "Chris" };
-        var liza = new HouseholdMember { OwnerId = "user-1", Name = "Liza" };
-        db.HouseholdMembers.AddRange(chris, liza);
+        var alex = new HouseholdMember { OwnerId = "user-1", Name = "Alex" };
+        var sam = new HouseholdMember { OwnerId = "user-1", Name = "Sam" };
+        db.HouseholdMembers.AddRange(alex, sam);
         await db.SaveChangesAsync();
         var handler = new CreateTransactionCommandHandler(db, new CurrentUserStub("user-1"));
 
         var dto = await handler.Handle(Command(new List<SplitAllocationInput>
         {
-            new(s.Groceries.Id, 60m, chris.Id),
-            new(s.Groceries.Id, 40m, liza.Id),
+            new(s.Groceries.Id, 60m, alex.Id),
+            new(s.Groceries.Id, 40m, sam.Id),
         }), CancellationToken.None);
 
-        dto.Splits.Select(x => x.MemberName).Should().BeEquivalentTo(new[] { "Chris", "Liza" });
+        dto.Splits.Select(x => x.MemberName).Should().BeEquivalentTo(new[] { "Alex", "Sam" });
     }
 
     [Fact]

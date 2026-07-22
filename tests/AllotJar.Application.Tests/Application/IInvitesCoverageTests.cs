@@ -129,7 +129,7 @@ public class IInvitesCoverageTests
         UserId = OwnerId,
         Role = HouseholdRole.Owner,
         Status = MembershipStatus.Active,
-        InvitedEmail = "chris@x.com",
+        InvitedEmail = "alex@x.com",
     };
 
     private static (HouseholdMembership membership, string token) PendingInvite(
@@ -356,16 +356,16 @@ public class IInvitesCoverageTests
         using var db = NewContext();
         db.HouseholdMemberships.Add(new HouseholdMembership
         {
-            OwnerId = OwnerId, UserId = "user-liza", Role = HouseholdRole.Admin,
-            Status = MembershipStatus.Active, InvitedEmail = "liza@x.eu",
+            OwnerId = OwnerId, UserId = "user-sam", Role = HouseholdRole.Admin,
+            Status = MembershipStatus.Active, InvitedEmail = "sam@x.eu",
         });
-        var (pending, token) = PendingInvite("liza@x.eu");
+        var (pending, token) = PendingInvite("sam@x.eu");
         db.HouseholdMemberships.Add(pending);
         await db.SaveChangesAsync();
         var identity = new FakeIdentity();
-        identity.ById["user-liza"] = new UserAccount("user-liza", "liza@x.eu", "Liza");
+        identity.ById["user-sam"] = new UserAccount("user-sam", "sam@x.eu", "Sam");
 
-        var handler = new AcceptInviteCommandHandler(db, identity, new CurrentUserStub("user-liza"));
+        var handler = new AcceptInviteCommandHandler(db, identity, new CurrentUserStub("user-sam"));
         var act = () => handler.Handle(new AcceptInviteCommand(token, null, null), default);
 
         (await act.Should().ThrowAsync<ValidationException>())

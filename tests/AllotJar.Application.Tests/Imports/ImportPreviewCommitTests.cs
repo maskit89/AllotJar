@@ -56,7 +56,7 @@ public class ImportPreviewCommitTests
         return groceries;
     }
 
-    private static HouseholdMember SeedMember(ApplicationDbContext db, string ownerId, string name = "Chris")
+    private static HouseholdMember SeedMember(ApplicationDbContext db, string ownerId, string name = "Alex")
     {
         var member = new HouseholdMember { OwnerId = ownerId, Name = name };
         db.HouseholdMembers.Add(member);
@@ -348,7 +348,7 @@ public class ImportPreviewCommitTests
         db.Transactions.Add(new Transaction
         {
             OwnerId = "user-1",
-            Payee = "AUTOMARKET SER STATION * 17/06/2026 •••• •••• •••• 7406 -35.00 EUR",
+            Payee = "AUTOMARKET SER STATION * 17/06/2026 •••• •••• •••• 4242 -35.00 EUR",
             Amount = 35.00m, Date = new DateOnly(2026, 6, 19), Type = TransactionType.Expense,
         });
         await db.SaveChangesAsync();

@@ -8,10 +8,10 @@ namespace AllotJar.Importer;
 
 /// <summary>
 /// Phase 2c — back-fills household-member attribution onto the already-imported Visa
-/// transactions from the sheet's per-person columns (D = Liz, E = Chris; Marisa is not a
+/// transactions from the sheet's per-person columns (D = Liz, E = Alex; Marisa is not a
 /// household member). A charge wholly one person's gets a whole-transaction MemberId; a
-/// shared charge is converted to per-member <see cref="TransactionSplit"/> slices (Chris's
-/// and Liza's shares attributed, the rest left unattributed). Account balances and budget
+/// shared charge is converted to per-member <see cref="TransactionSplit"/> slices (Alex's
+/// and Sam's shares attributed, the rest left unattributed). Account balances and budget
 /// actuals are unchanged (slices keep the original budget line and sum to the total).
 ///
 /// Idempotent: each run first collapses any splits it created and clears MemberId on the
@@ -33,14 +33,14 @@ internal static class MemberAttributor
         var owner = user.Id;
 
         var members = await db.HouseholdMembers.Where(m => m.OwnerId == owner && !m.IsArchived).ToListAsync();
-        var chris = members.FirstOrDefault(m => m.Name.Trim().StartsWith("Chris", StringComparison.OrdinalIgnoreCase));
-        var liza = members.FirstOrDefault(m => m.Name.Trim().StartsWith("Li", StringComparison.OrdinalIgnoreCase));
-        if (chris is null || liza is null)
+        var alex = members.FirstOrDefault(m => m.Name.Trim().StartsWith("Alex", StringComparison.OrdinalIgnoreCase));
+        var sam = members.FirstOrDefault(m => m.Name.Trim().StartsWith("Li", StringComparison.OrdinalIgnoreCase));
+        if (alex is null || sam is null)
         {
-            Console.Error.WriteLine($"Could not find both members (Chris / Liza). Found: {string.Join(", ", members.Select(m => m.Name))}");
+            Console.Error.WriteLine($"Could not find both members (Alex / Sam). Found: {string.Join(", ", members.Select(m => m.Name))}");
             return 1;
         }
-        Console.WriteLine($"  Members: Chris → '{chris.Name}', Liz column → '{liza.Name}'.");
+        Console.WriteLine($"  Members: Alex → '{alex.Name}', Liz column → '{sam.Name}'.");
 
         var visaAccount = await db.Accounts.FirstOrDefaultAsync(a => a.OwnerId == owner && a.Name == Ledger.VisaAccount);
         if (visaAccount is null) { Console.Error.WriteLine("Visa account not found — run the transactions phase first."); return 1; }
@@ -89,19 +89,19 @@ internal static class MemberAttributor
             if (t.Type != TransactionType.Expense) { skippedIncome++; continue; }
 
             var total = t.Amount;
-            var cShare = Math.Min(s.Chris, total);
+            var cShare = Math.Min(s.Alex, total);
             var lShare = Math.Min(s.Liz, total - cShare);
             var remainder = total - cShare - lShare; // Marisa + any rounding → unattributed
 
             if (cShare == total)
             {
-                t.MemberId = chris.Id;
+                t.MemberId = alex.Id;
                 soloChris++;
                 toChris += total;
             }
             else if (lShare == total)
             {
-                t.MemberId = liza.Id;
+                t.MemberId = sam.Id;
                 soloLiza++;
                 toLiza += total;
             }
@@ -114,24 +114,24 @@ internal static class MemberAttributor
             {
                 var line = t.BudgetItemId; // preserve the budget-line attribution on every slice
                 t.BudgetItemId = null;
-                if (cShare > 0m) { db.TransactionSplits.Add(Slice(t.Id, line, chris.Id, cShare)); toChris += cShare; }
-                if (lShare > 0m) { db.TransactionSplits.Add(Slice(t.Id, line, liza.Id, lShare)); toLiza += lShare; }
+                if (cShare > 0m) { db.TransactionSplits.Add(Slice(t.Id, line, alex.Id, cShare)); toChris += cShare; }
+                if (lShare > 0m) { db.TransactionSplits.Add(Slice(t.Id, line, sam.Id, lShare)); toLiza += lShare; }
                 if (remainder > 0m) { db.TransactionSplits.Add(Slice(t.Id, line, null, remainder)); unattributed += remainder; }
                 split++;
                 if (samples.Count < 8)
-                    samples.Add($"    {t.Date} {Trunc(t.Payee, 24),-24} {total,8:0.00} → Chris {cShare:0.00} / Liza {lShare:0.00}" + (remainder > 0 ? $" / (other) {remainder:0.00}" : ""));
+                    samples.Add($"    {t.Date} {Trunc(t.Payee, 24),-24} {total,8:0.00} → Alex {cShare:0.00} / Sam {lShare:0.00}" + (remainder > 0 ? $" / (other) {remainder:0.00}" : ""));
             }
         }
 
         Console.WriteLine();
         Console.WriteLine("MEMBER ATTRIBUTION (Visa per-person columns)");
-        Console.WriteLine($"  Whole-charge Chris : {soloChris}");
-        Console.WriteLine($"  Whole-charge Liza  : {soloLiza}");
+        Console.WriteLine($"  Whole-charge Alex : {soloChris}");
+        Console.WriteLine($"  Whole-charge Sam  : {soloLiza}");
         Console.WriteLine($"  Shared (split)     : {split}");
         Console.WriteLine($"  Skipped (no household share) : {skippedZero}");
         Console.WriteLine($"  Skipped (payments/income)    : {skippedIncome}");
-        Console.WriteLine($"  Attributed to Chris : {toChris,12:#,##0.00}");
-        Console.WriteLine($"  Attributed to Liza  : {toLiza,12:#,##0.00}");
+        Console.WriteLine($"  Attributed to Alex : {toChris,12:#,##0.00}");
+        Console.WriteLine($"  Attributed to Sam  : {toLiza,12:#,##0.00}");
         Console.WriteLine($"  Left unattributed   : {unattributed,12:#,##0.00}");
         if (samples.Count > 0)
         {

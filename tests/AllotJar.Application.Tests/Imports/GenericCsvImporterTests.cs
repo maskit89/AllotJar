@@ -150,7 +150,7 @@ public class GenericCsvImporterTests
         // A generic export whose description cell carries HSBC's packed Details shape — the payee
         // shown to the user is just the merchant, not the date/card-mask/amount noise.
         const string csv =
-            "19/06/2026,AUTOMARKET SER STATION  * 17/06/2026 •••• •••• •••• 7406 -35.00 EUR,-35.00\n" +
+            "19/06/2026,AUTOMARKET SER STATION  * 17/06/2026 •••• •••• •••• 4242 -35.00 EUR,-35.00\n" +
             "20/06/2026,PLAIN DESCRIPTION,-12.00\n";
         var mapping = new CsvMapping(',', HasHeader: false, DateColumn: 0, AmountColumn: 2,
             DescriptionColumn: 1, CurrencyColumn: null, DateFormat: null, DecimalStyle: CsvDecimalStyle.Auto, DefaultCurrency: "EUR");
@@ -168,7 +168,7 @@ public class GenericCsvImporterTests
         // clean to the SAME payee but must keep DISTINCT first-occurrence references — proof the
         // idempotency signature reads the raw cell (backwards-compatible with earlier imports).
         const string csv =
-            "19/06/2026,MERCHANT A * 17/06/2026 •••• •••• •••• 7406 -35.00 EUR,-35.00\n" +
+            "19/06/2026,MERCHANT A * 17/06/2026 •••• •••• •••• 4242 -35.00 EUR,-35.00\n" +
             "19/06/2026,MERCHANT A * 18/06/2026 •••• •••• •••• 9999 -35.00 EUR,-35.00\n";
         var mapping = new CsvMapping(',', HasHeader: false, DateColumn: 0, AmountColumn: 2,
             DescriptionColumn: 1, CurrencyColumn: null, DateFormat: null, DecimalStyle: CsvDecimalStyle.Auto, DefaultCurrency: "EUR");

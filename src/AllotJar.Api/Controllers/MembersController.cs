@@ -13,7 +13,7 @@ using AllotJar.Application.Household.Queries.GetMemberSpending;
 namespace AllotJar.Api.Controllers;
 
 /// <summary>
-/// The household's members (e.g. Chris, Liza) — first-class entities under the single
+/// The household's members (e.g. Alex, Sam) — first-class entities under the single
 /// owner, used by the income allocation engine. Every handler is owner-scoped.
 /// </summary>
 [ApiController]

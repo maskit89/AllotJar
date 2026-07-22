@@ -24,11 +24,11 @@ import { PeoplePage } from './PeoplePage'
 import { AuthProvider } from '../auth/AuthContext'
 
 function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
-  return { id: 'm1', name: 'Chris', netMonthlyIncome: 6000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1, ...over }
+  return { id: 'm1', name: 'Alex', netMonthlyIncome: 6000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1, ...over }
 }
 
 function membership(over: Partial<MembershipDto> = {}): MembershipDto {
-  return { id: 'mem1', email: 'chris@x.com', displayName: 'Chris', role: 0, status: 0, memberId: 'm1', isOwner: true, isSelf: true, createdUtc: '2026-01-01', ...over }
+  return { id: 'mem1', email: 'alex@x.com', displayName: 'Alex', role: 0, status: 0, memberId: 'm1', isOwner: true, isSelf: true, createdUtc: '2026-01-01', ...over }
 }
 
 let membersData: HouseholdMemberDto[] = []
@@ -73,14 +73,14 @@ describe('PeoplePage', () => {
     renderPage()
 
     const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
-    expect(table.getByText('Chris')).toBeInTheDocument()
-    expect(table.getByText('chris@x.com')).toBeInTheDocument()
+    expect(table.getByText('Alex')).toBeInTheDocument()
+    expect(table.getByText('alex@x.com')).toBeInTheDocument()
     expect(table.getByText('Owner')).toBeInTheDocument()
   })
 
   it('offers to invite a person who has no sign-in', { timeout: 15000 }, async () => {
-    membersData = [member(), member({ id: 'm2', name: 'Liza', incomeSharePct: 0.5 })]
-    membershipsData = [membership()] // only Chris has a login; Liza has none
+    membersData = [member(), member({ id: 'm2', name: 'Sam', incomeSharePct: 0.5 })]
+    membershipsData = [membership()] // only Alex has a login; Sam has none
 
     renderPage()
 
@@ -89,7 +89,7 @@ describe('PeoplePage', () => {
   })
 
   it('lets the signed-in owner claim their own budget person when their login is unlinked', { timeout: 15000 }, async () => {
-    membersData = [member()] // "Chris" person, not linked to any login
+    membersData = [member()] // "Alex" person, not linked to any login
     membershipsData = [membership({ memberId: null })] // the owner's own login, unlinked
     mockPut.mockResolvedValue({ data: membership({ memberId: 'm1' }) })
     const user = userEvent.setup()
@@ -113,14 +113,14 @@ describe('PeoplePage', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Add person' }, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.type(dialog.getByLabelText('Person name'), 'Chris')
+    await user.type(dialog.getByLabelText('Person name'), 'Alex')
     await user.type(dialog.getByLabelText('Net monthly income'), '6000')
     await user.click(dialog.getByRole('button', { name: 'Add person' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(
         '/members',
-        expect.objectContaining({ name: 'Chris', netMonthlyIncome: 6000 }),
+        expect.objectContaining({ name: 'Alex', netMonthlyIncome: 6000 }),
       ),
     )
   })

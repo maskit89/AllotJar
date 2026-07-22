@@ -1,6 +1,6 @@
 # Subsystem map: Accounts, balances, reconciliation, account detail
 
-Ground-truth feature inventory for QA test design. All paths relative to repo root `C:\Users\Laptop\Documents\Projects\ZeroBudget`. Verified against source on 2026-07-15 (main working tree). PR #167/#168 (months/accounts coherence, merged + live on beta 2026-07-09) are the most recent changes touching this subsystem.
+Ground-truth feature inventory for QA test design. All paths relative to repo root `<local>\Documents\Projects\ZeroBudget`. Verified against source on 2026-07-15 (main working tree). PR #167/#168 (months/accounts coherence, merged + live on beta 2026-07-09) are the most recent changes touching this subsystem.
 
 ---
 
@@ -215,4 +215,4 @@ Tests:
 - `client/src/pages/AccountsPage.test.tsx`, `client/src/pages/AccountDetailPage.test.tsx`
 - `tests/AllotJar.Application.Tests/Application/AccountsTests.cs`, `tests/AllotJar.Application.Tests/Application/AccountReconciliationTests.cs`
 
-Memory notes consulted (verified against code): `C:\Users\Laptop\.claude\projects\C--Users-Laptop-Documents-Projects\memory\months-accounts-coherence-audit-2026-07.md`
+Memory notes consulted (verified against code): `<local>\.claude\projects\C--Users-Laptop-Documents-Projects\memory\months-accounts-coherence-audit-2026-07.md`

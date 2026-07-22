@@ -142,7 +142,7 @@ for (const theme of ['light', 'dark'] as const) {
           body: JSON.stringify({
             userId: 'u1',
             email: 'e2e@allotjar.app',
-            displayName: 'Chris',
+            displayName: 'Alex',
             role: 0,
             ownerId: 'u1',
             memberId: null,

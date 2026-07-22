@@ -100,9 +100,9 @@ public class SplitTransactionTests
     {
         await using var db = NewContext();
         var s = Seed(db);
-        var chris = new HouseholdMember { OwnerId = "user-1", Name = "Chris" };
-        var liza = new HouseholdMember { OwnerId = "user-1", Name = "Liza" };
-        db.HouseholdMembers.AddRange(chris, liza);
+        var alex = new HouseholdMember { OwnerId = "user-1", Name = "Alex" };
+        var sam = new HouseholdMember { OwnerId = "user-1", Name = "Sam" };
+        db.HouseholdMembers.AddRange(alex, sam);
         await db.SaveChangesAsync();
         var tx = SeedExpense(db, 100m);
 
@@ -110,14 +110,14 @@ public class SplitTransactionTests
         // A shared purchase on one budget line, divided across two people (the Visa case).
         var dto = await handler.Handle(new SplitTransactionCommand(tx.Id, new List<SplitAllocationInput>
         {
-            new(s.Groceries.Id, 60m, chris.Id),
-            new(s.Groceries.Id, 40m, liza.Id),
+            new(s.Groceries.Id, 60m, alex.Id),
+            new(s.Groceries.Id, 40m, sam.Id),
         }), CancellationToken.None);
 
         dto.Splits.Should().HaveCount(2);
-        dto.Splits.Select(x => x.MemberName).Should().BeEquivalentTo(new[] { "Chris", "Liza" });
-        dto.Splits.Single(x => x.MemberName == "Chris").Amount.Should().Be(60m);
-        dto.Splits.Single(x => x.MemberName == "Liza").Amount.Should().Be(40m);
+        dto.Splits.Select(x => x.MemberName).Should().BeEquivalentTo(new[] { "Alex", "Sam" });
+        dto.Splits.Single(x => x.MemberName == "Alex").Amount.Should().Be(60m);
+        dto.Splits.Single(x => x.MemberName == "Sam").Amount.Should().Be(40m);
     }
 
     [Fact]

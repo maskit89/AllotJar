@@ -1,6 +1,6 @@
 # AllotJar subsystem map — Client routing, shell, gating, onboarding, analytics
 
-Ground truth as of 2026-07-15, read from `C:\Users\Laptop\Documents\Projects\ZeroBudget` (repo `maskit89/AllotJar`; client under `client/`). All paths below are repo-relative unless absolute. Line numbers cited as `path:line`.
+Ground truth as of 2026-07-15, read from `<local>\Documents\Projects\ZeroBudget` (repo `maskit89/AllotJar`; client under `client/`). All paths below are repo-relative unless absolute. Line numbers cited as `path:line`.
 
 Provider mount order (`client/src/main.tsx:12-28`): `StrictMode > BrowserRouter > AuthProvider > FeatureProvider > HouseholdProvider > AnalyticsProvider > OnboardingProvider > App`. `MonthProvider` wraps the `<Routes>` inside `App` itself (`client/src/App.tsx:61`).
 
@@ -239,7 +239,7 @@ Active item gets `aria-current="page"` (filled marker in sidebar, filled pill in
 
 ## 8. File index (read for this map)
 
-Client (all under `C:\Users\Laptop\Documents\Projects\ZeroBudget\client\`):
+Client (all under `<local>\Documents\Projects\ZeroBudget\client\`):
 - `index.html` (theme-init hookup, SEO/OG head), `public/theme-init.js`
 - `src/main.tsx`, `src/App.tsx`
 - `src/auth/AuthContext.tsx`
@@ -253,8 +253,8 @@ Client (all under `C:\Users\Laptop\Documents\Projects\ZeroBudget\client\`):
 - Tests consulted: `src/pages/RoleGating.test.tsx`, `src/components/AppNav.test.tsx`, `src/budgetModel.test.ts` (empty-month case)
 - E2E present (not read in depth): `e2e/a11y.spec.ts`, `e2e/mobile-layout.spec.ts`, `e2e/landing.spec.ts`, `e2e/legal.spec.ts`, `e2e/mocks.ts`; journey layer `e2e-journey/`
 
-Server (under `C:\Users\Laptop\Documents\Projects\ZeroBudget\src\AllotJar.Api\`):
+Server (under `<local>\Documents\Projects\ZeroBudget\src\AllotJar.Api\`):
 - `Features/FeatureFlags.cs`, `Features/FeatureGateAttribute.cs`, `Controllers/FeaturesController.cs`
 - `Controllers/AuthController.cs` (route/auth attributes), `Controllers/HouseholdsController.cs` (switch/start-own/leave), `Controllers/MembersController.cs` (Authorize + FeatureGate)
 
-Memory/audit notes cross-checked (claims verified against code above): `solo-friendly-household.md`, `staging-beta-coming-soon.md`, `analytics-ga4.md`, `optional-sample-budget.md` (all under `C:\Users\Laptop\.claude\projects\C--Users-Laptop-Documents-Projects\memory\`).
+Memory/audit notes cross-checked (claims verified against code above): `solo-friendly-household.md`, `staging-beta-coming-soon.md`, `analytics-ga4.md`, `optional-sample-budget.md` (all under `<local>\.claude\projects\C--Users-Laptop-Documents-Projects\memory\`).

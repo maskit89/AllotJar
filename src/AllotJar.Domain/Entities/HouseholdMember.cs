@@ -3,7 +3,7 @@ using AllotJar.Domain.Common;
 namespace AllotJar.Domain.Entities;
 
 /// <summary>
-/// A person in the household (e.g. Chris, Liza). Members are first-class entities under
+/// A person in the household (e.g. Alex, Sam). Members are first-class entities under
 /// the single household <see cref="OwnerId"/> — they are NOT separate login accounts.
 /// Each carries the net monthly income and personal savings destination the income
 /// allocation engine needs to fund shared costs and split the surplus.

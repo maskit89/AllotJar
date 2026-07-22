@@ -1,7 +1,7 @@
 # Subsystem map: Transactions, splits, auto-categorization, transfers
 
 Ground-truth feature inventory for QA test design. All facts verified against the working tree at
-`C:\Users\Laptop\Documents\Projects\ZeroBudget` on 2026-07-15 (post PR #167/#168/#169/#170/#171/#172 merges).
+`<local>\Documents\Projects\ZeroBudget` on 2026-07-15 (post PR #167/#168/#169/#170/#171/#172 merges).
 Repo paths below are relative to that root unless absolute.
 
 ---
@@ -255,4 +255,4 @@ Tests (behavior pins, names scanned):
 - tests/AllotJar.Application.Tests/Transactions/{ManualTransactionTests,UpdateTransactionTests,SplitTransactionTests,TransactionHandlersTests,TransfersTests,AutoCategorizationTests,BudgetActualsTests,FxRateResolverTests}.cs
 
 Memory/audit notes:
-- C:\Users\Laptop\.claude\projects\C--Users-Laptop-Documents-Projects\memory\months-accounts-coherence-audit-2026-07.md (PR #167/#168 invariants — verified against current code above)
+- <local>\.claude\projects\C--Users-Laptop-Documents-Projects\memory\months-accounts-coherence-audit-2026-07.md (PR #167/#168 invariants — verified against current code above)

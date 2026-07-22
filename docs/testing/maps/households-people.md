@@ -1,6 +1,6 @@
 # Subsystem map: Households, members, invites, roles
 
-Ground-truth feature inventory for QA test design. All paths relative to repo root `C:\Users\Laptop\Documents\Projects\ZeroBudget`. Verified against source on 2026-07-15 (post PR #156/#158/#170/#171/#172, all live on beta).
+Ground-truth feature inventory for QA test design. All paths relative to repo root `<local>\Documents\Projects\ZeroBudget`. Verified against source on 2026-07-15 (post PR #156/#158/#170/#171/#172, all live on beta).
 
 **Two distinct concepts (never conflate):**
 - **Budget person** = `HouseholdMember` (src/AllotJar.Domain/Entities/HouseholdMember.cs) — name, `NetMonthlyIncome` decimal(18,4), optional `PersonalSavingsAccountId` (soft hint, NO FK), `DisplayOrder`, `IsArchived`. No login required.
@@ -47,7 +47,7 @@ Section header "Your household".
 
 ### Invite modal (owner-only; opened from a person row, so `memberId` is always pre-bound to that person)
 Title `Invite {person} to sign in` (PeoplePage.tsx:667-672). Controls:
-- "Email" input (placeholder "liza@example.eu")
+- "Email" input (placeholder "sam@example.eu")
 - "Access level" select — options **Admin / Limited / Read-only only** (`GRANTABLE_ROLES`, PeoplePage.tsx:28; Owner is never grantable); hint line under it from `HOUSEHOLD_ROLE_HINTS` (types.ts:453-458: Owner "Full control, including managing who has access."; Admin "Everything except managing members and access."; Limited "Day-to-day entry: transactions, mark bills paid, run allocation."; Read-only "View everything; cannot make changes.")
 - SegmentedControl "How should they get access?": **"Generate an invite link"** (default) | **"Set a temporary password"**
 - direct mode: "Temporary password" input (placeholder "At least 8 characters") + helper "Only works for someone without an account yet."
@@ -63,7 +63,7 @@ Shown only when `canAccess` and there exist memberships with `memberId == null` 
 - No code: alert "This invite link is missing its code. Ask the household owner to send you a fresh link."
 - Header: "Household invite" / "Join the household" + pitch copy.
 - **Signed-in path**: note "You're signed in as {email}. Joining adds this household to your account — your own budget stays exactly as it is, and you can switch between them." + button **"Accept invite"** ("Please wait…" while busy). POSTs `{token}` only; on success `window.location.assign('/?joined=1')` (full reload so /auth/me picks up the server-side active-household change) (AcceptInvitePage.tsx:56-71).
-- **Anonymous path** form: "Your name (optional)" (placeholder "e.g. Liza"), "Password" (required, minLength 8, placeholder "At least 8 characters"), required terms checkbox "I agree to the Terms of Service and Privacy Policy" (links open in new tab), button **"Accept invite"**, link **"Sign in to accept"** → `/login?returnUrl=/accept-invite?code=…` (AcceptInvitePage.tsx:38, 122-205). On success SPA-navigates to `/?joined=1`.
+- **Anonymous path** form: "Your name (optional)" (placeholder "e.g. Sam"), "Password" (required, minLength 8, placeholder "At least 8 characters"), required terms checkbox "I agree to the Terms of Service and Privacy Policy" (links open in new tab), button **"Accept invite"**, link **"Sign in to accept"** → `/login?returnUrl=/accept-invite?code=…` (AcceptInvitePage.tsx:38, 122-205). On success SPA-navigates to `/?joined=1`.
 - **"Not now"** button → `/` if authed else `/login` (AcceptInvitePage.tsx:208-214).
 
 ### AccountPage (`/account`)
