@@ -238,4 +238,65 @@ public class AllocationTests
         after.Members.Should().OnlyContain(m => m.Residual == 0m);
         after.TransfersCreated.Should().Be(0);
     }
+
+    // --- Self-transfer guards (2026-07-22 re-review F8): a member's savings account can never
+    // be the allocation source — commit, profile save and member save all refuse it. ------------
+
+    [Fact]
+    public async Task Allocate_Rejects_WhenAMembersSavingsAccountIsTheSourceAccount()
+    {
+        // Data written before the save-time guards existed: member savings == profile source.
+        // Committing would book a no-op self-transfer (zero balance effect) and still report
+        // TransfersCreated = 1 as success.
+        await using var db = NewContext();
+        var user = new CurrentUserStub("user-1");
+        var source = SeedAccount(db, "user-1", "Joint Current");
+        SeedMember(db, "user-1", "Alex", 3000m, 0, source.Id); // savings IS the source
+        SeedBudget(db, "user-1", 2026, 6, envelopes: 1000m, funds: 500m);
+        db.AllocationProfiles.Add(new AllocationProfile
+        {
+            OwnerId = "user-1", Name = "P", SourceAccountId = source.Id,
+            Rules = new List<AllocationRule>
+            {
+                new() { Order = 0, Type = AllocationRuleType.FundEnvelopes, Split = SplitMethod.Equal },
+                new() { Order = 1, Type = AllocationRuleType.FundJars, Split = SplitMethod.Equal },
+                new() { Order = 2, Type = AllocationRuleType.SplitRemainderToMembers, Split = SplitMethod.Equal },
+            },
+        });
+        await db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<AllotJar.Application.Common.Exceptions.ValidationException>(() =>
+            new AllocateIncomeCommandHandler(db, user)
+                .Handle(new AllocateIncomeCommand(2026, 6), CancellationToken.None));
+
+        ex.Errors["Allocation"].Single().Should().Contain("source account");
+        (await db.Transactions.CountAsync()).Should().Be(0); // no transfers, and the prior ones weren't dropped
+    }
+
+    [Fact]
+    public async Task Upsert_Rejects_ASourceAccountThatIsAMembersSavingsAccount()
+    {
+        await using var db = NewContext();
+        var user = new CurrentUserStub("user-1");
+        var savings = SeedAccount(db, "user-1", "Alex Savings");
+        SeedMember(db, "user-1", "Alex", 3000m, 0, savings.Id);
+
+        var ex = await Assert.ThrowsAsync<AllotJar.Application.Common.Exceptions.ValidationException>(() =>
+            new UpsertAllocationProfileCommandHandler(db, user)
+                .Handle(new UpsertAllocationProfileCommand(null, "P", savings.Id, StandardRules()), CancellationToken.None));
+
+        ex.Errors["SourceAccountId"].Single().Should().Contain("Alex");
+        (await db.AllocationProfiles.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Upsert_Rejects_ASourceAccountTheCallerDoesNotOwn()
+    {
+        await using var db = NewContext();
+        var foreign = SeedAccount(db, "user-2", "Their account");
+
+        await Assert.ThrowsAsync<AllotJar.Application.Common.Exceptions.NotFoundException>(() =>
+            new UpsertAllocationProfileCommandHandler(db, new CurrentUserStub("user-1"))
+                .Handle(new UpsertAllocationProfileCommand(null, "P", foreign.Id, StandardRules()), CancellationToken.None));
+    }
 }
