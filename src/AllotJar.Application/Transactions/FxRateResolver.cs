@@ -6,15 +6,18 @@ using AllotJar.Domain.ValueObjects;
 namespace AllotJar.Application.Transactions;
 
 /// <summary>
-/// Sets the exchange rate (to the budget's base currency) on a batch of transactions. Same-
-/// currency entries get rate 1 with no lookup; foreign entries are resolved via
+/// Sets the exchange rate (to the budget's base currency) on transactions. Same-currency
+/// entries get rate 1 with no lookup; foreign entries are resolved via
 /// <see cref="IExchangeRateProvider"/>. When a rate can't be resolved the import still completes,
 /// but the row is marked <see cref="Transaction.FxPending"/> (an explicit unresolved state, not a
-/// silent 1:1) so a provider outage doesn't quietly distort base-currency totals — and each pass
-/// also re-attempts any previously-pending rows, so they reconcile on the next import.
+/// silent 1:1) so a provider outage doesn't quietly distort base-currency totals.
+/// <see cref="ReconcilePendingAsync"/> re-attempts previously-pending rows in its own save scope;
+/// import handlers call it after their own save so an all-duplicates re-import still reconciles,
+/// and a reconcile hiccup can never fail or roll back the import itself.
 /// </summary>
 public static class FxRateResolver
 {
+    /// <summary>Resolves rates for an incoming batch (typically unsaved import rows). Does not save.</summary>
     public static async Task<int> ApplyAsync(
         IApplicationDbContext db,
         IExchangeRateProvider provider,
@@ -22,21 +25,63 @@ public static class FxRateResolver
         IReadOnlyList<Transaction> transactions,
         CancellationToken cancellationToken)
     {
-        // Re-attempt any previously-unresolved foreign rows for this owner alongside the incoming
-        // batch — an import is a natural moment to reconcile amounts whose rate was unavailable
-        // before. (The incoming batch may be unsaved, so dedup by reference against it.)
-        var pending = await db.Transactions
-            .Where(t => t.OwnerId == ownerId && t.FxPending)
-            .ToListAsync(cancellationToken);
-        var batch = pending.Count == 0
-            ? transactions
-            : transactions.Concat(pending.Where(p => !transactions.Contains(p))).ToList();
-
-        if (batch.Count == 0)
+        if (transactions.Count == 0)
         {
             return 0;
         }
 
+        return await ResolveAsync(db, provider, ownerId, transactions, cancellationToken);
+    }
+
+    /// <summary>
+    /// Re-attempts every previously-unresolved (<see cref="Transaction.FxPending"/>) row for the
+    /// owner and persists the result in its own save scope. Kept separate from
+    /// <see cref="ApplyAsync"/> so it runs even when an import created nothing new, and so
+    /// touching old rows can never disturb the import's own save. A pending row deleted
+    /// concurrently (second device, another household member) is skipped, not fatal.
+    /// </summary>
+    public static async Task<int> ReconcilePendingAsync(
+        IApplicationDbContext db,
+        IExchangeRateProvider provider,
+        string ownerId,
+        CancellationToken cancellationToken)
+    {
+        var pending = await db.Transactions
+            .Where(t => t.OwnerId == ownerId && t.FxPending)
+            .ToListAsync(cancellationToken);
+        if (pending.Count == 0)
+        {
+            return 0;
+        }
+
+        var reconciled = await ResolveAsync(db, provider, ownerId, pending, cancellationToken);
+
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+                return reconciled;
+            }
+            catch (DbUpdateConcurrencyException ex) when (attempt < 3)
+            {
+                // A pending row was deleted while we were resolving — drop it from this
+                // save and keep the rest; there is nothing left to reconcile for it.
+                foreach (var entry in ex.Entries)
+                {
+                    entry.State = EntityState.Detached;
+                }
+            }
+        }
+    }
+
+    private static async Task<int> ResolveAsync(
+        IApplicationDbContext db,
+        IExchangeRateProvider provider,
+        string ownerId,
+        IReadOnlyList<Transaction> transactions,
+        CancellationToken cancellationToken)
+    {
         // Base currency per month (default EUR when there's no budget for it yet).
         var months = await db.BudgetMonths
             .Where(m => m.OwnerId == ownerId)
@@ -47,7 +92,7 @@ public static class FxRateResolver
         var cache = new Dictionary<(string, string, DateOnly), decimal?>();
         var converted = 0;
 
-        foreach (var tx in batch)
+        foreach (var tx in transactions)
         {
             var baseCurrency = baseByMonth.TryGetValue((tx.Date.Year, tx.Date.Month), out var c)
                 ? c
@@ -77,7 +122,7 @@ public static class FxRateResolver
             {
                 // Couldn't resolve — record an explicit UNRESOLVED state instead of a silent 1:1.
                 // The amount still counts at face value so the import completes, but FxPending marks
-                // it so reads can flag it and the next resolution pass retries it.
+                // it so reads can flag it and the next reconcile pass retries it.
                 tx.ExchangeRate = 1m;
                 tx.FxPending = true;
             }

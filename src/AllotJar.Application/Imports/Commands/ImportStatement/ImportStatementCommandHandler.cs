@@ -82,7 +82,7 @@ public class ImportStatementCommandHandler : IRequestHandler<ImportStatementComm
                 OwnerId = userId,
                 Amount = entry.Amount,
                 Currency = CurrencyCode.From(entry.Currency),
-                ExchangeRate = 1m, // FX-rate resolution to the budget base is a follow-up
+                ExchangeRate = 1m, // provisional — FxRateResolver sets the real rate below
                 Type = entry.IsCredit ? TransactionType.Income : TransactionType.Expense,
                 Date = entry.BookingDate,
                 Payee = Truncate(entry.Payee, 200),
@@ -105,6 +105,11 @@ public class ImportStatementCommandHandler : IRequestHandler<ImportStatementComm
             autoCategorized = await AutoCategorizer.ApplyAsync(_db, userId, created, cancellationToken);
             await _db.SaveChangesAsync(cancellationToken);
         }
+
+        // Reconcile previously-pending FX rows even when this import added nothing new — an
+        // all-duplicates re-import is the natural retry after an outage. Runs after (and
+        // outside) the import's own save so it can neither fail nor roll back the import.
+        await FxRateResolver.ReconcilePendingAsync(_db, _exchangeRates, userId, cancellationToken);
 
         return new ImportStatementResult(
             TotalEntries: statement.Entries.Count,

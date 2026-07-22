@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using AllotJar.Application.Common.Interfaces;
@@ -44,7 +45,9 @@ public static class DependencyInjection
         // Generic bank-CSV import (user-confirmed column mapping) — see ICsvImporter.
         services.AddScoped<ICsvImporter, GenericCsvImporter>();
 
-        // FX rates via the free, key-less Frankfurter (ECB) API.
+        // FX rates via the free, key-less Frankfurter (ECB) API. The provider takes a
+        // TimeProvider so its failure-cache expiry is testable.
+        services.TryAddSingleton(TimeProvider.System);
         services.AddHttpClient<IExchangeRateProvider, FrankfurterExchangeRateProvider>(client =>
         {
             client.BaseAddress = new Uri("https://api.frankfurter.app/");

@@ -65,6 +65,12 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         builder.HasIndex(t => t.OwnerId);
         builder.HasIndex(t => t.MemberId);
 
+        // Every import runs the FxPending reconcile query; almost all rows have the flag off,
+        // so a filtered index makes the common "nothing pending" case a near-free seek instead
+        // of an owner-wide scan that grows with account age.
+        builder.HasIndex(t => new { t.OwnerId, t.FxPending })
+            .HasFilter("[FxPending] = 1");
+
         // The dedup BACKSTOP, not just a lookup accelerator: the import handlers skip references
         // they've already seen, but that check is per-request memory — two overlapping commits
         // (double-click, two devices, two household logins) would each pass it and double-insert.

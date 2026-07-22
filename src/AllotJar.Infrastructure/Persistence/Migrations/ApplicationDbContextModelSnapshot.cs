@@ -508,6 +508,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TransferAccountId");
 
+                    b.HasIndex("OwnerId", "FxPending")
+                        .HasFilter("[FxPending] = 1");
+
                     b.HasIndex("OwnerId", "AccountId", "BankReference")
                         .IsUnique()
                         .HasFilter("[BankReference] IS NOT NULL");

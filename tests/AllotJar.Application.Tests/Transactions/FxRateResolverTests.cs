@@ -21,9 +21,26 @@ public class FxRateResolverTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
+    /// <summary>Provider that runs a hook on its first call — used to interleave a concurrent
+    /// mutation into the middle of a reconcile pass (after the load, before the save).</summary>
+    private sealed class HookedExchangeRateProvider(decimal? rate, Func<Task> onFirstCall) : IExchangeRateProvider
+    {
+        private bool _fired;
+
+        public async Task<decimal?> GetRateAsync(CurrencyCode from, CurrencyCode to, DateOnly date, CancellationToken cancellationToken)
+        {
+            if (!_fired)
+            {
+                _fired = true;
+                await onFirstCall();
+            }
+            return Equals(from, to) ? 1m : rate;
+        }
+    }
+
+    private static ApplicationDbContext NewContext(string? name = null) =>
         new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-fx-{Guid.NewGuid()}")
+            .UseInMemoryDatabase(name ?? $"zbb-fx-{Guid.NewGuid()}")
             .Options);
 
     private static void SeedEurMonth(ApplicationDbContext db, string ownerId, int year, int month)
@@ -97,7 +114,28 @@ public class FxRateResolverTests
     }
 
     [Fact]
-    public async Task Apply_ReconcilesAPreviouslyPendingRow_WhenTheRateBecomesAvailable()
+    public async Task Apply_LeavesStoredPendingRowsAlone_ReconcileIsItsOwnPass()
+    {
+        await using var db = NewContext();
+        SeedEurMonth(db, "user-1", 2026, 6);
+        var stuck = ForeignTx("GBP", new DateOnly(2026, 6, 3));
+        stuck.FxPending = true;
+        db.Transactions.Add(stuck);
+        await db.SaveChangesAsync();
+
+        var fresh = ForeignTx("GBP", new DateOnly(2026, 6, 10));
+        await FxRateResolver.ApplyAsync(
+            db, new FakeExchangeRateProvider(1.15m), "user-1", new[] { fresh }, CancellationToken.None);
+
+        // The incoming batch resolves; the stored pending row is ReconcilePendingAsync's job
+        // (the import handlers run it separately, after their own save).
+        fresh.ExchangeRate.Should().Be(1.15m);
+        stuck.ExchangeRate.Should().Be(1m);
+        stuck.FxPending.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Reconcile_ResolvesPersistsAndClears_APreviouslyPendingRow()
     {
         await using var db = NewContext();
         SeedEurMonth(db, "user-1", 2026, 6);
@@ -108,14 +146,83 @@ public class FxRateResolverTests
         db.Transactions.Add(stuck);
         await db.SaveChangesAsync();
 
-        // A later import (any new row) re-attempts the pending one — now the rate resolves.
-        var fresh = ForeignTx("GBP", new DateOnly(2026, 6, 10));
-        await FxRateResolver.ApplyAsync(
-            db, new FakeExchangeRateProvider(1.15m), "user-1", new[] { fresh }, CancellationToken.None);
+        var reconciled = await FxRateResolver.ReconcilePendingAsync(
+            db, new FakeExchangeRateProvider(1.15m), "user-1", CancellationToken.None);
 
-        stuck.ExchangeRate.Should().Be(1.15m);
-        stuck.FxPending.Should().BeFalse(); // reconciled
-        fresh.FxPending.Should().BeFalse();
+        reconciled.Should().Be(1);
+        // Reconcile saves in its own scope — prove the change reached the store, not just the tracker.
+        db.ChangeTracker.Clear();
+        var reloaded = await db.Transactions.SingleAsync(t => t.Id == stuck.Id);
+        reloaded.ExchangeRate.Should().Be(1.15m);
+        reloaded.FxPending.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Reconcile_IgnoresOtherOwnersPendingRows()
+    {
+        await using var db = NewContext();
+        SeedEurMonth(db, "user-1", 2026, 6);
+        var mine = ForeignTx("GBP", new DateOnly(2026, 6, 3));
+        mine.FxPending = true;
+        var theirs = ForeignTx("GBP", new DateOnly(2026, 6, 3));
+        theirs.OwnerId = "user-2";
+        theirs.FxPending = true;
+        db.Transactions.AddRange(mine, theirs);
+        await db.SaveChangesAsync();
+
+        await FxRateResolver.ReconcilePendingAsync(
+            db, new FakeExchangeRateProvider(1.15m), "user-1", CancellationToken.None);
+
+        mine.FxPending.Should().BeFalse();
+        theirs.FxPending.Should().BeTrue();
+        theirs.ExchangeRate.Should().Be(1m);
+    }
+
+    [Fact]
+    public async Task Reconcile_WithNothingPending_MakesNoProviderCalls()
+    {
+        await using var db = NewContext();
+        SeedEurMonth(db, "user-1", 2026, 6);
+        var provider = new FakeExchangeRateProvider(1.15m);
+
+        var reconciled = await FxRateResolver.ReconcilePendingAsync(
+            db, provider, "user-1", CancellationToken.None);
+
+        reconciled.Should().Be(0);
+        provider.Calls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Reconcile_SkipsARowDeletedConcurrently_AndSavesTheRest()
+    {
+        var store = $"zbb-fx-{Guid.NewGuid()}";
+        await using var db = NewContext(store);
+        SeedEurMonth(db, "user-1", 2026, 6);
+        var doomed = ForeignTx("GBP", new DateOnly(2026, 6, 3));
+        doomed.FxPending = true;
+        var kept = ForeignTx("GBP", new DateOnly(2026, 6, 10));
+        kept.FxPending = true;
+        db.Transactions.AddRange(doomed, kept);
+        await db.SaveChangesAsync();
+
+        // The provider hook deletes `doomed` through a second context mid-pass — the same race
+        // as another device or household member deleting a row while an import reconciles.
+        // The save must skip the vanished row and still persist the surviving one.
+        var provider = new HookedExchangeRateProvider(1.15m, async () =>
+        {
+            await using var other = NewContext(store);
+            other.Transactions.Remove(await other.Transactions.SingleAsync(t => t.Id == doomed.Id));
+            await other.SaveChangesAsync();
+        });
+
+        await FxRateResolver.ReconcilePendingAsync(db, provider, "user-1", CancellationToken.None);
+
+        db.ChangeTracker.Clear();
+        var rows = await db.Transactions.Where(t => t.OwnerId == "user-1").ToListAsync();
+        rows.Should().HaveCount(1);
+        rows[0].Id.Should().Be(kept.Id);
+        rows[0].ExchangeRate.Should().Be(1.15m);
+        rows[0].FxPending.Should().BeFalse();
     }
 
     [Fact]
@@ -150,5 +257,30 @@ public class FxRateResolverTests
         // EUR entries are untouched (rate 1).
         var eur = await db.Transactions.Where(t => t.Currency.Value == "EUR").ToListAsync();
         eur.Should().OnlyContain(t => t.ExchangeRate == 1m);
+    }
+
+    [Fact]
+    public async Task Import_AllDuplicates_StillReconcilesPendingRows()
+    {
+        await using var db = NewContext();
+        SeedEurMonth(db, "user-1", 2026, 6);
+
+        // First import during a provider outage: the GBP row lands pending at face value.
+        var down = new ImportStatementCommandHandler(
+            db, new CurrentUserStub("user-1"), new[] { new Camt053StatementParser() }, new FakeExchangeRateProvider(null));
+        await down.Handle(new ImportStatementCommand(Camt053Samples.ThreeEntries), CancellationToken.None);
+        (await db.Transactions.SingleAsync(t => t.Currency.Value == "GBP")).FxPending.Should().BeTrue();
+
+        // Re-importing the same statement (all duplicates) is the natural retry: nothing new is
+        // created, but the pending row must still reconcile now that the provider is back.
+        var up = new ImportStatementCommandHandler(
+            db, new CurrentUserStub("user-1"), new[] { new Camt053StatementParser() }, new FakeExchangeRateProvider(1.10m));
+        var result = await up.Handle(new ImportStatementCommand(Camt053Samples.ThreeEntries), CancellationToken.None);
+
+        result.Imported.Should().Be(0);
+        db.ChangeTracker.Clear();
+        var gbp = await db.Transactions.SingleAsync(t => t.Currency.Value == "GBP");
+        gbp.FxPending.Should().BeFalse();
+        gbp.ExchangeRate.Should().Be(1.10m);
     }
 }
