@@ -21,6 +21,7 @@ public static class BudgetMonthMapping
         TotalPlanned = month.TotalPlanned,
         RemainingToBudget = month.RemainingToBudget,
         IsBalanced = month.IsBalanced,
+        FxPendingCount = month.FxPendingCount,
         Categories = month.Categories
             // Income groups render first, then expense groups,
             // then funds at the bottom; the user's display order applies within each kind.

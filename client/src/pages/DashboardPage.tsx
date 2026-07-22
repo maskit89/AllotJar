@@ -626,6 +626,22 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
               }
             />
 
+            {/* Pending-FX honesty: those rows are EXCLUDED from every actual on this page, so
+                say so rather than presenting incomplete totals as final. Rates resolve on
+                their own (background reconciliation) or on the next import. */}
+            {month.fxPendingCount > 0 && (
+              <div
+                role="status"
+                className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+              >
+                <span className="font-medium">
+                  {month.fxPendingCount} imported transaction{month.fxPendingCount === 1 ? '' : 's'} await
+                  {month.fxPendingCount === 1 ? 's' : ''} an exchange rate
+                </span>{' '}
+                — spent totals exclude {month.fxPendingCount === 1 ? 'it' : 'them'} until the rate arrives.
+              </div>
+            )}
+
             {(() => {
               const bills = billsSummary(month)
               if (bills.total === 0) return null

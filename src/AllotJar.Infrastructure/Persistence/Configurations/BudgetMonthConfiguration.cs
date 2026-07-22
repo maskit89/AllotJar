@@ -34,6 +34,7 @@ public class BudgetMonthConfiguration : IEntityTypeConfiguration<BudgetMonth>
         builder.Ignore(m => m.RemainingToBudget);
         builder.Ignore(m => m.RemainingToBudgetMoney);
         builder.Ignore(m => m.IsBalanced);
+        builder.Ignore(m => m.FxPendingCount);
 
         // A user has exactly one budget per calendar month.
         builder.HasIndex(m => new { m.OwnerId, m.Year, m.Month }).IsUnique();

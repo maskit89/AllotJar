@@ -40,6 +40,8 @@ export interface MonthVM {
   year: number
   month: number
   currency: string
+  /** Transactions this month awaiting an exchange rate — excluded from every actual, so >0 marks the totals incomplete. */
+  fxPendingCount: number
   categories: CategoryVM[]
 }
 
@@ -51,6 +53,7 @@ export function fromDto(dto: BudgetMonthDto): MonthVM {
     year: dto.year,
     month: dto.month,
     currency: dto.baseCurrency,
+    fxPendingCount: dto.fxPendingCount ?? 0,
     categories: dto.categories.map((c) => ({
       id: c.id,
       name: c.name,
