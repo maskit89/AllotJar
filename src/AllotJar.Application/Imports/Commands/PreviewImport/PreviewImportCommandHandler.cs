@@ -40,6 +40,19 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
+        // The statement account (when chosen) must be the caller's — the dedup filter below is
+        // scoped to it, and a foreign id must fail loudly rather than silently previewing an
+        // unfiltered view.
+        if (request.AccountId is Guid requestedAccountId)
+        {
+            var owned = await _db.Accounts
+                .AnyAsync(a => a.Id == requestedAccountId && a.OwnerId == userId, cancellationToken);
+            if (!owned)
+            {
+                throw new NotFoundException($"Account {requestedAccountId} was not found.");
+            }
+        }
+
         // Route the upload to a parser. A "generic" first upload is sniffed against the dedicated
         // adapters first: the same file must always take the same code path, otherwise the payee
         // text and the idempotency references drift between imports and re-imports duplicate.
@@ -79,12 +92,21 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
             statement = parser.Parse(request.Content);
         }
 
-        // Drop rows we've already imported (idempotency mirrors the commit step).
+        // Drop rows we've already imported. The filter mirrors the COMMIT's dedup exactly —
+        // scoped to the statement account (matching either transaction leg, since an inbound
+        // transfer is stored with the counterparty as its source), case-insensitive to agree
+        // with the unique index's CI collation. The old owner-wide, case-sensitive filter both
+        // over-hid rows (a reference legitimately reused on another account looked "already
+        // imported") and under-hid case variants the commit would then skip.
+        var accountId = request.AccountId;
         var existing = await _db.Transactions
-            .Where(t => t.OwnerId == userId && t.BankReference != null)
+            .Where(t => t.OwnerId == userId
+                        && t.BankReference != null
+                        && (t.AccountId == accountId
+                            || (accountId != null && t.TransferAccountId == accountId)))
             .Select(t => t.BankReference!)
             .ToListAsync(cancellationToken);
-        var already = new HashSet<string>(existing, StringComparer.Ordinal);
+        var already = new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase);
 
         var fresh = statement.Entries
             .Where(e => e.Reference is null || !already.Contains(e.Reference))
@@ -95,11 +117,12 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
         // statement previously imported through a different format or column mapping).
         var possibleDuplicates = await FindPossibleDuplicatesAsync(userId, fresh, cancellationToken);
 
-        // Suggest a budget line per row from the user's past categorisations, resolved to the
-        // ROW'S OWN month (no writes) — so the preview shows exactly what a commit would assign,
-        // never a prior month's line.
+        // Suggest a budget line per row from the user's past categorisations — same direction,
+        // dated on or before the row, resolved to the ROW'S OWN month (no writes) — so the
+        // preview shows exactly what a commit would assign, never a prior month's line and
+        // never an expense line for a credit.
         var requests = fresh
-            .Select(e => (e.Payee, e.BookingDate.Year, e.BookingDate.Month))
+            .Select(e => (e.Payee, Type: e.IsCredit ? TransactionType.Income : TransactionType.Expense, e.BookingDate))
             .ToList();
         var suggestions = await AutoCategorizer.ResolveLinesAsync(
             _db, userId, new HashSet<Guid>(), requests, cancellationToken);
@@ -115,7 +138,9 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
         var items = fresh.Select((e, index) =>
         {
             Guid? suggestedId = suggestions.TryGetValue(
-                (AutoCategorizer.NormalizeKey(e.Payee), e.BookingDate.Year, e.BookingDate.Month), out var id)
+                (AutoCategorizer.NormalizeKey(e.Payee),
+                 e.IsCredit ? TransactionType.Income : TransactionType.Expense,
+                 e.BookingDate), out var id)
                 ? id
                 : null;
             var suggestedName = suggestedId is Guid sid && nameById.TryGetValue(sid, out var n) ? n : null;

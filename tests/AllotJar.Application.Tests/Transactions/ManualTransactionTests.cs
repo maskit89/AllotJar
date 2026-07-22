@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using NSubstitute;
 using Xunit;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
 using AllotJar.Application.Common.Exceptions;
@@ -180,5 +181,35 @@ public class ManualTransactionTests
 
         await Assert.ThrowsAsync<ForbiddenAccessException>(() =>
             handler.Handle(new DeleteTransactionCommand(tx.Id), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Create_WithNoBudgetMonth_FallsBackToTheOwnersPreferredCurrency()
+    {
+        // Companion to #216's first-month rule: a date with no budget month used to stamp a
+        // hardcoded EUR, which the account-currency invariant then rejected against a non-EUR
+        // household's account — an un-budgeted month was unloggable for those users.
+        await using var db = NewContext();
+        var account = new Account
+        {
+            OwnerId = "user-1", Name = "Checking",
+            Currency = AllotJar.Domain.ValueObjects.CurrencyCode.From("USD"),
+        };
+        db.Accounts.Add(account);
+        await db.SaveChangesAsync();
+
+        var identity = Substitute.For<IIdentityService>();
+        identity.GetPreferredCurrencyAsync("user-1")
+            .Returns(AllotJar.Domain.ValueObjects.CurrencyCode.From("USD"));
+
+        var dto = await new CreateTransactionCommandHandler(db, new CurrentUserStub("user-1"), identity)
+            .Handle(
+                new CreateTransactionCommand(
+                    new DateOnly(2027, 1, 15), "Grocer", 25m, TransactionType.Expense, null,
+                    AccountId: account.Id),
+                CancellationToken.None);
+
+        dto.AccountId.Should().Be(account.Id);
+        (await db.Transactions.SingleAsync()).Currency.Value.Should().Be("USD");
     }
 }

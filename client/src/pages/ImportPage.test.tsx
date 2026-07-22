@@ -145,8 +145,13 @@ describe('ImportPage', () => {
     // review row's unique include checkbox.
     await screen.findByLabelText('Include TESCO on 2026-06-20')
 
-    // First preview sent no mapping, just the home currency fallback.
-    expect(mockPreview).toHaveBeenCalledWith(expect.any(File), 'GenericCsv', { defaultCurrency: 'EUR' })
+    // First preview sent no mapping — the home currency fallback plus the (unchosen) account
+    // that scopes the server's already-imported filter.
+    expect(mockPreview).toHaveBeenCalledWith(
+      expect.any(File),
+      'GenericCsv',
+      { defaultCurrency: 'EUR', accountId: null },
+    )
 
     // The mapping panel is shown, prefilled from the detected layout (amount = column index 2).
     expect(screen.getByRole('heading', { name: 'Column mapping' })).toBeInTheDocument()
@@ -198,6 +203,42 @@ describe('ImportPage', () => {
     const [, items] = mockCommit.mock.calls[0]
     expect(items).toHaveLength(1)
     expect(items[0]).toEqual(expect.objectContaining({ payee: 'AUTOMARKET' }))
+  })
+
+  // Re-review F3 — a categorised row dated outside the loaded budget month is a deliberate
+  // cross-month choice: one confirm per batch, then only the affected rows are re-sent
+  // acknowledged (the server rejects them without the flag).
+  it('confirms cross-month rows once per batch and flags only them acknowledged', { timeout: 15000 }, async () => {
+    const user = userEvent.setup()
+    mockPreview.mockResolvedValue({
+      totalEntries: 2, newCount: 2, skippedDuplicates: 0, credits: 0, debits: 2,
+      items: [
+        { reference: 'hsbc:m#0', date: '2026-05-27', payee: '4 PILLARS', amount: 1770, currency: 'EUR', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: null, likelyTransfer: false },
+        { reference: 'hsbc:a#0', date: '2026-06-17', payee: 'AUTOMARKET', amount: 35, currency: 'EUR', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: 'Groceries', likelyTransfer: false },
+      ],
+    })
+    renderPage()
+    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+    await screen.findByText('4 PILLARS')
+
+    // The May row gets a June line — that's the cross-month case.
+    await user.selectOptions(screen.getByLabelText('Category for 4 PILLARS on 2026-05-27'), 'bi1')
+    await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
+
+    // The confirm dialog appears INSTEAD of committing.
+    expect(await screen.findByText('Budget to a different month?')).toBeInTheDocument()
+    expect(mockCommit).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Import anyway' }))
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
+    const [, items] = mockCommit.mock.calls[0]
+    expect(items).toContainEqual(expect.objectContaining({ payee: '4 PILLARS', acknowledgeCrossMonth: true }))
+    const sameMonthRow = items.find((i: { payee: string }) => i.payee === 'AUTOMARKET') as
+      | { acknowledgeCrossMonth?: boolean }
+      | undefined
+    expect(sameMonthRow?.acknowledgeCrossMonth).toBeUndefined()
+    expect(await screen.findByText('Import complete')).toBeInTheDocument()
   })
 
   it('bulk-applies a member to the included rows', { timeout: 15000 }, async () => {

@@ -79,7 +79,8 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         // A split transaction's slices carry its attribution and must keep summing to the whole.
         // Editing the amount, direction, or whole-transaction member of a split via the generic
         // update would silently desync the slices (double-counting in budget actuals), so reject
-        // those edits — the caller re-splits instead. Other fields (date, payee, account) are fine.
+        // those edits — the caller re-splits instead. Payee/account edits are fine; a date edit
+        // that changes the month re-validates the slices below.
         if (transaction.Splits.Count > 0)
         {
             var errors = new Dictionary<string, string[]>();
@@ -102,6 +103,45 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             if (errors.Count > 0)
             {
                 throw new ValidationException(errors);
+            }
+        }
+
+        var monthChanged = request.Date.Year != transaction.Date.Year
+                           || request.Date.Month != transaction.Date.Month;
+
+        // A retained whole-line assignment must stay valid under the edit: re-run the shared
+        // invariant when the direction or the month changes. (Editing an assigned expense into
+        // income used to keep the expense line — BudgetActuals then silently dropped the amount;
+        // a date edit used to cross months with no acknowledgment.) Unrelated edits — payee,
+        // amount, account — skip this, so a deliberately-acknowledged cross-month assignment
+        // isn't re-prompted every time an unrelated field is touched.
+        if (transaction.BudgetItemId is Guid retainedLineId
+            && (request.Type != transaction.Type || monthChanged))
+        {
+            await TransactionInvariants.ValidateWholeLineAsync(
+                _db, userId, request.Type, retainedLineId, request.Date, request.AcknowledgeCrossMonth,
+                "Type", cancellationToken);
+        }
+
+        // Same rule for a split: moving the transaction to another month moves every slice's
+        // actuals month, so the slice lines are re-validated against the NEW date (with the same
+        // acknowledge-to-confirm escape a fresh split would get).
+        if (transaction.Splits.Count > 0 && monthChanged)
+        {
+            var sliceItemIds = transaction.Splits
+                .Where(s => s.BudgetItemId is not null)
+                .Select(s => s.BudgetItemId!.Value)
+                .Distinct()
+                .ToList();
+            var sliceItems = await _db.BudgetItems
+                .Include(i => i.BudgetCategory)
+                    .ThenInclude(c => c.BudgetMonth)
+                .Where(i => sliceItemIds.Contains(i.Id))
+                .ToListAsync(cancellationToken);
+            foreach (var line in sliceItems)
+            {
+                TransactionInvariants.EnsureWholeLineAssignable(
+                    line, userId, transaction.Type, request.Date, request.AcknowledgeCrossMonth, "Date");
             }
         }
 

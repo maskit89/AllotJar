@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState, type FormEvent, type ReactNode 
 import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { Badge, Button, Card, ErrorBanner, Input, PageHeader, Select } from '../components/ui'
+import { Modal } from '../components/Modal'
 import { api, commitImport, previewImport, type StatementFormat } from '../lib/api'
 import { bucketCount, EVENTS, track } from '../analytics'
 import { useAuth } from '../auth/AuthContext'
@@ -21,7 +22,7 @@ import { TransactionType } from '../types'
 import { buildItemOptions, type ItemOptionGroup } from '../lib/transactions'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
-import { formatDate } from '../lib/dates'
+import { formatDate, monthYear } from '../lib/dates'
 
 type Format = 'generic' | 'hsbc' | 'camt'
 type Phase = 'upload' | 'review' | 'done'
@@ -205,6 +206,9 @@ export function ImportPage() {
   const [bulkCategory, setBulkCategory] = useState('')
 
   const [result, setResult] = useState<ImportStatementResult | null>(null)
+  // Count of categorised rows dated outside the loaded budget month — set when Import needs the
+  // one-per-batch cross-month confirmation before committing.
+  const [crossMonthCount, setCrossMonthCount] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -291,8 +295,13 @@ export function ImportPage() {
     setBusy(true)
     setError(null)
     try {
-      // Generic CSV auto-detects the layout on first upload; send the home currency as the fallback.
-      const opts = format === 'generic' ? { defaultCurrency: preferredCurrency } : undefined
+      // Generic CSV auto-detects the layout on first upload; send the home currency as the
+      // fallback. The chosen account scopes the server's already-imported filter to the same
+      // account the commit will dedup against.
+      const opts = {
+        ...(format === 'generic' ? { defaultCurrency: preferredCurrency } : {}),
+        accountId: accountId || null,
+      }
       const data = await previewImport(file, FORMATS[format].wire, opts)
       applyPreview(data)
       setPhase('review')
@@ -312,7 +321,11 @@ export function ImportPage() {
     setError(null)
     try {
       const priorRows = rows
-      const data = await previewImport(file, 'GenericCsv', { mapping, defaultCurrency: preferredCurrency })
+      const data = await previewImport(file, 'GenericCsv', {
+        mapping,
+        defaultCurrency: preferredCurrency,
+        accountId: accountId || null,
+      })
       applyPreview(data, priorRows)
     } catch (err) {
       setError(errorMessage(err))
@@ -395,7 +408,15 @@ export function ImportPage() {
     )
   }
 
-  async function onCommit() {
+  /** A row categorised (line or split) whose date falls outside the loaded budget month —
+   *  committing it budgets money to a different month than it was spent, which needs an
+   *  explicit confirmation (the categories on offer are always the current month's lines). */
+  function isCrossMonthRow(r: ReviewRow): boolean {
+    if (!month || (!r.budgetItemId && !r.splits) || r.isTransfer) return false
+    return Number(r.date.slice(0, 4)) !== month.year || Number(r.date.slice(5, 7)) !== month.month
+  }
+
+  async function onCommit(acknowledgeCrossMonth = false) {
     const items: CommitImportItem[] = rows
       .filter((r) => r.include)
       .map((r) => {
@@ -410,6 +431,7 @@ export function ImportPage() {
         if (r.isTransfer) {
           return { ...base, budgetItemId: null, memberId: null, transferAccountId: r.transferAccountId }
         }
+        const acknowledged = acknowledgeCrossMonth && isCrossMonthRow(r) ? { acknowledgeCrossMonth: true } : {}
         if (r.splits) {
           return {
             ...base,
@@ -420,18 +442,29 @@ export function ImportPage() {
               amount: toAmount(parseMinor(l.amount) ?? 0),
               memberId: l.memberId || null,
             })),
+            ...acknowledged,
           }
         }
-        return { ...base, budgetItemId: r.budgetItemId || null, memberId: r.memberId || null }
+        return { ...base, budgetItemId: r.budgetItemId || null, memberId: r.memberId || null, ...acknowledged }
       })
     // Never commit a stale parse (the Import button is already disabled while dirty; this guards
     // against any future path that reaches onCommit without that gate).
     if (items.length === 0 || mappingDirty) return
+
+    // Historical rows put on this month's lines are a deliberate choice — confirm once for the
+    // batch, then re-run with the affected rows acknowledged (the server rejects them otherwise).
+    const affected = rows.filter((r) => r.include && isCrossMonthRow(r)).length
+    if (affected > 0 && !acknowledgeCrossMonth) {
+      setCrossMonthCount(affected)
+      return
+    }
+
     setBusy(true)
     setError(null)
     try {
       setResult(await commitImport(accountId || null, items))
       setPhase('done')
+      setCrossMonthCount(null)
       track(EVENTS.importCommitted, { row_bucket: bucketCount(items.length) })
     } catch (err) {
       setError(errorMessage(err))
@@ -453,6 +486,7 @@ export function ImportPage() {
     setError(null)
     setBulkMember('')
     setBulkCategory('')
+    setCrossMonthCount(null)
   }
 
   return (
@@ -1151,13 +1185,35 @@ export function ImportPage() {
           )}
 
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={onCommit} disabled={busy || includedCount === 0 || reviewIncomplete || mappingDirty}>
+            <Button onClick={() => onCommit()} disabled={busy || includedCount === 0 || reviewIncomplete || mappingDirty}>
               {busy ? 'Importing…' : `Import ${includedCount} transaction${includedCount === 1 ? '' : 's'}`}
             </Button>
             <Button variant="ghost" onClick={reset} disabled={busy}>
               Choose a different file
             </Button>
           </div>
+
+          {/* Cross-month confirm: categorised rows dated outside the loaded budget month get
+              budgeted to this month's lines — a deliberate choice, confirmed once per batch. */}
+          {crossMonthCount !== null && (
+            <Modal title="Budget to a different month?" onClose={() => setCrossMonthCount(null)}>
+              <p className="text-sm text-slate-600">
+                {crossMonthCount} transaction{crossMonthCount === 1 ? ' is' : 's are'} dated outside{' '}
+                {month ? monthYear(`${month.year}-${String(month.month).padStart(2, '0')}-01`) : 'this month'} but
+                assigned to its budget lines. Importing will count {crossMonthCount === 1 ? 'it' : 'them'} toward{' '}
+                {month ? monthYear(`${month.year}-${String(month.month).padStart(2, '0')}-01`) : 'this month'}
+                {'’'}s budget rather than the month {crossMonthCount === 1 ? 'it was' : 'they were'} spent.
+              </p>
+              <div className="mt-5 flex justify-end gap-2">
+                <Button variant="secondary" size="sm" onClick={() => setCrossMonthCount(null)}>
+                  Go back
+                </Button>
+                <Button size="sm" onClick={() => onCommit(true)} disabled={busy}>
+                  Import anyway
+                </Button>
+              </div>
+            </Modal>
+          )}
         </>
       )}
 

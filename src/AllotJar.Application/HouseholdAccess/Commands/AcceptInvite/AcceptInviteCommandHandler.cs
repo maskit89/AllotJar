@@ -99,7 +99,8 @@ public class AcceptInviteCommandHandler : IRequestHandler<AcceptInviteCommand, A
         // Their only household is the one they just joined; make that explicit so it stays their
         // landing household even if they later start a budget of their own.
         await _identity.SetActiveHouseholdAsync(created.UserId!, membership.OwnerId);
-        return new AcceptInviteResult(created.UserId!, membership.InvitedEmail, membership.Role, displayName);
+        return new AcceptInviteResult(
+            created.UserId!, membership.InvitedEmail, membership.Role, displayName, CreatedNewLogin: true);
     }
 
     private static void Activate(HouseholdMembership membership, string? displayName)

@@ -28,6 +28,17 @@ public static class BudgetActuals
         BudgetMonth month,
         CancellationToken cancellationToken)
     {
+        // How many of this month's rows are awaiting an exchange rate. Those rows are EXCLUDED
+        // from every sum below — a pending row's rate is a placeholder 1, and counting it would
+        // present face-value amounts as base-currency money. The count marks the aggregates as
+        // incomplete instead of silently wrong (computed even when the month has no lines yet).
+        month.FxPendingCount = await db.Transactions
+            .CountAsync(t => t.OwnerId == ownerId
+                             && t.FxPending
+                             && t.Date.Year == month.Year
+                             && t.Date.Month == month.Month,
+                cancellationToken);
+
         var items = month.Categories.SelectMany(c => c.Items).ToList();
         if (items.Count == 0)
         {
@@ -44,9 +55,11 @@ public static class BudgetActuals
 
         var itemIds = items.Select(i => i.Id).ToList();
 
-        // Whole (non-split) transactions assigned directly to a line.
+        // Whole (non-split) transactions assigned directly to a line. Pending-FX rows are
+        // excluded — see FxPendingCount above.
         var sums = await db.Transactions
             .Where(t => t.OwnerId == ownerId
+                        && !t.FxPending
                         && t.BudgetItemId != null
                         && itemIds.Contains(t.BudgetItemId.Value))
             .GroupBy(t => new { ItemId = t.BudgetItemId!.Value, t.Type })
@@ -60,6 +73,7 @@ public static class BudgetActuals
             from s in db.TransactionSplits
             join t in db.Transactions on s.TransactionId equals t.Id
             where t.OwnerId == ownerId
+                  && !t.FxPending
                   && s.BudgetItemId != null
                   && itemIds.Contains(s.BudgetItemId.Value)
             select new { ItemId = s.BudgetItemId!.Value, t.Type, Total = s.Amount * t.ExchangeRate })
@@ -129,9 +143,12 @@ public static class BudgetActuals
 
         var lineItemIds = lines.Select(l => l.ItemId).ToList();
 
-        // Spending tracked by transactions, per fund line (expenses only).
+        // Spending tracked by transactions, per fund line (expenses only; pending-FX rows are
+        // excluded here exactly as in the month roll-up, or a fund's balance would mix real
+        // base-currency money with face-value placeholders).
         var txByItem = (await db.Transactions
             .Where(t => t.OwnerId == ownerId
+                        && !t.FxPending
                         && t.Type == TransactionType.Expense
                         && t.BudgetItemId != null
                         && lineItemIds.Contains(t.BudgetItemId.Value))
@@ -144,6 +161,7 @@ public static class BudgetActuals
             from s in db.TransactionSplits
             join t in db.Transactions on s.TransactionId equals t.Id
             where t.OwnerId == ownerId
+                  && !t.FxPending
                   && t.Type == TransactionType.Expense
                   && s.BudgetItemId != null
                   && lineItemIds.Contains(s.BudgetItemId.Value)

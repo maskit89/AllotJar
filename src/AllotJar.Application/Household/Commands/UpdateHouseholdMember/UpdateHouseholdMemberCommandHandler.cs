@@ -44,6 +44,8 @@ public class UpdateHouseholdMemberCommandHandler
             {
                 throw new NotFoundException($"Account {savingsId} was not found.");
             }
+            await HouseholdMemberGuards.EnsureNotAnAllocationSourceAsync(
+                _db, userId, savingsId, cancellationToken);
         }
 
         member.Name = request.Name.Trim();

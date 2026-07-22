@@ -380,4 +380,103 @@ public class SplitTransactionTests
         dto.AccountId.Should().Be(account.Id);
         dto.AccountName.Should().Be("Joint");
     }
+
+    // --- Split invariant completion (2026-07-22 re-review F2): transfers can't split,
+    // slices are month-coherent, and the whole-member attribution clears with the line. ---
+
+    [Fact]
+    public async Task Split_RejectsATransfer()
+    {
+        // A transfer never carries budget attribution; splitting one across expense lines
+        // used to slip through because the direction check treated Transfer as an expense.
+        await using var db = NewContext();
+        var s = Seed(db);
+        var transfer = new Transaction
+        {
+            OwnerId = "user-1", Date = new DateOnly(2026, 6, 5), Payee = "Transfer",
+            Amount = 100m, Type = TransactionType.Transfer,
+        };
+        db.Transactions.Add(transfer);
+        await db.SaveChangesAsync();
+        var handler = new SplitTransactionCommandHandler(db, new CurrentUserStub("user-1"));
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            handler.Handle(
+                new SplitTransactionCommand(transfer.Id, new List<SplitAllocationInput>
+                {
+                    new(s.Groceries.Id, 70m),
+                    new(s.Household.Id, 30m),
+                }),
+                CancellationToken.None));
+
+        ex.Errors["Allocations"].Single().Should().Contain("transfer");
+        (await db.TransactionSplits.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Split_CrossMonthSlices_NeedTheAcknowledgment()
+    {
+        // The transaction is dated July; the slice lines live in June. Without the
+        // acknowledgment the split is rejected under the crossMonth key; with it, allowed —
+        // the same rule a whole assignment follows.
+        await using var db = NewContext();
+        var s = Seed(db); // June lines
+        var tx = new Transaction
+        {
+            OwnerId = "user-1", Date = new DateOnly(2026, 7, 2), Payee = "Supermarket",
+            Amount = 100m, Type = TransactionType.Expense,
+        };
+        db.Transactions.Add(tx);
+        await db.SaveChangesAsync();
+        var handler = new SplitTransactionCommandHandler(db, new CurrentUserStub("user-1"));
+        var allocations = new List<SplitAllocationInput>
+        {
+            new(s.Groceries.Id, 70m),
+            new(s.Household.Id, 30m),
+        };
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            handler.Handle(new SplitTransactionCommand(tx.Id, allocations), CancellationToken.None));
+        ex.Errors.Should().ContainKey("crossMonth");
+
+        var dto = await handler.Handle(
+            new SplitTransactionCommand(tx.Id, allocations, AcknowledgeCrossMonth: true),
+            CancellationToken.None);
+        dto.IsSplit.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Split_ClearsTheWholeMemberAttribution_SoUnsplittingCannotResurrectIt()
+    {
+        // Splitting used to clear only BudgetItemId. The stale whole-member survived
+        // invisibly and reappeared as live attribution when the split was later removed
+        // (unsplit via AssignTransaction).
+        await using var db = NewContext();
+        var s = Seed(db);
+        var member = new HouseholdMember { OwnerId = "user-1", Name = "Alex" };
+        db.HouseholdMembers.Add(member);
+        var tx = SeedExpense(db, 100m);
+        tx.MemberId = member.Id;
+        await db.SaveChangesAsync();
+        var handler = new SplitTransactionCommandHandler(db, new CurrentUserStub("user-1"));
+
+        await handler.Handle(
+            new SplitTransactionCommand(tx.Id, new List<SplitAllocationInput>
+            {
+                new(s.Groceries.Id, 70m),
+                new(s.Household.Id, 30m),
+            }),
+            CancellationToken.None);
+
+        (await db.Transactions.SingleAsync(t => t.Id == tx.Id)).MemberId.Should().BeNull();
+
+        // Unsplit (whole re-assignment removes the slices): no member attribution comes back.
+        await new AssignTransactionCommandHandler(db, new CurrentUserStub("user-1"))
+            .Handle(new AssignTransactionCommand(tx.Id, s.Groceries.Id), CancellationToken.None);
+
+        var reloaded = await db.Transactions.Include(t => t.Splits).SingleAsync(t => t.Id == tx.Id);
+        reloaded.Splits.Should().BeEmpty();
+        reloaded.MemberId.Should().BeNull();
+        reloaded.BudgetItemId.Should().Be(s.Groceries.Id);
+    }
 }

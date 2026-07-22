@@ -23,7 +23,9 @@
       * config      appsettings.Production.json cloned from the staging API's copy
                     with the prod DB name and a FRESH random JWT signing key
                     (never overwritten if it already exists)
-      * backups     daily backup tasks re-registered for BOTH databases
+      * backups     daily backup tasks re-registered for BOTH databases; the PROD task
+                    always ships off-host to R2 (-ProdR2Bucket, else preserved from the
+                    existing task, else the script refuses to run)
 
     It does NOT deploy application binaries - the prod deploy job in
     .github/workflows/deploy.yml does that (Deploy.ps1 -ApiProxyPort 5001 ...).
@@ -50,11 +52,24 @@ param(
 
     [string]$SqlServer     = '.\SQLEXPRESS',
 
-    # Thumbprint of the origin certificate to bind (from LocalMachine\My). Strongly
-    # preferred: without it the script inherits whatever cert is on the first 443
-    # binding, which is how staging once ended up on an apex/www-only cert. The cert
-    # must cover every hostname bound below, or provisioning aborts.
+    # Thumbprint of the origin certificate to bind (from LocalMachine\My). REQUIRED for a
+    # provisioning run (only -TrimStagingBindings skips it): inheriting "whatever cert is on
+    # the first 443 binding" is how staging once ended up on an apex/www-only cert, and a
+    # wrong cert already bound would otherwise survive a re-run untouched. The cert must
+    # cover every hostname bound below, or provisioning aborts. An existing binding whose
+    # thumbprint differs is REBOUND to this cert and the effective binding re-verified.
     [string]$CertThumbprint,
+
+    # R2 bucket for the PRODUCTION database's off-host backups (F11). When omitted, the
+    # script PRESERVES the R2 bucket already configured on the existing prod backup task;
+    # if there is none it REFUSES to register a local-only production task (fail closed) —
+    # re-running provisioning must never silently downgrade off-host backups (F7 of the
+    # 2026-07-22 re-review).
+    [string]$ProdR2Bucket,
+    [string]$Rclone        = 'C:\deploy\rclone\rclone.exe',
+    [string]$RcloneConf    = 'C:\deploy\rclone.conf',
+    [string]$R2Remote      = 'r2',
+    [string]$R2Prefix      = 'db-backups',
 
     # Post-cutover cleanup: remove catch-all/apex/www/app.allotjar.com bindings from
     # the staging site (leaving only $StagingHost). Run this only AFTER DNS moved
@@ -64,6 +79,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Import-Module WebAdministration
+Import-Module (Join-Path $PSScriptRoot 'ProvisionHelpers.psm1') -Force
 function Info($m) { Write-Host "==> $m" -ForegroundColor Cyan }
 
 # A site whose bindings collide with another site's (e.g. apex/www living on BOTH
@@ -196,46 +212,28 @@ function Get-CertDnsNames {
 
 <#
 .SYNOPSIS
-    True if $Cert is valid for $HostHeader. A wildcard matches exactly one label.
+    True if $Cert is valid for $HostHeader. The wildcard/apex matching itself lives in
+    ProvisionHelpers.psm1 (Test-HostCoveredByDnsNames) so it is unit-testable without a cert.
 #>
 function Test-CertCoversHost {
     param([System.Security.Cryptography.X509Certificates.X509Certificate2]$Cert, [string]$HostHeader)
-    $h = $HostHeader.ToLowerInvariant()
-    foreach ($n in (Get-CertDnsNames -Cert $Cert)) {
-        if ($n -eq $h) { return $true }
-        if ($n.StartsWith('*.')) {
-            $suffix = $n.Substring(1)                       # '*.allotjar.com' -> '.allotjar.com'
-            if ($h.EndsWith($suffix)) {
-                $left = $h.Substring(0, $h.Length - $suffix.Length)
-                # '*.allotjar.com' covers 'staging.allotjar.com' but NOT 'a.b.allotjar.com'
-                # and NOT the bare apex 'allotjar.com'.
-                if ($left -and $left.IndexOf('.') -lt 0) { return $true }
-            }
-        }
-    }
-    return $false
+    return Test-HostCoveredByDnsNames -DnsNames (Get-CertDnsNames -Cert $Cert) -HostHeader $HostHeader
 }
 
 Info 'Resolving the origin certificate'
-if ($CertThumbprint) {
-    $thumb = ($CertThumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
-    $cert = Get-ChildItem Cert:\LocalMachine\My |
-        Where-Object { $_.Thumbprint -eq $thumb } | Select-Object -First 1
-    if (-not $cert) {
-        throw "No certificate with thumbprint $thumb in LocalMachine\My. Import the origin cert (PFX) first."
-    }
-    Info "  using pinned cert $thumb"
+if (-not $CertThumbprint) {
+    # No discovery fallback: "whatever cert is on the first 443 binding" once put an
+    # apex/www-only cert on staging (Cloudflare 526 under Full strict), and it can never
+    # correct an existing wrong binding. The workflow passes the thumbprint from a secret.
+    throw 'CertThumbprint is required: pass the origin certificate''s thumbprint (LocalMachine\My) explicitly.'
 }
-else {
-    $ssl = Get-ChildItem IIS:\SslBindings | Where-Object { $_.Port -eq 443 } | Select-Object -First 1
-    if (-not $ssl) {
-        throw 'No existing 443 SSL binding found to copy the certificate from. Pass -CertThumbprint to pin one explicitly.'
-    }
-    $store = if ($ssl.Store) { $ssl.Store } else { 'My' }
-    $cert = Get-Item "Cert:\LocalMachine\$store\$($ssl.Thumbprint)"
-    Info "  using cert $($ssl.Thumbprint) discovered from an existing 443 binding"
-    Info '  (pass -CertThumbprint to pin this explicitly instead of inheriting it)'
+$thumb = ($CertThumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+$cert = Get-ChildItem Cert:\LocalMachine\My |
+    Where-Object { $_.Thumbprint -eq $thumb } | Select-Object -First 1
+if (-not $cert) {
+    throw "No certificate with thumbprint $thumb in LocalMachine\My. Import the origin cert (PFX) first."
 }
+Info "  using pinned cert $thumb"
 
 if (-not $cert.HasPrivateKey) {
     throw "Certificate $($cert.Thumbprint) has no private key on this machine - IIS cannot serve TLS with it."
@@ -265,9 +263,28 @@ function Add-HttpsSniBinding {
         Info "  https (SNI) binding $HostHeader -> $Site"
         New-WebBinding -Name $Site -Protocol https -Port 443 -HostHeader $HostHeader -SslFlags 1
     }
+
+    # Bind the pinned cert to the SNI slot. Unlike the old create-only behavior, a slot that
+    # already holds a DIFFERENT certificate is REBOUND — otherwise running with the correct
+    # thumbprint silently leaves a wrong (e.g. expired or apex-only) cert being served.
     $sslPath = "IIS:\SslBindings\!443!$HostHeader"
-    if (-not (Test-Path $sslPath)) {
-        $cert | New-Item -Path $sslPath -SSLFlags 1 | Out-Null
+    $bound = if (Test-Path $sslPath) { (Get-Item $sslPath).Thumbprint } else { $null }
+    switch (Get-SslBindingAction -ExistingThumbprint $bound -DesiredThumbprint $cert.Thumbprint) {
+        'create' {
+            $cert | New-Item -Path $sslPath -SSLFlags 1 | Out-Null
+        }
+        'rebind' {
+            Info "  rebinding $HostHeader : $bound -> $($cert.Thumbprint)"
+            Remove-Item $sslPath -Force
+            $cert | New-Item -Path $sslPath -SSLFlags 1 | Out-Null
+        }
+        'keep' { }
+    }
+
+    # Verify the EFFECTIVE binding — what IIS will actually serve — not just our intent.
+    $effective = (Get-Item $sslPath).Thumbprint
+    if ($effective -ne $cert.Thumbprint) {
+        throw "SSL binding for '$HostHeader' holds $effective after provisioning, expected $($cert.Thumbprint)."
     }
 }
 
@@ -326,12 +343,48 @@ if (Test-Path $prodSettings) {
 
 # =============================================================================
 # 7. Daily backups for BOTH databases (idempotent re-register)
+#
+# The PRODUCTION task must always ship off-host to R2 (F11). Register-ScheduledTask -Force
+# overwrites, so a re-run without R2 configuration used to silently downgrade an R2-enabled
+# task to local-only (F7 of the 2026-07-22 re-review). Resolution order: -ProdR2Bucket >
+# the bucket already on the existing task (preserve) > FAIL CLOSED.
 # =============================================================================
 $registerScript = Join-Path $PSScriptRoot 'Register-BackupTask.ps1'
 if (Test-Path $registerScript) {
-    Info 'Registering daily backup tasks (staging + prod databases)'
+    $prodTaskName = 'ZeroBudget-Prod-DbBackup'
+
+    $effectiveR2Bucket = $ProdR2Bucket
+    if (-not $effectiveR2Bucket) {
+        $existingTask = Get-ScheduledTask -TaskName $prodTaskName -ErrorAction SilentlyContinue
+        if ($existingTask) {
+            $existingArgs = ($existingTask.Actions | Select-Object -First 1).Arguments
+            $effectiveR2Bucket = Get-R2BucketFromArgumentLine -ArgumentLine $existingArgs
+            if ($effectiveR2Bucket) {
+                Info "  preserving the existing prod R2 bucket '$effectiveR2Bucket' (no -ProdR2Bucket given)"
+            }
+        }
+    }
+    if (-not $effectiveR2Bucket) {
+        throw ("Refusing to register a LOCAL-ONLY production backup task: pass -ProdR2Bucket " +
+               "(or keep an R2-configured '$prodTaskName' task in place). A compromised or dying " +
+               "host must never hold the only copy of the production database.")
+    }
+
+    Info 'Registering daily backup tasks (staging local-only by design; prod ships to R2)'
     & $registerScript -Server $SqlServer -Database 'ZeroBudget'    -TaskName 'ZeroBudget-DbBackup'
-    & $registerScript -Server $SqlServer -Database $ProdDatabase   -TaskName 'ZeroBudget-Prod-DbBackup'
+    & $registerScript -Server $SqlServer -Database $ProdDatabase   -TaskName $prodTaskName `
+        -R2Bucket $effectiveR2Bucket -Rclone $Rclone -RcloneConf $RcloneConf `
+        -R2Remote $R2Remote -R2Prefix $R2Prefix
+
+    # Script-level assertion: read the task BACK from the scheduler and require the R2
+    # arguments on its action — the guarantee is about what will actually run at 02:30,
+    # not about what we intended to register.
+    $registered = Get-ScheduledTask -TaskName $prodTaskName -ErrorAction Stop
+    $registeredArgs = ($registered.Actions | Select-Object -First 1).Arguments
+    if (-not (Get-R2BucketFromArgumentLine -ArgumentLine $registeredArgs)) {
+        throw "The registered '$prodTaskName' task carries no -R2Bucket argument: $registeredArgs"
+    }
+    Info "  verified: '$prodTaskName' ships to R2 bucket '$effectiveR2Bucket'."
 } else {
     Write-Warning "Register-BackupTask.ps1 not found next to this script - backup tasks NOT registered."
 }

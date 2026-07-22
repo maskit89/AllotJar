@@ -15,4 +15,11 @@ namespace AllotJar.Application.HouseholdAccess.Commands.AcceptInvite;
 public record AcceptInviteCommand(string Token, string? Password, string? DisplayName, bool AcceptedTerms = false)
     : IRequest<AcceptInviteResult>;
 
-public record AcceptInviteResult(string UserId, string Email, HouseholdRole Role, string? DisplayName);
+/// <summary>
+/// <see cref="CreatedNewLogin"/> is true only on the anonymous path, where the accept CREATED the
+/// login — the API then dispatches the initial address-verification email, exactly like
+/// registration does (an invite-created user is unverified and would otherwise never receive one
+/// unless they found the Resend button).
+/// </summary>
+public record AcceptInviteResult(
+    string UserId, string Email, HouseholdRole Role, string? DisplayName, bool CreatedNewLogin = false);

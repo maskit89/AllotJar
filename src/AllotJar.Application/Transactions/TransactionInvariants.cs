@@ -11,12 +11,16 @@ namespace AllotJar.Application.Transactions;
 /// <summary>
 /// The single place transaction-attribution invariants live, so no write path can drift.
 /// Every command that attributes a transaction to a budget line — whole (CreateTransaction,
-/// AssignTransaction) or sliced (SplitTransaction, split-at-creation) — routes through here.
+/// AssignTransaction, UpdateTransaction's retained assignment, CommitImport) or sliced
+/// (SplitTransaction, split-at-creation, imported splits) — routes through here.
 ///
 /// Enforced centrally: the target line is owned by the user and its kind matches the
 /// transaction's direction (income onto income lines, expense/savings onto non-income lines);
-/// for a split, the slices additionally sum exactly to the parent and any per-slice member is
-/// owned. (Month coherence and account-currency are added by later phases.)
+/// a transfer can never carry a line, whole or sliced; every attribution — whole or slice —
+/// is month-coherent with the transaction's date unless the caller explicitly acknowledges a
+/// cross-month assignment; for a split, the slices additionally sum exactly to the parent and
+/// any per-slice member is owned; and a transaction on an account must be in that account's
+/// currency.
 ///
 /// Kept as a static helper taking <see cref="IApplicationDbContext"/> — the same shape as the
 /// former SplitGuards it replaces — so it stays a single choke point without threading a new
@@ -25,9 +29,25 @@ namespace AllotJar.Application.Transactions;
 public static class TransactionInvariants
 {
     /// <summary>
-    /// Validate the slices of a split — sum-to-parent, ownership, direction, member ownership —
-    /// and return the loaded target lines keyed by id. Shared by SplitTransaction (post-hoc) and
-    /// CreateTransaction (split at creation) so the two paths can't drift.
+    /// The error key a cross-month assignment reports under, so the client can recognise it and
+    /// offer to re-send with <c>acknowledgeCrossMonth</c> rather than showing a generic failure.
+    /// </summary>
+    public const string CrossMonthKey = "crossMonth";
+
+    /// <summary>
+    /// Whether a line of the given category kind may carry a transaction of the given direction:
+    /// income lines take income, expense/savings lines take expenses. (A transfer matches no
+    /// line at all — callers reject it before asking.) Shared with the auto-categorizer so a
+    /// learned suggestion can never violate what the write paths enforce.
+    /// </summary>
+    public static bool LineKindMatches(CategoryKind kind, TransactionType type) =>
+        (kind == CategoryKind.Income) == (type == TransactionType.Income);
+
+    /// <summary>
+    /// Validate the slices of a split — transfer rejection, sum-to-parent, ownership, direction,
+    /// month coherence (with the acknowledge escape), member ownership — and return the loaded
+    /// target lines keyed by id. Shared by SplitTransaction (post-hoc), CreateTransaction (split
+    /// at creation) and CommitImport (imported splits) so the paths can't drift.
     /// </summary>
     public static async Task<Dictionary<Guid, BudgetItem>> ValidateSlicesAsync(
         IApplicationDbContext db,
@@ -35,9 +55,18 @@ public static class TransactionInvariants
         TransactionType type,
         decimal total,
         IReadOnlyList<SplitAllocationInput> allocations,
+        DateOnly transactionDate,
+        bool acknowledgeCrossMonth,
         string errorKey,
         CancellationToken cancellationToken)
     {
+        // A transfer moves money between accounts and never carries budget attribution —
+        // splitting one across lines would corrupt both the budget and the balances.
+        if (type == TransactionType.Transfer)
+        {
+            throw Validation(errorKey, "A transfer can't be split across budget lines.");
+        }
+
         // The slices must account for the whole transaction, to the cent.
         var allocated = allocations.Sum(a => a.Amount);
         if (allocated != total)
@@ -64,12 +93,17 @@ public static class TransactionInvariants
 
             // Keep the roll-up coherent: split an expense across expense lines,
             // income across income lines.
-            if (IsIncomeLine(item) != IsIncomeTx(type))
+            if (!LineKindMatches(item.BudgetCategory.Kind, type))
             {
-                throw Validation(errorKey, IsIncomeTx(type)
+                throw Validation(errorKey, type == TransactionType.Income
                     ? "Income can only be split across income lines."
                     : "An expense can only be split across expense lines.");
             }
+
+            // Slices follow the same month-coherence rule as a whole assignment — a slice on
+            // another month's line lands on that month's actuals, so it needs the same explicit
+            // acknowledgment.
+            EnsureSameMonth(item, transactionDate, acknowledgeCrossMonth);
         }
 
         // Any per-slice member attributions must belong to this user.
@@ -95,18 +129,11 @@ public static class TransactionInvariants
     }
 
     /// <summary>
-    /// Validate a WHOLE-transaction budget-line assignment: the line is owned and its kind
-    /// matches the transaction's direction, and a transfer can't carry a line. Returns the loaded
-    /// line so the caller can attach it. Closes the gap where AssignTransaction/CreateTransaction
-    /// checked only ownership, letting an expense land on an income line (which BudgetActuals then
-    /// rolled up incoherently).
+    /// Validate a WHOLE-transaction budget-line assignment: the line is owned, its kind matches
+    /// the transaction's direction, a transfer can't carry a line, and the line's month matches
+    /// the transaction's date (unless acknowledged). Returns the loaded line so the caller can
+    /// attach it.
     /// </summary>
-    /// <summary>
-    /// The error key a cross-month assignment reports under, so the client can recognise it and
-    /// offer to re-send with <c>acknowledgeCrossMonth</c> rather than showing a generic failure.
-    /// </summary>
-    public const string CrossMonthKey = "crossMonth";
-
     public static async Task<BudgetItem> ValidateWholeLineAsync(
         IApplicationDbContext db,
         string userId,
@@ -117,11 +144,6 @@ public static class TransactionInvariants
         string errorKey,
         CancellationToken cancellationToken)
     {
-        if (type == TransactionType.Transfer)
-        {
-            throw Validation(errorKey, "A transfer can't be assigned to a budget line.");
-        }
-
         var item = await db.BudgetItems
             .Include(i => i.BudgetCategory)
                 .ThenInclude(c => c.BudgetMonth)
@@ -131,29 +153,39 @@ public static class TransactionInvariants
         {
             throw new NotFoundException($"Budget item {budgetItemId} was not found.");
         }
+
+        EnsureWholeLineAssignable(item, userId, type, transactionDate, acknowledgeCrossMonth, errorKey);
+        return item;
+    }
+
+    /// <summary>
+    /// The pure half of <see cref="ValidateWholeLineAsync"/>, for callers that batch-load their
+    /// lines (CommitImport validates a whole statement in one query instead of one per row).
+    /// The <paramref name="item"/> must be loaded with its category and month.
+    /// </summary>
+    public static void EnsureWholeLineAssignable(
+        BudgetItem item,
+        string userId,
+        TransactionType type,
+        DateOnly transactionDate,
+        bool acknowledgeCrossMonth,
+        string errorKey)
+    {
+        if (type == TransactionType.Transfer)
+        {
+            throw Validation(errorKey, "A transfer can't be assigned to a budget line.");
+        }
+
         EnsureOwned(item, userId);
 
-        if (IsIncomeLine(item) != IsIncomeTx(type))
+        if (!LineKindMatches(item.BudgetCategory.Kind, type))
         {
-            throw Validation(errorKey, IsIncomeTx(type)
+            throw Validation(errorKey, type == TransactionType.Income
                 ? "Income can only be assigned to income lines."
                 : "An expense can only be assigned to expense lines.");
         }
 
-        // Month coherence: budget actuals group by the line's month, so a transaction assigned to a
-        // line in a different month than its date lands on the wrong month's numbers. Reject unless
-        // the caller explicitly acknowledges it (the deliberate "purchase 31 Jan, cleared 1 Feb —
-        // budget it to January" case), which the client only sets after the user confirms.
-        var month = item.BudgetCategory.BudgetMonth;
-        if (!acknowledgeCrossMonth && (month.Year != transactionDate.Year || month.Month != transactionDate.Month))
-        {
-            throw Validation(CrossMonthKey,
-                $"This transaction is dated {transactionDate:yyyy-MM} but that budget line is in " +
-                $"{month.Year:0000}-{month.Month:00}. Confirm to budget it to {month.Year:0000}-{month.Month:00}, " +
-                "or pick a line in the transaction's own month.");
-        }
-
-        return item;
+        EnsureSameMonth(item, transactionDate, acknowledgeCrossMonth);
     }
 
     /// <summary>
@@ -172,9 +204,23 @@ public static class TransactionInvariants
         }
     }
 
-    private static bool IsIncomeLine(BudgetItem item) => item.BudgetCategory.Kind == CategoryKind.Income;
-
-    private static bool IsIncomeTx(TransactionType type) => type == TransactionType.Income;
+    /// <summary>
+    /// Month coherence: budget actuals group by the line's month, so a transaction assigned to a
+    /// line in a different month than its date lands on the wrong month's numbers. Reject unless
+    /// the caller explicitly acknowledges it (the deliberate "purchase 31 Jan, cleared 1 Feb —
+    /// budget it to January" case), which the client only sets after the user confirms.
+    /// </summary>
+    private static void EnsureSameMonth(BudgetItem item, DateOnly transactionDate, bool acknowledgeCrossMonth)
+    {
+        var month = item.BudgetCategory.BudgetMonth;
+        if (!acknowledgeCrossMonth && (month.Year != transactionDate.Year || month.Month != transactionDate.Month))
+        {
+            throw Validation(CrossMonthKey,
+                $"This transaction is dated {transactionDate:yyyy-MM} but that budget line is in " +
+                $"{month.Year:0000}-{month.Month:00}. Confirm to budget it to {month.Year:0000}-{month.Month:00}, " +
+                "or pick a line in the transaction's own month.");
+        }
+    }
 
     private static void EnsureOwned(BudgetItem item, string userId)
     {

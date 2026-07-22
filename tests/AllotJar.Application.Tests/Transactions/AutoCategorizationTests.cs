@@ -264,4 +264,113 @@ public class AutoCategorizationTests
         var rentTx = await db.Transactions.SingleAsync(t => t.BankReference == "REF-RENT-001");
         rentTx.BudgetItemId.Should().Be(rent.Id);
     }
+
+    // --- Direction- and date-awareness (2026-07-22 re-review F4) ------------------------
+
+    [Fact]
+    public async Task Apply_ARefund_NeverInheritsTheMerchantsExpenseLine()
+    {
+        // The purchases taught "REWE" -> Groceries (an expense line). A refund from the same
+        // merchant is INCOME — inheriting the expense line would subtract it from meaningful
+        // actuals instead of counting it anywhere.
+        await using var db = NewContext();
+        var groceries = SeedMonthWithFood(db, "user-1", 2026, 6);
+        SeedAssignedTransaction(db, "user-1", "REWE", groceries.Id, new DateOnly(2026, 6, 1));
+
+        var refund = new Transaction
+        {
+            OwnerId = "user-1", Payee = "REWE", Date = new DateOnly(2026, 6, 10),
+            Type = TransactionType.Income,
+        };
+
+        var count = await AutoCategorizer.ApplyAsync(db, "user-1", new[] { refund }, CancellationToken.None);
+
+        count.Should().Be(0);
+        refund.BudgetItemId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Apply_ABackdatedTransaction_NeverLearnsFromTheFuture()
+    {
+        // The only "REWE" history is dated AFTER the backdated candidate — nothing prior
+        // exists, so nothing is inherited. (The old behavior keyed learning on "most recent
+        // overall", letting later data leak backwards in time.)
+        await using var db = NewContext();
+        var groceries = SeedMonthWithFood(db, "user-1", 2026, 6);
+        SeedAssignedTransaction(db, "user-1", "REWE", groceries.Id, new DateOnly(2026, 6, 20));
+
+        var backdated = new Transaction
+        {
+            OwnerId = "user-1", Payee = "REWE", Date = new DateOnly(2026, 6, 5),
+            Type = TransactionType.Expense,
+        };
+
+        var count = await AutoCategorizer.ApplyAsync(db, "user-1", new[] { backdated }, CancellationToken.None);
+
+        count.Should().Be(0);
+        backdated.BudgetItemId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Apply_CandidatesWithDifferentDates_ResolveIndependently()
+    {
+        // Same payee, one candidate before the learned history and one after: only the later
+        // one has a prior to inherit from.
+        await using var db = NewContext();
+        var groceries = SeedMonthWithFood(db, "user-1", 2026, 6);
+        SeedAssignedTransaction(db, "user-1", "REWE", groceries.Id, new DateOnly(2026, 6, 10));
+
+        var before = new Transaction { OwnerId = "user-1", Payee = "REWE", Date = new DateOnly(2026, 6, 5), Type = TransactionType.Expense };
+        var after = new Transaction { OwnerId = "user-1", Payee = "REWE", Date = new DateOnly(2026, 6, 15), Type = TransactionType.Expense };
+
+        var count = await AutoCategorizer.ApplyAsync(db, "user-1", new[] { before, after }, CancellationToken.None);
+
+        count.Should().Be(1);
+        before.BudgetItemId.Should().BeNull();
+        after.BudgetItemId.Should().Be(groceries.Id);
+    }
+
+    [Fact]
+    public async Task Apply_LegacyMiscategorizedHistory_DoesNotPropagate()
+    {
+        // A pre-invariant row: INCOME assigned to an EXPENSE line. It must teach nothing —
+        // neither a new income (same direction, incompatible line kind) nor a new expense
+        // (compatible line, different direction).
+        await using var db = NewContext();
+        var groceries = SeedMonthWithFood(db, "user-1", 2026, 6);
+        db.Transactions.Add(new Transaction
+        {
+            OwnerId = "user-1", Payee = "REWE", BudgetItemId = groceries.Id,
+            Date = new DateOnly(2026, 6, 1), Type = TransactionType.Income, // the legacy mistake
+        });
+        await db.SaveChangesAsync();
+
+        var income = new Transaction { OwnerId = "user-1", Payee = "REWE", Date = new DateOnly(2026, 6, 10), Type = TransactionType.Income };
+        var expense = new Transaction { OwnerId = "user-1", Payee = "REWE", Date = new DateOnly(2026, 6, 10), Type = TransactionType.Expense };
+
+        var count = await AutoCategorizer.ApplyAsync(db, "user-1", new[] { income, expense }, CancellationToken.None);
+
+        count.Should().Be(0);
+        income.BudgetItemId.Should().BeNull();
+        expense.BudgetItemId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Apply_ATransfer_IsNeverACandidate()
+    {
+        await using var db = NewContext();
+        var groceries = SeedMonthWithFood(db, "user-1", 2026, 6);
+        SeedAssignedTransaction(db, "user-1", "REWE", groceries.Id, new DateOnly(2026, 6, 1));
+
+        var transfer = new Transaction
+        {
+            OwnerId = "user-1", Payee = "REWE", Date = new DateOnly(2026, 6, 10),
+            Type = TransactionType.Transfer,
+        };
+
+        var count = await AutoCategorizer.ApplyAsync(db, "user-1", new[] { transfer }, CancellationToken.None);
+
+        count.Should().Be(0);
+        transfer.BudgetItemId.Should().BeNull();
+    }
 }

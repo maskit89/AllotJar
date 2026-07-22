@@ -15,9 +15,14 @@ namespace AllotJar.Application.Imports.Commands.PreviewImport;
 /// <param name="DefaultCurrency">
 /// The currency to stamp on CSV rows that have no currency column (the user's home currency).
 /// </param>
+/// <param name="AccountId">
+/// The statement's account, when the user chose one — the preview's already-imported filter is
+/// scoped to it exactly like the commit's, so the two stages agree on what is a duplicate.
+/// </param>
 public record PreviewImportCommand(
     string Content,
     StatementFormat Format,
     CsvMapping? Mapping = null,
-    string? DefaultCurrency = null)
+    string? DefaultCurrency = null,
+    Guid? AccountId = null)
     : IRequest<ImportPreviewResult>;

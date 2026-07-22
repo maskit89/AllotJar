@@ -4,6 +4,7 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.ImportStatement;
 using AllotJar.Application.Transactions;
+using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Domain.Common;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -34,16 +35,15 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
 
         // Validate every foreign key the caller is asking us to attach belongs to them —
         // both whole-row assignments and any per-slice split attributions.
-        await EnsureAccountOwnedAsync(request.AccountId, userId, cancellationToken);
+        var importAccount = await LoadOwnedAccountAsync(request.AccountId, userId, cancellationToken);
         await EnsureAllOwnedAsync(
             _db.BudgetItems.Where(i => i.BudgetCategory.BudgetMonth.OwnerId == userId),
             request.Items.SelectMany(BudgetItemIds), cancellationToken);
         await EnsureAllOwnedAsync(
             _db.HouseholdMembers.Where(m => m.OwnerId == userId),
             request.Items.SelectMany(MemberIds), cancellationToken);
-        await EnsureAllOwnedAsync(
-            _db.Accounts.Where(a => a.OwnerId == userId),
-            request.Items.Select(i => i.TransferAccountId), cancellationToken);
+        var counterpartyAccounts = await LoadOwnedAccountsAsync(
+            request.Items.Select(i => i.TransferAccountId), userId, cancellationToken);
 
         // A transfer moves money between the import account and a counterparty, so we must know
         // which account the statement belongs to.
@@ -55,14 +55,36 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             });
         }
 
-        // Idempotency: never re-create a row we already have ON THIS ACCOUNT (double-submit,
-        // overlap, retry). Scoped by account to match the unique index — a bank reference reused
-        // on a different account is a genuinely distinct transaction, not a duplicate. Case-
-        // insensitive to agree with the index's CI collation (a case-variant would otherwise pass
-        // this check and then collide at the database).
+        // Whole-row assignments run through the same invariant every other write path uses
+        // (direction↔kind, month coherence with the acknowledge escape) — batch-loaded here so a
+        // large statement validates in one query instead of one per row. Ownership was proven
+        // above; EnsureWholeLineAssignable re-checks it as defence in depth.
+        var wholeLineIds = request.Items
+            .Where(i => i.TransferAccountId is null && i.Splits is not { Count: > 0 })
+            .Where(i => i.BudgetItemId.HasValue)
+            .Select(i => i.BudgetItemId!.Value)
+            .Distinct()
+            .ToList();
+        var wholeLines = await _db.BudgetItems
+            .Include(i => i.BudgetCategory)
+                .ThenInclude(c => c.BudgetMonth)
+            .Where(i => wholeLineIds.Contains(i.Id))
+            .ToDictionaryAsync(i => i.Id, cancellationToken);
+
+        // Idempotency: never re-create a row this STATEMENT ACCOUNT already knows (double-submit,
+        // overlap, retry). A row from account A's statement can be persisted on EITHER leg: a
+        // plain income/expense sits on A itself, but an INBOUND transfer is stored with the
+        // counterparty as its source (AccountId = B, TransferAccountId = A) — so the snapshot must
+        // match references on either side, or re-importing A's statement re-inserts its inbound
+        // transfers and dies on the unique index with a recovery that searches the wrong account.
+        // A bank reference reused on a DIFFERENT statement account remains a genuinely distinct
+        // transaction, not a duplicate. Case-insensitive to agree with the index's CI collation.
         var accountId = request.AccountId;
         var existing = await _db.Transactions
-            .Where(t => t.OwnerId == userId && t.AccountId == accountId && t.BankReference != null)
+            .Where(t => t.OwnerId == userId
+                        && t.BankReference != null
+                        && (t.AccountId == accountId
+                            || (accountId != null && t.TransferAccountId == accountId)))
             .Select(t => t.BankReference!)
             .ToListAsync(cancellationToken);
         var seen = new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase);
@@ -92,6 +114,24 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                         },
                     });
                 }
+
+                // Both transfer legs move the raw amount, so — exactly like /transfer — the two
+                // accounts must share a currency and the row must be in it, or the currency-blind
+                // balances silently change net worth.
+                var counterpartyAccount = counterpartyAccounts[counterparty];
+                if (importAccount!.Currency != counterpartyAccount.Currency)
+                {
+                    throw new ValidationException(new Dictionary<string, string[]>
+                    {
+                        ["Items"] = new[]
+                        {
+                            $"The transfer '{item.Payee}' moves between a {importAccount.Currency.Value} and a " +
+                            $"{counterpartyAccount.Currency.Value} account. Both accounts must use the same currency.",
+                        },
+                    });
+                }
+                TransactionInvariants.EnsureAccountCurrency(importAccount, CurrencyCode.From(item.Currency), "Items");
+
                 // A credit moved money INTO the import account (from the counterparty); a debit, OUT.
                 var (source, dest) = item.IsCredit
                     ? (counterparty, importAccountId)
@@ -117,6 +157,19 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             }
 
             var isSplit = item.Splits is { Count: > 0 };
+            var type = item.IsCredit ? TransactionType.Income : TransactionType.Expense;
+
+            // An imported row pinned to the import account must be in that account's currency —
+            // the same rule manual entry enforces (account balances sum raw amounts, no FX).
+            TransactionInvariants.EnsureAccountCurrency(importAccount, CurrencyCode.From(item.Currency), "Items");
+
+            // The whole-row assignment runs the shared invariant: direction↔kind, and month
+            // coherence unless this row explicitly acknowledges budgeting to another month.
+            if (!isSplit && item.BudgetItemId is Guid lineId)
+            {
+                TransactionInvariants.EnsureWholeLineAssignable(
+                    wholeLines[lineId], userId, type, item.Date, item.AcknowledgeCrossMonth, "Items");
+            }
 
             var transaction = new Transaction
             {
@@ -124,7 +177,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 Amount = item.Amount,
                 Currency = CurrencyCode.From(item.Currency),
                 ExchangeRate = 1m,
-                Type = item.IsCredit ? TransactionType.Income : TransactionType.Expense,
+                Type = type,
                 Date = item.Date,
                 Payee = Truncate(item.Payee, 200),
                 BankReference = string.IsNullOrEmpty(item.Reference) ? null : item.Reference,
@@ -136,19 +189,17 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
 
             if (isSplit)
             {
-                var splits = item.Splits!;
-                var allocated = splits.Sum(s => s.Amount);
-                if (allocated != item.Amount)
-                {
-                    throw new ValidationException(new Dictionary<string, string[]>
-                    {
-                        ["Items"] = new[]
-                        {
-                            $"The split lines for '{item.Payee}' must add up to {item.Amount:0.####}; they add up to {allocated:0.####}.",
-                        },
-                    });
-                }
-                foreach (var slice in splits)
+                // The same slice guard every split path uses: sum-to-parent, ownership,
+                // direction, month coherence (with the acknowledge escape), member ownership.
+                var slices = item.Splits!
+                    .Select(s => new SplitAllocationInput(s.BudgetItemId, s.Amount, s.MemberId))
+                    .ToList();
+                await TransactionInvariants.ValidateSlicesAsync(
+                    _db, userId, type, item.Amount, slices,
+                    item.Date, item.AcknowledgeCrossMonth,
+                    errorKey: "Items", cancellationToken);
+
+                foreach (var slice in item.Splits!)
                 {
                     transaction.Splits.Add(new TransactionSplit
                     {
@@ -183,23 +234,41 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 }
                 catch (DbUpdateException ex) when (attempt < 3 && IsReferenceCollision(ex))
                 {
-                    var refs = created
+                    // The index guards (OwnerId, AccountId, BankReference) — and an inbound
+                    // transfer's stored AccountId is the COUNTERPARTY, not the statement account.
+                    // So the recovery must look for existing rows on each created row's OWN
+                    // AccountId (exactly the pairs the failed insert tried), not on the statement
+                    // account: searching only the statement account finds nothing for an inbound
+                    // transfer and rethrows instead of skipping it.
+                    var refsByAccount = created
                         .Where(t => t.BankReference != null)
-                        .Select(t => t.BankReference!)
+                        .GroupBy(t => t.AccountId)
                         .ToList();
-                    var taken = await _db.Transactions
-                        .AsNoTracking()
-                        .Where(t => t.OwnerId == userId && t.AccountId == accountId
-                                    && t.BankReference != null && refs.Contains(t.BankReference))
-                        .Select(t => t.BankReference!)
-                        .ToListAsync(cancellationToken);
-                    // Case-insensitive: the DB index compares with the column's CI collation, so a
-                    // case-variant reference blocks the insert — the recovery match must agree or
-                    // it would rethrow instead of skipping.
-                    var takenSet = new HashSet<string>(taken, StringComparer.OrdinalIgnoreCase);
+
+                    // Keyed by the row's account with Guid.Empty standing in for "no account"
+                    // (a Dictionary rejects a null key; an account id can never be Guid.Empty).
+                    var takenByAccount = new Dictionary<Guid, HashSet<string>>();
+                    foreach (var group in refsByAccount)
+                    {
+                        var rowAccountId = group.Key;
+                        var refs = group.Select(t => t.BankReference!).ToList();
+                        var taken = await _db.Transactions
+                            .AsNoTracking()
+                            .Where(t => t.OwnerId == userId && t.AccountId == rowAccountId
+                                        && t.BankReference != null && refs.Contains(t.BankReference))
+                            .Select(t => t.BankReference!)
+                            .ToListAsync(cancellationToken);
+                        // Case-insensitive: the DB index compares with the column's CI collation, so
+                        // a case-variant reference blocks the insert — the recovery match must agree
+                        // or it would rethrow instead of skipping.
+                        takenByAccount[rowAccountId ?? Guid.Empty] =
+                            new HashSet<string>(taken, StringComparer.OrdinalIgnoreCase);
+                    }
 
                     var collided = created
-                        .Where(t => t.BankReference is string r && takenSet.Contains(r))
+                        .Where(t => t.BankReference is string r
+                                    && takenByAccount.TryGetValue(t.AccountId ?? Guid.Empty, out var taken)
+                                    && taken.Contains(r))
                         .ToList();
                     if (collided.Count == 0)
                     {
@@ -250,11 +319,12 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
     private static bool IsReferenceCollision(DbUpdateException ex) =>
         ex.InnerException?.Message.Contains("IX_Transactions_OwnerId_AccountId_BankReference", StringComparison.Ordinal) == true;
 
-    private async Task EnsureAccountOwnedAsync(Guid? accountId, string userId, CancellationToken ct)
+    /// <summary>The import account, owned by the user — or null when no account was chosen.</summary>
+    private async Task<Account?> LoadOwnedAccountAsync(Guid? accountId, string userId, CancellationToken ct)
     {
         if (accountId is not Guid id)
         {
-            return;
+            return null;
         }
         var account = await _db.Accounts.FirstOrDefaultAsync(a => a.Id == id, ct)
             ?? throw new NotFoundException($"Account {id} was not found.");
@@ -262,6 +332,29 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         {
             throw new ForbiddenAccessException();
         }
+        return account;
+    }
+
+    /// <summary>
+    /// Loads the requested (transfer counterparty) accounts, requiring every one to exist and be
+    /// owned by the user — the entities are needed for the same-currency transfer checks.
+    /// </summary>
+    private async Task<Dictionary<Guid, Account>> LoadOwnedAccountsAsync(
+        IEnumerable<Guid?> requestedIds, string userId, CancellationToken ct)
+    {
+        var ids = requestedIds.Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return new Dictionary<Guid, Account>();
+        }
+        var accounts = await _db.Accounts
+            .Where(a => a.OwnerId == userId && ids.Contains(a.Id))
+            .ToDictionaryAsync(a => a.Id, ct);
+        if (accounts.Count != ids.Count)
+        {
+            throw new ForbiddenAccessException();
+        }
+        return accounts;
     }
 
     /// <summary>

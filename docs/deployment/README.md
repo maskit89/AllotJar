@@ -171,6 +171,15 @@ Remote retention is enforced by the bucket's Object Lock + lifecycle rules (set 
 dashboard), independent of the local `-RetentionDays` prune. Periodically restore from R2 into a
 scratch SQL instance to prove the off-host copies are usable.
 
+**Provisioning can no longer downgrade this.** `Provision-Production.ps1` re-registers the daily
+tasks, and `Register-ScheduledTask -Force` overwrites — so a re-run used to silently replace an
+R2-enabled prod task with a local-only one. It now resolves the bucket from `-ProdR2Bucket`, else
+**preserves** the bucket on the existing `ZeroBudget-Prod-DbBackup` task, else **refuses to run**;
+after registering, it reads the task back and asserts the R2 arguments are on the stored action.
+The "Provision production stack" workflow passes the bucket from the `BACKUP_R2_BUCKET` secret
+(and the TLS pin from `ORIGIN_CERT_THUMBPRINT`) and fails before touching the VPS if either is
+missing.
+
 ## Rollback
 
 Re-run a previous successful **Deploy** workflow from the Actions tab (it re-pushes that commit's artifact), or check out the previous commit and `workflow_dispatch`. Take an ad-hoc backup before any deploy that includes a migration (`-Database` is required — name the target env):
