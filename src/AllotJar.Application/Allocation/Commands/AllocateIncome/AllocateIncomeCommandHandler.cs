@@ -78,6 +78,21 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
             {
                 throw new NotFoundException($"Savings account {savingsId} was not found.");
             }
+            // A member whose savings account IS the allocation source would get a no-op
+            // self-transfer: zero balance effect, yet counted and reported as a created
+            // transfer. Reject it — the profile/member editors also refuse to save this
+            // combination, but the data may predate those guards.
+            if (savingsId == sourceId)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["Allocation"] = new[]
+                    {
+                        $"{m.Name}'s savings account is the allocation source account. Pick a different " +
+                        "source account, or point the member's savings at another account.",
+                    },
+                });
+            }
             if (savings.Currency != source.Currency)
             {
                 throw new ValidationException(new Dictionary<string, string[]>

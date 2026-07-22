@@ -179,4 +179,55 @@ public class HouseholdMembersTests
             .Validate(new CreateHouseholdMemberCommand("", 100m, null))
             .IsValid.Should().BeFalse();
     }
+
+    // --- Self-transfer guard, member side (2026-07-22 re-review F8): a member's personal
+    // savings account can't be an allocation profile's SOURCE account. -----------------------
+
+    private static Account SeedAccount(ApplicationDbContext db, string ownerId, string name)
+    {
+        var a = new Account { OwnerId = ownerId, Name = name, Currency = CurrencyCode.Eur };
+        db.Accounts.Add(a);
+        db.SaveChanges();
+        return a;
+    }
+
+    private static void SeedProfileWithSource(ApplicationDbContext db, string ownerId, Guid sourceAccountId)
+    {
+        db.AllocationProfiles.Add(new AllocationProfile
+        {
+            OwnerId = ownerId, Name = "Monthly", SourceAccountId = sourceAccountId,
+        });
+        db.SaveChanges();
+    }
+
+    [Fact]
+    public async Task Create_Rejects_ASavingsAccountThatIsTheAllocationSource()
+    {
+        await using var db = NewContext();
+        var source = SeedAccount(db, "user-1", "Joint Current");
+        SeedProfileWithSource(db, "user-1", source.Id);
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            new CreateHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"))
+                .Handle(new CreateHouseholdMemberCommand("Alex", 3000m, source.Id), CancellationToken.None));
+
+        ex.Errors["PersonalSavingsAccountId"].Single().Should().Contain("Monthly");
+        (await db.HouseholdMembers.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Update_Rejects_ASavingsAccountThatIsTheAllocationSource()
+    {
+        await using var db = NewContext();
+        var member = await Seed(db, "user-1", "Alex", 3000m);
+        var source = SeedAccount(db, "user-1", "Joint Current");
+        SeedProfileWithSource(db, "user-1", source.Id);
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            new UpdateHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"))
+                .Handle(new UpdateHouseholdMemberCommand(member.Id, "Alex", 3000m, source.Id), CancellationToken.None));
+
+        ex.Errors["PersonalSavingsAccountId"].Single().Should().Contain("Monthly");
+        (await db.HouseholdMembers.SingleAsync(m => m.Id == member.Id)).PersonalSavingsAccountId.Should().BeNull();
+    }
 }

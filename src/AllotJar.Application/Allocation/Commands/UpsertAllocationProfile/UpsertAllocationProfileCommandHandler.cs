@@ -25,6 +25,35 @@ public class UpsertAllocationProfileCommandHandler
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
+        // The source account must be the caller's, and it can't double as a member's personal
+        // savings account — committing that allocation would book a no-op self-transfer (same
+        // account on both legs, zero balance effect, still reported as a created transfer).
+        if (request.SourceAccountId is Guid sourceId)
+        {
+            var sourceOwned = await _db.Accounts
+                .AnyAsync(a => a.Id == sourceId && a.OwnerId == userId, cancellationToken);
+            if (!sourceOwned)
+            {
+                throw new NotFoundException($"Account {sourceId} was not found.");
+            }
+
+            var clashingMember = await _db.HouseholdMembers
+                .Where(m => m.OwnerId == userId && !m.IsArchived && m.PersonalSavingsAccountId == sourceId)
+                .Select(m => m.Name)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (clashingMember is not null)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["SourceAccountId"] = new[]
+                    {
+                        $"That account is {clashingMember}'s personal savings account — allocating from it " +
+                        "would transfer their share to itself. Choose a different source account.",
+                    },
+                });
+            }
+        }
+
         AllocationProfile profile;
         if (request.Id is Guid id)
         {
