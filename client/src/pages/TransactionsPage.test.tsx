@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -22,6 +22,7 @@ vi.mock('../lib/api', async (importOriginal) => ({
 
 import { TransactionsPage } from './TransactionsPage'
 import { AuthProvider } from '../auth/AuthContext'
+import { setMoneyFormat } from '../lib/money'
 
 function budget(): BudgetMonthDto {
   return {
@@ -93,6 +94,8 @@ function renderPage() {
 }
 
 describe('TransactionsPage manual sheet', () => {
+  afterEach(() => setMoneyFormat('comma-dot'))
+
   beforeEach(() => {
     mockGet.mockReset()
     mockPut.mockReset()
@@ -325,6 +328,48 @@ describe('TransactionsPage manual sheet', () => {
       }),
     )
     expect(await screen.findByText('Split', {}, { timeout: 5000 })).toBeInTheDocument()
+  })
+
+  it('preserves an unchanged transaction amount with comma decimals', async () => {
+    localStorage.setItem('zbb.numberFormat', 'dot-comma')
+    const transaction = { ...tx(), amount: 1.234, baseAmount: 1.234 }
+    mockLoad([transaction])
+    mockPut.mockResolvedValue({ data: transaction })
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(await screen.findByLabelText('Edit transaction: Tesco'))
+    await user.click(screen.getByLabelText('Save transaction'))
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t1', {
+      date: '2026-06-10', payee: 'Tesco', amount: 1.234, type: 0, accountId: null, memberId: null,
+    }))
+  })
+
+  it('preserves existing split amounts and their total with comma decimals', async () => {
+    localStorage.setItem('zbb.numberFormat', 'space-comma')
+    const transaction = {
+      ...tx(), amount: 3.5796, baseAmount: 3.5796, isSplit: true,
+      splits: [
+        { id: 's1', budgetItemId: 'i-rent', budgetItemName: 'Rent', amount: 1.234 },
+        { id: 's2', budgetItemId: 'i-food', budgetItemName: 'Groceries', amount: 2.3456 },
+      ],
+    }
+    mockLoad([transaction])
+    mockPut.mockResolvedValue({ data: transaction })
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(await screen.findByLabelText('Split transaction: Tesco'))
+    expect(screen.getByLabelText('Save split')).toBeEnabled()
+    await user.click(screen.getByLabelText('Save split'))
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t1/splits', {
+      allocations: [
+        { budgetItemId: 'i-rent', amount: 1.234, memberId: null },
+        { budgetItemId: 'i-food', amount: 2.3456, memberId: null },
+      ],
+    }))
   })
 
   it('blocks a split that does not add up to the total', { timeout: 15000 }, async () => {

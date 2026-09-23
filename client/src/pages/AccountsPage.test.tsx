@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -22,6 +22,7 @@ vi.mock('../lib/api', async (importOriginal) => ({
 
 import { AccountsPage } from './AccountsPage'
 import { AuthProvider } from '../auth/AuthContext'
+import { setMoneyFormat } from '../lib/money'
 
 function accounts(): AccountDto[] {
   return [
@@ -41,6 +42,8 @@ function renderPage() {
 }
 
 describe('AccountsPage', () => {
+  afterEach(() => setMoneyFormat('comma-dot'))
+
   beforeEach(() => {
     mockGet.mockReset()
     mockPut.mockReset()
@@ -102,6 +105,22 @@ describe('AccountsPage', () => {
 
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/accounts/a1'))
     await waitFor(() => expect(screen.queryByText('Everyday')).not.toBeInTheDocument())
+  })
+
+  it.each([1.234, -1.234, 33.3333])('preserves an unchanged opening balance of %s with comma decimals', async (openingBalance) => {
+    localStorage.setItem('zbb.numberFormat', 'dot-comma')
+    const account = { ...accounts()[0], openingBalance, currentBalance: openingBalance }
+    mockGet.mockImplementation((url: string) => Promise.resolve({ data: url === '/accounts' ? [account] : [] }))
+    mockPut.mockResolvedValue({ data: account })
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Edit Everyday' }))
+    await user.click(screen.getByRole('button', { name: 'Save Everyday' }))
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/a1', {
+      name: 'Everyday', type: 0, openingBalance,
+    }))
   })
 
   it('does not delete when the confirmation is cancelled', { timeout: 15000 }, async () => {

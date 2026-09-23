@@ -140,6 +140,26 @@ describe('formatting', () => {
   })
 })
 
+describe('editable amounts', () => {
+  afterEach(() => setMoneyFormat('comma-dot'))
+
+  it.each(NUMBER_FORMAT_OPTIONS)('preserves stored precision when editing with $value', ({ value }) => {
+    setMoneyFormat(value)
+
+    // Includes the ambiguous three-digit fraction (1.234), the smallest stored
+    // unit, and four-decimal values that currency display formatting would round.
+    for (const minor of [0, 1, 12_340, 333_333, 11_005_000, 12_345_678_901]) {
+      expect(parseMinor(toEditString(minor))).toBe(minor)
+    }
+  })
+
+  it('uses the preferred decimal separator without adding grouping', () => {
+    setMoneyFormat('dot-comma')
+    expect(toEditString(12_340)).toBe('1,234')
+    expect(toEditString(12_345_678_901)).toBe('1234567,8901')
+  })
+})
+
 describe('setMoneyFormat — money-display preference', () => {
   const minor = fromAmount(1234.56)
 
