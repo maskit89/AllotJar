@@ -359,6 +359,42 @@ public class AllocationCoverageTests
         only.Amount.Should().Be(1200m);
     }
 
+    [Fact]
+    public async Task Commit_TinyRemainder_WritesOnlyTheAvailableMoney_InDisplayedOrder()
+    {
+        await using var db = NewContext();
+        var user = new CurrentUserStub(Owner);
+        var source = SeedAccount(db, "Joint", opening: 0.04m);
+        var destinations = new List<Guid>();
+        var members = new List<HouseholdMember>();
+        for (var i = 0; i < 4; i++)
+        {
+            var savings = SeedAccount(db, $"Savings {i}");
+            destinations.Add(savings.Id);
+            members.Add(SeedMember(db, $"Person {i}", 0.01m, i, savings.Id));
+        }
+        SeedBudget(db, 2026, 7, envelopes: 0.02m, funds: 0m);
+        db.BudgetCategories.Add(new BudgetCategory
+        {
+            BudgetMonthId = (await db.BudgetMonths.SingleAsync()).Id,
+            Name = "Income", Kind = CategoryKind.Income,
+            Items = members.Select(m => new BudgetItem
+            {
+                Name = m.Name, MemberId = m.Id, PlannedAmount = 0.01m,
+            }).ToList(),
+        });
+        await db.SaveChangesAsync();
+        await Upsert(db, user, StandardRules(savingsSplit: SplitMethod.Equal), source.Id);
+
+        var result = await Commit(db, user, 2026, 7);
+
+        result.TransfersCreated.Should().Be(2);
+        var transfers = await db.Transactions.ToListAsync();
+        transfers.Sum(t => t.Amount).Should().Be(0.02m);
+        transfers.Should().OnlyContain(t => t.Amount == 0.01m && t.AccountId == source.Id);
+        transfers.Select(t => t.TransferAccountId).Should().BeEquivalentTo(destinations.Take(2).Cast<Guid?>());
+    }
+
     // ALLOC-058, ALLOC-060 — the written transfer's composition, and that a solo (1-member)
     // household commits server-side (the "add people first" gate is client-only). Even for a GBP
     // household the transfer currency is the hardcoded EUR, and the idempotency key's month is NOT

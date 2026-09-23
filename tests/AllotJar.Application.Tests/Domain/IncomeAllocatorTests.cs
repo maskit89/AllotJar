@@ -57,7 +57,7 @@ public class IncomeAllocatorTests
         result.Members.Sum(m => m.Residual).Should().Be(2000.75m); // conserved to the cent
         var alex = result.Members.Single(m => m.MemberId == Alex).Residual;
         var sam = result.Members.Single(m => m.MemberId == Sam).Residual;
-        alex.Should().Be(1000.38m); // 2000.75 / 2, last member absorbs the odd cent
+        alex.Should().Be(1000.38m); // tied fractional shares: first in display order gets the odd cent
         sam.Should().Be(1000.37m);
     }
 
@@ -210,5 +210,74 @@ public class IncomeAllocatorTests
         // Alex earns more, so he covers more of the shared cost.
         step.PerMember.Single(s => s.MemberId == Alex).Amount
             .Should().BeGreaterThan(step.PerMember.Single(s => s.MemberId == Sam).Amount);
+    }
+
+    [Fact]
+    public void Equal_TinyPool_DistributesAvailableCentsInDisplayedOrder()
+    {
+        var members = Enumerable.Range(0, 4)
+            .Select(i => new AllocationMember(Guid.NewGuid(), $"Person {i}", 1m, null)).ToList();
+        var rule = new AllocationRuleInput(0, AllocationRuleType.FundEnvelopes, SplitMethod.Equal, 0m, 0.02m);
+
+        var step = IncomeAllocator.Compute(members, new[] { rule }).Steps.Single();
+
+        step.PerMember.Select(s => s.MemberId).Should().Equal(members.Select(m => m.Id));
+        step.PerMember.Select(s => s.Amount).Should().Equal(0.01m, 0.01m, 0m, 0m);
+        step.PerMember.Sum(s => s.Amount).Should().Be(0.02m);
+    }
+
+    [Theory]
+    [InlineData(SplitMethod.Equal, 0)]
+    [InlineData(SplitMethod.ByIncomeRatio, 0)]
+    [InlineData(SplitMethod.BalanceTilt, 0)]
+    [InlineData(SplitMethod.BalanceTilt, 25)]
+    [InlineData(SplitMethod.BalanceTilt, 100)]
+    public void SmallRemainder_NeverCreatesNegativeSharesOrExtraMoney(SplitMethod method, int lean)
+    {
+        var members = Enumerable.Range(0, 4)
+            .Select(i => new AllocationMember(Guid.NewGuid(), $"Person {i}", 0.01m, null)).ToList();
+        var rules = new[]
+        {
+            new AllocationRuleInput(0, AllocationRuleType.FundEnvelopes, SplitMethod.Equal, 0m, 0.02m),
+            new AllocationRuleInput(1, AllocationRuleType.SplitRemainderToMembers, method, 0m, 0m),
+        };
+
+        var result = IncomeAllocator.Compute(members, rules, lean);
+
+        result.Members.Should().OnlyContain(m => m.Residual >= 0m);
+        result.Members.Sum(m => m.Residual).Should().Be(0.02m);
+        // The commit writes positive residuals only: these must not exceed the pool.
+        result.Members.Where(m => m.Residual > 0m).Sum(m => m.Residual).Should().Be(0.02m);
+    }
+
+    [Fact]
+    public void IncomeSplit_LargestFractionGetsTheCent_EvenWhenListedLater()
+    {
+        var members = new[]
+        {
+            new AllocationMember(Alex, "Alex", 4m, null),
+            new AllocationMember(Sam, "Sam", 6m, null),
+        };
+        var rule = new AllocationRuleInput(0, AllocationRuleType.FundEnvelopes, SplitMethod.ByIncomeRatio, 0m, 0.01m);
+
+        var step = IncomeAllocator.Compute(members, new[] { rule }).Steps.Single();
+
+        step.PerMember.Select(s => s.Amount).Should().Equal(0m, 0.01m);
+    }
+
+    [Theory]
+    [InlineData(0.0201)]
+    [InlineData(0.0001)]
+    [InlineData(100.0001)]
+    public void EqualSplit_PreservesExistingStoredPrecision(decimal total)
+    {
+        var members = Enumerable.Range(0, 4)
+            .Select(i => new AllocationMember(Guid.NewGuid(), $"Person {i}", 1m, null)).ToList();
+        var rule = new AllocationRuleInput(0, AllocationRuleType.FundEnvelopes, SplitMethod.Equal, 0m, total);
+
+        var step = IncomeAllocator.Compute(members, new[] { rule }).Steps.Single();
+
+        step.PerMember.Should().OnlyContain(s => s.Amount >= 0m);
+        step.PerMember.Sum(s => s.Amount).Should().Be(total);
     }
 }
