@@ -234,15 +234,15 @@ public class JJarsCoverageTests
         dto.RecurMonths.Should().Be(3); // preserved, not reset to 12
     }
 
-    // ---- JAR-053: Jars-page balance vs budget-grid "avail." differ by the opening ------
+    // ---- JAR-053: legacy balance disagreement, to replace during W01 activation ------
 
     [Fact]
-    public async Task JarsBalance_IncludesOpeningAndAllMonths_WhileGridAvailableExcludesOpening()
+    [Trait("LedgerModel", "LegacyPlanned")]
+    public async Task LegacyJarAndGridReads_DisagreeAboutOpeningMoney()
     {
-        // JAR-053 — the Jars page currentBalance (opening + Σ planned−spend over ALL
-        // months) and the budget grid's SavingsAvailable (planned−spend for months ≤ the
-        // viewed one, WITHOUT the opening balance) legitimately differ by exactly the
-        // opening balance. One July line of 30, opening 50, nothing spent.
+        // Characterises two known W01 defects: plans counted as money, and opening
+        // money omitted from the grid. This disagreement is NOT legitimate. Replace
+        // the expectations together when both endpoints consume actual allocations.
         await using var db = NewContext();
         var jarId = Guid.NewGuid();
         SeedJar(db, "user-1", jarId, target: 300m, opening: 50m);
@@ -276,7 +276,6 @@ public class JJarsCoverageTests
 
         jarBalance.Should().Be(80m);        // 50 opening + 30 planned
         gridAvailable.Should().Be(30m);     // planned only — opening excluded
-        (jarBalance - gridAvailable!.Value).Should().Be(50m); // exactly the opening balance
     }
 
     // ---- JAR-066 / JAR-065: permissive amount + bounded recurrence validators ---------

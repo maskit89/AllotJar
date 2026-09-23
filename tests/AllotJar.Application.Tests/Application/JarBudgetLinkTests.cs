@@ -174,6 +174,7 @@ public class JarBudgetLinkTests
     // ---- CreateJar -----------------------------------------------------------
 
     [Fact]
+    [Trait("LedgerModel", "LegacyPlanned")]
     public async Task CreateJar_PlantsItsLineInTheCurrentAndFutureMonths()
     {
         await using var db = NewContext();
@@ -191,7 +192,9 @@ public class JarBudgetLinkTests
         var lines = db.BudgetItems.Where(i => i.SavingsId == dto.Id).ToList();
         lines.Should().HaveCount(2);
         lines.Should().OnlyContain(l => l.Name == "New Sofa");
-        // Each month is planned the way month creation would have seeded it — the
+        // Legacy characterisation, not accepted accounting: W01 must replace the
+        // plan-as-money expectations while retaining the line-creation protection.
+        // Each month is currently planned the way month creation would have seeded it — the
         // open-ended remaining ÷ 12, with earlier plantings folded in:
         // month 1 = 1200/12 = 100; month 2 = (1200−100)/12 = 91.67.
         lines.Select(l => l.PlannedAmount).Order().Should().Equal(91.67m, 100m);

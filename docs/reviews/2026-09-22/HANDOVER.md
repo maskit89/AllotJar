@@ -10,7 +10,7 @@ Completed first fixes: **A4 money edit round-trip**, **A3 allocation rounding**,
 
 ## Read in this order
 
-1. [AGREED-RULES.md](AGREED-RULES.md): 66 confirmed decisions, examples and accounting invariants; authoritative requirements.
+1. [AGREED-RULES.md](AGREED-RULES.md): 67 confirmed decisions, examples and accounting invariants; authoritative requirements.
 2. This handover: work mapping, sequencing, unresolved decisions and status.
 3. [REVIEW.md](REVIEW.md): original 14 finding groups, eight further concerns, source references and synthetic reproductions. Some original questions are now resolved.
 4. [TEST-PLAN.md](TEST-PLAN.md): inspected test conflicts, retain/replace/remove policy and validation plan.
@@ -71,7 +71,7 @@ The 14 audit groups are fully mapped: J1–J6, P1–P2, A1–A6. The eight origi
 Ask only when the relevant work is reached; these do not block unrelated bug fixes. This is a list of unresolved decisions, not new requirements.
 
 - **O1 Transfers/imports:** candidate date tolerance and matching identifiers; conflicting same-reference rows; different posting dates on two sides (including month boundaries); reversal/correction behaviour; batch ordering and missing-history handling before enforcing non-negative savings; explicitly supplied transfer fees. Matching by amount alone is already prohibited.
-- **O2 Time/history:** household timezone and exact deadline-day cutoff; what future-month views display as actual vs projected; reporting before the opening date; current-month partial scheduling and how earlier genuine corrections affect previously recorded cycle status. Past month-end balances and actual-date corrections are already agreed.
+- **O2 Time/history:** household timezone and exact deadline-day cutoff; what future-month views display as actual vs projected; current-month partial scheduling and how earlier genuine corrections affect previously recorded cycle status. Before-opening balances are now explicitly unavailable under rule 67. Past month-end balances and actual-date corrections are already agreed.
 - **O3 Jar lifecycle:** which payments fulfil which recurring cycle, especially early payments across cycles; treatment of negative-balance completion and reopening; exact unused deletion eligibility (opening allocations/planned lines); manual plan overrides during target edits; skipping the last eligible month; effects of changing a jar's designated account. Do not infer a funds transfer from changing an account field.
 - **O4 Allocation details:** attribution of income not assigned to people and zero-income proportional splitting. The pool must remain the selected budget's income regardless. Leftover-cent recipients are now settled by rule64.
 - **O5 Currency boundaries:** missing amount holding/review workflow; conversion suggestion source and approval presentation; any later representation of supplied cross-currency transfer amounts. Rule63 now requires all linked accounts to use the budget currency for the first release. Do not reinstate automatic posting of converted amounts while solving this.

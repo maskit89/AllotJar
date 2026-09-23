@@ -106,6 +106,8 @@ These decisions were confirmed in conversation after the calculation review. The
 
 66. Deliver each separate development change through its own committed and pushed pull request, following the repository's PR history. The user authorised taking each change individually through to production and confirmed the application is not live. Validate each change and its deployment before promoting the next; preserve the existing deployment workflow. This is standing release authorisation for the agreed development work, not an instruction to bypass failing functional checks or reset unrelated databases.
 
+67. For an as-of date before an account's opening-balance date, display the balance as unavailable ("Not available before opening date"). Do not display zero or reconstruct it from incomplete earlier transaction history. The opening amount takes effect at the start of its recorded date, as already agreed in rule 40.
+
 ## Development and test requirement
 
 The user explicitly requested review of existing tests, coverage for new code and removal of unnecessary tests as part of development. Update tests that encode superseded behaviour; retain regression, conservation, authorisation and persistence coverage. Remove an obsolete or genuinely redundant test only with a documented reason and replacement coverage where the behaviour still matters. Do not delete failing tests merely to obtain a passing suite. The inspected examples and execution plan are in [TEST-PLAN.md](TEST-PLAN.md).
