@@ -46,6 +46,28 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
             throw new ForbiddenAccessException();
         }
 
+        // The residual is expressed in this month's budget currency. Matching the two
+        // account currencies alone is insufficient: copying a EUR residual to GBP
+        // accounts would silently invent a 1:1 conversion. Check before touching any
+        // previous allocation so a rejected retry leaves existing transfers intact.
+        var month = await _db.BudgetMonths
+            .AsNoTracking()
+            .FirstOrDefaultAsync(m => m.OwnerId == userId
+                                     && m.Year == request.Year && m.Month == request.Month,
+                cancellationToken)
+            ?? throw new NotFoundException($"No budget exists for {request.Year}-{request.Month:00}.");
+        if (source.Currency != month.BaseCurrency)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["SourceAccountId"] = new[]
+                {
+                    $"The source account is in {source.Currency.Value}, but this budget is in " +
+                    $"{month.BaseCurrency.Value}. Choose an account in the budget currency.",
+                },
+            });
+        }
+
         // Idempotent: drop this month's prior allocation transfers, then recreate.
         var prefix = $"alloc:{request.Year}-{request.Month}:";
         var prior = await _db.Transactions
