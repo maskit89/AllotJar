@@ -108,6 +108,8 @@ These decisions were confirmed in conversation after the calculation review. The
 
 67. For an as-of date before an account's opening-balance date, display the balance as unavailable ("Not available before opening date"). Do not display zero or reconstruct it from incomplete earlier transaction history. The opening amount takes effect at the start of its recorded date, as already agreed in rule 40.
 
+68. Reallocating money must not make the source jar negative. Confirmed example: an account has 500, Holiday has 100 and Repairs has 400; moving 150 from Holiday to Repairs is not allowed. Holiday can supply at most its available 100, and any remainder needs an explicitly chosen other source. This differs from an actual payment, which may make a jar negative under rule 6. A reallocation across accounts also needs sufficient actual savings-account money and the previously agreed completed-transfer confirmation.
+
 ## Development and test requirement
 
 The user explicitly requested review of existing tests, coverage for new code and removal of unnecessary tests as part of development. Update tests that encode superseded behaviour; retain regression, conservation, authorisation and persistence coverage. Remove an obsolete or genuinely redundant test only with a documented reason and replacement coverage where the behaviour still matters. Do not delete failing tests merely to obtain a passing suite. The inspected examples and execution plan are in [TEST-PLAN.md](TEST-PLAN.md).

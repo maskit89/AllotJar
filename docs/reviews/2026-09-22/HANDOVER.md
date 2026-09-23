@@ -10,7 +10,7 @@ Completed first fixes: **A4 money edit round-trip**, **A3 allocation rounding**,
 
 ## Read in this order
 
-1. [AGREED-RULES.md](AGREED-RULES.md): 67 confirmed decisions, examples and accounting invariants; authoritative requirements.
+1. [AGREED-RULES.md](AGREED-RULES.md): 68 confirmed decisions, examples and accounting invariants; authoritative requirements.
 2. This handover: work mapping, sequencing, unresolved decisions and status.
 3. [REVIEW.md](REVIEW.md): original 14 finding groups, eight further concerns, source references and synthetic reproductions. Some original questions are now resolved.
 4. [TEST-PLAN.md](TEST-PLAN.md): inspected test conflicts, retain/replace/remove policy and validation plan.
