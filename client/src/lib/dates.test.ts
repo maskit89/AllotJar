@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { shortDate, formatDate, monthYear } from './dates'
 
 // jsdom's navigator.language is en-US, so these assert the en-US rendering; the
@@ -10,13 +10,26 @@ describe('shortDate', () => {
   })
 
   it('does not shift the day across a timezone boundary', () => {
-    // Parsed as local midnight, not UTC — so it never rolls back to the 19th.
+    // Calendar dates must never roll back to the 19th.
     expect(shortDate('2026-06-20')).toContain('20')
   })
 
   it('returns the input unchanged when it is not a parseable ISO date', () => {
     expect(shortDate('')).toBe('')
     expect(shortDate('not-a-date')).toBe('not-a-date')
+  })
+})
+
+describe('calendar dates across timezone changes', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('keeps the same date with cached formatters in every timezone', () => {
+    for (const timezone of ['UTC', 'Europe/Malta', 'America/New_York', 'Pacific/Kiritimati']) {
+      vi.stubEnv('TZ', timezone)
+      expect(shortDate('2026-11-01')).toBe('Nov 1')
+      expect(formatDate('2026-11-01')).toBe('Nov 1, 2026')
+      expect(monthYear('2026-11-01')).toBe('Nov 2026')
+    }
   })
 })
 
