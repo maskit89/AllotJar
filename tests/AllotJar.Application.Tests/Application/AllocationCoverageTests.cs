@@ -396,8 +396,8 @@ public class AllocationCoverageTests
     }
 
     // ALLOC-058, ALLOC-060 — the written transfer's composition, and that a solo (1-member)
-    // household commits server-side (the "add people first" gate is client-only). Even for a GBP
-    // household the transfer currency is the hardcoded EUR, and the idempotency key's month is NOT
+    // household commits server-side (the "add people first" gate is client-only). For a GBP
+    // budget both accounts and the transfer must be GBP. The idempotency key's month is NOT
     // zero-padded ("alloc:2026-7:", not "2026-07").
     [Fact]
     public async Task SoloCommit_WritesOneTransfer_InTheAccountsCurrency_AndNonPaddedReference()
@@ -445,6 +445,59 @@ public class AllocationCoverageTests
         var ex = (await act.Should().ThrowAsync<ValidationException>()).Which;
         ex.Errors.Should().ContainKey("Allocation");
         (await db.Transactions.CountAsync(t => t.Type == TransactionType.Transfer)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Commit_WhenBothAccountsUseADifferentCurrencyThanTheBudget_PreservesPriorTransfers()
+    {
+        await using var db = NewContext();
+        var user = new CurrentUserStub(Owner);
+        var gbp = CurrencyCode.From("GBP");
+        var source = SeedAccount(db, "Joint", currency: gbp);
+        var savings = SeedAccount(db, "Savings", currency: gbp);
+        var member = SeedMember(db, "Alex", 3000m, 0, savings.Id);
+        SeedBudget(db, 2026, 6, 2000m, 0m, currency: gbp);
+        SeedBudget(db, 2026, 7, 2000m, 0m, currency: CurrencyCode.Eur);
+        await Upsert(db, user, StandardRules(savingsSplit: SplitMethod.Equal), source.Id);
+        var prior = new Transaction
+        {
+            OwnerId = Owner, Type = TransactionType.Transfer, Date = new DateOnly(2026, 7, 1),
+            Amount = 75m, Currency = gbp, AccountId = source.Id, TransferAccountId = savings.Id,
+            BankReference = $"alloc:2026-7:{member.Id}", Payee = "Existing allocation",
+        };
+        db.Transactions.Add(prior);
+        await db.SaveChangesAsync();
+
+        Func<Task> act = () => Commit(db, user, 2026, 7);
+
+        var ex = (await act.Should().ThrowAsync<ValidationException>()).Which;
+        ex.Errors.Should().ContainKey("SourceAccountId");
+        ex.Errors["SourceAccountId"].Single().Should().Contain("GBP").And.Contain("EUR");
+        db.Entry(prior).State.Should().Be(EntityState.Unchanged);
+        var remaining = await db.Transactions.AsNoTracking().SingleAsync();
+        remaining.Id.Should().Be(prior.Id);
+        remaining.Amount.Should().Be(75m);
+    }
+
+    [Fact]
+    public async Task Commit_WithoutAnOwnedBudget_CannotInferItsCurrency()
+    {
+        await using var db = NewContext();
+        var user = new CurrentUserStub(Owner);
+        var source = SeedAccount(db, "Joint");
+        var savings = SeedAccount(db, "Savings");
+        SeedMember(db, "Alex", 3000m, 0, savings.Id);
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = "another-household", Year = 2026, Month = 7, BaseCurrency = CurrencyCode.Eur,
+        });
+        await db.SaveChangesAsync();
+        await Upsert(db, user, StandardRules(savingsSplit: SplitMethod.Equal), source.Id);
+
+        Func<Task> act = () => Commit(db, user, 2026, 7);
+
+        await act.Should().ThrowAsync<NotFoundException>();
+        (await db.Transactions.CountAsync()).Should().Be(0);
     }
 
     // ALLOC-049, ALLOC-053 — committing a profile with no source account is a 400 ValidationException
