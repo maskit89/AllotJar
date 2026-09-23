@@ -116,7 +116,7 @@ The user explicitly requested review of existing tests, coverage for new code an
 
 - Handwritten note 6 ("monthly or living category") is **deferred at the user's request**. The tentative interpretation is choosing a category when setting up a jar; the examples used in the household were Monthly/Savings and Living/Everyday spending. The original author does not currently recall the precise intent. Do not treat this interpretation as a confirmed category model or implement a change from it; revisit if she recalls.
 
-- Reporting before an opening-balance cutoff remains to be discussed. Local development-data retention is resolved by rule 65: the user authorised a fresh database instead of carrying old ledgers forward.
+- Before-opening balance presentation is resolved by rule 67 (unavailable). Local development-data retention is resolved by rule 65: the user authorised a fresh database instead of carrying old ledgers forward.
 - Detailed transaction matching criteria and corrections/reversals; user resolution of ambiguous matches and linking both statement sides to one transfer are agreed above.
 - Import batch ordering and missing-history reconciliation, fees and currency boundaries.
 - Remaining decisions are enumerated as O1–O12 in [HANDOVER.md](HANDOVER.md); do not treat the now-agreed monthly schedule, rounding, recurrence or People income source as wholly unresolved.

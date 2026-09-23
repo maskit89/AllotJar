@@ -6,7 +6,7 @@ Prepared 22 September 2026; development status updated 23 September 2026. Local 
 
 There is enough agreed behaviour for a staged implementation of the confirmed bugs. There is not yet a fully closed specification for every feature and edge case. Do not interpret confirmed decisions as implemented changes or approval to invent remaining behaviour. The user authorised development after the original 62-rule handover; rules 63–64 settle account currency and rounding recipients, rule 65 permits a fresh development database, and rule 66 authorises individual PRs through production. The user wants current calculation bugs addressed first, step-by-step, and explicitly asks to be consulted on assumptions.
 
-Completed first fixes: **A4 money edit round-trip**, **A3 allocation rounding**, the **J3 calendar/preview parity** subset and the **A2 allocation commit currency guard**. Next implement the actual-money foundation for **J1/J2**, before dependent schedule, lifecycle and reporting changes. The jar ledger has not yet been replaced; its design notes and remaining dependencies are in DEVELOPMENT-LOG.
+Completed first fixes: **A4 money edit round-trip**, **A3 allocation rounding**, the **J3 calendar/preview parity** subset and the **A2 allocation commit currency guard**. [PR #254](https://github.com/maskit89/AllotJar/pull/254) adds the pure actual-money calculation foundation for **J1/J2**. Persistence and API/UI activation remain next, before dependent schedule, lifecycle and reporting changes. The product's jar ledger has not yet been replaced; its design notes and remaining dependencies are in DEVELOPMENT-LOG.
 
 ## Read in this order
 
