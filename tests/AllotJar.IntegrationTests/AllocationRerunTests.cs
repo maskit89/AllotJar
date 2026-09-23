@@ -28,6 +28,26 @@ public class AllocationRerunTests
         public string? UserId { get; } = userId;
     }
 
+    private static void SeedBudget(ApplicationDbContext db, string owner)
+    {
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = owner, Year = 2026, Month = 7, BaseCurrency = CurrencyCode.Eur,
+            Categories = new List<BudgetCategory>
+            {
+                new()
+                {
+                    Name = "Income", Kind = CategoryKind.Income,
+                    Items = db.HouseholdMembers.Local.Where(m => m.OwnerId == owner)
+                        .Select(m => new BudgetItem
+                        {
+                            Name = m.Name, MemberId = m.Id, PlannedAmount = m.NetMonthlyIncome,
+                        }).ToList(),
+                },
+            },
+        });
+    }
+
     [Fact]
     public async Task Rerunning_an_allocation_recreates_the_same_references_without_tripping_the_unique_index()
     {
@@ -57,6 +77,7 @@ public class AllocationRerunTests
             Name = "Default",
             SourceAccountId = source.Id,
         });
+        SeedBudget(db, owner);
         await db.SaveChangesAsync();
 
         var handler = new AllocateIncomeCommandHandler(db, new CurrentUserStub(owner));
@@ -90,6 +111,7 @@ public class AllocationRerunTests
             // Sam's savings account was deleted; the soft-hint id now dangles (no Account row, no FK).
             new HouseholdMember { OwnerId = owner, Name = "Sam", NetMonthlyIncome = 1200m, PersonalSavingsAccountId = Guid.NewGuid(), DisplayOrder = 1 });
         db.AllocationProfiles.Add(new AllocationProfile { OwnerId = owner, Name = "Default", SourceAccountId = source.Id });
+        SeedBudget(db, owner);
         await db.SaveChangesAsync();
 
         var handler = new AllocateIncomeCommandHandler(db, new CurrentUserStub(owner));
