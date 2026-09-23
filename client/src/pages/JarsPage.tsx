@@ -31,11 +31,10 @@ function parseAmount(input: string): number | null {
   return minor === null ? null : toAmount(minor)
 }
 
-/** Whole calendar months from today to an ISO date (yyyy-MM-dd) — day-of-month ignored, like the server. */
-function monthsFromNow(iso: string): number {
-  const now = new Date()
+/** Whole calendar months from the server's UTC today to an ISO date (yyyy-MM-dd). */
+function monthsFromNow(iso: string, now = new Date()): number {
   const [y, m] = iso.split('-').map(Number)
-  return (y - now.getFullYear()) * 12 + (m - (now.getMonth() + 1))
+  return (y - now.getUTCFullYear()) * 12 + (m - (now.getUTCMonth() + 1))
 }
 
 /**
@@ -45,22 +44,29 @@ function monthsFromNow(iso: string): number {
  * whole remainder this month. Goals (and cycle-less jars) don't roll.
  */
 function monthsToEffectiveDue(iso: string, kind: number, recurMonths: number): number {
-  const raw = monthsFromNow(iso)
-  if (kind !== JarKind.Recurring || recurMonths < 1 || raw >= 0) return raw
-  const cyclesBehind = Math.ceil(-raw / recurMonths)
-  return raw + cyclesBehind * recurMonths
+  const now = new Date()
+  return monthsFromNow(effectiveDueIso(iso, kind, recurMonths, now), now)
 }
 
-/** The recurrence-adjusted due date (ISO) for display — jumps whole cycles from the anchor, keeping the day. */
-function effectiveDueIso(iso: string, kind: number, recurMonths: number): string {
-  const raw = monthsFromNow(iso)
-  if (kind !== JarKind.Recurring || recurMonths < 1 || raw >= 0) return iso
-  const cyclesBehind = Math.ceil(-raw / recurMonths)
+/** Mirror EffectiveTargetDate: clamp each occurrence, always retaining the original anchor day. */
+function effectiveDueIso(iso: string, kind: number, recurMonths: number, now = new Date()): string {
+  // The API currently uses DateOnly.FromDateTime(DateTime.UtcNow). Match that
+  // basis until a household timezone policy is agreed, including near midnight.
+  const today = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
+  if (kind !== JarKind.Recurring || recurMonths < 1 || iso >= today) return iso
   const [y, m, d] = iso.split('-').map(Number)
-  const total = m - 1 + cyclesBehind * recurMonths
-  const yy = y + Math.floor(total / 12)
-  const mm = (total % 12) + 1
-  return `${yy}-${String(mm).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+  let cycles = Math.floor(-monthsFromNow(iso, now) / recurMonths)
+  // Land near today, then advance at most one cycle if that date has passed.
+  // Construct from the original anchor, never from a previously clamped date.
+  while (true) {
+    const total = m - 1 + cycles * recurMonths
+    const year = y + Math.floor(total / 12)
+    const month = (total % 12) + 1
+    const day = Math.min(d, new Date(year, month, 0).getDate())
+    const next = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    if (next >= today) return next
+    cycles++
+  }
 }
 
 interface FormState {
@@ -115,8 +121,8 @@ export function JarsPage() {
 
   // Live estimate of the monthly set-aside, mirroring the server's by-target-date
   // math (remaining ÷ whole months to the — recurrence-adjusted — due date, floored
-  // at one). Approximate by nature (prefixed "≈"): it uses the browser clock and may
-  // differ from the server by a month/cent at a boundary. Hidden while the target
+  // at one). Approximate by nature (prefixed "≈"): it uses the browser clock on
+  // the server's UTC date basis. Hidden while the target
   // doesn't parse or is 0, and for imported jars on other accrual methods, where this
   // math wouldn't match the server's figure.
   const preview = useMemo(() => {

@@ -195,14 +195,25 @@ public class JarLifecycleTests
         line.PlannedAmount.Should().Be(Math.Round(600m / monthsToRolled, 2, MidpointRounding.AwayFromZero));
     }
 
-    [Fact]
-    public void EffectiveDate_PreservesMonthEndDay_AcrossRolls()
+    [Theory]
+    [InlineData("2026-09-22", "2026-01-31", 1, "2026-09-30")]
+    [InlineData("2026-02-15", "2026-01-31", 1, "2026-02-28")]
+    [InlineData("2026-03-01", "2026-01-31", 1, "2026-03-31")]
+    [InlineData("2026-04-01", "2026-01-31", 1, "2026-04-30")]
+    [InlineData("2028-02-15", "2028-01-31", 1, "2028-02-29")]
+    [InlineData("2025-02-15", "2024-02-29", 12, "2025-02-28")]
+    [InlineData("2028-02-15", "2024-02-29", 12, "2028-02-29")]
+    [InlineData("2026-05-01", "2026-01-31", 3, "2026-07-31")]
+    public void EffectiveDate_PreservesMonthEndDay_AcrossRolls(
+        string today, string anchor, int cycle, string expectedDate)
     {
-        // A monthly jar due the 31st must not drift to the 28th (the compounding-roll bug).
-        var jar = Recurring(new DateOnly(2026, 1, 31), recurMonths: 1);
+        // Matching preview cases are exercised through JarsPage's form. A shorter
+        // month clamps only that occurrence, never the stored intended day.
+        var jar = Recurring(DateOnly.ParseExact(anchor, "yyyy-MM-dd"), recurMonths: cycle);
 
-        JarAccrualCalculator.EffectiveTargetDate(jar, new DateOnly(2026, 3, 15))
-            .Should().Be(new DateOnly(2026, 3, 31));
+        JarAccrualCalculator.EffectiveTargetDate(jar, DateOnly.ParseExact(today, "yyyy-MM-dd"))
+            .Should().Be(DateOnly.ParseExact(expectedDate, "yyyy-MM-dd"));
+        jar.TargetDate.Should().Be(DateOnly.ParseExact(anchor, "yyyy-MM-dd"));
     }
 
     [Fact]
