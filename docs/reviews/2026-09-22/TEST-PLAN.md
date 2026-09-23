@@ -53,6 +53,14 @@ Pin clock/date and locale for schedule tests. The current jar seeding test reads
 
 ## Retain, replace, consolidate, remove
 
+### W01 calculation foundation review — 23 September 2026
+
+The new `Domain/ActualAccountLedgerTests.cs` and `Domain/ActualSavingsLedgerTests.cs` use independently computed balances, not copies of the production formula. They cover opening-date boundaries, unavailable history, actual split funding, explicit unallocated funds, negative jars versus account deficits, same-account reallocation, completed cross-account transfers, exact sub-cent conservation, duplicate identities, wrong account/owner/currency, and incomplete or inconsistent allocations. The pure calculation result can describe an invalid candidate (deficit flags); it is not a write-authorisation decision.
+
+Three existing endpoint tests were inspected in detail and labelled `LedgerModel=LegacyPlanned`: `LegacyJarRead_CountsPlannedContributionsAsMoney`, `LegacyJarAndGridReads_DisagreeAboutOpeningMoney`, and `CreateJar_PlantsItsLineInTheCurrentAndFutureMonths`. Their old arithmetic is a known defect, not acceptance criteria. The new engine is not yet wired to those endpoints, so changing their expected numbers now would fabricate coverage of an unimplemented integration. Replace their monetary expectations and fixtures when activating W01, retaining owner isolation, correct line creation and shared-cutoff consistency checks.
+
+Removed the third, redundant difference assertion from the jar/grid comparison: the preceding assertions independently retain the expected jar and grid balances. Renamed misleading tests and removed the comment describing their disagreement as legitimate. No suites were deleted, no failures were skipped, and the legacy marker does not exclude these tests from CI. The general policy below still applies.
+
 - **Retain:** ownership/authorisation, relational constraints, arithmetic invariants, idempotency, cancellation/no-side-effect, malformed-input and meaningful UI interaction coverage.
 - **Replace:** assertions of explicitly superseded behaviour. Prefer a named regression of the agreed rule to simply deleting the old test.
 - **Consolidate:** genuinely duplicate cases that exercise the same behaviour at the same layer. Existing standard/catalog/supplemental names alone do not prove duplication; compare setup, action and failure detection first. UI, handler and SQL checks may intentionally cover different risks.

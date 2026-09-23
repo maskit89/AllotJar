@@ -132,8 +132,11 @@ public class JarsTests
     }
 
     [Fact]
-    public async Task Get_DerivesBalance_OpeningPlusContributionsMinusSpend()
+    [Trait("LedgerModel", "LegacyPlanned")]
+    public async Task LegacyJarRead_CountsPlannedContributionsAsMoney()
     {
+        // Characterises the known W01 defect until the actual ledger replaces this
+        // endpoint. This expectation is not an accepted accounting rule.
         await using var db = NewContext();
         var fundId = Guid.NewGuid();
         SeedFund(db, "user-1", fundId, target: 1000m, opening: 50m);
