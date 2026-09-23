@@ -31,9 +31,11 @@ export function sumMinor(values: Minor[]): Minor {
   return values.reduce((acc, v) => acc + v, 0)
 }
 
-/** Plain (non-localized) decimal string for editing in an <input>. */
+/** Ungrouped editable amount, preserving stored precision in the user's decimal format. */
 export function toEditString(minor: Minor): string {
-  return (minor / FACTOR).toString()
+  // Match parseMinor's active decimal separator: a dot in "1.234" would be
+  // interpreted as grouping under comma-decimal preferences and become 1234.
+  return (minor / FACTOR).toString().replace('.', activeDecimalSeparator())
 }
 
 // --- Display preferences ----------------------------------------------------

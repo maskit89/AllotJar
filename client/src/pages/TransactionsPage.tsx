@@ -14,7 +14,7 @@ import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import type { AccountDto, BudgetMonthDto, HouseholdMemberDto, TransactionDto } from '../types'
 import { TransactionType } from '../types'
-import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount } from '../lib/money'
+import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount, toEditString } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { monthYear, shortDate } from '../lib/dates'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
@@ -305,7 +305,7 @@ export function TransactionsPage() {
     setEditingId(t.id)
     setEDate(t.date)
     setEPayee(t.payee)
-    setEAmount(String(t.amount))
+    setEAmount(toEditString(fromAmount(t.amount)))
     setEType(t.type)
     setEAccount(t.accountId ?? '')
     setEMember(t.memberId ?? '')
@@ -357,7 +357,7 @@ export function TransactionsPage() {
       setSplitRows(
         t.splits.map((s) => ({
           budgetItemId: s.budgetItemId ?? '',
-          amount: String(s.amount),
+          amount: toEditString(fromAmount(s.amount)),
           memberId: s.memberId ?? '',
         })),
       )
