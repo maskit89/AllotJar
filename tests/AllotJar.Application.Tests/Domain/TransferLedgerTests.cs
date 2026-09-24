@@ -52,9 +52,10 @@ public class TransferLedgerTests
         {
             Operation(_source, null, Opening, new(_holiday, 600m), new(_repairs, 400m), new(null, -1000m)),
             Operation(_destination, null, Opening, new(_gift, 200m), new(null, -200m)),
-            Operation(_source, transfer.Id, dates.DepartedOn, new JarLedgerPosting(_holiday, -100m)),
         };
-        if (dates.ReceivedOn.HasValue || overrideReceiptAllocationDate is not null)
+        if (dates.DepartedOn is DateOnly departure)
+            operations.Add(Operation(_source, transfer.Id, departure, new JarLedgerPosting(_holiday, -100m)));
+        if ((dates.DepartedOn.HasValue && dates.ReceivedOn.HasValue) || overrideReceiptAllocationDate is not null)
         {
             var receiptOperation = Operation(_destination, transfer.Id,
                 overrideReceiptAllocationDate ?? dates.ReceivedOn!.Value, new JarLedgerPosting(_gift, 100m));
@@ -218,5 +219,192 @@ public class TransferLedgerTests
         transaction.Type = TransactionType.Income;
         var act = () => TransferLedger.Calculate(transaction, new(Departure, Receipt), Receipt);
         act.Should().Throw<InvalidOperationException>().WithMessage("*requires a transfer*");
+    }
+
+    [Fact]
+    public void ReceiptWithUnknownDepartureIsVisibleForReview_WithoutCreatingAccountOrJarMoney()
+    {
+        var transfer = Transfer();
+        var dates = new TransferPostingDates(null, Receipt);
+        var result = Snapshot(transfer, dates, Receipt);
+
+        result.Source.AccountBalance.Should().Be(1000m);
+        result.Destination.AccountBalance.Should().Be(200m);
+        result.Source.JarBalances![_holiday].Should().Be(600m);
+        result.Destination.JarBalances![_gift].Should().Be(200m);
+        result.Position.DebitedAmount.Should().Be(0m);
+        result.Position.CreditedAmount.Should().Be(0m);
+        result.Position.UnsettledAmount.Should().Be(0m);
+        result.Position.RequiresReview.Should().BeTrue();
+        var pending = new PendingTransferReceipt(transfer.Id, transfer.Currency, Receipt, 100m);
+        result.Position.PendingReceipt.Should().Be(pending);
+        result.Source.PendingTransferReceipts.Should().Equal(pending);
+        result.Destination.PendingTransferReceipts.Should().Equal(pending);
+        result.Source.RequiresReview.Should().BeTrue();
+        result.Destination.RequiresReview.Should().BeTrue();
+        dates.DepartedOn.Should().BeNull();
+        dates.ReceivedOn.Should().Be(Receipt);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void BothAccountViewsExposeThePendingReceipt_WithoutPostingIt(bool source)
+    {
+        var account = source ? _source : _destination;
+        var transfer = Transfer();
+        var result = ActualAccountLedger.Calculate(account, Opening, Receipt, [transfer],
+            Dates(transfer, new(null, Receipt)));
+
+        result.Balance.Should().Be(account.OpeningBalance);
+        result.RequiresReview.Should().BeTrue();
+        result.PendingTransferReceipts.Should().ContainSingle()
+            .Which.TransferId.Should().Be(transfer.Id);
+    }
+
+    [Fact]
+    public void SupplyingDepartureResolvesReview_AndPostsEachLegOnceOnItsActualDate()
+    {
+        var transfer = Transfer();
+        var pendingDates = new TransferPostingDates(null, Receipt);
+        var confirmed = pendingDates with { DepartedOn = Departure };
+        var september = Snapshot(transfer, confirmed, Departure);
+        var october = Snapshot(transfer, confirmed, Receipt);
+
+        september.Source.AccountBalance.Should().Be(900m);
+        september.Destination.AccountBalance.Should().Be(200m);
+        september.Position.UnsettledAmount.Should().Be(100m);
+        october.Source.AccountBalance.Should().Be(900m);
+        october.Destination.AccountBalance.Should().Be(300m);
+        october.Source.JarBalances![_holiday].Should().Be(500m);
+        october.Destination.JarBalances![_gift].Should().Be(300m);
+        october.Position.UnsettledAmount.Should().Be(0m);
+        october.Position.RequiresReview.Should().BeFalse();
+        october.Source.RequiresReview.Should().BeFalse();
+        october.Destination.RequiresReview.Should().BeFalse();
+        pendingDates.DepartedOn.Should().BeNull();
+        confirmed.ReceivedOn.Should().Be(Receipt);
+    }
+
+    [Fact]
+    public void PendingReceiptCannotBeAllocatedToAJar()
+    {
+        var act = () => Snapshot(Transfer(), new(null, Receipt), Receipt,
+            overrideReceiptAllocationDate: Receipt);
+        act.Should().Throw<InvalidOperationException>().WithMessage("*transaction account and date*");
+    }
+
+    [Fact]
+    public void PendingReceiptCannotBeAllocatedToUnallocatedFunds()
+    {
+        var transfer = Transfer();
+        var allocation = Operation(_destination, transfer.Id, Receipt, new JarLedgerPosting(null, 100m));
+        var act = () => ActualSavingsLedger.Calculate(_destination, Opening, Receipt, [], [transfer],
+            [allocation], Dates(transfer, new(null, Receipt)));
+        act.Should().Throw<InvalidOperationException>().WithMessage("*transaction account and date*");
+    }
+
+    [Fact]
+    public void FutureReceiptDoesNotAppearInAnEarlierReviewOrBalance()
+    {
+        var result = Snapshot(Transfer(), new(null, Receipt), Receipt.AddDays(-1));
+        result.Source.AccountBalance.Should().Be(1000m);
+        result.Destination.AccountBalance.Should().Be(200m);
+        result.Source.PendingTransferReceipts.Should().BeEmpty();
+        result.Destination.PendingTransferReceipts.Should().BeEmpty();
+        result.Position.RequiresReview.Should().BeFalse();
+        result.Position.CreditedAmount.Should().Be(0m);
+    }
+
+    [Fact]
+    public void PendingReceiptBeforeOpeningRemainsAReviewItem_WithoutChangingOpeningMoney()
+    {
+        var transfer = Transfer();
+        var result = ActualAccountLedger.Calculate(_destination, Receipt.AddDays(1), Receipt.AddDays(2),
+            [transfer], Dates(transfer, new(null, Receipt)));
+        result.Balance.Should().Be(200m);
+        result.RequiresReview.Should().BeTrue();
+        result.PendingTransferReceipts.Single().ReceivedOn.Should().Be(Receipt);
+    }
+
+    [Fact]
+    public void BeforeOpeningBalanceStaysUnavailable_EvenWithAPendingReceipt()
+    {
+        var transfer = Transfer();
+        var dates = Dates(transfer, new(null, Receipt));
+        var account = ActualAccountLedger.Calculate(_destination, Receipt.AddDays(1), Receipt, [transfer], dates);
+        var savings = ActualSavingsLedger.Calculate(_destination, Receipt.AddDays(1), Receipt, [],
+            [transfer], [], dates);
+        account.IsAvailable.Should().BeFalse();
+        savings.IsAvailable.Should().BeFalse();
+        account.PendingTransferReceipts.Should().BeEmpty();
+        savings.PendingTransferReceipts.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DuplicatePendingIdentityIsRejected_ButEqualAmountsAreNotAssumedToMatch()
+    {
+        var first = Transfer();
+        var second = Transfer();
+        var dates = Dates(first, new(null, Receipt));
+        dates.Add(second.Id, new(null, Receipt));
+        var separate = ActualAccountLedger.Calculate(_destination, Opening, Receipt, [first, second], dates);
+        separate.PendingTransferReceipts.Should().HaveCount(2);
+        separate.Balance.Should().Be(200m);
+
+        var act = () => ActualAccountLedger.Calculate(_destination, Opening, Receipt, [first, first], dates);
+        act.Should().Throw<InvalidOperationException>().WithMessage("*pending transfer receipt*twice*");
+    }
+
+    [Fact]
+    public void PendingReceiptPreservesAuthoritativePrecisionAndCurrency()
+    {
+        var transfer = Transfer();
+        transfer.Currency = CurrencyCode.From("GBP");
+        transfer.Amount = 1.2345m;
+        transfer.ExchangeRate = 9m;
+        var result = TransferLedger.Calculate(transfer, new(null, Receipt), Receipt);
+        result.PendingReceipt.Should().Be(new PendingTransferReceipt(transfer.Id, transfer.Currency, Receipt, 1.2345m));
+        result.CreditedAmount.Should().Be(0m);
+        result.UnsettledAmount.Should().Be(0m);
+    }
+
+    [Fact]
+    public void PendingReceiptInAnotherCurrencyCannotEnterAccountReview()
+    {
+        var transfer = Transfer();
+        transfer.Currency = CurrencyCode.From("GBP");
+        var act = () => ActualAccountLedger.Calculate(_destination, Opening, Receipt, [transfer],
+            Dates(transfer, new(null, Receipt)));
+        act.Should().Throw<InvalidOperationException>().WithMessage("*account currency*");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AnotherOwnerOrUnrelatedAccountCannotLeakPendingReceiptEvidence(bool otherOwner)
+    {
+        var transfer = Transfer();
+        if (otherOwner) transfer.OwnerId = "another-owner";
+        else
+        {
+            transfer.AccountId = Guid.NewGuid();
+            transfer.TransferAccountId = Guid.NewGuid();
+        }
+        var result = ActualAccountLedger.Calculate(_destination, Opening, Receipt, [transfer],
+            Dates(transfer, new(null, Receipt)));
+        result.PendingTransferReceipts.Should().BeEmpty();
+        result.Balance.Should().Be(200m);
+    }
+
+    [Fact]
+    public void NeitherKnownDateCannotMasqueradeAsAPendingReceipt()
+    {
+        var transfer = Transfer();
+        var dates = new TransferPostingDates(null, null);
+        var position = () => TransferLedger.Calculate(transfer, dates, Receipt);
+        var account = () => ActualAccountLedger.Calculate(_destination, Opening, Receipt, [transfer], Dates(transfer, dates));
+        position.Should().Throw<InvalidOperationException>().WithMessage("*at least one confirmed bank posting date*");
+        account.Should().Throw<InvalidOperationException>().WithMessage("*at least one confirmed bank posting date*");
     }
 }

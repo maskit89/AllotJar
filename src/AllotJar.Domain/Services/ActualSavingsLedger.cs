@@ -40,7 +40,8 @@ public static class ActualSavingsLedger
             throw new InvalidOperationException("Jar money must reside in a designated savings account.");
         if (asOf < openingDate) return new(asOf, null, null, null);
 
-        var movements = ActualAccountLedger.Movements(account, openingDate, asOf, transactions, transferDates);
+        var entries = ActualAccountLedger.Entries(account, openingDate, asOf, transactions, transferDates);
+        var movements = entries.Movements;
         // Archived jars still own money and must remain in reconciliation. Ignore
         // legacy Jar.OpeningBalance: existing account money needs an explicit allocation.
         var jarBalances = jars.Where(j => j.OwnerId == account.OwnerId && j.FundingAccountId == account.Id)
@@ -88,7 +89,10 @@ public static class ActualSavingsLedger
         var balance = account.OpeningBalance + movements.Values.Sum(m => m.Amount);
         if (jarBalances.Values.Sum() + unallocated != balance)
             throw new InvalidOperationException("Jar and unallocated balances must reconcile to account money.");
-        return new(asOf, balance, new ReadOnlyDictionary<Guid, decimal>(jarBalances), unallocated);
+        return new(asOf, balance, new ReadOnlyDictionary<Guid, decimal>(jarBalances), unallocated)
+        {
+            PendingTransferReceipts = entries.PendingReceipts,
+        };
     }
 }
 
@@ -104,4 +108,6 @@ public sealed record SavingsLedgerBalance(
     public bool IsAvailable => AccountBalance.HasValue;
     public bool HasAccountDeficit => AccountBalance < 0;
     public bool HasUnallocatedDeficit => Unallocated < 0;
+    public IReadOnlyList<PendingTransferReceipt> PendingTransferReceipts { get; init; } = [];
+    public bool RequiresReview => PendingTransferReceipts.Count > 0;
 }

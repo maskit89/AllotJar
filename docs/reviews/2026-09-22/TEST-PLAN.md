@@ -73,6 +73,12 @@ Removed the third, redundant difference assertion from the jar/grid comparison: 
 - **Remove:** dead-feature-only tests when that feature is actually removed, or exact duplicates after equivalent protection is demonstrated. Record the test name, reason and retained/replacement test in the implementation change notes. Do not delete historical EF migrations as “obsolete tests”.
 - No blanket deletion list is justified by this targeted review. In particular, rate-provider tests may support the now-approved suggestion-only feature, and legacy accrual modes still need a product decision.
 
+### W01/W07 receipt-first review — 25 September 2026
+
+Rule 72 adds 15 cases to `Domain/TransferLedgerTests.cs`. A known receipt with unknown departure is exposed for review on the transfer and both relevant account/jar results, with zero posted debit, credit or transit. Coverage verifies unchanged jar funds, rejection of attempted jar/unallocated receipt allocations, resolution on distinct bank dates, date/opening boundaries, owner/account isolation, currency/precision preservation, duplicate identity rejection and two legitimate equal-amount receipts remaining separate. Both dates missing is rejected instead of becoming an invented pending entry.
+
+Reviewed the existing departure-only, confirmed-receipt, month-boundary and account-backing cases: all remain valid and are retained. Generalized the existing snapshot helper to create actual allocations only when departure is known; its prior assertions remain intact. No existing test was removed or disabled. Avoided a redundant repeated-pure-calculation assertion: statement-match idempotency needs future handler/SQL coverage, not calling the same arithmetic twice. The 93 targeted ledger tests and all 902 backend tests passed. Build passed with zero warnings/errors. These tests do not establish persistence or import/UI activation; those paths have not switched to the foundation.
+
 ## Execution and completion criteria
 
 Run targeted regressions with the corresponding implementation, then the full affected suites once the change is coherent. Do not repeatedly rerun unchanged suites without a new reason.
