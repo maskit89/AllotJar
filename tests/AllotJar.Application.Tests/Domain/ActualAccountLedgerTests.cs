@@ -97,10 +97,14 @@ public class ActualAccountLedgerTests
         destination.OpeningBalance = 150m; // Already includes the earlier transfer.
         var transfer = Movement(source, TransactionType.Transfer, 50m, OpeningDate);
         transfer.TransferAccountId = destination.Id;
+        var dates = new Dictionary<Guid, TransferPostingDates>
+        {
+            [transfer.Id] = new(OpeningDate, OpeningDate),
+        };
 
-        ActualAccountLedger.Calculate(source, OpeningDate, OpeningDate.AddDays(2), [transfer])
+        ActualAccountLedger.Calculate(source, OpeningDate, OpeningDate.AddDays(2), [transfer], dates)
             .Balance.Should().Be(550m);
-        ActualAccountLedger.Calculate(destination, OpeningDate.AddDays(1), OpeningDate.AddDays(2), [transfer])
+        ActualAccountLedger.Calculate(destination, OpeningDate.AddDays(1), OpeningDate.AddDays(2), [transfer], dates)
             .Balance.Should().Be(150m);
     }
 

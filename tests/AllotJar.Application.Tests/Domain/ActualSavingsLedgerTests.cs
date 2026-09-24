@@ -29,7 +29,11 @@ public class ActualSavingsLedgerTests
         Guid.NewGuid(), _account.OwnerId, _account.Id, transaction?.Date ?? OpeningDate, transaction?.Id, postings);
 
     private SavingsLedgerBalance Calculate(Jar[] jars, Transaction[] transactions, params JarLedgerOperation[] operations) =>
-        ActualSavingsLedger.Calculate(_account, OpeningDate, new(2026, 9, 30), jars, transactions, operations);
+        ActualSavingsLedger.Calculate(_account, OpeningDate, new(2026, 9, 30), jars, transactions, operations,
+            // These fixtures describe confirmed, same-day transfers. Production callers
+            // must supply actual dates; the calculator deliberately has no date fallback.
+            transactions.Where(t => t.Type == TransactionType.Transfer)
+                .ToDictionary(t => t.Id, _ => new TransferPostingDates(OpeningDate, OpeningDate)));
 
     [Fact]
     public void JarDefinitionsAndLegacyOpeningAmountsDoNotCreateActualSavings()
@@ -119,7 +123,8 @@ public class ActualSavingsLedgerTests
             Allocation(null, new JarLedgerPosting(a.Id, 100m), new JarLedgerPosting(null, -100m)), Allocation(transfer, new JarLedgerPosting(a.Id, -50m)));
         var incoming = new JarLedgerOperation(Guid.NewGuid(), destination.OwnerId, destination.Id,
             transfer.Date, transfer.Id, [new JarLedgerPosting(b.Id, 50m)]);
-        var target = ActualSavingsLedger.Calculate(destination, OpeningDate, OpeningDate, [b], [transfer], [incoming]);
+        var target = ActualSavingsLedger.Calculate(destination, OpeningDate, OpeningDate, [b], [transfer], [incoming],
+            new Dictionary<Guid, TransferPostingDates> { [transfer.Id] = new(OpeningDate, OpeningDate) });
 
         source.AccountBalance.Should().Be(550m);
         target.AccountBalance.Should().Be(50m);

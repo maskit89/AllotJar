@@ -33,15 +33,14 @@ public static class ActualSavingsLedger
         Account account, DateOnly openingDate, DateOnly asOf,
         IReadOnlyCollection<Jar> jars,
         IReadOnlyCollection<Transaction> transactions,
-        IReadOnlyCollection<JarLedgerOperation> operations)
+        IReadOnlyCollection<JarLedgerOperation> operations,
+        IReadOnlyDictionary<Guid, TransferPostingDates>? transferDates = null)
     {
         if (account.Type != AccountType.Savings)
             throw new InvalidOperationException("Jar money must reside in a designated savings account.");
         if (asOf < openingDate) return new(asOf, null, null, null);
 
-        var movements = ActualAccountLedger.Movements(account, openingDate, asOf, transactions);
-        var dates = transactions.Where(t => t.OwnerId == account.OwnerId && movements.ContainsKey(t.Id))
-            .ToDictionary(t => t.Id, t => t.Date);
+        var movements = ActualAccountLedger.Movements(account, openingDate, asOf, transactions, transferDates);
         // Archived jars still own money and must remain in reconciliation. Ignore
         // legacy Jar.OpeningBalance: existing account money needs an explicit allocation.
         var jarBalances = jars.Where(j => j.OwnerId == account.OwnerId && j.FundingAccountId == account.Id)
@@ -61,8 +60,9 @@ public static class ActualSavingsLedger
             decimal expected = 0;
             if (operation.TransactionId is Guid transactionId)
             {
-                if (!movements.TryGetValue(transactionId, out expected) || dates[transactionId] != operation.Date)
+                if (!movements.TryGetValue(transactionId, out var movement) || movement.Date != operation.Date)
                     throw new InvalidOperationException("An allocation must match its transaction account and date.");
+                expected = movement.Amount;
                 if (!allocatedTransactions.Add(transactionId))
                     throw new InvalidOperationException("A transaction account leg can only be allocated once.");
                 if (operation.Postings.Any(p => Math.Sign(p.Amount) != Math.Sign(expected)))
@@ -85,7 +85,7 @@ public static class ActualSavingsLedger
         if (allocatedTransactions.Count != movements.Count)
             throw new InvalidOperationException("Every savings-account movement requires an explicit jar/unallocated allocation.");
 
-        var balance = account.OpeningBalance + movements.Values.Sum();
+        var balance = account.OpeningBalance + movements.Values.Sum(m => m.Amount);
         if (jarBalances.Values.Sum() + unallocated != balance)
             throw new InvalidOperationException("Jar and unallocated balances must reconcile to account money.");
         return new(asOf, balance, new ReadOnlyDictionary<Guid, decimal>(jarBalances), unallocated);
