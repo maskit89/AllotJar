@@ -10,7 +10,7 @@ Completed first fixes: **A4 money edit round-trip**, **A3 allocation rounding**,
 
 ## Read in this order
 
-1. [AGREED-RULES.md](AGREED-RULES.md): 67 confirmed decisions, examples and accounting invariants; authoritative requirements.
+1. [AGREED-RULES.md](AGREED-RULES.md): 70 recorded rules, examples and accounting invariants; authoritative requirements. Rule 70 requires explicit coverage when positive jar balances exceed their backing account.
 2. This handover: work mapping, sequencing, unresolved decisions and status.
 3. [REVIEW.md](REVIEW.md): original 14 finding groups, eight further concerns, source references and synthetic reproductions. Some original questions are now resolved.
 4. [TEST-PLAN.md](TEST-PLAN.md): inspected test conflicts, retain/replace/remove policy and validation plan.
@@ -23,6 +23,8 @@ The original sibling `allotjar-review-2026-09-22` directory is an archived worki
 - Plans never create money. Actual account money and its allocation to jars must reconcile; do not just stop summing plans without implementing actual funding and opening allocations.
 - Each jar has one designated savings account. A negative jar is allowed; a negative savings account is not. Same-account reallocations do not change account balances.
 - Cross-account reallocation records a transfer after explicit **“I've completed this transfer”** confirmation. Both statement sides must later match it without another balance effect.
+- Each transfer leg uses its bank's posting date. Between departure and arrival the money is shown in transit and belongs to neither jar (rule 69); combined account balances plus transit must conserve the amount.
+- Positive jar balances must not exceed their savings account's actual money (rule 70). Negative jars cannot conceal insufficient backing; require an explicit user-selected reallocation to cover the deficit.
 - Each budget uses one currency. Bank/user amounts are authoritative. Conversion suggestions are allowed only where the required amount is missing and require approval before application. Do not implement the earlier blanket ban on suggestion calculations, automatic conversion/reconciliation, or inferred fees.
 - Private accounts cannot back shared jars. The earlier partially hidden/shared-account suggestion was explicitly rejected.
 - Opening balance is at the **start** of its date. Historical corrections use actual transaction dates. Historical plans are not rewritten by those corrections.
@@ -70,7 +72,7 @@ The 14 audit groups are fully mapped: J1–J6, P1–P2, A1–A6. The eight origi
 
 Ask only when the relevant work is reached; these do not block unrelated bug fixes. This is a list of unresolved decisions, not new requirements.
 
-- **O1 Transfers/imports:** candidate date tolerance and matching identifiers; conflicting same-reference rows; different posting dates on two sides (including month boundaries); reversal/correction behaviour; batch ordering and missing-history handling before enforcing non-negative savings; explicitly supplied transfer fees. Matching by amount alone is already prohibited.
+- **O1 Transfers/imports:** candidate date tolerance and matching identifiers; conflicting same-reference rows; recording departure when the receiving date is still unknown; reversal/correction behaviour; batch ordering and missing-history handling before enforcing non-negative savings; explicitly supplied transfer fees. Different bank posting dates and money in transit are settled by rule 69. Matching by amount alone is already prohibited. Rule 70 settles the requirement for explicit coverage when positive jars exceed account money; the transaction/import correction workflow must still be implemented without hiding genuine bank movements.
 - **O2 Time/history:** household timezone and exact deadline-day cutoff; what future-month views display as actual vs projected; current-month partial scheduling and how earlier genuine corrections affect previously recorded cycle status. Before-opening balances are now explicitly unavailable under rule 67. Past month-end balances and actual-date corrections are already agreed.
 - **O3 Jar lifecycle:** which payments fulfil which recurring cycle, especially early payments across cycles; treatment of negative-balance completion and reopening; exact unused deletion eligibility (opening allocations/planned lines); manual plan overrides during target edits; skipping the last eligible month; effects of changing a jar's designated account. Do not infer a funds transfer from changing an account field.
 - **O4 Allocation details:** attribution of income not assigned to people and zero-income proportional splitting. The pool must remain the selected budget's income regardless. Leftover-cent recipients are now settled by rule64.
