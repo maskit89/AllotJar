@@ -100,12 +100,23 @@ export interface TransactionDto {
   /** For a transfer, the destination account the money moved into. */
   transferAccountId: string | null
   transferAccountName: string | null
+  /** For a transfer: the source bank's posting date, or null while the departure is unknown (held for review). */
+  departedOn?: string | null
+  /** For a transfer: the destination bank's posting date, or null while the money is in transit. */
+  receivedOn?: string | null
+  /** For a transfer: the destination statement's reference for the credit leg. */
+  receiptBankReference?: string | null
+  /** For a transfer: 'Completed' | 'InTransit' | 'PendingReview', derived from the two bank legs. */
+  transferStatus?: TransferStatus | null
   /** Household member this whole transaction is attributed to, if any. */
   memberId: string | null
   memberName: string | null
   isSplit: boolean
   splits: TransactionSplitDto[]
 }
+
+/** Matches Domain.Enums.TransferStatus, serialized by name. */
+export type TransferStatus = 'Completed' | 'InTransit' | 'PendingReview'
 
 // Matches Domain.Enums.AccountType (serialized as a number).
 export const AccountType = {
@@ -131,8 +142,26 @@ export interface AccountDto {
   type: number
   currency: string
   openingBalance: number
-  /** Opening balance plus the net of the account's transactions. */
-  currentBalance: number
+  /** The date the opening balance applies from (start of day). Null only on rows recorded before it was required. */
+  openingDate?: string | null
+  /**
+   * Actual money as of `balanceAsOf`: the opening balance plus every posted leg dated from the
+   * opening date to that day. Null when unavailable (no opening date, or as-of before it) — never zero.
+   */
+  currentBalance: number | null
+  /** The date `currentBalance` is calculated as of. */
+  balanceAsOf?: string
+  /** True when `currentBalance` is null because no opening date is recorded. */
+  openingDateMissing?: boolean
+  /** Confirmed departures from this account whose receipt is not yet confirmed (excluded from the balance). */
+  inTransitOut?: number
+  /** Confirmed departures towards this account not yet received (not part of the balance). */
+  inTransitIn?: number
+  /** Receipts identified as own-account transfers awaiting their departure details; none is posted. */
+  pendingReceiptCount?: number
+  pendingReceiptTotal?: number
+  /** True when the posted balance is flagged for review: it does not yet reflect a pending receipt. */
+  requiresReview?: boolean
   displayOrder: number
 }
 
@@ -155,6 +184,24 @@ export interface ImportCandidate {
    * same statement previously imported through a different format. Unticked by default.
    */
   possibleDuplicate?: boolean
+  /**
+   * Recorded transfers this row could confirm the other side of (same statement account on the
+   * open leg, same amount and currency). Suggestions only — the user must pick one; nothing is
+   * matched from the amount alone. Present only when the statement account was chosen.
+   */
+  transferMatches?: TransferMatchCandidate[]
+}
+
+/** A recorded transfer a statement row could be the other side of; see ImportCandidate.transferMatches. */
+export interface TransferMatchCandidate {
+  transferId: string
+  counterpartyAccountId: string
+  counterpartyAccountName: string
+  amount: number
+  currency: string
+  departedOn: string | null
+  receivedOn: string | null
+  payee: string
 }
 
 /** How the amount column writes decimals. Matches the server CsvDecimalStyle enum. */
@@ -223,6 +270,12 @@ export interface CommitImportItem {
   transferAccountId?: string | null
   /** Set after the user confirms budgeting this row to a line in a different month than its date. */
   acknowledgeCrossMonth?: boolean
+  /**
+   * The recorded transfer this row confirms the other side of, chosen by the user from the
+   * preview's candidates. The row's date/reference attach to that transfer's open leg and no new
+   * transaction is created. Requires `transferAccountId` to name the same counterparty.
+   */
+  matchTransferId?: string | null
 }
 
 /** Summary returned by a statement import (CAMT.053 or HSBC CSV). */
@@ -234,17 +287,25 @@ export interface ImportStatementResult {
   debits: number
   iban: string | null
   autoCategorized: number
+  /** Transfer rows recorded or confirmed. */
   transfers: number
+  /** Rows that confirmed the other side of an existing transfer (no new transaction). */
+  matchedTransfers?: number
+  /** Credit rows held for review because only the receipt is known. */
+  pendingReviewTransfers?: number
 }
 
 export interface AccountReconciliationDto {
   accountId: string
   accountName: string
-  currentBalance: number
+  /** Actual balance as of today; null when unavailable. */
+  currentBalance: number | null
   backedJarsTotal: number
   backedJarCount: number
-  /** CurrentBalance − BackedJarsTotal: unallocated float (or shortfall when negative). */
-  float: number
+  /** CurrentBalance − BackedJarsTotal: unallocated float (or shortfall when negative); null when the balance is unavailable. */
+  float: number | null
+  /** True when a pending transfer receipt means the posted balance is not yet reconcilable with the bank. */
+  requiresReview?: boolean
 }
 
 export interface BudgetTrendPointDto {
@@ -438,7 +499,8 @@ export interface MemberAllocationDto {
   netIncome: number
   residual: number
   /** Savings-account balance before this month's allocation (for the balance-aware view). */
-  savingsBalance: number
+  /** Actual savings-account balance today, before this month's allocation; null when unavailable (no opening date). */
+  savingsBalance: number | null
   savingsAccountId: string | null
 }
 
@@ -449,6 +511,8 @@ export interface AllocationResultDto {
   steps: AllocationStepDto[]
   members: MemberAllocationDto[]
   transfersCreated: number
+  /** Previously recorded transfers a commit left unchanged (0 for a preview). */
+  transfersRetained?: number
   /**
    * True when the pool came from the month's budgeted income lines (attributed to
    * people). Optional so existing fixtures stay valid; absent reads as false.

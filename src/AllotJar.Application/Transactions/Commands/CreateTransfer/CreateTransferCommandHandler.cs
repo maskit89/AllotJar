@@ -51,7 +51,11 @@ public class CreateTransferCommandHandler : IRequestHandler<CreateTransferComman
         var transfer = new Transaction
         {
             OwnerId = userId,
-            Date = request.Date,
+            // The register's display date is the confirmed departure; each bank leg keeps its
+            // own posting date below and the ledger never falls back to this field.
+            Date = request.DepartedOn,
+            DepartedOn = request.DepartedOn,
+            ReceivedOn = request.ReceivedOn,
             Payee = string.IsNullOrWhiteSpace(request.Payee) ? "Transfer" : request.Payee.Trim(),
             Amount = request.Amount,
             // Both accounts share a currency (guarded above); stamp the transfer in it

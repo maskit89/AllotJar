@@ -13,7 +13,12 @@ public record ImportStatementCommand(
     Guid? AccountId = null,
     StatementFormat Format = StatementFormat.Camt053) : IRequest<ImportStatementResult>;
 
-/// <summary>Summary of what an import did.</summary>
+/// <summary>
+/// Summary of what an import did. <paramref name="Transfers"/> counts transfer rows recorded
+/// or confirmed; <paramref name="MatchedTransfers"/> is the subset that confirmed the other side
+/// of an existing transfer (no new transaction); <paramref name="PendingReviewTransfers"/> the
+/// subset held for review because only the receipt is known (rule 72).
+/// </summary>
 public record ImportStatementResult(
     int TotalEntries,
     int Imported,
@@ -22,4 +27,6 @@ public record ImportStatementResult(
     int Debits,
     string? Iban,
     int AutoCategorized = 0,
-    int Transfers = 0);
+    int Transfers = 0,
+    int MatchedTransfers = 0,
+    int PendingReviewTransfers = 0);

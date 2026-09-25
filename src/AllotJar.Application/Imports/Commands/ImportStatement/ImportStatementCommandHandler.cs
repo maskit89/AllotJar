@@ -70,13 +70,9 @@ public class ImportStatementCommandHandler : IRequestHandler<ImportStatementComm
         // idempotent. Scoped by account (matching the unique index) so a reference a bank reuses
         // on a different account isn't mistaken for a duplicate; case-insensitive to agree with the
         // index's CI collation.
-        var importAccountId = request.AccountId;
-        var existingReferences = await _db.Transactions
-            .Where(t => t.OwnerId == userId && t.AccountId == importAccountId && t.BankReference != null)
-            .Select(t => t.BankReference!)
-            .ToListAsync(cancellationToken);
-
-        var seen = new HashSet<string>(existingReferences, StringComparer.OrdinalIgnoreCase);
+        // Shared with preview/commit so a receipt leg confirmed from this account's statement
+        // counts as known here too.
+        var seen = await StatementReferences.KnownAsync(_db, userId, request.AccountId, cancellationToken);
 
         int imported = 0, skipped = 0, credits = 0, debits = 0;
         var created = new List<Transaction>();

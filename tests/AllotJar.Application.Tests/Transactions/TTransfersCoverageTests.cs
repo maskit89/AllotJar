@@ -57,6 +57,7 @@ public class TTransfersCoverageTests
             Type = AccountType.Current,
             Currency = CurrencyCode.From(currency),
             OpeningBalance = opening,
+            OpeningDate = new DateOnly(2026, 1, 1),
         };
         db.Accounts.Add(a);
         db.SaveChanges();
@@ -164,7 +165,7 @@ public class TTransfersCoverageTests
         await db.SaveChangesAsync();
 
         await new CreateTransferCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new CreateTransferCommand(new DateOnly(2026, 7, 16), 300m, current.Id, pot.Id), CancellationToken.None);
+            .Handle(new CreateTransferCommand(new DateOnly(2026, 7, 16), 300m, current.Id, pot.Id, ReceivedOn: new DateOnly(2026, 7, 16)), CancellationToken.None);
 
         var accounts = await Accounts(db, "user-1");
         var currentBal = accounts.Single(a => a.Id == current.Id).CurrentBalance;
@@ -228,7 +229,7 @@ public class TTransfersCoverageTests
         var current = SeedAccount(db, "user-1", "Current", 2000m);
         var pot = SeedAccount(db, "user-1", "Pot", 500m);
         var transfer = await new CreateTransferCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new CreateTransferCommand(new DateOnly(2026, 7, 16), 300m, current.Id, pot.Id), CancellationToken.None);
+            .Handle(new CreateTransferCommand(new DateOnly(2026, 7, 16), 300m, current.Id, pot.Id, ReceivedOn: new DateOnly(2026, 7, 16)), CancellationToken.None);
 
         // Sanity: the transfer has moved the balances before we delete it.
         var moved = await Accounts(db, "user-1");
@@ -244,27 +245,32 @@ public class TTransfersCoverageTests
         (await db.Transactions.CountAsync()).Should().Be(0);
     }
 
-    // ── TRF-031 (source side): deleting the SOURCE account nulls the transfer's AccountId,
-    // keeps the row, and leaves the destination pointer + its credit intact. (TransfersTests
-    // only covers deleting the destination account.)
+    // ── TRF-031 (source side): deleting the SOURCE account of a transfer is refused. A transfer
+    // is one movement with a bank leg on each side (rules 51/69); clearing either pointer would
+    // leave a half-movement the dated ledger cannot read. Nothing is detached or moved by the
+    // refused delete. (TransfersTests covers the destination side.)
     [Fact]
-    public async Task DeletingTheSourceAccount_KeepsTheRow_ClearsSourcePointer_AndDestinationKeepsCredit()
+    public async Task DeletingTheSourceAccount_IsRefused_AndLeavesTheTransferIntact()
     {
         await using var db = NewContext();
         var current = SeedAccount(db, "user-1", "Current", 2000m);
         var pot = SeedAccount(db, "user-1", "Pot", 500m);
         await new CreateTransferCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new CreateTransferCommand(new DateOnly(2026, 7, 16), 300m, current.Id, pot.Id), CancellationToken.None);
+            .Handle(new CreateTransferCommand(new DateOnly(2026, 7, 16), 300m, current.Id, pot.Id,
+                ReceivedOn: new DateOnly(2026, 7, 16)), CancellationToken.None);
 
-        await new DeleteAccountCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new DeleteAccountCommand(current.Id), CancellationToken.None);
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            new DeleteAccountCommandHandler(db, new CurrentUserStub("user-1"))
+                .Handle(new DeleteAccountCommand(current.Id), CancellationToken.None));
 
+        ex.Errors["Id"].Single().Should().Contain("1 transfer");
+        (await db.Accounts.CountAsync()).Should().Be(2);
         var tx = db.Transactions.Single();
-        tx.AccountId.Should().BeNull();          // source pointer cleared (FK SetNull)
-        tx.TransferAccountId.Should().Be(pot.Id); // destination pointer survives
+        tx.AccountId.Should().Be(current.Id);
+        tx.TransferAccountId.Should().Be(pot.Id);
 
-        // Pot keeps the +300 credit (its TransferAccountId still points at it).
         var accounts = await Accounts(db, "user-1");
+        accounts.Single(a => a.Id == current.Id).CurrentBalance.Should().Be(1700m);
         accounts.Single(a => a.Id == pot.Id).CurrentBalance.Should().Be(800m);
     }
 

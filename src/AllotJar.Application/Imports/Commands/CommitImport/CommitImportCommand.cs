@@ -14,6 +14,22 @@ public record CommitImportSplit(Guid BudgetItemId, decimal Amount, Guid? MemberI
 /// persisted as a split transaction instead — the slices carry the attribution and the
 /// whole-transaction line/member are cleared.
 /// </summary>
+/// <param name="TransferAccountId">
+/// When set, the row is an own-account transfer between the import account and this
+/// counterparty (direction follows <see cref="IsCredit"/>). A debit records the confirmed
+/// departure leg; a credit records the receipt leg only and is held for review until its
+/// departure is supplied (rule 72). See the commit handler.
+/// </param>
+/// <param name="MatchTransferId">
+/// The recorded transfer this row confirms the other side of, chosen by the user from the
+/// preview's candidates (rules 50/51). The row's date and reference are attached to that
+/// transfer's open leg and no new transaction is created. Requires
+/// <paramref name="TransferAccountId"/> to name the same counterparty.
+/// </param>
+/// <param name="AcknowledgeCrossMonth">
+/// Set only after the user confirms budgeting this row (or its slices) to a line in a
+/// different month than the row's date (see TransactionInvariants.CrossMonthKey).
+/// </param>
 public record CommitImportItem(
     string Reference,
     DateOnly Date,
@@ -24,17 +40,15 @@ public record CommitImportItem(
     Guid? BudgetItemId,
     Guid? MemberId,
     IReadOnlyList<CommitImportSplit>? Splits = null,
-    // When set, the row is imported as a transfer between the import account and this counterparty
-    // account (direction follows IsCredit) instead of an income/expense — see the commit handler.
     Guid? TransferAccountId = null,
-    // Set only after the user confirms budgeting this row (or its slices) to a line in a
-    // different month than the row's date (see TransactionInvariants.CrossMonthKey).
-    bool AcknowledgeCrossMonth = false);
+    bool AcknowledgeCrossMonth = false,
+    Guid? MatchTransferId = null);
 
 /// <summary>
 /// Persists the rows the user kept after reviewing an import. Idempotent: any row whose
-/// <see cref="CommitImportItem.Reference"/> already exists is skipped, so a double-submit (or a
-/// later re-import) never duplicates. <see cref="AccountId"/> stamps every row onto one account.
+/// <see cref="CommitImportItem.Reference"/> this statement account already knows is skipped, so a
+/// double-submit (or a later re-import) never duplicates. <see cref="AccountId"/> stamps every
+/// row onto one account.
 /// </summary>
 public record CommitImportCommand(Guid? AccountId, IReadOnlyList<CommitImportItem> Items)
     : IRequest<ImportStatementResult>;

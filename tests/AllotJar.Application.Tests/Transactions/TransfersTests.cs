@@ -40,6 +40,7 @@ public class TransfersTests
             Type = AccountType.Current,
             Currency = CurrencyCode.Eur,
             OpeningBalance = opening,
+            OpeningDate = new DateOnly(2026, 1, 1),
         };
         db.Accounts.Add(a);
         db.SaveChanges();
@@ -54,7 +55,7 @@ public class TransfersTests
         var to = SeedAccount(db, "user-1", "Savings", 0m);
 
         await new CreateTransferCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new CreateTransferCommand(new DateOnly(2026, 6, 10), 30m, from.Id, to.Id), CancellationToken.None);
+            .Handle(new CreateTransferCommand(new DateOnly(2026, 6, 10), 30m, from.Id, to.Id, ReceivedOn: new DateOnly(2026, 6, 10)), CancellationToken.None);
 
         var accounts = await new GetAccountsQueryHandler(db, new CurrentUserStub("user-1"))
             .Handle(new GetAccountsQuery(), CancellationToken.None);
@@ -96,8 +97,10 @@ public class TransfersTests
         pay.ActualAmount.Should().Be(0m); // the transfer is not income
     }
 
+    // Deleting the destination account of a transfer is refused: the transfer keeps both
+    // sides and both statement references (rule 51), so nothing is detached.
     [Fact]
-    public async Task DeleteAccount_ClearsTransfersPointingAtIt_AndKeepsTheTransaction()
+    public async Task DeleteAccount_IsRefused_WhileATransferPointsAtIt()
     {
         await using var db = NewContext();
         var from = SeedAccount(db, "user-1", "Current", 100m);
@@ -105,12 +108,15 @@ public class TransfersTests
         await new CreateTransferCommandHandler(db, new CurrentUserStub("user-1"))
             .Handle(new CreateTransferCommand(new DateOnly(2026, 6, 10), 30m, from.Id, to.Id), CancellationToken.None);
 
-        await new DeleteAccountCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new DeleteAccountCommand(to.Id), CancellationToken.None);
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            new DeleteAccountCommandHandler(db, new CurrentUserStub("user-1"))
+                .Handle(new DeleteAccountCommand(to.Id), CancellationToken.None));
 
+        ex.Errors["Id"].Single().Should().Contain("Delete or re-record those transfers");
         var tx = db.Transactions.Single();
-        tx.TransferAccountId.Should().BeNull(); // destination cleared
-        tx.AccountId.Should().Be(from.Id);      // source still linked, survives
+        tx.TransferAccountId.Should().Be(to.Id);
+        tx.AccountId.Should().Be(from.Id);
+        (await db.Accounts.CountAsync()).Should().Be(2);
     }
 
     [Fact]
@@ -134,6 +140,7 @@ public class TransfersTests
             Name = name,
             Type = AccountType.Current,
             Currency = CurrencyCode.From(currency),
+            OpeningDate = new DateOnly(2026, 1, 1),
         };
         db.Accounts.Add(a);
         db.SaveChanges();

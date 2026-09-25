@@ -47,6 +47,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 4)
                         .HasColumnType("decimal(18,4)");
 
+                    b.Property<DateOnly?>("OpeningDate")
+                        .HasColumnType("date");
+
                     b.Property<string>("OwnerId")
                         .IsRequired()
                         .HasMaxLength(450)
@@ -464,6 +467,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly>("Date")
                         .HasColumnType("date");
 
+                    b.Property<DateOnly?>("DepartedOn")
+                        .HasColumnType("date");
+
                     b.Property<decimal>("ExchangeRate")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(18, 6)
@@ -490,6 +496,13 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("ReceiptBankReference")
+                        .HasMaxLength(140)
+                        .HasColumnType("nvarchar(140)");
+
+                    b.Property<DateOnly?>("ReceivedOn")
+                        .HasColumnType("date");
+
                     b.Property<Guid?>("TransferAccountId")
                         .HasColumnType("uniqueidentifier");
 
@@ -515,7 +528,14 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("[BankReference] IS NOT NULL");
 
-                    b.ToTable("Transactions", (string)null);
+                    b.HasIndex("OwnerId", "TransferAccountId", "ReceiptBankReference")
+                        .IsUnique()
+                        .HasFilter("[ReceiptBankReference] IS NOT NULL");
+
+                    b.ToTable("Transactions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Transactions_TransferLegs", "[Type] <> 2 OR [DepartedOn] IS NOT NULL OR [ReceivedOn] IS NOT NULL");
+                        });
                 });
 
             modelBuilder.Entity("AllotJar.Domain.Entities.TransactionSplit", b =>

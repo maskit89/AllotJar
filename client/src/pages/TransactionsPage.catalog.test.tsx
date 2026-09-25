@@ -912,11 +912,70 @@ describe('TransactionsPage catalog — transfer form', () => {
     await user.type(screen.getByLabelText('Transfer amount'), '100')
     await user.selectOptions(screen.getByLabelText('Transfer from account'), 'a-joint')
     await user.selectOptions(screen.getByLabelText('Transfer to account'), 'a-rainy')
+    await user.click(screen.getByLabelText('Transfer completed confirmation'))
     await user.click(screen.getByRole('button', { name: 'Record transfer' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/transactions/transfer', expect.objectContaining({ payee: null })),
     )
+  })
+
+  // Rules 7/71 — the form records a confirmed departure; the receipt is optional and never invented.
+  it('sends the departure as departedOn, an optional receipt, and needs the completed confirmation', { timeout: 15000 }, async () => {
+    mockLoad([], accountsFixture())
+    mockPost.mockResolvedValue({ data: tx({ payee: 'Transfer', type: 2, amount: 100, accountName: 'Joint', transferAccountName: 'Rainy Day' }) })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    await user.click(await screen.findByRole('button', { name: 'Transfer' }, { timeout: 5000 }))
+    await user.clear(screen.getByLabelText('Transfer date'))
+    await user.type(screen.getByLabelText('Transfer date'), '2026-09-30')
+    await user.type(screen.getByLabelText('Transfer amount'), '100')
+    await user.selectOptions(screen.getByLabelText('Transfer from account'), 'a-joint')
+    await user.selectOptions(screen.getByLabelText('Transfer to account'), 'a-rainy')
+
+    // Not confirmed → blocked before the API.
+    await user.click(screen.getByRole('button', { name: 'Record transfer' }))
+    expect(await screen.findByText('Confirm that you’ve completed this transfer before recording it.', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+
+    // A receipt before the departure is a typo, blocked client-side.
+    await user.click(screen.getByLabelText('Transfer completed confirmation'))
+    await user.type(screen.getByLabelText('Transfer receipt date'), '2026-09-29')
+    await user.click(screen.getByRole('button', { name: 'Record transfer' }))
+    expect(await screen.findByText('The receipt date can’t be before the departure date.', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+
+    await user.clear(screen.getByLabelText('Transfer receipt date'))
+    await user.click(screen.getByRole('button', { name: 'Record transfer' }))
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/transactions/transfer', {
+        departedOn: '2026-09-30', receivedOn: null, amount: 100, fromAccountId: 'a-joint', toAccountId: 'a-rainy', payee: null,
+      }),
+    )
+  })
+
+  // Rules 69/72 — transfer rows show their leg status and take the missing leg inline.
+  it('confirms a missing bank leg from the register row', { timeout: 15000 }, async () => {
+    const inTransit = tx({ id: 't-in', payee: 'Stash', type: 2, amount: 100, accountName: 'Joint', transferAccountName: 'Rainy Day', transferStatus: 'InTransit', departedOn: '2026-09-30', receivedOn: null })
+    const pending = tx({ id: 't-pend', payee: 'From Joint', type: 2, amount: 40, accountName: 'Joint', transferAccountName: 'Rainy Day', transferStatus: 'PendingReview', departedOn: null, receivedOn: '2026-10-01' })
+    mockLoad([inTransit, pending], accountsFixture())
+    mockPut.mockResolvedValue({ data: { ...pending, transferStatus: 'Completed', departedOn: '2026-09-30' } })
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('In transit', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText('Pending review')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm receipt: Stash' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Add departure date: From Joint' }))
+    await user.clear(screen.getByLabelText('Departure date'))
+    await user.type(screen.getByLabelText('Departure date'), '2026-09-30')
+    await user.click(screen.getByRole('button', { name: 'Save transfer leg' }))
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t-pend/transfer-legs', { departedOn: '2026-09-30' }))
+    await waitFor(() => expect(screen.queryByText('Pending review')).not.toBeInTheDocument())
   })
 
   // TX-080 — a non-positive/blank transfer amount is blocked before the API.
@@ -971,6 +1030,7 @@ describe('TransactionsPage catalog — transfer form', () => {
     await user.type(screen.getByLabelText('Transfer amount'), '100')
     await user.selectOptions(screen.getByLabelText('Transfer from account'), 'a-joint')
     await user.selectOptions(screen.getByLabelText('Transfer to account'), 'a-rainy')
+    await user.click(screen.getByLabelText('Transfer completed confirmation'))
     await user.click(screen.getByRole('button', { name: 'Record transfer' }))
 
     expect(await screen.findByText('Could not record that transfer.', {}, { timeout: 5000 })).toBeInTheDocument()

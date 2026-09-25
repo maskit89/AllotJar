@@ -37,10 +37,16 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
         account.Name = request.Name.Trim();
         account.Type = request.Type;
         account.OpeningBalance = request.OpeningBalance;
+        account.OpeningDate = request.OpeningDate
+            ?? throw new ValidationException(new Dictionary<string, string[]>
+            {
+                [nameof(request.OpeningDate)] = new[] { "Enter the date the opening balance applies from." },
+            });
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        await AccountBalances.ApplyAsync(_db, userId, new[] { account }, cancellationToken);
-        return account.ToDto();
+        var asOf = DateOnly.FromDateTime(DateTime.UtcNow);
+        var views = await AccountLedgerReader.ReadAsync(_db, userId, new[] { account }, asOf, cancellationToken);
+        return account.ToDto(views[account.Id]);
     }
 }

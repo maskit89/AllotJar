@@ -47,6 +47,15 @@ public static class TransferLedger
         return new(transfer.Id, transfer.Currency, asOf, debited, credited);
     }
 
+    /// <summary>
+    /// The persisted bank legs of every transfer in <paramref name="transactions"/>, keyed by
+    /// transaction id, in the shape the ledger calculations consume. Non-transfers are skipped.
+    /// </summary>
+    public static Dictionary<Guid, TransferPostingDates> PostingDates(IEnumerable<Transaction> transactions) =>
+        transactions
+            .Where(t => t.Type == TransactionType.Transfer)
+            .ToDictionary(t => t.Id, t => new TransferPostingDates(t.DepartedOn, t.ReceivedOn));
+
     internal static void Validate(Transaction transfer)
     {
         if (transfer.Type != TransactionType.Transfer)

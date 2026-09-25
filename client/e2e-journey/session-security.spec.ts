@@ -124,7 +124,7 @@ test("another household's resources are invisible: 404 on read, 403 on write, an
   const victim = await apiRegister(baseURL!, 'victim', { sampleBudget: true })
   const created = await victim.ctx.post('/api/accounts', {
     headers: auth(victim.token),
-    data: { name: 'Secret Savings', type: 1, currency: 'EUR', openingBalance: 1234.56 },
+    data: { name: 'Secret Savings', type: 1, currency: 'EUR', openingBalance: 1234.56, openingDate: '2026-01-01' },
   })
   expect(created.status()).toBe(201)
   const { id: victimAccountId } = (await created.json()) as { id: string }
@@ -166,7 +166,7 @@ test("another household's resources are invisible: 404 on read, 403 on write, an
   // a truly-nonexistent id is 404. The 403/404 split is by design on the write path.
   const rename = await prober.put(`/api/accounts/${victimAccountId}`, {
     headers: auth(token),
-    data: { name: 'Hijacked', type: 1, openingBalance: 0 },
+    data: { name: 'Hijacked', type: 1, openingBalance: 0, openingDate: '2026-01-01' },
   })
   expect(rename.status()).toBe(403)
   expect(await rename.text()).not.toContain('Secret Savings')
@@ -178,7 +178,7 @@ test("another household's resources are invisible: 404 on read, 403 on write, an
   // NotEmpty(Id) rule — so a random unknown id is what exercises the not-found path.)
   const missing = await prober.put(`/api/accounts/${randomUUID()}`, {
     headers: auth(token),
-    data: { name: 'Hijacked', type: 1, openingBalance: 0 },
+    data: { name: 'Hijacked', type: 1, openingBalance: 0, openingDate: '2026-01-01' },
   })
   expect(missing.status()).toBe(404)
 

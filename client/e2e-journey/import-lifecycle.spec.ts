@@ -48,6 +48,8 @@ async function addAccount(page: Page, name: string) {
   await dialog.getByLabel('Account name').fill(name)
   await dialog.getByLabel('Account currency').selectOption({ label: 'Euro (€)' })
   await dialog.getByLabel('Opening balance').fill('0')
+  // Rule 40: the balance is tracked from the opening date; the statement rows are dated 2026.
+  await dialog.getByLabel('Opening date').fill('2026-01-01')
   await dialog.getByRole('button', { name: 'Add account', exact: true }).click()
   await expect(dialog).toBeHidden() // closes only on a successful POST
   await expect(page.getByRole('link', { name: `View ${name}`, exact: true })).toBeVisible()

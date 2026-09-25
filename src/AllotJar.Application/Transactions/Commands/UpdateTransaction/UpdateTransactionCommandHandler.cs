@@ -166,6 +166,11 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         {
             transaction.TransferAccount = null;
             transaction.TransferAccountId = null;
+            // The bank legs describe the transfer that no longer exists; an income/expense row
+            // has a single posting date (Date) and a single statement reference.
+            transaction.DepartedOn = null;
+            transaction.ReceivedOn = null;
+            transaction.ReceiptBankReference = null;
         }
         transaction.Account = account;
         transaction.AccountId = account?.Id;

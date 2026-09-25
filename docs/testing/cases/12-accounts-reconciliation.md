@@ -222,16 +222,16 @@
 
 ## Editing an account
 
-### ACCT-023 - Edit name, type and opening balance
+### ACCT-023 - Edit name, type, opening balance and opening date
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Owner; account "Rainy Day" (Savings, opening 500.00) with some transactions.
+- **Preconditions:** Owner; account "Rainy Day" (Savings, opening 500.00 on 2026-01-01) with some transactions.
 - **Steps:**
-  1. Hover/focus the card and click "✎" (aria "Edit Rainy Day"). The inline edit card replaces it.
+  1. Hover/focus the card and click "✎" (aria "Edit Rainy Day"). The inline edit card replaces it (name, type, opening balance, opening date — aria "Opening date for Rainy Day").
   2. Change Name to "Emergency", Type to "Current", Opening balance to "750".
   3. Click "Save" (aria "Save Emergency").
-- **Expected:** One `PUT /accounts/{id}` with `{ name: "Emergency", type: 0, openingBalance: 750 }` (**no currency field** in the body). The 200 `AccountDto` returns a **recomputed** balance (`750 + net of the account's transactions`); the card updates in place and `account_edited` is tracked.
-- **Automated:** No
+- **Expected:** One `PUT /accounts/{id}` with `{ name: "Emergency", type: 0, openingBalance: 750, openingDate: "2026-01-01" }` (**no currency field** in the body). The 200 `AccountDto` returns a **recomputed** balance as of today (`750 + net of the account's legs dated from the opening date`); the card updates in place and `account_edited` is tracked. Saving without an opening date is blocked client-side ("Enter the date the opening balance applies from.") and server-side (400). A legacy account with no opening date shows **Not available** with "Set an opening date to calculate the balance." and is left out of the hero total (rules 40/67).
+- **Automated:** Yes (client/src/pages/AccountsPage.catalog.test.tsx — ACCT-023; AccountsPage.test.tsx — legacy account without an opening date; tests/AllotJar.Application.Tests/Application/AccountLedgerActivationTests.cs)
 
 ### ACCT-024 - Currency is immutable on edit (no input; read-only note)
 - **Priority:** P1

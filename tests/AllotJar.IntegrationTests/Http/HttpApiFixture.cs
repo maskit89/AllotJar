@@ -147,7 +147,7 @@ public sealed class HttpApiFixture : IAsyncLifetime
     {
         var response = await SendAsync(client, HttpMethod.Post, "/api/accounts",
             _tokens[HouseholdRole.Owner],
-            new { name, type = 0, currency = "EUR", openingBalance = 100m });
+            new { name, type = 0, currency = "EUR", openingBalance = 100m, openingDate = "2026-01-01" });
         await EnsureAsync(response, HttpStatusCode.Created, $"account '{name}'");
         return (await ReadJsonAsync(response)).RootElement.GetProperty("id").GetGuid();
     }

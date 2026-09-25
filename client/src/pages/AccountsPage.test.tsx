@@ -26,8 +26,8 @@ import { setMoneyFormat } from '../lib/money'
 
 function accounts(): AccountDto[] {
   return [
-    { id: 'a1', name: 'Everyday', type: 0, currency: 'EUR', openingBalance: 100, currentBalance: 250, displayOrder: 0 },
-    { id: 'a2', name: 'Visa', type: 3, currency: 'EUR', openingBalance: 0, currentBalance: -75, displayOrder: 1 },
+    { id: 'a1', name: 'Everyday', type: 0, currency: 'EUR', openingBalance: 100, openingDate: '2026-01-01', currentBalance: 250, displayOrder: 0 },
+    { id: 'a2', name: 'Visa', type: 3, currency: 'EUR', openingBalance: 0, openingDate: '2026-01-01', currentBalance: -75, displayOrder: 1 },
   ]
 }
 
@@ -119,8 +119,54 @@ describe('AccountsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Save Everyday' }))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/a1', {
-      name: 'Everyday', type: 0, openingBalance,
+      name: 'Everyday', type: 0, openingBalance, openingDate: '2026-01-01',
     }))
+  })
+
+  // Rule 40/67: an account recorded before opening dates existed has no calculable balance. The
+  // card says so (never zero), the hero leaves it out, and an edit must supply the date before
+  // anything is sent.
+  it('shows a legacy account without an opening date as unavailable and requires the date on edit', { timeout: 15000 }, async () => {
+    const legacy = { ...accounts()[0], openingDate: null, currentBalance: null, openingDateMissing: true }
+    mockGet.mockImplementation((url: string) => Promise.resolve({ data: url === '/accounts' ? [legacy, accounts()[1]] : [] }))
+    mockPut.mockResolvedValue({ data: { ...legacy, openingDate: '2026-03-01', currentBalance: 250, openingDateMissing: false } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    expect(await screen.findByText('Not available', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText('Set an opening date to calculate the balance.')).toBeInTheDocument()
+    expect(screen.getByText(/1 account without an opening date is not counted/)).toBeInTheDocument()
+    // Only Visa (−75) is counted in the hero.
+    expect(screen.getByLabelText(/^Total balance:/)).toHaveTextContent('75.00')
+
+    await user.click(screen.getByRole('button', { name: 'Edit Everyday' }))
+    await user.click(screen.getByRole('button', { name: 'Save Everyday' }))
+    expect(await screen.findByText('Enter the date the opening balance applies from.')).toBeInTheDocument()
+    expect(mockPut).not.toHaveBeenCalled()
+
+    await user.type(screen.getByLabelText('Opening date for Everyday'), '2026-03-01')
+    await user.click(screen.getByRole('button', { name: 'Save Everyday' }))
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/a1', {
+      name: 'Everyday', type: 0, openingBalance: 100, openingDate: '2026-03-01',
+    }))
+    expect((await screen.findAllByText(/250\.00/, {}, { timeout: 5000 })).length).toBeGreaterThan(0)
+  })
+
+  // Rules 69/72: money in transit and receipts held for review are visible per account.
+  it('flags in-transit money and pending receipts on the account cards', { timeout: 15000 }, async () => {
+    const flagged = [
+      { ...accounts()[0], inTransitOut: 100, currentBalance: 150 },
+      { ...accounts()[1], inTransitIn: 100, pendingReceiptCount: 1, pendingReceiptTotal: 40, requiresReview: true },
+    ]
+    mockGet.mockImplementation((url: string) => Promise.resolve({ data: url === '/accounts' ? flagged : [] }))
+
+    renderPage()
+
+    expect(await screen.findByText(/100\.00 in transit out/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText(/100\.00 in transit in/)).toBeInTheDocument()
+    expect(screen.getByText('1 receipt pending review')).toBeInTheDocument()
+    expect(screen.getByText(/1 transfer receipt pending review/)).toBeInTheDocument()
   })
 
   it('does not delete when the confirmation is cancelled', { timeout: 15000 }, async () => {

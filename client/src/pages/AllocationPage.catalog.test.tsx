@@ -377,7 +377,9 @@ describe('AllocationPage (catalog)', () => {
 
     // Commit first so the banner is showing.
     await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
-    expect(await screen.findByText(/2 savings transfers created/, {}, { timeout: 5000 })).toBeInTheDocument()
+    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
+    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
+    expect(await screen.findByText(/2 savings transfers recorded as in transit/, {}, { timeout: 5000 })).toBeInTheDocument()
 
     // Now edit + save — the figures just changed, so the banner must clear (setCommitted(null)).
     await user.click(screen.getByRole('button', { name: 'Allocation settings' }))
@@ -388,7 +390,7 @@ describe('AllocationPage (catalog)', () => {
     await user.click(dialog.getByRole('button', { name: 'Save allocation settings' }))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1), { timeout: 5000 })
-    await waitFor(() => expect(screen.queryByText(/savings transfers created/)).not.toBeInTheDocument(), { timeout: 5000 })
+    await waitFor(() => expect(screen.queryByText(/savings transfers recorded/)).not.toBeInTheDocument(), { timeout: 5000 })
   })
 
   it('ALLOC-021: Cancel reverts unsaved edits so a later Save cannot commit them', async () => {
@@ -808,7 +810,7 @@ describe('AllocationPage (catalog)', () => {
     renderPage()
     await screen.findByText('How July is allocated', {}, { timeout: 5000 })
 
-    // First press opens the confirm instead of committing.
+    // The record modal names the stranded share; nothing is sent until confirmed.
     await user.click(screen.getByRole('button', { name: 'Commit allocation' }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByText(/€1,250\.00 will stay in Joint because Robin has no savings account linked/)).toBeInTheDocument()
@@ -818,10 +820,11 @@ describe('AllocationPage (catalog)', () => {
     await user.click(dialog.getByRole('button', { name: 'Cancel' }))
     expect(mockPost).not.toHaveBeenCalled()
 
-    // Allocate anyway commits, and the success banner repeats where the money stayed.
+    // Confirming records the transfers, and the success banner repeats where the money stayed.
     await user.click(screen.getByRole('button', { name: 'Commit allocation' }))
     const dialog2 = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.click(dialog2.getByRole('button', { name: 'Allocate anyway' }))
+    await user.click(dialog2.getByLabelText('Allocation completed confirmation'))
+    await user.click(dialog2.getByRole('button', { name: 'Confirm allocation' }))
     await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(1))
     expect(await screen.findByText(/€1,250\.00 stayed in Joint for Robin/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
@@ -939,6 +942,8 @@ describe('AllocationPage (catalog)', () => {
     expect(screen.getByText(/overshoot the pooled income by €500\.00 — pocket money can’t be funded/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Commit allocation' }))
+    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
+    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
     expect(
       await screen.findByText(/Allocated July — nothing was transferred because shared spending overshoots the pooled income\./, {}, { timeout: 5000 }),
     ).toBeInTheDocument()
@@ -977,8 +982,13 @@ describe('AllocationPage (catalog)', () => {
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
+    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
+    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
 
-    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/7', {}), { timeout: 5000 })
+    await waitFor(
+      () => expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/7', expect.objectContaining({ confirmedCompleted: true, receivedOn: null })),
+      { timeout: 5000 },
+    )
     expect(await screen.findByText(/no savings transfers were needed this month/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
@@ -990,8 +1000,10 @@ describe('AllocationPage (catalog)', () => {
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
+    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
+    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
 
-    expect(await screen.findByText(/Could not commit the allocation/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText(/Could not record the allocation/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
   // ---- Additional high-value gaps (P0/P1/cheap) not covered above or by the sibling file -----
@@ -1041,12 +1053,17 @@ describe('AllocationPage (catalog)', () => {
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
+    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
+    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
 
-    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/7', {}), { timeout: 5000 })
-    // committed === 1 takes the singular branch: "1 savings transfer created" (no plural s).
+    await waitFor(
+      () => expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/7', { departedOn: expect.any(String), receivedOn: null, confirmedCompleted: true }),
+      { timeout: 5000 },
+    )
+    // committed === 1 takes the singular branch: "1 savings transfer recorded" (no plural s).
     const banner = await screen.findByRole('status', {}, { timeout: 5000 })
     expect(banner).toHaveTextContent(
-      'Allocated July — 1 savings transfer created. Re-running Allocate replaces them, never doubles up.',
+      'Allocated July — 1 savings transfer recorded as in transit; confirm each receipt on the Transactions page. Re-running Allocate keeps unchanged transfers, never doubles up.',
     )
   })
 
@@ -1063,6 +1080,8 @@ describe('AllocationPage (catalog)', () => {
     expect(btn).toBeEnabled()
 
     await user.click(btn)
+    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
+    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
     // commit() flips busy=true synchronously before awaiting the POST → the button disables.
     await waitFor(() => expect(btn).toBeDisabled(), { timeout: 5000 })
 

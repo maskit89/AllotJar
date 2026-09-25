@@ -5,7 +5,6 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
-using AllotJar.Domain.ValueObjects;
 
 namespace AllotJar.Application.Allocation.Commands.AllocateIncome;
 
@@ -24,6 +23,18 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
     {
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
+
+        // The validator enforces both; a bypassing caller must still not turn a plan into money.
+        if (!request.ConfirmedCompleted || request.DepartedOn is not DateOnly departedOn)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["ConfirmedCompleted"] = new[]
+                {
+                    "Confirm that you've completed these transfers, and the date the money left the source account, before recording them.",
+                },
+            });
+        }
 
         var plan = await AllocationPlanner.PlanAsync(
             _db, userId, request.Year, request.Month, request.ProfileId, cancellationToken);
@@ -68,12 +79,14 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
             });
         }
 
-        // Idempotent: drop this month's prior allocation transfers, then recreate.
+        // This month's previously recorded allocation transfers, keyed by member. A re-run is
+        // reconciled against them rather than blindly replaced: a recorded bank transfer is
+        // evidence, not a plan line.
         var prefix = $"alloc:{request.Year}-{request.Month}:";
-        var prior = await _db.Transactions
-            .Where(t => t.OwnerId == userId && t.BankReference != null && t.BankReference.StartsWith(prefix))
-            .ToListAsync(cancellationToken);
-        _db.Transactions.RemoveRange(prior);
+        var prior = (await _db.Transactions
+                .Where(t => t.OwnerId == userId && t.BankReference != null && t.BankReference.StartsWith(prefix))
+                .ToListAsync(cancellationToken))
+            .ToDictionary(t => t.BankReference!, StringComparer.OrdinalIgnoreCase);
 
         // Load every target savings account up front to validate ownership and currency. An
         // allocation transfer, like any transfer, must stay in one currency (the source's), or the
@@ -88,8 +101,9 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
             .Where(a => savingsIds.Contains(a.Id) && a.OwnerId == userId)
             .ToDictionaryAsync(a => a.Id, cancellationToken);
 
-        var date = new DateOnly(request.Year, request.Month, 1);
         var created = 0;
+        // Prior transfers left exactly as recorded because this run produced the same movement.
+        var retained = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var m in plan.Result.Members)
         {
             if (m.Residual <= 0m || m.SavingsAccountId is not Guid savingsId)
@@ -127,10 +141,36 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                 });
             }
 
+            var reference = prefix + m.MemberId;
+            if (prior.TryGetValue(reference, out var existing))
+            {
+                // Unchanged movement: keep the recorded legs, including a receipt confirmed since.
+                if (existing.Amount == m.Residual && existing.AccountId == sourceId && existing.TransferAccountId == savingsId)
+                {
+                    retained.Add(reference);
+                    continue;
+                }
+                // A changed movement can only replace an in-transit transfer. Once its receipt is
+                // confirmed it is bank history; the user removes it explicitly on the register.
+                if (existing.ReceivedOn is not null)
+                {
+                    throw new ValidationException(new Dictionary<string, string[]>
+                    {
+                        ["Allocation"] = new[]
+                        {
+                            $"{m.Name}'s allocation transfer for this month is already confirmed as received " +
+                            $"({existing.Amount:0.####} on {existing.ReceivedOn:yyyy-MM-dd}). Delete it on the Transactions page before re-running.",
+                        },
+                    });
+                }
+            }
+
             _db.Transactions.Add(new Transaction
             {
                 OwnerId = userId,
-                Date = date,
+                Date = departedOn,
+                DepartedOn = departedOn,
+                ReceivedOn = request.ReceivedOn,
                 Payee = $"Income allocation — {m.Name}",
                 Amount = m.Residual,
                 // Stamp the source account's currency (both legs share it, guarded above), not EUR.
@@ -139,15 +179,39 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                 Type = TransactionType.Transfer,
                 AccountId = sourceId,
                 TransferAccountId = savingsId,
-                BankReference = prefix + m.MemberId,
+                BankReference = reference,
             });
             created++;
+        }
+
+        // Every prior row not retained is superseded: the member's movement changed (its
+        // replacement was added above) or the member has no surplus this time. Only an
+        // in-transit row may be dropped; a confirmed receipt is bank history.
+        foreach (var (reference, stale) in prior)
+        {
+            if (retained.Contains(reference))
+            {
+                continue;
+            }
+            if (stale.ReceivedOn is not null)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["Allocation"] = new[]
+                    {
+                        $"The allocation transfer '{stale.Payee}' for this month is already confirmed as received. " +
+                        "Delete it on the Transactions page before re-running.",
+                    },
+                });
+            }
+            _db.Transactions.Remove(stale);
         }
 
         await _db.SaveChangesAsync(cancellationToken);
 
         return plan.Result.ToDto(
             plan.EnvelopesTotal, plan.JarsTotal, created,
-            unattributedIncome: plan.UnattributedIncome, incomeFromBudget: plan.IncomeFromBudget);
+            unattributedIncome: plan.UnattributedIncome, incomeFromBudget: plan.IncomeFromBudget,
+            transfersRetained: retained.Count);
     }
 }

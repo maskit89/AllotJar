@@ -83,18 +83,35 @@ public class AllocationController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Commits the allocation for a month (creates the savings transfers). Idempotent.</summary>
+    /// <summary>
+    /// Records the month's allocation transfers once the user confirms they have completed them
+    /// (departure date required; receipt optional). Re-running keeps unchanged transfers.
+    /// </summary>
     [HttpPost("commit/{year:int}/{month:int}")]
     [ProducesResponseType(typeof(AllocationResultDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<AllocationResultDto>> Commit(int year, int month, [FromQuery] Guid? profileId, CancellationToken ct)
+    public async Task<ActionResult<AllocationResultDto>> Commit(
+        int year, int month, [FromQuery] Guid? profileId, CommitAllocationRequest? request, CancellationToken ct)
     {
-        var result = await _mediator.Send(new AllocateIncomeCommand(year, month, profileId), ct);
+        var result = await _mediator.Send(
+            new AllocateIncomeCommand(
+                year, month, profileId,
+                request?.DepartedOn, request?.ReceivedOn, request?.ConfirmedCompleted ?? false),
+            ct);
         return Ok(result);
     }
 }
+
+/// <summary>
+/// Request body for recording a month's allocation transfers: the user's "I've completed these
+/// transfers" confirmation and the date the money left the source account.
+/// </summary>
+public record CommitAllocationRequest(
+    DateOnly? DepartedOn = null,
+    DateOnly? ReceivedOn = null,
+    bool ConfirmedCompleted = false);
 
 /// <summary>Request body for creating/replacing the allocation profile.</summary>
 public record UpsertAllocationProfileRequest(

@@ -19,6 +19,13 @@ public class CreateTransferCommandValidator : AbstractValidator<CreateTransferCo
             .NotEqual(x => x.FromAccountId)
             .WithMessage("Choose two different accounts for a transfer.");
 
+        // A manually entered receipt earlier than the departure is a typo far more often than a
+        // value-dated credit; statement-supplied dates arrive through the import path instead.
+        RuleFor(x => x.ReceivedOn)
+            .GreaterThanOrEqualTo(x => x.DepartedOn)
+            .When(x => x.ReceivedOn.HasValue)
+            .WithMessage("The receipt date can't be before the departure date.");
+
         RuleFor(x => x.Payee).MaximumLength(200);
     }
 }

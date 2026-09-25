@@ -20,5 +20,10 @@ public class CreateAccountCommandValidator : AbstractValidator<CreateAccountComm
         RuleFor(x => x.OpeningBalance)
             .InclusiveBetween(-99_999_999_999_999.9999m, 99_999_999_999_999.9999m)
             .WithMessage("Opening balance exceeds the supported range.");
+
+        // The opening balance is meaningless without the date it applies from: without it no
+        // balance can be calculated, and inferring one is exactly what rule 40 forbids.
+        RuleFor(x => x.OpeningDate)
+            .NotNull().WithMessage("Enter the date the opening balance applies from.");
     }
 }

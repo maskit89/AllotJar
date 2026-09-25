@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using AllotJar.Application.Transactions.Commands.AssignTransaction;
+using AllotJar.Application.Transactions.Commands.ConfirmTransferLegs;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.CreateTransfer;
 using AllotJar.Application.Transactions.Commands.DeleteTransaction;
@@ -58,7 +59,11 @@ public class TransactionsController : ControllerBase
         return CreatedAtAction(nameof(List), new { }, result);
     }
 
-    /// <summary>Records a transfer between two of the user's accounts and returns it.</summary>
+    /// <summary>
+    /// Records a completed transfer between two of the user's accounts and returns it. The
+    /// departure date is required; the receipt date is optional and, when omitted, the amount
+    /// stays in transit until confirmed via <see cref="ConfirmTransferLegs"/>.
+    /// </summary>
     [HttpPost("transfer")]
     [ProducesResponseType(typeof(TransactionDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -67,9 +72,31 @@ public class TransactionsController : ControllerBase
     public async Task<ActionResult<TransactionDto>> Transfer(CreateTransferRequest request, CancellationToken ct)
     {
         var result = await _mediator.Send(
-            new CreateTransferCommand(request.Date, request.Amount, request.FromAccountId, request.ToAccountId, request.Payee),
+            new CreateTransferCommand(
+                request.DepartedOn, request.Amount, request.FromAccountId, request.ToAccountId,
+                request.Payee, request.ReceivedOn),
             ct);
         return CreatedAtAction(nameof(List), new { }, result);
+    }
+
+    /// <summary>
+    /// Confirms the bank legs a transfer is still missing (receipt date for an in-transit
+    /// transfer; departure date for a receipt held for review) and attaches statement references.
+    /// Confirmed legs are never overwritten.
+    /// </summary>
+    [HttpPut("{id:guid}/transfer-legs")]
+    [ProducesResponseType(typeof(TransactionDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<TransactionDto>> ConfirmTransferLegs(
+        Guid id, ConfirmTransferLegsRequest request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(
+            new ConfirmTransferLegsCommand(
+                id, request.DepartedOn, request.ReceivedOn, request.BankReference, request.ReceiptBankReference),
+            ct);
+        return Ok(result);
     }
 
     /// <summary>Edits a transaction's date, payee, amount and direction. Returns it.</summary>
@@ -159,13 +186,24 @@ public record CreateTransactionRequest(
     IReadOnlyList<SplitAllocationRequest>? Splits = null,
     bool AcknowledgeCrossMonth = false);
 
-/// <summary>Request body for transferring money between two accounts.</summary>
+/// <summary>
+/// Request body for recording a completed transfer between two accounts. <c>DepartedOn</c> is
+/// the source bank's posting date; <c>ReceivedOn</c> the destination bank's, when already known.
+/// </summary>
 public record CreateTransferRequest(
-    DateOnly Date,
+    DateOnly DepartedOn,
     decimal Amount,
     Guid FromAccountId,
     Guid ToAccountId,
-    string? Payee = null);
+    string? Payee = null,
+    DateOnly? ReceivedOn = null);
+
+/// <summary>Request body for confirming a transfer's missing bank legs (the id comes from the route).</summary>
+public record ConfirmTransferLegsRequest(
+    DateOnly? DepartedOn = null,
+    DateOnly? ReceivedOn = null,
+    string? BankReference = null,
+    string? ReceiptBankReference = null);
 
 /// <summary>Request body for editing a transaction (the id comes from the route).</summary>
 public record UpdateTransactionRequest(

@@ -43,6 +43,7 @@ public class AllocationCoverageTests
         {
             OwnerId = Owner, Name = name, Type = AccountType.Current,
             Currency = currency ?? CurrencyCode.Eur, OpeningBalance = opening,
+            OpeningDate = new DateOnly(2026, 1, 1),
         };
         db.Accounts.Add(a);
         db.SaveChanges();
@@ -81,11 +82,15 @@ public class AllocationCoverageTests
     private static void SeedTransferInto(
         ApplicationDbContext db, Guid intoAccount, decimal amount, string? bankRef)
     {
+        // A readable transfer has two accounts and a confirmed bank leg per side; the dated
+        // ledger ignores a half-movement rather than crediting it.
+        var elsewhere = SeedAccount(db, "Elsewhere");
         db.Transactions.Add(new Transaction
         {
             OwnerId = Owner, Type = TransactionType.Transfer, Date = new DateOnly(2026, 7, 1),
+            DepartedOn = new DateOnly(2026, 7, 1), ReceivedOn = new DateOnly(2026, 7, 1),
             Amount = amount, Currency = CurrencyCode.Eur, ExchangeRate = 1m,
-            TransferAccountId = intoAccount, BankReference = bankRef, Payee = "prior transfer",
+            AccountId = elsewhere.Id, TransferAccountId = intoAccount, BankReference = bankRef, Payee = "prior transfer",
         });
         db.SaveChanges();
     }
@@ -114,7 +119,7 @@ public class AllocationCoverageTests
 
     private static Task<AllocationResultDto> Commit(ApplicationDbContext db, ICurrentUser user, int year, int month) =>
         new AllocateIncomeCommandHandler(db, user)
-            .Handle(new AllocateIncomeCommand(year, month), CancellationToken.None);
+            .Handle(new AllocateIncomeCommand(year, month, DepartedOn: new DateOnly(year, month, 1), ConfirmedCompleted: true), CancellationToken.None);
 
     private static decimal StepTotal(AllocationResultDto r, AllocationRuleType type) =>
         r.Steps.Single(s => s.Type == type).Total;
@@ -308,7 +313,7 @@ public class AllocationCoverageTests
         var preview = await Preview(db, user, 2026, 7);
         var robin = preview.Members.Single(m => m.Name == "Robin");
         robin.SavingsAccountId.Should().BeNull();   // dangling link nulled
-        robin.SavingsBalance.Should().Be(0m);
+        robin.SavingsBalance.Should().BeNull();       // no linked account: no balance to report, not zero money
         robin.Residual.Should().Be(1250m);          // still allocated a positive share
 
         var commit = await Commit(db, user, 2026, 7);
@@ -462,6 +467,7 @@ public class AllocationCoverageTests
         var prior = new Transaction
         {
             OwnerId = Owner, Type = TransactionType.Transfer, Date = new DateOnly(2026, 7, 1),
+            DepartedOn = new DateOnly(2026, 7, 1),
             Amount = 75m, Currency = gbp, AccountId = source.Id, TransferAccountId = savings.Id,
             BankReference = $"alloc:2026-7:{member.Id}", Payee = "Existing allocation",
         };

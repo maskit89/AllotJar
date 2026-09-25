@@ -92,7 +92,8 @@ public static class IncomeAllocator
         }
 
         var residuals = members
-            .Select(m => new MemberResidual(m.Id, m.Name, m.NetIncome, balances[m.Id], m.SavingsAccountId, m.SavingsBalance))
+            .Select(m => new MemberResidual(
+                m.Id, m.Name, m.NetIncome, balances[m.Id], m.SavingsAccountId, m.SavingsBalance, m.SavingsBalanceAvailable))
             .ToList();
 
         return new AllocationResult(pool, steps, residuals);
@@ -207,7 +208,13 @@ public static class IncomeAllocator
     }
 }
 
-public record AllocationMember(Guid Id, string Name, decimal NetIncome, Guid? SavingsAccountId, decimal SavingsBalance = 0m);
+/// <param name="SavingsBalanceAvailable">
+/// False when the member's savings balance could not be read (no opening date on the account):
+/// the tilt then uses zero as a neutral weight, and readers must show the balance as unknown.
+/// </param>
+public record AllocationMember(
+    Guid Id, string Name, decimal NetIncome, Guid? SavingsAccountId, decimal SavingsBalance = 0m,
+    bool SavingsBalanceAvailable = true);
 
 public record AllocationRuleInput(
     int Order, AllocationRuleType Type, SplitMethod Split, decimal FixedAmountPerMember, decimal ResolvedTotal);
@@ -217,6 +224,7 @@ public record MemberShare(Guid MemberId, string Name, decimal Amount);
 public record AllocationStep(AllocationRuleType Type, decimal Total, IReadOnlyList<MemberShare> PerMember);
 
 public record MemberResidual(
-    Guid MemberId, string Name, decimal NetIncome, decimal Residual, Guid? SavingsAccountId, decimal SavingsBalance = 0m);
+    Guid MemberId, string Name, decimal NetIncome, decimal Residual, Guid? SavingsAccountId, decimal SavingsBalance = 0m,
+    bool SavingsBalanceAvailable = true);
 
 public record AllocationResult(decimal Pool, IReadOnlyList<AllocationStep> Steps, IReadOnlyList<MemberResidual> Members);

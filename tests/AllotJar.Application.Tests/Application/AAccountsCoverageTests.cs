@@ -62,6 +62,7 @@ public class AAccountsCoverageTests
             Type = type,
             Currency = CurrencyCode.From(currency),
             OpeningBalance = opening,
+            OpeningDate = new DateOnly(2026, 1, 1),
             DisplayOrder = order,
         };
         db.Accounts.Add(account);
@@ -84,6 +85,9 @@ public class AAccountsCoverageTests
             ExchangeRate = exchangeRate,
             Currency = CurrencyCode.Eur,
             Date = new DateOnly(2026, 7, 10),
+            // A seeded transfer is a completed same-day movement: both bank legs are explicit.
+            DepartedOn = type == TransactionType.Transfer ? new DateOnly(2026, 7, 10) : null,
+            ReceivedOn = type == TransactionType.Transfer ? new DateOnly(2026, 7, 10) : null,
             Splits = splits ?? new List<TransactionSplit>(),
         });
         db.SaveChanges();
@@ -182,7 +186,7 @@ public class AAccountsCoverageTests
         await using var db = NewContext();
 
         var dto = await new CreateAccountCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new CreateAccountCommand("Any", type, "EUR", 0m), CancellationToken.None);
+            .Handle(new CreateAccountCommand("Any", type, "EUR", 0m, new DateOnly(2026, 1, 1)), CancellationToken.None);
 
         dto.Type.Should().Be(type);
         db.Accounts.Single().Type.Should().Be(type);
@@ -196,7 +200,7 @@ public class AAccountsCoverageTests
     public async Task CreateAccount_AcceptsNegativeAndZeroOpening_BalanceEqualsOpening(int opening)
     {
         await using var db = NewContext();
-        var command = new CreateAccountCommand("Visa", AccountType.CreditCard, "EUR", opening);
+        var command = new CreateAccountCommand("Visa", AccountType.CreditCard, "EUR", opening, new DateOnly(2026, 1, 1));
 
         new CreateAccountCommandValidator().Validate(command).IsValid.Should().BeTrue();
 
@@ -214,7 +218,7 @@ public class AAccountsCoverageTests
         await using var db = NewContext();
 
         var dto = await new CreateAccountCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new CreateAccountCommand("  🏦 Ünïçödé Jar  ", AccountType.Current, "EUR", 0m),
+            .Handle(new CreateAccountCommand("  🏦 Ünïçödé Jar  ", AccountType.Current, "EUR", 0m, new DateOnly(2026, 1, 1)),
                 CancellationToken.None);
 
         dto.Name.Should().Be("🏦 Ünïçödé Jar");
@@ -225,11 +229,11 @@ public class AAccountsCoverageTests
     public void Validators_RejectEmptyName_WithFriendlyMessage()
     {
         new CreateAccountCommandValidator()
-            .Validate(new CreateAccountCommand("", AccountType.Current, "EUR", 0m))
+            .Validate(new CreateAccountCommand("", AccountType.Current, "EUR", 0m, new DateOnly(2026, 1, 1)))
             .Errors.Should().Contain(e => e.ErrorMessage == "An account needs a name.");
 
         new UpdateAccountCommandValidator()
-            .Validate(new UpdateAccountCommand(Guid.NewGuid(), "", AccountType.Current, 0m))
+            .Validate(new UpdateAccountCommand(Guid.NewGuid(), "", AccountType.Current, 0m, new DateOnly(2026, 1, 1)))
             .Errors.Should().Contain(e => e.ErrorMessage == "An account needs a name.");
     }
 
@@ -240,11 +244,11 @@ public class AAccountsCoverageTests
         const decimal overMax = 100_000_000_000_000m; // > 99,999,999,999,999.9999
 
         new CreateAccountCommandValidator()
-            .Validate(new CreateAccountCommand("Big", AccountType.Current, "EUR", overMax))
+            .Validate(new CreateAccountCommand("Big", AccountType.Current, "EUR", overMax, new DateOnly(2026, 1, 1)))
             .Errors.Should().Contain(e => e.ErrorMessage == "Opening balance exceeds the supported range.");
 
         new UpdateAccountCommandValidator()
-            .Validate(new UpdateAccountCommand(Guid.NewGuid(), "Big", AccountType.Current, overMax))
+            .Validate(new UpdateAccountCommand(Guid.NewGuid(), "Big", AccountType.Current, overMax, new DateOnly(2026, 1, 1)))
             .Errors.Should().Contain(e => e.ErrorMessage == "Opening balance exceeds the supported range.");
     }
 
@@ -255,7 +259,7 @@ public class AAccountsCoverageTests
         var longName = new string('x', 121);
 
         var result = new CreateAccountCommandValidator()
-            .Validate(new CreateAccountCommand(longName, AccountType.Current, "EUR", 0m));
+            .Validate(new CreateAccountCommand(longName, AccountType.Current, "EUR", 0m, new DateOnly(2026, 1, 1)));
 
         result.IsValid.Should().BeFalse();
         result.Errors.Should().Contain(e => e.PropertyName == nameof(CreateAccountCommand.Name));
@@ -267,7 +271,7 @@ public class AAccountsCoverageTests
     public void CreateAccountValidator_CurrencyRegex_AcceptsAnyThreeLetters_RejectsOthers()
     {
         var validator = new CreateAccountCommandValidator();
-        CreateAccountCommand WithCurrency(string c) => new("Test", AccountType.Current, c, 0m);
+        CreateAccountCommand WithCurrency(string c) => new("Test", AccountType.Current, c, 0m, new DateOnly(2026, 1, 1));
 
         // "ZZZ" is not a real ISO code but passes — there is no ISO list check by design.
         validator.Validate(WithCurrency("ZZZ")).IsValid.Should().BeTrue();
@@ -290,7 +294,7 @@ public class AAccountsCoverageTests
         AddTx(db, "user-1", account.Id, 50m, TransactionType.Expense);  // −50
 
         var dto = await new UpdateAccountCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new UpdateAccountCommand(account.Id, "Emergency", AccountType.Current, 750m),
+            .Handle(new UpdateAccountCommand(account.Id, "Emergency", AccountType.Current, 750m, new DateOnly(2026, 1, 1)),
                 CancellationToken.None);
 
         dto.Name.Should().Be("Emergency");
@@ -308,7 +312,7 @@ public class AAccountsCoverageTests
         var account = SeedAccount(db, "user-1", "UK Pot", opening: 200m, currency: "GBP");
 
         var dto = await new UpdateAccountCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new UpdateAccountCommand(account.Id, "UK Pot renamed", AccountType.Current, 300m),
+            .Handle(new UpdateAccountCommand(account.Id, "UK Pot renamed", AccountType.Current, 300m, new DateOnly(2026, 1, 1)),
                 CancellationToken.None);
 
         dto.Currency.Should().Be("GBP");

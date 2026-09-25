@@ -37,8 +37,11 @@ public class GetAccountReconciliationQueryHandler
             return Array.Empty<AccountReconciliationDto>();
         }
 
-        await AccountBalances.ApplyAsync(_db, userId, accounts, cancellationToken);
+        var asOf = request.AsOf ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var ledger = await AccountLedgerReader.ReadAsync(_db, userId, accounts, asOf, cancellationToken);
 
+        // The jar side still reads the legacy plan-based balance (JarBalances) until the jar
+        // allocation ledger is activated; the account side is actual money as of today.
         var funds = await _db.Jars
             .AsNoTracking()
             .Where(f => f.OwnerId == userId && !f.IsArchived && f.FundingAccountId != null)
@@ -50,16 +53,18 @@ public class GetAccountReconciliationQueryHandler
         return accounts
             .Select(a =>
             {
+                var view = ledger[a.Id];
                 var backed = funds.Where(f => f.FundingAccountId == a.Id).ToList();
                 var backedTotal = backed.Sum(f => f.OpeningBalance + tracked.GetValueOrDefault(f.Id));
                 return new AccountReconciliationDto
                 {
                     AccountId = a.Id,
                     AccountName = a.Name,
-                    CurrentBalance = a.CurrentBalance,
+                    CurrentBalance = view.Balance,
                     BackedJarsTotal = backedTotal,
                     BackedJarCount = backed.Count,
-                    Float = a.CurrentBalance - backedTotal,
+                    Float = view.Balance is decimal balance ? balance - backedTotal : null,
+                    RequiresReview = view.RequiresReview,
                 };
             })
             .ToList();

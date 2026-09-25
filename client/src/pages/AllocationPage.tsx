@@ -58,6 +58,7 @@ export function AllocationPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [committed, setCommitted] = useState<number | null>(null)
+  const [retained, setRetained] = useState(0)
   // The viewed month's budget (integer-minor VM) — the other half of the reconciliation.
   const [monthVM, setMonthVM] = useState<MonthVM | null>(null)
   const [syncedMsg, setSyncedMsg] = useState<string | null>(null)
@@ -205,21 +206,42 @@ export function AllocationPage() {
     [period, loadPreview],
   )
 
+  // The commit records bank transfers the user says they have made (rules 7/29): the date the
+  // money left the source account is required, and receipt stays unconfirmed (in transit).
+  const [commitDate, setCommitDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [commitConfirmed, setCommitConfirmed] = useState(false)
+
   const commit = useCallback(async () => {
+    if (!commitConfirmed || !commitDate) {
+      setError('Confirm that you’ve completed these transfers, and the date the money left the source account.')
+      return
+    }
     setBusy(true)
     setError(null)
     setCommitted(null)
     try {
-      const { data } = await api.post<AllocationResultDto>(`/allocation/commit/${period.year}/${period.month}`, {})
+      const { data } = await api.post<AllocationResultDto>(`/allocation/commit/${period.year}/${period.month}`, {
+        departedOn: commitDate,
+        receivedOn: null,
+        confirmedCompleted: true,
+      })
       setPreview(data)
       setCommitted(data.transfersCreated)
+      setRetained(data.transfersRetained ?? 0)
+      setCommitConfirmed(false)
       track(EVENTS.allocationCommitted, { count_bucket: bucketCount(data.transfersCreated) })
-    } catch {
-      setError('Could not commit the allocation. Check the source account and members’ savings accounts are set.')
+    } catch (err) {
+      const e = err as { response?: { status?: number; data?: { errors?: Record<string, string[]> } } }
+      const messages = e?.response?.status === 400 ? Object.values(e.response.data?.errors ?? {}).flat() : []
+      setError(
+        messages.length > 0
+          ? messages.join(' ')
+          : 'Could not record the allocation. Check the source account and members’ savings accounts are set.',
+      )
     } finally {
       setBusy(false)
     }
-  }, [period])
+  }, [period, commitDate, commitConfirmed])
 
   // Re-seed the settings form from the saved profile (defaults when there's none). Called when the
   // modal opens (clean start) and closes (Cancel/backdrop discards unsaved edits, so a later Save
@@ -364,7 +386,7 @@ export function AllocationPage() {
         />
       )}
 
-      {error && !showSettings && <ErrorBanner>{error}</ErrorBanner>}
+      {error && !showSettings && !showCommitConfirm && <ErrorBanner>{error}</ErrorBanner>}
       {loading && <p className="text-slate-500">Loading…</p>}
 
       {!loading && !profile && (
@@ -393,7 +415,10 @@ export function AllocationPage() {
               )}
               {canEnterData && (
                 <Button
-                  onClick={() => (strandedMinor > 0 ? setShowCommitConfirm(true) : commit())}
+                  onClick={() => {
+                    setError(null)
+                    setShowCommitConfirm(true)
+                  }}
                   disabled={busy || !hasSource}
                   aria-label="Commit allocation"
                 >
@@ -471,11 +496,13 @@ export function AllocationPage() {
               role="status"
               className="mb-4 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
             >
-              {committed === 0
+              {committed === 0 && retained > 0
+                ? `Allocated ${monthName} — the ${retained} recorded transfer${retained === 1 ? '' : 's'} ${retained === 1 ? 'is' : 'are'} unchanged; nothing new was recorded.`
+                : committed === 0
                 ? toSavingsMinor < 0
                   ? `Allocated ${monthName} — nothing was transferred because shared spending overshoots the pooled income.`
                   : `Allocated ${monthName} — no savings transfers were needed this month.`
-                : `Allocated ${monthName} — ${committed} savings transfer${committed === 1 ? '' : 's'} created. Re-running Allocate replaces them, never doubles up.`}
+                : `Allocated ${monthName} — ${committed} savings transfer${committed === 1 ? '' : 's'} recorded as in transit; confirm each receipt on the Transactions page. Re-running Allocate keeps unchanged transfers, never doubles up.`}
               {strandedMinor > 0 &&
                 ` ${formatMoney(strandedMinor, CURRENCY)} stayed in ${sourceAccountName ?? 'the source account'} for ${strandedNames} (no savings account linked).`}
             </div>
@@ -544,7 +571,7 @@ export function AllocationPage() {
               <div key={m.memberId} className="rounded-xl border border-slate-200/70 p-4">
                 <p className="text-sm font-semibold text-slate-800">{m.name}</p>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  Savings {formatMoney(fromAmount(m.savingsBalance), CURRENCY)} → saves
+                  Savings {m.savingsBalance === null ? 'not available' : formatMoney(fromAmount(m.savingsBalance), CURRENCY)} → saves
                 </p>
                 <p
                   className={`text-xl font-bold tabular-nums ${
@@ -553,9 +580,11 @@ export function AllocationPage() {
                 >
                   {formatMoney(fromAmount(m.residual), CURRENCY)}
                 </p>
-                <p className="text-xs tabular-nums text-slate-500">
-                  Projected balance {formatMoney(fromAmount(m.savingsBalance + m.residual), CURRENCY)}
-                </p>
+                {m.savingsBalance !== null && (
+                  <p className="text-xs tabular-nums text-slate-500">
+                    Projected balance {formatMoney(fromAmount(m.savingsBalance + m.residual), CURRENCY)}
+                  </p>
+                )}
                 {!m.savingsAccountId && (
                   <div className="mt-2 space-y-1.5">
                     <p className="text-xs text-amber-700 dark:text-amber-400">
@@ -609,26 +638,67 @@ export function AllocationPage() {
         </Card>
       )}
 
-      {/* Allocating while someone's share has nowhere to go: explicit confirm, never a silent skip. */}
+      {/* Recording the allocation means recording completed bank transfers: the user confirms they
+          made them and when the money left. A stranded share is called out here, never silently skipped. */}
       {showCommitConfirm && (
-        <Modal title={`Allocate without ${strandedNames}?`} onClose={() => setShowCommitConfirm(false)}>
+        <Modal
+          title={strandedMinor > 0 ? `Allocate without ${strandedNames}?` : `Record ${monthName}’s transfers`}
+          onClose={() => setShowCommitConfirm(false)}
+        >
+          {error && (
+            <div className="mb-3">
+              <ErrorBanner>{error}</ErrorBanner>
+            </div>
+          )}
           <p className="text-sm text-slate-600">
-            {formatMoney(strandedMinor, CURRENCY)} will stay in {sourceAccountName ?? 'the source account'}{' '}
-            because {strandedNames} {strandedHasHave} no savings account linked. You can link one on the
-            person’s card and re-run — re-running Allocate replaces the transfers, never doubles up.
+            The suggested amounts become recorded transfers only once you’ve moved the money at the bank.
+            Each transfer is recorded as departed from {sourceAccountName ?? 'the source account'} on the date
+            below and stays in transit until you confirm its receipt on the Transactions page.
           </p>
+          {strandedMinor > 0 && (
+            <p className="mt-2 text-sm text-slate-600">
+              {formatMoney(strandedMinor, CURRENCY)} will stay in {sourceAccountName ?? 'the source account'}{' '}
+              because {strandedNames} {strandedHasHave} no savings account linked. You can link one on the
+              person’s card and re-run — re-running Allocate keeps unchanged transfers, never doubles up.
+            </p>
+          )}
+          <label className="mt-3 flex flex-col gap-1 text-xs font-medium text-slate-500">
+            Money left the source account on
+            <Input
+              type="date"
+              value={commitDate}
+              aria-label="Allocation departure date"
+              onChange={(e) => setCommitDate(e.target.value)}
+              className="w-full text-slate-700"
+            />
+          </label>
+          <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={commitConfirmed}
+              aria-label="Allocation completed confirmation"
+              onChange={(e) => setCommitConfirmed(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+            />
+            I’ve completed these transfers.
+          </label>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setShowCommitConfirm(false)}>
               Cancel
             </Button>
             <Button
-              onClick={() => {
+              onClick={async () => {
+                if (!commitConfirmed) {
+                  setError('Confirm that you’ve completed these transfers before recording them.')
+                  return
+                }
                 setShowCommitConfirm(false)
-                commit()
+                await commit()
               }}
-              aria-label="Allocate anyway"
+              disabled={busy}
+              aria-label="Confirm allocation"
             >
-              Allocate anyway
+              Record transfers
             </Button>
           </div>
         </Modal>

@@ -92,21 +92,11 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
             statement = parser.Parse(request.Content);
         }
 
-        // Drop rows we've already imported. The filter mirrors the COMMIT's dedup exactly —
-        // scoped to the statement account (matching either transaction leg, since an inbound
-        // transfer is stored with the counterparty as its source), case-insensitive to agree
-        // with the unique index's CI collation. The old owner-wide, case-sensitive filter both
-        // over-hid rows (a reference legitimately reused on another account looked "already
-        // imported") and under-hid case variants the commit would then skip.
+        // Drop rows we've already imported. The filter is the COMMIT's dedup exactly (shared
+        // StatementReferences): scoped to the statement account and to the leg that account's
+        // statement carries, case-insensitive to agree with the unique indexes' CI collation.
         var accountId = request.AccountId;
-        var existing = await _db.Transactions
-            .Where(t => t.OwnerId == userId
-                        && t.BankReference != null
-                        && (t.AccountId == accountId
-                            || (accountId != null && t.TransferAccountId == accountId)))
-            .Select(t => t.BankReference!)
-            .ToListAsync(cancellationToken);
-        var already = new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase);
+        var already = await StatementReferences.KnownAsync(_db, userId, accountId, cancellationToken);
 
         var fresh = statement.Entries
             .Where(e => e.Reference is null || !already.Contains(e.Reference))
@@ -116,6 +106,12 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
         // Content-level duplicate hints for the rows whose reference did NOT match (e.g. the same
         // statement previously imported through a different format or column mapping).
         var possibleDuplicates = await FindPossibleDuplicatesAsync(userId, fresh, cancellationToken);
+
+        // Recorded transfers whose other side this statement could confirm (rules 50/51/72). The
+        // user chooses; the amount agreeing is a reason to SHOW a candidate, never to match it.
+        var openLegs = accountId is Guid statementAccountId
+            ? await StatementReferences.OpenTransferLegsAsync(_db, userId, statementAccountId, cancellationToken)
+            : new List<Domain.Entities.Transaction>();
 
         // Suggest a budget line per row from the user's past categorisations — same direction,
         // dated on or before the row, resolved to the ROW'S OWN month (no writes) — so the
@@ -144,6 +140,21 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
                 ? id
                 : null;
             var suggestedName = suggestedId is Guid sid && nameById.TryGetValue(sid, out var n) ? n : null;
+            var matches = accountId is Guid statementAccount
+                ? openLegs
+                    .Where(t => StatementReferences.IsOpenFor(t, statementAccount, e.IsCredit)
+                                && t.Amount == e.Amount
+                                && string.Equals(t.Currency.Value, e.Currency, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(t => Math.Abs((t.DepartedOn ?? t.ReceivedOn ?? e.BookingDate).DayNumber - e.BookingDate.DayNumber))
+                    .Select(t =>
+                    {
+                        var counterparty = e.IsCredit ? t.Account! : t.TransferAccount!;
+                        return new TransferMatchCandidate(
+                            t.Id, counterparty.Id, counterparty.Name, t.Amount, t.Currency.Value,
+                            t.DepartedOn, t.ReceivedOn, t.Payee);
+                    })
+                    .ToList()
+                : [];
             return new ImportCandidate(
                 Reference: e.Reference ?? string.Empty,
                 Date: e.BookingDate,
@@ -153,8 +164,9 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
                 IsCredit: e.IsCredit,
                 SuggestedBudgetItemId: suggestedId,
                 SuggestedBudgetItemName: suggestedName,
-                LikelyTransfer: TransferHeuristic.IsLikelyTransfer(e.Payee),
-                PossibleDuplicate: possibleDuplicates.Contains(index));
+                LikelyTransfer: TransferHeuristic.IsLikelyTransfer(e.Payee) || matches.Count > 0,
+                PossibleDuplicate: possibleDuplicates.Contains(index),
+                TransferMatches: matches);
         }).ToList();
 
         return new ImportPreviewResult(
