@@ -571,7 +571,12 @@ export function AllocationPage() {
               <div key={m.memberId} className="rounded-xl border border-slate-200/70 p-4">
                 <p className="text-sm font-semibold text-slate-800">{m.name}</p>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  Savings {m.savingsBalance === null ? 'not available' : formatMoney(fromAmount(m.savingsBalance), CURRENCY)} → saves
+                  {!m.savingsAccountId
+                    ? 'No savings account'
+                    : m.savingsBalance === null
+                      ? 'Savings not available'
+                      : `Savings ${formatMoney(fromAmount(m.savingsBalance), CURRENCY)}`}{' '}
+                  → saves
                 </p>
                 <p
                   className={`text-xl font-bold tabular-nums ${

@@ -133,7 +133,7 @@ test('a receipt-first transfer is held for review with no posted effect until it
   await expect(await balance(page, 'Main')).toContainText('500.00')
   await expect(await balance(page, 'Pot')).toContainText('200.00')
   await page.goto('/accounts')
-  await expect(page.getByText('1 receipt pending review')).toBeVisible()
+  await expect(page.getByText('1 receipt pending review', { exact: true })).toBeVisible() // the card badge
   await expect(page.getByText(/transfer receipt.* pending review/)).toBeVisible()
 
   // --- The register flags the row and asks for the departure date.

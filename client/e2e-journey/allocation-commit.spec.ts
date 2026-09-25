@@ -563,7 +563,7 @@ test('a member without a savings account strands their share; over-committing th
   // savings balance; the residual itself is a healthy 1,450.00.
   const robinTile = memberTile(page, 'Robin')
   await expect(robinTile).toContainText('No savings account linked')
-  await expect(robinTile).toContainText('0.00 → saves')
+  await expect(robinTile).toContainText('No savings account → saves') // no linked account: no balance to show
   await expect(robinTile).toContainText('1,450.00')
 
   // --- ALLOC-055: Robin's positive share is stranded — the amber note names the amount.
