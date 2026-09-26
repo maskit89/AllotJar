@@ -36,6 +36,7 @@ test('the account floor refuses an overdraw, income asks for jars, a non-jar lin
   await addAccount(page, { name: 'Stash', opening: '1000', openingDate: '2026-01-01', type: 'Savings' })
   await createGoalJar(page, { name: 'Holiday', target: '2000', heldIn: 'Stash', setAside: '400' })
   await createGoalJar(page, { name: 'Car', target: '5000', heldIn: 'Stash', setAside: '300' })
+  await createGoalJar(page, { name: 'Repairs', target: '800', heldIn: 'Main' })
   await expect(unallocatedRow(page, 'Stash')).toContainText('300.00 unallocated')
 
   // --- Rule 74: a 600.00 payment from Main (500.00) is refused, naming the balance and date ---
@@ -89,11 +90,12 @@ test('the account floor refuses an overdraw, income asks for jars, a non-jar lin
   await expect(jarCard(page, 'Holiday')).toContainText('600.00')
   await expect(unallocatedRow(page, 'Stash')).toContainText('300.00 unallocated')
 
-  // --- Rule 80: moving 100.00 from Holiday into Main's unallocated money is a bank transfer ---
+  // --- Rule 80: moving 100.00 from Holiday into Repairs (held in Main) is a bank transfer ---
   await page.getByRole('button', { name: 'Move money from Holiday' }).click()
   const move = page.getByRole('dialog')
-  await move.getByLabel('Move to').selectOption({ label: /Main.*Unallocated|Unallocated.*Main/ })
+  await move.getByLabel('Move to').selectOption({ label: 'Repairs' })
   await move.getByLabel('Move amount').fill('100')
+  await expect(move.getByText(/recorded as a bank transfer you have made/)).toBeVisible()
   await move.getByLabel('I have made this transfer').check()
   const transferred = page.waitForResponse(
     (r) => r.request().method() === 'POST' && r.url().endsWith('/api/transactions/transfer') && r.ok(),
@@ -102,6 +104,7 @@ test('the account floor refuses an overdraw, income asks for jars, a non-jar lin
   await transferred
   await expect(move).toBeHidden()
   await expect(jarCard(page, 'Holiday')).toContainText('500.00')
+  await expect(jarCard(page, 'Repairs')).toContainText('100.00')
 
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await page.getByRole('link', { name: 'View Stash', exact: true }).click()
