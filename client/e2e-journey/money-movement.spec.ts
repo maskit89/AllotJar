@@ -78,7 +78,9 @@ test('the account floor refuses an overdraw, income asks for jars, a non-jar lin
   await tx.getByLabel('Assign transaction to').selectOption({ label: 'Groceries' })
   const paidFrom = tx.getByLabel(/Which jar in Stash does this come from\?/)
   await expect(paidFrom).toHaveValue('') // unallocated by default
-  await paidFrom.selectOption({ label: /^Holiday/ })
+  // Option labels carry the jar's balance ("Holiday (€600.00)"), so pick by the option's value.
+  const holidayValue = await paidFrom.locator('option', { hasText: 'Holiday' }).getAttribute('value')
+  await paidFrom.selectOption(holidayValue as string)
   posted = page.waitForResponse(
     (r) => r.request().method() === 'POST' && r.url().endsWith('/api/transactions') && r.ok(),
   )
