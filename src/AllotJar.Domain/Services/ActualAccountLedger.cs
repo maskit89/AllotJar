@@ -27,7 +27,7 @@ public static class ActualAccountLedger
         };
     }
 
-    internal static AccountLedgerEntries Entries(
+    public static AccountLedgerEntries Entries(
         Account account, DateOnly openingDate, DateOnly asOf,
         IReadOnlyCollection<Transaction> transactions,
         IReadOnlyDictionary<Guid, TransferPostingDates>? transferDates)
@@ -87,8 +87,8 @@ public static class ActualAccountLedger
     }
 }
 
-internal sealed record AccountLedgerMovement(DateOnly Date, decimal Amount);
-internal sealed record AccountLedgerEntries(
+public sealed record AccountLedgerMovement(DateOnly Date, decimal Amount);
+public sealed record AccountLedgerEntries(
     Dictionary<Guid, AccountLedgerMovement> Movements,
     IReadOnlyList<PendingTransferReceipt> PendingReceipts);
 

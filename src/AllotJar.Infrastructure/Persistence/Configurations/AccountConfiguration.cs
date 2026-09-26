@@ -37,6 +37,12 @@ public class AccountConfiguration : IEntityTypeConfiguration<Account>
         // the ledger reads a missing date as "balance unavailable", never as an inferred date.
         builder.Property(a => a.OpeningDate);
 
+        // Optional bank identifiers (rule 76): bounded text, format-checked by the validators.
+        builder.Property(a => a.Iban).HasMaxLength(34);
+        builder.Property(a => a.Bic).HasMaxLength(11);
+        builder.Property(a => a.SortCode).HasMaxLength(8);
+        builder.Property(a => a.AccountNumber).HasMaxLength(34);
+
         builder.HasIndex(a => a.OwnerId);
 
         // Deleting an account leaves its transactions in place but unlinked (the

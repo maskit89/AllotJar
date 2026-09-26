@@ -38,7 +38,7 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
             // request acknowledges it).
             item = await TransactionInvariants.ValidateWholeLineAsync(
                 _db, userId, request.Type, itemId, request.Date, request.AcknowledgeCrossMonth,
-                "BudgetItemId", cancellationToken);
+                "BudgetItemId", cancellationToken, request.AccountId);
         }
 
         Account? account = null;
@@ -123,7 +123,7 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
             await TransactionInvariants.ValidateSlicesAsync(
                 _db, userId, request.Type, request.Amount, splits,
                 request.Date, request.AcknowledgeCrossMonth,
-                errorKey: "Splits", cancellationToken);
+                errorKey: "Splits", cancellationToken, request.AccountId);
 
             // Scalar FKs only, exactly like CommitImport — setting the BudgetItem
             // navigation here trips EF InMemory's duplicate tracking.

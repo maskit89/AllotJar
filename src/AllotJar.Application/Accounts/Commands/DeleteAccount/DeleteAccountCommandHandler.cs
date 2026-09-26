@@ -54,6 +54,29 @@ public class DeleteAccountCommandHandler : IRequestHandler<DeleteAccountCommand>
             });
         }
 
+        // Rule 2: a jar's money lives in its account, and the ledger operations on that account
+        // are its history. Neither can be orphaned by deleting the account.
+        var jarCount = await _db.Jars.CountAsync(j => j.FundingAccountId == account.Id, cancellationToken);
+        if (jarCount > 0)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["Id"] = new[]
+                {
+                    $"'{account.Name}' holds the money of {jarCount} jar{(jarCount == 1 ? "" : "s")}. " +
+                    "Move those jars to another account (or archive them) before deleting the account.",
+                },
+            });
+        }
+        var allocationCount = await _db.JarAllocations.CountAsync(a => a.AccountId == account.Id, cancellationToken);
+        if (allocationCount > 0)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["Id"] = new[] { $"'{account.Name}' has jar allocation history and cannot be deleted." },
+            });
+        }
+
         // Unlink the account's other transactions explicitly so they survive the delete
         // (the register is the source of truth). This also keeps behaviour identical
         // across providers that don't enforce the FK's ON DELETE SET NULL.

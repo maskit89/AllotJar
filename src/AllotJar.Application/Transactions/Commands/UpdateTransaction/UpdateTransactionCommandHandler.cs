@@ -115,18 +115,22 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         // a date edit used to cross months with no acknowledgment.) Unrelated edits — payee,
         // amount, account — skip this, so a deliberately-acknowledged cross-month assignment
         // isn't re-prompted every time an unrelated field is touched.
+        // Moving the payment to another account also re-runs it: a jar line's payment must keep
+        // leaving the jar's account (rule 79).
+        var accountChanged = request.AccountId != transaction.AccountId;
         if (transaction.BudgetItemId is Guid retainedLineId
-            && (request.Type != transaction.Type || monthChanged))
+            && (request.Type != transaction.Type || monthChanged || accountChanged))
         {
             await TransactionInvariants.ValidateWholeLineAsync(
                 _db, userId, request.Type, retainedLineId, request.Date, request.AcknowledgeCrossMonth,
-                "Type", cancellationToken);
+                accountChanged && !monthChanged && request.Type == transaction.Type ? "AccountId" : "Type",
+                cancellationToken, request.AccountId);
         }
 
         // Same rule for a split: moving the transaction to another month moves every slice's
         // actuals month, so the slice lines are re-validated against the NEW date (with the same
         // acknowledge-to-confirm escape a fresh split would get).
-        if (transaction.Splits.Count > 0 && monthChanged)
+        if (transaction.Splits.Count > 0 && (monthChanged || accountChanged))
         {
             var sliceItemIds = transaction.Splits
                 .Where(s => s.BudgetItemId is not null)
@@ -136,12 +140,15 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             var sliceItems = await _db.BudgetItems
                 .Include(i => i.BudgetCategory)
                     .ThenInclude(c => c.BudgetMonth)
+                .Include(i => i.Jar)
+                    .ThenInclude(j => j!.FundingAccount)
                 .Where(i => sliceItemIds.Contains(i.Id))
                 .ToListAsync(cancellationToken);
             foreach (var line in sliceItems)
             {
                 TransactionInvariants.EnsureWholeLineAssignable(
-                    line, userId, transaction.Type, request.Date, request.AcknowledgeCrossMonth, "Date");
+                    line, userId, transaction.Type, request.Date, request.AcknowledgeCrossMonth,
+                    monthChanged ? "Date" : "AccountId", request.AccountId);
             }
         }
 

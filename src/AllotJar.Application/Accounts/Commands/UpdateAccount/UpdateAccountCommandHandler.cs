@@ -43,6 +43,11 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
                 [nameof(request.OpeningDate)] = new[] { "Enter the date the opening balance applies from." },
             });
 
+        account.Iban = BankIdentifiers.NormalizeIban(request.Iban);
+        account.Bic = BankIdentifiers.NormalizeBic(request.Bic);
+        account.SortCode = BankIdentifiers.NormalizeSortCode(request.SortCode);
+        account.AccountNumber = BankIdentifiers.NormalizeAccountNumber(request.AccountNumber);
+
         await _db.SaveChangesAsync(cancellationToken);
 
         var asOf = DateOnly.FromDateTime(DateTime.UtcNow);

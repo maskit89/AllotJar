@@ -99,11 +99,10 @@ public static class BudgetActuals
     }
 
     /// <summary>
-    /// Sets <see cref="BudgetItem.SavingsAvailable"/> on each of the viewed month's fund
-    /// lines to the fund's running balance: every contribution (planned) minus every
-    /// spend (actual) for that <see cref="BudgetItem.SavingsId"/>, across all of the
-    /// user's months up to and including this one. Unspent fund money therefore rolls
-    /// over instead of resetting each month.
+    /// Sets <see cref="BudgetItem.SavingsAvailable"/> on each of the viewed month's jar lines to
+    /// the jar's actual balance as of the end of that month (rule 48) — the allocations posted in
+    /// its account, never the planned contributions (rule 1). Null when the account's balance is
+    /// unavailable (rule 67). The current and future months read as of today.
     /// </summary>
     private static async Task ApplySavingsBalancesAsync(
         IApplicationDbContext db,
@@ -121,70 +120,14 @@ public static class BudgetActuals
             return;
         }
 
-        var savingsIds = savingsItems.Select(i => i.SavingsId!.Value).Distinct().ToList();
-
-        // Every monthly instance of these funds up to and including the viewed month.
-        var lines = await (
-            from i in db.BudgetItems
-            join c in db.BudgetCategories on i.BudgetCategoryId equals c.Id
-            join m in db.BudgetMonths on c.BudgetMonthId equals m.Id
-            where m.OwnerId == ownerId
-                  && c.Kind == CategoryKind.Savings
-                  && i.SavingsId != null
-                  && savingsIds.Contains(i.SavingsId.Value)
-                  && (m.Year < month.Year || (m.Year == month.Year && m.Month <= month.Month))
-            select new
-            {
-                SavingsId = i.SavingsId!.Value,
-                ItemId = i.Id,
-                i.PlannedAmount,
-            })
-            .ToListAsync(cancellationToken);
-
-        var lineItemIds = lines.Select(l => l.ItemId).ToList();
-
-        // Spending tracked by transactions, per fund line (expenses only; pending-FX rows are
-        // excluded here exactly as in the month roll-up, or a fund's balance would mix real
-        // base-currency money with face-value placeholders).
-        var txByItem = (await db.Transactions
-            .Where(t => t.OwnerId == ownerId
-                        && !t.FxPending
-                        && t.Type == TransactionType.Expense
-                        && t.BudgetItemId != null
-                        && lineItemIds.Contains(t.BudgetItemId.Value))
-            .GroupBy(t => t.BudgetItemId!.Value)
-            .Select(g => new { ItemId = g.Key, Total = g.Sum(t => t.Amount * t.ExchangeRate) })
-            .ToListAsync(cancellationToken))
-            .ToDictionary(x => x.ItemId, x => x.Total);
-
-        var splitByItem = (await (
-            from s in db.TransactionSplits
-            join t in db.Transactions on s.TransactionId equals t.Id
-            where t.OwnerId == ownerId
-                  && !t.FxPending
-                  && t.Type == TransactionType.Expense
-                  && s.BudgetItemId != null
-                  && lineItemIds.Contains(s.BudgetItemId.Value)
-            select new { ItemId = s.BudgetItemId!.Value, Total = s.Amount * t.ExchangeRate })
-            .ToListAsync(cancellationToken))
-            .GroupBy(x => x.ItemId)
-            .ToDictionary(g => g.Key, g => g.Sum(x => x.Total));
-
-        // Net per fund: contributions (planned) minus spending (actual), all months ≤ now.
-        var balanceBySavings = new Dictionary<Guid, decimal>();
-        foreach (var line in lines)
-        {
-            var whole = txByItem.TryGetValue(line.ItemId, out var w) ? w : 0m;
-            var split = splitByItem.TryGetValue(line.ItemId, out var sp) ? sp : 0m;
-            var spent = whole + split;
-
-            balanceBySavings.TryGetValue(line.SavingsId, out var running);
-            balanceBySavings[line.SavingsId] = running + line.PlannedAmount - spent;
-        }
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var monthEnd = new DateOnly(month.Year, month.Month, 1).AddMonths(1).AddDays(-1);
+        var asOf = monthEnd < today ? monthEnd : today;
+        var snapshot = await Jars.JarLedgerReader.ReadAsync(db, ownerId, asOf, cancellationToken);
 
         foreach (var item in savingsItems)
         {
-            item.SavingsAvailable = balanceBySavings.TryGetValue(item.SavingsId!.Value, out var bal) ? bal : 0m;
+            item.SavingsAvailable = snapshot.BalanceOf(item.SavingsId!.Value);
         }
     }
 }

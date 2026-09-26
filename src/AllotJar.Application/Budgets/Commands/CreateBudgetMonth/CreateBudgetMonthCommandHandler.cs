@@ -91,16 +91,19 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         bool NeedsSeed(BudgetItem i) =>
             i.SavingsId is { } fid && activeJars.TryGetValue(fid, out var f) && IsSeedable(f);
 
-        // Cross-history balances are only needed when a fund line is actually being
-        // seeded or appended — computed at most once, on first use.
-        // Balances as-of this month: only contributions/spend in months strictly before
-        // the one being created count, so back-filling an earlier month (via ‹) doesn't
-        // let a later month's savings leak into the seed and zero out the contribution.
-        Dictionary<Guid, decimal>? tracked = null;
-        async Task<Dictionary<Guid, decimal>> BalancesAsync() =>
-            tracked ??= await JarBalances.ComputeAsync(_db, userId, cancellationToken, (request.Year, request.Month));
-
+        // Actual jar balances are only needed when a jar line is actually being seeded or
+        // appended — read at most once, on first use. Balances as of the end of the previous
+        // month (rule 48): money that arrived later must not zero out this month's contribution
+        // when an earlier month is back-filled; for a future month, as of today.
         var seedAsOf = new DateOnly(request.Year, request.Month, 1);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var balanceAsOf = seedAsOf.AddDays(-1) < today ? seedAsOf.AddDays(-1) : today;
+        JarLedgerSnapshot? ledger = null;
+        async Task<JarLedgerSnapshot> BalancesAsync() =>
+            ledger ??= await JarLedgerReader.ReadAsync(_db, userId, balanceAsOf, cancellationToken);
+        // An unavailable balance (rule 67) seeds from nothing saved rather than inventing money.
+        static decimal Seed(Jar jar, DateOnly asOf, JarLedgerSnapshot snapshot) =>
+            JarAccrualCalculator.RequiredMonthlyContribution(jar, asOf, snapshot.BalanceOf(jar.Id) ?? 0m);
 
         // A later month inherits its predecessor's base. The FIRST month adopts the creating
         // login's preferred currency instead of assuming EUR: the account form defaults to that
@@ -146,12 +149,9 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                         Name = line,
                         PlannedAmount = 0m,
                         DisplayOrder = li++,
-                        // A template savings line is backed by a real jar — SavingsId is
-                        // an enforced FK to Jars.Id, and the jar is what makes the
-                        // line's balance roll over.
-                        SavingsId = g.Kind == CategoryKind.Savings
-                            ? SavingsLines.AddBackingJar(_db, userId, line).Id
-                            : null,
+                        // Templates carry no savings lines (rule 81): a jar needs its account
+                        // and is created through the jar form, which plants its own line.
+                        SavingsId = null,
                     });
                 }
                 budget.Categories.Add(category);
@@ -163,7 +163,7 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
             // required amount; skip the cross-history scan when none qualifies.
             var balances = previous.Categories.SelectMany(c => c.Items).Any(NeedsSeed)
                 ? await BalancesAsync()
-                : new Dictionary<Guid, decimal>();
+                : null;
 
             // Copy the structure and planned amounts; actuals start fresh.
             budget.Categories = previous.Categories
@@ -189,10 +189,7 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                             // Fund lines with a configured target are seeded at the
                             // calculated required contribution; everything else copies.
                             PlannedAmount = NeedsSeed(i)
-                                ? JarAccrualCalculator.RequiredMonthlyContribution(
-                                    activeJars[i.SavingsId!.Value], seedAsOf,
-                                    activeJars[i.SavingsId!.Value].OpeningBalance
-                                        + balances.GetValueOrDefault(i.SavingsId!.Value))
+                                ? Seed(activeJars[i.SavingsId!.Value], seedAsOf, balances!)
                                 : i.PlannedAmount,
                             DisplayOrder = i.DisplayOrder,
                             // Keep the fund's identity so its balance rolls over.
@@ -236,9 +233,7 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
             var balances = await BalancesAsync();
             foreach (var jar in missing)
             {
-                SavingsLines.AppendJarLine(_db, budget, jar,
-                    JarAccrualCalculator.RequiredMonthlyContribution(
-                        jar, seedAsOf, jar.OpeningBalance + balances.GetValueOrDefault(jar.Id)));
+                SavingsLines.AppendJarLine(_db, budget, jar, Seed(jar, seedAsOf, balances));
             }
         }
 

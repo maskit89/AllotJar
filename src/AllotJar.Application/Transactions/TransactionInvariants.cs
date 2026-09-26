@@ -58,7 +58,8 @@ public static class TransactionInvariants
         DateOnly transactionDate,
         bool acknowledgeCrossMonth,
         string errorKey,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? accountId = null)
     {
         // A transfer moves money between accounts and never carries budget attribution —
         // splitting one across lines would corrupt both the budget and the balances.
@@ -80,6 +81,8 @@ public static class TransactionInvariants
         var items = await db.BudgetItems
             .Include(i => i.BudgetCategory)
                 .ThenInclude(c => c.BudgetMonth)
+            .Include(i => i.Jar)
+                .ThenInclude(j => j!.FundingAccount)
             .Where(i => itemIds.Contains(i.Id))
             .ToDictionaryAsync(i => i.Id, cancellationToken);
 
@@ -90,6 +93,7 @@ public static class TransactionInvariants
                 throw new NotFoundException($"Budget item {id} was not found.");
             }
             EnsureOwned(item, userId);
+            EnsureJarAccount(item, accountId, errorKey);
 
             // Keep the roll-up coherent: split an expense across expense lines,
             // income across income lines.
@@ -142,11 +146,14 @@ public static class TransactionInvariants
         DateOnly transactionDate,
         bool acknowledgeCrossMonth,
         string errorKey,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? accountId = null)
     {
         var item = await db.BudgetItems
             .Include(i => i.BudgetCategory)
                 .ThenInclude(c => c.BudgetMonth)
+            .Include(i => i.Jar)
+                .ThenInclude(j => j!.FundingAccount)
             .FirstOrDefaultAsync(i => i.Id == budgetItemId, cancellationToken);
 
         if (item is null)
@@ -154,14 +161,15 @@ public static class TransactionInvariants
             throw new NotFoundException($"Budget item {budgetItemId} was not found.");
         }
 
-        EnsureWholeLineAssignable(item, userId, type, transactionDate, acknowledgeCrossMonth, errorKey);
+        EnsureWholeLineAssignable(item, userId, type, transactionDate, acknowledgeCrossMonth, errorKey, accountId);
         return item;
     }
 
     /// <summary>
     /// The pure half of <see cref="ValidateWholeLineAsync"/>, for callers that batch-load their
     /// lines (CommitImport validates a whole statement in one query instead of one per row).
-    /// The <paramref name="item"/> must be loaded with its category and month.
+    /// The <paramref name="item"/> must be loaded with its category and month, and — for a jar
+    /// line — its jar and that jar's account.
     /// </summary>
     public static void EnsureWholeLineAssignable(
         BudgetItem item,
@@ -169,7 +177,8 @@ public static class TransactionInvariants
         TransactionType type,
         DateOnly transactionDate,
         bool acknowledgeCrossMonth,
-        string errorKey)
+        string errorKey,
+        Guid? accountId = null)
     {
         if (type == TransactionType.Transfer)
         {
@@ -177,6 +186,7 @@ public static class TransactionInvariants
         }
 
         EnsureOwned(item, userId);
+        EnsureJarAccount(item, accountId, errorKey);
 
         if (!LineKindMatches(item.BudgetCategory.Kind, type))
         {
@@ -219,6 +229,34 @@ public static class TransactionInvariants
                 $"This transaction is dated {transactionDate:yyyy-MM} but that budget line is in " +
                 $"{month.Year:0000}-{month.Month:00}. Confirm to budget it to {month.Year:0000}-{month.Month:00}, " +
                 "or pick a line in the transaction's own month.");
+        }
+    }
+
+    /// <summary>
+    /// Rules 2/4/79: a jar's money lives in its designated account, so a payment attributed to a
+    /// jar's line must leave that account — that attribution is what draws the money from the jar.
+    /// A payment from nowhere, or from another account, cannot reduce the jar and is refused
+    /// rather than silently counted as a plan.
+    /// </summary>
+    private static void EnsureJarAccount(BudgetItem item, Guid? accountId, string errorKey)
+    {
+        if (item.SavingsId is null)
+        {
+            return;
+        }
+        var jar = item.Jar;
+        if (jar is null)
+        {
+            // A dangling savings line (no jar row) cannot draw from any jar; the FK makes this
+            // unreachable on SQL Server and it only occurs in tests that mint bare ids.
+            return;
+        }
+        if (accountId != jar.FundingAccountId)
+        {
+            var held = jar.FundingAccount?.Name ?? "its account";
+            throw Validation(errorKey,
+                $"'{item.Name}' is the jar {jar.Name}, whose money is held in {held}. " +
+                $"Record this payment from {held} so it comes out of the jar.");
         }
     }
 

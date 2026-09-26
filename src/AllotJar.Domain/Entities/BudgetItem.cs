@@ -33,6 +33,7 @@ public class BudgetItem : BaseEntity
     /// copied. Null for ordinary income/expense lines.
     /// </summary>
     public Guid? SavingsId { get; set; }
+    public Jar? Jar { get; set; }
 
     /// <summary>
     /// Transient (not persisted): for a fund line, the running available balance of

@@ -14,7 +14,8 @@ public record BudgetTemplateGroup(string Name, CategoryKind Kind, IReadOnlyList<
 /// <summary>
 /// The built-in quick-start templates offered when creating a budget for a month
 /// with nothing to copy. Lines start at a planned amount of 0 — the structure is
-/// the head start; the user assigns their own Euros.
+/// the head start; the user assigns their own Euros. Templates carry income and
+/// expense structure only (rule 81): jars need their account and come from the jar form.
 /// </summary>
 public static class BudgetTemplates
 {
@@ -31,7 +32,6 @@ public static class BudgetTemplates
                 new BudgetTemplateGroup("Food", CategoryKind.Expense, new[] { "Groceries", "Restaurants" }),
                 new BudgetTemplateGroup("Transport", CategoryKind.Expense, new[] { "Fuel", "Public Transport", "Car Insurance" }),
                 new BudgetTemplateGroup("Lifestyle", CategoryKind.Expense, new[] { "Subscriptions", "Clothing", "Personal Care" }),
-                new BudgetTemplateGroup("Savings", CategoryKind.Savings, new[] { "Emergency Fund" }),
             }),
         new BudgetTemplate(
             "student",
@@ -43,7 +43,6 @@ public static class BudgetTemplates
                 new BudgetTemplateGroup("Living", CategoryKind.Expense, new[] { "Rent", "Groceries", "Phone" }),
                 new BudgetTemplateGroup("Study", CategoryKind.Expense, new[] { "Books & Supplies", "Course Fees" }),
                 new BudgetTemplateGroup("Social", CategoryKind.Expense, new[] { "Eating Out", "Entertainment" }),
-                new BudgetTemplateGroup("Savings", CategoryKind.Savings, new[] { "Rainy Day Fund" }),
             }),
         new BudgetTemplate(
             "family",
@@ -57,7 +56,6 @@ public static class BudgetTemplates
                 new BudgetTemplateGroup("Transport", CategoryKind.Expense, new[] { "Fuel", "Public Transport", "Car Insurance" }),
                 new BudgetTemplateGroup("Children", CategoryKind.Expense, new[] { "Childcare", "School", "Activities" }),
                 new BudgetTemplateGroup("Lifestyle", CategoryKind.Expense, new[] { "Subscriptions", "Clothing", "Personal Care" }),
-                new BudgetTemplateGroup("Savings", CategoryKind.Savings, new[] { "Emergency Fund", "Holiday", "Christmas" }),
             }),
     };
 

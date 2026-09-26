@@ -10,7 +10,7 @@ public class CreateJarCommandValidator : AbstractValidator<CreateJarCommand>
     public CreateJarCommandValidator()
     {
         RuleFor(x => x.Name)
-            .NotEmpty().WithMessage("A fund needs a name.")
+            .NotEmpty().WithMessage("A jar needs a name.")
             .MaximumLength(120);
 
         RuleFor(x => x.Kind).IsInEnum();
@@ -20,15 +20,17 @@ public class CreateJarCommandValidator : AbstractValidator<CreateJarCommand>
             .InclusiveBetween(0m, MaxAmount)
             .WithMessage("Target amount is out of range.");
 
-        RuleFor(x => x.OpeningBalance)
-            .InclusiveBetween(-MaxAmount, MaxAmount)
-            .WithMessage("Opening balance is out of range.");
+        // Rule 73: no jar without the account that holds its money.
+        RuleFor(x => x.FundingAccountId)
+            .NotEmpty().WithMessage("Choose the account this jar's money is held in.");
 
+        // Rule 77: money already in the account, divided into the jar — never negative.
+        RuleFor(x => x.InitialAllocation)
+            .InclusiveBetween(0m, MaxAmount)
+            .WithMessage("The amount already set aside must be zero or more.");
 
         // The recurrence cycle, when set, is bounded. Whether a Recurring jar *must*
-        // carry a date and target is a form concern (the New-jar form collects them) —
-        // the server stays permissive so imported and legacy jars (open-ended pools,
-        // date-less recurring funds) remain editable.
+        // carry a date and target is a form concern (the New-jar form collects them).
         RuleFor(x => x.RecurMonths)
             .InclusiveBetween(1, 120)
             .When(x => x.RecurMonths.HasValue)

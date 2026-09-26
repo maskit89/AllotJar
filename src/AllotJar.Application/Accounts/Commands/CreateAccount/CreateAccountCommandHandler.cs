@@ -45,6 +45,10 @@ public class CreateAccountCommandHandler : IRequestHandler<CreateAccountCommand,
                     [nameof(request.OpeningDate)] = new[] { "Enter the date the opening balance applies from." },
                 }),
             DisplayOrder = nextOrder + 1,
+            Iban = BankIdentifiers.NormalizeIban(request.Iban),
+            Bic = BankIdentifiers.NormalizeBic(request.Bic),
+            SortCode = BankIdentifiers.NormalizeSortCode(request.SortCode),
+            AccountNumber = BankIdentifiers.NormalizeAccountNumber(request.AccountNumber),
         };
 
         _db.Accounts.Add(account);
