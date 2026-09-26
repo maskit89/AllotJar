@@ -1,5 +1,6 @@
 using MediatR;
 using AllotJar.Application.Common.Security;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Dtos;
 
 namespace AllotJar.Application.Transactions.Commands.CreateTransfer;
@@ -13,7 +14,11 @@ namespace AllotJar.Application.Transactions.Commands.CreateTransfer;
 /// arrival date is ever invented. Stored as a single
 /// <see cref="Domain.Enums.TransactionType.Transfer"/> transaction (source =
 /// <paramref name="FromAccountId"/>, destination = <paramref name="ToAccountId"/>) that is
-/// excluded from budget actuals. Returns the created transaction.
+/// excluded from budget actuals. On jar-backed accounts, <paramref name="FromJarId"/> names
+/// the jar the money leaves (unallocated when null; a cross-account "Move money" sets it, rule
+/// 80) and <paramref name="JarAllocations"/> divides the receipt among the destination's jars
+/// (rule 78); a receipt still in transit lands in those jars once it is confirmed. Returns the
+/// created transaction.
 /// </summary>
 [AllowLimited]
 public record CreateTransferCommand(
@@ -22,4 +27,6 @@ public record CreateTransferCommand(
     Guid FromAccountId,
     Guid ToAccountId,
     string? Payee = null,
-    DateOnly? ReceivedOn = null) : IRequest<TransactionDto>;
+    DateOnly? ReceivedOn = null,
+    Guid? FromJarId = null,
+    IReadOnlyList<JarAllocationInput>? JarAllocations = null) : IRequest<TransactionDto>;

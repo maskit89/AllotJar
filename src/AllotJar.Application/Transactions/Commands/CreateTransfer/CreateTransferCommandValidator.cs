@@ -1,4 +1,5 @@
 using FluentValidation;
+using AllotJar.Application.Jars;
 
 namespace AllotJar.Application.Transactions.Commands.CreateTransfer;
 
@@ -27,5 +28,6 @@ public class CreateTransferCommandValidator : AbstractValidator<CreateTransferCo
             .WithMessage("The receipt date can't be before the departure date.");
 
         RuleFor(x => x.Payee).MaximumLength(200);
+        RuleFor(x => x.JarAllocations).JarAllocationsWellFormed();
     }
 }

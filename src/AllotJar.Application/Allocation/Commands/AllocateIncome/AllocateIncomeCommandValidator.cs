@@ -22,5 +22,9 @@ public class AllocateIncomeCommandValidator : AbstractValidator<AllocateIncomeCo
             .GreaterThanOrEqualTo(x => x.DepartedOn!.Value)
             .When(x => x.ReceivedOn.HasValue && x.DepartedOn.HasValue)
             .WithMessage("The receipt date can't be before the departure date.");
+    
+        RuleFor(x => x.JarAllocations)
+            .Must(list => list is null || list.All(a => a.MemberId != Guid.Empty && a.JarId != Guid.Empty && a.Amount >= 0m))
+            .WithMessage("Each jar amount needs a member, a jar and an amount of zero or more.");
     }
 }

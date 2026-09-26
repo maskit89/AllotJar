@@ -140,6 +140,7 @@ public class TransfersTests
             Name = name,
             Type = AccountType.Current,
             Currency = CurrencyCode.From(currency),
+            OpeningBalance = 1000m,
             OpeningDate = new DateOnly(2026, 1, 1),
         };
         db.Accounts.Add(a);

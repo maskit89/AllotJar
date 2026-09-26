@@ -2,6 +2,8 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Accounts;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Imports.Commands.ImportStatement;
 using AllotJar.Application.Transactions;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
@@ -89,8 +91,38 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         int imported = 0, skipped = 0, credits = 0, debits = 0, transfers = 0, matched = 0, pendingReview = 0;
         var created = new List<Transaction>();
         var matchedIds = new HashSet<Guid>();
+        var held = new List<ImportHeldRow>();
 
-        foreach (var item in request.Items)
+        // Rule 74/11: the statement account is evaluated row by row in date order, against its
+        // stored money plus the rows accepted so far. A row that would take it below zero on any
+        // date is held (reported, not posted) and the later rows are judged without it. The
+        // candidate state carries the tracked match targets, since matching posts their open leg.
+        var candidate = new List<Transaction>();
+        if (importAccount is not null)
+        {
+            var storedRows = await _db.Transactions
+                .AsNoTracking()
+                .Where(t => t.OwnerId == userId
+                            && (t.AccountId == importAccount.Id
+                                || (t.Type == TransactionType.Transfer && t.TransferAccountId == importAccount.Id)))
+                .ToListAsync(cancellationToken);
+            candidate.AddRange(storedRows.Where(t => !matchTargets.ContainsKey(t.Id)));
+            candidate.AddRange(matchTargets.Values);
+        }
+        string? Shortfall(Transaction? tentative) =>
+            importAccount is null
+                ? null
+                : AccountBalanceGuard.FirstShortfall(
+                    new[] { importAccount },
+                    tentative is null ? candidate : candidate.Append(tentative).ToList());
+
+        var ordered = request.Items
+            .Select((item, index) => (item, index))
+            .OrderBy(x => x.item.Date)
+            .ThenBy(x => x.index)
+            .Select(x => x.item);
+
+        foreach (var item in ordered)
         {
             if (!string.IsNullOrEmpty(item.Reference) && !seen.Add(item.Reference))
             {
@@ -141,12 +173,30 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     {
                         target.ReceivedOn = item.Date;
                         target.ReceiptBankReference = reference;
+                        if (item.JarAllocations is { Count: > 0 })
+                        {
+                            await JarMovements.ApplyIncomingAsync(
+                                _db, userId, target, importAccount, item.Date, target.Amount, item.JarAllocations, "Items", cancellationToken);
+                        }
                     }
                     else
                     {
+                        var (previousDeparted, previousReference, previousDate) = (target.DepartedOn, target.BankReference, target.Date);
                         target.DepartedOn = item.Date;
                         target.BankReference = reference;
                         target.Date = item.Date;
+                        if (Shortfall(null) is string shortfall)
+                        {
+                            (target.DepartedOn, target.BankReference, target.Date) = (previousDeparted, previousReference, previousDate);
+                            matchedIds.Remove(matchId);
+                            seen.Remove(item.Reference);
+                            held.Add(new ImportHeldRow(item.Reference, shortfall));
+                            continue;
+                        }
+                        if (item.PaidFromJarId is not null)
+                        {
+                            await JarMovements.ApplyOutgoingAsync(_db, userId, target, importAccount, item.PaidFromJarId, "Items", cancellationToken);
+                        }
                     }
                     matched++;
                     transfers++;
@@ -176,8 +226,27 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     BankReference = item.IsCredit ? null : reference,
                     ReceiptBankReference = item.IsCredit ? reference : null,
                 };
+                if (!item.IsCredit && Shortfall(transfer) is string transferShortfall)
+                {
+                    seen.Remove(item.Reference);
+                    held.Add(new ImportHeldRow(item.Reference, transferShortfall));
+                    continue;
+                }
                 _db.Transactions.Add(transfer);
                 created.Add(transfer);
+                candidate.Add(transfer);
+                if (item.IsCredit)
+                {
+                    if (item.JarAllocations is { Count: > 0 })
+                    {
+                        await JarMovements.ApplyIncomingAsync(
+                            _db, userId, transfer, importAccount, item.Date, item.Amount, item.JarAllocations, "Items", cancellationToken);
+                    }
+                }
+                else if (item.PaidFromJarId is not null)
+                {
+                    await JarMovements.ApplyOutgoingAsync(_db, userId, transfer, importAccount, item.PaidFromJarId, "Items", cancellationToken);
+                }
                 imported++;
                 transfers++;
                 if (item.IsCredit) pendingReview++;
@@ -238,8 +307,29 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 }
             }
 
+            if (!item.IsCredit && Shortfall(transaction) is string rowShortfall)
+            {
+                seen.Remove(item.Reference);
+                held.Add(new ImportHeldRow(item.Reference, rowShortfall));
+                continue;
+            }
+
             _db.Transactions.Add(transaction);
             created.Add(transaction);
+            candidate.Add(transaction);
+
+            if (importAccount is not null)
+            {
+                if (item.IsCredit && item.JarAllocations is { Count: > 0 })
+                {
+                    await JarMovements.ApplyIncomingAsync(
+                        _db, userId, transaction, importAccount, item.Date, item.Amount, item.JarAllocations, "Items", cancellationToken);
+                }
+                else if (!item.IsCredit && item.PaidFromJarId is not null)
+                {
+                    await JarMovements.ApplyOutgoingAsync(_db, userId, transaction, importAccount, item.PaidFromJarId, "Items", cancellationToken);
+                }
+            }
 
             imported++;
             if (item.IsCredit) credits++; else debits++;
@@ -270,6 +360,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
 
                     foreach (var row in collided)
                     {
+                        _db.JarAllocations.RemoveRange(row.JarAllocations); // Added entities: Remove detaches them
                         _db.Transactions.Remove(row); // an Added entity: Remove detaches it
                         created.Remove(row);
                         imported--;
@@ -307,7 +398,8 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             AutoCategorized: 0,
             Transfers: transfers,
             MatchedTransfers: matched,
-            PendingReviewTransfers: pendingReview);
+            PendingReviewTransfers: pendingReview,
+            Held: held);
     }
 
     /// <summary>

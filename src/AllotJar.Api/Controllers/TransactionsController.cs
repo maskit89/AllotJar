@@ -6,6 +6,7 @@ using AllotJar.Application.Transactions.Commands.ConfirmTransferLegs;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.CreateTransfer;
 using AllotJar.Application.Transactions.Commands.DeleteTransaction;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Application.Transactions.Commands.UpdateTransaction;
 using AllotJar.Application.Transactions.Dtos;
@@ -54,7 +55,9 @@ public class TransactionsController : ControllerBase
                 request.Date, request.Payee, request.Amount, request.Type,
                 request.BudgetItemId, request.AccountId, request.MemberId,
                 request.Splits?.Select(a => new SplitAllocationInput(a.BudgetItemId, a.Amount, a.MemberId)).ToList(),
-                request.AcknowledgeCrossMonth),
+                request.AcknowledgeCrossMonth,
+                request.JarAllocations?.Select(a => new JarAllocationInput(a.JarId, a.Amount)).ToList(),
+                request.PaidFromJarId),
             ct);
         return CreatedAtAction(nameof(List), new { }, result);
     }
@@ -74,7 +77,8 @@ public class TransactionsController : ControllerBase
         var result = await _mediator.Send(
             new CreateTransferCommand(
                 request.DepartedOn, request.Amount, request.FromAccountId, request.ToAccountId,
-                request.Payee, request.ReceivedOn),
+                request.Payee, request.ReceivedOn, request.FromJarId,
+                request.JarAllocations?.Select(a => new JarAllocationInput(a.JarId, a.Amount)).ToList()),
             ct);
         return CreatedAtAction(nameof(List), new { }, result);
     }
@@ -94,7 +98,8 @@ public class TransactionsController : ControllerBase
     {
         var result = await _mediator.Send(
             new ConfirmTransferLegsCommand(
-                id, request.DepartedOn, request.ReceivedOn, request.BankReference, request.ReceiptBankReference),
+                id, request.DepartedOn, request.ReceivedOn, request.BankReference, request.ReceiptBankReference,
+                request.FromJarId, request.JarAllocations?.Select(a => new JarAllocationInput(a.JarId, a.Amount)).ToList()),
             ct);
         return Ok(result);
     }
@@ -113,7 +118,9 @@ public class TransactionsController : ControllerBase
         var result = await _mediator.Send(
             new UpdateTransactionCommand(
                 id, request.Date, request.Payee, request.Amount, request.Type, request.AccountId, request.MemberId,
-                request.AcknowledgeCrossMonth),
+                request.AcknowledgeCrossMonth,
+                request.JarAllocations?.Select(a => new JarAllocationInput(a.JarId, a.Amount)).ToList(),
+                request.PaidFromJarId),
             ct);
         return Ok(result);
     }
@@ -144,7 +151,7 @@ public class TransactionsController : ControllerBase
             .Select(a => new SplitAllocationInput(a.BudgetItemId, a.Amount, a.MemberId))
             .ToList();
         var result = await _mediator.Send(
-            new SplitTransactionCommand(id, allocations, request.AcknowledgeCrossMonth), ct);
+            new SplitTransactionCommand(id, allocations, request.AcknowledgeCrossMonth, request.PaidFromJarId), ct);
         return Ok(result);
     }
 
@@ -162,13 +169,16 @@ public class TransactionsController : ControllerBase
         // re-sends with it set, and dropping it here (as an earlier revision did) makes the
         // confirmed retry fail with the same 400 it is acknowledging.
         var result = await _mediator.Send(
-            new AssignTransactionCommand(id, request.BudgetItemId, request.AcknowledgeCrossMonth), ct);
+            new AssignTransactionCommand(id, request.BudgetItemId, request.AcknowledgeCrossMonth, request.PaidFromJarId), ct);
         return Ok(result);
     }
 }
 
 /// <summary>Request body for assigning a transaction (null clears the assignment).</summary>
-public record AssignTransactionRequest(Guid? BudgetItemId, bool AcknowledgeCrossMonth = false);
+public record AssignTransactionRequest(Guid? BudgetItemId, bool AcknowledgeCrossMonth = false, Guid? PaidFromJarId = null);
+
+/// <summary>Part of money reaching a jar-backed account, put into one of its jars (rule 78).</summary>
+public record JarAllocationRequest(Guid JarId, decimal Amount);
 
 /// <summary>
 /// Request body for creating a manual transaction. When <c>Splits</c> is given (two or more
@@ -184,7 +194,9 @@ public record CreateTransactionRequest(
     Guid? AccountId = null,
     Guid? MemberId = null,
     IReadOnlyList<SplitAllocationRequest>? Splits = null,
-    bool AcknowledgeCrossMonth = false);
+    bool AcknowledgeCrossMonth = false,
+    IReadOnlyList<JarAllocationRequest>? JarAllocations = null,
+    Guid? PaidFromJarId = null);
 
 /// <summary>
 /// Request body for recording a completed transfer between two accounts. <c>DepartedOn</c> is
@@ -196,14 +208,18 @@ public record CreateTransferRequest(
     Guid FromAccountId,
     Guid ToAccountId,
     string? Payee = null,
-    DateOnly? ReceivedOn = null);
+    DateOnly? ReceivedOn = null,
+    Guid? FromJarId = null,
+    IReadOnlyList<JarAllocationRequest>? JarAllocations = null);
 
 /// <summary>Request body for confirming a transfer's missing bank legs (the id comes from the route).</summary>
 public record ConfirmTransferLegsRequest(
     DateOnly? DepartedOn = null,
     DateOnly? ReceivedOn = null,
     string? BankReference = null,
-    string? ReceiptBankReference = null);
+    string? ReceiptBankReference = null,
+    Guid? FromJarId = null,
+    IReadOnlyList<JarAllocationRequest>? JarAllocations = null);
 
 /// <summary>Request body for editing a transaction (the id comes from the route).</summary>
 public record UpdateTransactionRequest(
@@ -213,12 +229,15 @@ public record UpdateTransactionRequest(
     TransactionType Type,
     Guid? AccountId = null,
     Guid? MemberId = null,
-    bool AcknowledgeCrossMonth = false);
+    bool AcknowledgeCrossMonth = false,
+    IReadOnlyList<JarAllocationRequest>? JarAllocations = null,
+    Guid? PaidFromJarId = null);
 
 /// <summary>Request body for splitting a transaction across budget lines.</summary>
 public record SplitTransactionRequest(
     IReadOnlyList<SplitAllocationRequest> Allocations,
-    bool AcknowledgeCrossMonth = false);
+    bool AcknowledgeCrossMonth = false,
+    Guid? PaidFromJarId = null);
 
 /// <summary>One slice of a split: an amount attributed to a budget line and, optionally, a household member.</summary>
 public record SplitAllocationRequest(Guid BudgetItemId, decimal Amount, Guid? MemberId = null);

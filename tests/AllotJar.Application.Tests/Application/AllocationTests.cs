@@ -170,7 +170,7 @@ public class AllocationTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub("user-1");
-        var source = SeedAccount(db, "user-1", "Joint Current");
+        var source = SeedAccount(db, "user-1", "Joint Current", opening: 100_000m);
         var chrisSavings = SeedAccount(db, "user-1", "Alex Savings");
         var lizaSavings = SeedAccount(db, "user-1", "Sam Savings");
         SeedMember(db, "user-1", "Alex", 4200.50m, 0, chrisSavings.Id);
@@ -209,7 +209,7 @@ public class AllocationTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub("user-1");
-        var source = SeedAccount(db, "user-1", "Joint");
+        var source = SeedAccount(db, "user-1", "Joint", opening: 100_000m);
         var aSav = SeedAccount(db, "user-1", "A Savings");
         var bSav = SeedAccount(db, "user-1", "B Savings");
         SeedMember(db, "user-1", "A", 1500m, 0, aSav.Id);
@@ -255,7 +255,7 @@ public class AllocationTests
         // TransfersCreated = 1 as success.
         await using var db = NewContext();
         var user = new CurrentUserStub("user-1");
-        var source = SeedAccount(db, "user-1", "Joint Current");
+        var source = SeedAccount(db, "user-1", "Joint Current", opening: 100_000m);
         SeedMember(db, "user-1", "Alex", 3000m, 0, source.Id); // savings IS the source
         SeedBudget(db, "user-1", 2026, 6, envelopes: 1000m, funds: 500m);
         db.AllocationProfiles.Add(new AllocationProfile

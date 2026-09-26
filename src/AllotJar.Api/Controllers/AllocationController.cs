@@ -98,7 +98,8 @@ public class AllocationController : ControllerBase
         var result = await _mediator.Send(
             new AllocateIncomeCommand(
                 year, month, profileId,
-                request?.DepartedOn, request?.ReceivedOn, request?.ConfirmedCompleted ?? false),
+                request?.DepartedOn, request?.ReceivedOn, request?.ConfirmedCompleted ?? false,
+                request?.JarAllocations?.Select(a => new AllocateIncomeJarAllocation(a.MemberId, a.JarId, a.Amount)).ToList()),
             ct);
         return Ok(result);
     }
@@ -111,7 +112,11 @@ public class AllocationController : ControllerBase
 public record CommitAllocationRequest(
     DateOnly? DepartedOn = null,
     DateOnly? ReceivedOn = null,
-    bool ConfirmedCompleted = false);
+    bool ConfirmedCompleted = false,
+    IReadOnlyList<CommitAllocationJarRequest>? JarAllocations = null);
+
+/// <summary>Part of one member's allocation transfer put into a jar of their savings account (rule 78).</summary>
+public record CommitAllocationJarRequest(Guid MemberId, Guid JarId, decimal Amount);
 
 /// <summary>Request body for creating/replacing the allocation profile.</summary>
 public record UpsertAllocationProfileRequest(

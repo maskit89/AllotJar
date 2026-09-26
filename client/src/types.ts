@@ -113,6 +113,55 @@ export interface TransactionDto {
   memberName: string | null
   isSplit: boolean
   splits: TransactionSplitDto[]
+  /**
+   * The stored jar split of each account leg (rules 78/79): signed amounts per jar, a null jar
+   * meaning unallocated. Empty when the leg follows the default (incoming money unallocated; a
+   * payment drawn from its budget line's jar or unallocated). Optional so fixtures stay valid.
+   */
+  jarAllocations?: TransactionJarAllocationDto[]
+}
+
+export interface TransactionJarAllocationDto {
+  accountId: string
+  jarId: string | null
+  jarName: string | null
+  /** Signed: positive for money reaching the jar, negative for money leaving it. */
+  amount: number
+}
+
+/**
+ * The answer to the incoming-money prompt (rule 78): part of the money reaching a jar-backed
+ * account, put into one of its jars. Whatever is not named stays unallocated.
+ */
+export interface JarAllocationRequest {
+  jarId: string
+  amount: number
+}
+
+/** Request body for POST /transactions/transfer. */
+export interface CreateTransferRequest {
+  departedOn: string
+  receivedOn: string | null
+  amount: number
+  fromAccountId: string
+  toAccountId: string
+  payee: string | null
+  /** The jar the money leaves (rule 80 "Move money"); unallocated when null. */
+  fromJarId?: string | null
+  /** How the receipt is divided among the destination's jars (rule 78). */
+  jarAllocations?: JarAllocationRequest[] | null
+}
+
+/** Request body for PUT /transactions/{id}/transfer-legs. */
+export interface ConfirmTransferLegsRequest {
+  departedOn?: string | null
+  receivedOn?: string | null
+  bankReference?: string | null
+  receiptBankReference?: string | null
+  /** With `departedOn`: the jar the money left. */
+  fromJarId?: string | null
+  /** With `receivedOn`: how the receipt is divided among the destination's jars (rule 78). */
+  jarAllocations?: JarAllocationRequest[] | null
 }
 
 /** Matches Domain.Enums.TransferStatus, serialized by name. */
@@ -292,6 +341,19 @@ export interface CommitImportItem {
    * transaction is created. Requires `transferAccountId` to name the same counterparty.
    */
   matchTransferId?: string | null
+  /**
+   * For a credit into a jar-backed statement account (an income, or a transfer receipt this row
+   * records or confirms): how much goes to each of its jars, the rest unallocated (rule 78).
+   */
+  jarAllocations?: JarAllocationRequest[] | null
+  /** For a debit on a line that is not a jar (or a transfer out): the jar it comes from (rule 79). */
+  paidFromJarId?: string | null
+}
+
+/** A statement row the commit held back because posting it would take the account below zero (rule 74). */
+export interface ImportHeldRow {
+  reference: string
+  message: string
 }
 
 /** Summary returned by a statement import (CAMT.053 or HSBC CSV). */
@@ -309,6 +371,9 @@ export interface ImportStatementResult {
   matchedTransfers?: number
   /** Credit rows held for review because only the receipt is known. */
   pendingReviewTransfers?: number
+  /** Rows not imported because they would take the account below zero on some date (rule 74); re-commit after fixing. */
+  held?: ImportHeldRow[]
+  heldCount?: number
 }
 
 export interface AccountReconciliationDto {

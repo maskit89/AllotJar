@@ -2,6 +2,8 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Accounts;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -70,8 +72,31 @@ public class CreateTransferCommandHandler : IRequestHandler<CreateTransferComman
         };
 
         _db.Transactions.Add(transfer);
-        await _db.SaveChangesAsync(cancellationToken);
 
-        return transfer.ToDto();
+        // Rule 74 on the source: the departure must leave it at or above zero on every date.
+        await using var write = await _db.BeginLedgerWriteAsync(from.Id, cancellationToken);
+        await AccountBalanceGuard.EnsureNonNegativeAsync(
+            _db, new[] { from }, new[] { transfer }, Array.Empty<Guid>(), "Amount", cancellationToken);
+
+        if (request.FromJarId is not null)
+        {
+            await JarMovements.ApplyOutgoingAsync(_db, userId, transfer, from, request.FromJarId, "FromJarId", cancellationToken);
+        }
+        if (request.JarAllocations is { Count: > 0 })
+        {
+            await JarMovements.ApplyIncomingAsync(
+                _db, userId, transfer, to, request.ReceivedOn ?? request.DepartedOn, request.Amount, request.JarAllocations,
+                "JarAllocations", cancellationToken);
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
+
+        return transfer.JarAllocations.Count == 0
+            ? transfer.ToDto()
+            : await TransactionReads.ReadDtoAsync(_db, transfer.Id, cancellationToken);
     }
 }

@@ -117,4 +117,11 @@ public class Transaction : BaseEntity
 
     /// <summary>True when this transaction is split across budget lines.</summary>
     public bool IsSplit => Splits.Count > 0;
+
+    /// <summary>
+    /// The stored jar split of each account leg (at most one per account, rules 78/79). Empty when
+    /// the leg's attribution is the derived default: unallocated for incoming money, the budget
+    /// line's jar or unallocated for a payment.
+    /// </summary>
+    public ICollection<JarAllocation> JarAllocations { get; set; } = new List<JarAllocation>();
 }

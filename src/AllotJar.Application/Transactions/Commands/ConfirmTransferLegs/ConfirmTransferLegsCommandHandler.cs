@@ -2,6 +2,8 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Accounts;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -63,6 +65,9 @@ public class ConfirmTransferLegsCommandHandler : IRequestHandler<ConfirmTransfer
                 "The receipt date can't be before the departure date.");
         }
 
+        var departureNowKnown = transfer.DepartedOn is null && departedOn is not null;
+        var receiptNowKnown = transfer.ReceivedOn is null && receivedOn is not null;
+
         transfer.DepartedOn = departedOn;
         transfer.ReceivedOn = receivedOn;
         transfer.BankReference = bankReference;
@@ -75,8 +80,37 @@ public class ConfirmTransferLegsCommandHandler : IRequestHandler<ConfirmTransfer
             transfer.Date = departed;
         }
 
+        // A departure supplied now posts the debit (rule 72): the source must stay at or above
+        // zero on every date (rule 74). Confirming a receipt only adds money.
+        await using var write = departureNowKnown && transfer.Account is not null
+            ? await _db.BeginLedgerWriteAsync(transfer.Account.Id, cancellationToken)
+            : null;
+        if (departureNowKnown && transfer.Account is not null)
+        {
+            await AccountBalanceGuard.EnsureNonNegativeAsync(
+                _db, new[] { transfer.Account }, new[] { transfer }, Array.Empty<Guid>(), nameof(request.DepartedOn), cancellationToken);
+            if (request.FromJarId is not null)
+            {
+                await JarMovements.ApplyOutgoingAsync(_db, userId, transfer, transfer.Account, request.FromJarId, nameof(request.FromJarId), cancellationToken);
+            }
+        }
+        if (request.JarAllocations is not null && transfer.TransferAccount is not null && receivedOn is DateOnly receivedDate)
+        {
+            if (!receiptNowKnown && !request.ReceivedOn.HasValue)
+            {
+                throw Validation(nameof(request.JarAllocations), "Confirm the receipt date to divide the money among jars.");
+            }
+            await JarMovements.ApplyIncomingAsync(
+                _db, userId, transfer, transfer.TransferAccount, receivedDate, transfer.Amount, request.JarAllocations,
+                nameof(request.JarAllocations), cancellationToken);
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
-        return transfer.ToDto();
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
+        return await TransactionReads.ReadDtoAsync(_db, transfer.Id, cancellationToken);
     }
 
     /// <summary>

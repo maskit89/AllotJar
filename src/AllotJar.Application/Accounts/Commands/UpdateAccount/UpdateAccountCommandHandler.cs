@@ -63,6 +63,11 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
         account.SortCode = BankIdentifiers.NormalizeSortCode(request.SortCode);
         account.AccountNumber = BankIdentifiers.NormalizeAccountNumber(request.AccountNumber);
 
+        // Rule 74 holds for the whole history: a smaller opening balance, or a later opening
+        // date, must not leave any recorded payment uncovered.
+        await AccountBalanceGuard.EnsureNonNegativeAsync(
+            _db, new[] { account }, Array.Empty<Domain.Entities.Transaction>(), Array.Empty<Guid>(), "OpeningBalance", cancellationToken);
+
         await _db.SaveChangesAsync(cancellationToken);
 
         var asOf = DateOnly.FromDateTime(DateTime.UtcNow);

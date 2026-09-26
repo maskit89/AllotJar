@@ -305,7 +305,7 @@ public class ImportTransferLegsTests
         var wrongAmount = await transfers.Handle(new CreateTransferCommand(Departure, 150m, a.Id, b.Id), CancellationToken.None);
         var alreadyReceived = await transfers.Handle(new CreateTransferCommand(Departure, 100m, a.Id, b.Id, ReceivedOn: Receipt), CancellationToken.None);
         var otherSource = await transfers.Handle(new CreateTransferCommand(Departure, 100m, c.Id, b.Id), CancellationToken.None);
-        var foreign = SeedAccount(db, "Theirs", 0m, owner: "user-2");
+        var foreign = SeedAccount(db, "Theirs", 100m, owner: "user-2");
         var foreignDest = SeedAccount(db, "Theirs too", 0m, owner: "user-2");
         var theirs = await new CreateTransferCommandHandler(db, new CurrentUserStub("user-2"))
             .Handle(new CreateTransferCommand(Departure, 100m, foreign.Id, foreignDest.Id), CancellationToken.None);

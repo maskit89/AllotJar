@@ -2,6 +2,8 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Accounts;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Application.Transactions;
 using AllotJar.Domain.Entities;
@@ -56,6 +58,11 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
                 throw new ForbiddenAccessException();
             }
         }
+        // Serialise against the account's other writers so the rule 74 check below reads
+        // committed money, never a stale balance.
+        await using var write = account is null
+            ? null
+            : await _db.BeginLedgerWriteAsync(account.Id, cancellationToken);
 
         HouseholdMember? member = null;
         if (request.MemberId is Guid memberId)
@@ -148,22 +155,38 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
             await AutoCategorizer.ApplyAsync(_db, userId, new[] { transaction }, cancellationToken);
         }
 
-        await _db.SaveChangesAsync(cancellationToken);
-
-        // The slices were saved with scalar FKs, so re-read with line/member names for
-        // the DTO — the same shape SplitTransaction returns.
-        if (hasSplits)
+        if (account is not null)
         {
-            var saved = await _db.Transactions
-                .AsNoTracking()
-                .Include(t => t.Account)
-                .Include(t => t.Splits)
-                    .ThenInclude(s => s.BudgetItem)
-                .Include(t => t.Splits)
-                    .ThenInclude(s => s.Member)
-                .FirstAsync(t => t.Id == transaction.Id, cancellationToken);
+            // Rule 74: the account must not dip below zero on any date once this is recorded.
+            if (request.Type == TransactionType.Expense)
+            {
+                await AccountBalanceGuard.EnsureNonNegativeAsync(
+                    _db, new[] { account }, new[] { transaction }, Array.Empty<Guid>(), "Amount", cancellationToken);
+                if (request.PaidFromJarId is not null)
+                {
+                    await JarMovements.ApplyOutgoingAsync(
+                        _db, userId, transaction, account, request.PaidFromJarId, "PaidFromJarId", cancellationToken);
+                }
+            }
+            else if (request.JarAllocations is { Count: > 0 })
+            {
+                await JarMovements.ApplyIncomingAsync(
+                    _db, userId, transaction, account, transaction.Date, transaction.Amount, request.JarAllocations,
+                    "JarAllocations", cancellationToken);
+            }
+        }
 
-            return saved.ToDto();
+        await _db.SaveChangesAsync(cancellationToken);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
+
+        // The slices and any jar split were saved with scalar FKs, so re-read with line, member
+        // and jar names for the DTO — the same shape SplitTransaction returns.
+        if (hasSplits || transaction.JarAllocations.Count > 0)
+        {
+            return await TransactionReads.ReadDtoAsync(_db, transaction.Id, cancellationToken);
         }
 
         // If the fallback filled in a line, hydrate its navigation so the returned

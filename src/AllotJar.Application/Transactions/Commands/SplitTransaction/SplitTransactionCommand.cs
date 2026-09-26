@@ -9,7 +9,9 @@ namespace AllotJar.Application.Transactions.Commands.SplitTransaction;
 /// must sum to the transaction's total, and each target line must match the
 /// transaction's direction (an expense splits across expense lines, income
 /// across income lines). The whole-transaction assignment is replaced by the
-/// slices, each of which counts toward its target line's Spent.
+/// slices, each of which counts toward its target line's Spent. For an expense on a
+/// jar-backed account, slices on a jar's line draw from that jar and the other slices from
+/// <paramref name="PaidFromJarId"/>, or unallocated when null (rule 79).
 /// </summary>
 [AllowLimited]
 public record SplitTransactionCommand(
@@ -17,7 +19,8 @@ public record SplitTransactionCommand(
     IReadOnlyList<SplitAllocationInput> Allocations,
     // Set only after the user confirms budgeting a slice to a line in a different month than the
     // transaction's date (see TransactionInvariants.CrossMonthKey).
-    bool AcknowledgeCrossMonth = false) : IRequest<TransactionDto>;
+    bool AcknowledgeCrossMonth = false,
+    Guid? PaidFromJarId = null) : IRequest<TransactionDto>;
 
 /// <summary>One requested slice: an amount attributed to a budget line and, optionally, a household member.</summary>
 public record SplitAllocationInput(Guid BudgetItemId, decimal Amount, Guid? MemberId = null);

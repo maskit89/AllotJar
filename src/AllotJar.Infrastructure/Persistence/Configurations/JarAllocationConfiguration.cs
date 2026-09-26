@@ -25,7 +25,7 @@ public class JarAllocationConfiguration : IEntityTypeConfiguration<JarAllocation
         // Deleting a transaction removes the attribution of its leg with it; the reader then has
         // nothing to attribute, which is exactly right.
         builder.HasOne(a => a.Transaction)
-            .WithMany()
+            .WithMany(t => t.JarAllocations)
             .HasForeignKey(a => a.TransactionId)
             .OnDelete(DeleteBehavior.Cascade);
 

@@ -1,4 +1,5 @@
 using FluentValidation;
+using AllotJar.Application.Jars;
 using AllotJar.Domain.Enums;
 
 namespace AllotJar.Application.Transactions.Commands.CreateTransaction;
@@ -24,6 +25,17 @@ public class CreateTransactionCommandValidator : AbstractValidator<CreateTransac
             .IsInEnum()
             .Must(t => t != TransactionType.Transfer)
             .WithMessage("Use the transfer action to move money between accounts.");
+
+        // The jar prompts answer for one account leg: incoming money is divided among jars
+        // (rule 78), a payment names the jar it comes from (rule 79). Neither applies without
+        // an account, and each belongs to one direction only.
+        RuleFor(x => x.JarAllocations).JarAllocationsWellFormed();
+        RuleFor(x => x.JarAllocations)
+            .Must((x, list) => list is not { Count: > 0 } || (x.AccountId is not null && x.Type == TransactionType.Income))
+            .WithMessage("Only income recorded on an account can be divided among jars.");
+        RuleFor(x => x.PaidFromJarId)
+            .Must((x, jar) => jar is null || (x.AccountId is not null && x.Type == TransactionType.Expense))
+            .WithMessage("Only an expense recorded on an account can be paid from a jar.");
 
         // Create-with-splits mirrors SplitTransactionCommandValidator, plus the rule
         // that a split transaction carries no whole-transaction attribution.
