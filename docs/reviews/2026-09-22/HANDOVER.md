@@ -86,6 +86,28 @@ Ask only when the relevant work is reached; these do not block unrelated bug fix
 - **O11 Deferred category note:** wait for the author to recall the meaning; no assumption required to proceed with fixes.
 - **O12 Development data — resolved by rule 65:** discard existing project development data and start with a fresh database. This supersedes the earlier carry-forward answer. Do not implement a legacy "Needs setup" migration flow. Verify the exact development database before reset; preserve source files and unrelated databases. Reset is authorised but has not yet been performed.
 
+## Decisions requested on 26 September 2026 (jar allocation slice)
+
+Code-state findings behind these questions: jar balances are still plan-based (`JarBalances`, `BudgetActuals`); `ActualSavingsLedger`, `JarLedgerOperation` and `JarReallocationRules` are called only from tests; there is no table for jar ledger operations; `Jar.FundingAccountId` is optional, not a foreign key and not restricted to savings-type accounts; a transaction reaches a jar only through a Savings-kind budget line (expenses only); deposits and transfer receipts never credit a jar; there is no reallocation, delete, complete or skip command; registration seeding, the three quick-start templates and Budget-page savings lines all create jars with no account.
+
+Answers needed before the slice (the handover forbids assuming them):
+
+- **D1 (O3a) Undesignated jars.** (a) allow plan-only jars whose actual balance reads "Not available" until an account is designated, keeping seeding/templates/Budget-page lines as they are, or (b) require an account when a jar is created, which changes registration seeding, templates and the Budget-page savings-line flow.
+- **D2 Designated account type.** Savings-type accounts only (the ledger foundation requires this; rule 2 says "savings account"), or any account type?
+- **D3 Jar "Saved so far"/opening balance.** The ledger ignores `Jar.OpeningBalance` (rule 9: existing account money must be explicitly allocated). Replace the field with an initial allocation from the account's unallocated funds, dated and validated against those funds, or remove it entirely for a fresh database (rule 65)? If kept as an initial allocation: which date does it take (account opening date, jar creation date, user-entered)?
+- **D4 Incoming money (rule 3).** Money reaching a savings account (income, confirmed transfer receipt from any path, imported credit) lands unallocated by default; allocation across that account's jars is a separate explicit action from the transaction or the Jars page. Confirm, or require an allocation prompt at the moment the money is recorded. Member-surplus transfers from the allocation commit stay unallocated in the personal savings account unless the user allocates them.
+- **D5 Outgoing money (rule 4).** Keep the existing mechanism: an expense from a savings account assigned to a jar's savings budget line (or split slices) draws from that jar; an expense from a savings account with no jar line draws from unallocated. Confirm, and say whether an expense from a savings account assigned to a non-savings budget line should draw from unallocated or be refused.
+- **D6 Rules 10/11.** Manual outgoing movement that would exceed the account's recorded available funds: refuse with a message (proposed). Imports: evaluate the batch in date order and hold only the entries that would breach, or hold the whole batch? When the account's balance is unavailable (no opening date, rule 67), hold every outgoing entry?
+- **D7 (O3) Changing a jar's designated account.** Allowed only while the jar's actual balance is zero, with history staying on the old account (proposed), or refused once the jar has any ledger history?
+
+Proposals within the rules; object if wrong:
+
+- **P1** Same-account reallocation is a dated operation (default today, editable) started from the Jars page ("Move money"); rule 68 caps it at the source jar's available balance; rule 70 validates the resulting backing.
+- **P2** Cross-account reallocation records a transfer with the completed-transfer confirmation and departure date; the source jar is debited on departure and the destination jar credited when the receipt is confirmed (manually or by statement match), from the intent stored with the transfer, so both jar balances move exactly once (rules 7, 69, 71).
+- **P3** Rule 70 deficits are shown on the Jars page and the Accounts reconciliation, and block reallocation and archiving on that account until covered; they never change a recorded payment.
+- **P4** Budget-page "Available" and past-month views read the jar's actual balance as of the selected month end (rule 48), "Not available" when the jar has no account or the account balance is unavailable; month creation seeds contributions from that balance.
+- **P5** Dates use calendar days as the account ledger does today (UTC "today"); a household timezone remains O2.
+
 ## Suggested development sequence
 
 1. Establish a clean working baseline, preserve unrelated files and read TEST-PLAN. Address W10 as a bounded regression fix. Do not create a new task, deploy or erase data merely because a handover exists.
