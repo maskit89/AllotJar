@@ -70,7 +70,15 @@ public static class JarLedgerReader
             .ToListAsync(cancellationToken);
         var jarsById = jars.ToDictionary(j => j.Id);
 
+        // Every account that holds a jar, plus any that still carries allocation history from a
+        // jar since re-designated elsewhere (rule 80): its ledger stays readable.
         var backedIds = jars.Select(j => j.FundingAccountId).Distinct().ToHashSet();
+        backedIds.UnionWith(await db.JarAllocations
+            .AsNoTracking()
+            .Where(a => a.OwnerId == ownerId)
+            .Select(a => a.AccountId)
+            .Distinct()
+            .ToListAsync(cancellationToken));
         if (accountIds is not null)
         {
             backedIds.IntersectWith(accountIds);

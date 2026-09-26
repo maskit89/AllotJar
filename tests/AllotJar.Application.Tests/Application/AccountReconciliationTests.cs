@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Xunit;
 using AllotJar.Application.Accounts.Queries.GetAccountReconciliation;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -12,7 +13,8 @@ namespace AllotJar.Application.Tests.Application;
 
 /// <summary>
 /// Per-account reconciliation: an account's derived balance vs the sinking funds it
-/// backs (those naming it as their funding account), and the resulting float.
+/// backs (those naming it as their funding account) read from the actual ledger, and the
+/// resulting float (the account's unallocated money).
 /// </summary>
 public class AccountReconciliationTests
 {
@@ -39,13 +41,16 @@ public class AccountReconciliationTests
         db.Accounts.Add(account);
         db.SaveChanges();
 
-        // The account holds 1000. A fund it backs has opening 200 + a 100 contribution = 300.
+        // The account holds 1000. A jar it backs was allocated 200 of it; its June line plans a
+        // further 100, which is not money (rule 1).
         var fundId = Guid.NewGuid();
         db.Jars.Add(new Jar
         {
             Id = fundId, OwnerId = "user-1", Name = "Holiday", TargetAmount = 1000m,
-            Accrual = AccrualMethod.TargetByDate, OpeningBalance = 200m, FundingAccountId = account.Id,
+            Accrual = AccrualMethod.TargetByDate, FundingAccountId = account.Id,
         });
+        db.SaveChanges();
+        LedgerFixtures.Allocate(db, "user-1", account.Id, fundId, 200m);
         db.BudgetMonths.Add(new BudgetMonth
         {
             OwnerId = "user-1", Year = 2026, Month = 6, BaseCurrency = CurrencyCode.Eur,
@@ -61,9 +66,10 @@ public class AccountReconciliationTests
 
         var recon = result.Single();
         recon.CurrentBalance.Should().Be(1000m);
-        recon.BackedJarsTotal.Should().Be(300m); // opening 200 + contribution 100
+        recon.BackedJarsTotal.Should().Be(200m); // the allocation only; the planned 100 never counts
         recon.BackedJarCount.Should().Be(1);
-        recon.Float.Should().Be(700m); // 1000 − 300
+        recon.Float.Should().Be(800m); // unallocated: 1000 − 200
+        recon.HasBackingDeficit.Should().BeFalse();
     }
 
     [Fact]

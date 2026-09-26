@@ -45,7 +45,6 @@ public class CreateJarCommandHandler
             RecurMonths = request.Kind == JarKind.Recurring ? request.RecurMonths ?? 12 : null,
             FundingAccountId = account.Id,
         };
-        _db.Jars.Add(jar);
 
         // Rule 77: "already set aside" divides money that is in the account on the chosen date;
         // it must be covered by the account's unallocated funds as of that date (rule 68) and
@@ -90,6 +89,9 @@ public class CreateJarCommandHandler
                     $"{account.Name} has {view.Unallocated:0.##} unallocated on {date:yyyy-MM-dd}. {ex.Message}");
             }
 
+            // The jar is staged only once its allocation passed: a context reused after a refusal
+            // must never persist a jar without the money it claimed.
+            _db.Jars.Add(jar);
             _db.JarAllocations.Add(new JarAllocation
             {
                 OwnerId = userId,
@@ -109,6 +111,7 @@ public class CreateJarCommandHandler
         }
         else
         {
+            _db.Jars.Add(jar);
             await PlantLinesAsync(userId, jar, today, 0m, cancellationToken);
             await _db.SaveChangesAsync(cancellationToken);
         }

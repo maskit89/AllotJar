@@ -24,6 +24,21 @@ public class CreateAccountCommandHandler : IRequestHandler<CreateAccountCommand,
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
+        // The validators enforce both; a bypassing caller must still not create a credit-card
+        // account (rule 75) or a negative opening (rule 74).
+        if (request.Type == Domain.Enums.AccountType.CreditCard || request.OpeningBalance < 0m)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                [request.Type == Domain.Enums.AccountType.CreditCard ? "Type" : "OpeningBalance"] = new[]
+                {
+                    request.Type == Domain.Enums.AccountType.CreditCard
+                        ? "Credit cards are not accounts here: an account holds money, a card owes it."
+                        : "The opening balance must be zero or more: an account never has a negative balance here.",
+                },
+            });
+        }
+
         // New accounts sort after the user's existing ones.
         var nextOrder = await _db.Accounts
             .Where(a => a.OwnerId == userId)

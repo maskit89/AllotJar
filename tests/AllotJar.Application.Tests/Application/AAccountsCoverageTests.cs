@@ -6,6 +6,7 @@ using AllotJar.Application.Accounts.Commands.UpdateAccount;
 using AllotJar.Application.Accounts.Queries.GetAccountReconciliation;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -174,12 +175,12 @@ public class AAccountsCoverageTests
         result[2].Id.Should().NotBe(result[3].Id);
     }
 
-    // ACCT-010 — An account of every type persists its numeric AccountType (0–4) and currency.
+    // ACCT-010 — An account of every creatable type persists its numeric AccountType and currency
+    // (credit cards are withdrawn from creation, rule 75 — see the validator test below).
     [Theory]
     [InlineData(AccountType.Current)]
     [InlineData(AccountType.Savings)]
     [InlineData(AccountType.Cash)]
-    [InlineData(AccountType.CreditCard)]
     [InlineData(AccountType.Other)]
     public async Task CreateAccount_PersistsEachAccountType(AccountType type)
     {
@@ -192,23 +193,39 @@ public class AAccountsCoverageTests
         db.Accounts.Single().Type.Should().Be(type);
     }
 
-    // ACCT-011 / ACCT-012 — Negative opening (credit-card debt) and zero opening are both valid, and
-    // a fresh account's balance equals its opening.
-    [Theory]
-    [InlineData(-450)]
-    [InlineData(0)]
-    public async Task CreateAccount_AcceptsNegativeAndZeroOpening_BalanceEqualsOpening(int opening)
+    // ACCT-011 / ACCT-012 — A zero opening is valid and a fresh account's balance equals its
+    // opening; a negative opening is refused (rule 74: no account is ever negative) and a credit
+    // card is not an account (rule 75).
+    [Fact]
+    public async Task CreateAccount_AcceptsZeroOpening_BalanceEqualsOpening()
     {
         await using var db = NewContext();
-        var command = new CreateAccountCommand("Visa", AccountType.CreditCard, "EUR", opening, new DateOnly(2026, 1, 1));
+        var command = new CreateAccountCommand("Wallet", AccountType.Cash, "EUR", 0m, new DateOnly(2026, 1, 1));
 
         new CreateAccountCommandValidator().Validate(command).IsValid.Should().BeTrue();
 
         var dto = await new CreateAccountCommandHandler(db, new CurrentUserStub("user-1"))
             .Handle(command, CancellationToken.None);
 
-        dto.OpeningBalance.Should().Be(opening);
-        dto.CurrentBalance.Should().Be(opening); // no transactions yet → balance = opening
+        dto.OpeningBalance.Should().Be(0m);
+        dto.CurrentBalance.Should().Be(0m); // no transactions yet → balance = opening
+    }
+
+    [Fact]
+    public void Validators_RefuseNegativeOpening_AndCreditCards()
+    {
+        var create = new CreateAccountCommandValidator();
+        var update = new UpdateAccountCommandValidator();
+
+        create.Validate(new CreateAccountCommand("Overdraft", AccountType.Current, "EUR", -450m, new DateOnly(2026, 1, 1)))
+            .Errors.Should().Contain(e => e.PropertyName == "OpeningBalance");
+        update.Validate(new UpdateAccountCommand(Guid.NewGuid(), "Overdraft", AccountType.Current, -1m, new DateOnly(2026, 1, 1)))
+            .Errors.Should().Contain(e => e.PropertyName == "OpeningBalance");
+
+        create.Validate(new CreateAccountCommand("Visa", AccountType.CreditCard, "EUR", 0m, new DateOnly(2026, 1, 1)))
+            .Errors.Should().Contain(e => e.PropertyName == "Type");
+        update.Validate(new UpdateAccountCommand(Guid.NewGuid(), "Visa", AccountType.CreditCard, 0m, new DateOnly(2026, 1, 1)))
+            .Errors.Should().Contain(e => e.PropertyName == "Type");
     }
 
     // ACCT-021 — A unicode/emoji name is accepted; the handler trims surrounding whitespace and stores it verbatim.
@@ -245,11 +262,11 @@ public class AAccountsCoverageTests
 
         new CreateAccountCommandValidator()
             .Validate(new CreateAccountCommand("Big", AccountType.Current, "EUR", overMax, new DateOnly(2026, 1, 1)))
-            .Errors.Should().Contain(e => e.ErrorMessage == "Opening balance exceeds the supported range.");
+            .Errors.Should().Contain(e => e.PropertyName == "OpeningBalance");
 
         new UpdateAccountCommandValidator()
             .Validate(new UpdateAccountCommand(Guid.NewGuid(), "Big", AccountType.Current, overMax, new DateOnly(2026, 1, 1)))
-            .Errors.Should().Contain(e => e.ErrorMessage == "Opening balance exceeds the supported range.");
+            .Errors.Should().Contain(e => e.PropertyName == "OpeningBalance");
     }
 
     // ACCT-017 — A name longer than 120 characters fails the create validator (MaximumLength(120)).
@@ -321,20 +338,23 @@ public class AAccountsCoverageTests
         reloaded.Currency.Should().Be(CurrencyCode.From("GBP"));
     }
 
-    // ACCT-054 — A negative float is a shortfall: the account holds less than its earmarked jars.
-    // Balance 700, backed jars total 1200 → Float = −500.
+    // ACCT-054 — A negative float is a shortfall: the account holds less than its allocated jars.
+    // Balance 700, a jar allocated 1200 (a stored ledger row the write paths would refuse, rule 70)
+    // → Float (unallocated) = −500 and the backing-deficit flag is raised for correction.
     [Fact]
-    public async Task Reconciliation_ProducesNegativeFloat_WhenJarsExceedBalance()
+    public async Task Reconciliation_ProducesNegativeFloat_AndFlagsTheDeficit_WhenJarsExceedBalance()
     {
         await using var db = NewContext();
         var account = SeedAccount(db, "user-1", "Rainy Day", opening: 700m, type: AccountType.Savings);
-        db.Jars.Add(new Jar
+        var jar = new Jar
         {
             OwnerId = "user-1", Name = "Big Goal", Kind = JarKind.Goal,
-            Accrual = AccrualMethod.TargetByDate, OpeningBalance = 1200m,
+            Accrual = AccrualMethod.TargetByDate,
             FundingAccountId = account.Id,
-        });
+        };
+        db.Jars.Add(jar);
         await db.SaveChangesAsync();
+        LedgerFixtures.Allocate(db, "user-1", account.Id, jar.Id, 1200m);
 
         var recon = (await new GetAccountReconciliationQueryHandler(db, new CurrentUserStub("user-1"))
             .Handle(new GetAccountReconciliationQuery(), CancellationToken.None)).Single();
@@ -343,6 +363,7 @@ public class AAccountsCoverageTests
         recon.BackedJarsTotal.Should().Be(1200m);
         recon.BackedJarCount.Should().Be(1);
         recon.Float.Should().Be(-500m); // shortfall
+        recon.HasBackingDeficit.Should().BeTrue(); // rule 70: positive jars exceed the account's money
     }
 
     // ACCT-055 — Reconciliation excludes archived jars and jars whose funding account no longer exists.
@@ -352,29 +373,32 @@ public class AAccountsCoverageTests
         await using var db = NewContext();
         var joint = SeedAccount(db, "user-1", "Joint", opening: 1000m);
 
+        var active = new Jar
+        {
+            OwnerId = "user-1", Name = "Active", Kind = JarKind.Goal,
+            Accrual = AccrualMethod.TargetByDate,
+            FundingAccountId = joint.Id,
+        };
         db.Jars.AddRange(
             // A: active, backs Joint → counted.
-            new Jar
-            {
-                OwnerId = "user-1", Name = "Active", Kind = JarKind.Goal,
-                Accrual = AccrualMethod.TargetByDate, OpeningBalance = 100m,
-                FundingAccountId = joint.Id,
-            },
-            // B: archived → excluded (query filters !IsArchived).
+            active,
+            // B: archived → excluded (query filters !IsArchived); it holds nothing (rule 26).
             new Jar
             {
                 OwnerId = "user-1", Name = "Archived", Kind = JarKind.Goal,
-                Accrual = AccrualMethod.TargetByDate, OpeningBalance = 500m,
+                Accrual = AccrualMethod.TargetByDate,
                 FundingAccountId = joint.Id, IsArchived = true,
             },
-            // C: funding account was deleted (dangling id) → matches no account, drops out silently.
+            // C: funding account no longer exists (dangling id; the FK forbids this on SQL Server)
+            // → matches no account, drops out silently.
             new Jar
             {
                 OwnerId = "user-1", Name = "Orphaned", Kind = JarKind.Goal,
-                Accrual = AccrualMethod.TargetByDate, OpeningBalance = 999m,
+                Accrual = AccrualMethod.TargetByDate,
                 FundingAccountId = Guid.NewGuid(),
             });
         await db.SaveChangesAsync();
+        LedgerFixtures.Allocate(db, "user-1", joint.Id, active.Id, 100m);
 
         var result = await new GetAccountReconciliationQueryHandler(db, new CurrentUserStub("user-1"))
             .Handle(new GetAccountReconciliationQuery(), CancellationToken.None);
@@ -383,6 +407,6 @@ public class AAccountsCoverageTests
         var recon = result.Single();
         recon.BackedJarCount.Should().Be(1);      // only jar A
         recon.BackedJarsTotal.Should().Be(100m);  // jar B (archived) and C (dangling) excluded
-        recon.Float.Should().Be(900m);            // 1000 − 100
+        recon.Float.Should().Be(900m);            // unallocated: 1000 − 100
     }
 }
