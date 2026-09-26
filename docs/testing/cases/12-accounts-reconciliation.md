@@ -104,7 +104,7 @@
 - **Expected:** Each POST carries the numeric type 0–4 respectively; each card's type badge reads the matching `ACCOUNT_TYPE_LABELS` string ("Current" / "Savings" / "Cash" / "Credit card" / "Other") and the hue tile follows `hueForAccountType` (Savings emerald, Cash amber, CreditCard rose, Current indigo, Other teal). `account_created` `kind` mirrors the label.
 - **Automated:** No
 
-### ACCT-011 - Negative opening balance is accepted (credit-card debt)
+### ACCT-011 - Negative opening balance is refused (rule 74; superseded — credit cards are not accounts, rule 75)
 - **Priority:** P1
 - **Type:** Boundary
 - **Preconditions:** Owner; adding a "Credit card" account.
@@ -588,3 +588,41 @@
   1. Leave `/accounts` open; sign out in another tab (or revoke server-side); refocus the accounts tab or trigger its next fetch.
 - **Expected:** The dead session is detected (cross-tab broadcast via `authChannel` / focus revalidation) and the app redirects to `/login?reason=expired…` with "Your session has expired" — the user does **not** see a silently-broken accounts view with a stale hero. A grace-window 401 (a just-rotated cookie, PR #171) must **not** trigger this. (Full session behaviour lives in the session sibling file; only the accounts-tab manifestation is noted here.)
 - **Automated:** Partial (AuthContext.test.tsx — cross-tab sign-out + focus-revalidation prompt; not exercised specifically on the accounts route)
+
+## Jar ledger reconciliation and account rules (rules 70, 74–76)
+
+### ACCT-061 - Reconciliation shows In jars / Unallocated from the ledger and flags a backing deficit
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Savings 1,000 holding Holiday 400 and Car 300 (unallocated 300); Current 500 holding Repairs 400 and Holiday2 −50 after an overdrawing payment (balance 350).
+- **Steps:**
+  1. Open `/accounts` and read the "Jar reconciliation" card.
+- **Expected:** Savings row: Balance €1,000.00, In jars €700.00, Unallocated €300.00. Current row: Balance €350.00, In jars €350.00 (signed), Unallocated €0.00 and a "Jars exceed account money" badge (`hasBackingDeficit`, positive jars 400 > 350). Column "Float" is now "Unallocated". ACCT-052/054/055 read the same figures from the ledger; a negative unallocated never occurs (it reads as the deficit flag instead).
+- **Automated:** Yes (AccountReconciliationTests; AccountsPage tests)
+
+### ACCT-062 - Credit card is not an account type; opening balances are never negative
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Owner.
+- **Steps:**
+  1. Open "Add an account" and inspect the Type select. 2. `POST /accounts` with `type: 3` (CreditCard). 3. `POST /accounts` with `openingBalance: -10`.
+- **Expected:** 1: Current, Savings, Cash, Other only. 2: 400 "Credit cards are not accounts here: an account holds money, a card owes it." 3: 400 "The opening balance must be zero or more …" (rule 74).
+- **Automated:** Yes (account validator tests; AccountsPage tests)
+
+### ACCT-063 - Optional bank identifiers are stored, normalised and format-checked
+- **Priority:** P2
+- **Type:** Happy / Negative
+- **Preconditions:** Owner.
+- **Steps:**
+  1. Add "Main" with IBAN "de89 3704 0044 0532 0130 00", BIC "cobadeffxxx", Sort code "12-34-56", Account number "12345678". 2. Add "Piggy bank" with all four blank. 3. Add with IBAN "hello".
+- **Expected:** 1: stored as `DE89370400440532013000`, `COBADEFFXXX`, `123456`, `12345678` and shown on the detail page. 2: accepted — identifiers are never required (rule 76). 3: 400 "Enter a valid IBAN …".
+- **Automated:** Yes (BankIdentifiers/validator tests; AccountsPage tests)
+
+### ACCT-064 - An account holding jars cannot be deleted
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Savings holds Holiday.
+- **Steps:**
+  1. Delete Savings.
+- **Expected:** 400 "'Savings' holds the money of 1 jar. Move those jars to another account (or archive them) before deleting the account." The database backs this up with a Restrict foreign key.
+- **Automated:** Yes (DeleteAccount tests; JarLedgerSqlTests)

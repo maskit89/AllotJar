@@ -1,6 +1,6 @@
 # Jars (savings)
 
-**ID prefix:** JAR | **Scope:** Everything on the Jars screen at `/jars` (`client/src/pages/JarsPage.tsx`) and the money math behind it: the **Total saved / Monthly / Active jars** hero; the jar-card grid (jar graphic with clamped fill %, name, status chip, `%` pill, `€X of €Y` balance, progressbar, pace label, Edit link); the **New jar** / **Edit jar** modal (Name, Type Recurring vs Goal, Target, Saved-so-far/Opening balance, Next due + Repeats, Target date, Held in) with its client-side and server-side validation; the two-click **Archive** flow; how a jar fills from budgeted Savings-group lines and expense transactions (`JarBalances`), the `CreateJar` per-month contribution-line planting, the accrual calculator (`JarAccrualCalculator` — StraightLine / TargetByDate / ProportionalPool / DailyRate), the recurrence-as-pure-view invariant (stored anchor never advanced), status derivation (`JarDto` / `lib/jarStatus.ts`), archived-jar exclusion from lists / copy / reconciliation, the permissive server validators that keep imported/legacy jars editable, and the dashboard **Your jars** shelf (`DashboardPage.tsx`, current-month-only). | **Out of scope:** The **Allocation** engine (`/allocation`, `AllocationPage`, allocation profiles, income waterfall, member savings transfers, BalanceTilt/WaterFill) → the allocation sibling file; the budget grid's Savings-group UI (inline rename, add/delete a savings line, `SavingsAvailable` "avail." column rendering) and month create/copy/template mechanics → `08-categories-budget-lines.md` and `07-month-lifecycle.md` (jar-relevant seeding/copy behaviour is asserted here); the **Held in** account's reconciliation panel (Account/Balance/In jars/Float) → `12-accounts-reconciliation.md`; whole-transaction assignment / splits that move jar spend → `10-transactions.md`; the dashboard hero, bills strip and empty-month prompt → `06-dashboard-budget-view.md`; the full role matrix, cross-tab logout, silent refresh → the session & roles sibling files (only jar-page `canWrite` gating and the jar commands' 403/404 appear here); responsive / dark-mode / a11y sweeps live in their own files (referenced only where behaviour is jar-specific, e.g. the modal's 375px fit).
+**ID prefix:** JAR | **Scope:** Everything on the Jars screen at `/jars` (`client/src/pages/JarsPage.tsx`) and the money math behind it: the **Total saved / Monthly / Active jars** hero; the jar-card grid (jar graphic with clamped fill %, name, status chip, `%` pill, `€X of €Y` balance, progressbar, pace label, Edit link); the **New jar** / **Edit jar** modal (Name, Type Recurring vs Goal, Target, Already set aside + Set aside on, Next due + Repeats, Target date, Held in — required, non-credit-card) with its client-side and server-side validation; the two-click **Archive** flow; how a jar's **actual balance** is read from its designated account's ledger (`JarLedgerReader` / `ActualSavingsLedger`: initial allocation, same-account moves, expenses from that account on the jar's line — never planned contributions; PR jar-ledger slice, rules 1–6, 26, 68, 70, 73–80), the `CreateJar` per-month contribution-line planting, the accrual calculator (`JarAccrualCalculator` — StraightLine / TargetByDate / ProportionalPool / DailyRate), the recurrence-as-pure-view invariant (stored anchor never advanced), status derivation (`JarDto` / `lib/jarStatus.ts`), archived-jar exclusion from lists / copy / reconciliation, the permissive server validators that keep imported/legacy jars editable, and the dashboard **Your jars** shelf (`DashboardPage.tsx`, current-month-only). | **Out of scope:** The **Allocation** engine (`/allocation`, `AllocationPage`, allocation profiles, income waterfall, member savings transfers, BalanceTilt/WaterFill) → the allocation sibling file; the budget grid's Savings-group UI (inline rename, add/delete a savings line, `SavingsAvailable` "avail." column rendering) and month create/copy/template mechanics → `08-categories-budget-lines.md` and `07-month-lifecycle.md` (jar-relevant seeding/copy behaviour is asserted here); the **Held in** account's reconciliation panel (Account/Balance/In jars/Float) → `12-accounts-reconciliation.md`; whole-transaction assignment / splits that move jar spend → `10-transactions.md`; the dashboard hero, bills strip and empty-month prompt → `06-dashboard-budget-view.md`; the full role matrix, cross-tab logout, silent refresh → the session & roles sibling files (only jar-page `canWrite` gating and the jar commands' 403/404 appear here); responsive / dark-mode / a11y sweeps live in their own files (referenced only where behaviour is jar-specific, e.g. the modal's 375px fit).
 
 **Test data setup:** Unless a case says otherwise, assume an authenticated **Owner** (`canWrite = true`, `canEnterData = true`) of a **shared EUR household "Home"** with **2 members** *Alex* and *Robin*. Today (server UTC and browser clock) is **2026-07-15**, so the app-wide viewed month is **July 2026** and the accrual `asOf` is **2026-07-15** (calculator month anchors use the 1st). The `jars` feature flag is **on**; a single EUR account **Joint** exists. By PR #170 a fresh account is **empty** (zero jars, zero months) — cases that need jars/months say so. Money is `decimal(18,4)` server-side and integer minor units at scale 4 (`FACTOR = 10_000`) client-side; a jar's `currentBalance`, `requiredMonthlyContribution`, `projectedFullyFundedDate` and `status` are **always derived at read time**, never stored. Enum fields (`kind`, `accrual`) go over the wire as **numbers** (JarKind: Recurring=0, Goal=1; AccrualMethod: StraightLine=0, TargetByDate=1, ProportionalPool=2, DailyRate=3). The modal's amount fields use `parseAmount` → `parseMinor` ('' → 0; strips spaces/apostrophes; right-most of a mixed `,/.` pair is the decimal; rounds HALF-UP beyond 4 dp; rejects negatives / whitespace-only / `abc` / `1.2.3` / `1,2,3` → the modal shows "Enter valid amounts."). Client wiring is exercised by `client/src/pages/JarsPage.test.tsx`; jar domain/handler behaviour by `tests/AllotJar.Application.Tests/Application/{JarsTests,JarBudgetLinkTests,JarLifecycle,Savings,CreateBudgetMonth}Tests.cs`, `Domain/JarAccrualCalculatorTests.cs`, and the enforced-FK writers by `tests/AllotJar.IntegrationTests/SavingsForeignKeyTests.cs`.
 
@@ -718,3 +718,97 @@
   2. `GET /jars?includeArchived=true` and compare.
 - **Expected:** The default call returns **only** "New tyres" (archived rows excluded — JAR-045). With `includeArchived=true` the `[FromQuery] bool includeArchived` binds through to `GetJarsQuery(includeArchived)`, whose `Where` becomes `IncludeArchived || !IsArchived`, so **both** "Old car" and "New tyres" are returned, still owner-scoped and still `OrderBy(Name)` across the merged set. The archived jar is **not** special-cased: it carries `isArchived:true` and its `currentBalance`/`requiredMonthlyContribution`/`status` are derived normally (`JarBalances.ComputeAsync` spans all of the owner's jars). This mirrors the members-side PPL-025 (an archived row fetched with `includeArchived` keeps its computed figures); it is purely an API-surface concern — the Jars hero, card list and dashboard shelf never request archived jars, so their totals stay active-only.
 - **Automated:** Partial (JarsTests.cs `Get_IsOwnerScoped_AndExcludesArchivedByDefault` asserts `GetJarsQuery(IncludeArchived: true)` returns both rows at the handler level; the controller's `[FromQuery] bool includeArchived` route binding is not asserted over HTTP)
+
+## Jar ledger: actual balances, allocations and moves (rules 1–6, 26, 68, 70, 73–80)
+
+Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null` when the account's balance is unavailable (rule 67) — and planned contributions never count. JAR-015 (opening balance) and JAR-021 ("No account") are superseded here.
+
+### JAR-073 - A jar cannot be created without an account
+- **Priority:** P0
+- **Type:** Negative
+- **Preconditions:** Owner with no accounts.
+- **Steps:**
+  1. Open "New jar".
+- **Expected:** The "Held in" select has no "No account" option; the modal says "Add an account first — a jar's money is held in an account" with a link to `/accounts` and the Add button is disabled. Server-side, `POST /jars` without `fundingAccountId` returns 400 "Choose the account this jar's money is held in." (rule 73). A credit-card account is not offered and is refused by the server (rule 75).
+- **Automated:** Yes (JarsPage tests; CreateJar validator/handler tests)
+
+### JAR-074 - "Already set aside" divides the account's unallocated money
+- **Priority:** P0
+- **Type:** Happy
+- **Preconditions:** Account "Savings" opened 2026-01-01 with 1,000; no jars.
+- **Steps:**
+  1. "New jar" → "Holiday", Target 2,000, Held in Savings, Already set aside 400, Set aside on today.
+- **Expected:** `POST /jars` sends `fundingAccountId`, `initialAllocation: 400`, `initialAllocationDate`. The card shows **€400.00** and "Held in Savings"; `GET /jars/ledger` shows Savings balance 1,000, Holiday 400, unallocated 600 (rule 77). The account balance is unchanged — nothing was deposited.
+- **Automated:** Yes (JarLedgerActivationTests; jars-ledger journey)
+
+### JAR-075 - Setting aside more than is unallocated, or before the account opened, is refused
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** As above, but Holiday already holds 400 (unallocated 600).
+- **Steps:**
+  1. Create "Car" with Already set aside 700. 2. Create "Car" with Set aside on 2025-12-31.
+- **Expected:** 400 with the unallocated figure and date in the message (rule 68); 400 "opens on 2026-01-01" (rule 40). Nothing is persisted either time.
+- **Automated:** Yes (JarLedgerActivationTests)
+
+### JAR-076 - Planned contributions do not fill a jar
+- **Priority:** P0
+- **Type:** Happy
+- **Preconditions:** Holiday holds 400; its July line plans 200.
+- **Steps:**
+  1. Open `/jars` and the July budget.
+- **Expected:** The card still shows €400.00 and the budget line's Available shows €400.00 — the 200 is a plan (rule 1). Only an allocation, a move or a jar-line payment changes the balance.
+- **Automated:** Yes (JarLedgerActivationTests — planned contributions never count)
+
+### JAR-077 - A payment from the jar's account on its line reduces the jar; from another account it is refused
+- **Priority:** P0
+- **Type:** Happy / Negative
+- **Preconditions:** Holiday 400 in Savings; account "Current" also exists.
+- **Steps:**
+  1. Record expense 150 from Savings, assigned to the Holiday savings line. 2. Record expense 50 from Current assigned to the Holiday line. 3. Record expense 30 from Savings with no line.
+- **Expected:** 1: Holiday 250, Savings unallocated unchanged (rule 79). 2: 400 "'Holiday' is the jar Holiday, whose money is held in Savings. Record this payment from Savings so it comes out of the jar." (rules 2/4). 3: unallocated falls by 30; Holiday unchanged.
+- **Automated:** Yes (JarLedgerActivationTests; TransactionInvariants tests)
+
+### JAR-078 - Move money within one account (rules 6, 68, 70)
+- **Priority:** P0
+- **Type:** Happy / Negative
+- **Preconditions:** Savings 1,000: Holiday 250, Car 300, unallocated 450.
+- **Steps:**
+  1. "Move money from Holiday": From Holiday, To Car, 100, today. 2. From unallocated, To Holiday, 200. 3. From Holiday, To Car, 500.
+- **Expected:** 1: `POST /jars/reallocations {accountId, sourceJarId: Holiday, destinationJarId: Car, amount: 100, date}` → Holiday 150, Car 400, unallocated 450, account still 1,000. 2: `sourceJarId: null` → Holiday 350, unallocated 250. 3: 400 "Holiday can give at most 350.00 …" (rule 68). A move is never a bank transfer; choosing a jar held in another account is refused with a pointer to the Transactions page (rule 7).
+- **Automated:** Yes (JarReallocationTests; MoveMoneyModal tests)
+
+### JAR-079 - Positive jars must be backed by account money (rule 70)
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Savings 500: Holiday 100, Repairs 400. A 150 payment from Savings on the Holiday line is recorded → account 350, Holiday −50, Repairs 400.
+- **Steps:**
+  1. Open `/jars` and `/accounts`. 2. Move 50 from Repairs to Holiday.
+- **Expected:** 1: the account shows "Jars exceed account money" (positive jars 400 > 350) on the Jars page summary and the reconciliation row (`hasBackingDeficit`). Holiday shows −€50.00 "Overspent"; nothing is hidden or auto-fixed. 2: Holiday 0, Repairs 350, account 350; the flag clears. A move that would leave positive jars above the balance is refused.
+- **Automated:** Yes (JarReallocationTests; AccountsPage reconciliation tests)
+
+### JAR-080 - Archiving needs a zero balance; the account can only change at zero
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Holiday holds 350.
+- **Steps:**
+  1. Edit Holiday → Archive jar → confirm. 2. Edit Holiday → Held in "Current" → Save. 3. Move 350 to unallocated, then repeat 1.
+- **Expected:** 1: 400 "Holiday still holds 350.00. Move it to another jar or to unallocated funds before archiving." (rule 26). 2: 400 "Holiday holds 350.00 in Savings. Move that money first …" (rule 80); the field change never moves money. 3: archived; the jar's history stays in Savings.
+- **Automated:** Yes (JarLedgerActivationTests; jars-ledger journey)
+
+### JAR-081 - Past months show the jar's balance at that month end (rule 48); before the account opened it is unavailable (rule 67)
+- **Priority:** P1
+- **Type:** Boundary
+- **Preconditions:** Savings opened 2026-03-01 with 1,000; Holiday set aside 400 on 2026-03-10; a 100 payment from Savings on the Holiday line dated 2026-04-05.
+- **Steps:**
+  1. View the March budget. 2. View the April budget. 3. View the February budget (if it exists).
+- **Expected:** March Available €400.00; April €300.00; February "Not available" (the account had no balance before its opening date). `GET /jars?asOf=2026-03-31` returns 400 for Holiday.
+- **Automated:** Yes (JarLedgerActivationTests — BudgetActuals month-end and unavailable cases)
+
+### JAR-082 - Savings groups offer "Add jar", not a bare line
+- **Priority:** P1
+- **Type:** Happy / Negative
+- **Preconditions:** July budget with a Savings group; account Savings exists.
+- **Steps:**
+  1. In the Savings group click "Add jar" and complete the jar form. 2. `POST /budget/categories/{savingsGroupId}/items {name:"Loose"}` directly.
+- **Expected:** 1: the same modal as the Jars page; `POST /jars` creates the jar and plants its line in July and later months; the group refreshes with the new line. 2: 400 "A savings line is a jar. Create the jar, choosing the account that holds its money …" (rule 73).
+- **Automated:** Yes (DashboardPage tests; AddBudgetItem handler test)
