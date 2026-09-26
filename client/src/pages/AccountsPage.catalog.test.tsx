@@ -31,7 +31,7 @@ import { FeatureProvider } from '../features/FeatureContext'
 import { setMoneyFormat } from '../lib/money'
 
 function acct(over: Partial<AccountDto> = {}): AccountDto {
-  return { id: 'a1', name: 'Account', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0, ...over }
+  return { id: 'a1', name: 'Account', type: 0, currency: 'EUR', openingBalance: 0, openingDate: '2026-01-01', currentBalance: 0, displayOrder: 0, ...over }
 }
 
 interface ApiSetup {
@@ -134,8 +134,8 @@ describe('AccountsPage — catalog (ACCT)', () => {
     // Per-account balances + "Opening …" captions in the account's own currency.
     expect(screen.getByText('€1,250.00')).toBeInTheDocument()
     expect(screen.getByText('€500.00')).toBeInTheDocument()
-    expect(screen.getByText('Opening €1,250.00')).toBeInTheDocument()
-    expect(screen.getByText('Opening €500.00')).toBeInTheDocument()
+    expect(screen.getByText(/Opening €1,250\.00/)).toBeInTheDocument()
+    expect(screen.getByText(/Opening €500\.00/)).toBeInTheDocument()
     expect(screen.getByText('Your accounts')).toBeInTheDocument()
   })
 
@@ -155,7 +155,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
     // Each card still formats in its own currency (€ vs £).
     expect(screen.getByText('€1,250.00')).toBeInTheDocument()
     expect(screen.getByText('£200.00')).toBeInTheDocument()
-    expect(screen.getByText('Opening £200.00')).toBeInTheDocument()
+    expect(screen.getByText(/Opening £200\.00/)).toBeInTheDocument()
   })
 
   it('ACCT-008: a card carries a currency chip, a type badge and an overlay link to its detail', { timeout: 15000 }, async () => {
@@ -464,7 +464,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     // Exact body ⇒ proves the request carries no `currency` key.
     await waitFor(() =>
-      expect(mockPut).toHaveBeenCalledWith('/accounts/rd1', { name: 'Emergency', type: 0, openingBalance: 750 }),
+      expect(mockPut).toHaveBeenCalledWith('/accounts/rd1', { name: 'Emergency', type: 0, openingBalance: 750, openingDate: '2026-01-01' }),
     )
     expect(await screen.findByText('Emergency', {}, { timeout: 5000 })).toBeInTheDocument()
   })
@@ -486,7 +486,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     await user.click(screen.getByLabelText('Save UK Pot'))
     await waitFor(() =>
-      expect(mockPut).toHaveBeenCalledWith('/accounts/uk1', { name: 'UK Pot', type: 1, openingBalance: 200 }),
+      expect(mockPut).toHaveBeenCalledWith('/accounts/uk1', { name: 'UK Pot', type: 1, openingBalance: 200, openingDate: '2026-01-01' }),
     )
   })
 

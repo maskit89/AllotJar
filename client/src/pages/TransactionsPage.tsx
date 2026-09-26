@@ -16,7 +16,7 @@ import type { AccountDto, BudgetMonthDto, HouseholdMemberDto, TransactionDto } f
 import { TransactionType } from '../types'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount, toEditString } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
-import { monthYear, shortDate } from '../lib/dates'
+import { formatDate, monthYear, shortDate } from '../lib/dates'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { buildItemOptions, transactionTypeLabel } from '../lib/transactions'
 import { SplitLinesEditor, SplitRemainderChip, type SplitRowDraft } from '../components/SplitLinesEditor'
@@ -94,13 +94,22 @@ export function TransactionsPage() {
   const [addSplit, setAddSplit] = useState(false)
   const [addRows, setAddRows] = useState<SplitRowDraft[]>(blankSplitRows)
 
-  // Transfer form state (move money between two of the user's own accounts).
+  // Transfer form state (a completed bank transfer between two of the user's own accounts).
+  // tDate is the departure the user confirms; tReceived is optional — left blank, the money is
+  // shown in transit until the receipt is confirmed on the register (rule 71).
   const [tDate, setTDate] = useState(today)
+  const [tReceived, setTReceived] = useState('')
+  const [tConfirmed, setTConfirmed] = useState(false)
   const [tAmount, setTAmount] = useState('')
   const [tFrom, setTFrom] = useState('')
   const [tTo, setTTo] = useState('')
   const [tPayee, setTPayee] = useState('')
   const [transferring, setTransferring] = useState(false)
+
+  // Inline leg confirmation on a transfer row: the receipt date for an in-transit transfer, or
+  // the departure date for a receipt held for review.
+  const [legId, setLegId] = useState<string | null>(null)
+  const [legDate, setLegDate] = useState(today)
 
   // Register filter — All or just Unassigned (the design's toolbar segmented control).
   const [filter, setFilter] = useState<'all' | 'unassigned'>('all')
@@ -264,11 +273,20 @@ export function TransactionsPage() {
       setError('A transfer needs two different accounts.')
       return
     }
+    if (tReceived && tReceived < tDate) {
+      setError('The receipt date can’t be before the departure date.')
+      return
+    }
+    if (!tConfirmed) {
+      setError('Confirm that you’ve completed this transfer before recording it.')
+      return
+    }
     setTransferring(true)
     setError(null)
     try {
       const { data } = await api.post<TransactionDto>('/transactions/transfer', {
-        date: tDate,
+        departedOn: tDate,
+        receivedOn: tReceived || null,
         amount: toAmount(minor),
         fromAccountId: tFrom,
         toAccountId: tTo,
@@ -278,13 +296,37 @@ export function TransactionsPage() {
       track(EVENTS.transferCreated)
       setTAmount('')
       setTPayee('')
+      setTReceived('')
+      setTConfirmed(false)
       setShowAdd(false)
     } catch {
       setError('Could not record that transfer.')
     } finally {
       setTransferring(false)
     }
-  }, [tDate, tAmount, tFrom, tTo, tPayee])
+  }, [tDate, tReceived, tConfirmed, tAmount, tFrom, tTo, tPayee])
+
+  /** Confirm the bank leg a transfer is still missing (never rewrites a confirmed one). */
+  const confirmLeg = useCallback(
+    async (t: TransactionDto) => {
+      if (!legDate) return
+      const body = t.transferStatus === 'PendingReview' ? { departedOn: legDate } : { receivedOn: legDate }
+      setSavingId(t.id)
+      setError(null)
+      try {
+        const { data } = await api.put<TransactionDto>(`/transactions/${t.id}/transfer-legs`, body)
+        setTransactions((prev) => prev.map((x) => (x.id === t.id ? data : x)))
+        setLegId(null)
+      } catch (err) {
+        const e = err as { response?: { status?: number; data?: { errors?: Record<string, string[]> } } }
+        const messages = e?.response?.status === 400 ? Object.values(e.response.data?.errors ?? {}).flat() : []
+        setError(messages.length > 0 ? messages.join(' ') : 'Could not confirm that transfer.')
+      } finally {
+        setSavingId(null)
+      }
+    },
+    [legDate],
+  )
 
   const removeTransaction = useCallback(async (id: string) => {
     setSavingId(id)
@@ -738,7 +780,7 @@ export function TransactionsPage() {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Date
+                Left the source account on
                 <Input
                   type="date"
                   value={tDate}
@@ -808,6 +850,30 @@ export function TransactionsPage() {
                 onChange={(e) => setTPayee(e.target.value)}
                 className="w-full"
               />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Arrived in the destination account on (optional)
+              <Input
+                type="date"
+                value={tReceived}
+                aria-label="Transfer receipt date"
+                onChange={(e) => setTReceived(e.target.value)}
+                className="w-full text-slate-700"
+              />
+              <span className="font-normal text-slate-400">
+                Leave blank until the receiving bank shows it: the amount stays in transit and belongs to
+                neither account until then.
+              </span>
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={tConfirmed}
+                aria-label="Transfer completed confirmation"
+                onChange={(e) => setTConfirmed(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+              />
+              I’ve completed this transfer.
             </label>
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={() => setShowAdd(false)}>
@@ -1031,7 +1097,55 @@ export function TransactionsPage() {
                             </td>
                             <td className="px-4 py-3.5">
                               {isTransfer ? (
-                                <Badge tone="brand">Transfer</Badge>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <Badge tone="brand">Transfer</Badge>
+                                  {t.transferStatus === 'InTransit' && (
+                                    <span
+                                      title={`Left ${t.accountName ?? 'the source'} on ${formatDate(t.departedOn ?? t.date)}; receipt not yet confirmed`}
+                                      className="rounded-[5px] border border-sky-200 bg-sky-50 px-1.5 py-px text-[9.5px] font-semibold text-sky-700 dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-300"
+                                    >
+                                      In transit
+                                    </span>
+                                  )}
+                                  {t.transferStatus === 'PendingReview' && (
+                                    <span
+                                      title={`Received by ${t.transferAccountName ?? 'the destination'} on ${formatDate(t.receivedOn ?? t.date)}; departure date unknown — nothing is posted until it is supplied`}
+                                      className="rounded-[5px] border border-amber-200 bg-amber-50 px-1.5 py-px text-[9.5px] font-semibold text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300"
+                                    >
+                                      Pending review
+                                    </span>
+                                  )}
+                                  {canEnterData && t.transferStatus && t.transferStatus !== 'Completed' && legId !== t.id && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setLegId(t.id)
+                                        setLegDate(t.transferStatus === 'PendingReview' ? t.receivedOn ?? today() : t.departedOn ?? today())
+                                      }}
+                                      aria-label={`${t.transferStatus === 'PendingReview' ? 'Add departure date' : 'Confirm receipt'}: ${t.payee || t.date}`}
+                                      className="text-[11px] font-semibold text-brand-700 hover:underline dark:text-brand-200"
+                                    >
+                                      {t.transferStatus === 'PendingReview' ? 'Add departure date' : 'Confirm receipt'}
+                                    </button>
+                                  )}
+                                  {legId === t.id && (
+                                    <span className="flex items-center gap-1">
+                                      <input
+                                        type="date"
+                                        value={legDate}
+                                        aria-label={t.transferStatus === 'PendingReview' ? 'Departure date' : 'Receipt date'}
+                                        onChange={(e) => setLegDate(e.target.value)}
+                                        className="rounded-md border border-slate-300 px-1.5 py-0.5 text-xs"
+                                      />
+                                      <Button size="sm" onClick={() => confirmLeg(t)} disabled={savingId === t.id} aria-label="Save transfer leg">
+                                        Save
+                                      </Button>
+                                      <Button size="sm" variant="ghost" onClick={() => setLegId(null)} aria-label="Cancel transfer leg">
+                                        Cancel
+                                      </Button>
+                                    </span>
+                                  )}
+                                </div>
                               ) : t.isSplit ? (
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <Badge tone="violet">Split</Badge>

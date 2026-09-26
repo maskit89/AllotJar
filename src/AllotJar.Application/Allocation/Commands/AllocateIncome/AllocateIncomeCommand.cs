@@ -5,10 +5,22 @@ using AllotJar.Application.Common.Security;
 namespace AllotJar.Application.Allocation.Commands.AllocateIncome;
 
 /// <summary>
-/// Commits the allocation for a month: routes each member's surplus into their personal
-/// savings as a transfer. Idempotent — re-running replaces the month's prior allocation
-/// transfers. Returns the computed result with the number of transfers created.
+/// Records the month's allocation transfers — each member's surplus moved from the source
+/// account into their personal savings — after the user confirms they have completed those
+/// bank transfers (rules 7/29): the suggested amounts remain a plan until then.
+/// <paramref name="DepartedOn"/> is the date the money left the source account; receipt stays
+/// unconfirmed (in transit) until each transfer's receipt is confirmed on the register, unless
+/// <paramref name="ReceivedOn"/> supplies the same-day or later arrival for all of them.
+/// Re-running keeps an unchanged member transfer (and any receipt already confirmed on it),
+/// re-records one whose amount changed, and refuses to discard a transfer whose receipt is
+/// already confirmed. Returns the computed result with the number of transfers created.
 /// </summary>
 [AllowLimited]
-public record AllocateIncomeCommand(int Year, int Month, Guid? ProfileId = null)
+public record AllocateIncomeCommand(
+    int Year,
+    int Month,
+    Guid? ProfileId = null,
+    DateOnly? DepartedOn = null,
+    DateOnly? ReceivedOn = null,
+    bool ConfirmedCompleted = false)
     : IRequest<AllocationResultDto>;

@@ -84,6 +84,7 @@ async function addAccount(
     await dialog.getByLabel('Account currency').selectOption({ label: acc.currencyLabel })
   }
   await dialog.getByLabel('Opening balance').fill(acc.opening)
+  await dialog.getByLabel('Opening date').fill('2026-01-01')
   await dialog.getByRole('button', { name: 'Add account', exact: true }).click()
   await expect(dialog).toBeHidden() // closes only on a successful POST
   await expect(page.getByRole('link', { name: `View ${acc.name}`, exact: true })).toBeVisible()
@@ -107,16 +108,25 @@ async function openTransferForm(page: Page) {
   return dialog
 }
 
-/** Record a transfer through the open transfer form; resolves to the returned DTO. */
+/**
+ * Record a completed transfer through the open transfer form; resolves to the returned DTO.
+ * The form records the confirmed departure (rule 71); `receivedSameDay` also supplies the
+ * receipt so the destination is credited at once, otherwise the amount stays in transit.
+ */
 async function recordTransfer(
   page: Page,
-  t: { amount: string; from: string; to: string; note?: string },
-): Promise<{ id: string; date: string; accountId: string; transferAccountId: string }> {
+  t: { amount: string; from: string; to: string; note?: string; receivedSameDay?: boolean },
+): Promise<{ id: string; date: string; accountId: string; transferAccountId: string; transferStatus: string }> {
   const dialog = page.getByRole('dialog', { name: 'Record a transfer' })
   await dialog.getByLabel('Transfer amount').fill(t.amount)
   await dialog.getByLabel('Transfer from account').selectOption({ label: t.from })
   await dialog.getByLabel('Transfer to account').selectOption({ label: t.to })
   if (t.note) await dialog.getByLabel('Transfer note').fill(t.note)
+  if (t.receivedSameDay !== false) {
+    await dialog.getByLabel('Transfer receipt date').fill(await dialog.getByLabel('Transfer date').inputValue())
+  }
+  // Rule 7: the explicit "I've completed this transfer" confirmation gates the record.
+  await dialog.getByLabel('Transfer completed confirmation').check()
   const responsePromise = page.waitForResponse(
     (r) =>
       r.request().method() === 'POST' &&
@@ -188,8 +198,8 @@ test('a transfer moves both balances but never the budget, renders badge + from 
   await expect(page.getByText('All assigned')).toBeVisible()
   await expect(page.getByText('1 transactions')).toBeVisible()
 
-  // --- TRF-005 + TRF-028: both derived balances moved by the raw amount and the
-  // net across accounts is unchanged.
+  // --- TRF-005 + TRF-028: with the receipt confirmed on the same day both derived
+  // balances moved by the raw amount and the net across accounts is unchanged.
   await page.getByRole('link', { name: 'Accounts' }).click()
   await expect(page.getByLabel(/^Total balance:/)).toContainText('2,500.00')
 
@@ -293,11 +303,18 @@ test('client-side transfer validation blocks bad input without an API call, and 
   await page.waitForTimeout(300) // give any (buggy) POST a beat to fire
   expect(transferPosts).toBe(0)
 
+  // --- Rule 7: without the "I've completed this transfer" confirmation nothing is sent.
+  await dialog.getByLabel('Transfer from account').selectOption({ label: 'Euro Main' })
+  await dialog.getByRole('button', { name: 'Record transfer', exact: true }).click()
+  await expect(dialog.getByText('Confirm that you’ve completed this transfer before recording it.')).toBeVisible()
+  await page.waitForTimeout(300)
+  expect(transferPosts).toBe(0)
+
   // --- TRF-021 + TRF-015: EUR → USD passes the client checks, so the POST goes
   // out and the server's cross-currency guard rejects it (400). The client maps
   // every server failure to the one generic string, prepends no row, and the
   // modal stays open.
-  await dialog.getByLabel('Transfer from account').selectOption({ label: 'Euro Main' })
+  await dialog.getByLabel('Transfer completed confirmation').check()
   const rejected = page.waitForResponse(
     (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/transactions/transfer',
   )

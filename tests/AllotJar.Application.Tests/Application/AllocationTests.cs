@@ -33,7 +33,7 @@ public class AllocationTests
 
     private static Account SeedAccount(ApplicationDbContext db, string owner, string name, decimal opening = 0m)
     {
-        var a = new Account { OwnerId = owner, Name = name, Type = AccountType.Current, Currency = CurrencyCode.Eur, OpeningBalance = opening };
+        var a = new Account { OwnerId = owner, Name = name, Type = AccountType.Current, Currency = CurrencyCode.Eur, OpeningBalance = opening, OpeningDate = new DateOnly(2026, 1, 1) };
         db.Accounts.Add(a);
         db.SaveChanges();
         return a;
@@ -180,7 +180,7 @@ public class AllocationTests
             .Handle(new UpsertAllocationProfileCommand(null, "P", source.Id, StandardRules()), CancellationToken.None);
 
         var commit = new AllocateIncomeCommandHandler(db, user);
-        var first = await commit.Handle(new AllocateIncomeCommand(2026, 6), CancellationToken.None);
+        var first = await commit.Handle(new AllocateIncomeCommand(2026, 6, DepartedOn: new DateOnly(2026, 6, 1), ConfirmedCompleted: true), CancellationToken.None);
 
         first.TransfersCreated.Should().Be(2);
         var transfers = await db.Transactions.Where(t => t.Type == TransactionType.Transfer).ToListAsync();
@@ -190,9 +190,14 @@ public class AllocationTests
         transfers.Should().ContainSingle(t => t.TransferAccountId == lizaSavings.Id && t.Amount == 1000.37m);
         transfers.Sum(t => t.Amount).Should().Be(2000.75m);
 
-        // Re-running replaces, not appends.
-        var second = await commit.Handle(new AllocateIncomeCommand(2026, 6), CancellationToken.None);
-        second.TransfersCreated.Should().Be(2);
+        // Every recorded transfer is a confirmed departure with receipt still unknown (rule 71):
+        // the commit records what the user says they did, never an arrival it cannot know.
+        transfers.Should().OnlyContain(t => t.DepartedOn == new DateOnly(2026, 6, 1) && t.ReceivedOn == null);
+
+        // Re-running neither appends nor rewrites an unchanged recorded transfer (rules 7/29):
+        // the same two movements stay as recorded, so nothing new is created.
+        var second = await commit.Handle(new AllocateIncomeCommand(2026, 6, DepartedOn: new DateOnly(2026, 6, 1), ConfirmedCompleted: true), CancellationToken.None);
+        second.TransfersCreated.Should().Be(0);
         (await db.Transactions.CountAsync(t => t.Type == TransactionType.Transfer)).Should().Be(2);
     }
 
@@ -216,7 +221,7 @@ public class AllocationTests
             .Handle(new UpsertAllocationProfileCommand(null, "P", source.Id, StandardRules()), CancellationToken.None);
 
         var commit = new AllocateIncomeCommandHandler(db, user);
-        var before = await commit.Handle(new AllocateIncomeCommand(2026, 6), CancellationToken.None);
+        var before = await commit.Handle(new AllocateIncomeCommand(2026, 6, DepartedOn: new DateOnly(2026, 6, 1), ConfirmedCompleted: true), CancellationToken.None);
 
         // Each member: 1500 − 1250 − 250 = −250; remainder −500 → keep-own, zero transfers.
         before.TransfersCreated.Should().Be(0);
@@ -230,7 +235,7 @@ public class AllocationTests
         await new SyncPocketMoneyLinesCommandHandler(db, user)
             .Handle(new SyncPocketMoneyLinesCommand(2026, 6), CancellationToken.None);
 
-        var after = await commit.Handle(new AllocateIncomeCommand(2026, 6), CancellationToken.None);
+        var after = await commit.Handle(new AllocateIncomeCommand(2026, 6, DepartedOn: new DateOnly(2026, 6, 1), ConfirmedCompleted: true), CancellationToken.None);
 
         // Engine: 3000 − 2000 − 500 − 500(pocket rule) = 0 remainder; budget: planned
         // 2000 + 500 + 500(flagged pocket lines) = income 3000 — both coherent.
@@ -267,7 +272,7 @@ public class AllocationTests
 
         var ex = await Assert.ThrowsAsync<AllotJar.Application.Common.Exceptions.ValidationException>(() =>
             new AllocateIncomeCommandHandler(db, user)
-                .Handle(new AllocateIncomeCommand(2026, 6), CancellationToken.None));
+                .Handle(new AllocateIncomeCommand(2026, 6, DepartedOn: new DateOnly(2026, 6, 1), ConfirmedCompleted: true), CancellationToken.None));
 
         ex.Errors["Allocation"].Single().Should().Contain("source account");
         (await db.Transactions.CountAsync()).Should().Be(0); // no transfers, and the prior ones weren't dropped

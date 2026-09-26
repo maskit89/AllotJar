@@ -30,8 +30,9 @@ public class GetAccountsQueryHandler : IRequestHandler<GetAccountsQuery, IReadOn
                 .ThenBy(a => a.Name)
             .ToListAsync(cancellationToken);
 
-        await AccountBalances.ApplyAsync(_db, userId, accounts, cancellationToken);
+        var asOf = request.AsOf ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var views = await AccountLedgerReader.ReadAsync(_db, userId, accounts, asOf, cancellationToken);
 
-        return accounts.Select(a => a.ToDto()).ToList();
+        return accounts.Select(a => a.ToDto(views[a.Id])).ToList();
     }
 }

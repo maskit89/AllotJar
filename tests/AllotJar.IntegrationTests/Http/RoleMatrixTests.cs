@@ -42,7 +42,7 @@ public class RoleMatrixTests
     [Fact]
     public async Task Account_create_is_admin_and_up() =>
         await AssertMatrixAsync(HttpMethod.Post, _ => "/api/accounts",
-            role => new { name = $"Matrix {role} {Unique()}", type = 0, currency = "EUR", openingBalance = 0m },
+            role => new { name = $"Matrix {role} {Unique()}", type = 0, currency = "EUR", openingBalance = 0m, openingDate = "2026-01-01" },
             owner: Created, admin: Created, limited: Forbidden, readOnly: Forbidden);
 
     [Fact]
@@ -105,7 +105,7 @@ public class RoleMatrixTests
         await AssertMatrixAsync(HttpMethod.Post, _ => "/api/transactions/transfer",
             role => new
             {
-                date = Today(),
+                departedOn = Today(),
                 amount = 5m,
                 fromAccountId = _fixture.CheckingAccountId,
                 toAccountId = _fixture.SavingsAccountId,

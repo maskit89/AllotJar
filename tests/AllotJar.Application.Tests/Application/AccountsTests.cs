@@ -38,6 +38,7 @@ public class AccountsTests
             Type = AccountType.Current,
             Currency = CurrencyCode.Eur,
             OpeningBalance = opening,
+            OpeningDate = new DateOnly(2026, 1, 1),
             DisplayOrder = order,
         };
         db.Accounts.Add(account);
@@ -98,7 +99,7 @@ public class AccountsTests
 
         var handler = new CreateAccountCommandHandler(db, new CurrentUserStub("user-1"));
         var dto = await handler.Handle(
-            new CreateAccountCommand("Savings", AccountType.Savings, "EUR", 500m), CancellationToken.None);
+            new CreateAccountCommand("Savings", AccountType.Savings, "EUR", 500m, new DateOnly(2026, 1, 1)), CancellationToken.None);
 
         dto.DisplayOrder.Should().Be(1);
         dto.CurrentBalance.Should().Be(500m);

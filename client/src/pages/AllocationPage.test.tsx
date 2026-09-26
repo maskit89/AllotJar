@@ -200,8 +200,37 @@ describe('AllocationPage', () => {
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
+    // Rules 7/29: the plan becomes recorded transfers only after "I've completed these transfers".
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.click(dialog.getByRole('button', { name: 'Confirm allocation' }))
+    expect(await screen.findByText(/Confirm that you’ve completed these transfers/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
 
-    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/6', {}))
-    expect(await screen.findByText(/2 savings transfers created/, {}, { timeout: 5000 })).toBeInTheDocument()
+    await user.clear(dialog.getByLabelText('Allocation departure date'))
+    await user.type(dialog.getByLabelText('Allocation departure date'), '2026-06-03')
+    await user.click(dialog.getByLabelText('Allocation completed confirmation'))
+    await user.click(dialog.getByRole('button', { name: 'Confirm allocation' }))
+
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/6', {
+        departedOn: '2026-06-03', receivedOn: null, confirmedCompleted: true,
+      }),
+    )
+    expect(await screen.findByText(/2 savings transfers recorded as in transit/, {}, { timeout: 5000 })).toBeInTheDocument()
+  })
+
+  it('reports an unchanged re-run instead of pretending nothing was needed', { timeout: 15000 }, async () => {
+    profileData = profile()
+    mockPost.mockResolvedValue({ data: { ...preview(0), transfersRetained: 2 } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.click(dialog.getByLabelText('Allocation completed confirmation'))
+    await user.click(dialog.getByRole('button', { name: 'Confirm allocation' }))
+
+    expect(await screen.findByText(/the 2 recorded transfers are unchanged/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
 })

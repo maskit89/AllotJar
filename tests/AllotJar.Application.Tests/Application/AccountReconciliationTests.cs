@@ -34,7 +34,7 @@ public class AccountReconciliationTests
         var account = new Account
         {
             OwnerId = "user-1", Name = "Savings Joint", Type = AccountType.Savings,
-            Currency = CurrencyCode.Eur, OpeningBalance = 1000m,
+            Currency = CurrencyCode.Eur, OpeningBalance = 1000m, OpeningDate = new DateOnly(2026, 1, 1),
         };
         db.Accounts.Add(account);
         db.SaveChanges();
@@ -70,7 +70,7 @@ public class AccountReconciliationTests
     public async Task UnbackedAccount_HasFloatEqualToBalance()
     {
         await using var db = NewContext();
-        db.Accounts.Add(new Account { OwnerId = "user-1", Name = "Cash", Type = AccountType.Cash, Currency = CurrencyCode.Eur, OpeningBalance = 50m });
+        db.Accounts.Add(new Account { OwnerId = "user-1", Name = "Cash", Type = AccountType.Cash, Currency = CurrencyCode.Eur, OpeningBalance = 50m, OpeningDate = new DateOnly(2026, 1, 1) });
         db.SaveChanges();
 
         var result = await new GetAccountReconciliationQueryHandler(db, new CurrentUserStub("user-1"))

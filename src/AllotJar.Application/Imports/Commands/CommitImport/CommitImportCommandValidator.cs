@@ -37,6 +37,13 @@ public class CommitImportCommandValidator : AbstractValidator<CommitImportComman
                 .Must(i => i.Splits is null || i.Splits.Count == 0)
                 .When(i => i.TransferAccountId is not null)
                 .WithMessage("A transfer can't also be split.");
+
+            // Confirming the other side of a recorded transfer is a transfer decision: the row must
+            // be marked as one, with the counterparty the candidate names.
+            item.RuleFor(i => i.TransferAccountId)
+                .NotNull()
+                .When(i => i.MatchTransferId is not null)
+                .WithMessage("Mark the row as a transfer and choose its account before matching it to a recorded transfer.");
         });
 
         // Transfers need to know which account the statement belongs to.

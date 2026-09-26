@@ -55,6 +55,11 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             });
         }
 
+        // Transfers the user chose to confirm the other side of. Loaded tracked: matching writes
+        // the statement's date and reference onto the open leg instead of inserting a row.
+        var matchTargets = await LoadMatchTargetsAsync(
+            request.Items.Select(i => i.MatchTransferId), userId, cancellationToken);
+
         // Whole-row assignments run through the same invariant every other write path uses
         // (direction↔kind, month coherence with the acknowledge escape) — batch-loaded here so a
         // large statement validates in one query instead of one per row. Ownership was proven
@@ -72,25 +77,16 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             .ToDictionaryAsync(i => i.Id, cancellationToken);
 
         // Idempotency: never re-create a row this STATEMENT ACCOUNT already knows (double-submit,
-        // overlap, retry). A row from account A's statement can be persisted on EITHER leg: a
-        // plain income/expense sits on A itself, but an INBOUND transfer is stored with the
-        // counterparty as its source (AccountId = B, TransferAccountId = A) — so the snapshot must
-        // match references on either side, or re-importing A's statement re-inserts its inbound
-        // transfers and dies on the unique index with a recovery that searches the wrong account.
-        // A bank reference reused on a DIFFERENT statement account remains a genuinely distinct
-        // transaction, not a duplicate. Case-insensitive to agree with the index's CI collation.
+        // overlap, retry). The shared definition covers the leg this account's statement carries:
+        // its own rows and outgoing transfers by BankReference, incoming transfers by
+        // ReceiptBankReference. A bank reference reused on a DIFFERENT statement account remains
+        // a genuinely distinct transaction, not a duplicate.
         var accountId = request.AccountId;
-        var existing = await _db.Transactions
-            .Where(t => t.OwnerId == userId
-                        && t.BankReference != null
-                        && (t.AccountId == accountId
-                            || (accountId != null && t.TransferAccountId == accountId)))
-            .Select(t => t.BankReference!)
-            .ToListAsync(cancellationToken);
-        var seen = new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase);
+        var seen = await StatementReferences.KnownAsync(_db, userId, accountId, cancellationToken);
 
-        int imported = 0, skipped = 0, credits = 0, debits = 0, transfers = 0;
+        int imported = 0, skipped = 0, credits = 0, debits = 0, transfers = 0, matched = 0, pendingReview = 0;
         var created = new List<Transaction>();
+        var matchedIds = new HashSet<Guid>();
 
         foreach (var item in request.Items)
         {
@@ -132,7 +128,33 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 }
                 TransactionInvariants.EnsureAccountCurrency(importAccount, CurrencyCode.From(item.Currency), "Items");
 
+                var reference = string.IsNullOrEmpty(item.Reference) ? null : item.Reference;
+
+                // The user picked a recorded transfer this row is the other side of: attach this
+                // statement's leg to it and apply no second balance movement (rules 8/50/51).
+                if (item.MatchTransferId is Guid matchId)
+                {
+                    var target = ConfirmMatch(item, matchId, importAccountId, counterparty, matchTargets, matchedIds);
+                    if (item.IsCredit)
+                    {
+                        target.ReceivedOn = item.Date;
+                        target.ReceiptBankReference = reference;
+                    }
+                    else
+                    {
+                        target.DepartedOn = item.Date;
+                        target.BankReference = reference;
+                        target.Date = item.Date;
+                    }
+                    matched++;
+                    transfers++;
+                    continue;
+                }
+
                 // A credit moved money INTO the import account (from the counterparty); a debit, OUT.
+                // Each statement proves only its own bank's leg: a debit is a confirmed departure
+                // (receipt unknown, money in transit — rule 71); a credit is a receipt whose
+                // departure is unknown, held for review with no posted effect (rule 72).
                 var (source, dest) = item.IsCredit
                     ? (counterparty, importAccountId)
                     : (importAccountId, counterparty);
@@ -145,14 +167,18 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     Type = TransactionType.Transfer,
                     Date = item.Date,
                     Payee = Truncate(item.Payee, 200),
-                    BankReference = string.IsNullOrEmpty(item.Reference) ? null : item.Reference,
                     AccountId = source,
                     TransferAccountId = dest,
+                    DepartedOn = item.IsCredit ? null : item.Date,
+                    ReceivedOn = item.IsCredit ? item.Date : null,
+                    BankReference = item.IsCredit ? null : reference,
+                    ReceiptBankReference = item.IsCredit ? reference : null,
                 };
                 _db.Transactions.Add(transfer);
                 created.Add(transfer);
                 imported++;
                 transfers++;
+                if (item.IsCredit) pendingReview++;
                 continue;
             }
 
@@ -217,14 +243,14 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             if (item.IsCredit) credits++; else debits++;
         }
 
-        if (created.Count > 0)
+        if (created.Count > 0 || matched > 0)
         {
             await FxRateResolver.ApplyAsync(_db, _exchangeRates, userId, created, cancellationToken);
 
             // The dedup snapshot above is per-request memory; a CONCURRENT commit (double-click,
             // second device, another login in the household) can insert the same references after
-            // we read it. The unique (OwnerId, AccountId, BankReference) index turns that race into
-            // a DbUpdateException here — recover by dropping the collided rows and saving the rest.
+            // we read it. The unique reference indexes turn that race into a DbUpdateException
+            // here — recover by dropping the collided rows and saving the rest.
             for (var attempt = 0; ; attempt++)
             {
                 try
@@ -234,42 +260,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 }
                 catch (DbUpdateException ex) when (attempt < 3 && IsReferenceCollision(ex))
                 {
-                    // The index guards (OwnerId, AccountId, BankReference) — and an inbound
-                    // transfer's stored AccountId is the COUNTERPARTY, not the statement account.
-                    // So the recovery must look for existing rows on each created row's OWN
-                    // AccountId (exactly the pairs the failed insert tried), not on the statement
-                    // account: searching only the statement account finds nothing for an inbound
-                    // transfer and rethrows instead of skipping it.
-                    var refsByAccount = created
-                        .Where(t => t.BankReference != null)
-                        .GroupBy(t => t.AccountId)
-                        .ToList();
-
-                    // Keyed by the row's account with Guid.Empty standing in for "no account"
-                    // (a Dictionary rejects a null key; an account id can never be Guid.Empty).
-                    var takenByAccount = new Dictionary<Guid, HashSet<string>>();
-                    foreach (var group in refsByAccount)
-                    {
-                        var rowAccountId = group.Key;
-                        var refs = group.Select(t => t.BankReference!).ToList();
-                        var taken = await _db.Transactions
-                            .AsNoTracking()
-                            .Where(t => t.OwnerId == userId && t.AccountId == rowAccountId
-                                        && t.BankReference != null && refs.Contains(t.BankReference))
-                            .Select(t => t.BankReference!)
-                            .ToListAsync(cancellationToken);
-                        // Case-insensitive: the DB index compares with the column's CI collation, so
-                        // a case-variant reference blocks the insert — the recovery match must agree
-                        // or it would rethrow instead of skipping.
-                        takenByAccount[rowAccountId ?? Guid.Empty] =
-                            new HashSet<string>(taken, StringComparer.OrdinalIgnoreCase);
-                    }
-
-                    var collided = created
-                        .Where(t => t.BankReference is string r
-                                    && takenByAccount.TryGetValue(t.AccountId ?? Guid.Empty, out var taken)
-                                    && taken.Contains(r))
-                        .ToList();
+                    var collided = await FindCollidedAsync(userId, created, cancellationToken);
                     if (collided.Count == 0)
                     {
                         throw; // not actually our collision — surface the real error
@@ -281,12 +272,16 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                         created.Remove(row);
                         imported--;
                         skipped++;
-                        if (row.Type == TransactionType.Transfer) transfers--;
+                        if (row.Type == TransactionType.Transfer)
+                        {
+                            transfers--;
+                            if (row.DepartedOn is null) pendingReview--;
+                        }
                         else if (row.Type == TransactionType.Income) credits--;
                         else debits--;
                     }
 
-                    if (created.Count == 0)
+                    if (created.Count == 0 && matched == 0)
                     {
                         break; // everything we had was already imported by the other commit
                     }
@@ -308,16 +303,111 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             Debits: debits,
             Iban: null,
             AutoCategorized: 0,
-            Transfers: transfers);
+            Transfers: transfers,
+            MatchedTransfers: matched,
+            PendingReviewTransfers: pendingReview);
     }
 
     /// <summary>
-    /// True when the save failed on the unique (OwnerId, AccountId, BankReference) dedup index.
-    /// Matched by index name in the provider's message so the Application layer needs no SqlClient
-    /// reference.
+    /// The user-selected transfer must genuinely be the other side of this row: same two
+    /// accounts in this row's direction, same amount and currency, and its leg for the statement
+    /// account still open. Anything else is a mismatch to surface, never something to guess past.
+    /// </summary>
+    private static Transaction ConfirmMatch(
+        CommitImportItem item, Guid matchId, Guid importAccountId, Guid counterparty,
+        IReadOnlyDictionary<Guid, Transaction> targets, HashSet<Guid> matchedIds)
+    {
+        if (!targets.TryGetValue(matchId, out var target))
+        {
+            throw new NotFoundException($"Transfer {matchId} was not found.");
+        }
+        var errors = new List<string>();
+        var (expectedSource, expectedDest) = item.IsCredit
+            ? (counterparty, importAccountId)
+            : (importAccountId, counterparty);
+        if (target.AccountId != expectedSource || target.TransferAccountId != expectedDest)
+        {
+            errors.Add("it moves between different accounts");
+        }
+        if (target.Amount != item.Amount || !string.Equals(target.Currency.Value, item.Currency, StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"its amount is {target.Currency.Value} {target.Amount:0.####}, not {item.Currency} {item.Amount:0.####}");
+        }
+        if (!StatementReferences.IsOpenFor(target, importAccountId, item.IsCredit))
+        {
+            errors.Add(item.IsCredit ? "its receipt is already confirmed" : "its departure is already confirmed");
+        }
+        if (!matchedIds.Add(matchId))
+        {
+            errors.Add("another row in this import already confirms the same leg");
+        }
+        if (errors.Count > 0)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["Items"] = new[]
+                {
+                    $"'{item.Payee}' can't confirm the selected transfer: {string.Join("; ", errors)}.",
+                },
+            });
+        }
+        return target;
+    }
+
+    /// <summary>
+    /// True when the save failed on one of the unique statement-reference indexes. Matched by index
+    /// name in the provider's message so the Application layer needs no SqlClient reference.
     /// </summary>
     private static bool IsReferenceCollision(DbUpdateException ex) =>
-        ex.InnerException?.Message.Contains("IX_Transactions_OwnerId_AccountId_BankReference", StringComparison.Ordinal) == true;
+        ex.InnerException?.Message.Contains("IX_Transactions_OwnerId_AccountId_BankReference", StringComparison.Ordinal) == true
+        || ex.InnerException?.Message.Contains("IX_Transactions_OwnerId_TransferAccountId_ReceiptBankReference", StringComparison.Ordinal) == true;
+
+    /// <summary>
+    /// The created rows whose statement reference another commit persisted first. Each row is
+    /// checked on the leg it carries the reference on — a source/outgoing reference against
+    /// its AccountId, a receipt reference against its TransferAccountId — exactly the pairs the
+    /// failed insert tried.
+    /// </summary>
+    private async Task<List<Transaction>> FindCollidedAsync(
+        string userId, IReadOnlyList<Transaction> created, CancellationToken cancellationToken)
+    {
+        var collided = new List<Transaction>();
+
+        var sourceRefs = created.Where(t => t.BankReference != null).GroupBy(t => t.AccountId).ToList();
+        foreach (var group in sourceRefs)
+        {
+            var rowAccountId = group.Key;
+            var refs = group.Select(t => t.BankReference!).ToList();
+            var taken = await _db.Transactions
+                .AsNoTracking()
+                .Where(t => t.OwnerId == userId && t.AccountId == rowAccountId
+                            && t.BankReference != null && refs.Contains(t.BankReference))
+                .Select(t => t.BankReference!)
+                .ToListAsync(cancellationToken);
+            // Case-insensitive: the DB index compares with the column's CI collation, so
+            // a case-variant reference blocks the insert — the recovery match must agree
+            // or it would rethrow instead of skipping.
+            var takenSet = new HashSet<string>(taken, StringComparer.OrdinalIgnoreCase);
+            collided.AddRange(group.Where(t => takenSet.Contains(t.BankReference!)));
+        }
+
+        var receiptRefs = created.Where(t => t.ReceiptBankReference != null).GroupBy(t => t.TransferAccountId).ToList();
+        foreach (var group in receiptRefs)
+        {
+            var rowAccountId = group.Key;
+            var refs = group.Select(t => t.ReceiptBankReference!).ToList();
+            var taken = await _db.Transactions
+                .AsNoTracking()
+                .Where(t => t.OwnerId == userId && t.TransferAccountId == rowAccountId
+                            && t.ReceiptBankReference != null && refs.Contains(t.ReceiptBankReference))
+                .Select(t => t.ReceiptBankReference!)
+                .ToListAsync(cancellationToken);
+            var takenSet = new HashSet<string>(taken, StringComparer.OrdinalIgnoreCase);
+            collided.AddRange(group.Where(t => takenSet.Contains(t.ReceiptBankReference!) && !collided.Contains(t)));
+        }
+
+        return collided;
+    }
 
     /// <summary>The import account, owned by the user — or null when no account was chosen.</summary>
     private async Task<Account?> LoadOwnedAccountAsync(Guid? accountId, string userId, CancellationToken ct)
@@ -355,6 +445,37 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             throw new ForbiddenAccessException();
         }
         return accounts;
+    }
+
+    /// <summary>Loads the user-selected match targets, tracked, requiring each to be an owned transfer.</summary>
+    private async Task<Dictionary<Guid, Transaction>> LoadMatchTargetsAsync(
+        IEnumerable<Guid?> requestedIds, string userId, CancellationToken ct)
+    {
+        var ids = requestedIds.Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return new Dictionary<Guid, Transaction>();
+        }
+        var transfers = await _db.Transactions
+            .Where(t => ids.Contains(t.Id))
+            .ToListAsync(ct);
+        foreach (var id in ids)
+        {
+            var transfer = transfers.FirstOrDefault(t => t.Id == id)
+                ?? throw new NotFoundException($"Transfer {id} was not found.");
+            if (transfer.OwnerId != userId)
+            {
+                throw new ForbiddenAccessException();
+            }
+            if (transfer.Type != TransactionType.Transfer)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["Items"] = new[] { "Only a recorded transfer can be confirmed from a statement row." },
+                });
+            }
+        }
+        return transfers.ToDictionary(t => t.Id);
     }
 
     /// <summary>

@@ -7,10 +7,12 @@ import { register } from './helpers'
  * account, a planned month — walks the AllocationPage waterfall against live SQL,
  * then commits. The stubbed suites fake the preview/commit contract; these journeys
  * exercise the real IncomeAllocator over HTTP, the no-source commit guard, the
- * committed banner, the idempotent re-commit (prefix-delete + recreate of the
- * `alloc:{y}-{m}:{memberId}` BankReference transfers), the real register rows and
- * derived account balances they move, and the stranded-surplus / nothing-to-save
- * notes with real data.
+ * committed banner, the "I've completed these transfers" confirmation and departure
+ * date the commit now requires (rules 7/29/71), the re-commit that keeps unchanged
+ * `alloc:{y}-{m}:{memberId}` BankReference transfers and withdraws superseded in-transit
+ * ones, the real register rows and the dated account balances they move (the source is
+ * debited on departure; pots are credited only when a receipt is confirmed), and the
+ * stranded-surplus / nothing-to-save notes with real data.
  *
  * KNOWN BUG (worked around here, documented in the skipped test at the bottom):
  * against the real API a fresh household CANNOT open the "Set up allocation" modal.
@@ -142,6 +144,7 @@ async function addAccount(page: Page, acc: { name: string; opening: string }) {
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Account name').fill(acc.name)
   await dialog.getByLabel('Opening balance').fill(acc.opening)
+  await dialog.getByLabel('Opening date').fill('2026-01-01')
   await dialog.getByRole('button', { name: 'Add account', exact: true }).click()
   await expect(dialog).toBeHidden() // closes only on a successful POST
   await expect(page.getByRole('link', { name: `View ${acc.name}`, exact: true })).toBeVisible()
@@ -281,19 +284,25 @@ async function saveAllocationSettings(page: Page): Promise<{ rules: unknown[]; s
   return profile
 }
 
-/** Click Allocate and wait for the commit POST; returns the result DTO. */
+/**
+ * Click Allocate, confirm "I've completed these transfers" in the record modal (which also
+ * names any stranded share) and wait for the commit POST; returns the result DTO. The commit
+ * records departures only, so savings pots do not move until each receipt is confirmed.
+ */
 async function commitAllocation(
   page: Page,
   opts: { confirmStranded?: boolean } = {},
-): Promise<{ transfersCreated: number }> {
+): Promise<{ transfersCreated: number; transfersRetained: number }> {
   const post = page.waitForResponse(
     (r) => r.request().method() === 'POST' && new URL(r.url()).pathname.startsWith('/api/allocation/commit/') && r.ok(),
   )
   await page.getByRole('button', { name: 'Commit allocation', exact: true }).click()
+  const dialog = page.getByRole('dialog')
   if (opts.confirmStranded) {
-    // A stranded share opens the explicit confirm instead of committing straight away.
-    await page.getByRole('button', { name: 'Allocate anyway', exact: true }).click()
+    await expect(dialog).toContainText('no savings account linked')
   }
+  await dialog.getByLabel('Allocation completed confirmation').check()
+  await dialog.getByRole('button', { name: 'Confirm allocation', exact: true }).click()
   return await (await post).json()
 }
 
@@ -430,12 +439,12 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   await expect(page.getByText(/Set the account to pay shared costs from in/)).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Commit allocation', exact: true })).toBeEnabled()
 
-  // --- ALLOC-050: commit creates 2 member transfers and shows the count banner.
+  // --- ALLOC-050: commit records 2 member transfers (departed, receipt pending) and shows the count banner.
   const first = await commitAllocation(page)
   expect(first.transfersCreated).toBe(2)
   await expect(page.getByRole('status')).toContainText(`Allocated ${monthName}`)
-  await expect(page.getByRole('status')).toContainText('2 savings transfers created')
-  await expect(page.getByRole('status')).toContainText('Re-running Allocate replaces them, never doubles up.')
+  await expect(page.getByRole('status')).toContainText('2 savings transfers recorded as in transit')
+  await expect(page.getByRole('status')).toContainText('Re-running Allocate keeps unchanged transfers, never doubles up.')
 
   // --- ALLOC-047: a fresh preview after the commit still shows the PRE-allocation
   // balances (this month's alloc: transfers are excluded), so a re-run sees the same
@@ -445,14 +454,15 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   await expect(memberTile(page, 'Alex')).toContainText('1,250.00')
   await expect(memberTile(page, 'Robin')).toContainText('500.00 → saves')
 
-  // --- ALLOC-052: re-running the commit replaces the prior transfers, never doubles.
+  // --- ALLOC-052: re-running the commit keeps the unchanged recorded transfers, never doubles.
   const second = await commitAllocation(page)
-  expect(second.transfersCreated).toBe(2)
-  await expect(page.getByRole('status')).toContainText('2 savings transfers created')
+  expect(second.transfersCreated).toBe(0)
+  expect(second.transfersRetained).toBe(2)
+  await expect(page.getByRole('status')).toContainText('the 2 recorded transfers are unchanged')
 
   // --- ALLOC-050 + ALLOC-058 (register leg): after TWO commits the register holds
-  // exactly two allocation transfers — badge rows, from → to cells, 1st-of-month
-  // dates, residual amounts — not four.
+  // exactly two allocation transfers — badge rows, from → to cells, the confirmed
+  // departure date, residual amounts — not four.
   await page.getByRole('link', { name: 'Transactions' }).click()
   const allocRows = page.locator('tbody tr').filter({ hasText: 'Income allocation' })
   await expect(allocRows).toHaveCount(2)
@@ -464,23 +474,27 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   await expect(robinRow).toHaveCount(1)
   await expect(robinRow).toContainText('1,250.00')
 
-  // --- ALLOC-052 (balances leg): balances match a SINGLE run — the transfers moved
-  // real money once: Joint 10,000 − 2,500; pots up by their residuals; net unchanged.
+  // --- ALLOC-052 (balances leg): balances match a SINGLE run — the departures left Joint
+  // once (10,000 − 2,500) and the 2,500 is in transit (rule 69): the pots are credited only
+  // when each receipt is confirmed, so they still show their openings and the hero's
+  // total excludes the money in transit.
   await page.getByRole('link', { name: 'Accounts' }).click()
-  await expect(page.getByLabel(/^Total balance:/)).toContainText('11,500.00')
+  await expect(page.getByLabel(/^Total balance:/)).toContainText('9,000.00')
+  await expect(page.getByText('2,500.00 in transit out')).toBeVisible()
   await page.getByRole('link', { name: 'View Joint', exact: true }).click()
   await expect(detailBalance(page, 'Joint')).toContainText('7,500.00')
   await page.getByRole('link', { name: '‹ Accounts' }).click()
   await page.getByRole('link', { name: 'View Alex Pot', exact: true }).click()
-  await expect(detailBalance(page, 'Alex Pot')).toContainText('2,250.00')
+  await expect(detailBalance(page, 'Alex Pot')).toContainText('1,000.00')
+  await expect(page.getByText('In transit', { exact: true }).first()).toBeVisible()
   await page.getByRole('link', { name: '‹ Accounts' }).click()
   await page.getByRole('link', { name: 'View Robin Pot', exact: true }).click()
-  await expect(detailBalance(page, 'Robin Pot')).toContainText('1,750.00')
+  await expect(detailBalance(page, 'Robin Pot')).toContainText('500.00')
 
   // --- ALLOC-058: the stored transfer composition — exactly two alloc: rows survive
   // the re-commit, BankReference = "alloc:{year}-{month}:{memberId}" with the month
   // NOT zero-padded (the idempotency prefix and the unique index both depend on it),
-  // Type=Transfer, dated the 1st, distinct members.
+  // Type=Transfer, dated the confirmed departure (today), distinct members.
   const txResponse = await page.request.get('/api/transactions', {
     headers: { Authorization: auth()! },
   })
@@ -494,11 +508,11 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   }>
   const allocTx = transactions.filter((t) => t.bankReference?.startsWith('alloc:'))
   expect(allocTx).toHaveLength(2)
-  const firstOfMonth = `${year}-${String(month).padStart(2, '0')}-01`
+  const departedOn = new Date().toISOString().slice(0, 10)
   for (const t of allocTx) {
     expect(t.bankReference).toMatch(new RegExp(`^alloc:${year}-${month}:.+`)) // month un-padded
     expect(t.type).toBe(2) // Transfer
-    expect(t.date.startsWith(firstOfMonth)).toBeTruthy()
+    expect(t.date.startsWith(departedOn)).toBeTruthy()
     expect(t.payee).toMatch(/^Income allocation/)
     expect(t.amount).toBe(1250)
   }
@@ -549,7 +563,7 @@ test('a member without a savings account strands their share; over-committing th
   // savings balance; the residual itself is a healthy 1,450.00.
   const robinTile = memberTile(page, 'Robin')
   await expect(robinTile).toContainText('No savings account linked')
-  await expect(robinTile).toContainText('0.00 → saves')
+  await expect(robinTile).toContainText('No savings account → saves') // no linked account: no balance to show
   await expect(robinTile).toContainText('1,450.00')
 
   // --- ALLOC-055: Robin's positive share is stranded — the amber note names the amount.
@@ -557,10 +571,10 @@ test('a member without a savings account strands their share; over-committing th
   await expect(strandedNote).toBeVisible()
   await expect(strandedNote).toContainText('1,450.00')
 
-  // --- ALLOC-057 + ALLOC-050 (singular): commit writes only Alex's transfer.
+  // --- ALLOC-057 + ALLOC-050 (singular): commit records only Alex's transfer.
   const first = await commitAllocation(page, { confirmStranded: true })
   expect(first.transfersCreated).toBe(1)
-  await expect(page.getByRole('status')).toContainText('1 savings transfer created')
+  await expect(page.getByRole('status')).toContainText('1 savings transfer recorded as in transit')
 
   // Register: exactly ONE allocation row; Robin's 1,450.00 stayed in the source.
   await page.getByRole('link', { name: 'Transactions' }).click()
@@ -573,7 +587,8 @@ test('a member without a savings account strands their share; over-committing th
   await expect(detailBalance(page, 'Joint')).toContainText('3,550.00') // 5,000 − 1,450 only
   await page.getByRole('link', { name: '‹ Accounts' }).click()
   await page.getByRole('link', { name: 'View Alex Pot', exact: true }).click()
-  await expect(detailBalance(page, 'Alex Pot')).toContainText('1,450.00')
+  await expect(detailBalance(page, 'Alex Pot')).toContainText('0.00') // 1,450 in transit until receipt is confirmed
+  await expect(page.getByText('In transit', { exact: true }).first()).toBeVisible()
 
   // --- Over-commit the month: Rent 6,000.00 now exceeds the 5,000.00 pool ---
   await page.getByRole('link', { name: 'Budget' }).click()
@@ -670,20 +685,23 @@ test('a new couple with equal zero balances previews and commits under the defau
   await expect(memberTile(page, 'Sam')).toContainText('0.00 → saves')
   await expect(memberTile(page, 'Sam')).toContainText('1,000.00')
 
-  // --- ALLOC-042 (commit leg): the commit also survives and moves real money evenly.
+  // --- ALLOC-042 (commit leg): the commit also survives and records the departures evenly;
+  // the pots are credited once each receipt is confirmed, so they still read 0.00 with
+  // 1,000.00 each in transit.
   const result = await commitAllocation(page)
   expect(result.transfersCreated).toBe(2)
-  await expect(page.getByRole('status')).toContainText('2 savings transfers created')
+  await expect(page.getByRole('status')).toContainText('2 savings transfers recorded as in transit')
   await page.getByRole('link', { name: 'Accounts' }).click()
-  await expect(page.getByLabel(/^Total balance:/)).toContainText('4,000.00')
+  await expect(page.getByLabel(/^Total balance:/)).toContainText('2,000.00')
+  await expect(page.getByText('2,000.00 in transit out')).toBeVisible()
   await page.getByRole('link', { name: 'View Joint', exact: true }).click()
   await expect(detailBalance(page, 'Joint')).toContainText('2,000.00')
   await page.getByRole('link', { name: '‹ Accounts' }).click()
   await page.getByRole('link', { name: 'View Pot A', exact: true }).click()
-  await expect(detailBalance(page, 'Pot A')).toContainText('1,000.00')
+  await expect(detailBalance(page, 'Pot A')).toContainText('0.00')
   await page.getByRole('link', { name: '‹ Accounts' }).click()
   await page.getByRole('link', { name: 'View Pot B', exact: true }).click()
-  await expect(detailBalance(page, 'Pot B')).toContainText('1,000.00')
+  await expect(detailBalance(page, 'Pot B')).toContainText('0.00')
 })
 
 test('the first-run Set up allocation modal opens from the no-profile empty state', async ({

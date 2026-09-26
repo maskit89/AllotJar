@@ -18,7 +18,7 @@ import type {
   ImportPreviewResult,
   ImportStatementResult,
 } from '../types'
-import { TransactionType } from '../types'
+import { TransactionType, type TransferMatchCandidate } from '../types'
 import { buildItemOptions, type ItemOptionGroup } from '../lib/transactions'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
@@ -106,6 +106,10 @@ interface ReviewRow {
   /** When true, the row is a transfer to/from `transferAccountId` instead of income/spending. */
   isTransfer: boolean
   transferAccountId: string
+  /** Recorded transfers this row could be the other side of (server suggestions; the user picks). */
+  transferMatches: TransferMatchCandidate[]
+  /** The recorded transfer this row confirms, chosen by the user; '' = record it as its own movement. */
+  matchTransferId: string
 }
 
 /** Pull a human message out of an axios error (ProblemDetails `title`, or a 400 `error`). */
@@ -278,6 +282,8 @@ export function ImportPage() {
           possibleDuplicate: c.possibleDuplicate ?? false,
           isTransfer: kept ? kept.isTransfer : false,
           transferAccountId: kept ? kept.transferAccountId : '',
+          transferMatches: c.transferMatches ?? [],
+          matchTransferId: kept ? kept.matchTransferId : '',
         }
       }),
     )
@@ -358,7 +364,19 @@ export function ImportPage() {
     setRows((rs) => rs.map((r, i) => (i === index ? { ...r, isTransfer: true, splits: null } : r)))
   }
   function clearTransfer(index: number) {
-    setRows((rs) => rs.map((r, i) => (i === index ? { ...r, isTransfer: false, transferAccountId: '' } : r)))
+    setRows((rs) =>
+      rs.map((r, i) => (i === index ? { ...r, isTransfer: false, transferAccountId: '', matchTransferId: '' } : r)),
+    )
+  }
+  /** Choosing a recorded transfer also fixes the counterparty it names; '' records the row as its own movement. */
+  function chooseMatch(index: number, matchTransferId: string) {
+    setRows((rs) =>
+      rs.map((r, i) => {
+        if (i !== index) return r
+        const match = r.transferMatches.find((m) => m.transferId === matchTransferId)
+        return { ...r, matchTransferId, transferAccountId: match ? match.counterpartyAccountId : r.transferAccountId }
+      }),
+    )
   }
 
   // --- per-row split editing ---
@@ -429,7 +447,13 @@ export function ImportPage() {
           isCredit: r.isCredit,
         }
         if (r.isTransfer) {
-          return { ...base, budgetItemId: null, memberId: null, transferAccountId: r.transferAccountId }
+          return {
+            ...base,
+            budgetItemId: null,
+            memberId: null,
+            transferAccountId: r.transferAccountId,
+            matchTransferId: r.matchTransferId || null,
+          }
         }
         const acknowledged = acknowledgeCrossMonth && isCrossMonthRow(r) ? { acknowledgeCrossMonth: true } : {}
         if (r.splits) {
@@ -931,31 +955,67 @@ export function ImportPage() {
                         </td>
                         <td className="px-3 py-2">
                           {r.isTransfer ? (
-                            <div className="flex items-center gap-2">
-                              <Badge tone="brand">Transfer</Badge>
-                              <span className="text-xs text-slate-500">{r.isCredit ? 'from' : 'to'}</span>
-                              <Select
-                                aria-label={`Transfer account for ${r.payee} on ${r.date}`}
-                                value={r.transferAccountId}
-                                disabled={!r.include}
-                                onChange={(e) => updateRow(index, { transferAccountId: e.target.value })}
-                                className="w-44"
-                              >
-                                <option value="">Choose account…</option>
-                                {otherAccounts.map((a) => (
-                                  <option key={a.id} value={a.id}>
-                                    {a.name}
-                                  </option>
-                                ))}
-                              </Select>
-                              <button
-                                type="button"
-                                onClick={() => clearTransfer(index)}
-                                aria-label={`Cancel transfer for ${r.payee} on ${r.date}`}
-                                className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-200"
-                              >
-                                Undo
-                              </button>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-2">
+                                <Badge tone="brand">Transfer</Badge>
+                                <span className="text-xs text-slate-500">{r.isCredit ? 'from' : 'to'}</span>
+                                <Select
+                                  aria-label={`Transfer account for ${r.payee} on ${r.date}`}
+                                  value={r.transferAccountId}
+                                  disabled={!r.include || !!r.matchTransferId}
+                                  onChange={(e) => updateRow(index, { transferAccountId: e.target.value })}
+                                  className="w-44"
+                                >
+                                  <option value="">Choose account…</option>
+                                  {otherAccounts.map((a) => (
+                                    <option key={a.id} value={a.id}>
+                                      {a.name}
+                                    </option>
+                                  ))}
+                                </Select>
+                                <button
+                                  type="button"
+                                  onClick={() => clearTransfer(index)}
+                                  aria-label={`Cancel transfer for ${r.payee} on ${r.date}`}
+                                  className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-200"
+                                >
+                                  Undo
+                                </button>
+                              </div>
+                              {r.transferMatches.length > 0 && (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-slate-500">Already recorded?</span>
+                                  <Select
+                                    aria-label={`Match recorded transfer for ${r.payee} on ${r.date}`}
+                                    value={r.matchTransferId}
+                                    disabled={!r.include}
+                                    onChange={(e) => chooseMatch(index, e.target.value)}
+                                    className="w-72"
+                                  >
+                                    <option value="">No — record it as a new transfer</option>
+                                    {r.transferMatches.map((m) => (
+                                      <option key={m.transferId} value={m.transferId}>
+                                        {r.isCredit ? `From ${m.counterpartyAccountName}` : `To ${m.counterpartyAccountName}`} ·{' '}
+                                        {formatMoney(fromAmount(m.amount), m.currency)} ·{' '}
+                                        {m.departedOn ? `left ${formatDate(m.departedOn)}` : `received ${formatDate(m.receivedOn ?? r.date)}`}
+                                      </option>
+                                    ))}
+                                  </Select>
+                                </div>
+                              )}
+                              {r.matchTransferId ? (
+                                <span className="text-xs text-slate-500">
+                                  Confirms the other side of the recorded transfer — no second balance movement.
+                                </span>
+                              ) : r.isCredit ? (
+                                <span className="text-xs text-amber-700 dark:text-amber-400">
+                                  Held for review until the departure date is known; nothing is posted to either account yet.
+                                </span>
+                              ) : (
+                                <span className="text-xs text-slate-500">
+                                  Recorded as departed on {formatDate(r.date)}; in transit until the receipt is confirmed.
+                                </span>
+                              )}
                             </div>
                           ) : r.splits ? (
                             <div className="flex flex-col gap-0.5">
@@ -1242,6 +1302,10 @@ export function ImportPage() {
                 <Stat label="Money in" value={money(moneyIn)} />
                 <Stat label="Money out" value={money(moneyOut)} />
                 <Stat label="Transfers" value={result.transfers} />
+                {(result.matchedTransfers ?? 0) > 0 && <Stat label="Matched" value={result.matchedTransfers ?? 0} />}
+                {(result.pendingReviewTransfers ?? 0) > 0 && (
+                  <Stat label="Pending review" value={result.pendingReviewTransfers ?? 0} />
+                )}
               </dl>
             )
           })()}

@@ -162,6 +162,15 @@ Use the **Add a transaction** form: date, payee, amount, type (**Expense** or **
 
 If you don't pick a budget line, AllotJar quietly fills one in for you: it assigns the new transaction to the same line as your **most recent earlier transaction with the same description**. So once you've categorised "REWE" or your landlord once, repeat payees sort themselves — with no rules to set up. Whatever it can't match is left *Unassigned* for you to place.
 
+### Recording a transfer between your own accounts
+
+With two or more accounts, the add form has a **Transfer** mode. A transfer is not income or spending — it never touches a budget line — but it does move money between two accounts, and each bank posts its own side on its own date:
+
+- Enter the amount, the **From** and **To** accounts, and the date the money **left the source account**. Tick **I've completed this transfer** to record it; AllotJar only records transfers you have actually made.
+- If you already know when it **arrived**, enter that date too. Otherwise leave it blank: the amount is shown as **in transit** — debited from the source, not yet credited to the destination — until you confirm the receipt from the register row (**Confirm receipt**). AllotJar never guesses an arrival date.
+- When importing a statement, a debit you mark as a transfer records the departure in the same way. A credit you mark as a transfer is a receipt whose departure isn't known yet: it is held as **pending review** and doesn't change either balance until you add the departure date (**Add departure date** on the register) or, when the other account's statement already recorded the movement, pick that transfer from the **Already recorded?** list — both statement references are then kept on the one transfer, and nothing moves twice. Candidates with the same amount are only suggestions; nothing is matched for you.
+- Deleting a transfer removes both sides at once. An account can't be deleted while it is a side of a recorded transfer.
+
 ### Assigning to a budget line
 
 Every transaction row has an assignment dropdown grouped by category. Once assigned, the line's Spent (or an income line's Received) includes this transaction — Spent is always the live total of a line's assigned transactions.
@@ -187,11 +196,12 @@ A split transaction shows a **Split** badge listing its slices, and each slice c
 
 The **Accounts** page tracks *where your money sits* — current account, savings, cash, credit card.
 
-- **Add an account** with a name, a type, and an **opening balance** (what was in it when you started tracking; credit cards can start negative).
-- Each transaction can be tagged with the account it happened on (in the add form or the edit row). The account's **current balance** is then always: **opening balance + income − expenses** of its transactions.
-- The footer totals your balances into a single **Net** across all accounts.
+- **Add an account** with a name, a type, an **opening balance** and an **opening date**. The opening balance is what the account held at the *start* of that date (credit cards can start negative). Transactions dated before the opening date stay in your history but never change the balance again — the opening amount already includes them.
+- Each transaction can be tagged with the account it happened on (in the add form or the edit row). The account's **current balance** is then: **opening balance + income − expenses − transfers out + transfers in**, counting only what has posted from the opening date up to today. A balance is shown as **Not available** rather than zero when the account has no opening date yet, or when you look at a date before it.
+- Transfers between your own accounts move money on each bank's own date: the source is debited on the day the money left, the destination is credited only once you confirm the receipt. In between, the amount is shown as **in transit** on both cards and belongs to neither balance. A receipt you've identified as a transfer but whose departure date isn't known yet is shown as **pending review** and is not posted to either account until you supply it (see *Transactions* and *Importing*).
+- The footer totals the balances that are available into a single **Net** across all accounts; accounts without an opening date are left out and counted separately.
 - Open an account to see its own transaction register on the **account detail** page.
-- Editing an account changes its name, type and opening balance. Deleting an account keeps its transactions; they just lose the account tag.
+- Editing an account changes its name, type, opening balance and opening date. Deleting an account keeps its income and expense transactions (they just lose the account tag), but an account that is a side of a recorded transfer can't be deleted until those transfers are removed — a transfer needs both of its accounts.
 
 **How it works:** like budget actuals, balances are derived from the register at read time — there's no stored balance to drift out of sync. A split transaction still moved in or out of one account, so its *full* amount counts toward that account regardless of how it's split across budget lines.
 
@@ -262,6 +272,8 @@ Once your household is **shared** (you've added at least one other person), an *
 3. **Split** whatever's left into each person's own savings, by whatever rule you set up.
 
 You set this up once (who shares, how the remainder is divided), and AllotJar **previews** the result before anything is applied — so you can see exactly who contributes what and who keeps what before you commit.
+
+The suggested amounts stay a plan until you move the money at the bank. **Allocate** asks you to confirm **I've completed these transfers** and the date the money left the source account, then records one transfer per person as *in transit*; confirm each receipt on the Transactions page when the savings account shows it. Running Allocate again keeps transfers that haven't changed, replaces an in-transit one whose amount changed, and won't discard a transfer whose receipt you've already confirmed.
 
 ## 10. Your account & settings
 

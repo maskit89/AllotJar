@@ -91,6 +91,7 @@ public class TTransactionsCoverageTests
             Type = AccountType.Current,
             Currency = CurrencyCode.Eur,
             OpeningBalance = opening,
+            OpeningDate = new DateOnly(2026, 1, 1),
         };
         db.Accounts.Add(a);
         db.SaveChanges();
@@ -108,7 +109,7 @@ public class TTransactionsCoverageTests
     {
         var accounts = await new GetAccountsQueryHandler(db, user)
             .Handle(new GetAccountsQuery(), CancellationToken.None);
-        return accounts.Single(a => a.Id == accountId).CurrentBalance;
+        return accounts.Single(a => a.Id == accountId).CurrentBalance!.Value;
     }
 
     // --- Whole-transaction (re)assignment and its effect on actuals ----------
@@ -248,6 +249,7 @@ public class TTransactionsCoverageTests
             Name = "GBP Pot",
             Currency = CurrencyCode.From("GBP"),
             OpeningBalance = 0m,
+            OpeningDate = new DateOnly(2026, 1, 1),
         };
         db.Accounts.Add(gbpAccount);
         await db.SaveChangesAsync();
@@ -536,7 +538,7 @@ public class TTransactionsCoverageTests
         var rainy = SeedAccount(db, "Rainy Day", 500m);
 
         await new CreateTransferCommandHandler(db, user).Handle(
-            new CreateTransferCommand(new DateOnly(2026, 7, 10), 100m, joint.Id, rainy.Id),
+            new CreateTransferCommand(new DateOnly(2026, 7, 10), 100m, joint.Id, rainy.Id, ReceivedOn: new DateOnly(2026, 7, 10)),
             CancellationToken.None);
 
         (await BalanceOf(db, user, joint.Id)).Should().Be(1150m); // 1250 − 100

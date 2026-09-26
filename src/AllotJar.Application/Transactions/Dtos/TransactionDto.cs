@@ -42,6 +42,18 @@ public class TransactionDto
     public Guid? TransferAccountId { get; set; }
     public string? TransferAccountName { get; set; }
 
+    /// <summary>For a transfer: the source bank's posting date, or null while the departure is unknown (held for review).</summary>
+    public DateOnly? DepartedOn { get; set; }
+
+    /// <summary>For a transfer: the destination bank's posting date, or null while the money is in transit.</summary>
+    public DateOnly? ReceivedOn { get; set; }
+
+    /// <summary>For a transfer: the destination statement's reference for the credit leg (the source reference is <see cref="BankReference"/>).</summary>
+    public string? ReceiptBankReference { get; set; }
+
+    /// <summary>For a transfer: Completed | InTransit | PendingReview, derived from the two bank legs. Null for income/expense rows.</summary>
+    public string? TransferStatus { get; set; }
+
     /// <summary>The household member this whole transaction is attributed to, if any.</summary>
     public Guid? MemberId { get; set; }
     public string? MemberName { get; set; }
@@ -86,6 +98,10 @@ public static class TransactionMapping
         AccountName = t.Account?.Name,
         TransferAccountId = t.TransferAccountId,
         TransferAccountName = t.TransferAccount?.Name,
+        DepartedOn = t.Type == TransactionType.Transfer ? t.DepartedOn : null,
+        ReceivedOn = t.Type == TransactionType.Transfer ? t.ReceivedOn : null,
+        ReceiptBankReference = t.Type == TransactionType.Transfer ? t.ReceiptBankReference : null,
+        TransferStatus = t.Type == TransactionType.Transfer ? t.TransferStatus.ToString() : null,
         MemberId = t.MemberId,
         MemberName = t.Member?.Name,
         IsSplit = t.Splits.Count > 0,

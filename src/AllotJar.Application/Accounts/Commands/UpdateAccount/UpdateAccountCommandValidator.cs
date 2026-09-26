@@ -19,5 +19,8 @@ public class UpdateAccountCommandValidator : AbstractValidator<UpdateAccountComm
         RuleFor(x => x.OpeningBalance)
             .InclusiveBetween(-99_999_999_999_999.9999m, 99_999_999_999_999.9999m)
             .WithMessage("Opening balance exceeds the supported range.");
+
+        RuleFor(x => x.OpeningDate)
+            .NotNull().WithMessage("Enter the date the opening balance applies from.");
     }
 }
