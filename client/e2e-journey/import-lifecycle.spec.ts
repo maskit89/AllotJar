@@ -158,8 +158,8 @@ const CARRYOVER_STATEMENT = [
 test('a re-scan carries per-row work forward for unchanged rows, and the commit reflects only the included rows', async ({
   page,
 }) => {
-  // Sample figures give the review grid REAL budget lines to categorise against.
-  await register(page, { sampleBudget: true })
+  // The Essentials template gives the review grid REAL budget lines (Groceries) to categorise against.
+  await register(page, { starterBudget: true })
   await upload(page, CARRYOVER_STATEMENT)
   await expect(page.getByText(/2 new transactions to review/)).toBeVisible()
 

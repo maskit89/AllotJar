@@ -72,8 +72,8 @@ test('adding a 2nd person flips solo→shared live, and a temp-password Limited 
   page,
   browser,
 }) => {
-  // Sample figures give the shared household a real current month for the invitee to see.
-  await register(page, { firstName: 'Ivy', sampleBudget: true })
+  // The Essentials template gives the shared household a real current month for the invitee to see.
+  await register(page, { firstName: 'Ivy', starterBudget: true })
 
   // --- Owner: solo state on /people ---
   await page.goto('/people')
@@ -200,12 +200,12 @@ test('adding a 2nd person flips solo→shared live, and a temp-password Limited 
   await guestContext.close()
 })
 
-test('a pure invitee starts their own budget (no samples), switches households with isolated data, and leaves the joined one', async ({
+test('a pure invitee starts their own budget (nothing seeded), switches households with isolated data, and leaves the joined one', async ({
   page,
   browser,
 }) => {
   // The owner's display name becomes the joined household's label in the switcher.
-  await register(page, { firstName: 'Olive', sampleBudget: true })
+  await register(page, { firstName: 'Olive', starterBudget: true })
   await page.goto('/people')
   await addPerson(page, 'Robin', '1000')
   const robinEmail = uniqueEmail('robin')
@@ -234,7 +234,7 @@ test('a pure invitee starts their own budget (no samples), switches households w
   await startOwn
   // Full re-bootstrap into the new own household with the ?started=1 greeting…
   await expect(guest.getByText(/This is your own budget — set up your first month below/)).toBeVisible()
-  // …landing on the create-month flow with NO sample figures (PR #170: start-own never seeds).
+  // …landing on the create-month flow with nothing seeded (start-own never seeds).
   await expect(guest.getByText(/No budget for .+ yet/)).toBeVisible()
   await expect(guest.getByText('Remaining to budget')).toHaveCount(0)
   // ROLE-035: in their OWN household the same login is Owner — the create buttons render

@@ -189,7 +189,7 @@ describe('DashboardPage — hero footnote states (PR #172) & render', () => {
     mockLoads({
       month: jul26(),
       jars: [
-        { id: 'jar-holiday', name: 'Holiday', kind: 0, targetAmount: 1200, targetDate: null, coverStart: null, coverEnd: null, accrual: 0, recurMonths: null, openingBalance: 0, openingAsOf: null, fundingAccountId: null, isArchived: false, currentBalance: 450, requiredMonthlyContribution: 150, projectedFullyFundedDate: null, status: 'OnTrack' },
+        { id: 'jar-holiday', name: 'Holiday', kind: 0, targetAmount: 1200, targetDate: null, coverStart: null, coverEnd: null, accrual: 0, recurMonths: null, fundingAccountId: 'acc1', balanceAsOf: '2026-07-01', isArchived: false, currentBalance: 450, requiredMonthlyContribution: 150, projectedFullyFundedDate: null, status: 'OnTrack' },
       ],
     })
 
@@ -554,8 +554,8 @@ describe('DashboardPage — reorder gating, templates & jars shelf', () => {
 
   it('DASH-027: the jars shelf shows the saved total, per-jar goal % / monthly, and the funded chip', { timeout: 15000 }, async () => {
     const jars: JarDto[] = [
-      { id: 'jar-holiday', name: 'Holiday', kind: 0, targetAmount: 1200, targetDate: null, coverStart: null, coverEnd: null, accrual: 0, recurMonths: null, openingBalance: 0, openingAsOf: null, fundingAccountId: null, isArchived: false, currentBalance: 450, requiredMonthlyContribution: 150, projectedFullyFundedDate: null, status: 'OnTrack' },
-      { id: 'jar-ef', name: 'Emergency Fund', kind: 0, targetAmount: 500, targetDate: null, coverStart: null, coverEnd: null, accrual: 0, recurMonths: null, openingBalance: 0, openingAsOf: null, fundingAccountId: null, isArchived: false, currentBalance: 500, requiredMonthlyContribution: 0, projectedFullyFundedDate: null, status: 'FullyFunded' },
+      { id: 'jar-holiday', name: 'Holiday', kind: 0, targetAmount: 1200, targetDate: null, coverStart: null, coverEnd: null, accrual: 0, recurMonths: null, fundingAccountId: 'acc1', balanceAsOf: '2026-07-01', isArchived: false, currentBalance: 450, requiredMonthlyContribution: 150, projectedFullyFundedDate: null, status: 'OnTrack' },
+      { id: 'jar-ef', name: 'Emergency Fund', kind: 0, targetAmount: 500, targetDate: null, coverStart: null, coverEnd: null, accrual: 0, recurMonths: null, fundingAccountId: 'acc1', balanceAsOf: '2026-07-01', isArchived: false, currentBalance: 500, requiredMonthlyContribution: 0, projectedFullyFundedDate: null, status: 'FullyFunded' },
     ]
     // A minimal income-only month keeps the shelf's €450 balance unambiguous.
     mockLoads({ month: emptyMonth(), jars })

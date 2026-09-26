@@ -3,8 +3,8 @@ import type { JarDto } from '../types'
 import { formatMoney, fromAmount } from './money'
 import { monthYear } from './dates'
 
-// Mirrors the server's JarDto.Status (Overspent | Unfunded | FullyFunded | Behind |
-// OnTrack — see AllotJar.Application/Jars/Dtos/JarDto.cs). Kept here so the Jars page
+// Mirrors the server's JarDto.Status (Unavailable | Overspent | Unfunded | FullyFunded |
+// Behind | OnTrack — see AllotJar.Application/Jars/Dtos/JarDto.cs). Kept here so the Jars page
 // and the dashboard shelf label a jar's state identically.
 
 export interface JarStatusChip {
@@ -14,12 +14,15 @@ export interface JarStatusChip {
 
 /**
  * A chip for the states worth calling out — the two that need attention (Behind,
- * Overspent) and the one worth celebrating (FullyFunded). Returns null for the quiet
- * defaults (OnTrack, and Unfunded where there's simply no target yet), so a healthy
- * jar isn't stamped with a redundant "On track" on every card.
+ * Overspent), the one worth celebrating (FullyFunded) and Unavailable (the account's
+ * balance can't be calculated, rule 67). Returns null for the quiet defaults (OnTrack,
+ * and Unfunded where there's simply no target yet), so a healthy jar isn't stamped
+ * with a redundant "On track" on every card.
  */
 export function jarStatusChip(status: string): JarStatusChip | null {
   switch (status) {
+    case 'Unavailable':
+      return { label: 'Unavailable', tone: 'neutral' }
     case 'Behind':
       return { label: 'Behind', tone: 'amber' }
     case 'Overspent':
@@ -45,6 +48,8 @@ export function jarPaceLabel(jar: JarDto, currency: string): string {
       : perMonth
   }
   switch (jar.status) {
+    case 'Unavailable':
+      return 'Balance not available'
     case 'FullyFunded':
       return 'Fully funded'
     case 'Unfunded':

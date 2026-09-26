@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
-import { Button, Card, EmptyState, ErrorBanner, Input, Select } from '../components/ui'
+import { Badge, Button, Card, EmptyState, ErrorBanner, Input, Select } from '../components/ui'
 import { Hero } from '../components/Hero'
 import { Modal } from '../components/Modal'
 import { AccountsIcon } from '../components/icons'
@@ -10,39 +10,60 @@ import { useFeatures } from '../features/FeatureContext'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import type { AccountDto, AccountReconciliationDto } from '../types'
-import { ACCOUNT_TYPE_LABELS, AccountType } from '../types'
+import { ACCOUNT_TYPE_LABELS, ACCOUNT_TYPE_OPTIONS, AccountType } from '../types'
 import { CURRENCY_OPTIONS, formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
-import { formatDate } from '../lib/dates'
+import { formatDate, todayIso } from '../lib/dates'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
+import { serverErrors } from '../lib/serverErrors'
 import { hueColor, hueForAccountType, hueTint } from '../lib/categoryColors'
 
-const TYPE_OPTIONS = Object.entries(ACCOUNT_TYPE_LABELS).map(([value, label]) => ({
-  value: Number(value),
-  label,
-}))
+// Current / Savings / Cash / Other — credit cards are not accounts (rule 75). An account
+// recorded as one before the change still labels via ACCOUNT_TYPE_LABELS, so keep it as an
+// extra option only while editing that row (never offered for a new account).
+const TYPE_OPTIONS = ACCOUNT_TYPE_OPTIONS
 
-/** Today's calendar date (UTC) as an ISO `yyyy-MM-dd` — the default opening date for a new account. */
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+function typeOptionsFor(type: number) {
+  return TYPE_OPTIONS.some((o) => o.value === type)
+    ? TYPE_OPTIONS
+    : [...TYPE_OPTIONS, { value: type, label: ACCOUNT_TYPE_LABELS[type] ?? 'Other' }]
 }
 
-/** Pull the server's field messages out of an axios 400, or null. */
-function serverErrors(err: unknown): string | null {
-  const e = err as { response?: { status?: number; data?: { errors?: Record<string, string[]> } } }
-  if (e?.response?.status !== 400) return null
-  const messages = Object.values(e.response.data?.errors ?? {}).flat()
-  return messages.length > 0 ? messages.join(' ') : null
+/**
+ * Parse a non-negative amount string into a wire decimal; '' → 0; null when invalid. No
+ * account may open below zero (rule 74), so a leading minus is invalid here; should one
+ * reach the server anyway, its 400 message is shown as-is.
+ */
+function parseOpeningBalance(input: string): number | null {
+  if (input.trim() === '') return 0
+  const minor = parseMinor(input)
+  return minor === null ? null : toAmount(minor)
 }
 
-/** Parse a possibly-negative amount string into a wire decimal; '' → 0; null when invalid. */
-function parseSignedAmount(input: string): number | null {
-  const trimmed = input.trim()
-  if (trimmed === '') return 0
-  const negative = trimmed.startsWith('-')
-  const magnitude = parseMinor(negative ? trimmed.slice(1) : trimmed)
-  if (magnitude === null) return null
-  return toAmount(negative ? -magnitude : magnitude)
+/** The optional bank identifiers (rule 76): trimmed, empty → null on the wire. */
+interface Identifiers {
+  iban: string
+  bic: string
+  sortCode: string
+  accountNumber: string
 }
+
+const BLANK_IDS: Identifiers = { iban: '', bic: '', sortCode: '', accountNumber: '' }
+
+function identifiersFrom(a: AccountDto): Identifiers {
+  return { iban: a.iban ?? '', bic: a.bic ?? '', sortCode: a.sortCode ?? '', accountNumber: a.accountNumber ?? '' }
+}
+
+function identifiersPayload(ids: Identifiers) {
+  const clean = (v: string) => (v.trim() === '' ? null : v.trim())
+  return { iban: clean(ids.iban), bic: clean(ids.bic), sortCode: clean(ids.sortCode), accountNumber: clean(ids.accountNumber) }
+}
+
+const ID_FIELDS: Array<{ key: keyof Identifiers; label: string; placeholder: string }> = [
+  { key: 'iban', label: 'IBAN', placeholder: 'e.g. MT84 MALT 0110 0001 2345 MTLC AST0 01S' },
+  { key: 'bic', label: 'BIC', placeholder: 'e.g. VALLMTMT' },
+  { key: 'sortCode', label: 'Sort code', placeholder: 'e.g. 40-47-84' },
+  { key: 'accountNumber', label: 'Account number', placeholder: 'e.g. 12345678' },
+]
 
 export function AccountsPage() {
   // Managing accounts needs Admin+ (canWrite); others get a read-only register.
@@ -63,6 +84,7 @@ export function AccountsPage() {
   // The opening balance is the money held at the START of this date (rule 40); required.
   const [openingDate, setOpeningDate] = useState(todayIso)
   const [currency, setCurrency] = useState(preferredCurrency)
+  const [ids, setIds] = useState<Identifiers>(BLANK_IDS)
   const [adding, setAdding] = useState(false)
 
   // Inline (in-card) edit.
@@ -71,6 +93,7 @@ export function AccountsPage() {
   const [eType, setEType] = useState<number>(AccountType.Current)
   const [eOpening, setEOpening] = useState('')
   const [eOpeningDate, setEOpeningDate] = useState('')
+  const [eIds, setEIds] = useState<Identifiers>(BLANK_IDS)
 
   useEffect(() => {
     let cancelled = false
@@ -103,9 +126,9 @@ export function AccountsPage() {
       setError('Give the account a name.')
       return
     }
-    const openingBalance = parseSignedAmount(opening)
+    const openingBalance = parseOpeningBalance(opening)
     if (openingBalance === null) {
-      setError('Enter a valid opening balance.')
+      setError(opening.trim().startsWith('-') ? 'An opening balance can’t be negative.' : 'Enter a valid opening balance.')
       return
     }
     if (!openingDate) {
@@ -121,6 +144,7 @@ export function AccountsPage() {
         currency,
         openingBalance,
         openingDate,
+        ...identifiersPayload(ids),
       })
       setAccounts((prev) => [...prev, data])
       track(EVENTS.accountCreated, { kind: ACCOUNT_TYPE_LABELS[type] ?? 'unknown' })
@@ -128,13 +152,14 @@ export function AccountsPage() {
       setOpening('')
       setOpeningDate(todayIso())
       setCurrency(preferredCurrency)
+      setIds(BLANK_IDS)
       setShowAdd(false)
     } catch (err) {
       setError(serverErrors(err) ?? 'Could not add that account.')
     } finally {
       setAdding(false)
     }
-  }, [name, type, opening, openingDate, currency, preferredCurrency])
+  }, [name, type, opening, openingDate, currency, ids, preferredCurrency])
 
   function startEdit(a: AccountDto) {
     setEditingId(a.id)
@@ -142,6 +167,7 @@ export function AccountsPage() {
     setEType(a.type)
     setEOpening(toEditString(fromAmount(a.openingBalance)))
     setEOpeningDate(a.openingDate ?? '')
+    setEIds(identifiersFrom(a))
   }
 
   const saveEdit = useCallback(
@@ -150,9 +176,9 @@ export function AccountsPage() {
         setError('Give the account a name.')
         return
       }
-      const openingBalance = parseSignedAmount(eOpening)
+      const openingBalance = parseOpeningBalance(eOpening)
       if (openingBalance === null) {
-        setError('Enter a valid opening balance.')
+        setError(eOpening.trim().startsWith('-') ? 'An opening balance can’t be negative.' : 'Enter a valid opening balance.')
         return
       }
       if (!eOpeningDate) {
@@ -167,6 +193,7 @@ export function AccountsPage() {
           type: eType,
           openingBalance,
           openingDate: eOpeningDate,
+          ...identifiersPayload(eIds),
         })
         setAccounts((prev) => prev.map((a) => (a.id === id ? data : a)))
         track(EVENTS.accountEdited)
@@ -177,7 +204,7 @@ export function AccountsPage() {
         setSavingId(null)
       }
     },
-    [eName, eType, eOpening, eOpeningDate],
+    [eName, eType, eOpening, eOpeningDate, eIds],
   )
 
   const remove = useCallback(async (id: string) => {
@@ -337,6 +364,25 @@ export function AccountsPage() {
                 The balance at the start of this day. Earlier transactions stay as history and don’t change it.
               </span>
             </label>
+            <fieldset className="grid grid-cols-2 gap-3">
+              <legend className="mb-1 text-xs font-medium text-slate-500">
+                Bank details <span className="font-normal text-slate-400">(optional — a piggy bank has none)</span>
+              </legend>
+              {ID_FIELDS.map((f) => (
+                <label key={f.key} className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                  {f.label}
+                  <Input
+                    type="text"
+                    value={ids[f.key]}
+                    placeholder={f.placeholder}
+                    aria-label={f.label}
+                    autoComplete="off"
+                    onChange={(e) => setIds((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                    className="w-full"
+                  />
+                </label>
+              ))}
+            </fieldset>
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={() => setShowAdd(false)}>
                 Cancel
@@ -417,7 +463,7 @@ export function AccountsPage() {
                     <Card key={a.id} className="flex flex-col gap-3 p-5">
                       <Input type="text" value={eName} aria-label={`Name for ${a.name}`} onChange={(e) => setEName(e.target.value)} className="w-full" />
                       <Select value={eType} aria-label={`Type for ${a.name}`} onChange={(e) => setEType(Number(e.target.value))}>
-                        {TYPE_OPTIONS.map((o) => (
+                        {typeOptionsFor(a.type).map((o) => (
                           <option key={o.value} value={o.value}>
                             {o.label}
                           </option>
@@ -425,6 +471,18 @@ export function AccountsPage() {
                       </Select>
                       <Input type="text" inputMode="decimal" {...selectOnFocusProps} value={eOpening} aria-label={`Opening balance for ${a.name}`} onChange={(e) => setEOpening(e.target.value)} className="w-full text-right tabular-nums" />
                       <Input type="date" value={eOpeningDate} aria-label={`Opening date for ${a.name}`} onChange={(e) => setEOpeningDate(e.target.value)} className="w-full text-slate-700" />
+                      {ID_FIELDS.map((f) => (
+                        <Input
+                          key={f.key}
+                          type="text"
+                          value={eIds[f.key]}
+                          placeholder={f.label}
+                          aria-label={`${f.label} for ${a.name}`}
+                          autoComplete="off"
+                          onChange={(e) => setEIds((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                          className="w-full"
+                        />
+                      ))}
                       {multiCurrency && (
                         <p className="text-xs text-slate-500">
                           Currency <span className="font-semibold text-slate-700">{a.currency}</span> — fixed once created.
@@ -538,7 +596,7 @@ export function AccountsPage() {
           <div className="border-b border-slate-100 bg-slate-50 px-4 py-2.5">
             <h2 className="text-sm font-semibold text-slate-700">Jar reconciliation</h2>
             <p className="text-xs text-slate-500">
-              Each account’s balance against the jars it holds — the float is what’s not yet earmarked.
+              Each account’s balance against the jars it holds — unallocated is the money not in any jar.
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -548,7 +606,10 @@ export function AccountsPage() {
                   <th className="px-4 py-2 font-medium">Account</th>
                   <th className="px-4 py-2 text-right font-medium">Balance</th>
                   <th className="px-4 py-2 text-right font-medium">In jars</th>
-                  <th className="px-4 py-2 text-right font-medium">Float</th>
+                  <th className="px-4 py-2 text-right font-medium">Unallocated</th>
+                  <th className="px-4 py-2 font-medium">
+                    <span className="sr-only">Backing</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -564,6 +625,15 @@ export function AccountsPage() {
                       <td className="px-4 py-2.5 text-right tabular-nums text-slate-500">{formatMoney(fromAmount(r.backedJarsTotal), currencyById[r.accountId] ?? heroCurrency)}</td>
                       <td className={`px-4 py-2.5 text-right font-semibold tabular-nums ${r.float !== null && fromAmount(r.float) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800'}`}>
                         {r.float === null ? '—' : formatMoney(fromAmount(r.float), currencyById[r.accountId] ?? heroCurrency)}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {/* Rule 70: positive jars must be backed by the account's money. */}
+                        {r.hasBackingDeficit && (
+                          <span className="inline-flex flex-wrap items-center gap-1.5">
+                            <Badge tone="rose">Jars exceed account money</Badge>
+                            <span className="text-xs text-slate-500">Move money out of a jar to cover it.</span>
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}

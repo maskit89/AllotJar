@@ -27,7 +27,7 @@ function auth(token: string): Record<string, string> {
 async function apiRegister(
   baseURL: string,
   prefix: string,
-  opts: { sampleBudget?: boolean } = {},
+  opts: { starterBudget?: boolean } = {},
 ): Promise<{ ctx: APIRequestContext; email: string; token: string }> {
   const ctx = await request.newContext({ baseURL })
   const email = uniqueEmail(prefix)
@@ -38,11 +38,20 @@ async function apiRegister(
       firstName: 'Sec',
       lastName: 'Journey',
       acceptedTerms: true,
-      includeSampleData: opts.sampleBudget === true,
     },
   })
   expect(res.status()).toBe(200)
   const { token } = (await res.json()) as { token: string }
+  if (opts.starterBudget) {
+    // Registration seeds nothing (rule 81): build the current month from the Essentials
+    // template so the household owns a real month with a "Take-home Pay" line.
+    const now = new Date()
+    const created = await ctx.post('/api/budget', {
+      headers: auth(token),
+      data: { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, copyFromPrevious: false, templateKey: 'essentials' },
+    })
+    expect(created.status()).toBe(201)
+  }
   return { ctx, email, token }
 }
 
@@ -119,9 +128,9 @@ test("another household's resources are invisible: 404 on read, 403 on write, an
   page,
   baseURL,
 }) => {
-  // The victim household: registered with sample figures so it owns a real budget month,
-  // plus an account created over the API.
-  const victim = await apiRegister(baseURL!, 'victim', { sampleBudget: true })
+  // The victim household: given a template month so it owns a real budget month, plus an
+  // account created over the API.
+  const victim = await apiRegister(baseURL!, 'victim', { starterBudget: true })
   const created = await victim.ctx.post('/api/accounts', {
     headers: auth(victim.token),
     data: { name: 'Secret Savings', type: 1, currency: 'EUR', openingBalance: 1234.56, openingDate: '2026-01-01' },
@@ -142,7 +151,7 @@ test("another household's resources are invisible: 404 on read, 403 on write, an
   expect(login.status()).toBe(200)
   const { token } = (await login.json()) as { token: string }
 
-  // SEC-021 — read probe: the month exists (the victim reads it fine, sample income line and
+  // SEC-021 — read probe: the month exists (the victim reads it fine, template income line and
   // all), but for the prober the OwnerId predicate makes it simply not exist → 404, and the
   // response reveals none of the victim's data.
   const victimView = await victim.ctx.get(`/api/budget/${year}/${month}`, {

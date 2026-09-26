@@ -193,11 +193,12 @@ describe('AccountsPage — catalog (ACCT)', () => {
     renderPage()
 
     const dialog = await openAddModal(user)
-    // The Type select offers every ACCOUNT_TYPE_LABELS entry.
+    // The Type select offers Current / Savings / Cash / Other — credit cards are not accounts (rule 75).
     const typeSelect = dialog.getByLabelText('Account type')
-    for (const label of ['Current', 'Savings', 'Cash', 'Credit card', 'Other']) {
+    for (const label of ['Current', 'Savings', 'Cash', 'Other']) {
       expect(within(typeSelect).getByRole('option', { name: label })).toBeInTheDocument()
     }
+    expect(within(typeSelect).queryByRole('option', { name: 'Credit card' })).not.toBeInTheDocument()
     await user.type(dialog.getByLabelText('Account name'), 'Pot')
     await user.selectOptions(typeSelect, '1') // Savings
     await user.click(dialog.getByRole('button', { name: 'Add account' }))
@@ -209,28 +210,32 @@ describe('AccountsPage — catalog (ACCT)', () => {
     expect(await screen.findByText('Savings', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
-  it('ACCT-011: a negative opening balance is accepted (credit-card debt)', { timeout: 15000 }, async () => {
+  it('ACCT-011: a negative opening balance is refused (rule 74) — no POST, a clear message', { timeout: 15000 }, async () => {
     mockLoads({ accounts: [] })
-    mockPost.mockResolvedValue({
-      data: acct({ id: 'v1', name: 'Visa', type: 3, openingBalance: -450, currentBalance: -450 }),
-    })
     const user = userEvent.setup()
 
     renderPage()
 
     const dialog = await openAddModal(user)
     await user.type(dialog.getByLabelText('Account name'), 'Visa')
-    await user.selectOptions(dialog.getByLabelText('Account type'), '3') // Credit card
     await user.type(dialog.getByLabelText('Opening balance'), '-450')
     await user.click(dialog.getByRole('button', { name: 'Add account' }))
 
-    await waitFor(() =>
-      expect(mockPost).toHaveBeenCalledWith('/accounts', expect.objectContaining({ openingBalance: -450, type: 3 })),
-    )
-    // The resulting card shows the debt in rose and feeds the Owed tile.
-    const negs = await screen.findAllByText('-€450.00', {}, { timeout: 5000 })
-    expect(negs.some((el) => el.className.includes('text-rose-600'))).toBe(true)
-    expect(screen.getByText('€450.00')).toBeInTheDocument() // Owed tile
+    expect(await dialog.findByText('An opening balance can’t be negative.', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeInTheDocument() // stays open for a correction
+  })
+
+  it('ACCT-011: editing a legacy credit-card account keeps its type selectable, but a new account never offers it', { timeout: 15000 }, async () => {
+    mockLoads({ accounts: [acct({ id: 'v1', name: 'Visa', type: 3, openingBalance: 0, currentBalance: -450 })] })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Edit Visa' }, { timeout: 5000 }))
+    const typeSelect = screen.getByLabelText('Type for Visa') as HTMLSelectElement
+    expect(typeSelect.value).toBe('3')
+    expect(within(typeSelect).getByRole('option', { name: 'Credit card' })).toBeInTheDocument()
   })
 
   it('ACCT-012: a blank opening and "0" both post an opening balance of 0', { timeout: 15000 }, async () => {
@@ -464,7 +469,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     // Exact body ⇒ proves the request carries no `currency` key.
     await waitFor(() =>
-      expect(mockPut).toHaveBeenCalledWith('/accounts/rd1', { name: 'Emergency', type: 0, openingBalance: 750, openingDate: '2026-01-01' }),
+      expect(mockPut).toHaveBeenCalledWith('/accounts/rd1', { name: 'Emergency', type: 0, openingBalance: 750, openingDate: '2026-01-01', iban: null, bic: null, sortCode: null, accountNumber: null }),
     )
     expect(await screen.findByText('Emergency', {}, { timeout: 5000 })).toBeInTheDocument()
   })
@@ -486,7 +491,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     await user.click(screen.getByLabelText('Save UK Pot'))
     await waitFor(() =>
-      expect(mockPut).toHaveBeenCalledWith('/accounts/uk1', { name: 'UK Pot', type: 1, openingBalance: 200, openingDate: '2026-01-01' }),
+      expect(mockPut).toHaveBeenCalledWith('/accounts/uk1', { name: 'UK Pot', type: 1, openingBalance: 200, openingDate: '2026-01-01', iban: null, bic: null, sortCode: null, accountNumber: null }),
     )
   })
 
@@ -614,7 +619,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
   // --- Jar reconciliation panel --------------------------------------------
 
-  it('ACCT-052: the reconciliation table renders Balance / In jars / Float when an account backs a jar', { timeout: 15000 }, async () => {
+  it('ACCT-052: the reconciliation table renders Balance / In jars / Unallocated when an account backs a jar', { timeout: 15000 }, async () => {
     mockLoads({
       accounts: [acct({ id: 'j1', name: 'Joint', openingBalance: 1050, currentBalance: 1050 })],
       reconciliation: [
@@ -626,12 +631,37 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     expect(await screen.findByText('Jar reconciliation', {}, { timeout: 5000 })).toBeInTheDocument()
     const table = within(screen.getByRole('table'))
+    expect(table.getByRole('columnheader', { name: 'Unallocated' })).toBeInTheDocument()
+    expect(table.queryByRole('columnheader', { name: 'Float' })).not.toBeInTheDocument()
     expect(table.getByText('Joint')).toBeInTheDocument()
     expect(table.getByText('€1,050.00')).toBeInTheDocument() // Balance
     expect(table.getByText('€600.00')).toBeInTheDocument() // In jars
-    // Float 450 = 1050 − 600, positive ⇒ slate (not rose).
-    const float = table.getByText('€450.00')
-    expect(float.className).not.toContain('text-rose-600')
+    // Unallocated 450 = 1050 − 600, positive ⇒ slate (not rose); jars are backed ⇒ no warning.
+    const unallocated = table.getByText('€450.00')
+    expect(unallocated.className).not.toContain('text-rose-600')
+    expect(table.queryByText('Jars exceed account money')).not.toBeInTheDocument()
+  })
+
+  it('ACCT-055: a backing deficit (rule 70) shows the "Jars exceed account money" badge on that row', { timeout: 15000 }, async () => {
+    mockLoads({
+      accounts: [
+        acct({ id: 'r1', name: 'Rainy Day', type: 1, openingBalance: 350, currentBalance: 350 }),
+        acct({ id: 'j1', name: 'Joint', openingBalance: 1050, currentBalance: 1050 }),
+      ],
+      reconciliation: [
+        // Holiday −50 + Repairs 400 = 350 signed, but positive jars (400) exceed the account (350).
+        { accountId: 'r1', accountName: 'Rainy Day', currentBalance: 350, backedJarsTotal: 350, backedJarCount: 2, float: 0, hasBackingDeficit: true },
+        { accountId: 'j1', accountName: 'Joint', currentBalance: 1050, backedJarsTotal: 600, backedJarCount: 1, float: 450, hasBackingDeficit: false },
+      ],
+    })
+
+    renderPage()
+
+    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
+    const rainy = table.getByText('Rainy Day').closest('tr')!
+    expect(within(rainy).getByText('Jars exceed account money')).toBeInTheDocument()
+    const joint = table.getByText('Joint').closest('tr')!
+    expect(within(joint).queryByText('Jars exceed account money')).not.toBeInTheDocument()
   })
 
   it('ACCT-053: the reconciliation card is hidden when no account backs a jar', { timeout: 15000 }, async () => {
@@ -649,7 +679,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
-  it('ACCT-054: a negative float renders in rose (a shortfall)', { timeout: 15000 }, async () => {
+  it('ACCT-054: negative unallocated money renders in rose (a shortfall)', { timeout: 15000 }, async () => {
     mockLoads({
       accounts: [acct({ id: 'r1', name: 'Rainy Day', type: 1, openingBalance: 700, currentBalance: 700 })],
       reconciliation: [
