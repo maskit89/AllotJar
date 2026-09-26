@@ -607,9 +607,10 @@ export function AccountsPage() {
                   <th className="px-4 py-2 text-right font-medium">Balance</th>
                   <th className="px-4 py-2 text-right font-medium">In jars</th>
                   <th className="px-4 py-2 text-right font-medium">Unallocated</th>
-                  <th className="px-4 py-2 font-medium">
-                    <span className="sr-only">Backing</span>
-                  </th>
+                  {/* An sr-only span is absolutely positioned and escapes the scroll box's clip
+                      (it widened the document at phone width), so the accessible name goes on the
+                      cell itself. */}
+                  <th className="px-4 py-2 font-medium" aria-label="Backing" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
