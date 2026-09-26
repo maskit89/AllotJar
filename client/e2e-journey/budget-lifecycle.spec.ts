@@ -77,6 +77,8 @@ async function setPlanned(page: Page, lineName: string, value: string): Promise<
  */
 async function createGoalJar(page: Page, name: string, target: string): Promise<void> {
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
+  // The list renders only after its fetch; counting before that would add a second Pot.
+  await expect(page.getByRole('heading', { name: 'Your accounts' })).toBeVisible()
   if ((await page.getByRole('link', { name: 'View Pot', exact: true }).count()) === 0) {
     await addAccount(page, { name: 'Pot', opening: '5000' })
   }
