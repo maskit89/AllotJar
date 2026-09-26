@@ -75,14 +75,19 @@ async function setPlanned(page: Page, lineName: string, value: string): Promise<
  * Create a Goal jar (no due date needed) through the one jar form. Every jar is held in an
  * account (rule 73), so the household's "Pot" account is created on first use.
  */
-async function createGoalJar(page: Page, name: string, target: string): Promise<void> {
+async function createGoalJar(
+  page: Page,
+  name: string,
+  target: string,
+  setAside?: string,
+): Promise<void> {
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   // The list renders only after its fetch; counting before that would add a second Pot.
   await expect(page.getByRole('heading', { name: 'Your accounts' })).toBeVisible()
   if ((await page.getByRole('link', { name: 'View Pot', exact: true }).count()) === 0) {
     await addAccount(page, { name: 'Pot', opening: '5000' })
   }
-  await createJarHeldIn(page, { name, target, heldIn: 'Pot' })
+  await createJarHeldIn(page, { name, target, heldIn: 'Pot', setAside })
 }
 
 test('a jar-less blank month prompts for income, and a duplicate create fails friendly', async ({
@@ -232,7 +237,9 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await register(page)
 
   // --- Fixture: two Goal jars (held in the Pot account), then a current-month budget built through the UI ---
-  await createGoalJar(page, 'Holiday', '1200') // seedable: 1,200 ÷ 12 = 100.00/mo
+  // Holiday holds 100.00 set aside today (rule 77). The current month seeds from the
+  // balance at the end of last month (nothing yet): 1,200 ÷ 12 = 100.00/mo.
+  await createGoalJar(page, 'Holiday', '1200', '100')
   await createGoalJar(page, 'Old Boiler', '600') // 600 ÷ 12 = 50.00/mo — archived below
 
   // BUDG-029: plural jar-append note for two jars.
@@ -324,8 +331,9 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await expect(page.getByRole('button', { name: 'Mark Rent paid' })).toBeVisible()
 
   // BUDG-015: Holiday is seedable, so its line is RE-SEEDED from the accrual
-  // calculator using the as-of balance — (1,200 − 100 already planned last month)
-  // ÷ 12 = 91.67 — not copied flat at 100.00.
+  // calculator using the jar's actual balance as of today (rule 1: the 100.00 set
+  // aside, never the amount planned last month) — (1,200 − 100) ÷ 12 = 91.67 —
+  // not copied flat at 100.00.
   await expect(page.getByRole('button', { name: 'Planned amount for Holiday' })).toHaveText(
     '€91.67',
   )
