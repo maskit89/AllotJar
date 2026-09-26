@@ -41,13 +41,13 @@ async function upload(page: Page, statement: string, opts: { accountName?: strin
  * the locale-detected registration default. Account names avoid the type-chip labels
  * (Current/Savings/Cash/…) so strict-mode lookups never collide with a card's chip.
  */
-async function addAccount(page: Page, name: string) {
+async function addAccount(page: Page, name: string, opening = '0') {
   await page.goto('/accounts')
   await page.getByRole('button', { name: 'Add account', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Account name').fill(name)
   await dialog.getByLabel('Account currency').selectOption({ label: 'Euro (€)' })
-  await dialog.getByLabel('Opening balance').fill('0')
+  await dialog.getByLabel('Opening balance').fill(opening)
   // Rule 40: the balance is tracked from the opening date; the statement rows are dated 2026.
   await dialog.getByLabel('Opening date').fill('2026-01-01')
   await dialog.getByRole('button', { name: 'Add account', exact: true }).click()
@@ -69,7 +69,9 @@ test('same-day duplicate rows both import into the chosen account, its balance m
   page,
 }) => {
   await register(page)
-  await addAccount(page, 'Bank Feed')
+  // Rule 74: the two 25.00 charges are dated a day before the payroll credit, so the account must
+  // open with money or those rows would be held rather than posted.
+  await addAccount(page, 'Bank Feed', '100')
 
   // --- IMP-057: both identical GYM CLUB rows survive the per-file dedup — the parser gives them
   // distinct `csv:{hash}#0` / `#1` references, so the preview offers all 3 rows for review.
@@ -93,11 +95,11 @@ test('same-day duplicate rows both import into the chosen account, its balance m
   await expect(moneyOut).toContainText('50.00')
 
   // --- IMP-069: every committed row was stamped with the account, so its derived balance reflects
-  // the import's net (+1,000.00 − 25.00 − 25.00 = 950.00) — proof at the DB level that BOTH
-  // occurrence rows persisted, not just one.
+  // the import's net (100.00 + 1,000.00 − 25.00 − 25.00 = 1,050.00) — proof at the DB level that
+  // BOTH occurrence rows persisted, not just one.
   await page.goto('/accounts')
   await page.getByRole('link', { name: 'View Bank Feed', exact: true }).click()
-  await expect(page.getByLabel(/^Bank Feed balance:/)).toContainText('950.00')
+  await expect(page.getByLabel(/^Bank Feed balance:/)).toContainText('1,050.00')
 
   // --- IMP-056 + IMP-057 + IMP-082: re-importing the identical file skips EVERYTHING — the
   // occurrence-suffixed references are deterministic across runs, so all 3 rows (including both
