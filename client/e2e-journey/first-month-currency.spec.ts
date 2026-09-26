@@ -52,7 +52,7 @@ test('a non-EUR registrant can budget and log account-linked spending — the fi
   await addLine(page, 'Everyday', 'Groceries')
 
   // An account picks up the sign-up currency by default (GBP — same as the month now).
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await page.getByRole('button', { name: 'Add account', exact: true }).click()
   const accountDialog = page.getByRole('dialog')
   await accountDialog.getByLabel('Account name').fill('Joint')

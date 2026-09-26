@@ -45,7 +45,7 @@ test('a jar divides its account, a payment on its line draws from it, Move money
   await expect(jarCard(page, 'Holiday')).toContainText('Held in Savings')
   // The allocation divided the account: 600.00 remains unallocated; the account is unchanged.
   await expect(unallocatedRow(page, 'Savings')).toContainText('600.00 unallocated')
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await expect(page.getByLabel(/^Savings balance:|^Total balance:/).first()).toContainText('1,000.00')
 
   // --- A 150.00 expense from Savings on the Holiday line draws from the jar (rule 79) ---

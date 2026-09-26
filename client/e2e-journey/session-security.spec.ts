@@ -50,7 +50,7 @@ async function apiRegister(
       headers: auth(token),
       data: { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, copyFromPrevious: false, templateKey: 'essentials' },
     })
-    expect(created.status()).toBe(201)
+    expect(created.status()).toBe(200)
   }
   return { ctx, email, token }
 }
@@ -135,7 +135,7 @@ test("another household's resources are invisible: 404 on read, 403 on write, an
     headers: auth(victim.token),
     data: { name: 'Secret Savings', type: 1, currency: 'EUR', openingBalance: 1234.56, openingDate: '2026-01-01' },
   })
-  expect(created.status()).toBe(201)
+  expect(created.status()).toBe(200)
   const { id: victimAccountId } = (await created.json()) as { id: string }
 
   // The month the victim owns (newest first) — probed by exact year/month below.

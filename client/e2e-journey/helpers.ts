@@ -97,7 +97,7 @@ export async function addAccount(
   page: Page,
   acc: { name: string; opening: string; openingDate?: string; type?: 'Current' | 'Savings' | 'Cash' | 'Other' },
 ): Promise<void> {
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await page.getByRole('button', { name: 'Add account', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Account name').fill(acc.name)
