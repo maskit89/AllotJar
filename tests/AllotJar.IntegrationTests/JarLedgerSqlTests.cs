@@ -80,8 +80,11 @@ public class JarLedgerSqlTests
         var account = await SeedAccountAsync(db, owner);
         await SeedJarAsync(db, account);
 
-        db.Accounts.Remove(account);
-        var act = () => db.SaveChangesAsync();
+        // Delete from a context that has not loaded the jar, so EF's client-side required-
+        // relationship check cannot pre-empt the database: the constraint itself must refuse.
+        await using var deleter = _fixture.CreateContext();
+        deleter.Accounts.Remove(new Account { Id = account.Id });
+        var act = () => deleter.SaveChangesAsync();
 
         // FK_Jars_Accounts_FundingAccountId is Restrict: the jar's money would be orphaned.
         await act.Should().ThrowAsync<DbUpdateException>();

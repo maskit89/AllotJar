@@ -57,9 +57,7 @@ public class RoleMatrixTests
                 coverStart = (string?)null,
                 coverEnd = (string?)null,
                 accrual = 1,        // AccrualMethod.TargetByDate
-                openingBalance = 0m,
-                openingAsOf = (string?)null,
-                fundingAccountId = (Guid?)null,
+                fundingAccountId = _fixture.SavingsAccountId, // rule 73: a jar needs its account
                 recurMonths = (int?)null,
             },
             owner: Created, admin: Created, limited: Forbidden, readOnly: Forbidden);
