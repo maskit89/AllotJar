@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Input } from '../ui'
 import type { JarLedgerLineDto } from '../../types'
-import { formatMoney } from '../../lib/money'
+import { formatMoney, fromAmount } from '../../lib/money'
 import { selectOnFocusProps } from '../../lib/selectOnFocus'
 import { jarAllocationsTotal } from '../../lib/jarAllocationFields'
 
@@ -47,7 +47,7 @@ export function JarAllocationFields({
             <label key={jar.jarId} htmlFor={id} className="flex items-center justify-between gap-3 text-sm">
               <span className="min-w-0 truncate text-slate-800">
                 {jar.name}
-                <span className="ml-1 text-xs text-slate-500">({formatMoney(jar.balance, currency)})</span>
+                <span className="ml-1 text-xs text-slate-500">({formatMoney(fromAmount(jar.balance), currency)})</span>
               </span>
               <Input
                 id={id}
@@ -67,10 +67,10 @@ export function JarAllocationFields({
         {total === null
           ? 'Enter amounts as numbers.'
           : over
-            ? `The jar amounts exceed the ${amount === null ? 'amount' : formatMoney(amount, currency)} received.`
+            ? `The jar amounts exceed the ${amount === null ? 'amount' : formatMoney(fromAmount(amount), currency)} received.`
             : remainder === null
-              ? `Jars: ${formatMoney(total, currency)}`
-              : `Stays unallocated: ${formatMoney(remainder, currency)}`}
+              ? `Jars: ${formatMoney(fromAmount(total), currency)}`
+              : `Stays unallocated: ${formatMoney(fromAmount(remainder), currency)}`}
       </p>
     </fieldset>
   )

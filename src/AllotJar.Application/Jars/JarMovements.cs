@@ -156,13 +156,19 @@ public static class JarMovements
             return;
         }
         // Update in place: the (transaction, account) index is unique, so a delete-and-insert in
-        // one SaveChanges would depend on statement ordering.
+        // one SaveChanges would depend on statement ordering. The new postings are added through
+        // the set explicitly: discovered only through the navigation, an entity whose Guid key is
+        // already set would be tracked as Modified and the save would issue an UPDATE for a row
+        // that was never inserted.
         db.JarAllocationPostings.RemoveRange(existing.Postings);
         existing.Postings.Clear();
         existing.Date = date;
         foreach (var posting in postings)
         {
+            posting.JarAllocationId = existing.Id;
+            posting.JarAllocation = existing;
             existing.Postings.Add(posting);
+            db.JarAllocationPostings.Add(posting);
         }
     }
 

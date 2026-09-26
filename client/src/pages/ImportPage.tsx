@@ -556,7 +556,15 @@ export function ImportPage() {
     })
     // Never commit a stale parse (the Import button is already disabled while dirty; this guards
     // against any future path that reaches onCommit without that gate).
-    if (items.length === 0 || mappingDirty) return
+    if (mappingDirty) return
+    // Every held row unticked (rule 74: discarded): nothing is left to post, so finish here.
+    if (items.length === 0) {
+      if (heldMode) {
+        setHeldResult(null)
+        setPhase('done')
+      }
+      return
+    }
 
     // Historical rows put on this month's lines are a deliberate choice — confirm once for the
     // batch, then re-run with the affected rows acknowledged (the server rejects them otherwise).
@@ -1095,133 +1103,133 @@ export function ImportPage() {
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex flex-col gap-1.5">
-                          {r.isTransfer ? (
-                            <div className="flex flex-col gap-1">
-                              <div className="flex items-center gap-2">
-                                <Badge tone="brand">Transfer</Badge>
-                                <span className="text-xs text-slate-500">{r.isCredit ? 'from' : 'to'}</span>
-                                <Select
-                                  aria-label={`Transfer account for ${r.payee} on ${r.date}`}
-                                  value={r.transferAccountId}
-                                  disabled={!r.include || !!r.matchTransferId}
-                                  onChange={(e) => updateRow(index, { transferAccountId: e.target.value })}
-                                  className="w-44"
-                                >
-                                  <option value="">Choose account…</option>
-                                  {otherAccounts.map((a) => (
-                                    <option key={a.id} value={a.id}>
-                                      {a.name}
-                                    </option>
-                                  ))}
-                                </Select>
-                                <button
-                                  type="button"
-                                  onClick={() => clearTransfer(index)}
-                                  aria-label={`Cancel transfer for ${r.payee} on ${r.date}`}
-                                  className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-200"
-                                >
-                                  Undo
-                                </button>
-                              </div>
-                              {r.transferMatches.length > 0 && (
+                            {r.isTransfer ? (
+                              <div className="flex flex-col gap-1">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-xs text-slate-500">Already recorded?</span>
+                                  <Badge tone="brand">Transfer</Badge>
+                                  <span className="text-xs text-slate-500">{r.isCredit ? 'from' : 'to'}</span>
                                   <Select
-                                    aria-label={`Match recorded transfer for ${r.payee} on ${r.date}`}
-                                    value={r.matchTransferId}
-                                    disabled={!r.include}
-                                    onChange={(e) => chooseMatch(index, e.target.value)}
-                                    className="w-72"
+                                    aria-label={`Transfer account for ${r.payee} on ${r.date}`}
+                                    value={r.transferAccountId}
+                                    disabled={!r.include || !!r.matchTransferId}
+                                    onChange={(e) => updateRow(index, { transferAccountId: e.target.value })}
+                                    className="w-44"
                                   >
-                                    <option value="">No — record it as a new transfer</option>
-                                    {r.transferMatches.map((m) => (
-                                      <option key={m.transferId} value={m.transferId}>
-                                        {r.isCredit ? `From ${m.counterpartyAccountName}` : `To ${m.counterpartyAccountName}`} ·{' '}
-                                        {formatMoney(fromAmount(m.amount), m.currency)} ·{' '}
-                                        {m.departedOn ? `left ${formatDate(m.departedOn)}` : `received ${formatDate(m.receivedOn ?? r.date)}`}
+                                    <option value="">Choose account…</option>
+                                    {otherAccounts.map((a) => (
+                                      <option key={a.id} value={a.id}>
+                                        {a.name}
                                       </option>
                                     ))}
                                   </Select>
+                                  <button
+                                    type="button"
+                                    onClick={() => clearTransfer(index)}
+                                    aria-label={`Cancel transfer for ${r.payee} on ${r.date}`}
+                                    className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-200"
+                                  >
+                                    Undo
+                                  </button>
                                 </div>
-                              )}
-                              {r.matchTransferId ? (
-                                <span className="text-xs text-slate-500">
-                                  Confirms the other side of the recorded transfer — no second balance movement.
-                                </span>
-                              ) : r.isCredit ? (
-                                <span className="text-xs text-amber-700 dark:text-amber-400">
-                                  Held for review until the departure date is known; nothing is posted to either account yet.
-                                </span>
-                              ) : (
-                                <span className="text-xs text-slate-500">
-                                  Recorded as departed on {formatDate(r.date)}; in transit until the receipt is confirmed.
-                                </span>
-                              )}
-                            </div>
-                          ) : r.splits ? (
-                            <div className="flex flex-col gap-0.5">
-                              <div className="flex items-center gap-2">
-                                <Badge tone={info.valid ? 'violet' : 'amber'}>Split · {r.splits.length}</Badge>
-                                <button
-                                  type="button"
-                                  onClick={() => setSplitOpen(open ? null : r.reference)}
-                                  aria-label={`Edit split for ${r.payee} on ${r.date}`}
-                                  className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-200"
-                                >
-                                  {open ? 'Close' : 'Edit'}
-                                </button>
+                                {r.transferMatches.length > 0 && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500">Already recorded?</span>
+                                    <Select
+                                      aria-label={`Match recorded transfer for ${r.payee} on ${r.date}`}
+                                      value={r.matchTransferId}
+                                      disabled={!r.include}
+                                      onChange={(e) => chooseMatch(index, e.target.value)}
+                                      className="w-72"
+                                    >
+                                      <option value="">No — record it as a new transfer</option>
+                                      {r.transferMatches.map((m) => (
+                                        <option key={m.transferId} value={m.transferId}>
+                                          {r.isCredit ? `From ${m.counterpartyAccountName}` : `To ${m.counterpartyAccountName}`} ·{' '}
+                                          {formatMoney(fromAmount(m.amount), m.currency)} ·{' '}
+                                          {m.departedOn ? `left ${formatDate(m.departedOn)}` : `received ${formatDate(m.receivedOn ?? r.date)}`}
+                                        </option>
+                                      ))}
+                                    </Select>
+                                  </div>
+                                )}
+                                {r.matchTransferId ? (
+                                  <span className="text-xs text-slate-500">
+                                    Confirms the other side of the recorded transfer — no second balance movement.
+                                  </span>
+                                ) : r.isCredit ? (
+                                  <span className="text-xs text-amber-700 dark:text-amber-400">
+                                    Held for review until the departure date is known; nothing is posted to either account yet.
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-500">
+                                    Recorded as departed on {formatDate(r.date)}; in transit until the receipt is confirmed.
+                                  </span>
+                                )}
                               </div>
-                              {!open && (
-                                <span className="max-w-[14rem] truncate text-xs text-slate-500">
-                                  {r.splits.map((s) => nameById.get(s.budgetItemId) ?? 'Unassigned').join(' · ')}
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <Select
-                                aria-label={`Category for ${r.payee} on ${r.date}`}
-                                value={r.budgetItemId}
-                                disabled={!r.include}
-                                onChange={(e) => updateRow(index, { budgetItemId: e.target.value })}
-                                className="w-48"
-                              >
-                                <CategoryOptions groups={groups} />
-                              </Select>
-                              <button
-                                type="button"
-                                onClick={() => startSplit(index, r.reference)}
-                                disabled={!r.include}
-                                aria-label={`Split ${r.payee} on ${r.date}`}
-                                className="text-xs font-medium text-brand-700 hover:underline disabled:opacity-40 dark:text-brand-200"
-                              >
-                                Split
-                              </button>
-                              {canTransfer && (
+                            ) : r.splits ? (
+                              <div className="flex flex-col gap-0.5">
+                                <div className="flex items-center gap-2">
+                                  <Badge tone={info.valid ? 'violet' : 'amber'}>Split · {r.splits.length}</Badge>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSplitOpen(open ? null : r.reference)}
+                                    aria-label={`Edit split for ${r.payee} on ${r.date}`}
+                                    className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-200"
+                                  >
+                                    {open ? 'Close' : 'Edit'}
+                                  </button>
+                                </div>
+                                {!open && (
+                                  <span className="max-w-[14rem] truncate text-xs text-slate-500">
+                                    {r.splits.map((s) => nameById.get(s.budgetItemId) ?? 'Unassigned').join(' · ')}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <Select
+                                  aria-label={`Category for ${r.payee} on ${r.date}`}
+                                  value={r.budgetItemId}
+                                  disabled={!r.include}
+                                  onChange={(e) => updateRow(index, { budgetItemId: e.target.value })}
+                                  className="w-48"
+                                >
+                                  <CategoryOptions groups={groups} />
+                                </Select>
                                 <button
                                   type="button"
-                                  onClick={() => startTransfer(index)}
+                                  onClick={() => startSplit(index, r.reference)}
                                   disabled={!r.include}
-                                  aria-label={`Mark ${r.payee} on ${r.date} as a transfer`}
+                                  aria-label={`Split ${r.payee} on ${r.date}`}
                                   className="text-xs font-medium text-brand-700 hover:underline disabled:opacity-40 dark:text-brand-200"
                                 >
-                                  Transfer
+                                  Split
                                 </button>
-                              )}
-                            </div>
-                          )}
-                          {/* Rule 79: which jar this payment comes from (unallocated unless chosen). */}
-                          {showPaidFrom && (
-                            <PaidFromJarSelect
-                              jars={importJars}
-                              accountName={importAccount?.name ?? ''}
-                              currency={importCurrency}
-                              value={r.paidFromJarId}
-                              onChange={(jarId) => updateRow(index, { paidFromJarId: jarId })}
-                              id={`${domId}-paid-from`}
-                              compact
-                            />
-                          )}
+                                {canTransfer && (
+                                  <button
+                                    type="button"
+                                    onClick={() => startTransfer(index)}
+                                    disabled={!r.include}
+                                    aria-label={`Mark ${r.payee} on ${r.date} as a transfer`}
+                                    className="text-xs font-medium text-brand-700 hover:underline disabled:opacity-40 dark:text-brand-200"
+                                  >
+                                    Transfer
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                            {/* Rule 79: which jar this payment comes from (unallocated unless chosen). */}
+                            {showPaidFrom && (
+                              <PaidFromJarSelect
+                                jars={importJars}
+                                accountName={importAccount?.name ?? ''}
+                                currency={importCurrency}
+                                value={r.paidFromJarId}
+                                onChange={(jarId) => updateRow(index, { paidFromJarId: jarId })}
+                                id={`${domId}-paid-from`}
+                                compact
+                              />
+                            )}
                           </div>
                         </td>
                         <td className="px-3 py-2">
@@ -1427,11 +1435,13 @@ export function ImportPage() {
           )}
 
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={() => onCommit()} disabled={busy || includedCount === 0 || reviewIncomplete || mappingDirty}>
+            <Button onClick={() => onCommit()} disabled={busy || (includedCount === 0 && !heldMode) || reviewIncomplete || mappingDirty}>
               {busy
                 ? 'Importing…'
                 : heldMode
-                  ? 'Commit held rows'
+                  ? includedCount === 0
+                    ? 'Finish without the held rows'
+                    : 'Commit held rows'
                   : `Import ${includedCount} transaction${includedCount === 1 ? '' : 's'}`}
             </Button>
             <Button variant="ghost" onClick={reset} disabled={busy}>

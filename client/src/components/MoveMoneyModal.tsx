@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Badge, Button, ErrorBanner, Input, Select } from './ui'
 import { Modal } from './Modal'
 import { api } from '../lib/api'
@@ -153,7 +153,7 @@ export function MoveMoneyModal({ jar, currency, accounts = [], onClose, onMoved 
       : `the unallocated money in ${destinationPlace.accountName}`
     : 'the destination'
 
-  const submit = useCallback(async () => {
+  async function submit() {
     if (!ledger || !sourcePlace || !destinationPlace) return
     if (source === destination) {
       setError('Choose two different places — money can’t move from a jar to itself.')
@@ -207,7 +207,7 @@ export function MoveMoneyModal({ jar, currency, accounts = [], onClose, onMoved 
     } finally {
       setSaving(false)
     }
-  }, [ledger, sourcePlace, destinationPlace, source, destination, amount, date, crossAccount, confirmed, receivedOn, note, defaultPayee, onMoved])
+  }
 
   const today = todayIso()
 

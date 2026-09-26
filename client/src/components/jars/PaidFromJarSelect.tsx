@@ -1,6 +1,6 @@
 import { Select } from '../ui'
 import type { JarLedgerLineDto } from '../../types'
-import { formatMoney } from '../../lib/money'
+import { formatMoney, fromAmount } from '../../lib/money'
 
 export const PAID_FROM_UNALLOCATED = ''
 
@@ -33,7 +33,7 @@ export function PaidFromJarSelect({ jars, accountName, currency, value, onChange
         <option value={PAID_FROM_UNALLOCATED}>Unallocated money</option>
         {jars.map((jar) => (
           <option key={jar.jarId} value={jar.jarId}>
-            {jar.name} ({formatMoney(jar.balance, currency)})
+            {jar.name} ({formatMoney(fromAmount(jar.balance), currency)})
           </option>
         ))}
       </Select>
