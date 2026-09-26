@@ -34,6 +34,21 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
             throw new ForbiddenAccessException();
         }
 
+        // The validators enforce both; a bypassing caller must still not create a credit-card
+        // account (rule 75) or a negative opening (rule 74).
+        if (request.Type == Domain.Enums.AccountType.CreditCard || request.OpeningBalance < 0m)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                [request.Type == Domain.Enums.AccountType.CreditCard ? "Type" : "OpeningBalance"] = new[]
+                {
+                    request.Type == Domain.Enums.AccountType.CreditCard
+                        ? "Credit cards are not accounts here: an account holds money, a card owes it."
+                        : "The opening balance must be zero or more: an account never has a negative balance here.",
+                },
+            });
+        }
+
         account.Name = request.Name.Trim();
         account.Type = request.Type;
         account.OpeningBalance = request.OpeningBalance;
@@ -42,6 +57,11 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
             {
                 [nameof(request.OpeningDate)] = new[] { "Enter the date the opening balance applies from." },
             });
+
+        account.Iban = BankIdentifiers.NormalizeIban(request.Iban);
+        account.Bic = BankIdentifiers.NormalizeBic(request.Bic);
+        account.SortCode = BankIdentifiers.NormalizeSortCode(request.SortCode);
+        account.AccountNumber = BankIdentifiers.NormalizeAccountNumber(request.AccountNumber);
 
         await _db.SaveChangesAsync(cancellationToken);
 

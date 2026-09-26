@@ -127,7 +127,7 @@ describe('LoginPage', () => {
       .find((b) => (b as HTMLButtonElement).type === 'submit')!
     await user.click(submit)
 
-    // Sample data is opt-in and the box was left unticked, so the account starts empty.
+    // Rule 81: there is no sample data — the household starts empty, and no flag is sent.
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/auth/register', {
         email: 'new@x.com',
@@ -137,50 +137,21 @@ describe('LoginPage', () => {
         preferredCurrency: 'GBP',
         numberFormat: 'comma-dot',
         acceptedTerms: true,
-        includeSampleData: false,
       }),
     )
+    expect(mockPost.mock.calls[0][1]).not.toHaveProperty('includeSampleData')
   })
 
-  it('sends includeSampleData only when the optional sample-figures box is ticked', async () => {
-    mockPost.mockResolvedValue({
-      data: {
-        token: 'tok',
-        expiresAtUtc: '2030-01-01T00:00:00Z',
-        userId: 'u1',
-        email: 'new@x.com',
-        role: 0,
-        displayName: 'New User',
-      },
-    })
+  it('offers no sample-figures opt-in: the only checkbox is the required terms box (rule 81)', async () => {
     const user = userEvent.setup()
     renderPage()
 
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
-    // The sample-figures box is optional (not required) and unticked by default.
-    const sampleBox = screen.getByRole('checkbox', { name: /sample figures/i })
-    expect((sampleBox as HTMLInputElement).required).toBe(false)
-    expect(sampleBox).not.toBeChecked()
-
-    await user.type(screen.getByLabelText('First name'), 'New')
-    await user.type(screen.getByLabelText('Last name'), 'User')
-    await user.type(screen.getByLabelText('Email'), 'new@x.com')
-    await user.type(screen.getByLabelText('Password'), 'password123')
-    await user.click(sampleBox)
-    await user.click(screen.getByRole('checkbox', { name: /I agree to the/ }))
-
-    const submit = screen
-      .getAllByRole('button', { name: 'Create account' })
-      .find((b) => (b as HTMLButtonElement).type === 'submit')!
-    await user.click(submit)
-
-    await waitFor(() =>
-      expect(mockPost).toHaveBeenCalledWith(
-        '/auth/register',
-        expect.objectContaining({ includeSampleData: true }),
-      ),
-    )
+    expect(screen.queryByRole('checkbox', { name: /sample figures/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/sample figures/i)).not.toBeInTheDocument()
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1)
+    expect(screen.getByRole('checkbox', { name: /I agree to the/ })).toBeRequired()
   })
 
   it('adds a required data-loss acknowledgment when registering in the staging build', async () => {
@@ -201,11 +172,11 @@ describe('LoginPage', () => {
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
     // The staging build shows an extra required checkbox: the data-loss acknowledgment
-    // (alongside the optional sample-figures box and the required terms box).
+    // (alongside the required terms box).
     expect(
       screen.getByText(/my data may be reset or permanently lost/i),
     ).toBeInTheDocument()
-    expect(screen.getAllByRole('checkbox')).toHaveLength(3)
+    expect(screen.getAllByRole('checkbox')).toHaveLength(2)
     const stagingBox = screen.getByRole('checkbox', { name: /staging/i })
     expect((stagingBox as HTMLInputElement).required).toBe(true)
 

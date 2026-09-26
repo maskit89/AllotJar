@@ -8,7 +8,7 @@ public class AccountDto
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>The account kind (Current/Savings/Cash/CreditCard/Other) as its numeric enum value.</summary>
+    /// <summary>The account kind (Current/Savings/Cash/Other; credit cards are not accounts, rule 75) as its numeric enum value.</summary>
     public AccountType Type { get; set; }
 
     /// <summary>ISO 4217 code the account is held in (e.g. "EUR").</summary>
@@ -48,6 +48,12 @@ public class AccountDto
     public bool RequiresReview { get; set; }
 
     public int DisplayOrder { get; set; }
+
+    /// <summary>Optional bank identifiers (rule 76); null when not recorded.</summary>
+    public string? Iban { get; set; }
+    public string? Bic { get; set; }
+    public string? SortCode { get; set; }
+    public string? AccountNumber { get; set; }
 }
 
 public static class AccountMapping
@@ -69,5 +75,9 @@ public static class AccountMapping
         PendingReceiptTotal = ledger.PendingReceiptTotal,
         RequiresReview = ledger.RequiresReview,
         DisplayOrder = a.DisplayOrder,
+        Iban = a.Iban,
+        Bic = a.Bic,
+        SortCode = a.SortCode,
+        AccountNumber = a.AccountNumber,
     };
 }

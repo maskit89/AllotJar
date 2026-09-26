@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Xunit;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
 using AllotJar.Application.Common.Interfaces;
-using AllotJar.Application.Jars;
+using AllotJar.Application.Jars.Queries.GetJars;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Application.Transactions;
 using AllotJar.Domain.Entities;
@@ -103,8 +103,16 @@ public class FxPendingAggregatesTests
     [Fact]
     public async Task JarBalances_ExcludePendingSpending()
     {
+        // A jar's balance is its account ledger (rule 79): the resolved EUR spend on the jar line
+        // from the jar's account draws from it; the pending foreign-currency row is not an
+        // account movement (it has no account leg in the account's currency) and never touches
+        // the jar at its placeholder face value. The planned 200 is a plan and counts nowhere.
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
         var jarId = Guid.NewGuid();
+        db.Jars.Add(new Jar { Id = jarId, OwnerId = "user-1", Name = "Holiday", TargetAmount = 500m, FundingAccountId = account.Id });
+        db.SaveChanges();
+        LedgerFixtures.Allocate(db, "user-1", account.Id, jarId, 200m);
         var fundLine = new BudgetItem { Name = "Holiday", PlannedAmount = 200m, SavingsId = jarId };
         db.BudgetMonths.Add(new BudgetMonth
         {
@@ -115,15 +123,18 @@ public class FxPendingAggregatesTests
             },
         });
         db.SaveChanges();
+        var resolved = Tx("user-1", 50m, fundLine.Id);                                  // resolved spend
+        resolved.AccountId = account.Id;
         db.Transactions.AddRange(
-            Tx("user-1", 50m, fundLine.Id),                                   // resolved spend
+            resolved,
             Tx("user-1", 30m, fundLine.Id, fxPending: true, currency: "GBP")); // pending — excluded
         await db.SaveChangesAsync();
 
-        var balances = await JarBalances.ComputeAsync(db, "user-1", CancellationToken.None);
+        var jars = await new GetJarsQueryHandler(db, new CurrentUserStub("user-1"))
+            .Handle(new GetJarsQuery(), CancellationToken.None);
 
-        // 200 contributed − 50 real spend; the pending 30 is not subtracted at face value.
-        balances[jarId].Should().Be(150m);
+        // 200 allocated − 50 real spend; the pending 30 is not subtracted at face value.
+        jars.Single().CurrentBalance.Should().Be(150m);
     }
 
     [Fact]

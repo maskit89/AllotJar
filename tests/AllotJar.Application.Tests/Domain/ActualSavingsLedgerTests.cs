@@ -36,10 +36,9 @@ public class ActualSavingsLedgerTests
                 .ToDictionary(t => t.Id, _ => new TransferPostingDates(OpeningDate, OpeningDate)));
 
     [Fact]
-    public void JarDefinitionsAndLegacyOpeningAmountsDoNotCreateActualSavings()
+    public void JarDefinitionsDoNotCreateActualSavings()
     {
         var jar = Jar();
-        jar.OpeningBalance = 600m;
         jar.TargetAmount = 1200m;
         var result = Calculate([jar], []);
 
@@ -225,13 +224,25 @@ public class ActualSavingsLedgerTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void JarMustBelongToTheOwnerAndDesignateThisAccount(bool foreignOwner)
+    public void JarMustBelongToTheOwner_WhileARedesignatedOwnJarKeepsItsHistoryHere(bool foreignOwner)
     {
         var jar = Jar();
-        if (foreignOwner) jar.OwnerId = "another-household";
-        else jar.FundingAccountId = Guid.NewGuid();
-        var act = () => Calculate([jar], [], Allocation(null, new JarLedgerPosting(jar.Id, 10m), new JarLedgerPosting(null, -10m)));
-        act.Should().Throw<InvalidOperationException>().WithMessage("*designate this savings account*");
+        var operation = Allocation(null, new JarLedgerPosting(jar.Id, 10m), new JarLedgerPosting(null, -10m));
+        if (foreignOwner)
+        {
+            jar.OwnerId = "another-household";
+            var act = () => Calculate([jar], [], operation);
+            act.Should().Throw<InvalidOperationException>().WithMessage("*belong to this owner*");
+        }
+        else
+        {
+            // Rule 80: a jar moved to another account (only at zero) keeps its postings in this
+            // ledger; they still reconcile here rather than being rejected.
+            jar.FundingAccountId = Guid.NewGuid();
+            var result = Calculate([jar], [], operation, Allocation(null, new JarLedgerPosting(jar.Id, -10m), new JarLedgerPosting(null, 10m)));
+            result.JarBalances![jar.Id].Should().Be(0m);
+            result.Unallocated.Should().Be(600m);
+        }
     }
 
     [Theory]
@@ -261,10 +272,14 @@ public class ActualSavingsLedgerTests
     }
 
     [Fact]
-    public void NonSavingsAccountsCannotBackAJar()
+    public void AnyAccountMayBackAJar_ExceptACreditCard()
     {
+        // Rule 73: any account type may back a jar; rule 75: a credit card is not an account.
         _account.Type = AccountType.Current;
+        Calculate([], []).Unallocated.Should().Be(600m);
+
+        _account.Type = AccountType.CreditCard;
         var act = () => Calculate([], []);
-        act.Should().Throw<InvalidOperationException>().WithMessage("*savings account*");
+        act.Should().Throw<InvalidOperationException>().WithMessage("*credit card*");
     }
 }

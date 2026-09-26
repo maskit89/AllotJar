@@ -159,7 +159,7 @@ test('a transfer moves both balances but never the budget, renders badge + from 
   expect(remainingBefore).toContain('400.00') // 0 income − 400 planned
 
   // Two same-currency accounts (the add-modal default currency is shared).
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await addAccount(page, { name: 'Wallet', opening: '2000' })
   await addAccount(page, { name: 'Pot', opening: '500' })
   await expect(page.getByLabel(/^Total balance:/)).toContainText('2,500.00')
@@ -200,7 +200,7 @@ test('a transfer moves both balances but never the budget, renders badge + from 
 
   // --- TRF-005 + TRF-028: with the receipt confirmed on the same day both derived
   // balances moved by the raw amount and the net across accounts is unchanged.
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await expect(page.getByLabel(/^Total balance:/)).toContainText('2,500.00')
 
   // --- TRF-025: the single-account registers sign the SAME row by direction.
@@ -246,7 +246,7 @@ test('a transfer moves both balances but never the budget, renders badge + from 
   await expect(page.getByText('No transactions yet')).toBeVisible()
 
   // Balances are back to their openings, and both account registers are empty.
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await expect(page.getByLabel(/^Total balance:/)).toContainText('2,500.00')
   await page.getByRole('link', { name: 'View Wallet', exact: true }).click()
   await expect(detailBalance(page, 'Wallet')).toContainText('2,000.00')
@@ -265,7 +265,7 @@ test('client-side transfer validation blocks bad input without an API call, and 
 
   // Two REAL accounts in different currencies (explicitly chosen so the test is
   // independent of the locale-detected default).
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await addAccount(page, { name: 'Euro Main', opening: '100', currencyLabel: 'Euro (€)' })
   await addAccount(page, { name: 'Dollar Stash', opening: '100', currencyLabel: 'US dollar ($)' })
 
@@ -328,7 +328,7 @@ test('client-side transfer validation blocks bad input without an API call, and 
   await expect(page.getByText('No transactions yet')).toBeVisible() // no phantom row
 
   // --- TRF-021 (moves-nothing leg): both balances are exactly their openings.
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await page.getByRole('link', { name: 'View Euro Main', exact: true }).click()
   await expect(detailBalance(page, 'Euro Main')).toContainText('100.00')
   await expect(page.getByText('No transactions on this account yet.')).toBeVisible()
@@ -352,7 +352,7 @@ test('the generic transaction endpoints reject Type=Transfer injection, and re-t
 
   await register(page)
   await startBlankBudget(page)
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await addAccount(page, { name: 'Wallet', opening: '2000' })
   await addAccount(page, { name: 'Pot', opening: '500' })
   expect(authHeader).toBeTruthy()
@@ -370,7 +370,7 @@ test('the generic transaction endpoints reject Type=Transfer injection, and re-t
   // UI-observable leg: nothing was created and no balance moved.
   await page.getByRole('link', { name: 'Transactions' }).click()
   await expect(page.getByText('No transactions yet')).toBeVisible()
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await expect(page.getByLabel(/^Total balance:/)).toContainText('2,500.00')
   await page.getByRole('link', { name: 'View Wallet', exact: true }).click()
   await expect(detailBalance(page, 'Wallet')).toContainText('2,000.00')
@@ -418,7 +418,7 @@ test('the generic transaction endpoints reject Type=Transfer injection, and re-t
   await expect(incomeRow).not.toContainText('→')
   await expect(incomeRow.locator('td').nth(4)).toContainText('+')
   await expect(incomeRow.locator('td').nth(4)).toContainText('300.00')
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await page.getByRole('link', { name: 'View Wallet', exact: true }).click()
   await expect(detailBalance(page, 'Wallet')).toContainText('2,300.00') // 2,000 + 300 income
   await page.getByRole('link', { name: '‹ Accounts' }).click()

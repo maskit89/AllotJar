@@ -372,7 +372,7 @@ public class AccountLedgerActivationTests
         var legacy = SeedAccount(db, "Old pot", 300m, openingDate: null, type: AccountType.Savings);
         var a = SeedAccount(db, "A", 500m, Opening);
         var b = SeedAccount(db, "B", 200m, Opening, type: AccountType.Savings);
-        db.Jars.Add(new Jar { OwnerId = "user-1", Name = "Holiday", FundingAccountId = legacy.Id, OpeningBalance = 100m });
+        db.Jars.Add(new Jar { OwnerId = "user-1", Name = "Holiday", FundingAccountId = legacy.Id });
         db.SaveChanges();
         SeedPendingReceipt(db, a, b, 100m, receivedOn: new DateOnly(2026, 9, 20));
 
@@ -382,7 +382,8 @@ public class AccountLedgerActivationTests
 
         rows[legacy.Id].CurrentBalance.Should().BeNull();
         rows[legacy.Id].Float.Should().BeNull("no balance, no float — not a fabricated shortfall");
-        rows[legacy.Id].BackedJarsTotal.Should().Be(100m);
+        rows[legacy.Id].BackedJarCount.Should().Be(1);
+        rows[legacy.Id].BackedJarsTotal.Should().Be(0m, "an unavailable ledger counts no jar money (rule 67)");
         rows[b.Id].CurrentBalance.Should().Be(200m);
         rows[b.Id].Float.Should().Be(200m);
         rows[b.Id].RequiresReview.Should().BeTrue();

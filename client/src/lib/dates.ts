@@ -74,3 +74,11 @@ export function monthYear(iso: string): string {
   }
   return fmt.format(d)
 }
+
+/**
+ * Today's calendar date as an ISO `yyyy-MM-dd`, on the API's UTC basis (the server uses
+ * DateOnly.FromDateTime(DateTime.UtcNow)). The default for "as of today" date inputs.
+ */
+export function todayIso(now = new Date()): string {
+  return now.toISOString().slice(0, 10)
+}

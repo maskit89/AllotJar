@@ -3,8 +3,11 @@ using Microsoft.EntityFrameworkCore;
 using Xunit;
 using AllotJar.Application.Budgets.Commands.AddBudgetItem;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
+using AllotJar.Application.Budgets.Templates;
+using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Commands.CreateJar;
+using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Persistence;
@@ -13,10 +16,12 @@ namespace AllotJar.Application.Tests.Application;
 
 /// <summary>
 /// The jar ↔ budget-line link. BudgetItems.SavingsId is an enforced FK to Jars.Id
-/// (EF InMemory can't verify the constraint itself — these tests instead assert every
-/// SavingsId writer creates the backing Jar row), and the link is what lets a jar
-/// fill: creating a jar plants its contribution line in current/future months, and
-/// creating a month plants lines for jars it would otherwise miss.
+/// (EF InMemory can't verify the constraint itself — these tests instead assert that the
+/// only SavingsId writer is CreateJar, which needs the jar's account, rule 73), and the link
+/// is what lets a jar fill: creating a jar plants its contribution line in current/future
+/// months, and creating a month plants lines for jars it would otherwise miss. A bare line
+/// in a Savings group is refused (a plan with no money behind it), and templates carry no
+/// savings lines (rule 81).
 /// </summary>
 public class JarBudgetLinkTests
 {
@@ -58,23 +63,21 @@ public class JarBudgetLinkTests
     // ---- AddBudgetItem -------------------------------------------------------
 
     [Fact]
-    public async Task AddItem_ToSavingsGroup_CreatesTheBackingJar()
+    public async Task AddItem_ToSavingsGroup_IsRefused_BecauseAJarNeedsItsAccount()
     {
+        // Rule 73: a savings line is a jar, and a jar is only created through the jar form
+        // with its designated account. The handler refuses and writes neither line nor jar.
         await using var db = NewContext();
         var month = SeedMonth(db, "user-1", 2026, 6, withSavingsGroup: true);
         var savings = month.Categories.Single(c => c.Kind == CategoryKind.Savings);
         var handler = new AddBudgetItemCommandHandler(db, new CurrentUserStub("user-1"));
 
-        await handler.Handle(new AddBudgetItemCommand(savings.Id, "Holiday", 100m), CancellationToken.None);
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            handler.Handle(new AddBudgetItemCommand(savings.Id, "Holiday", 100m), CancellationToken.None));
 
-        var line = db.BudgetItems.Single(i => i.Name == "Holiday");
-        line.SavingsId.Should().NotBeNull();
-        var jar = db.Jars.Single();
-        jar.Id.Should().Be(line.SavingsId!.Value);
-        jar.Name.Should().Be("Holiday");
-        jar.OwnerId.Should().Be("user-1");
-        jar.Kind.Should().Be(JarKind.Goal);
-        jar.TargetAmount.Should().Be(0m);
+        ex.Errors.Should().ContainKey("Name");
+        db.BudgetItems.Should().BeEmpty();
+        db.Jars.Should().BeEmpty();
     }
 
     [Fact]
@@ -94,8 +97,10 @@ public class JarBudgetLinkTests
     // ---- CreateBudgetMonth ---------------------------------------------------
 
     [Fact]
-    public async Task CreateMonth_FromTemplate_BacksEverySavingsLineWithAJar()
+    public async Task CreateMonth_FromTemplate_CreatesNoSavingsLines_AndNoJars()
     {
+        // Rule 81: templates keep their income and expense structure only; jars are created
+        // through the jar form with an account, never minted by a template.
         await using var db = NewContext();
         var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
 
@@ -103,29 +108,24 @@ public class JarBudgetLinkTests
             new CreateBudgetMonthCommand(2026, 7, CopyFromPrevious: false, TemplateKey: "family"),
             CancellationToken.None);
 
-        // The family template's Savings group: Emergency Fund, Holiday, Christmas.
-        var lines = db.BudgetItems.Where(i => i.SavingsId != null).ToList();
-        lines.Should().HaveCount(3);
-        var jars = db.Jars.ToList();
-        jars.Should().HaveCount(3);
-        foreach (var line in lines)
-        {
-            jars.Should().ContainSingle(j => j.Id == line.SavingsId && j.Name == line.Name);
-        }
-        jars.Should().OnlyContain(j => j.OwnerId == "user-1");
-        dto.Categories.Should().Contain(c => c.Name == "Savings");
+        db.BudgetItems.Where(i => i.SavingsId != null).Should().BeEmpty();
+        db.Jars.Should().BeEmpty();
+        dto.Categories.Should().NotContain(c => c.Kind == "Savings");
+        BudgetTemplates.All.Should().OnlyContain(t => t.Groups.All(g => g.Kind != CategoryKind.Savings));
     }
 
     [Fact]
     public async Task CreateMonth_Copy_AppendsLinesForJarsTheCopiedMonthLacks()
     {
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
         SeedMonth(db, "user-1", 2026, 6, withSavingsGroup: true);
         // A jar created after June was budgeted — June has no line for it.
         db.Jars.Add(new Jar
         {
             OwnerId = "user-1", Name = "Car Insurance", TargetAmount = 600m,
             TargetDate = new DateOnly(2026, 12, 1), Accrual = AccrualMethod.TargetByDate,
+            FundingAccountId = account.Id,
         });
         db.SaveChanges();
         var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
@@ -145,7 +145,8 @@ public class JarBudgetLinkTests
     public async Task CreateMonth_Blank_CreatesASavingsGroupForExistingJars()
     {
         await using var db = NewContext();
-        db.Jars.Add(new Jar { OwnerId = "user-1", Name = "Boiler", TargetAmount = 900m });
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
+        db.Jars.Add(new Jar { OwnerId = "user-1", Name = "Boiler", TargetAmount = 900m, FundingAccountId = account.Id });
         db.SaveChanges();
         var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
 
@@ -160,8 +161,10 @@ public class JarBudgetLinkTests
     public async Task CreateMonth_SkipsArchivedJars_AndOtherOwnersJars()
     {
         await using var db = NewContext();
-        db.Jars.Add(new Jar { OwnerId = "user-1", Name = "Archived", TargetAmount = 100m, IsArchived = true });
-        db.Jars.Add(new Jar { OwnerId = "user-2", Name = "Foreign", TargetAmount = 100m });
+        var mine = LedgerFixtures.SeedAccount(db, "user-1");
+        var theirs = LedgerFixtures.SeedAccount(db, "user-2");
+        db.Jars.Add(new Jar { OwnerId = "user-1", Name = "Archived", TargetAmount = 100m, IsArchived = true, FundingAccountId = mine.Id });
+        db.Jars.Add(new Jar { OwnerId = "user-2", Name = "Foreign", TargetAmount = 100m, FundingAccountId = theirs.Id });
         db.SaveChanges();
         var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
 
@@ -174,10 +177,10 @@ public class JarBudgetLinkTests
     // ---- CreateJar -----------------------------------------------------------
 
     [Fact]
-    [Trait("LedgerModel", "LegacyPlanned")]
-    public async Task CreateJar_PlantsItsLineInTheCurrentAndFutureMonths()
+    public async Task CreateJar_PlantsItsLineInTheCurrentAndFutureMonths_WithoutCountingThemAsMoney()
     {
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
         var now = DateTime.UtcNow;
         var next = new DateOnly(now.Year, now.Month, 1).AddMonths(1);
         SeedMonth(db, "user-1", now.Year, now.Month, withSavingsGroup: true);
@@ -186,34 +189,34 @@ public class JarBudgetLinkTests
 
         var dto = await handler.Handle(
             new CreateJarCommand("New Sofa", JarKind.Goal, 1200m, null, null, null,
-                AccrualMethod.TargetByDate, 0m, null, null),
+                AccrualMethod.TargetByDate, account.Id),
             CancellationToken.None);
 
         var lines = db.BudgetItems.Where(i => i.SavingsId == dto.Id).ToList();
         lines.Should().HaveCount(2);
         lines.Should().OnlyContain(l => l.Name == "New Sofa");
-        // Legacy characterisation, not accepted accounting: W01 must replace the
-        // plan-as-money expectations while retaining the line-creation protection.
-        // Each month is currently planned the way month creation would have seeded it — the
-        // open-ended remaining ÷ 12, with earlier plantings folded in:
-        // month 1 = 1200/12 = 100; month 2 = (1200−100)/12 = 91.67.
+        // Each month is planned the way month creation would have seeded it — the open-ended
+        // remaining ÷ 12, with the earlier planting folded into the plan: month 1 = 1200/12 = 100;
+        // month 2 = (1200−100)/12 = 91.67.
         lines.Select(l => l.PlannedAmount).Order().Should().Equal(91.67m, 100m);
-        // The DTO reports what the Jars page will derive from those rows.
-        dto.CurrentBalance.Should().Be(191.67m);
-        dto.RequiredMonthlyContribution.Should().Be(84.03m); // (1200 − 191.67) / 12
+        // Rule 1: the planted lines are plans, not money. The jar holds nothing until money is
+        // allocated to it, and the required contribution is worked out from that empty balance.
+        dto.CurrentBalance.Should().Be(0m);
+        dto.RequiredMonthlyContribution.Should().Be(100m); // 1200 / 12
     }
 
     [Fact]
     public async Task CreateJar_CreatesTheSavingsGroup_WhenTheMonthHasNone()
     {
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
         var now = DateTime.UtcNow;
         SeedMonth(db, "user-1", now.Year, now.Month);
         var handler = new CreateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         await handler.Handle(
             new CreateJarCommand("Boiler", JarKind.Recurring, 900m, null, null, null,
-                AccrualMethod.TargetByDate, 0m, null, null),
+                AccrualMethod.TargetByDate, account.Id),
             CancellationToken.None);
 
         var savings = db.BudgetCategories.Single(c => c.Kind == CategoryKind.Savings);
@@ -222,53 +225,52 @@ public class JarBudgetLinkTests
     }
 
     [Fact]
-    public async Task CreateJar_WithNoBudgetMonths_JustCreatesTheJar()
+    public async Task CreateJar_WithNoBudgetMonths_JustCreatesTheJar_AndItsInitialAllocation()
     {
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1", opening: 100m);
         var handler = new CreateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         var dto = await handler.Handle(
             new CreateJarCommand("Boiler", JarKind.Recurring, 900m, null, null, null,
-                AccrualMethod.TargetByDate, 50m, null, null),
+                AccrualMethod.TargetByDate, account.Id, InitialAllocation: 50m),
             CancellationToken.None);
 
         db.Jars.Should().ContainSingle();
         db.BudgetItems.Should().BeEmpty();
+        // Rule 77: the 50 divides the account's 100; it is not a deposit.
         dto.CurrentBalance.Should().Be(50m);
+        db.JarAllocations.Should().ContainSingle().Which.Kind.Should().Be(JarAllocationKind.InitialAllocation);
     }
 
     [Fact]
     public async Task CreateJar_LeavesPastMonthsUntouched()
     {
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
         var past = new DateOnly(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1).AddMonths(-1);
         SeedMonth(db, "user-1", past.Year, past.Month, withSavingsGroup: true);
         var handler = new CreateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         await handler.Handle(
             new CreateJarCommand("Boiler", JarKind.Recurring, 900m, null, null, null,
-                AccrualMethod.TargetByDate, 0m, null, null),
+                AccrualMethod.TargetByDate, account.Id),
             CancellationToken.None);
 
         db.BudgetItems.Should().BeEmpty();
     }
 
-    // ---- Registration seeder -------------------------------------------------
-
     [Fact]
-    public async Task Seeder_MakesARealSavingsGroup_BackedByAJar()
+    public async Task CreateJar_RefusesAnUnknownAccount()
     {
+        // Rule 73: the jar's account must exist (an enforced FK on SQL Server).
         await using var db = NewContext();
+        var handler = new CreateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
-        await BudgetSeeder.SeedDefaultMonthAsync(db, "user-1", 2026, 7);
-
-        var savings = db.BudgetCategories.Single(c => c.Name == "Savings");
-        savings.Kind.Should().Be(CategoryKind.Savings);
-        var line = db.BudgetItems.Single(i => i.BudgetCategoryId == savings.Id);
-        line.Name.Should().Be("Emergency Fund");
-        var jar = db.Jars.Single();
-        jar.Id.Should().Be(line.SavingsId!.Value);
-        jar.Name.Should().Be("Emergency Fund");
-        jar.OwnerId.Should().Be("user-1");
+        await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
+            new CreateJarCommand("Boiler", JarKind.Recurring, 900m, null, null, null,
+                AccrualMethod.TargetByDate, Guid.NewGuid()),
+            CancellationToken.None));
+        db.Jars.Should().BeEmpty();
     }
 }

@@ -11,10 +11,11 @@ namespace AllotJar.Domain.Entities;
 /// <see cref="BudgetItem"/> in a <see cref="CategoryKind.Savings"/> group whose
 /// <see cref="BudgetItem.SavingsId"/> equals this fund's <see cref="BaseEntity.Id"/>.
 ///
-/// The running balance is NOT stored here — it is derived at read time as
-/// <see cref="OpeningBalance"/> plus every contribution minus every spend across all
-/// months (see AllotJar.Application.Budgets.BudgetActuals), so it rolls over without
-/// drifting. This entity holds only the fund's definition.
+/// The actual balance is NOT stored here — it is derived at read time from the
+/// designated account's recorded money and the jar allocations posted against it
+/// (see AllotJar.Domain.Services.ActualSavingsLedger and the Application JarLedgerReader).
+/// Planned contributions never count as money (rule 1). This entity holds only the
+/// jar's definition.
 /// </summary>
 public class Jar : BaseEntity
 {
@@ -50,37 +51,13 @@ public class Jar : BaseEntity
     public int? RecurMonths { get; set; }
 
     /// <summary>
-    /// Progress already accumulated before tracked contributions begin — used to seed
-    /// historical progress at import without importing pre-history. Mapped to decimal(18,4).
+    /// The account that holds this jar's money (rule 2): every jar has exactly one, chosen at
+    /// creation (rule 73), and its balance is the allocations posted within that account's
+    /// ledger. An enforced foreign key; changing it requires a zero balance (rule 80).
     /// </summary>
-    public decimal OpeningBalance { get; set; }
-
-    /// <summary>The date <see cref="OpeningBalance"/> was measured as of. Null when there is no opening.</summary>
-    public DateOnly? OpeningAsOf { get; set; }
-
-    /// <summary>
-    /// The physical account that holds this fund's cash, if any. A soft hint for the UI
-    /// and reconciliation only — intentionally NOT a foreign key, so the budget envelope
-    /// and the account ledger stay independent (see the two-ledger reconciliation design).
-    /// </summary>
-    public Guid? FundingAccountId { get; set; }
+    public Guid FundingAccountId { get; set; }
+    public Account? FundingAccount { get; set; }
 
     /// <summary>Archived funds are hidden from active budgeting but kept so past months still reconcile.</summary>
     public bool IsArchived { get; set; }
-
-    /// <summary>
-    /// The jar backing an organically-created savings line (added on the Budget page,
-    /// seeded by a quick-start template, or the registration starter budget). Every
-    /// Savings-kind line MUST reference a real jar — <see cref="BudgetItem.SavingsId"/>
-    /// is an enforced foreign key to <see cref="BaseEntity.Id"/> — so line creation
-    /// goes through here rather than minting a bare Guid. Starts as an open-ended
-    /// <see cref="JarKind.Goal"/> with no target; the user shapes it on the Jars page.
-    /// </summary>
-    public static Jar ForSavingsLine(string ownerId, string name) => new()
-    {
-        OwnerId = ownerId,
-        Name = name,
-        Kind = JarKind.Goal,
-        Accrual = AccrualMethod.TargetByDate,
-    };
 }

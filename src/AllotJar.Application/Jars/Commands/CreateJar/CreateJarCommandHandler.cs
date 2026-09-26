@@ -27,7 +27,10 @@ public class CreateJarCommandHandler
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
-        var fund = new Jar
+        var account = await JarAccounts.LoadDesignatedAsync(_db, userId, request.FundingAccountId, "FundingAccountId", cancellationToken);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        var jar = new Jar
         {
             OwnerId = userId,
             Name = request.Name.Trim(),
@@ -40,22 +43,94 @@ public class CreateJarCommandHandler
             // Recurring jars carry their cycle length (yearly unless told otherwise);
             // Goals are one-and-done and never roll.
             RecurMonths = request.Kind == JarKind.Recurring ? request.RecurMonths ?? 12 : null,
-            OpeningBalance = request.OpeningBalance,
-            OpeningAsOf = request.OpeningAsOf,
-            FundingAccountId = request.FundingAccountId,
+            FundingAccountId = account.Id,
         };
 
-        _db.Jars.Add(fund);
+        // Rule 77: "already set aside" divides money that is in the account on the chosen date;
+        // it must be covered by the account's unallocated funds as of that date (rule 68) and
+        // leave every positive jar backed (rule 70). Serialised per account so two setups cannot
+        // both claim the same unallocated money.
+        var allocated = 0m;
+        if (request.InitialAllocation > 0m)
+        {
+            var date = request.InitialAllocationDate ?? today;
+            if (date > today)
+            {
+                throw JarAccounts.Validation("InitialAllocationDate", "Money already set aside cannot be dated in the future.");
+            }
+            if (account.OpeningDate is DateOnly opening && date < opening)
+            {
+                throw JarAccounts.Validation("InitialAllocationDate",
+                    $"{account.Name} opens on {opening:yyyy-MM-dd}; money cannot be set aside before that.");
+            }
 
-        var asOf = DateOnly.FromDateTime(DateTime.UtcNow);
+            await using var write = await _db.BeginLedgerWriteAsync(account.Id, cancellationToken);
+            var snapshot = await JarLedgerReader.ReadAsync(_db, userId, date, cancellationToken, new[] { account.Id });
+            if (!snapshot.Accounts.TryGetValue(account.Id, out var view) || !view.IsAvailable)
+            {
+                // The account backs no jar yet or its balance is unavailable: read it directly.
+                view = await ReadFreshAsync(userId, account, date, cancellationToken)
+                    ?? throw JarAccounts.Validation("InitialAllocationDate",
+                        $"{account.Name}'s balance is not available on {date:yyyy-MM-dd}.");
+            }
+            var postings = new List<JarLedgerPosting>
+            {
+                new(jar.Id, request.InitialAllocation),
+                new(null, -request.InitialAllocation),
+            };
+            try
+            {
+                JarReallocationRules.Validate(view.Ledger, null, request.InitialAllocation, requiresBankTransfer: false);
+                JarReallocationRules.ValidateResult(JarLedgerReader.Apply(view, postings));
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw JarAccounts.Validation("InitialAllocation",
+                    $"{account.Name} has {view.Unallocated:0.##} unallocated on {date:yyyy-MM-dd}. {ex.Message}");
+            }
 
-        // Land the jar's contribution line in every already-created month from the
-        // current one forward, so it starts filling without a manual Budget-page step
-        // (months created later get their line from month creation). Past months are
-        // history and stay untouched. Each month's planned amount is recomputed with
-        // the earlier plantings folded in — the same figure month creation would have
-        // seeded had the months been created after the jar. Only the Savings groups
-        // are needed, read-only: all writes go through the DbSets in SavingsLines.
+            // The jar is staged only once its allocation passed: a context reused after a refusal
+            // must never persist a jar without the money it claimed.
+            _db.Jars.Add(jar);
+            _db.JarAllocations.Add(new JarAllocation
+            {
+                OwnerId = userId,
+                AccountId = account.Id,
+                Kind = JarAllocationKind.InitialAllocation,
+                Date = date,
+                CreatedUtc = DateTime.UtcNow,
+                Postings = postings.Select(p => new JarAllocationPosting { JarId = p.JarId, Amount = p.Amount }).ToList(),
+            });
+            allocated = request.InitialAllocation;
+            await PlantLinesAsync(userId, jar, today, allocated, cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
+            if (write is not null)
+            {
+                await write.CommitAsync(cancellationToken);
+            }
+        }
+        else
+        {
+            _db.Jars.Add(jar);
+            await PlantLinesAsync(userId, jar, today, 0m, cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        // Report the figures the Jars page will derive from the rows just written, so the
+        // card doesn't change on the next load.
+        var result = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken, new[] { account.Id });
+        return jar.ToDto(result);
+    }
+
+    /// <summary>
+    /// Land the jar's contribution line in every already-created month from the current one
+    /// forward, so it starts filling without a manual Budget-page step (months created later
+    /// get their line from month creation). Past months are history and stay untouched. Each
+    /// month's planned amount is recomputed with the earlier plantings folded in — the same
+    /// figure month creation would have seeded had the months been created after the jar.
+    /// </summary>
+    private async Task PlantLinesAsync(string userId, Jar jar, DateOnly asOf, decimal balance, CancellationToken cancellationToken)
+    {
         var months = await _db.BudgetMonths
             .AsNoTracking()
             .Include(m => m.Categories.Where(c => c.Kind == CategoryKind.Savings))
@@ -68,17 +143,30 @@ public class CreateJarCommandHandler
         foreach (var month in months)
         {
             var monthPlanned = JarAccrualCalculator.RequiredMonthlyContribution(
-                fund, new DateOnly(month.Year, month.Month, 1), fund.OpeningBalance + planted);
-            SavingsLines.AppendJarLine(_db, month, fund, monthPlanned);
+                jar, new DateOnly(month.Year, month.Month, 1), balance + planted);
+            SavingsLines.AppendJarLine(_db, month, jar, monthPlanned);
             planted += monthPlanned;
         }
+    }
 
-        await _db.SaveChangesAsync(cancellationToken);
-
-        // Report the same figures the Jars page will derive from the rows just
-        // written, so the card doesn't change on the next load.
-        var balance = fund.OpeningBalance + planted;
-        var required = JarAccrualCalculator.RequiredMonthlyContribution(fund, asOf, balance);
-        return fund.ToDto(balance, required, asOf);
+    /// <summary>An account that backs no jar yet has no snapshot entry; read its money alone.</summary>
+    private async Task<JarLedgerView?> ReadFreshAsync(string userId, Account account, DateOnly date, CancellationToken cancellationToken)
+    {
+        if (account.OpeningDate is not DateOnly opening || date < opening)
+        {
+            return null;
+        }
+        var ledger = await Accounts.AccountLedgerReader.ReadAsync(_db, userId, new[] { account }, date, cancellationToken);
+        var view = ledger[account.Id];
+        if (view.Balance is not decimal balance)
+        {
+            return null;
+        }
+        // No jar yet means every movement is unallocated: the whole balance is free.
+        return new JarLedgerView(date, account,
+            new SavingsLedgerBalance(date, balance, new Dictionary<Guid, decimal>(), balance)
+            {
+                PendingTransferReceipts = view.PendingReceipts,
+            }, false, 0);
     }
 }

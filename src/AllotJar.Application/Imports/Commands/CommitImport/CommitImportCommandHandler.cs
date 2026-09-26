@@ -73,6 +73,8 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         var wholeLines = await _db.BudgetItems
             .Include(i => i.BudgetCategory)
                 .ThenInclude(c => c.BudgetMonth)
+            .Include(i => i.Jar)
+                .ThenInclude(j => j!.FundingAccount)
             .Where(i => wholeLineIds.Contains(i.Id))
             .ToDictionaryAsync(i => i.Id, cancellationToken);
 
@@ -194,7 +196,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             if (!isSplit && item.BudgetItemId is Guid lineId)
             {
                 TransactionInvariants.EnsureWholeLineAssignable(
-                    wholeLines[lineId], userId, type, item.Date, item.AcknowledgeCrossMonth, "Items");
+                    wholeLines[lineId], userId, type, item.Date, item.AcknowledgeCrossMonth, "Items", request.AccountId);
             }
 
             var transaction = new Transaction
@@ -223,7 +225,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 await TransactionInvariants.ValidateSlicesAsync(
                     _db, userId, type, item.Amount, slices,
                     item.Date, item.AcknowledgeCrossMonth,
-                    errorKey: "Items", cancellationToken);
+                    errorKey: "Items", cancellationToken, request.AccountId);
 
                 foreach (var slice in item.Splits!)
                 {

@@ -131,7 +131,6 @@ await BackfillMembershipsAsync(app);
 await BackfillOwnerMembersAsync(app);
 
 // Repair pre-#142 starter budgets whose "Savings" group defaulted to Expense (idempotent).
-await BackfillStarterSavingsKindAsync(app);
 
 // State plainly, once, which outbound-email provider actually resolved. Without this, "is email
 // live?" is only answerable by triggering a reset and waiting to see if one arrives — and a
@@ -243,20 +242,6 @@ static async Task BackfillOwnerMembersAsync(WebApplication app)
 
 // Converts pre-#142 starter "Savings" groups that defaulted to Expense-kind into real, jar-backed
 // savings envelopes. Idempotent and non-fatal: households already on the correct shape are untouched.
-static async Task BackfillStarterSavingsKindAsync(WebApplication app)
-{
-    using var scope = app.Services.CreateScope();
-    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-    try
-    {
-        await StarterSavingsKindSeeder.BackfillAsync(db);
-    }
-    catch (Exception ex)
-    {
-        logger.LogWarning(ex, "Starter savings-kind backfill failed; continuing startup.");
-    }
-}
 
 // Reports the resolved outbound-email provider at startup. LoggingEmailSender means NOTHING is
 // actually delivered (no key, or an incomplete/unrecognised Email:Provider) — that's a warning in

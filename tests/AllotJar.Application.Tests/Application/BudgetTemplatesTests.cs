@@ -51,28 +51,33 @@ public class BudgetTemplatesTests
 
         dto.Categories.Should().Contain(c => c.Kind == "Income");
         dto.Categories.Should().Contain(c => c.Name == "Housing" && c.Kind == "Expense");
-        dto.Categories.Should().Contain(c => c.Kind == "Savings"); // Savings (Emergency Fund)
+        dto.Categories.Should().NotContain(c => c.Kind == "Savings"); // rule 81: no savings lines in a template
         dto.Categories.SelectMany(c => c.Items).Should().OnlyContain(i => i.PlannedAmount == 0m);
         dto.RemainingToBudget.Should().Be(0m); // nothing planned yet
     }
 
-    [Fact]
-    public async Task CreateMonth_FromTemplate_GivesFundLinesAFundId()
+    [Theory]
+    [InlineData("essentials")]
+    [InlineData("student")]
+    [InlineData("family")]
+    public async Task CreateMonth_FromTemplate_CreatesNoSavingsLinesAndNoJars(string templateKey)
     {
+        // Rule 81: templates keep income/expense structure only; a jar needs its account and is
+        // created through the jar form, so no template line ever carries a SavingsId.
         await using var db = NewContext();
         var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
 
         await handler.Handle(
-            new CreateBudgetMonthCommand(2026, 6, CopyFromPrevious: false, TemplateKey: "essentials"),
+            new CreateBudgetMonthCommand(2026, 6, CopyFromPrevious: false, TemplateKey: templateKey),
             CancellationToken.None);
 
-        var fundLines = await db.BudgetItems
+        var savingsLines = await db.BudgetItems
             .Include(i => i.BudgetCategory)
-            .Where(i => i.BudgetCategory.Kind == CategoryKind.Savings)
+            .Where(i => i.BudgetCategory.Kind == CategoryKind.Savings || i.SavingsId != null)
             .ToListAsync();
 
-        fundLines.Should().NotBeEmpty();
-        fundLines.Should().OnlyContain(i => i.SavingsId != null);
+        savingsLines.Should().BeEmpty();
+        db.Jars.Should().BeEmpty();
     }
 
     [Fact]

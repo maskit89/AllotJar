@@ -14,4 +14,8 @@ public record UpdateAccountCommand(
     string Name,
     AccountType Type,
     decimal OpeningBalance,
-    DateOnly? OpeningDate) : IRequest<AccountDto>;
+    DateOnly? OpeningDate,
+    string? Iban = null,
+    string? Bic = null,
+    string? SortCode = null,
+    string? AccountNumber = null) : IRequest<AccountDto>;

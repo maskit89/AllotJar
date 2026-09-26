@@ -79,6 +79,17 @@ export function AccountDetailPage() {
     [transactions, id],
   )
   const currency = account?.currency ?? 'EUR'
+  // Optional bank identifiers (rule 76) — shown only when recorded.
+  const identifiers: Array<[string, string]> = account
+    ? (
+        [
+          ['IBAN', account.iban],
+          ['BIC', account.bic],
+          ['Sort code', account.sortCode],
+          ['Account number', account.accountNumber],
+        ] as Array<[string, string | null | undefined]>
+      ).filter((row): row is [string, string] => typeof row[1] === 'string' && row[1].trim() !== '')
+    : []
   // Null = unavailable (no opening date, rule 67): shown as such, never as zero.
   const balanceMinor = account && account.currentBalance !== null ? fromAmount(account.currentBalance) : null
 
@@ -131,6 +142,20 @@ export function AccountDetailPage() {
               ) : undefined
             }
           />
+
+          {identifiers.length > 0 && (
+            <Card as="section" aria-labelledby="account-details-heading" className="p-5">
+              <h2 id="account-details-heading" className="text-sm font-semibold text-slate-700">Account details</h2>
+              <dl className="mt-2 grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
+                {identifiers.map(([label, value]) => (
+                  <div key={label} className="flex justify-between gap-3 sm:block">
+                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
+                    <dd className="font-mono text-slate-800">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </Card>
+          )}
 
           <Card className="overflow-hidden">
             <div className="overflow-x-auto">

@@ -27,11 +27,34 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<TransactionSplit> TransactionSplits => Set<TransactionSplit>();
     public DbSet<Account> Accounts => Set<Account>();
     public DbSet<Jar> Jars => Set<Jar>();
+    public DbSet<JarAllocation> JarAllocations => Set<JarAllocation>();
+    public DbSet<JarAllocationPosting> JarAllocationPostings => Set<JarAllocationPosting>();
     public DbSet<HouseholdMember> HouseholdMembers => Set<HouseholdMember>();
     public DbSet<HouseholdMembership> HouseholdMemberships => Set<HouseholdMembership>();
     public DbSet<AllocationProfile> AllocationProfiles => Set<AllocationProfile>();
     public DbSet<AllocationRule> AllocationRules => Set<AllocationRule>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
+    /// <inheritdoc />
+    public async Task<ILedgerWrite?> BeginLedgerWriteAsync(Guid accountId, CancellationToken cancellationToken = default)
+    {
+        if (!Database.IsRelational())
+        {
+            return null;
+        }
+        var transaction = await Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken);
+        // Hold the account row until commit: a second writer on the same account waits here and
+        // then validates against the committed money, never against a stale read.
+        await Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT [Id] FROM [Accounts] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {accountId}", cancellationToken);
+        return new LedgerWrite(transaction);
+    }
+
+    private sealed class LedgerWrite(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction) : ILedgerWrite
+    {
+        public Task CommitAsync(CancellationToken cancellationToken) => transaction.CommitAsync(cancellationToken);
+        public ValueTask DisposeAsync() => transaction.DisposeAsync();
+    }
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

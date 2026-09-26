@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import { useAuth } from '../auth/AuthContext'
 import { AppShell } from '../components/AppShell'
 import type {
+  AccountDto,
   BudgetMonthDto,
   BudgetMonthSummaryDto,
   BudgetTemplateDto,
@@ -39,8 +41,10 @@ import {
 import { currencyNoun, formatMoney, fromAmount, sumMinor, toAmount, type Minor } from '../lib/money'
 import { jarStatusChip } from '../lib/jarStatus'
 import { Hero, BalancedBadge } from '../components/Hero'
-import { Badge, Card } from '../components/ui'
+import { Badge, Button, Card } from '../components/ui'
 import { Jar } from '../components/Jar'
+import { JarFormModal } from '../components/JarFormModal'
+import { CheckIcon } from '../components/icons'
 import { hueForIndex } from '../lib/categoryColors'
 import { CategoryAccordion } from '../components/CategoryAccordion'
 import { SavingsGroup } from '../components/SavingsGroup'
@@ -55,7 +59,7 @@ const MONTH_NAMES = [
 
 export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // Building/editing the budget (groups, lines, months) needs Admin+ (canWrite).
-  const { canWrite } = useAuth()
+  const { canWrite, preferredCurrency } = useAuth()
   // Who earns each income line — shown only once the household is shared.
   const { isShared, members: householdMembers } = useHousehold()
   // The viewed month comes from the app-wide top bar (MonthContext).
@@ -73,6 +77,12 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   const [templates, setTemplates] = useState<BudgetTemplateDto[]>([])
   // The "Your jars" shelf — the household's jars, with goal progress.
   const [jars, setJars] = useState<JarDto[]>([])
+  // The household's accounts: a jar needs one (rule 73), and the first-run checklist
+  // (rule 81) starts with them.
+  const [accounts, setAccounts] = useState<AccountDto[]>([])
+  const [accountsLoaded, setAccountsLoaded] = useState(false)
+  // The shared jar form (rule 73), opened from a Savings group or the checklist.
+  const [jarFormOpen, setJarFormOpen] = useState(false)
 
   // Load the viewed month whenever it changes; a 404 means "no budget yet".
   useEffect(() => {
@@ -102,6 +112,18 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     }
   }, [year, monthNum])
 
+  // Re-read the viewed month in place (no loading flash): after a jar is created the
+  // server plants its contribution line, which only a fresh GET can show.
+  const refreshMonth = useCallback(async () => {
+    try {
+      const { data } = await api.get<BudgetMonthDto>(`/budget/${year}/${monthNum}`)
+      setMonth(fromDto(data))
+      setNotFound(false)
+    } catch (err) {
+      if ((err as { response?: { status?: number } })?.response?.status === 404) setNotFound(true)
+    }
+  }, [year, monthNum])
+
   const refreshMonths = useCallback(() => {
     api
       .get<BudgetMonthSummaryDto[]>('/budget/months')
@@ -119,14 +141,37 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       .catch(() => {})
   }, [])
 
-  // The sinking-fund jars for the "Your jars" shelf — load once. Guarded so a
-  // non-array (or a failed fetch) leaves the shelf empty rather than throwing.
-  useEffect(() => {
+  // The jars for the "Your jars" shelf — load once, and again after one is created.
+  // Guarded so a non-array (or a failed fetch) leaves the shelf empty rather than throwing.
+  const refreshJars = useCallback(() => {
     api
       .get<JarDto[]>('/jars')
       .then(({ data }) => setJars(Array.isArray(data) ? data : []))
       .catch(() => {})
   }, [])
+
+  useEffect(() => refreshJars(), [refreshJars])
+
+  // The accounts a jar can be held in, and the checklist's first step.
+  useEffect(() => {
+    let cancelled = false
+    api
+      .get<AccountDto[]>('/accounts')
+      .then(({ data }) => !cancelled && setAccounts(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => !cancelled && setAccountsLoaded(true))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // A jar created here (from a Savings group or the checklist) plants its line in the
+  // month server-side: re-read the month so it appears, and refresh the shelf.
+  const onJarCreated = useCallback(() => {
+    setJarFormOpen(false)
+    void refreshMonth()
+    refreshJars()
+  }, [refreshMonth, refreshJars])
 
   // The most recent month strictly before the viewed one — what "copy" actually
   // copies (which may not be literally last month, if a month was skipped).
@@ -492,6 +537,62 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     [month],
   )
 
+  // The checklist's steps and their done state, or null once all three are done.
+  const checklist = useMemo(() => {
+    const hasAccounts = accounts.length > 0
+    const hasMonth = month !== null
+    const hasJars = jars.length > 0
+    if (hasAccounts && hasMonth && hasJars) return null
+    return [
+      {
+        id: 'accounts',
+        label: 'Add your accounts with their opening balances',
+        done: hasAccounts,
+        action: (
+          <Link to="/accounts" className="text-sm font-semibold text-brand-700 hover:underline dark:text-brand-200">
+            Go to accounts
+          </Link>
+        ),
+      },
+      {
+        id: 'month',
+        label: "Create this month's budget",
+        done: hasMonth,
+        action: (
+          <Button
+            size="sm"
+            variant="secondary"
+            aria-label="Create this month's budget"
+            onClick={() => {
+              const target = document.getElementById('start-blank-budget') ?? document.getElementById('create-month')
+              target?.scrollIntoView?.({ block: 'center' })
+              ;(target as HTMLElement | null)?.focus?.()
+            }}
+          >
+            Create budget
+          </Button>
+        ),
+      },
+      {
+        id: 'jar',
+        label: 'Add a jar from an account',
+        done: hasJars,
+        action: (
+          <Button
+            size="sm"
+            variant="secondary"
+            aria-label="Add a jar from an account"
+            disabled={!hasAccounts}
+            title={hasAccounts ? undefined : 'Add an account first — a jar’s money is held in an account'}
+            onClick={() => setJarFormOpen(true)}
+          >
+            Add jar
+          </Button>
+        ),
+      },
+    ]
+  }, [accounts.length, month, jars.length])
+
   function submitNewCategory() {
     const trimmed = newCategoryName.trim()
     if (trimmed === '') return
@@ -510,6 +611,34 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           </div>
         )}
 
+        {/* First-run checklist (rule 81): accounts first, then the month, then a jar from an
+            account. Shown until every step is done; state comes from data already loaded. */}
+        {canWrite && !loading && accountsLoaded && checklist && (
+          <Card as="section" aria-labelledby="setup-heading" className="p-5">
+            <h2 id="setup-heading" className="text-base font-bold tracking-[-0.01em] text-slate-900">Set up your budget</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Three steps, in order — your money lives in accounts, your plan in the month, and your savings in jars held in those accounts.
+            </p>
+            <ol className="mt-3 space-y-2">
+              {checklist.map((step) => (
+                <li key={step.id} className="flex flex-wrap items-center gap-2 text-sm">
+                  <span
+                    aria-hidden
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+                      step.done ? 'bg-brand-600 text-white' : 'border border-slate-300 text-transparent'
+                    }`}
+                  >
+                    <CheckIcon className="h-3 w-3" />
+                  </span>
+                  <span className={step.done ? 'text-slate-500 line-through' : 'text-slate-800'}>{step.label}</span>
+                  <span className="sr-only">{step.done ? '(done)' : '(to do)'}</span>
+                  {!step.done && step.action}
+                </li>
+              ))}
+            </ol>
+          </Card>
+        )}
+
         {notFound && !loading && !canWrite && (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-surface px-6 py-12 text-center shadow-card">
             <p className="text-slate-600">
@@ -522,7 +651,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         )}
 
         {notFound && !loading && canWrite && (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-surface px-6 py-12 text-center shadow-card">
+          <div id="create-month" className="rounded-2xl border border-dashed border-slate-300 bg-surface px-6 py-12 text-center shadow-card">
             <p className="text-slate-600">
               No budget for {MONTH_NAMES[monthNum - 1]} {year} yet.
             </p>
@@ -539,6 +668,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
               )}
               <button
                 type="button"
+                id="start-blank-budget"
                 onClick={() => createMonth(false)}
                 disabled={creating}
                 className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
@@ -592,7 +722,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           const empty = incomeMinor === 0 && allottedMinor === 0
           const balanced = isBalanced(month)
           const over = remainingMinor < 0
-          const totalSavedMinor = jars.reduce((s, f) => s + fromAmount(f.currentBalance), 0)
+          // Only jars whose balance is known count; an unavailable one reads as such (rule 67).
+          const totalSavedMinor = jars.reduce((s, f) => s + (f.currentBalance === null ? 0 : fromAmount(f.currentBalance)), 0)
           // The jars shelf shows all-time (today's) balances, which only line up with
           // the month-scoped savings lines on the current month — so it's shown there only.
           const isCurrentMonth = today.getFullYear() === year && today.getMonth() + 1 === monthNum
@@ -685,9 +816,9 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                 </div>
                 <div className="mt-[22px] grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(116px,1fr))]">
                   {jars.map((f, i) => {
-                    const avail = fromAmount(f.currentBalance)
+                    const avail = f.currentBalance === null ? null : fromAmount(f.currentBalance)
                     const target = fromAmount(f.targetAmount)
-                    const pct = target > 0 ? (avail / target) * 100 : 0
+                    const pct = target > 0 && avail !== null ? (avail / target) * 100 : 0
                     const monthly = fromAmount(f.requiredMonthlyContribution)
                     const chip = jarStatusChip(f.status)
                     return (
@@ -700,8 +831,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                         />
                         <div className="text-center">
                           <div className="text-[13px] font-semibold text-slate-900">{f.name}</div>
-                          <div className="text-[13.5px] font-bold tabular-nums text-slate-900">
-                            {formatMoney(avail, month.currency)}
+                          <div className={`text-[13.5px] font-bold tabular-nums ${avail === null ? 'text-slate-500' : 'text-slate-900'}`}>
+                            {avail === null ? 'Not available' : formatMoney(avail, month.currency)}
                           </div>
                           {/* One status-aware line: an attention/funded chip wins, else the
                               monthly set-aside — so the shelf never contradicts the Jars page. */}
@@ -794,7 +925,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                   onCommitItem={commitItem}
                   onRenameItem={renameItem}
                   onDeleteItem={deleteItem}
-                  onAddItem={addItem}
+                  onAddJar={() => setJarFormOpen(true)}
                   onRenameCategory={renameCategory}
                   onDeleteCategory={deleteCategory}
                 />
@@ -867,6 +998,17 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           </>
           )
         })()}
+
+        {/* The one jar form (rule 73), also used by the Jars page. Mounted only while open. */}
+        {jarFormOpen && canWrite && (
+          <JarFormModal
+            jar={null}
+            accounts={accounts}
+            currency={month?.currency ?? preferredCurrency}
+            onClose={() => setJarFormOpen(false)}
+            onSaved={onJarCreated}
+          />
+        )}
     </AppShell>
   )
 }

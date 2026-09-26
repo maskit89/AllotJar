@@ -42,7 +42,7 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
         var items = await TransactionInvariants.ValidateSlicesAsync(
             _db, userId, transaction.Type, transaction.Amount, request.Allocations,
             transaction.Date, request.AcknowledgeCrossMonth,
-            errorKey: "Allocations", cancellationToken);
+            errorKey: "Allocations", cancellationToken, transaction.AccountId);
 
         // Replace any previous split, and drop BOTH whole-transaction attributions — line AND
         // member — since the slices carry them now. Leaving the whole-member in place would let

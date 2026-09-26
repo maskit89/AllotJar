@@ -38,7 +38,7 @@ public class BudgetItemConfiguration : IEntityTypeConfiguration<BudgetItem>
         // monthly instances). Deleting a fund detaches its lines — they become ordinary
         // lines rather than deleting budget history — mirroring Transaction -> BudgetItem.
         // No navigation property: keeps BudgetItem unaware of the fund definition.
-        builder.HasOne<Jar>()
+        builder.HasOne(i => i.Jar)
             .WithMany()
             .HasForeignKey(i => i.SavingsId)
             .OnDelete(DeleteBehavior.SetNull);

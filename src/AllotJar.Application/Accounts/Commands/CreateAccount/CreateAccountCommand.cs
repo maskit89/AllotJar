@@ -13,4 +13,8 @@ public record CreateAccountCommand(
     AccountType Type,
     string Currency,
     decimal OpeningBalance,
-    DateOnly? OpeningDate) : IRequest<AccountDto>;
+    DateOnly? OpeningDate,
+    string? Iban = null,
+    string? Bic = null,
+    string? SortCode = null,
+    string? AccountNumber = null) : IRequest<AccountDto>;

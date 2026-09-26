@@ -37,6 +37,19 @@ public static class JarReallocationRules
         return requiresBankTransfer ? Math.Min(available, source.AccountBalance!.Value) : available;
     }
 
+    /// <summary>The selected source's available money for a same-account move, or zero when it cannot be read.</summary>
+    public static decimal AvailableAmountOrZero(SavingsLedgerBalance source, Guid? sourceJarId)
+    {
+        try
+        {
+            return AvailableAmount(source, sourceJarId, requiresBankTransfer: false);
+        }
+        catch (InvalidOperationException)
+        {
+            return 0m;
+        }
+    }
+
     /// <summary>
     /// Checks only the selected source. A source check alone cannot authorise a move:
     /// ValidateResult must also check every resulting account, including the destination.

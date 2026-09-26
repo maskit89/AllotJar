@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import type { BudgetMonthDto, BudgetTemplateDto } from '../types'
+import type { AccountDto, BudgetMonthDto, BudgetTemplateDto, JarDto } from '../types'
 
 // Control the API from the tests. vi.hoisted lets the mock factory below
 // reference these before the module under test is imported.
@@ -495,6 +495,155 @@ describe('DashboardPage optimistic editing', () => {
 
     expect(await screen.findByText(/1 overdue/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByTitle(/Overdue/)).toBeInTheDocument()
+  })
+})
+
+// Rule 73/81: a savings line is a jar, created through the shared jar form (which needs an
+// account); the Budget page shows a first-run checklist until accounts, month and a jar exist.
+describe('DashboardPage jars and first-run checklist', () => {
+  const JOINT: AccountDto = { id: 'acc1', name: 'Joint Current', type: 0, currency: 'EUR', openingBalance: 500, openingDate: '2026-01-01', currentBalance: 500, displayOrder: 0 }
+  const HOLIDAY: JarDto = {
+    id: 'jar-holiday', name: 'Holiday', kind: 1, targetAmount: 1200, targetDate: null, coverStart: null, coverEnd: null, accrual: 1, recurMonths: null,
+    fundingAccountId: 'acc1', isArchived: false, currentBalance: 100, balanceAsOf: '2026-06-15', requiredMonthlyContribution: 100, projectedFullyFundedDate: null, status: 'OnTrack',
+  }
+
+  function mockLoads(opts: { month?: BudgetMonthDto | null; accounts?: AccountDto[]; jars?: JarDto[] } = {}) {
+    const { month = budget(), accounts = [], jars = [] } = opts
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/budget/months' || url === '/budget/templates') return Promise.resolve({ data: [] })
+      if (url === '/accounts') return Promise.resolve({ data: accounts })
+      if (url === '/jars') return Promise.resolve({ data: jars })
+      if (/^\/budget\/\d+\/\d+$/.test(url)) {
+        return month ? Promise.resolve({ data: month }) : Promise.reject({ response: { status: 404 } })
+      }
+      return Promise.resolve({ data: {} })
+    })
+  }
+
+  function budgetWithSavings(available: number | null): BudgetMonthDto {
+    const b = budget()
+    b.categories.push({
+      id: 'sav', name: 'Savings', kind: 'Savings', displayOrder: 0, totalPlanned: 100, totalActual: 0,
+      items: [{ id: 'i-holiday', name: 'Holiday', displayOrder: 0, plannedAmount: 100, actualAmount: 0, remaining: 100, savingsId: 'jar-holiday', savingsAvailable: available }],
+    })
+    return b
+  }
+
+  beforeEach(() => {
+    mockGet.mockReset()
+    mockPut.mockReset()
+    mockPost.mockReset()
+    mockDelete.mockReset()
+    household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
+  })
+
+  it('replaces the savings "add line" input with an Add jar button that opens the jar form and posts to /jars', { timeout: 15000 }, async () => {
+    mockLoads({ month: budgetWithSavings(100), accounts: [JOINT], jars: [HOLIDAY] })
+    const planted = budgetWithSavings(100)
+    planted.categories[2].items.push({ id: 'i-car', name: 'Car', displayOrder: 1, plannedAmount: 50, actualAmount: 0, remaining: 50, savingsId: 'jar-car', savingsAvailable: 0 })
+    mockPost.mockResolvedValue({ data: { ...HOLIDAY, id: 'jar-car', name: 'Car', targetAmount: 600, currentBalance: 0, requiredMonthlyContribution: 50 } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    // No bare "add a savings goal" line input any more (a savings line is a jar).
+    await screen.findByLabelText('Rename group Savings', {}, { timeout: 5000 })
+    expect(screen.queryByLabelText('Add a savings goal to Savings')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Add a jar to Savings' }))
+
+    // The SAME jar form as the Jars page: account required, initial allocation on create.
+    const dialog = within(await screen.findByRole('dialog', { name: 'New jar' }, { timeout: 5000 }))
+    expect(dialog.getByLabelText('Funding account')).toHaveValue('acc1')
+    expect(dialog.getByLabelText('Already set aside')).toBeInTheDocument()
+    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
+    await user.type(dialog.getByLabelText('Jar name'), 'Car')
+    await user.type(dialog.getByLabelText('Target amount'), '600')
+    // After the POST the page re-reads the month (the server planted the line) and the jars.
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/jars') return Promise.resolve({ data: [HOLIDAY, { ...HOLIDAY, id: 'jar-car', name: 'Car' }] })
+      if (url === '/accounts') return Promise.resolve({ data: [JOINT] })
+      if (/^\/budget\/\d+\/\d+$/.test(url)) return Promise.resolve({ data: planted })
+      return Promise.resolve({ data: [] })
+    })
+    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
+
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ name: 'Car', kind: 1, targetAmount: 600, fundingAccountId: 'acc1', initialAllocation: 0 })),
+    )
+    // Never a bare line POST to the savings category.
+    expect(mockPost).not.toHaveBeenCalledWith(expect.stringMatching(/\/budget\/categories\/.*\/items/), expect.anything())
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(await screen.findByDisplayValue('Car', {}, { timeout: 5000 })).toBeInTheDocument()
+  })
+
+  it('shows a savings line\'s Available as "Not available" when the server sends null', { timeout: 15000 }, async () => {
+    mockLoads({ month: budgetWithSavings(null), accounts: [JOINT], jars: [{ ...HOLIDAY, currentBalance: null, status: 'Unavailable', requiredMonthlyContribution: 0 }] })
+
+    renderPage()
+
+    await screen.findByDisplayValue('Holiday', {}, { timeout: 5000 })
+    // The line keeps the savings layout (avail. column) and says so, never €0.00.
+    const row = screen.getByDisplayValue('Holiday').closest('.group')!
+    expect(within(row).getByText('Not available')).toBeInTheDocument()
+    expect(within(row).getByText('avail.')).toBeInTheDocument()
+  })
+
+  it('first-run checklist: nothing set up → three open steps, jar step disabled until an account exists', { timeout: 15000 }, async () => {
+    mockLoads({ month: null, accounts: [], jars: [] })
+
+    renderPage()
+
+    const card = within(await screen.findByRole('region', { name: 'Set up your budget' }, { timeout: 5000 }))
+    expect(card.getByText('Add your accounts with their opening balances')).toBeInTheDocument()
+    expect(card.getByText("Create this month's budget")).toBeInTheDocument()
+    expect(card.getByText('Add a jar from an account')).toBeInTheDocument()
+    expect(card.getAllByText('(to do)')).toHaveLength(3)
+    expect(card.getByRole('link', { name: 'Go to accounts' })).toHaveAttribute('href', '/accounts')
+    expect(card.getByRole('button', { name: "Create this month's budget" })).toBeEnabled()
+    // No account yet ⇒ a jar can't be created (rule 73).
+    expect(card.getByRole('button', { name: 'Add a jar from an account' })).toBeDisabled()
+  })
+
+  it('first-run checklist: accounts + month done leaves only the jar step, whose button opens the jar form', { timeout: 15000 }, async () => {
+    mockLoads({ month: budget(), accounts: [JOINT], jars: [] })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    const card = within(await screen.findByRole('region', { name: 'Set up your budget' }, { timeout: 5000 }))
+    expect(card.getByText('Add your accounts with their opening balances').closest('li')!.textContent).toContain('(done)')
+    expect(card.getByText("Create this month's budget").closest('li')!.textContent).toContain('(done)')
+    expect(card.getByText('Add a jar from an account').closest('li')!.textContent).toContain('(to do)')
+    // Done steps carry no action; the open one does.
+    expect(card.queryByRole('link', { name: 'Go to accounts' })).not.toBeInTheDocument()
+    const addJar = card.getByRole('button', { name: 'Add a jar from an account' })
+    expect(addJar).toBeEnabled()
+    await user.click(addJar)
+    expect(await screen.findByRole('dialog', { name: 'New jar' }, { timeout: 5000 })).toBeInTheDocument()
+  })
+
+  it('first-run checklist: hidden once accounts, the month and a jar all exist', { timeout: 15000 }, async () => {
+    mockLoads({ month: budgetWithSavings(100), accounts: [JOINT], jars: [HOLIDAY] })
+
+    renderPage()
+
+    await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })
+    expect(screen.queryByRole('region', { name: 'Set up your budget' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Set up your budget')).not.toBeInTheDocument()
+  })
+
+  it('first-run checklist: not shown to a read-only member', { timeout: 15000 }, async () => {
+    mockLoads({ month: null, accounts: [], jars: [] })
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/auth/me') return Promise.resolve({ data: { userId: 'u1', email: 'r@x.com', displayName: 'R', role: 3, ownerId: 'o1', memberId: null } })
+      if (url === '/budget/months' || url === '/budget/templates' || url === '/accounts' || url === '/jars') return Promise.resolve({ data: [] })
+      return Promise.reject({ response: { status: 404 } })
+    })
+
+    renderPage()
+
+    expect(await screen.findByText(/Ask an admin or the owner to set this month up/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.queryByText('Set up your budget')).not.toBeInTheDocument()
   })
 })
 

@@ -135,6 +135,17 @@ export const ACCOUNT_TYPE_LABELS: Record<number, string> = {
   4: 'Other',
 }
 
+/**
+ * The account types a user may pick (rule 75: credit cards are not accounts). The
+ * CreditCard enum value stays above so rows recorded before the change still label.
+ */
+export const ACCOUNT_TYPE_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
+  { value: AccountType.Current, label: 'Current' },
+  { value: AccountType.Savings, label: 'Savings' },
+  { value: AccountType.Cash, label: 'Cash' },
+  { value: AccountType.Other, label: 'Other' },
+]
+
 export interface AccountDto {
   id: string
   name: string
@@ -163,6 +174,11 @@ export interface AccountDto {
   /** True when the posted balance is flagged for review: it does not yet reflect a pending receipt. */
   requiresReview?: boolean
   displayOrder: number
+  /** Optional bank identifiers (rule 76); null/absent when not recorded. */
+  iban?: string | null
+  bic?: string | null
+  sortCode?: string | null
+  accountNumber?: string | null
 }
 
 /** A not-yet-imported transaction returned by the import preview, for review before commit. */
@@ -302,8 +318,10 @@ export interface AccountReconciliationDto {
   currentBalance: number | null
   backedJarsTotal: number
   backedJarCount: number
-  /** CurrentBalance − BackedJarsTotal: unallocated float (or shortfall when negative); null when the balance is unavailable. */
+  /** The account's unallocated money: balance minus every jar's signed balance (rule 3); null when the balance is unavailable. */
   float: number | null
+  /** True when positive jar balances exceed the account's money (rule 70): an explicit reallocation must cover the deficit. */
+  hasBackingDeficit?: boolean
   /** True when a pending transfer receipt means the posted balance is not yet reconcilable with the bank. */
   requiresReview?: boolean
 }
@@ -408,18 +426,52 @@ export interface JarDto {
   accrual: number
   /** A Recurring jar's cycle length in months (its date rolls forward by this); null for Goals. */
   recurMonths: number | null
-  openingBalance: number
-  openingAsOf: string | null
-  fundingAccountId: string | null
+  /** The account holding this jar's money (rule 2); always set. */
+  fundingAccountId: string
   isArchived: boolean
-  /** Opening balance plus every contribution minus every spend, across all months. */
-  currentBalance: number
-  /** What to put in this month, per the fund's accrual method. */
+  /**
+   * The jar's actual balance in its account as of `balanceAsOf`: the allocations posted
+   * against it, never planned contributions (rule 1). Null when the account's balance is
+   * unavailable (rule 67), never zero.
+   */
+  currentBalance: number | null
+  /** The date `currentBalance` is calculated as of. */
+  balanceAsOf: string
+  /** What to put in this month, per the fund's accrual method (0 when the balance is unavailable). */
   requiredMonthlyContribution: number
   /** When the fund reaches its target at the required rate; null when funded/open-ended. */
   projectedFullyFundedDate: string | null
-  /** Overspent | Unfunded | FullyFunded | Behind | OnTrack. */
+  /** Unavailable | Overspent | Unfunded | FullyFunded | Behind | OnTrack. */
   status: string
+}
+
+/** One jar's line in its account's ledger (GET /jars/ledger). */
+export interface JarLedgerLineDto {
+  jarId: string
+  name: string
+  balance: number
+  isArchived: boolean
+}
+
+/**
+ * One jar-backed account's ledger (rules 2–6, 70): its actual balance, each jar's allocated
+ * balance and the unallocated remainder, which always reconcile. Null money means unavailable.
+ */
+export interface JarAccountLedgerDto {
+  accountId: string
+  accountName: string
+  currency: string
+  asOf: string
+  accountBalance: number | null
+  unallocated: number | null
+  /** The sum of positive jar balances; must not exceed `accountBalance` (rule 70). */
+  positiveAllocations: number
+  /** True when positive jars exceed the account's money: an explicit reallocation is required before further moves. */
+  hasBackingDeficit: boolean
+  /** Stored transaction allocations that no longer match their transaction and were set aside for review. */
+  unreconciledAllocations: number
+  requiresReview: boolean
+  jars: JarLedgerLineDto[]
 }
 
 export interface HouseholdMemberDto {

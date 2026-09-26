@@ -1,93 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AppShell } from '../components/AppShell'
-import { Badge, Button, Card, EmptyState, ErrorBanner, Input, Select } from '../components/ui'
+import { Badge, Button, Card, EmptyState, ErrorBanner } from '../components/ui'
 import { Hero } from '../components/Hero'
-import { Modal } from '../components/Modal'
 import { Jar } from '../components/Jar'
-import { InfoHint } from '../components/InfoHint'
+import { JarFormModal } from '../components/JarFormModal'
+import { MoveMoneyModal } from '../components/MoveMoneyModal'
 import { JarsIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
-import { EVENTS, track } from '../analytics'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
-import type { AccountDto, JarDto } from '../types'
-import {
-  AccrualMethod,
-  JarKind,
-  JAR_KIND_LABELS,
-  RECUR_MONTHS_OPTIONS,
-} from '../types'
-import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
-import { selectOnFocusProps } from '../lib/selectOnFocus'
-import { formatDate } from '../lib/dates'
+import type { AccountDto, JarAccountLedgerDto, JarDto } from '../types'
+import { formatMoney, fromAmount } from '../lib/money'
 import { jarPaceLabel, jarStatusChip } from '../lib/jarStatus'
-
-const KIND_OPTIONS = Object.entries(JAR_KIND_LABELS).map(([value, label]) => ({ value: Number(value), label }))
-
-/** Parse a non-negative amount string into a wire decimal; '' → 0; null when invalid. */
-function parseAmount(input: string): number | null {
-  if (input.trim() === '') return 0
-  const minor = parseMinor(input)
-  return minor === null ? null : toAmount(minor)
-}
-
-/** Whole calendar months from the server's UTC today to an ISO date (yyyy-MM-dd). */
-function monthsFromNow(iso: string, now = new Date()): number {
-  const [y, m] = iso.split('-').map(Number)
-  return (y - now.getUTCFullYear()) * 12 + (m - (now.getUTCMonth() + 1))
-}
-
-/**
- * Whole months from today to the effective due date, mirroring the server's
- * recurrence roll: a Recurring jar whose date has passed re-arms to its next cycle,
- * so a past "Next due" spreads over the upcoming cycle rather than demanding the
- * whole remainder this month. Goals (and cycle-less jars) don't roll.
- */
-function monthsToEffectiveDue(iso: string, kind: number, recurMonths: number): number {
-  const now = new Date()
-  return monthsFromNow(effectiveDueIso(iso, kind, recurMonths, now), now)
-}
-
-/** Mirror EffectiveTargetDate: clamp each occurrence, always retaining the original anchor day. */
-function effectiveDueIso(iso: string, kind: number, recurMonths: number, now = new Date()): string {
-  // The API currently uses DateOnly.FromDateTime(DateTime.UtcNow). Match that
-  // basis until a household timezone policy is agreed, including near midnight.
-  const today = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
-  if (kind !== JarKind.Recurring || recurMonths < 1 || iso >= today) return iso
-  const [y, m, d] = iso.split('-').map(Number)
-  let cycles = Math.floor(-monthsFromNow(iso, now) / recurMonths)
-  // Land near today, then advance at most one cycle if that date has passed.
-  // Construct from the original anchor, never from a previously clamped date.
-  while (true) {
-    const total = m - 1 + cycles * recurMonths
-    const year = y + Math.floor(total / 12)
-    const month = (total % 12) + 1
-    const day = Math.min(d, new Date(year, month, 0).getDate())
-    const next = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-    if (next >= today) return next
-    cycles++
-  }
-}
-
-interface FormState {
-  name: string
-  kind: number
-  target: string
-  targetDate: string
-  recurMonths: number
-  opening: string
-  fundingAccountId: string
-}
-
-const BLANK_FORM: FormState = {
-  name: '',
-  kind: JarKind.Recurring,
-  target: '',
-  targetDate: '',
-  recurMonths: 12,
-  opening: '',
-  fundingAccountId: '',
-}
 
 export function JarsPage() {
   // Managing jars needs Admin+ (canWrite); others see them read-only.
@@ -95,62 +19,33 @@ export function JarsPage() {
   const CURRENCY = preferredCurrency
   const [jars, setJars] = useState<JarDto[]>([])
   const [accounts, setAccounts] = useState<AccountDto[]>([])
+  // Each jar-backed account's ledger — what's unallocated and whether its jars are backed (rule 70).
+  const [ledgers, setLedgers] = useState<JarAccountLedgerDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
   // The add / edit form lives in a modal; editingId switches it between modes.
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState<FormState>(BLANK_FORM)
-  // The jar behind the edit modal — one lookup shared by submit (echoing stored
-  // fields) and the footer's Archive affordance.
+  // The jar whose "Move money" modal is open.
+  const [movingId, setMovingId] = useState<string | null>(null)
   const editingJar = useMemo(
     () => (editingId ? jars.find((f) => f.id === editingId) ?? null : null),
     [editingId, jars],
   )
-  // One deliberate step between "Archive jar" and it actually happening.
-  const [confirmArchive, setConfirmArchive] = useState(false)
+  const movingJar = useMemo(
+    () => (movingId ? jars.find((f) => f.id === movingId) ?? null : null),
+    [movingId, jars],
+  )
 
-  // The cycle dropdown offers the common cadences; if an edited jar carries a value
-  // set via the API that isn't one of them (e.g. 24), keep it as an option so the
-  // select shows it rather than silently rewriting it on the next save.
-  const recurOptions = useMemo(() => {
-    if (RECUR_MONTHS_OPTIONS.some((o) => o.value === form.recurMonths)) return RECUR_MONTHS_OPTIONS
-    return [...RECUR_MONTHS_OPTIONS, { value: form.recurMonths, label: `Every ${form.recurMonths} months` }]
-  }, [form.recurMonths])
-
-  // Live estimate of the monthly set-aside, mirroring the server's by-target-date
-  // math (remaining ÷ whole months to the — recurrence-adjusted — due date, floored
-  // at one). Approximate by nature (prefixed "≈"): it uses the browser clock on
-  // the server's UTC date basis. Hidden while the target
-  // doesn't parse or is 0, and for imported jars on other accrual methods, where this
-  // math wouldn't match the server's figure.
-  const preview = useMemo(() => {
-    if (editingJar && editingJar.accrual !== AccrualMethod.TargetByDate) return null
-    const targetMinor = form.target.trim() === '' ? 0 : parseMinor(form.target)
-    if (targetMinor === null || targetMinor <= 0) return null
-    // The live balance the contributions build on. In edit mode that's the jar's
-    // current balance, but with the Opening field the user is actively editing swapped
-    // in for the stored opening (currentBalance = opening + tracked), so the preview
-    // reacts to that field instead of freezing on the saved figure.
-    let baseMinor: number
-    if (editingJar) {
-      const openingMinor = form.opening.trim() === '' ? 0 : parseMinor(form.opening) ?? 0
-      baseMinor = openingMinor + (fromAmount(editingJar.currentBalance) - fromAmount(editingJar.openingBalance))
-    } else {
-      baseMinor = form.opening.trim() === '' ? 0 : parseMinor(form.opening) ?? 0
-    }
-    const remaining = targetMinor - baseMinor
-    if (remaining <= 0) return 0
-    const months = form.targetDate
-      ? Math.max(1, monthsToEffectiveDue(form.targetDate, form.kind, form.recurMonths))
-      : 12
-    return Math.round(remaining / months)
-  }, [form.target, form.opening, form.targetDate, form.kind, form.recurMonths, editingJar])
+  const loadLedgers = useCallback(() => {
+    api
+      .get<JarAccountLedgerDto[]>('/jars/ledger')
+      .then(({ data }) => setLedgers(Array.isArray(data) ? data.filter((l) => l && typeof l.accountId === 'string' && Array.isArray(l.jars)) : []))
+      .catch(() => setLedgers([]))
+  }, [])
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
     Promise.all([
       api.get<JarDto[]>('/jars'),
       api.get<AccountDto[]>('/accounts').catch(() => ({ data: [] })),
@@ -162,132 +57,81 @@ export function JarsPage() {
       })
       .catch(() => !cancelled && setError('Could not load your jars.'))
       .finally(() => !cancelled && setLoading(false))
+    loadLedgers()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [loadLedgers])
 
-  const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
-    setForm((prev) => ({ ...prev, [key]: value }))
+  // Balances are derived from the ledger, so after any money move re-read the list.
+  const refreshJars = useCallback(async () => {
+    try {
+      const { data } = await api.get<JarDto[]>('/jars')
+      if (Array.isArray(data)) setJars(data)
+    } catch {
+      // Keep what's shown; the next load will catch up.
+    }
+    loadLedgers()
+  }, [loadLedgers])
 
-  // Close the modal and clear the form (used after a save / cancel / archive).
   const closeForm = useCallback(() => {
     setShowForm(false)
     setEditingId(null)
-    setForm(BLANK_FORM)
-    setConfirmArchive(false)
   }, [])
 
   function openAdd() {
     setEditingId(null)
-    setForm(BLANK_FORM)
     setError(null)
     setShowForm(true)
   }
 
   function startEdit(f: JarDto) {
     setEditingId(f.id)
-    setForm({
-      name: f.name,
-      kind: f.kind,
-      target: toEditString(fromAmount(f.targetAmount)),
-      targetDate: f.targetDate ?? '',
-      recurMonths: f.recurMonths ?? 12,
-      opening: toEditString(fromAmount(f.openingBalance)),
-      fundingAccountId: f.fundingAccountId ?? '',
-    })
     setError(null)
     setShowForm(true)
   }
 
-  const submit = useCallback(async () => {
-    if (form.name.trim() === '') {
-      setError('Give the jar a name.')
-      return
-    }
-    const targetAmount = parseAmount(form.target)
-    const openingBalance = parseAmount(form.opening)
-    if (targetAmount === null || openingBalance === null) {
-      setError('Enter valid amounts.')
-      return
-    }
-    // A recurring jar rolls its date forward each cycle, so it needs a date (and a
-    // real target) to roll. This is form guidance for a NEW jar — the server stays
-    // permissive so imported/legacy recurring jars (open-ended pools, date-less funds)
-    // can still be renamed or re-accounted without inventing values on edit.
-    if (!editingId && form.kind === JarKind.Recurring) {
-      if (targetAmount <= 0) {
-        setError('Give the recurring jar a target amount.')
-        return
-      }
-      if (!form.targetDate) {
-        setError('Give the recurring jar its next due date.')
-        return
-      }
-    }
-
-    // The form doesn't surface the cover window, opening as-of or accrual method, so
-    // on edit the jar's stored values are echoed back rather than wiped — importer-set
-    // cover windows and StraightLine/DailyRate accruals survive an unrelated rename
-    // (PUT replaces the whole resource). New jars save by target date.
-    const body = {
-      name: form.name.trim(),
-      kind: form.kind,
-      targetAmount,
-      targetDate: form.targetDate || null,
-      coverStart: editingJar?.coverStart ?? null,
-      coverEnd: editingJar?.coverEnd ?? null,
-      accrual: editingJar?.accrual ?? AccrualMethod.TargetByDate,
-      openingBalance,
-      openingAsOf: editingJar?.openingAsOf ?? null,
-      fundingAccountId: form.fundingAccountId || null,
-      recurMonths: form.kind === JarKind.Recurring ? form.recurMonths : null,
-    }
-
-    setSaving(true)
-    setError(null)
-    try {
-      if (editingId) {
-        const { data } = await api.put<JarDto>(`/jars/${editingId}`, body)
-        setJars((prev) => prev.map((f) => (f.id === editingId ? data : f)))
-        track(EVENTS.fundEdited, { kind: form.kind })
-      } else {
-        const { data } = await api.post<JarDto>('/jars', body)
-        setJars((prev) => [...prev, data])
-        track(EVENTS.fundCreated, { kind: form.kind })
-      }
+  const onSaved = useCallback(
+    (saved: JarDto, mode: 'created' | 'updated') => {
+      setJars((prev) => (mode === 'updated' ? prev.map((f) => (f.id === saved.id ? saved : f)) : [...prev, saved]))
       closeForm()
-    } catch {
-      setError(editingId ? 'Could not save that jar.' : 'Could not add that jar.')
-    } finally {
-      setSaving(false)
-    }
-  }, [form, editingId, editingJar, closeForm])
-
-  const archive = useCallback(
-    async (f: JarDto) => {
-      setSaving(true)
-      setError(null)
-      try {
-        await api.put(`/jars/${f.id}/archive`, { archived: true })
-        setJars((prev) => prev.filter((x) => x.id !== f.id))
-        track(EVENTS.fundArchived)
-        closeForm()
-      } catch {
-        setError('Could not archive that jar.')
-      } finally {
-        setSaving(false)
-      }
+      loadLedgers()
     },
-    [closeForm],
+    [closeForm, loadLedgers],
   )
 
-  // Hero totals — what's saved across the jars, the monthly contribution they need.
-  const totalSavedMinor = useMemo(() => jars.reduce((s, f) => s + fromAmount(f.currentBalance), 0), [jars])
+  const onArchived = useCallback(
+    (archived: JarDto) => {
+      setJars((prev) => prev.filter((x) => x.id !== archived.id))
+      closeForm()
+      loadLedgers()
+    },
+    [closeForm, loadLedgers],
+  )
+
+  const onMoved = useCallback(() => {
+    setMovingId(null)
+    void refreshJars()
+  }, [refreshJars])
+
+  const accountName = useCallback(
+    (id: string) => accounts.find((a) => a.id === id)?.name ?? ledgers.find((l) => l.accountId === id)?.accountName ?? null,
+    [accounts, ledgers],
+  )
+
+  // Hero totals — what's saved across the jars whose balance is known, and the monthly
+  // contribution they need. An unavailable balance (rule 67) is left out and called out,
+  // never counted as zero.
+  const totalSavedMinor = useMemo(
+    () => jars.reduce((s, f) => s + (f.currentBalance === null ? 0 : fromAmount(f.currentBalance)), 0),
+    [jars],
+  )
+  const unavailableCount = useMemo(() => jars.filter((f) => f.currentBalance === null).length, [jars])
   const monthlyMinor = useMemo(
     () => jars.reduce((s, f) => s + fromAmount(f.requiredMonthlyContribution), 0),
     [jars],
   )
+  const backedLedgers = useMemo(() => ledgers.filter((l) => l.jars.some((j) => !j.isArchived)), [ledgers])
 
   return (
     <AppShell active="jars" title="Jars">
@@ -299,11 +143,45 @@ export function JarsPage() {
           { label: 'Monthly', value: `+${formatMoney(monthlyMinor, CURRENCY)}` },
           { label: 'Active jars', value: `${jars.length}` },
         ]}
+        footnote={
+          unavailableCount > 0 ? (
+            <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13px] font-medium">
+              {unavailableCount} jar{unavailableCount === 1 ? '' : 's'} with an unavailable balance {unavailableCount === 1 ? 'is' : 'are'} not counted.
+            </span>
+          ) : undefined
+        }
       />
 
       {error && !showForm && <ErrorBanner>{error}</ErrorBanner>}
 
       {loading && <p className="text-slate-500">Loading…</p>}
+
+      {!loading && backedLedgers.length > 0 && (
+        <Card as="section" aria-labelledby="unallocated-heading" className="p-5">
+          <h2 id="unallocated-heading" className="text-base font-bold tracking-[-0.01em] text-slate-900">Unallocated</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Money in each account that isn&rsquo;t in a jar yet. Use Move money on a jar to divide it up.
+          </p>
+          <ul className="mt-3 space-y-1.5">
+            {backedLedgers.map((l) => (
+              <li key={l.accountId} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="tabular-nums text-slate-700">
+                  <span className="font-semibold text-slate-900">{l.accountName}</span>:{' '}
+                  {l.unallocated === null ? 'not available' : `${formatMoney(fromAmount(l.unallocated), l.currency || CURRENCY)} unallocated`}
+                </span>
+                {l.hasBackingDeficit && (
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone="rose">Jars exceed account money</Badge>
+                    <span className="text-xs text-slate-500">
+                      Its positive jars add up to more than the account holds — move money out of a jar to cover the shortfall.
+                    </span>
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {!loading && jars.length === 0 ? (
         <EmptyState
@@ -335,7 +213,12 @@ export function JarsPage() {
                   jar={f}
                   hue={hueForIndex(i)}
                   currency={CURRENCY}
+                  heldIn={accountName(f.fundingAccountId)}
                   onEdit={() => startEdit(f)}
+                  onMove={() => {
+                    setError(null)
+                    setMovingId(f.id)
+                  }}
                   canManage={canWrite}
                 />
               ))}
@@ -344,186 +227,20 @@ export function JarsPage() {
         )
       )}
 
-      {/* Add / edit jar — a modal, mounted only while open so its focus trap engages. */}
+      {/* Add / edit jar — the shared form, mounted only while open so its focus trap engages. */}
       {showForm && canWrite && (
-        <Modal title={editingId ? 'Edit jar' : 'New jar'} onClose={closeForm} size="lg">
-          {error && (
-            <div className="mb-3">
-              <ErrorBanner>{error}</ErrorBanner>
-            </div>
-          )}
-          <div className="space-y-3">
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Name
-              <Input
-                type="text"
-                value={form.name}
-                placeholder="e.g. Home insurance"
-                aria-label="Jar name"
-                onChange={(e) => set('name', e.target.value)}
-                className="w-full"
-              />
-            </label>
-            <div className="flex flex-col gap-1">
-              <span className="flex items-center gap-1 text-xs font-medium text-slate-500">
-                <label htmlFor="jar-type">Type</label>
-                <InfoHint label="About jar types">
-                  <span className="block font-semibold text-slate-700">Recurring</span>
-                  Saves toward a due date, then repeats: when the date passes, it rolls
-                  forward a cycle and keeps going (insurance, road tax, holiday).
-                  <span className="mt-2 block font-semibold text-slate-700">Goal</span>
-                  A one-off savings target — once it&rsquo;s funded, it&rsquo;s done (new kitchen,
-                  sofa, wedding).
-                </InfoHint>
-              </span>
-              <Select id="jar-type" value={form.kind} aria-label="Jar type" onChange={(e) => set('kind', Number(e.target.value))} className="w-full">
-                {KIND_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Target
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  {...selectOnFocusProps}
-                  value={form.target}
-                  placeholder="0.00"
-                  aria-label="Target amount"
-                  onChange={(e) => set('target', e.target.value)}
-                  className="w-full text-right tabular-nums"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                {/* At creation the opening IS what's saved so far; once contributions
-                    are recorded on top of it, calling it "saved so far" invites
-                    retyping the card's live balance — which would double-count. */}
-                {editingId ? 'Opening balance' : 'Saved so far'}
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  {...selectOnFocusProps}
-                  value={form.opening}
-                  placeholder="0.00"
-                  aria-label="Opening balance"
-                  onChange={(e) => set('opening', e.target.value)}
-                  className="w-full text-right tabular-nums"
-                />
-                {editingId && (
-                  <span className="text-[11px] font-normal text-slate-500">
-                    Before tracking began — the card shows the live total.
-                  </span>
-                )}
-              </label>
-              {form.kind === JarKind.Recurring ? (
-                <>
-                  <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                    Next due
-                    <Input
-                      type="date"
-                      value={form.targetDate}
-                      aria-label="Next due date"
-                      onChange={(e) => set('targetDate', e.target.value)}
-                      className="w-full"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                    Repeats
-                    <Select
-                      value={form.recurMonths}
-                      aria-label="Repeat cycle"
-                      onChange={(e) => set('recurMonths', Number(e.target.value))}
-                      className="w-full"
-                    >
-                      {recurOptions.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </label>
-                </>
-              ) : (
-                <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                  Target date (optional)
-                  <Input
-                    type="date"
-                    value={form.targetDate}
-                    aria-label="Target date"
-                    onChange={(e) => set('targetDate', e.target.value)}
-                    className="w-full"
-                  />
-                </label>
-              )}
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Held in
-                <Select
-                  value={form.fundingAccountId}
-                  aria-label="Funding account"
-                  onChange={(e) => set('fundingAccountId', e.target.value)}
-                  className="w-full"
-                >
-                  <option value="">No account</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </Select>
-                {accounts.length === 0 && (
-                  <span className="text-[11px] font-normal text-slate-500">
-                    Add accounts to earmark a jar&rsquo;s cash.
-                  </span>
-                )}
-              </label>
-            </div>
-            {preview !== null && (
-              <p
-                aria-live="polite"
-                className="rounded-lg bg-slate-100 px-3 py-2 text-[12.5px] font-medium tabular-nums text-slate-600"
-              >
-                Sets aside <span className="font-bold text-slate-900">≈ {formatMoney(preview, CURRENCY)}/mo</span>
-                {form.targetDate
-                  ? form.kind === JarKind.Recurring
-                    ? ` toward ${formatDate(effectiveDueIso(form.targetDate, form.kind, form.recurMonths))}, then it repeats`
-                    : ` until ${formatDate(form.targetDate)}`
-                  : ' (no date — the remainder spreads over 12 months)'}
-              </p>
-            )}
-            <div className="flex items-center justify-between gap-2 pt-1">
-              {editingJar ? (
-                // Two clicks to archive: the first arms the button, the second acts.
-                <button
-                  type="button"
-                  onClick={() => (confirmArchive ? archive(editingJar) : setConfirmArchive(true))}
-                  disabled={saving}
-                  aria-label={confirmArchive ? `Confirm archive ${editingJar.name}` : `Archive ${editingJar.name}`}
-                  className={`rounded-lg px-2 py-1.5 text-sm font-semibold transition disabled:opacity-50 ${
-                    confirmArchive
-                      ? 'bg-rose-50 text-rose-600 hover:bg-rose-100'
-                      : 'text-slate-500 hover:bg-rose-50 hover:text-rose-600'
-                  }`}
-                >
-                  {confirmArchive ? 'Really archive?' : 'Archive jar'}
-                </button>
-              ) : (
-                <span />
-              )}
-              <div className="flex gap-2">
-                <Button variant="ghost" onClick={closeForm} aria-label="Cancel edit">
-                  Cancel
-                </Button>
-                <Button onClick={submit} disabled={saving} aria-label={editingId ? 'Save jar' : 'Add jar'}>
-                  {editingId ? 'Save' : 'Add jar'}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </Modal>
+        <JarFormModal
+          jar={editingJar}
+          accounts={accounts}
+          currency={CURRENCY}
+          onClose={closeForm}
+          onSaved={onSaved}
+          onArchived={onArchived}
+        />
+      )}
+
+      {movingJar && canWrite && (
+        <MoveMoneyModal jar={movingJar} currency={CURRENCY} onClose={() => setMovingId(null)} onMoved={onMoved} />
       )}
     </AppShell>
   )
@@ -533,18 +250,26 @@ function JarCard({
   jar,
   hue,
   currency,
+  heldIn,
   onEdit,
+  onMove,
   canManage,
 }: {
   jar: JarDto
   hue: CategoryHue
   currency: string
+  heldIn: string | null
   onEdit: () => void
+  onMove: () => void
   canManage: boolean
 }) {
-  const balanceMinor = fromAmount(jar.currentBalance)
+  // Null = the account's balance is unavailable (rule 67): shown as such, never as zero.
+  const balanceMinor = jar.currentBalance === null ? null : fromAmount(jar.currentBalance)
   const targetMinor = fromAmount(jar.targetAmount)
-  const pct = targetMinor > 0 ? Math.min(100, Math.max(0, Math.round((balanceMinor / targetMinor) * 100))) : 0
+  const pct =
+    targetMinor > 0 && balanceMinor !== null
+      ? Math.min(100, Math.max(0, Math.round((balanceMinor / targetMinor) * 100)))
+      : 0
   const chip = jarStatusChip(jar.status)
 
   return (
@@ -555,8 +280,8 @@ function JarCard({
           <h3 className="truncate text-[15px] font-semibold text-slate-900">{jar.name}</h3>
           <div className="flex shrink-0 items-center gap-1.5">
             {chip && <Badge tone={chip.tone}>{chip.label}</Badge>}
-            {/* The % pill is redundant next to "Funded"; keep it for every other state. */}
-            {targetMinor > 0 && jar.status !== 'FullyFunded' && (
+            {/* The % pill is redundant next to "Funded" and meaningless without a balance. */}
+            {targetMinor > 0 && balanceMinor !== null && jar.status !== 'FullyFunded' && (
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-600">
                 {pct}%
               </span>
@@ -565,9 +290,14 @@ function JarCard({
         </div>
 
         <div className="mt-1 flex items-baseline gap-1.5 tabular-nums">
-          <span className="text-[19px] font-bold text-slate-900">{formatMoney(balanceMinor, currency)}</span>
+          {balanceMinor === null ? (
+            <span className="text-[19px] font-bold text-slate-500">Not available</span>
+          ) : (
+            <span className="text-[19px] font-bold text-slate-900">{formatMoney(balanceMinor, currency)}</span>
+          )}
           {targetMinor > 0 && <span className="text-[13px] text-slate-500">of {formatMoney(targetMinor, currency)}</span>}
         </div>
+        {heldIn && <div className="mt-0.5 text-xs text-slate-500">Held in {heldIn}</div>}
 
         <div
           role="progressbar"
@@ -586,14 +316,24 @@ function JarCard({
             {jarPaceLabel(jar, currency)}
           </span>
           {canManage && (
-            <button
-              type="button"
-              onClick={onEdit}
-              aria-label={`Edit ${jar.name}`}
-              className="text-[12.5px] font-semibold text-slate-500 transition hover:text-brand-700 dark:hover:text-brand-200"
-            >
-              Edit
-            </button>
+            <span className="flex gap-3">
+              <button
+                type="button"
+                onClick={onMove}
+                aria-label={`Move money from ${jar.name}`}
+                className="text-[12.5px] font-semibold text-slate-500 transition hover:text-brand-700 dark:hover:text-brand-200"
+              >
+                Move money
+              </button>
+              <button
+                type="button"
+                onClick={onEdit}
+                aria-label={`Edit ${jar.name}`}
+                className="text-[12.5px] font-semibold text-slate-500 transition hover:text-brand-700 dark:hover:text-brand-200"
+              >
+                Edit
+              </button>
+            </span>
           )}
         </div>
       </div>

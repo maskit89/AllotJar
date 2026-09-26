@@ -59,7 +59,7 @@ describe('AccountsPage', () => {
     // Each account renders as a card.
     expect(await screen.findByText('Everyday', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Visa')).toBeInTheDocument()
-    // The credit card's type badge shows on its card (the add-form select also lists it).
+    // A credit-card account recorded before rule 75 still labels its card as one.
     expect(screen.getAllByText('Credit card').length).toBeGreaterThan(0)
     // Net across the two accounts (250 + (−75) = 175) is the hero's Total balance.
     expect(screen.getByText(/175.00/)).toBeInTheDocument()
@@ -107,7 +107,7 @@ describe('AccountsPage', () => {
     await waitFor(() => expect(screen.queryByText('Everyday')).not.toBeInTheDocument())
   })
 
-  it.each([1.234, -1.234, 33.3333])('preserves an unchanged opening balance of %s with comma decimals', async (openingBalance) => {
+  it.each([1.234, 33.3333])('preserves an unchanged opening balance of %s with comma decimals', async (openingBalance) => {
     localStorage.setItem('zbb.numberFormat', 'dot-comma')
     const account = { ...accounts()[0], openingBalance, currentBalance: openingBalance }
     mockGet.mockImplementation((url: string) => Promise.resolve({ data: url === '/accounts' ? [account] : [] }))
@@ -120,7 +120,67 @@ describe('AccountsPage', () => {
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/a1', {
       name: 'Everyday', type: 0, openingBalance, openingDate: '2026-01-01',
+      iban: null, bic: null, sortCode: null, accountNumber: null,
     }))
+  })
+
+  // Rule 76: optional bank identifiers ride along on create and edit, blank → null.
+  it('sends the optional bank identifiers on add and edit, and edits prefill them', { timeout: 15000 }, async () => {
+    const withIds = { ...accounts()[0], iban: 'MT84MALT011000012345MTLCAST001S', bic: 'VALLMTMT', sortCode: '40-47-84', accountNumber: '12345678' }
+    mockGet.mockImplementation((url: string) => Promise.resolve({ data: url === '/accounts' ? [withIds] : [] }))
+    mockPost.mockResolvedValue({ data: { id: 'a9', name: 'Piggy', type: 2, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 1 } })
+    mockPut.mockResolvedValue({ data: withIds })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Add account' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(dialog.getByLabelText('Account name'), 'Piggy')
+    await user.type(dialog.getByLabelText('IBAN'), 'DE89 3704 0044 0532 0130 00')
+    await user.type(dialog.getByLabelText('BIC'), 'COBADEFF')
+    // Sort code / account number left blank → null on the wire.
+    await user.click(dialog.getByRole('button', { name: 'Add account' }))
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/accounts', expect.objectContaining({
+        name: 'Piggy', iban: 'DE89 3704 0044 0532 0130 00', bic: 'COBADEFF', sortCode: null, accountNumber: null,
+      })),
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'Edit Everyday' }, { timeout: 5000 }))
+    expect(screen.getByLabelText('IBAN for Everyday')).toHaveValue('MT84MALT011000012345MTLCAST001S')
+    expect(screen.getByLabelText('BIC for Everyday')).toHaveValue('VALLMTMT')
+    expect(screen.getByLabelText('Sort code for Everyday')).toHaveValue('40-47-84')
+    expect(screen.getByLabelText('Account number for Everyday')).toHaveValue('12345678')
+    await user.clear(screen.getByLabelText('Account number for Everyday'))
+    await user.type(screen.getByLabelText('Account number for Everyday'), '87654321')
+    await user.click(screen.getByRole('button', { name: 'Save Everyday' }))
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/a1', {
+      name: 'Everyday', type: 0, openingBalance: 100, openingDate: '2026-01-01',
+      iban: 'MT84MALT011000012345MTLCAST001S', bic: 'VALLMTMT', sortCode: '40-47-84', accountNumber: '87654321',
+    }))
+  })
+
+  // Rule 74: no account opens below zero — refused before any request, and a server 400 is shown as-is.
+  it('rejects a negative opening balance client-side and surfaces the server message otherwise', { timeout: 15000 }, async () => {
+    mockGet.mockResolvedValue({ data: [] })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Add account' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(dialog.getByLabelText('Account name'), 'Visa')
+    await user.type(dialog.getByLabelText('Opening balance'), '-450')
+    await user.click(dialog.getByRole('button', { name: 'Add account' }))
+    expect(await dialog.findByText('An opening balance can’t be negative.')).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+
+    mockPost.mockRejectedValue({ response: { status: 400, data: { errors: { OpeningBalance: ['No account may have a negative balance.'] } } } })
+    await user.clear(dialog.getByLabelText('Opening balance'))
+    await user.type(dialog.getByLabelText('Opening balance'), '450')
+    await user.click(dialog.getByRole('button', { name: 'Add account' }))
+    expect(await dialog.findByText('No account may have a negative balance.')).toBeInTheDocument()
   })
 
   // Rule 40/67: an account recorded before opening dates existed has no calculable balance. The
@@ -149,6 +209,7 @@ describe('AccountsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Save Everyday' }))
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/a1', {
       name: 'Everyday', type: 0, openingBalance: 100, openingDate: '2026-03-01',
+      iban: null, bic: null, sortCode: null, accountNumber: null,
     }))
     expect((await screen.findAllByText(/250\.00/, {}, { timeout: 5000 })).length).toBeGreaterThan(0)
   })

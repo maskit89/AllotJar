@@ -330,7 +330,7 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   await expect(page).toHaveURL(/\/people$/)
 
   // --- Fixture: three accounts, a jar held in the source account, a planned month ---
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await addAccount(page, { name: 'Joint', opening: '10000' })
   await addAccount(page, { name: 'Alex Pot', opening: '1000' })
   await addAccount(page, { name: 'Robin Pot', opening: '500' })
@@ -478,7 +478,7 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   // once (10,000 − 2,500) and the 2,500 is in transit (rule 69): the pots are credited only
   // when each receipt is confirmed, so they still show their openings and the hero's
   // total excludes the money in transit.
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await expect(page.getByLabel(/^Total balance:/)).toContainText('9,000.00')
   await expect(page.getByText('2,500.00 in transit out')).toBeVisible()
   await page.getByRole('link', { name: 'View Joint', exact: true }).click()
@@ -529,7 +529,7 @@ test('a member without a savings account strands their share; over-committing th
   await startBlankBudget(page)
 
   // Alex will have a pot; Robin deliberately gets NO savings account.
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await addAccount(page, { name: 'Joint', opening: '5000' })
   await addAccount(page, { name: 'Alex Pot', opening: '0' })
 
@@ -582,7 +582,7 @@ test('a member without a savings account strands their share; over-committing th
   await expect(allocRows).toHaveCount(1)
   await expect(allocRows.first()).toContainText('Joint → Alex Pot')
   await expect(allocRows.first()).toContainText('1,450.00')
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await page.getByRole('link', { name: 'View Joint', exact: true }).click()
   await expect(detailBalance(page, 'Joint')).toContainText('3,550.00') // 5,000 − 1,450 only
   await page.getByRole('link', { name: '‹ Accounts' }).click()
@@ -623,7 +623,7 @@ test('a member without a savings account strands their share; over-committing th
   )
   await page.getByRole('link', { name: 'Transactions' }).click()
   await expect(page.locator('tbody tr').filter({ hasText: 'Income allocation' })).toHaveCount(0)
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await page.getByRole('link', { name: 'View Joint', exact: true }).click()
   await expect(detailBalance(page, 'Joint')).toContainText('5,000.00') // fully reverted
   await page.getByRole('link', { name: '‹ Accounts' }).click()
@@ -641,7 +641,7 @@ test('a new couple with equal zero balances previews and commits under the defau
   await startBlankBudget(page)
 
   // Both pots open at 0.00 — the exact equal-balances top tier that used to overflow.
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await addAccount(page, { name: 'Joint', opening: '4000' })
   await addAccount(page, { name: 'Pot A', opening: '0' })
   await addAccount(page, { name: 'Pot B', opening: '0' })
@@ -691,7 +691,7 @@ test('a new couple with equal zero balances previews and commits under the defau
   const result = await commitAllocation(page)
   expect(result.transfersCreated).toBe(2)
   await expect(page.getByRole('status')).toContainText('2 savings transfers recorded as in transit')
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await expect(page.getByLabel(/^Total balance:/)).toContainText('2,000.00')
   await expect(page.getByText('2,000.00 in transit out')).toBeVisible()
   await page.getByRole('link', { name: 'View Joint', exact: true }).click()

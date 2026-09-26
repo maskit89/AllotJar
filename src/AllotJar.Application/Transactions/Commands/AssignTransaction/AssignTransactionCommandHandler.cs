@@ -52,7 +52,7 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
             // request explicitly acknowledges it (the client sets that after a confirm dialog).
             var item = await TransactionInvariants.ValidateWholeLineAsync(
                 _db, userId, transaction.Type, itemId, transaction.Date, request.AcknowledgeCrossMonth,
-                "BudgetItemId", cancellationToken);
+                "BudgetItemId", cancellationToken, transaction.AccountId);
 
             transaction.BudgetItem = item;
             transaction.BudgetItemId = item.Id;
