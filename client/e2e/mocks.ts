@@ -192,21 +192,71 @@ function budgetTrends() {
 // bars all render.
 function annualSummary(year: number) {
   const spentByMonth: Record<number, number> = { 4: 2400, 5: 3200, 6: 1300 }
+  // Received income per budgeted month (April came in €50 short), so the Variance column
+  // renders a signed negative, a plain zero and the muted no-budget rows (rule 41).
+  const receivedByMonth: Record<number, number> = { 4: 2950, 5: 3000, 6: 3000 }
   const months = Array.from({ length: 12 }, (_, i) => {
     const month = i + 1
     const hasBudget = month in spentByMonth
-    return { month, hasBudget, income: hasBudget ? 3000 : 0, spent: spentByMonth[month] ?? 0 }
+    const income = hasBudget ? 3000 : 0
+    const incomeReceived = receivedByMonth[month] ?? 0
+    return {
+      month,
+      key: `${year}-${String(month).padStart(2, '0')}`,
+      hasBudget,
+      income,
+      incomeReceived,
+      variance: incomeReceived - income,
+      planned: hasBudget ? 1300 : 0,
+      spent: spentByMonth[month] ?? 0,
+      spentUncategorised: 0,
+      refunds: 0,
+      uncategorisedCount: 0,
+    }
   })
   return {
     year,
     months,
     totalIncome: 9000,
+    totalIncomeReceived: 8950,
+    totalVariance: -50,
     totalSpent: 6900,
+    totalRefunds: 0,
     budgetedMonths: 3,
     categories: [
-      { name: 'Housing', kind: 'Expense', averagePerMonth: 1100, total: 3300 },
-      { name: 'Groceries', kind: 'Expense', averagePerMonth: 400, total: 1200 },
-      { name: 'Car', kind: 'Savings', averagePerMonth: 200, total: 600 },
+      { name: 'Housing', kind: 'Expense', averagePerMonth: 1100, total: 3300, refunds: 0 },
+      { name: 'Groceries', kind: 'Expense', averagePerMonth: 400, total: 1200, refunds: 0 },
+      { name: 'Car', kind: 'Savings', averagePerMonth: 200, total: 600, refunds: 0 },
+    ],
+  }
+}
+
+// The month report behind the "Spending by category" breakdown (rules 37–39): the budget
+// month's non-income groups net of refunds, plus the register's unassigned €12 row as the
+// amber Uncategorised row with its "Review 1 transaction" link.
+function monthReport(year: number, month: number) {
+  return {
+    year,
+    month,
+    key: `${year}-${String(month).padStart(2, '0')}`,
+    hasBudget: true,
+    baseCurrency: 'EUR',
+    incomeBudgeted: 3000,
+    incomeReceived: 3000,
+    incomeUncategorised: 0,
+    variance: 0,
+    planned: 1300,
+    spentCategorised: 200,
+    spentUncategorised: 12,
+    refunds: 0,
+    spent: 212,
+    uncategorisedCount: 1,
+    uncategorisedIncomeCount: 0,
+    fxPendingCount: 0,
+    categories: [
+      { id: 'c1', name: 'Housing', kind: 'Expense', index: 0, spent: 200, refunds: 0, net: 200, isUncategorised: false, count: 1 },
+      { id: 'f1', name: 'Sinking Funds', kind: 'Savings', index: 1, spent: 0, refunds: 0, net: 0, isUncategorised: false, count: 0 },
+      { id: null, name: 'Uncategorised', kind: 'Uncategorised', index: -1, spent: 12, refunds: 0, net: 12, isUncategorised: true, count: 1 },
     ],
   }
 }
@@ -244,6 +294,10 @@ export async function mockApi(route: Route) {
   if (/^\/reports\/annual\/\d+$/.test(path)) {
     const year = Number(path.split('/').pop())
     return json(annualSummary(year))
+  }
+  if (/^\/reports\/month\/\d+\/\d+$/.test(path)) {
+    const [, , , y, m] = path.split('/')
+    return json(monthReport(Number(y), Number(m)))
   }
   return json([]) // anything else → empty
 }
