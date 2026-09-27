@@ -32,6 +32,12 @@ interface Props {
    * the fund grid (Available column) instead of the everyday-spending layout.
    */
   availableMinor?: Minor | null
+  /**
+   * True for a line in a Savings group: keeps the fund grid even when `availableMinor`
+   * is null, which then reads "Not available" (the jar's account balance can't be
+   * calculated, rule 67) rather than falling back to the expense layout.
+   */
+  savingsLine?: boolean
   /** The category hue — colours the spent/planned bar, the dot and the Bill tag. */
   hue?: CategoryHue
 }
@@ -57,6 +63,7 @@ export function BudgetItemRow({
   isFirst = false,
   isLast = false,
   availableMinor,
+  savingsLine = false,
   billStatus,
   dueDayEffective,
   hue = 'indigo',
@@ -114,8 +121,9 @@ export function BudgetItemRow({
 
   const remaining = itemRemaining(item)
   const overspent = remaining < 0
-  const showAvailable = availableMinor !== undefined && availableMinor !== null
-  const fundOverdrawn = showAvailable && (availableMinor as Minor) < 0
+  const showAvailable = savingsLine || (availableMinor !== undefined && availableMinor !== null)
+  const availableKnown = availableMinor !== undefined && availableMinor !== null
+  const fundOverdrawn = availableKnown && (availableMinor as Minor) < 0
   // The progress bar fills to spent / planned for this line.
   const barPct =
     item.plannedMinor > 0 ? Math.min(100, Math.max(0, Math.round((item.actualMinor / item.plannedMinor) * 100))) : 0
@@ -238,11 +246,11 @@ export function BudgetItemRow({
         <div className="min-w-[118px] text-right">
           <div
             className={`text-sm font-semibold tabular-nums ${
-              fundOverdrawn ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900'
+              fundOverdrawn ? 'text-rose-600 dark:text-rose-400' : availableKnown ? 'text-slate-900' : 'text-slate-500'
             }`}
-            title="Available in this savings goal (rolled over from previous months)"
+            title={availableKnown ? 'Available in this jar (its actual balance in its account)' : 'The jar’s account balance is not available'}
           >
-            <span>{formatMoney(availableMinor as Minor, currency)}</span>{' '}
+            <span>{availableKnown ? formatMoney(availableMinor as Minor, currency) : 'Not available'}</span>{' '}
             <span className="text-[11.5px] font-medium text-slate-500">avail.</span>
           </div>
           <div className="mt-0.5 text-[11.5px] tabular-nums text-slate-500">

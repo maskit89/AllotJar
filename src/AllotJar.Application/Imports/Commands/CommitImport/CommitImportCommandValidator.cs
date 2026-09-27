@@ -1,4 +1,5 @@
 using FluentValidation;
+using AllotJar.Application.Jars;
 
 namespace AllotJar.Application.Imports.Commands.CommitImport;
 
@@ -32,11 +33,26 @@ public class CommitImportCommandValidator : AbstractValidator<CommitImportComman
                     .GreaterThan(0).WithMessage("Each split line needs an amount greater than zero.");
             }).When(i => i.Splits is not null);
 
+            item.RuleFor(i => i.JarAllocations).JarAllocationsWellFormed();
+            item.RuleFor(i => i.JarAllocations)
+                .Must((i, list) => list is not { Count: > 0 } || i.IsCredit)
+                .WithMessage("Only money received can be divided among jars.");
+            item.RuleFor(i => i.PaidFromJarId)
+                .Must((i, jar) => jar is null || !i.IsCredit)
+                .WithMessage("Only money paid out can come from a jar.");
+
             // A transfer is its own thing — it can't also be split across budget lines.
             item.RuleFor(i => i)
                 .Must(i => i.Splits is null || i.Splits.Count == 0)
                 .When(i => i.TransferAccountId is not null)
                 .WithMessage("A transfer can't also be split.");
+
+            // Confirming the other side of a recorded transfer is a transfer decision: the row must
+            // be marked as one, with the counterparty the candidate names.
+            item.RuleFor(i => i.TransferAccountId)
+                .NotNull()
+                .When(i => i.MatchTransferId is not null)
+                .WithMessage("Mark the row as a transfer and choose its account before matching it to a recorded transfer.");
         });
 
         // Transfers need to know which account the statement belongs to.

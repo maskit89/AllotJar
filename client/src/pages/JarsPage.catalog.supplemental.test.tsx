@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -48,9 +48,8 @@ function jar(over: Partial<JarDto> = {}): JarDto {
     coverEnd: null,
     accrual: 1,
     recurMonths: 12,
-    openingBalance: 0,
-    openingAsOf: null,
-    fundingAccountId: null,
+    fundingAccountId: 'acc1',
+    balanceAsOf: '2026-09-26',
     isArchived: false,
     currentBalance: 120,
     requiredMonthlyContribution: 25,
@@ -67,11 +66,17 @@ function me(role: number): MeResponse {
 // Route the three endpoints JarsPage + AuthProvider hit on mount: /jars, /accounts and
 // /auth/me. `jarsPending` leaves the /jars request unresolved (the loading-state case);
 // a non-numeric /auth/me role leaves the AuthContext at its Owner default (canWrite).
+// Accounts default to one account because a jar can't be created without one (rule 73).
+const JOINT: AccountDto = {
+  id: 'acc1', name: 'Joint Current', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0,
+}
+
 function mockLoads(
   opts: { jars?: JarDto[]; accounts?: AccountDto[]; meRole?: number; jarsPending?: boolean } = {},
 ) {
-  const { jars = [], accounts = [], meRole, jarsPending = false } = opts
+  const { jars = [], accounts = [JOINT], meRole, jarsPending = false } = opts
   mockGet.mockImplementation((url: string) => {
+    if (url.startsWith('/jars/ledger')) return Promise.resolve({ data: [] })
     if (url === '/jars') return jarsPending ? new Promise<never>(() => {}) : Promise.resolve({ data: jars })
     if (url === '/accounts') return Promise.resolve({ data: accounts })
     if (url === '/auth/me') return Promise.resolve({ data: meRole === undefined ? {} : me(meRole) })
@@ -103,6 +108,12 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     mockLoads()
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    vi.unstubAllEnvs()
+  })
+
   // --- List, hero & loading -------------------------------------------------
 
   it('JAR-008: shows "Loading…" over a still-rendered zeroed hero while /jars is in flight', { timeout: 15000 }, async () => {
@@ -124,6 +135,60 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
   })
 
   // --- New jar modal: the live "set aside" preview --------------------------
+
+  it.each([
+    ['2026-09-22', '2026-01-31', 1, 'Sep 30, 2026', '€1,200.00'],
+    ['2026-02-15', '2026-01-31', 1, 'Feb 28, 2026', '€1,200.00'],
+    ['2026-03-01', '2026-01-31', 1, 'Mar 31, 2026', '€1,200.00'],
+    ['2026-04-01', '2026-01-31', 1, 'Apr 30, 2026', '€1,200.00'],
+    ['2028-02-15', '2028-01-31', 1, 'Feb 29, 2028', '€1,200.00'],
+    ['2025-02-15', '2024-02-29', 12, 'Feb 28, 2025', '€1,200.00'],
+    ['2028-02-15', '2024-02-29', 12, 'Feb 29, 2028', '€1,200.00'],
+    ['2026-05-01', '2026-01-31', 3, 'Jul 31, 2026', '€600.00'],
+    ['2026-09-22', '2026-09-01', 12, 'Sep 1, 2027', '€100.00'],
+    ['2026-09-22', '2026-09-22', 12, 'Sep 22, 2026', '€1,200.00'],
+  ])('previews %s from anchor %s every %i months as %s', async (today, anchor, cycle, expectedDate, expectedAmount) => {
+    // Fake only Date: user-event and Testing Library retain real timers. Pin the
+    // UTC calendar day used by the API, independently of the test host.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(`${today}T12:00:00Z`))
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue('en-US')
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+    fireEvent.change(dialog.getByLabelText('Target amount'), { target: { value: '1200' } })
+    await user.selectOptions(dialog.getByLabelText('Repeat cycle'), String(cycle))
+    fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: anchor } })
+
+    const preview = await dialog.findByText(/Sets aside/)
+    expect(preview).toHaveTextContent(`≈ ${expectedAmount}/mo toward ${expectedDate}, then it repeats`)
+    // A clamped preview must not replace the intended day stored in the form.
+    expect(dialog.getByLabelText('Next due date')).toHaveValue(anchor)
+  })
+
+  it.each([
+    ['Europe/Malta', '2026-09-23T00:30:00+02:00', 23, '2026-09-22', 'Sep 22, 2026', '€1,200.00'],
+    ['America/New_York', '2026-09-22T23:30:00-04:00', 22, '2026-09-22', 'Sep 22, 2027', '€100.00'],
+    ['Europe/Malta', '2026-10-01T00:30:00+02:00', 1, '2026-11-01', 'Nov 1, 2026', '€600.00'],
+  ])('uses the API UTC date near midnight in %s at %s', async (timezone, instant, localDay, anchor, expectedDate, expectedAmount) => {
+    vi.stubEnv('TZ', timezone)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(instant))
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue('en-US')
+    // Ensure this exercises an actual browser-local/UTC day disagreement.
+    expect(new Date().getDate()).toBe(localDay)
+    expect(new Date().getUTCDate()).not.toBe(localDay)
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+    fireEvent.change(dialog.getByLabelText('Target amount'), { target: { value: '1200' } })
+    fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: anchor } })
+
+    expect(await dialog.findByText(/Sets aside/))
+      .toHaveTextContent(`≈ ${expectedAmount}/mo toward ${expectedDate}, then it repeats`)
+  })
 
   it('JAR-016: the dated preview reads "then it repeats" for Recurring and "until" for a Goal', { timeout: 15000 }, async () => {
     const user = userEvent.setup()

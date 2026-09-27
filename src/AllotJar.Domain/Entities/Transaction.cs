@@ -73,10 +73,39 @@ public class Transaction : BaseEntity
     public string? Notes { get; set; }
 
     /// <summary>
-    /// The bank's reference for this entry (ISO 20022 AcctSvcrRef / EndToEndId).
-    /// Used to deduplicate re-imported statements so importing is idempotent.
+    /// The bank's reference for this entry (ISO 20022 AcctSvcrRef / EndToEndId) on the
+    /// <see cref="AccountId"/> account's statement. Used to deduplicate re-imported statements so
+    /// importing is idempotent. For a transfer this is the SOURCE account's reference; the
+    /// destination statement's reference lives in <see cref="ReceiptBankReference"/> (rule 51).
     /// </summary>
     public string? BankReference { get; set; }
+
+    /// <summary>
+    /// For a <see cref="TransactionType.Transfer"/>: the date the source bank posted the debit,
+    /// as confirmed by the user or the source statement. Null while the departure is unknown —
+    /// a receipt-first import held for review (rule 72). Never inferred from <see cref="Date"/>.
+    /// </summary>
+    public DateOnly? DepartedOn { get; set; }
+
+    /// <summary>
+    /// For a transfer: the date the destination bank posted the credit, as confirmed by the
+    /// user or the destination statement. Null while the money is still in transit (rule 71).
+    /// </summary>
+    public DateOnly? ReceivedOn { get; set; }
+
+    /// <summary>
+    /// For a transfer: the destination account statement's own reference for the credit leg,
+    /// kept alongside <see cref="BankReference"/> so both statements match one movement (rule 51).
+    /// </summary>
+    public string? ReceiptBankReference { get; set; }
+
+    /// <summary>
+    /// The recorded-evidence status of a transfer (see <see cref="TransferStatus"/>). Only
+    /// meaningful when <see cref="Type"/> is <see cref="TransactionType.Transfer"/>.
+    /// </summary>
+    public TransferStatus TransferStatus => DepartedOn is null
+        ? TransferStatus.PendingReview
+        : ReceivedOn is null ? TransferStatus.InTransit : TransferStatus.Completed;
 
     /// <summary>
     /// The slices this transaction is split across. Empty for a normal
@@ -88,4 +117,11 @@ public class Transaction : BaseEntity
 
     /// <summary>True when this transaction is split across budget lines.</summary>
     public bool IsSplit => Splits.Count > 0;
+
+    /// <summary>
+    /// The stored jar split of each account leg (at most one per account, rules 78/79). Empty when
+    /// the leg's attribution is the derived default: unallocated for incoming money, the budget
+    /// line's jar or unallocated for a payment.
+    /// </summary>
+    public ICollection<JarAllocation> JarAllocations { get; set; } = new List<JarAllocation>();
 }

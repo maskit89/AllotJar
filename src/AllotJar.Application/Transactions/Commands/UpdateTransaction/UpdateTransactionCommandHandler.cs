@@ -2,6 +2,8 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Accounts;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -54,6 +56,11 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
                 throw new ForbiddenAccessException();
             }
         }
+        var previousAccount = transaction.Account;
+        // Serialise against other writers on the account that receives the edited row (rule 74).
+        await using var write = account is null
+            ? null
+            : await _db.BeginLedgerWriteAsync(account.Id, cancellationToken);
 
         // Moving a transaction onto an account of a different currency would corrupt that
         // account's (currency-blind) balance — reject it. The transaction's currency is not
@@ -115,18 +122,22 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         // a date edit used to cross months with no acknowledgment.) Unrelated edits — payee,
         // amount, account — skip this, so a deliberately-acknowledged cross-month assignment
         // isn't re-prompted every time an unrelated field is touched.
+        // Moving the payment to another account also re-runs it: a jar line's payment must keep
+        // leaving the jar's account (rule 79).
+        var accountChanged = request.AccountId != transaction.AccountId;
         if (transaction.BudgetItemId is Guid retainedLineId
-            && (request.Type != transaction.Type || monthChanged))
+            && (request.Type != transaction.Type || monthChanged || accountChanged))
         {
             await TransactionInvariants.ValidateWholeLineAsync(
                 _db, userId, request.Type, retainedLineId, request.Date, request.AcknowledgeCrossMonth,
-                "Type", cancellationToken);
+                accountChanged && !monthChanged && request.Type == transaction.Type ? "AccountId" : "Type",
+                cancellationToken, request.AccountId);
         }
 
         // Same rule for a split: moving the transaction to another month moves every slice's
         // actuals month, so the slice lines are re-validated against the NEW date (with the same
         // acknowledge-to-confirm escape a fresh split would get).
-        if (transaction.Splits.Count > 0 && monthChanged)
+        if (transaction.Splits.Count > 0 && (monthChanged || accountChanged))
         {
             var sliceItemIds = transaction.Splits
                 .Where(s => s.BudgetItemId is not null)
@@ -136,12 +147,15 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             var sliceItems = await _db.BudgetItems
                 .Include(i => i.BudgetCategory)
                     .ThenInclude(c => c.BudgetMonth)
+                .Include(i => i.Jar)
+                    .ThenInclude(j => j!.FundingAccount)
                 .Where(i => sliceItemIds.Contains(i.Id))
                 .ToListAsync(cancellationToken);
             foreach (var line in sliceItems)
             {
                 TransactionInvariants.EnsureWholeLineAssignable(
-                    line, userId, transaction.Type, request.Date, request.AcknowledgeCrossMonth, "Date");
+                    line, userId, transaction.Type, request.Date, request.AcknowledgeCrossMonth,
+                    monthChanged ? "Date" : "AccountId", request.AccountId);
             }
         }
 
@@ -166,14 +180,53 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         {
             transaction.TransferAccount = null;
             transaction.TransferAccountId = null;
+            // The bank legs describe the transfer that no longer exists; an income/expense row
+            // has a single posting date (Date) and a single statement reference.
+            transaction.DepartedOn = null;
+            transaction.ReceivedOn = null;
+            transaction.ReceiptBankReference = null;
         }
         transaction.Account = account;
         transaction.AccountId = account?.Id;
         transaction.Member = member;
         transaction.MemberId = member?.Id;
 
-        await _db.SaveChangesAsync(cancellationToken);
+        // Rule 74 on every account the edit touches: the one losing the row as much as the one
+        // receiving it (moving an income away, or shrinking it, can leave later payments uncovered).
+        var affected = new[] { previousAccount, account }.Where(a => a is not null).Select(a => a!).ToList();
+        if (affected.Count > 0)
+        {
+            await AccountBalanceGuard.EnsureNonNegativeAsync(
+                _db, affected, new[] { transaction }, Array.Empty<Guid>(), "Amount", cancellationToken);
+        }
 
-        return transaction.ToDto();
+        // The jar split of the previous leg no longer describes this row once it changes account
+        // or direction; the edited leg carries the re-answered prompt (rules 78/79).
+        if (previousAccount is not null && previousAccount.Id != account?.Id)
+        {
+            await JarMovements.ClearAsync(_db, transaction, previousAccount.Id, cancellationToken);
+        }
+        if (account is not null)
+        {
+            if (request.Type == TransactionType.Expense)
+            {
+                await JarMovements.ApplyOutgoingAsync(
+                    _db, userId, transaction, account, request.PaidFromJarId, "PaidFromJarId", cancellationToken);
+            }
+            else
+            {
+                await JarMovements.ApplyIncomingAsync(
+                    _db, userId, transaction, account, transaction.Date, transaction.Amount, request.JarAllocations,
+                    "JarAllocations", cancellationToken);
+            }
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
+
+        return await TransactionReads.ReadDtoAsync(_db, transaction.Id, cancellationToken);
     }
 }

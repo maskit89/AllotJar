@@ -4,10 +4,18 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, AllocationProfileDto, AllocationResultDto } from '../types'
 
-const { mockGet, mockPut, mockPost } = vi.hoisted(() => ({
+const { mockGet, mockPut, mockPost, monthState } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockPut: vi.fn(),
   mockPost: vi.fn(),
+  // The app-wide selected month the page allocates (rule 29): June 2026 for this file.
+  monthState: { year: 2026, month: 6, label: 'June 2026', goPrev: () => {}, goNext: () => {}, goToMonth: () => {} },
+}))
+
+// The selected month comes from MonthContext (rule 29); pin it so assertions are clock-independent.
+vi.mock('../features/MonthContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../features/MonthContext')>()),
+  useMonth: () => monthState,
 }))
 
 vi.mock('../lib/api', async (importOriginal) => ({
@@ -70,7 +78,7 @@ function setupGet() {
   mockGet.mockImplementation((url: string) => {
     if (url === '/allocation/profile') return Promise.resolve({ data: profileData })
     if (url === '/accounts') return Promise.resolve({ data: accountsData })
-    if (url === '/budget/current') return Promise.resolve({ data: { year: 2026, month: 6, categories: [] } })
+    if (url === '/budget/2026/6') return Promise.resolve({ data: { year: 2026, month: 6, categories: [] } })
     if (url.startsWith('/allocation/preview/')) return Promise.resolve({ data: preview() })
     return Promise.resolve({ data: [] })
   })
@@ -200,8 +208,37 @@ describe('AllocationPage', () => {
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
+    // Rules 7/29: the plan becomes recorded transfers only after "I've completed these transfers".
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.click(dialog.getByRole('button', { name: 'Confirm allocation' }))
+    expect(await screen.findByText(/Confirm that you’ve completed these transfers/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
 
-    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/6', {}))
-    expect(await screen.findByText(/2 savings transfers created/, {}, { timeout: 5000 })).toBeInTheDocument()
+    await user.clear(dialog.getByLabelText('Allocation departure date'))
+    await user.type(dialog.getByLabelText('Allocation departure date'), '2026-06-03')
+    await user.click(dialog.getByLabelText('Allocation completed confirmation'))
+    await user.click(dialog.getByRole('button', { name: 'Confirm allocation' }))
+
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/6', {
+        departedOn: '2026-06-03', receivedOn: null, confirmedCompleted: true,
+      }),
+    )
+    expect(await screen.findByText(/2 savings transfers recorded as in transit/, {}, { timeout: 5000 })).toBeInTheDocument()
+  })
+
+  it('reports an unchanged re-run instead of pretending nothing was needed', { timeout: 15000 }, async () => {
+    profileData = profile()
+    mockPost.mockResolvedValue({ data: { ...preview(0), transfersRetained: 2 } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.click(dialog.getByLabelText('Allocation completed confirmation'))
+    await user.click(dialog.getByRole('button', { name: 'Confirm allocation' }))
+
+    expect(await screen.findByText(/the 2 recorded transfers are unchanged/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
 })

@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Dtos;
-using AllotJar.Domain.Services;
 
 namespace AllotJar.Application.Jars.Queries.GetJars;
 
@@ -38,15 +37,8 @@ public class GetJarsQueryHandler
             return Array.Empty<JarDto>();
         }
 
-        var tracked = await JarBalances.ComputeAsync(_db, userId, cancellationToken);
-
-        return jars
-            .Select(f =>
-            {
-                var balance = f.OpeningBalance + tracked.GetValueOrDefault(f.Id);
-                var required = JarAccrualCalculator.RequiredMonthlyContribution(f, asOf, balance);
-                return f.ToDto(balance, required, asOf);
-            })
-            .ToList();
+        // Actual money only (rule 1): each jar's allocations in its account as of the date.
+        var snapshot = await JarLedgerReader.ReadAsync(_db, userId, asOf, cancellationToken);
+        return jars.Select(f => f.ToDto(snapshot)).ToList();
     }
 }

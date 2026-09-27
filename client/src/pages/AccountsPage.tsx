@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
-import { Button, Card, EmptyState, ErrorBanner, Input, Select } from '../components/ui'
+import { Badge, Button, Card, EmptyState, ErrorBanner, Input, Select } from '../components/ui'
 import { Hero } from '../components/Hero'
 import { Modal } from '../components/Modal'
 import { AccountsIcon } from '../components/icons'
@@ -10,25 +10,60 @@ import { useFeatures } from '../features/FeatureContext'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import type { AccountDto, AccountReconciliationDto } from '../types'
-import { ACCOUNT_TYPE_LABELS, AccountType } from '../types'
+import { ACCOUNT_TYPE_LABELS, ACCOUNT_TYPE_OPTIONS, AccountType } from '../types'
 import { CURRENCY_OPTIONS, formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import { formatDate, todayIso } from '../lib/dates'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
+import { serverErrors } from '../lib/serverErrors'
 import { hueColor, hueForAccountType, hueTint } from '../lib/categoryColors'
 
-const TYPE_OPTIONS = Object.entries(ACCOUNT_TYPE_LABELS).map(([value, label]) => ({
-  value: Number(value),
-  label,
-}))
+// Current / Savings / Cash / Other — credit cards are not accounts (rule 75). An account
+// recorded as one before the change still labels via ACCOUNT_TYPE_LABELS, so keep it as an
+// extra option only while editing that row (never offered for a new account).
+const TYPE_OPTIONS = ACCOUNT_TYPE_OPTIONS
 
-/** Parse a possibly-negative amount string into a wire decimal; '' → 0; null when invalid. */
-function parseSignedAmount(input: string): number | null {
-  const trimmed = input.trim()
-  if (trimmed === '') return 0
-  const negative = trimmed.startsWith('-')
-  const magnitude = parseMinor(negative ? trimmed.slice(1) : trimmed)
-  if (magnitude === null) return null
-  return toAmount(negative ? -magnitude : magnitude)
+function typeOptionsFor(type: number) {
+  return TYPE_OPTIONS.some((o) => o.value === type)
+    ? TYPE_OPTIONS
+    : [...TYPE_OPTIONS, { value: type, label: ACCOUNT_TYPE_LABELS[type] ?? 'Other' }]
 }
+
+/**
+ * Parse a non-negative amount string into a wire decimal; '' → 0; null when invalid. No
+ * account may open below zero (rule 74), so a leading minus is invalid here; should one
+ * reach the server anyway, its 400 message is shown as-is.
+ */
+function parseOpeningBalance(input: string): number | null {
+  if (input.trim() === '') return 0
+  const minor = parseMinor(input)
+  return minor === null ? null : toAmount(minor)
+}
+
+/** The optional bank identifiers (rule 76): trimmed, empty → null on the wire. */
+interface Identifiers {
+  iban: string
+  bic: string
+  sortCode: string
+  accountNumber: string
+}
+
+const BLANK_IDS: Identifiers = { iban: '', bic: '', sortCode: '', accountNumber: '' }
+
+function identifiersFrom(a: AccountDto): Identifiers {
+  return { iban: a.iban ?? '', bic: a.bic ?? '', sortCode: a.sortCode ?? '', accountNumber: a.accountNumber ?? '' }
+}
+
+function identifiersPayload(ids: Identifiers) {
+  const clean = (v: string) => (v.trim() === '' ? null : v.trim())
+  return { iban: clean(ids.iban), bic: clean(ids.bic), sortCode: clean(ids.sortCode), accountNumber: clean(ids.accountNumber) }
+}
+
+const ID_FIELDS: Array<{ key: keyof Identifiers; label: string; placeholder: string }> = [
+  { key: 'iban', label: 'IBAN', placeholder: 'e.g. MT84 MALT 0110 0001 2345 MTLC AST0 01S' },
+  { key: 'bic', label: 'BIC', placeholder: 'e.g. VALLMTMT' },
+  { key: 'sortCode', label: 'Sort code', placeholder: 'e.g. 40-47-84' },
+  { key: 'accountNumber', label: 'Account number', placeholder: 'e.g. 12345678' },
+]
 
 export function AccountsPage() {
   // Managing accounts needs Admin+ (canWrite); others get a read-only register.
@@ -46,7 +81,10 @@ export function AccountsPage() {
   const [name, setName] = useState('')
   const [type, setType] = useState<number>(AccountType.Current)
   const [opening, setOpening] = useState('')
+  // The opening balance is the money held at the START of this date (rule 40); required.
+  const [openingDate, setOpeningDate] = useState(todayIso)
   const [currency, setCurrency] = useState(preferredCurrency)
+  const [ids, setIds] = useState<Identifiers>(BLANK_IDS)
   const [adding, setAdding] = useState(false)
 
   // Inline (in-card) edit.
@@ -54,6 +92,8 @@ export function AccountsPage() {
   const [eName, setEName] = useState('')
   const [eType, setEType] = useState<number>(AccountType.Current)
   const [eOpening, setEOpening] = useState('')
+  const [eOpeningDate, setEOpeningDate] = useState('')
+  const [eIds, setEIds] = useState<Identifiers>(BLANK_IDS)
 
   useEffect(() => {
     let cancelled = false
@@ -86,9 +126,13 @@ export function AccountsPage() {
       setError('Give the account a name.')
       return
     }
-    const openingBalance = parseSignedAmount(opening)
+    const openingBalance = parseOpeningBalance(opening)
     if (openingBalance === null) {
-      setError('Enter a valid opening balance.')
+      setError(opening.trim().startsWith('-') ? 'An opening balance can’t be negative.' : 'Enter a valid opening balance.')
+      return
+    }
+    if (!openingDate) {
+      setError('Enter the date the opening balance applies from.')
       return
     }
     setAdding(true)
@@ -99,25 +143,31 @@ export function AccountsPage() {
         type,
         currency,
         openingBalance,
+        openingDate,
+        ...identifiersPayload(ids),
       })
       setAccounts((prev) => [...prev, data])
       track(EVENTS.accountCreated, { kind: ACCOUNT_TYPE_LABELS[type] ?? 'unknown' })
       setName('')
       setOpening('')
+      setOpeningDate(todayIso())
       setCurrency(preferredCurrency)
+      setIds(BLANK_IDS)
       setShowAdd(false)
-    } catch {
-      setError('Could not add that account.')
+    } catch (err) {
+      setError(serverErrors(err) ?? 'Could not add that account.')
     } finally {
       setAdding(false)
     }
-  }, [name, type, opening, currency, preferredCurrency])
+  }, [name, type, opening, openingDate, currency, ids, preferredCurrency])
 
   function startEdit(a: AccountDto) {
     setEditingId(a.id)
     setEName(a.name)
     setEType(a.type)
     setEOpening(toEditString(fromAmount(a.openingBalance)))
+    setEOpeningDate(a.openingDate ?? '')
+    setEIds(identifiersFrom(a))
   }
 
   const saveEdit = useCallback(
@@ -126,9 +176,13 @@ export function AccountsPage() {
         setError('Give the account a name.')
         return
       }
-      const openingBalance = parseSignedAmount(eOpening)
+      const openingBalance = parseOpeningBalance(eOpening)
       if (openingBalance === null) {
-        setError('Enter a valid opening balance.')
+        setError(eOpening.trim().startsWith('-') ? 'An opening balance can’t be negative.' : 'Enter a valid opening balance.')
+        return
+      }
+      if (!eOpeningDate) {
+        setError('Enter the date the opening balance applies from.')
         return
       }
       setSavingId(id)
@@ -138,17 +192,19 @@ export function AccountsPage() {
           name: eName.trim(),
           type: eType,
           openingBalance,
+          openingDate: eOpeningDate,
+          ...identifiersPayload(eIds),
         })
         setAccounts((prev) => prev.map((a) => (a.id === id ? data : a)))
         track(EVENTS.accountEdited)
         setEditingId(null)
-      } catch {
-        setError('Could not save that account.')
+      } catch (err) {
+        setError(serverErrors(err) ?? 'Could not save that account.')
       } finally {
         setSavingId(null)
       }
     },
-    [eName, eType, eOpening],
+    [eName, eType, eOpening, eOpeningDate, eIds],
   )
 
   const remove = useCallback(async (id: string) => {
@@ -157,25 +213,33 @@ export function AccountsPage() {
     try {
       await api.delete(`/accounts/${id}`)
       setAccounts((prev) => prev.filter((a) => a.id !== id))
-    } catch {
-      setError('Could not delete that account.')
+    } catch (err) {
+      // A refused delete (the account is a side of a transfer) carries the reason.
+      setError(serverErrors(err) ?? 'Could not delete that account.')
     } finally {
       setSavingId(null)
     }
   }, [])
 
-  // Net balance across all accounts, plus the hero's split of what you hold
-  // (positive balances) vs what you owe (negative ones).
+  // Net balance across the accounts whose balance is available, plus the hero's split of what
+  // you hold (positive balances) vs what you owe (negative ones). An unavailable balance (no
+  // opening date, rule 67) is left out and called out, never counted as zero.
+  const known = useMemo(() => accounts.filter((a) => a.currentBalance !== null), [accounts])
+  const unavailableCount = accounts.length - known.length
   const netMinor = useMemo(
-    () => accounts.reduce((sum, a) => sum + fromAmount(a.currentBalance), 0),
-    [accounts],
+    () => known.reduce((sum, a) => sum + fromAmount(a.currentBalance ?? 0), 0),
+    [known],
   )
   const availableMinor = useMemo(
-    () => accounts.reduce((sum, a) => sum + Math.max(0, fromAmount(a.currentBalance)), 0),
-    [accounts],
+    () => known.reduce((sum, a) => sum + Math.max(0, fromAmount(a.currentBalance ?? 0)), 0),
+    [known],
   )
   const owedMinor = useMemo(
-    () => accounts.reduce((sum, a) => sum + Math.min(0, fromAmount(a.currentBalance)), 0),
+    () => known.reduce((sum, a) => sum + Math.min(0, fromAmount(a.currentBalance ?? 0)), 0),
+    [known],
+  )
+  const pendingReviewCount = useMemo(
+    () => accounts.reduce((n, a) => n + (a.pendingReceiptCount ?? 0), 0),
     [accounts],
   )
 
@@ -203,9 +267,23 @@ export function AccountsPage() {
           { label: 'Owed', value: formatMoney(-owedMinor, heroCurrency) },
         ]}
         footnote={
-          mixedCurrencies ? (
-            <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13px] font-medium">
-              Totals shown in {heroCurrency}; some accounts hold another currency.
+          mixedCurrencies || unavailableCount > 0 || pendingReviewCount > 0 ? (
+            <span className="inline-flex flex-wrap items-center gap-2">
+              {mixedCurrencies && (
+                <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13px] font-medium">
+                  Totals shown in {heroCurrency}; some accounts hold another currency.
+                </span>
+              )}
+              {unavailableCount > 0 && (
+                <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13px] font-medium">
+                  {unavailableCount} account{unavailableCount === 1 ? '' : 's'} without an opening date {unavailableCount === 1 ? 'is' : 'are'} not counted.
+                </span>
+              )}
+              {pendingReviewCount > 0 && (
+                <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13px] font-medium">
+                  {pendingReviewCount} transfer receipt{pendingReviewCount === 1 ? '' : 's'} pending review.
+                </span>
+              )}
             </span>
           ) : undefined
         }
@@ -273,6 +351,38 @@ export function AccountsPage() {
                 />
               </label>
             </div>
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Opening date
+              <Input
+                type="date"
+                value={openingDate}
+                aria-label="Opening date"
+                onChange={(e) => setOpeningDate(e.target.value)}
+                className="w-full text-slate-700"
+              />
+              <span className="font-normal text-slate-400">
+                The balance at the start of this day. Earlier transactions stay as history and don’t change it.
+              </span>
+            </label>
+            <fieldset className="grid grid-cols-2 gap-3">
+              <legend className="mb-1 text-xs font-medium text-slate-500">
+                Bank details <span className="font-normal text-slate-400">(optional — a piggy bank has none)</span>
+              </legend>
+              {ID_FIELDS.map((f) => (
+                <label key={f.key} className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                  {f.label}
+                  <Input
+                    type="text"
+                    value={ids[f.key]}
+                    placeholder={f.placeholder}
+                    aria-label={f.label}
+                    autoComplete="off"
+                    onChange={(e) => setIds((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                    className="w-full"
+                  />
+                </label>
+              ))}
+            </fieldset>
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={() => setShowAdd(false)}>
                 Cancel
@@ -292,7 +402,8 @@ export function AccountsPage() {
           <Modal title={`Delete ${acct.name}?`} onClose={() => setConfirmDeleteId(null)}>
             <p className="text-sm text-slate-600">
               The account is removed, but its transactions are kept — they simply become
-              unassigned from any account. This can’t be undone.
+              unassigned from any account. An account that is a side of a transfer can’t be
+              deleted until those transfers are removed. This can’t be undone.
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setConfirmDeleteId(null)}>
@@ -342,20 +453,36 @@ export function AccountsPage() {
           ) : (
             <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
               {accounts.map((a) => {
-                const balanceMinor = fromAmount(a.currentBalance)
+                const balanceMinor = a.currentBalance === null ? null : fromAmount(a.currentBalance)
+                const inTransitOut = fromAmount(a.inTransitOut ?? 0)
+                const inTransitIn = fromAmount(a.inTransitIn ?? 0)
+                const pendingReceipts = a.pendingReceiptCount ?? 0
                 const hue = hueForAccountType(a.type)
                 if (editingId === a.id) {
                   return (
                     <Card key={a.id} className="flex flex-col gap-3 p-5">
                       <Input type="text" value={eName} aria-label={`Name for ${a.name}`} onChange={(e) => setEName(e.target.value)} className="w-full" />
                       <Select value={eType} aria-label={`Type for ${a.name}`} onChange={(e) => setEType(Number(e.target.value))}>
-                        {TYPE_OPTIONS.map((o) => (
+                        {typeOptionsFor(a.type).map((o) => (
                           <option key={o.value} value={o.value}>
                             {o.label}
                           </option>
                         ))}
                       </Select>
                       <Input type="text" inputMode="decimal" {...selectOnFocusProps} value={eOpening} aria-label={`Opening balance for ${a.name}`} onChange={(e) => setEOpening(e.target.value)} className="w-full text-right tabular-nums" />
+                      <Input type="date" value={eOpeningDate} aria-label={`Opening date for ${a.name}`} onChange={(e) => setEOpeningDate(e.target.value)} className="w-full text-slate-700" />
+                      {ID_FIELDS.map((f) => (
+                        <Input
+                          key={f.key}
+                          type="text"
+                          value={eIds[f.key]}
+                          placeholder={f.label}
+                          aria-label={`${f.label} for ${a.name}`}
+                          autoComplete="off"
+                          onChange={(e) => setEIds((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                          className="w-full"
+                        />
+                      ))}
                       {multiCurrency && (
                         <p className="text-xs text-slate-500">
                           Currency <span className="font-semibold text-slate-700">{a.currency}</span> — fixed once created.
@@ -397,10 +524,41 @@ export function AccountsPage() {
                     </div>
                     <div>
                       <div className="text-[14.5px] font-semibold text-slate-900">{a.name}</div>
-                      <div className={`mt-0.5 text-[25px] font-bold tabular-nums ${balanceMinor < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900'}`}>
-                        {formatMoney(balanceMinor, a.currency)}
+                      {balanceMinor === null ? (
+                        <div className="mt-0.5">
+                          <div className="text-[19px] font-bold text-slate-500">Not available</div>
+                          <div className="text-xs text-amber-700 dark:text-amber-400">
+                            {a.openingDateMissing ? 'Set an opening date to calculate the balance.' : 'Before the opening date.'}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className={`mt-0.5 text-[25px] font-bold tabular-nums ${balanceMinor < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900'}`}>
+                          {formatMoney(balanceMinor, a.currency)}
+                        </div>
+                      )}
+                      <div className="mt-1 text-xs text-slate-500">
+                        Opening {formatMoney(fromAmount(a.openingBalance), a.currency)}
+                        {a.openingDate ? ` on ${formatDate(a.openingDate)}` : ''}
                       </div>
-                      <div className="mt-1 text-xs text-slate-500">Opening {formatMoney(fromAmount(a.openingBalance), a.currency)}</div>
+                      {(inTransitOut > 0 || inTransitIn > 0 || pendingReceipts > 0) && (
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          {inTransitOut > 0 && (
+                            <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-300">
+                              {formatMoney(inTransitOut, a.currency)} in transit out
+                            </span>
+                          )}
+                          {inTransitIn > 0 && (
+                            <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-300">
+                              {formatMoney(inTransitIn, a.currency)} in transit in
+                            </span>
+                          )}
+                          {pendingReceipts > 0 && (
+                            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300">
+                              {pendingReceipts} receipt{pendingReceipts === 1 ? '' : 's'} pending review
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                     {canWrite && (
                       <div className="absolute bottom-3 right-3 z-10 flex gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
@@ -438,7 +596,7 @@ export function AccountsPage() {
           <div className="border-b border-slate-100 bg-slate-50 px-4 py-2.5">
             <h2 className="text-sm font-semibold text-slate-700">Jar reconciliation</h2>
             <p className="text-xs text-slate-500">
-              Each account’s balance against the jars it holds — the float is what’s not yet earmarked.
+              Each account’s balance against the jars it holds — unallocated is the money not in any jar.
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -448,7 +606,11 @@ export function AccountsPage() {
                   <th className="px-4 py-2 font-medium">Account</th>
                   <th className="px-4 py-2 text-right font-medium">Balance</th>
                   <th className="px-4 py-2 text-right font-medium">In jars</th>
-                  <th className="px-4 py-2 text-right font-medium">Float</th>
+                  <th className="px-4 py-2 text-right font-medium">Unallocated</th>
+                  {/* An sr-only span is absolutely positioned and escapes the scroll box's clip
+                      (it widened the document at phone width), so the accessible name goes on the
+                      cell itself. */}
+                  <th className="px-4 py-2 font-medium" aria-label="Backing" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -457,10 +619,22 @@ export function AccountsPage() {
                   .map((r) => (
                     <tr key={r.accountId} className="hover:bg-slate-50">
                       <td className="px-4 py-2.5 font-medium text-slate-700">{r.accountName}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{formatMoney(fromAmount(r.currentBalance), currencyById[r.accountId] ?? heroCurrency)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">
+                        {r.currentBalance === null ? 'Not available' : formatMoney(fromAmount(r.currentBalance), currencyById[r.accountId] ?? heroCurrency)}
+                        {r.requiresReview && <span className="ml-1 text-xs text-amber-700 dark:text-amber-400">(pending review)</span>}
+                      </td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-slate-500">{formatMoney(fromAmount(r.backedJarsTotal), currencyById[r.accountId] ?? heroCurrency)}</td>
-                      <td className={`px-4 py-2.5 text-right font-semibold tabular-nums ${fromAmount(r.float) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800'}`}>
-                        {formatMoney(fromAmount(r.float), currencyById[r.accountId] ?? heroCurrency)}
+                      <td className={`px-4 py-2.5 text-right font-semibold tabular-nums ${r.float !== null && fromAmount(r.float) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800'}`}>
+                        {r.float === null ? '—' : formatMoney(fromAmount(r.float), currencyById[r.accountId] ?? heroCurrency)}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {/* Rule 70: positive jars must be backed by the account's money. */}
+                        {r.hasBackingDeficit && (
+                          <span className="inline-flex flex-wrap items-center gap-1.5">
+                            <Badge tone="rose">Jars exceed account money</Badge>
+                            <span className="text-xs text-slate-500">Move money out of a jar to cover it.</span>
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}

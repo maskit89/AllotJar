@@ -100,12 +100,72 @@ export interface TransactionDto {
   /** For a transfer, the destination account the money moved into. */
   transferAccountId: string | null
   transferAccountName: string | null
+  /** For a transfer: the source bank's posting date, or null while the departure is unknown (held for review). */
+  departedOn?: string | null
+  /** For a transfer: the destination bank's posting date, or null while the money is in transit. */
+  receivedOn?: string | null
+  /** For a transfer: the destination statement's reference for the credit leg. */
+  receiptBankReference?: string | null
+  /** For a transfer: 'Completed' | 'InTransit' | 'PendingReview', derived from the two bank legs. */
+  transferStatus?: TransferStatus | null
   /** Household member this whole transaction is attributed to, if any. */
   memberId: string | null
   memberName: string | null
   isSplit: boolean
   splits: TransactionSplitDto[]
+  /**
+   * The stored jar split of each account leg (rules 78/79): signed amounts per jar, a null jar
+   * meaning unallocated. Empty when the leg follows the default (incoming money unallocated; a
+   * payment drawn from its budget line's jar or unallocated). Optional so fixtures stay valid.
+   */
+  jarAllocations?: TransactionJarAllocationDto[]
 }
+
+export interface TransactionJarAllocationDto {
+  accountId: string
+  jarId: string | null
+  jarName: string | null
+  /** Signed: positive for money reaching the jar, negative for money leaving it. */
+  amount: number
+}
+
+/**
+ * The answer to the incoming-money prompt (rule 78): part of the money reaching a jar-backed
+ * account, put into one of its jars. Whatever is not named stays unallocated.
+ */
+export interface JarAllocationRequest {
+  jarId: string
+  amount: number
+}
+
+/** Request body for POST /transactions/transfer. */
+export interface CreateTransferRequest {
+  departedOn: string
+  receivedOn: string | null
+  amount: number
+  fromAccountId: string
+  toAccountId: string
+  payee: string | null
+  /** The jar the money leaves (rule 80 "Move money"); unallocated when null. */
+  fromJarId?: string | null
+  /** How the receipt is divided among the destination's jars (rule 78). */
+  jarAllocations?: JarAllocationRequest[] | null
+}
+
+/** Request body for PUT /transactions/{id}/transfer-legs. */
+export interface ConfirmTransferLegsRequest {
+  departedOn?: string | null
+  receivedOn?: string | null
+  bankReference?: string | null
+  receiptBankReference?: string | null
+  /** With `departedOn`: the jar the money left. */
+  fromJarId?: string | null
+  /** With `receivedOn`: how the receipt is divided among the destination's jars (rule 78). */
+  jarAllocations?: JarAllocationRequest[] | null
+}
+
+/** Matches Domain.Enums.TransferStatus, serialized by name. */
+export type TransferStatus = 'Completed' | 'InTransit' | 'PendingReview'
 
 // Matches Domain.Enums.AccountType (serialized as a number).
 export const AccountType = {
@@ -124,6 +184,17 @@ export const ACCOUNT_TYPE_LABELS: Record<number, string> = {
   4: 'Other',
 }
 
+/**
+ * The account types a user may pick (rule 75: credit cards are not accounts). The
+ * CreditCard enum value stays above so rows recorded before the change still label.
+ */
+export const ACCOUNT_TYPE_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
+  { value: AccountType.Current, label: 'Current' },
+  { value: AccountType.Savings, label: 'Savings' },
+  { value: AccountType.Cash, label: 'Cash' },
+  { value: AccountType.Other, label: 'Other' },
+]
+
 export interface AccountDto {
   id: string
   name: string
@@ -131,9 +202,32 @@ export interface AccountDto {
   type: number
   currency: string
   openingBalance: number
-  /** Opening balance plus the net of the account's transactions. */
-  currentBalance: number
+  /** The date the opening balance applies from (start of day). Null only on rows recorded before it was required. */
+  openingDate?: string | null
+  /**
+   * Actual money as of `balanceAsOf`: the opening balance plus every posted leg dated from the
+   * opening date to that day. Null when unavailable (no opening date, or as-of before it) — never zero.
+   */
+  currentBalance: number | null
+  /** The date `currentBalance` is calculated as of. */
+  balanceAsOf?: string
+  /** True when `currentBalance` is null because no opening date is recorded. */
+  openingDateMissing?: boolean
+  /** Confirmed departures from this account whose receipt is not yet confirmed (excluded from the balance). */
+  inTransitOut?: number
+  /** Confirmed departures towards this account not yet received (not part of the balance). */
+  inTransitIn?: number
+  /** Receipts identified as own-account transfers awaiting their departure details; none is posted. */
+  pendingReceiptCount?: number
+  pendingReceiptTotal?: number
+  /** True when the posted balance is flagged for review: it does not yet reflect a pending receipt. */
+  requiresReview?: boolean
   displayOrder: number
+  /** Optional bank identifiers (rule 76); null/absent when not recorded. */
+  iban?: string | null
+  bic?: string | null
+  sortCode?: string | null
+  accountNumber?: string | null
 }
 
 /** A not-yet-imported transaction returned by the import preview, for review before commit. */
@@ -155,6 +249,24 @@ export interface ImportCandidate {
    * same statement previously imported through a different format. Unticked by default.
    */
   possibleDuplicate?: boolean
+  /**
+   * Recorded transfers this row could confirm the other side of (same statement account on the
+   * open leg, same amount and currency). Suggestions only — the user must pick one; nothing is
+   * matched from the amount alone. Present only when the statement account was chosen.
+   */
+  transferMatches?: TransferMatchCandidate[]
+}
+
+/** A recorded transfer a statement row could be the other side of; see ImportCandidate.transferMatches. */
+export interface TransferMatchCandidate {
+  transferId: string
+  counterpartyAccountId: string
+  counterpartyAccountName: string
+  amount: number
+  currency: string
+  departedOn: string | null
+  receivedOn: string | null
+  payee: string
 }
 
 /** How the amount column writes decimals. Matches the server CsvDecimalStyle enum. */
@@ -223,6 +335,25 @@ export interface CommitImportItem {
   transferAccountId?: string | null
   /** Set after the user confirms budgeting this row to a line in a different month than its date. */
   acknowledgeCrossMonth?: boolean
+  /**
+   * The recorded transfer this row confirms the other side of, chosen by the user from the
+   * preview's candidates. The row's date/reference attach to that transfer's open leg and no new
+   * transaction is created. Requires `transferAccountId` to name the same counterparty.
+   */
+  matchTransferId?: string | null
+  /**
+   * For a credit into a jar-backed statement account (an income, or a transfer receipt this row
+   * records or confirms): how much goes to each of its jars, the rest unallocated (rule 78).
+   */
+  jarAllocations?: JarAllocationRequest[] | null
+  /** For a debit on a line that is not a jar (or a transfer out): the jar it comes from (rule 79). */
+  paidFromJarId?: string | null
+}
+
+/** A statement row the commit held back because posting it would take the account below zero (rule 74). */
+export interface ImportHeldRow {
+  reference: string
+  message: string
 }
 
 /** Summary returned by a statement import (CAMT.053 or HSBC CSV). */
@@ -234,17 +365,30 @@ export interface ImportStatementResult {
   debits: number
   iban: string | null
   autoCategorized: number
+  /** Transfer rows recorded or confirmed. */
   transfers: number
+  /** Rows that confirmed the other side of an existing transfer (no new transaction). */
+  matchedTransfers?: number
+  /** Credit rows held for review because only the receipt is known. */
+  pendingReviewTransfers?: number
+  /** Rows not imported because they would take the account below zero on some date (rule 74); re-commit after fixing. */
+  held?: ImportHeldRow[]
+  heldCount?: number
 }
 
 export interface AccountReconciliationDto {
   accountId: string
   accountName: string
-  currentBalance: number
+  /** Actual balance as of today; null when unavailable. */
+  currentBalance: number | null
   backedJarsTotal: number
   backedJarCount: number
-  /** CurrentBalance − BackedJarsTotal: unallocated float (or shortfall when negative). */
-  float: number
+  /** The account's unallocated money: balance minus every jar's signed balance (rule 3); null when the balance is unavailable. */
+  float: number | null
+  /** True when positive jar balances exceed the account's money (rule 70): an explicit reallocation must cover the deficit. */
+  hasBackingDeficit?: boolean
+  /** True when a pending transfer receipt means the posted balance is not yet reconcilable with the bank. */
+  requiresReview?: boolean
 }
 
 export interface BudgetTrendPointDto {
@@ -347,36 +491,108 @@ export interface JarDto {
   accrual: number
   /** A Recurring jar's cycle length in months (its date rolls forward by this); null for Goals. */
   recurMonths: number | null
-  openingBalance: number
-  openingAsOf: string | null
-  fundingAccountId: string | null
+  /** The account holding this jar's money (rule 2); always set. */
+  fundingAccountId: string
   isArchived: boolean
-  /** Opening balance plus every contribution minus every spend, across all months. */
-  currentBalance: number
-  /** What to put in this month, per the fund's accrual method. */
+  /**
+   * The jar's actual balance in its account as of `balanceAsOf`: the allocations posted
+   * against it, never planned contributions (rule 1). Null when the account's balance is
+   * unavailable (rule 67), never zero.
+   */
+  currentBalance: number | null
+  /** The date `currentBalance` is calculated as of. */
+  balanceAsOf: string
+  /** What to put in this month, per the fund's accrual method (0 when the balance is unavailable). */
   requiredMonthlyContribution: number
   /** When the fund reaches its target at the required rate; null when funded/open-ended. */
   projectedFullyFundedDate: string | null
-  /** Overspent | Unfunded | FullyFunded | Behind | OnTrack. */
+  /** Unavailable | Overspent | Unfunded | FullyFunded | Behind | OnTrack. */
   status: string
+}
+
+/** One jar's line in its account's ledger (GET /jars/ledger). */
+export interface JarLedgerLineDto {
+  jarId: string
+  name: string
+  balance: number
+  isArchived: boolean
+}
+
+/**
+ * One jar-backed account's ledger (rules 2–6, 70): its actual balance, each jar's allocated
+ * balance and the unallocated remainder, which always reconcile. Null money means unavailable.
+ */
+export interface JarAccountLedgerDto {
+  accountId: string
+  accountName: string
+  currency: string
+  asOf: string
+  accountBalance: number | null
+  unallocated: number | null
+  /** The sum of positive jar balances; must not exceed `accountBalance` (rule 70). */
+  positiveAllocations: number
+  /** True when positive jars exceed the account's money: an explicit reallocation is required before further moves. */
+  hasBackingDeficit: boolean
+  /** Stored transaction allocations that no longer match their transaction and were set aside for review. */
+  unreconciledAllocations: number
+  requiresReview: boolean
+  jars: JarLedgerLineDto[]
 }
 
 export interface HouseholdMemberDto {
   id: string
   name: string
+  /** The saved default income: a helper for filling in a new budget, never a figure any calculation uses (rule 28). */
   netMonthlyIncome: number
+  /** This member's income in the selected month's budget: attributed lines plus an equal share of the unattributed ones. */
+  budgetIncome?: number
+  /** The month `budgetIncome` and `incomeSharePct` were read from. */
+  incomeYear?: number
+  incomeMonth?: number
+  /** False when that month has no budget yet (income and share are then zero). */
+  hasBudget?: boolean
   personalSavingsAccountId: string | null
   displayOrder: number
   isArchived: boolean
-  /** This member's share of household net income (0–1). */
+  /** This member's share of the household's income in the selected month's budget (0–1). */
   incomeSharePct: number
 }
+
+/**
+ * What archiving a person does to their pocket money (rule 54), read before the People page
+ * archives them: while `thisMonth.remaining` is above zero the archive needs the keep-or-cancel
+ * decision; `futureMonths` are cancelled either way.
+ */
+export interface MemberArchivePreviewDto {
+  id: string
+  name: string
+  isArchived: boolean
+  /** The current month's pocket money for the person; null when there is none. */
+  thisMonth: PocketMoneyMonthDto | null
+  futureMonths: PocketMoneyMonthDto[]
+}
+
+/** One month's pocket money for a person: planned, paid so far and what remains planned. */
+export interface PocketMoneyMonthDto {
+  year: number
+  month: number
+  planned: number
+  paid: number
+  remaining: number
+}
+
+// Matches Application PocketMoneyDecision (serialized as a number): what happens to the pocket
+// money still planned this month when the person is archived (rule 54).
+export const PocketMoneyDecision = { Keep: 0, Cancel: 1 } as const
 
 /** Per-member attributed spending (the "who spent what" lens). */
 export interface MemberSpendingDto {
   memberId: string
   name: string
+  /** Attributed spending in the budget's base currency; rows with a pending exchange rate are left out. */
   spent: number
+  /** Attributed rows whose exchange rate is still unresolved and therefore not counted. */
+  fxPendingCount?: number
 }
 
 // Matches Domain.Enums.AllocationRuleType (serialized as a number).
@@ -438,7 +654,8 @@ export interface MemberAllocationDto {
   netIncome: number
   residual: number
   /** Savings-account balance before this month's allocation (for the balance-aware view). */
-  savingsBalance: number
+  /** Actual savings-account balance today, before this month's allocation; null when unavailable (no opening date). */
+  savingsBalance: number | null
   savingsAccountId: string | null
 }
 
@@ -449,6 +666,8 @@ export interface AllocationResultDto {
   steps: AllocationStepDto[]
   members: MemberAllocationDto[]
   transfersCreated: number
+  /** Previously recorded transfers a commit left unchanged (0 for a preview). */
+  transfersRetained?: number
   /**
    * True when the pool came from the month's budgeted income lines (attributed to
    * people). Optional so existing fixtures stay valid; absent reads as false.
@@ -460,7 +679,12 @@ export interface AllocationResultDto {
 
 /** Per-member income for a month, derived from the budget (GET /members/income/{y}/{m}). */
 export interface MemberIncomeResultDto {
+  /** Always true since rule 28: every figure comes from the month's budget. */
   incomeFromBudget: boolean
+  /** False when the month has no budget yet. */
+  hasBudget?: boolean
+  /** Income rows in the month whose exchange rate is still unresolved and therefore not in `received`. */
+  fxPendingCount?: number
   unattributedPlanned: number
   items: MemberIncomeDto[]
 }
@@ -468,8 +692,14 @@ export interface MemberIncomeResultDto {
 export interface MemberIncomeDto {
   memberId: string
   name: string
+  /** The month's income lines attributed to this person. */
   planned: number
+  /** Income transactions attributed to this person in the month, base currency, pending-rate rows left out. */
   received: number
+  /** Planned plus an equal share of the unattributed lines: the figure the allocation uses. */
+  income?: number
+  /** This person's share of the household's month income (0–1). */
+  sharePct?: number
 }
 
 /** Toggles for the features beyond core zero-based budgeting (from GET /api/features). */

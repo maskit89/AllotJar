@@ -28,6 +28,26 @@ public class AllocationRerunTests
         public string? UserId { get; } = userId;
     }
 
+    private static void SeedBudget(ApplicationDbContext db, string owner)
+    {
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = owner, Year = 2026, Month = 7, BaseCurrency = CurrencyCode.Eur,
+            Categories = new List<BudgetCategory>
+            {
+                new()
+                {
+                    Name = "Income", Kind = CategoryKind.Income,
+                    Items = db.HouseholdMembers.Local.Where(m => m.OwnerId == owner)
+                        .Select(m => new BudgetItem
+                        {
+                            Name = m.Name, MemberId = m.Id, PlannedAmount = m.NetMonthlyIncome,
+                        }).ToList(),
+                },
+            },
+        });
+    }
+
     [Fact]
     public async Task Rerunning_an_allocation_recreates_the_same_references_without_tripping_the_unique_index()
     {
@@ -57,14 +77,20 @@ public class AllocationRerunTests
             Name = "Default",
             SourceAccountId = source.Id,
         });
+        SeedBudget(db, owner);
         await db.SaveChangesAsync();
 
         var handler = new AllocateIncomeCommandHandler(db, new CurrentUserStub(owner));
-        var command = new AllocateIncomeCommand(2026, 7, null);
+        var command = new AllocateIncomeCommand(2026, 7, null, DepartedOn: new DateOnly(2026, 7, 1), ConfirmedCompleted: true);
 
-        // First run creates the alloc transfer; the re-run deletes + recreates the SAME reference
-        // in one batch — the exact write pattern the unique index must tolerate.
+        // First run records the alloc transfer; an unchanged re-run retains it. Then the budget
+        // changes the member's surplus, so the re-run deletes the in-transit row + recreates the
+        // SAME reference in one batch — the exact write pattern the unique index must tolerate.
         await handler.Handle(command, CancellationToken.None);
+        await handler.Handle(command, CancellationToken.None);
+        var pay = await db.BudgetItems.SingleAsync(i => i.BudgetCategory.BudgetMonth.OwnerId == owner && i.Name == "Sam");
+        pay.PlannedAmount = 1800m;
+        await db.SaveChangesAsync();
         await handler.Handle(command, CancellationToken.None);
 
         await using var verify = _fixture.CreateContext();
@@ -73,7 +99,7 @@ public class AllocationRerunTests
             .Where(t => t.OwnerId == owner && t.BankReference!.StartsWith("alloc:2026-7:"))
             .ToListAsync();
         allocRows.Should().HaveCount(1); // recreated, never duplicated
-        allocRows[0].Amount.Should().Be(1500m);
+        allocRows[0].Amount.Should().Be(1800m);
     }
 
     [Fact]
@@ -90,13 +116,14 @@ public class AllocationRerunTests
             // Sam's savings account was deleted; the soft-hint id now dangles (no Account row, no FK).
             new HouseholdMember { OwnerId = owner, Name = "Sam", NetMonthlyIncome = 1200m, PersonalSavingsAccountId = Guid.NewGuid(), DisplayOrder = 1 });
         db.AllocationProfiles.Add(new AllocationProfile { OwnerId = owner, Name = "Default", SourceAccountId = source.Id });
+        SeedBudget(db, owner);
         await db.SaveChangesAsync();
 
         var handler = new AllocateIncomeCommandHandler(db, new CurrentUserStub(owner));
 
         // Before the planner nulled dangling savings ids, the broken TransferAccountId FK threw
         // DbUpdateException here on SQL Server and failed the ENTIRE commit.
-        var act = async () => await handler.Handle(new AllocateIncomeCommand(2026, 7, null), CancellationToken.None);
+        var act = async () => await handler.Handle(new AllocateIncomeCommand(2026, 7, null, DepartedOn: new DateOnly(2026, 7, 1), ConfirmedCompleted: true), CancellationToken.None);
         var result = (await act.Should().NotThrowAsync()).Subject;
 
         result.TransfersCreated.Should().Be(1); // Alex only; Sam is skipped (no valid savings account)

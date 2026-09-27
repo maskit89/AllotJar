@@ -2,21 +2,27 @@ import { expect, test } from '@playwright/test'
 import { register } from './helpers'
 
 /**
- * Registration → optional sample budget → cookie-refresh session restore. The stubbed suites can't
- * cover any of this: it exercises the real /auth/register with and without the sample-figures
- * opt-in, the BudgetSeeder writing a jar-backed Savings line when opted in (the enforced
- * SavingsId → Jars FK that in-memory tests can't see), and the HttpOnly refresh-cookie flow that
- * rehydrates the session after a full page load.
+ * Registration → empty household (rule 81) → first month from a template → cookie-refresh session
+ * restore. The stubbed suites can't cover any of this: it exercises the real /auth/register (which
+ * seeds nothing and offers no sample-data opt-in), the template create through the real
+ * /api/budget, the first-run checklist, and the HttpOnly refresh-cookie flow that rehydrates the
+ * session after a full page load.
  */
 test('a new user starts with an empty budget and builds a first month', async ({ page }) => {
-  // Default registration (sample box left unticked): no pre-filled figures anywhere — the
-  // dashboard offers the create-month flow instead. register() itself asserts the empty state.
+  // Registration seeds nothing: no pre-filled figures anywhere — the dashboard offers the
+  // create-month flow instead. register() itself asserts the empty state.
   await register(page)
 
-  // Line names render as textbox VALUES (rename fields), not text — assert by role. A seeded
-  // month would have an income-line rename field and the Emergency Fund jar on the shelf.
+  // Line names render as textbox VALUES (rename fields), not text — assert by role. Nothing is
+  // seeded: no income-line rename field, no jar on the shelf, no sign-up sample checkbox existed.
   await expect(page.getByRole('textbox', { name: 'Income source name', exact: true })).toHaveCount(0)
   await expect(page.getByText('Emergency Fund')).toHaveCount(0)
+  // The first-run checklist (rule 81) shows all three steps open: accounts → month → jar, the
+  // jar step disabled until an account exists.
+  const setup = page.getByRole('region', { name: 'Set up your budget' })
+  await expect(setup).toBeVisible()
+  await expect(setup.getByRole('link', { name: 'Go to accounts' })).toBeVisible()
+  await expect(setup.getByRole('button', { name: 'Add a jar from an account' })).toBeDisabled()
 
   // The create-month hero offers a blank start and the quick-start templates (no copy button —
   // a brand-new user has no previous month).
@@ -29,19 +35,25 @@ test('a new user starts with an empty budget and builds a first month', async ({
   await expect(page.getByRole('heading', { name: 'Income' })).toBeVisible()
 })
 
-test('opting in to sample figures lands on a seeded starter budget', async ({ page }) => {
-  await register(page, { sampleBudget: true })
+test('starting from the Essentials template builds a month with named lines and no savings lines', async ({ page }) => {
+  await register(page, { starterBudget: true })
 
-  // The seeded month is visible immediately (the user opted in on the sign-up form). Group + line
-  // names render as editable rename fields, so assert them by their textbox accessible names.
+  // Group + line names render as editable rename fields, so assert them by their textbox
+  // accessible names.
   await expect(page.getByRole('heading', { name: 'Income' })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Rename group Housing' })).toHaveValue('Housing')
   // exact — "Income source name" is a substring of the "New income source name" add field.
   await expect(
     page.getByRole('textbox', { name: 'Income source name', exact: true }),
   ).toHaveValue('Take-home Pay')
-  // The starter Savings line is a real jar (the enforced SavingsId → Jars FK), shown on the shelf.
-  await expect(page.getByText('Emergency Fund')).toBeVisible()
+  // Rule 81: templates carry no savings lines and mint no jars — jars come only from the jar form.
+  await expect(page.getByRole('textbox', { name: 'Rename group Savings' })).toHaveCount(0)
+  await expect(page.getByText('Emergency Fund')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Your jars' })).toHaveCount(0)
+  // The checklist ticks the month step and keeps the account + jar steps open.
+  const setup = page.getByRole('region', { name: 'Set up your budget' })
+  await expect(setup.getByText("Create this month's budget")).toBeVisible()
+  await expect(setup.getByRole('link', { name: 'Go to accounts' })).toBeVisible()
 })
 
 test('the session survives a full page reload via the refresh cookie', async ({ page }) => {

@@ -37,7 +37,7 @@ export function hueForAccountType(type: number): CategoryHue {
       return 'emerald'
     case AccountType.Cash:
       return 'amber'
-    case AccountType.CreditCard:
+    case AccountType.CreditCard: // no longer offered (rule 75); rows recorded before keep their hue
       return 'rose'
     case AccountType.Current:
       return 'indigo'

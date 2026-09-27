@@ -13,10 +13,10 @@ using AllotJar.Infrastructure.Persistence;
 namespace AllotJar.Application.Tests.Application;
 
 /// <summary>
-/// The income-per-person switchover: when the month's budget attributes income lines to
-/// people, those PLANNED sums are the engine's pool (unattributed shared equally with a
-/// warning surfaced via the DTO); a month with no attribution falls back to the static
-/// NetMonthlyIncome exactly as before. Plus the /members/income derivation.
+/// Rule 28: the engine's pool is the month's budgeted income and nothing else. Lines
+/// attributed to people are theirs; unattributed lines are shared equally (surfaced via the
+/// DTO); the saved per-person default (NetMonthlyIncome) never supplies or tops up the pool,
+/// and a month with no budget has none. Plus the /members/income derivation.
 /// </summary>
 public class AllocationIncomeFromBudgetTests
 {
@@ -118,20 +118,40 @@ public class AllocationIncomeFromBudgetTests
     }
 
     [Fact]
-    public async Task NoAttributedLines_FallsBackToStaticIncomes()
+    public async Task NoAttributedLines_ShareTheUnattributedIncomeEqually_AndIgnoreTheSavedDefaults()
     {
         await using var db = NewContext();
         var s = Seed(db);
         await SeedProfileAsync(db);
-        // Income exists but nothing is attributed — the pre-attribution world.
+        // Income exists but nothing is attributed — the whole line is the household's, shared
+        // equally; the 9999/8888 defaults on the members play no part (rule 28).
         AddIncomeLine(db, s, "Take-home Pay", 4000m, null);
 
         var dto = await new PreviewIncomeAllocationQueryHandler(db, new CurrentUserStub("user-1"))
             .Handle(new PreviewIncomeAllocationQuery(2026, 7, null), CancellationToken.None);
 
-        dto.IncomeFromBudget.Should().BeFalse();
+        dto.IncomeFromBudget.Should().BeTrue();
+        dto.UnattributedIncome.Should().Be(4000m);
+        dto.Pool.Should().Be(4000m);
+        dto.Members.Single(m => m.Name == "Alex").NetIncome.Should().Be(2000m);
+        dto.Members.Single(m => m.Name == "Robin").NetIncome.Should().Be(2000m);
+    }
+
+    [Fact]
+    public async Task NoBudget_YieldsAnEmptyPool_NotTheDefaults()
+    {
+        await using var db = NewContext();
+        Seed(db); // the members carry 9999/8888 defaults; only July 2026 has a budget
+        await SeedProfileAsync(db);
+
+        // August has no budget month at all.
+        var dto = await new PreviewIncomeAllocationQueryHandler(db, new CurrentUserStub("user-1"))
+            .Handle(new PreviewIncomeAllocationQuery(2026, 8, null), CancellationToken.None);
+
+        dto.IncomeFromBudget.Should().BeTrue();
         dto.UnattributedIncome.Should().Be(0m);
-        dto.Pool.Should().Be(9999m + 8888m);
+        dto.Pool.Should().Be(0m, "the saved defaults are never a pool or a fallback");
+        dto.Members.Should().HaveCount(2).And.OnlyContain(m => m.NetIncome == 0m);
     }
 
     [Fact]

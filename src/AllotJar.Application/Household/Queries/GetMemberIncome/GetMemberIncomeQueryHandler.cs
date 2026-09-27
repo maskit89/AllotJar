@@ -38,9 +38,10 @@ public class GetMemberIncomeQueryHandler : IRequestHandler<GetMemberIncomeQuery,
 
         var memberIds = members.Select(m => m.Id).ToList();
 
-        // Planned side: the same derivation the allocation engine uses.
+        // Planned side: the same derivation the allocation engine uses (rule 28).
         var planned = await MemberIncome.ForMonthAsync(
             _db, userId, request.Year, request.Month, memberIds, cancellationToken);
+        var shares = await MemberIncome.SharesAsync(_db, userId, request.Year, request.Month, members, cancellationToken);
 
         // Received side: income transactions dated in the month, attributed whole or by
         // slice — a split counts by its slices only (it has no whole-tx attribution).
@@ -53,29 +54,39 @@ public class GetMemberIncomeQueryHandler : IRequestHandler<GetMemberIncomeQuery,
                         && t.Date >= from && t.Date < to)
             .ToListAsync(cancellationToken);
 
+        // Base-currency amounts, like the budget grid; a row whose rate is still pending is
+        // counted separately rather than at face value (rules 41–44).
         var memberIdSet = memberIds.ToHashSet();
         var receivedByMember = new Dictionary<Guid, decimal>();
+        var fxPending = 0;
         foreach (var t in incomes)
         {
+            if (t.FxPending)
+            {
+                fxPending++;
+                continue;
+            }
             if (t.Splits.Count > 0)
             {
                 foreach (var slice in t.Splits)
                 {
                     if (slice.MemberId is Guid sliceMember && memberIdSet.Contains(sliceMember))
                     {
-                        receivedByMember[sliceMember] = receivedByMember.GetValueOrDefault(sliceMember) + slice.Amount;
+                        receivedByMember[sliceMember] = receivedByMember.GetValueOrDefault(sliceMember) + slice.Amount * t.ExchangeRate;
                     }
                 }
             }
             else if (t.MemberId is Guid wholeMember && memberIdSet.Contains(wholeMember))
             {
-                receivedByMember[wholeMember] = receivedByMember.GetValueOrDefault(wholeMember) + t.Amount;
+                receivedByMember[wholeMember] = receivedByMember.GetValueOrDefault(wholeMember) + t.BaseAmount;
             }
         }
 
         return new MemberIncomeResultDto
         {
-            IncomeFromBudget = planned.HasAttributedIncome,
+            IncomeFromBudget = true,
+            HasBudget = planned.HasBudget,
+            FxPendingCount = fxPending,
             UnattributedPlanned = planned.Unattributed,
             Items = members
                 .Select(m => new MemberIncomeDto
@@ -84,6 +95,8 @@ public class GetMemberIncomeQueryHandler : IRequestHandler<GetMemberIncomeQuery,
                     Name = m.Name,
                     Planned = planned.ByMember.GetValueOrDefault(m.Id),
                     Received = receivedByMember.GetValueOrDefault(m.Id),
+                    Income = shares.Income.GetValueOrDefault(m.Id),
+                    SharePct = shares.ShareOf(m.Id),
                 })
                 .ToList(),
         };

@@ -32,9 +32,14 @@ public class JarConfiguration : IEntityTypeConfiguration<Jar>
         builder.Property(f => f.TargetAmount)
             .HasPrecision(18, 4);
 
-        builder.Property(f => f.OpeningBalance)
-            .HasPrecision(18, 4);
-
         builder.HasIndex(f => f.OwnerId);
+
+        // Rule 2/73: every jar's money lives in exactly one account. An account backing jars
+        // cannot be deleted (DeleteAccount refuses; the database backs that up).
+        builder.HasOne(f => f.FundingAccount)
+            .WithMany()
+            .HasForeignKey(f => f.FundingAccountId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(f => f.FundingAccountId);
     }
 }

@@ -1,5 +1,6 @@
 using MediatR;
 using AllotJar.Application.Common.Security;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Domain.Enums;
 
@@ -10,7 +11,10 @@ namespace AllotJar.Application.Transactions.Commands.UpdateTransaction;
 /// (null clears it). Budget-line assignment and currency are unchanged — but a retained
 /// assignment (or the slices of a split) is re-validated when the direction or month
 /// changes, so an edit can never leave the transaction on a line it could not be assigned
-/// to. Returns the updated transaction.
+/// to. The jar prompts are re-answered by the edit: <c>JarAllocations</c> restates how an
+/// income on a jar-backed account is divided (rule 78) and <c>PaidFromJarId</c> which jar an
+/// expense comes from (rule 79); omitting them returns the leg to its default (unallocated, or
+/// the budget line's jar). Returns the updated transaction.
 /// </summary>
 [AllowLimited]
 public record UpdateTransactionCommand(
@@ -23,4 +27,6 @@ public record UpdateTransactionCommand(
     Guid? MemberId = null,
     // Set only after the user confirms keeping the assignment/slices on a line in a different
     // month than the edited date (see TransactionInvariants.CrossMonthKey).
-    bool AcknowledgeCrossMonth = false) : IRequest<TransactionDto>;
+    bool AcknowledgeCrossMonth = false,
+    IReadOnlyList<JarAllocationInput>? JarAllocations = null,
+    Guid? PaidFromJarId = null) : IRequest<TransactionDto>;

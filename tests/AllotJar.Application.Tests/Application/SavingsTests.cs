@@ -5,7 +5,9 @@ using AllotJar.Application.Budgets.Commands.AddBudgetCategory;
 using AllotJar.Application.Budgets.Commands.AddBudgetItem;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
+using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -14,9 +16,10 @@ using AllotJar.Infrastructure.Persistence;
 namespace AllotJar.Application.Tests.Application;
 
 /// <summary>
-/// Sinking funds: a Fund-kind group whose lines carry a balance across months.
-/// Contributions (planned) count as budgeted money; spending (actual) draws the
-/// balance down; the available balance rolls over month to month.
+/// Sinking funds: a Savings-kind group whose lines are jars. Planned contributions are
+/// budgeted money in the plan totals only (rule 1); the grid's available balance is the jar's
+/// actual ledger balance as of the viewed month's end (rule 48) — allocations in, jar-line
+/// spending from the jar's account out (rule 79).
 /// </summary>
 public class SavingsTests
 {
@@ -38,13 +41,24 @@ public class SavingsTests
         BaseCurrency = CurrencyCode.Eur,
     };
 
+    private static Jar SeedJar(ApplicationDbContext db, string ownerId, Guid id, Account account)
+    {
+        var jar = new Jar { Id = id, OwnerId = ownerId, Name = "Car", TargetAmount = 1000m, FundingAccountId = account.Id };
+        db.Jars.Add(jar);
+        db.SaveChanges();
+        return jar;
+    }
+
     [Fact]
     public async Task FundBalance_RollsOverAndSubtractsSpending()
     {
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
         var fundId = Guid.NewGuid();
+        SeedJar(db, "user-1", fundId, account);
 
-        // May: contribute 100 to the Car fund, spend nothing → balance 100.
+        // May: 100 allocated to the Car jar (the planned 100 is the plan), spend nothing → balance 100.
+        LedgerFixtures.Allocate(db, "user-1", account.Id, fundId, 100m, new DateOnly(2026, 5, 10));
         var may = NewMonth("user-1", 2026, 5);
         may.Categories.Add(new BudgetCategory
         {
@@ -56,7 +70,8 @@ public class SavingsTests
             },
         });
 
-        // June: contribute another 100, and spend 30 (tracked) → carry 100 + (100 - 30) = 170.
+        // June: another 100 allocated, and 30 spent from the account on the jar line → 100 + (100 − 30) = 170.
+        LedgerFixtures.Allocate(db, "user-1", account.Id, fundId, 100m, new DateOnly(2026, 6, 10));
         var june = NewMonth("user-1", 2026, 6);
         var juneCar = new BudgetItem
         {
@@ -74,28 +89,26 @@ public class SavingsTests
         db.BudgetMonths.AddRange(may, june);
         await db.SaveChangesAsync();
 
-        db.Transactions.Add(new Transaction
-        {
-            OwnerId = "user-1",
-            BudgetItemId = juneCar.Id,
-            Amount = 30m,
-            Type = TransactionType.Expense,
-        });
-        await db.SaveChangesAsync();
+        LedgerFixtures.Expense(db, "user-1", account.Id, 30m, new DateOnly(2026, 6, 15), juneCar.Id);
 
         var handler = new GetBudgetMonthQueryHandler(db, new CurrentUserStub("user-1"));
         var dto = await handler.Handle(new GetBudgetMonthQuery(2026, 6), CancellationToken.None);
 
         var car = dto.Categories.Single(c => c.Kind == "Savings").Items.Single(i => i.Name == "Car");
         car.ActualAmount.Should().Be(30m);   // this month's spend
-        car.SavingsAvailable.Should().Be(170m); // rolled-over available balance
+        car.SavingsAvailable.Should().Be(170m); // the jar's ledger balance as of 30 June
     }
 
     [Fact]
-    public async Task FundBalance_OnlyCountsMonthsUpToAndIncludingTheViewedOne()
+    public async Task FundBalance_OnlyCountsMoneyUpToTheEndOfTheViewedMonth()
     {
+        // Rule 48: a past month shows the jar as of its month-end; later money is excluded.
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
         var fundId = Guid.NewGuid();
+        SeedJar(db, "user-1", fundId, account);
+        LedgerFixtures.Allocate(db, "user-1", account.Id, fundId, 100m, new DateOnly(2026, 6, 10));
+        LedgerFixtures.Allocate(db, "user-1", account.Id, fundId, 100m, new DateOnly(2026, 7, 10));
 
         var june = NewMonth("user-1", 2026, 6);
         june.Categories.Add(new BudgetCategory
@@ -103,7 +116,7 @@ public class SavingsTests
             Name = "Funds", Kind = CategoryKind.Savings,
             Items = new List<BudgetItem> { new() { Name = "Car", SavingsId = fundId, PlannedAmount = 100m } },
         });
-        // A FUTURE month's contribution must not leak into June's balance.
+        // A LATER month's allocation must not leak into June's balance.
         var july = NewMonth("user-1", 2026, 7);
         july.Categories.Add(new BudgetCategory
         {
@@ -161,8 +174,9 @@ public class SavingsTests
     }
 
     [Fact]
-    public async Task AddItem_ToAFundGroup_AssignsAFundId()
+    public async Task AddItem_ToAFundGroup_IsRefused_SavingsLinesComeFromCreateJar()
     {
+        // Rule 73: a savings line is a jar, which needs its account; the jar form plants the line.
         await using var db = NewContext();
         var month = NewMonth("user-1", 2026, 6);
         var funds = new BudgetCategory { Name = "Funds", Kind = CategoryKind.Savings };
@@ -171,10 +185,11 @@ public class SavingsTests
         await db.SaveChangesAsync();
 
         var handler = new AddBudgetItemCommandHandler(db, new CurrentUserStub("user-1"));
-        await handler.Handle(new AddBudgetItemCommand(funds.Id, "Holiday", 50m), CancellationToken.None);
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            handler.Handle(new AddBudgetItemCommand(funds.Id, "Holiday", 50m), CancellationToken.None));
 
-        var line = await db.BudgetItems.SingleAsync(i => i.Name == "Holiday");
-        line.SavingsId.Should().NotBeNull();
+        (await db.BudgetItems.AnyAsync(i => i.Name == "Holiday")).Should().BeFalse();
+        db.Jars.Should().BeEmpty();
     }
 
     [Fact]

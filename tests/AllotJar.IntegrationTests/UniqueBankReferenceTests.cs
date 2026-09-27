@@ -209,10 +209,12 @@ public class UniqueBankReferenceTests
         second.SkippedDuplicates.Should().Be(2);
     }
 
-    // --- Transfer-direction dedup (2026-07-22 re-review F6): a row from account A's statement
-    // marked as an INBOUND transfer is stored with the counterparty as its source
-    // (AccountId = B, TransferAccountId = A) — the dedup snapshot and the collision recovery
-    // must both account for that, or re-importing A's statement crashes. --------------------
+    // --- Transfer-direction dedup (2026-07-22 re-review F6, updated for rule 51): a row from
+    // account A's statement marked as an INBOUND transfer is stored with the counterparty as its
+    // source (AccountId = B, TransferAccountId = A) and carries A's statement reference on the
+    // RECEIPT leg (ReceiptBankReference, indexed on TransferAccountId) as a receipt held for
+    // review — the dedup snapshot and the collision recovery must both look at that leg, or
+    // re-importing A's statement crashes. --------------------------------------------------
 
     private static CommitImportItem TransferItem(string reference, Guid counterpartyId, bool isCredit) =>
         new(reference, new DateOnly(2026, 6, 15), "TOP-UP", 100m, "EUR",
@@ -227,7 +229,8 @@ public class UniqueBankReferenceTests
         var accountA = await SeedAccountAsync(db, owner, "A"); // the statement account
         var accountB = await SeedAccountAsync(db, owner, "B"); // the counterparty
 
-        // A credit into A from B: the saved row's AccountId is B (the source).
+        // A credit into A from B: the saved row's AccountId is B (the source), its receipt leg is
+        // dated from the statement and A's reference sits in ReceiptBankReference.
         var first = await new CommitImportCommandHandler(db, new CurrentUserStub(owner), new TrapRateProvider())
             .Handle(new CommitImportCommand(accountA.Id, new[]
             {
@@ -236,8 +239,9 @@ public class UniqueBankReferenceTests
         first.Imported.Should().Be(1);
 
         // Re-import the same statement into A. The old account-scoped snapshot queried
-        // AccountId == A, missed the row (stored on B), re-inserted, collided on (owner, B, ref),
-        // and the recovery — also searching A — rethrew: the whole re-import 500ed.
+        // AccountId == A, missed the row (stored on B), re-inserted, collided, and the recovery —
+        // also searching A — rethrew: the whole re-import 500ed. The snapshot now reads A's
+        // receipt-leg references (TransferAccountId == A) as known.
         await using var db2 = _fixture.CreateContext();
         var second = await new CommitImportCommandHandler(db2, new CurrentUserStub(owner), new TrapRateProvider())
             .Handle(new CommitImportCommand(accountA.Id, new[]
@@ -248,8 +252,12 @@ public class UniqueBankReferenceTests
         second.Imported.Should().Be(0);
         second.SkippedDuplicates.Should().Be(1);
         await using var verify = _fixture.CreateContext();
-        (await verify.Transactions.CountAsync(t => t.OwnerId == owner && t.BankReference == "in-ref"))
-            .Should().Be(1);
+        var stored = await verify.Transactions.SingleAsync(t => t.OwnerId == owner && t.ReceiptBankReference == "in-ref");
+        stored.BankReference.Should().BeNull("A's reference belongs to the receipt leg, not B's departure");
+        stored.AccountId.Should().Be(accountB.Id);
+        stored.TransferAccountId.Should().Be(accountA.Id);
+        stored.ReceivedOn.Should().Be(new DateOnly(2026, 6, 15));
+        stored.DepartedOn.Should().BeNull("only B's statement or the user can supply the departure");
     }
 
     [Fact]
@@ -313,7 +321,8 @@ public class UniqueBankReferenceTests
         await db.SaveChangesAsync();
 
         // The rival inserts the SAME inbound-transfer row inside the trap window (stored with the
-        // counterparty B as its source), so our save collides on (owner, B, ref).
+        // counterparty B as its source and A's reference on the receipt leg), so our save collides
+        // on the receipt index (owner, A, ref).
         var trap = new TrapRateProvider(async () =>
         {
             await using var rival = _fixture.CreateContext();
@@ -321,7 +330,8 @@ public class UniqueBankReferenceTests
             {
                 OwnerId = owner, Amount = 100m, Currency = CurrencyCode.From("USD"), ExchangeRate = 1m,
                 Type = TransactionType.Transfer, Date = new DateOnly(2026, 6, 15), Payee = "TOP-UP",
-                BankReference = "race-in", AccountId = accountB.Id, TransferAccountId = accountA.Id,
+                ReceivedOn = new DateOnly(2026, 6, 15), ReceiptBankReference = "race-in",
+                AccountId = accountB.Id, TransferAccountId = accountA.Id,
             });
             await rival.SaveChangesAsync();
         });
@@ -339,8 +349,10 @@ public class UniqueBankReferenceTests
         // (stored on B), and rethrew. It must skip the collided transfer and keep the plain row.
         result.Imported.Should().Be(1);
         result.SkippedDuplicates.Should().Be(1);
+        result.Transfers.Should().Be(0);
+        result.PendingReviewTransfers.Should().Be(0);
         await using var verify = _fixture.CreateContext();
-        (await verify.Transactions.CountAsync(t => t.OwnerId == owner && t.BankReference == "race-in"))
+        (await verify.Transactions.CountAsync(t => t.OwnerId == owner && t.ReceiptBankReference == "race-in"))
             .Should().Be(1);
         (await verify.Transactions.CountAsync(t => t.OwnerId == owner && t.BankReference == "race-plain"))
             .Should().Be(1);

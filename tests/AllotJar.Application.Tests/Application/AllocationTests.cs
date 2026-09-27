@@ -33,17 +33,34 @@ public class AllocationTests
 
     private static Account SeedAccount(ApplicationDbContext db, string owner, string name, decimal opening = 0m)
     {
-        var a = new Account { OwnerId = owner, Name = name, Type = AccountType.Current, Currency = CurrencyCode.Eur, OpeningBalance = opening };
+        var a = new Account { OwnerId = owner, Name = name, Type = AccountType.Current, Currency = CurrencyCode.Eur, OpeningBalance = opening, OpeningDate = new DateOnly(2026, 1, 1) };
         db.Accounts.Add(a);
         db.SaveChanges();
         return a;
     }
 
-    private static void SeedMember(ApplicationDbContext db, string owner, string name, decimal net, int order, Guid? savings)
+    private static HouseholdMember SeedMember(ApplicationDbContext db, string owner, string name, decimal net, int order, Guid? savings)
     {
-        db.HouseholdMembers.Add(new HouseholdMember
+        var m = new HouseholdMember
         {
             OwnerId = owner, Name = name, NetMonthlyIncome = net, DisplayOrder = order, PersonalSavingsAccountId = savings,
+        };
+        db.HouseholdMembers.Add(m);
+        db.SaveChanges();
+        return m;
+    }
+
+    /// <summary>
+    /// The month's income, the only pool the engine reads (rule 28): one attributed income line
+    /// per member in the given month's budget (which must already exist).
+    /// </summary>
+    private static void SeedIncomeLines(ApplicationDbContext db, string owner, int year, int month, params (HouseholdMember Member, decimal Amount)[] lines)
+    {
+        var bm = db.BudgetMonths.Single(b => b.OwnerId == owner && b.Year == year && b.Month == month);
+        db.BudgetCategories.Add(new BudgetCategory
+        {
+            BudgetMonthId = bm.Id, Name = "Income", Kind = CategoryKind.Income,
+            Items = lines.Select(l => new BudgetItem { Name = l.Member.Name, PlannedAmount = l.Amount, MemberId = l.Member.Id }).ToList(),
         });
         db.SaveChanges();
     }
@@ -95,9 +112,10 @@ public class AllocationTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub("user-1");
-        SeedMember(db, "user-1", "Alex", 4200.50m, 0, null);
-        SeedMember(db, "user-1", "Sam", 3800.25m, 1, null);
+        var alex = SeedMember(db, "user-1", "Alex", 4200.50m, 0, null);
+        var sam = SeedMember(db, "user-1", "Sam", 3800.25m, 1, null);
         SeedBudget(db, "user-1", 2026, 6, envelopes: 3500m, funds: 2000m);
+        SeedIncomeLines(db, "user-1", 2026, 6, (alex, 4200.50m), (sam, 3800.25m));
         await new UpsertAllocationProfileCommandHandler(db, user)
             .Handle(new UpsertAllocationProfileCommand(null, "P", null, StandardRules()), CancellationToken.None);
 
@@ -121,8 +139,8 @@ public class AllocationTests
         var user = new CurrentUserStub("user-1");
         var chrisSavings = SeedAccount(db, "user-1", "Alex Savings", opening: 30000m);
         var lizaSavings = SeedAccount(db, "user-1", "Sam Savings", opening: 40000m);
-        SeedMember(db, "user-1", "Alex", 4200.50m, 0, chrisSavings.Id);
-        SeedMember(db, "user-1", "Sam", 3800.25m, 1, lizaSavings.Id);
+        var alexMember = SeedMember(db, "user-1", "Alex", 4200.50m, 0, chrisSavings.Id);
+        var samMember = SeedMember(db, "user-1", "Sam", 3800.25m, 1, lizaSavings.Id);
 
         // Real costs (3500 + 2000) plus a "Personal Savings" category that is the allocation
         // *output* — flagged out so it isn't double-counted as an obligation.
@@ -137,6 +155,7 @@ public class AllocationTests
             },
         });
         db.SaveChanges();
+        SeedIncomeLines(db, "user-1", 2026, 6, (alexMember, 4200.50m), (samMember, 3800.25m));
 
         var rules = new List<AllocationRuleSpec>
         {
@@ -170,17 +189,18 @@ public class AllocationTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub("user-1");
-        var source = SeedAccount(db, "user-1", "Joint Current");
+        var source = SeedAccount(db, "user-1", "Joint Current", opening: 100_000m);
         var chrisSavings = SeedAccount(db, "user-1", "Alex Savings");
         var lizaSavings = SeedAccount(db, "user-1", "Sam Savings");
-        SeedMember(db, "user-1", "Alex", 4200.50m, 0, chrisSavings.Id);
-        SeedMember(db, "user-1", "Sam", 3800.25m, 1, lizaSavings.Id);
+        var alex = SeedMember(db, "user-1", "Alex", 4200.50m, 0, chrisSavings.Id);
+        var sam = SeedMember(db, "user-1", "Sam", 3800.25m, 1, lizaSavings.Id);
         SeedBudget(db, "user-1", 2026, 6, envelopes: 3500m, funds: 2000m);
+        SeedIncomeLines(db, "user-1", 2026, 6, (alex, 4200.50m), (sam, 3800.25m));
         await new UpsertAllocationProfileCommandHandler(db, user)
             .Handle(new UpsertAllocationProfileCommand(null, "P", source.Id, StandardRules()), CancellationToken.None);
 
         var commit = new AllocateIncomeCommandHandler(db, user);
-        var first = await commit.Handle(new AllocateIncomeCommand(2026, 6), CancellationToken.None);
+        var first = await commit.Handle(new AllocateIncomeCommand(2026, 6, DepartedOn: new DateOnly(2026, 6, 1), ConfirmedCompleted: true), CancellationToken.None);
 
         first.TransfersCreated.Should().Be(2);
         var transfers = await db.Transactions.Where(t => t.Type == TransactionType.Transfer).ToListAsync();
@@ -190,9 +210,14 @@ public class AllocationTests
         transfers.Should().ContainSingle(t => t.TransferAccountId == lizaSavings.Id && t.Amount == 1000.37m);
         transfers.Sum(t => t.Amount).Should().Be(2000.75m);
 
-        // Re-running replaces, not appends.
-        var second = await commit.Handle(new AllocateIncomeCommand(2026, 6), CancellationToken.None);
-        second.TransfersCreated.Should().Be(2);
+        // Every recorded transfer is a confirmed departure with receipt still unknown (rule 71):
+        // the commit records what the user says they did, never an arrival it cannot know.
+        transfers.Should().OnlyContain(t => t.DepartedOn == new DateOnly(2026, 6, 1) && t.ReceivedOn == null);
+
+        // Re-running neither appends nor rewrites an unchanged recorded transfer (rules 7/29):
+        // the same two movements stay as recorded, so nothing new is created.
+        var second = await commit.Handle(new AllocateIncomeCommand(2026, 6, DepartedOn: new DateOnly(2026, 6, 1), ConfirmedCompleted: true), CancellationToken.None);
+        second.TransfersCreated.Should().Be(0);
         (await db.Transactions.CountAsync(t => t.Type == TransactionType.Transfer)).Should().Be(2);
     }
 
@@ -204,19 +229,20 @@ public class AllocationTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub("user-1");
-        var source = SeedAccount(db, "user-1", "Joint");
+        var source = SeedAccount(db, "user-1", "Joint", opening: 100_000m);
         var aSav = SeedAccount(db, "user-1", "A Savings");
         var bSav = SeedAccount(db, "user-1", "B Savings");
-        SeedMember(db, "user-1", "A", 1500m, 0, aSav.Id);
-        SeedMember(db, "user-1", "B", 1500m, 1, bSav.Id);
-        // Pool 3,000 fully budgeted: envelopes 2,500 + jars 500. Pocket 250 each exists ONLY
-        // as the FixedPerMember rule.
+        var a = SeedMember(db, "user-1", "A", 1500m, 0, aSav.Id);
+        var b = SeedMember(db, "user-1", "B", 1500m, 1, bSav.Id);
+        // Pool 3,000 (the month's attributed income lines) fully budgeted: envelopes 2,500 +
+        // jars 500. Pocket 250 each exists ONLY as the FixedPerMember rule.
         SeedBudget(db, "user-1", 2026, 6, envelopes: 2500m, funds: 500m);
+        SeedIncomeLines(db, "user-1", 2026, 6, (a, 1500m), (b, 1500m));
         await new UpsertAllocationProfileCommandHandler(db, user)
             .Handle(new UpsertAllocationProfileCommand(null, "P", source.Id, StandardRules()), CancellationToken.None);
 
         var commit = new AllocateIncomeCommandHandler(db, user);
-        var before = await commit.Handle(new AllocateIncomeCommand(2026, 6), CancellationToken.None);
+        var before = await commit.Handle(new AllocateIncomeCommand(2026, 6, DepartedOn: new DateOnly(2026, 6, 1), ConfirmedCompleted: true), CancellationToken.None);
 
         // Each member: 1500 − 1250 − 250 = −250; remainder −500 → keep-own, zero transfers.
         before.TransfersCreated.Should().Be(0);
@@ -230,7 +256,7 @@ public class AllocationTests
         await new SyncPocketMoneyLinesCommandHandler(db, user)
             .Handle(new SyncPocketMoneyLinesCommand(2026, 6), CancellationToken.None);
 
-        var after = await commit.Handle(new AllocateIncomeCommand(2026, 6), CancellationToken.None);
+        var after = await commit.Handle(new AllocateIncomeCommand(2026, 6, DepartedOn: new DateOnly(2026, 6, 1), ConfirmedCompleted: true), CancellationToken.None);
 
         // Engine: 3000 − 2000 − 500 − 500(pocket rule) = 0 remainder; budget: planned
         // 2000 + 500 + 500(flagged pocket lines) = income 3000 — both coherent.
@@ -250,9 +276,10 @@ public class AllocationTests
         // TransfersCreated = 1 as success.
         await using var db = NewContext();
         var user = new CurrentUserStub("user-1");
-        var source = SeedAccount(db, "user-1", "Joint Current");
-        SeedMember(db, "user-1", "Alex", 3000m, 0, source.Id); // savings IS the source
+        var source = SeedAccount(db, "user-1", "Joint Current", opening: 100_000m);
+        var alex = SeedMember(db, "user-1", "Alex", 3000m, 0, source.Id); // savings IS the source
         SeedBudget(db, "user-1", 2026, 6, envelopes: 1000m, funds: 500m);
+        SeedIncomeLines(db, "user-1", 2026, 6, (alex, 3000m));
         db.AllocationProfiles.Add(new AllocationProfile
         {
             OwnerId = "user-1", Name = "P", SourceAccountId = source.Id,
@@ -267,7 +294,7 @@ public class AllocationTests
 
         var ex = await Assert.ThrowsAsync<AllotJar.Application.Common.Exceptions.ValidationException>(() =>
             new AllocateIncomeCommandHandler(db, user)
-                .Handle(new AllocateIncomeCommand(2026, 6), CancellationToken.None));
+                .Handle(new AllocateIncomeCommand(2026, 6, DepartedOn: new DateOnly(2026, 6, 1), ConfirmedCompleted: true), CancellationToken.None));
 
         ex.Errors["Allocation"].Single().Should().Contain("source account");
         (await db.Transactions.CountAsync()).Should().Be(0); // no transfers, and the prior ones weren't dropped

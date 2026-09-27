@@ -7,9 +7,9 @@ namespace AllotJar.Application.Jars;
 /// <summary>
 /// The jar ↔ savings-line invariant, in one place: every Savings-kind budget line
 /// references a real <see cref="Jar"/> (BudgetItems.SavingsId is an enforced FK to
-/// Jars.Id), and a jar's monthly contribution is such a line. Every SavingsId writer
-/// goes through here — minting a bare Guid passes the EF InMemory tests but violates
-/// the constraint on SQL Server.
+/// Jars.Id), and a jar's monthly contribution is such a line. Jars are only created
+/// through CreateJar with their designated account (rule 73); this helper only plants
+/// an existing jar's line.
 ///
 /// New rows are added through the DbSets with explicit FKs (never by mutating a
 /// tracked month's navigation collections, which would attach the client-keyed
@@ -19,14 +19,6 @@ namespace AllotJar.Application.Jars;
 /// </summary>
 public static class SavingsLines
 {
-    /// <summary>Mints and stages the backing jar for a savings line; returns it for its id.</summary>
-    public static Jar AddBackingJar(IApplicationDbContext db, string ownerId, string lineName)
-    {
-        var jar = Jar.ForSavingsLine(ownerId, lineName);
-        db.Jars.Add(jar);
-        return jar;
-    }
-
     /// <summary>
     /// Appends <paramref name="jar"/>'s contribution line to the month's first Savings
     /// group, creating a "Savings" group when the month has none. The month's categories

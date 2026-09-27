@@ -88,7 +88,7 @@ const EMPTY_CASES: EmptyCase[] = [
   },
   {
     path: '/people',
-    route: '**/api/members',
+    route: '**/api/members?**', // the list GET carries ?year=&month= (rule 29), so match with a trailing **
     body: '[]',
     title: 'Budgeting on your own?',
     copy: /split shared costs/,
@@ -172,7 +172,7 @@ const LOADING_CASES: LoadingCase[] = [
   },
   {
     path: '/people',
-    route: '**/api/members',
+    route: '**/api/members?**', // the list GET carries ?year=&month= (rule 29), so match with a trailing **
     content: (p) => p.getByRole('heading', { name: 'Your household' }),
     ids: 'UX-041',
   },
@@ -258,7 +258,7 @@ const ERROR_CASES: ErrorCase[] = [
   },
   {
     path: '/people',
-    route: '**/api/members',
+    route: '**/api/members?**', // the list GET carries ?year=&month= (rule 29), so match with a trailing **
     copy: /Could not load your household\./,
     action: 'Add person',
     ids: 'UX-043, UX-021',

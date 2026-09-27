@@ -79,7 +79,19 @@ export function AccountDetailPage() {
     [transactions, id],
   )
   const currency = account?.currency ?? 'EUR'
-  const balanceMinor = account ? fromAmount(account.currentBalance) : 0
+  // Optional bank identifiers (rule 76) — shown only when recorded.
+  const identifiers: Array<[string, string]> = account
+    ? (
+        [
+          ['IBAN', account.iban],
+          ['BIC', account.bic],
+          ['Sort code', account.sortCode],
+          ['Account number', account.accountNumber],
+        ] as Array<[string, string | null | undefined]>
+      ).filter((row): row is [string, string] => typeof row[1] === 'string' && row[1].trim() !== '')
+    : []
+  // Null = unavailable (no opening date, rule 67): shown as such, never as zero.
+  const balanceMinor = account && account.currentBalance !== null ? fromAmount(account.currentBalance) : null
 
   const dotColor = (h: CategoryHue | 'income' | undefined) =>
     h === undefined ? 'var(--color-slate-400)' : h === 'income' ? 'var(--color-brand-600)' : hueColor(h)
@@ -110,13 +122,40 @@ export function AccountDetailPage() {
         <>
           <Hero
             eyebrow={account.name}
-            amount={formatMoney(balanceMinor, currency)}
-            amountLabel={`${account.name} balance: ${formatMoney(balanceMinor, currency)}`}
+            amount={balanceMinor === null ? 'Not available' : formatMoney(balanceMinor, currency)}
+            amountLabel={`${account.name} balance: ${balanceMinor === null ? 'not available' : formatMoney(balanceMinor, currency)}`}
             tiles={[
               { label: 'Type', value: ACCOUNT_TYPE_LABELS[account.type] ?? 'Other' },
               { label: 'Transactions', value: `${rows.length}` },
+              ...((account.inTransitOut ?? 0) > 0 || (account.inTransitIn ?? 0) > 0
+                ? [{ label: 'In transit', value: formatMoney(fromAmount((account.inTransitOut ?? 0) + (account.inTransitIn ?? 0)), currency) }]
+                : []),
+              ...((account.pendingReceiptCount ?? 0) > 0
+                ? [{ label: 'Pending review', value: formatMoney(fromAmount(account.pendingReceiptTotal ?? 0), currency) }]
+                : []),
             ]}
+            footnote={
+              balanceMinor === null ? (
+                <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13px] font-medium">
+                  {account.openingDateMissing ? 'Set an opening date to calculate the balance.' : 'No balance before the opening date.'}
+                </span>
+              ) : undefined
+            }
           />
+
+          {identifiers.length > 0 && (
+            <Card as="section" aria-labelledby="account-details-heading" className="p-5">
+              <h2 id="account-details-heading" className="text-sm font-semibold text-slate-700">Account details</h2>
+              <dl className="mt-2 grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
+                {identifiers.map(([label, value]) => (
+                  <div key={label} className="flex justify-between gap-3 sm:block">
+                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
+                    <dd className="font-mono text-slate-800">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </Card>
+          )}
 
           <Card className="overflow-hidden">
             <div className="overflow-x-auto">
@@ -153,6 +192,16 @@ export function AccountDetailPage() {
                           {isTransfer ? (
                             <span className="text-xs text-slate-500">
                               {t.accountName ?? '(removed account)'} → {t.transferAccountName ?? '(removed account)'}
+                              {t.transferStatus === 'InTransit' && (
+                                <span className="ml-1.5 rounded-[5px] border border-sky-200 bg-sky-50 px-1.5 py-px text-[9.5px] font-semibold text-sky-700 dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-300">
+                                  In transit
+                                </span>
+                              )}
+                              {t.transferStatus === 'PendingReview' && (
+                                <span className="ml-1.5 rounded-[5px] border border-amber-200 bg-amber-50 px-1.5 py-px text-[9.5px] font-semibold text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300">
+                                  Pending review
+                                </span>
+                              )}
                             </span>
                           ) : t.budgetItemId ? (
                             <span

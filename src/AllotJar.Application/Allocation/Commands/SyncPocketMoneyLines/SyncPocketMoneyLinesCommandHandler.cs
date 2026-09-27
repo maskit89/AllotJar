@@ -13,7 +13,8 @@ public class SyncPocketMoneyLinesCommandHandler : IRequestHandler<SyncPocketMone
 {
     /// <summary>The category the sync owns. Matched case-insensitively so a user rename of
     /// casing doesn't spawn a duplicate; any other rename detaches it (by design — the banner
-    /// re-offers the sync, which then creates a fresh flagged category).</summary>
+    /// re-offers the sync, which then creates a fresh flagged category). Its lines are linked to
+    /// their person by <see cref="BudgetItem.MemberId"/> (rule 53).</summary>
     public const string CategoryName = "Pocket Money";
 
     private readonly IApplicationDbContext _db;
@@ -103,13 +104,19 @@ public class SyncPocketMoneyLinesCommandHandler : IRequestHandler<SyncPocketMone
             category.ExcludeFromAllocation = true;
         }
 
-        // One line per active member, matched by name (case-insensitive). Lines for renamed or
-        // archived members are left untouched — visible leftovers beat silent deletion.
+        // One line per active member, identified by the person's id (rule 53): a line the sync
+        // already linked is reused whatever it is called now, so a renamed person never gets a
+        // second line. A line from before the link existed is adopted by name (case-insensitive)
+        // and linked. Lines linked to an archived person are theirs to keep or cancel through the
+        // archive (rule 54), and unlinked lines matching nobody are left untouched — visible
+        // leftovers beat silent deletion.
         var nextOrder = category.Items.Select(i => i.DisplayOrder).DefaultIfEmpty(-1).Max() + 1;
         foreach (var member in members)
         {
-            var line = category.Items.FirstOrDefault(i =>
-                string.Equals(i.Name, member.Name, StringComparison.OrdinalIgnoreCase));
+            var line = category.Items.FirstOrDefault(i => i.MemberId == member.Id)
+                ?? category.Items.FirstOrDefault(i =>
+                    i.MemberId is null
+                    && string.Equals(i.Name, member.Name, StringComparison.OrdinalIgnoreCase));
             if (line is null)
             {
                 _db.BudgetItems.Add(new BudgetItem
@@ -117,11 +124,13 @@ public class SyncPocketMoneyLinesCommandHandler : IRequestHandler<SyncPocketMone
                     BudgetCategoryId = category.Id,
                     Name = member.Name,
                     PlannedAmount = perMember,
+                    MemberId = member.Id,
                     DisplayOrder = nextOrder++,
                 });
             }
             else
             {
+                line.MemberId = member.Id;
                 line.PlannedAmount = perMember;
             }
         }

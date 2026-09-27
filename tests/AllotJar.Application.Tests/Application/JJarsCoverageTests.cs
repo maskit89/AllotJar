@@ -8,7 +8,9 @@ using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Commands.ArchiveJar;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Jars.Commands.UpdateJar;
+using AllotJar.Application.Jars.Commands.ReallocateJarMoney;
 using AllotJar.Application.Jars.Queries.GetJars;
+using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -20,8 +22,8 @@ namespace AllotJar.Application.Tests.Application;
 /// Gap-fill coverage for the JARS catalog (docs/testing/cases/13-jars.md) at the
 /// Application/domain layer: the archive/restore soft-flag round trip (the untested
 /// <c>{archived:false}</c> restore leg), the update handler echoing a stored accrual
-/// method and recurrence cycle rather than forcing the form's defaults, and the two
-/// legitimately-different jar balance flavours (Jars page vs budget grid). Every test
+/// method and recurrence cycle rather than forcing the form's defaults, and the Jars page
+/// and budget grid reading one actual-money ledger. Every test
 /// cites the JAR-NNN case(s) it automates. Conventions mirror JarsTests /
 /// JarLifecycleTests (EF InMemory context, CurrentUserStub, FluentAssertions 7).
 /// </summary>
@@ -37,10 +39,11 @@ public class JJarsCoverageTests
             .UseInMemoryDatabase($"zbb-jarcov-{Guid.NewGuid()}")
             .Options);
 
+    /// <summary>A jar in <paramref name="account"/>; <paramref name="allocated"/> is an initial allocation of the account's money (rule 77).</summary>
     private static Jar SeedJar(
-        ApplicationDbContext db, string ownerId, Guid id, decimal target,
+        ApplicationDbContext db, string ownerId, Guid id, decimal target, Account account,
         AccrualMethod accrual = AccrualMethod.TargetByDate, DateOnly? targetDate = null,
-        decimal opening = 0m, bool archived = false, JarKind kind = JarKind.Recurring,
+        decimal allocated = 0m, bool archived = false, JarKind kind = JarKind.Recurring,
         string name = "Holiday", int? recurMonths = null)
     {
         var jar = new Jar
@@ -52,12 +55,16 @@ public class JJarsCoverageTests
             TargetAmount = target,
             Accrual = accrual,
             TargetDate = targetDate,
-            OpeningBalance = opening,
+            FundingAccountId = account.Id,
             IsArchived = archived,
             RecurMonths = recurMonths,
         };
         db.Jars.Add(jar);
         db.SaveChanges();
+        if (allocated != 0m)
+        {
+            LedgerFixtures.Allocate(db, ownerId, account.Id, id, allocated);
+        }
         return jar;
     }
 
@@ -69,11 +76,13 @@ public class JJarsCoverageTests
         // JAR-071 — ArchiveJarCommandHandler does `fund.IsArchived = request.Archived`
         // (a set-to-value, not a blind flip), so the endpoint doubles as restore. An
         // archived jar restored with {archived:false} re-enters the default GET and has
-        // its balance/required/status re-derived at read time. Only the archive leg was
-        // covered before (JarsTests.Archive_HidesFromDefaultList).
+        // its balance/required/status re-derived at read time from the ledger. An archived
+        // jar holds nothing (rule 26); once restored it takes money again. Only the archive
+        // leg was covered before (JarsTests.Archive_HidesFromDefaultList).
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
         var id = Guid.NewGuid();
-        SeedJar(db, "user-1", id, target: 300m, opening: 100m, archived: true);
+        SeedJar(db, "user-1", id, target: 300m, account, archived: true);
 
         var before = await new GetJarsQueryHandler(db, new CurrentUserStub("user-1"))
             .Handle(new GetJarsQuery(), CancellationToken.None);
@@ -83,11 +92,16 @@ public class JJarsCoverageTests
             .Handle(new ArchiveJarCommand(id, Archived: false), CancellationToken.None);
 
         dto.IsArchived.Should().BeFalse();
-        dto.CurrentBalance.Should().Be(100m); // re-derived: opening 100 + tracked 0
+        dto.CurrentBalance.Should().Be(0m); // re-derived from the ledger: nothing allocated yet
+
+        // Restored, it is a destination again: unallocated → jar 100.
+        await new ReallocateJarMoneyCommandHandler(db, new CurrentUserStub("user-1"))
+            .Handle(new ReallocateJarMoneyCommand(account.Id, null, id, 100m), CancellationToken.None);
 
         var after = await new GetJarsQueryHandler(db, new CurrentUserStub("user-1"))
             .Handle(new GetJarsQuery(), CancellationToken.None);
         after.Should().ContainSingle().Which.Id.Should().Be(id);
+        after.Single().CurrentBalance.Should().Be(100m);
         (await db.Jars.SingleAsync(j => j.Id == id)).IsArchived.Should().BeFalse();
     }
 
@@ -97,8 +111,9 @@ public class JJarsCoverageTests
         // JAR-071 — because the handler sets IsArchived to the requested value (not a
         // toggle), a repeated {archived:false} is idempotent and never re-archives.
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
         var id = Guid.NewGuid();
-        SeedJar(db, "user-1", id, target: 300m, archived: true);
+        SeedJar(db, "user-1", id, target: 300m, account, archived: true);
         var handler = new ArchiveJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         await handler.Handle(new ArchiveJarCommand(id, Archived: false), CancellationToken.None);
@@ -115,8 +130,9 @@ public class JJarsCoverageTests
         // the jar (it is keyed out of the active-jar append). Once restored, the next
         // month create appends its contribution line again.
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
         var id = Guid.NewGuid();
-        SeedJar(db, "user-1", id, target: 600m, accrual: AccrualMethod.TargetByDate,
+        SeedJar(db, "user-1", id, target: 600m, account, accrual: AccrualMethod.TargetByDate,
             targetDate: new DateOnly(2026, 12, 1), archived: true);
 
         var whileArchived = await new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"))
@@ -138,8 +154,9 @@ public class JJarsCoverageTests
         // JAR-071 / JAR-068 — the archive/restore route re-checks OwnerId after finding
         // the row, so another household's jar id is forbidden (the restore leg included).
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
         var id = Guid.NewGuid();
-        SeedJar(db, "user-1", id, target: 300m, archived: true);
+        SeedJar(db, "user-1", id, target: 300m, account, archived: true);
 
         var handler = new ArchiveJarCommandHandler(db, new CurrentUserStub("user-2"));
 
@@ -172,6 +189,7 @@ public class JJarsCoverageTests
         // force the form default (TargetByDate, ÷12). The handler persists exactly what
         // is sent, so the jar keeps StraightLine (target ÷ cover months).
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
         var id = Guid.NewGuid();
         db.Jars.Add(new Jar
         {
@@ -183,6 +201,7 @@ public class JJarsCoverageTests
             Accrual = AccrualMethod.StraightLine,
             CoverStart = new DateOnly(2026, 1, 1),
             CoverEnd = new DateOnly(2026, 12, 31),
+            FundingAccountId = account.Id,
         });
         db.SaveChanges();
 
@@ -190,8 +209,7 @@ public class JJarsCoverageTests
             .Handle(new UpdateJarCommand(
                 id, "Car Cover", JarKind.Recurring, 600m, TargetDate: null,
                 CoverStart: new DateOnly(2026, 1, 1), CoverEnd: new DateOnly(2026, 12, 31),
-                AccrualMethod.StraightLine, OpeningBalance: 0m, OpeningAsOf: null,
-                FundingAccountId: null, RecurMonths: 12), CancellationToken.None);
+                AccrualMethod.StraightLine, FundingAccountId: account.Id, RecurMonths: 12), CancellationToken.None);
 
         dto.Accrual.Should().Be(AccrualMethod.StraightLine);
         dto.CoverStart.Should().Be(new DateOnly(2026, 1, 1));
@@ -212,6 +230,7 @@ public class JJarsCoverageTests
         // Recurring jar, so an older client that omits recurMonths can't silently reset a
         // chosen 3-month cycle back to yearly.
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
         var jar = new Jar
         {
             OwnerId = "user-1",
@@ -221,6 +240,7 @@ public class JJarsCoverageTests
             TargetDate = new DateOnly(2026, 10, 1),
             Accrual = AccrualMethod.TargetByDate,
             RecurMonths = 3,
+            FundingAccountId = account.Id,
         };
         db.Jars.Add(jar);
         db.SaveChanges();
@@ -228,24 +248,24 @@ public class JJarsCoverageTests
         var dto = await new UpdateJarCommandHandler(db, new CurrentUserStub("user-1"))
             .Handle(new UpdateJarCommand(
                 jar.Id, "Road Tax", JarKind.Recurring, 150m, new DateOnly(2026, 10, 1),
-                null, null, AccrualMethod.TargetByDate, 0m, null, null,
+                null, null, AccrualMethod.TargetByDate, account.Id,
                 RecurMonths: null), CancellationToken.None);
 
         dto.RecurMonths.Should().Be(3); // preserved, not reset to 12
     }
 
-    // ---- JAR-053: Jars-page balance vs budget-grid "avail." differ by the opening ------
+    // ---- JAR-053: the Jars page and the budget grid read the same ledger ------------
 
     [Fact]
-    public async Task JarsBalance_IncludesOpeningAndAllMonths_WhileGridAvailableExcludesOpening()
+    public async Task JarAndGridReads_AgreeOnAllocatedMoney_AndIgnoreThePlan()
     {
-        // JAR-053 — the Jars page currentBalance (opening + Σ planned−spend over ALL
-        // months) and the budget grid's SavingsAvailable (planned−spend for months ≤ the
-        // viewed one, WITHOUT the opening balance) legitimately differ by exactly the
-        // opening balance. One July line of 30, opening 50, nothing spent.
+        // Both endpoints consume the actual ledger (rules 1, 48): the 50 allocated is the
+        // balance on the Jars page and the grid's SavingsAvailable for July; the planned 30
+        // is a plan and counts nowhere.
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
         var jarId = Guid.NewGuid();
-        SeedJar(db, "user-1", jarId, target: 300m, opening: 50m);
+        SeedJar(db, "user-1", jarId, target: 300m, account, allocated: 50m);
         db.BudgetMonths.Add(new BudgetMonth
         {
             OwnerId = "user-1",
@@ -274,29 +294,33 @@ public class JJarsCoverageTests
             .Handle(new GetBudgetMonthQuery(2026, 7), CancellationToken.None);
         var gridAvailable = july.Categories.Single(c => c.Kind == "Savings").Items.Single().SavingsAvailable;
 
-        jarBalance.Should().Be(80m);        // 50 opening + 30 planned
-        gridAvailable.Should().Be(30m);     // planned only — opening excluded
-        (jarBalance - gridAvailable!.Value).Should().Be(50m); // exactly the opening balance
+        jarBalance.Should().Be(50m);        // allocated only; the planned 30 never counts
+        gridAvailable.Should().Be(50m);     // the same ledger, as of July's month-end
     }
 
     // ---- JAR-066 / JAR-065: permissive amount + bounded recurrence validators ---------
 
     [Fact]
-    public void Validator_AllowsNegativeOpeningBalance_ButNotNegativeTarget()
+    public void Validator_RejectsNegativeInitialAllocation_AndNegativeTarget()
     {
-        // JAR-066 — opening balance may be negative (range [−max, +max]); only the target
-        // is floored at 0. The modal blocks a typed negative, so a negative opening is an
-        // API/importer-only path the server must accept.
+        // JAR-066 (rule 77) — "already set aside" divides money that is in the account, so it
+        // is zero or more; a negative amount is not a way to record a shortfall. The target
+        // is floored at 0 as before.
         var validator = new CreateJarCommandValidator();
 
         validator.Validate(new CreateJarCommand(
                 "Overdrawn", JarKind.Goal, 300m, null, null, null,
-                AccrualMethod.TargetByDate, OpeningBalance: -100m, null, null))
+                AccrualMethod.TargetByDate, Guid.NewGuid(), InitialAllocation: -100m))
+            .Errors.Should().Contain(e => e.PropertyName == "InitialAllocation");
+
+        validator.Validate(new CreateJarCommand(
+                "Set aside", JarKind.Goal, 300m, null, null, null,
+                AccrualMethod.TargetByDate, Guid.NewGuid(), InitialAllocation: 100m))
             .IsValid.Should().BeTrue();
 
         validator.Validate(new CreateJarCommand(
                 "Bad target", JarKind.Goal, -1m, null, null, null,
-                AccrualMethod.TargetByDate, 0m, null, null))
+                AccrualMethod.TargetByDate, Guid.NewGuid()))
             .IsValid.Should().BeFalse();
     }
 
@@ -310,12 +334,12 @@ public class JJarsCoverageTests
 
         validator.Validate(new CreateJarCommand(
                 "X", JarKind.Recurring, 100m, new DateOnly(2026, 10, 1), null, null,
-                AccrualMethod.TargetByDate, 0m, null, null, RecurMonths: 120))
+                AccrualMethod.TargetByDate, Guid.NewGuid(), RecurMonths: 120))
             .IsValid.Should().BeTrue();
 
         validator.Validate(new CreateJarCommand(
                 "X", JarKind.Recurring, 100m, new DateOnly(2026, 10, 1), null, null,
-                AccrualMethod.TargetByDate, 0m, null, null, RecurMonths: 121))
+                AccrualMethod.TargetByDate, Guid.NewGuid(), RecurMonths: 121))
             .Errors.Should().Contain(e => e.ErrorMessage == "Repeat cycle must be between 1 and 120 months.");
     }
 }

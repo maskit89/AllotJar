@@ -8,14 +8,26 @@ import { Modal } from '../components/Modal'
 import { AllocationIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { useHousehold } from '../features/HouseholdContext'
+import { useMonth } from '../features/MonthContext'
 import { api } from '../lib/api'
 import { bucketCount, EVENTS, track } from '../analytics'
-import type { AccountDto, AllocationProfileDto, AllocationResultDto, BudgetMonthDto, MemberAllocationDto } from '../types'
+import type {
+  AccountDto,
+  AllocationProfileDto,
+  AllocationResultDto,
+  BudgetMonthDto,
+  HouseholdMemberDto,
+  MemberAllocationDto,
+} from '../types'
 import { AccountType, AllocationRuleType, SplitMethod } from '../types'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount, toEditString } from '../lib/money'
 import { categoryPlanned, fromDto, remainingToBudget, totalIncome, type MonthVM } from '../budgetModel'
 import { accountOptionLabel, formatNames, savingsFirst } from '../lib/accountOptions'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
+import { activeJars, useJarLedgers } from '../lib/jarLedgers'
+import { toJarAllocations } from '../lib/jarAllocationFields'
+import { serverErrors } from '../lib/serverErrors'
+import { JarAllocationFields } from '../components/jars/JarAllocationFields'
 
 interface RuleSpec {
   order: number
@@ -47,23 +59,28 @@ export function AllocationPage() {
   const { isShared, loading: householdLoading } = useHousehold()
   const navigate = useNavigate()
   const CURRENCY = preferredCurrency
+  // The app-wide selected month (rule 29): the allocation reads the same month and figures as
+  // the Budget page, and moves with the top bar's month navigator.
+  const { year, month, label: monthLabel } = useMonth()
+  const period = useMemo(() => ({ year, month }), [year, month])
   const [profile, setProfile] = useState<AllocationProfileDto | null>(null)
   const [accounts, setAccounts] = useState<AccountDto[]>([])
   const [preview, setPreview] = useState<AllocationResultDto | null>(null)
-  const [period, setPeriod] = useState<{ year: number; month: number }>(() => {
-    const now = new Date()
-    return { year: now.getFullYear(), month: now.getMonth() + 1 }
-  })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [committed, setCommitted] = useState<number | null>(null)
+  const [retained, setRetained] = useState(0)
   // The viewed month's budget (integer-minor VM) — the other half of the reconciliation.
   const [monthVM, setMonthVM] = useState<MonthVM | null>(null)
   const [syncedMsg, setSyncedMsg] = useState<string | null>(null)
   // Inline savings-link (member card) + the allocate-with-stranded-shares confirm.
   const [linkingId, setLinkingId] = useState<string | null>(null)
   const [showCommitConfirm, setShowCommitConfirm] = useState(false)
+  // Rule 78 for the commit: each member whose savings account backs jars says how their
+  // transfer is divided among those jars (member id → jar id → typed amount; empty = unallocated).
+  const { ledgers } = useJarLedgers()
+  const [allocJar, setAllocJar] = useState<Record<string, Record<string, string>>>({})
 
   // Setup/edit form (in a modal).
   const [showSettings, setShowSettings] = useState(false)
@@ -82,13 +99,17 @@ export function AllocationPage() {
     }
   }, [])
 
+  // Reloads whenever the selected month changes: the preview and the budget it reconciles
+  // against are both that month's.
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     Promise.all([
       api.get<AllocationProfileDto | null>('/allocation/profile').catch(() => ({ data: null })),
       api.get<AccountDto[]>('/accounts').catch(() => ({ data: [] })),
-      api.get<BudgetMonthDto>('/budget/current').catch(() => null),
+      // The selected month's budget (a 404 = no budget yet → null), the other half of the
+      // reconciliation banner and the source of the "no income yet" notice.
+      api.get<BudgetMonthDto>(`/budget/${year}/${month}`).catch(() => null),
     ])
       .then(async ([prof, acc, budget]) => {
         if (cancelled) return
@@ -97,12 +118,12 @@ export function AllocationPage() {
         const p = prof?.data || null
         setProfile(p)
         setAccounts(Array.isArray(acc?.data) ? acc.data : [])
-        const year = budget?.data?.year ?? period.year
-        const month = budget?.data?.month ?? period.month
-        setPeriod({ year, month })
-        // Keep the budget itself too (not just year/month): the reconciliation banner
-        // compares its remaining-to-budget with the engine's promised outputs.
-        setMonthVM(budget?.data?.categories ? fromDto(budget.data) : null)
+        // A banner about another month's commit/sync would be stale under this month's heading.
+        setCommitted(null)
+        setSyncedMsg(null)
+        // Keep the budget itself: the reconciliation banner compares its remaining-to-budget
+        // with the engine's promised outputs.
+        setMonthVM(Array.isArray(budget?.data?.categories) ? fromDto(budget.data) : null)
         if (p) {
           setSourceAccountId(p.sourceAccountId ?? '')
           const pocketRule = p.rules.find((r) => r.type === AllocationRuleType.FixedPerMember)
@@ -120,8 +141,7 @@ export function AllocationPage() {
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [year, month, loadPreview])
 
   const saveProfile = useCallback(async () => {
     const pocketAmount = pocket.trim() === '' ? 0 : parseMinor(pocket)
@@ -178,19 +198,21 @@ export function AllocationPage() {
     }
   }, [period, loadPreview])
 
-  // Link a savings account to a member straight from the warning on their card. Full-echo
-  // PUT: name + income come from the preview DTO, so a concurrent People-page income edit in
-  // the window between preview load and this PUT is overwritten (last write wins) — a narrow,
-  // accepted race for a link action.
+  // Link a savings account to a member straight from the warning on their card. The PUT is a
+  // full echo, so the member's saved record is read first: the preview's `netIncome` is the
+  // month's BUDGET figure (rule 28) and must never be written into the saved default income.
   const linkSavings = useCallback(
     async (m: MemberAllocationDto, accountId: string) => {
       if (!accountId) return
       setLinkingId(m.memberId)
       setError(null)
       try {
+        const { data: list } = await api.get<HouseholdMemberDto[]>('/members')
+        const current = Array.isArray(list) ? list.find((x) => x.id === m.memberId) : undefined
+        if (!current) throw new Error('member not found')
         await api.put(`/members/${m.memberId}`, {
-          name: m.name,
-          netMonthlyIncome: m.netIncome,
+          name: current.name,
+          netMonthlyIncome: current.netMonthlyIncome,
           personalSavingsAccountId: accountId,
         })
         // The balance-tilt figures change once the link lands; a prior banner is stale.
@@ -205,21 +227,46 @@ export function AllocationPage() {
     [period, loadPreview],
   )
 
+  // The commit records bank transfers the user says they have made (rules 7/29): the date the
+  // money left the source account is required, and receipt stays unconfirmed (in transit).
+  const [commitDate, setCommitDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [commitConfirmed, setCommitConfirmed] = useState(false)
+
   const commit = useCallback(async () => {
+    if (!commitConfirmed || !commitDate) {
+      setError('Confirm that you’ve completed these transfers, and the date the money left the source account.')
+      return
+    }
+    // Every member's jar answer, flattened; sent only when someone named a jar.
+    const jarAllocations = Object.entries(allocJar).flatMap(([memberId, value]) =>
+      toJarAllocations(value).map((row) => ({ memberId, ...row })),
+    )
     setBusy(true)
     setError(null)
     setCommitted(null)
     try {
-      const { data } = await api.post<AllocationResultDto>(`/allocation/commit/${period.year}/${period.month}`, {})
+      const { data } = await api.post<AllocationResultDto>(`/allocation/commit/${period.year}/${period.month}`, {
+        departedOn: commitDate,
+        receivedOn: null,
+        confirmedCompleted: true,
+        ...(jarAllocations.length > 0 ? { jarAllocations } : {}),
+      })
       setPreview(data)
       setCommitted(data.transfersCreated)
+      setRetained(data.transfersRetained ?? 0)
+      setCommitConfirmed(false)
+      setAllocJar({})
       track(EVENTS.allocationCommitted, { count_bucket: bucketCount(data.transfersCreated) })
-    } catch {
-      setError('Could not commit the allocation. Check the source account and members’ savings accounts are set.')
+    } catch (err) {
+      // Rule 74 refusals and jar validation messages show verbatim.
+      setError(
+        serverErrors(err) ??
+          'Could not record the allocation. Check the source account and members’ savings accounts are set.',
+      )
     } finally {
       setBusy(false)
     }
-  }, [period])
+  }, [period, commitDate, commitConfirmed, allocJar])
 
   // Re-seed the settings form from the saved profile (defaults when there's none). Called when the
   // modal opens (clean start) and closes (Cancel/backdrop discards unsaved edits, so a later Save
@@ -250,6 +297,10 @@ export function AllocationPage() {
     () => new Date(period.year, period.month - 1, 1).toLocaleDateString(undefined, { month: 'long' }),
     [period],
   )
+  // Rule 28: the pool is the month's budgeted income and nothing else, so an empty pool means
+  // the budget has no income lines (or there is no budget yet) — never a missing default.
+  const noIncomeInBudget =
+    !!preview && fromAmount(preview.pool) === 0 && (monthVM === null || totalIncome(monthVM) === 0)
 
   // Hero figures. The pool splits into shared spending (costs + jars + pocket money) and savings,
   // so those two tiles reconcile exactly to the pooled income; the waterfall below breaks spending
@@ -271,6 +322,14 @@ export function AllocationPage() {
   const strandedHasHave = strandedMembers.length === 1 ? 'has' : 'have'
   const nothingToSave = !!preview && toSavingsMinor <= 0
   const hasSource = !!profile?.sourceAccountId
+  // The members whose transfer lands in a jar-backed savings account: the commit asks how each
+  // is divided among that account's jars (rule 78).
+  const jarMembers = members.flatMap((m) => {
+    if (m.residual <= 0 || !m.savingsAccountId) return []
+    const ledger = ledgers.find((l) => l.accountId === m.savingsAccountId)
+    const jars = activeJars(ledger)
+    return ledger && jars.length > 0 ? [{ member: m, ledger, jars }] : []
+  })
   const sourceAccountName = accounts.find((a) => a.id === profile?.sourceAccountId)?.name
 
   // The inline link picker's offerings: savings accounts first, and a one-click suggestion
@@ -364,7 +423,7 @@ export function AllocationPage() {
         />
       )}
 
-      {error && !showSettings && <ErrorBanner>{error}</ErrorBanner>}
+      {error && !showSettings && !showCommitConfirm && <ErrorBanner>{error}</ErrorBanner>}
       {loading && <p className="text-slate-500">Loading…</p>}
 
       {!loading && !profile && (
@@ -393,7 +452,10 @@ export function AllocationPage() {
               )}
               {canEnterData && (
                 <Button
-                  onClick={() => (strandedMinor > 0 ? setShowCommitConfirm(true) : commit())}
+                  onClick={() => {
+                    setError(null)
+                    setShowCommitConfirm(true)
+                  }}
                   disabled={busy || !hasSource}
                   aria-label="Commit allocation"
                 >
@@ -410,9 +472,25 @@ export function AllocationPage() {
             </p>
           )}
 
-          {/* Income-source honesty: the pool comes from the budget's attributed income lines
-              when any exist; unattributed lines are shared equally with a nudge to assign
-              them, and a month with no attribution falls back to People-page defaults. */}
+          {/* Income-source honesty (rule 28): the pool is the month's budgeted income lines —
+              attributed ones per person, unattributed ones shared equally with a nudge to
+              assign them. A month with no income lines has nothing to allocate. */}
+          {noIncomeInBudget && (
+            <div
+              role="status"
+              className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-200"
+            >
+              No income in {monthLabel}’s budget yet. Add income lines to the Budget (attribute them to
+              people for a by-income split) and come back.{' '}
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="font-semibold text-brand-700 underline underline-offset-2 hover:text-brand-800 dark:text-brand-200"
+              >
+                Open the Budget
+              </button>
+            </div>
+          )}
           {(preview.unattributedIncome ?? 0) > 0 && (
             <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
               {formatMoney(fromAmount(preview.unattributedIncome ?? 0), CURRENCY)} of {monthName}’s income
@@ -425,12 +503,6 @@ export function AllocationPage() {
                 Assign income lines on the Budget page
               </button>{' '}
               for an accurate split.
-            </p>
-          )}
-          {!preview.incomeFromBudget && (
-            <p className="mb-4 text-xs text-slate-500">
-              This split uses the default incomes from the People page — {monthName}’s budget has no income
-              assigned to people yet.
             </p>
           )}
 
@@ -471,11 +543,13 @@ export function AllocationPage() {
               role="status"
               className="mb-4 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
             >
-              {committed === 0
+              {committed === 0 && retained > 0
+                ? `Allocated ${monthName} — the ${retained} recorded transfer${retained === 1 ? '' : 's'} ${retained === 1 ? 'is' : 'are'} unchanged; nothing new was recorded.`
+                : committed === 0
                 ? toSavingsMinor < 0
                   ? `Allocated ${monthName} — nothing was transferred because shared spending overshoots the pooled income.`
                   : `Allocated ${monthName} — no savings transfers were needed this month.`
-                : `Allocated ${monthName} — ${committed} savings transfer${committed === 1 ? '' : 's'} created. Re-running Allocate replaces them, never doubles up.`}
+                : `Allocated ${monthName} — ${committed} savings transfer${committed === 1 ? '' : 's'} recorded as in transit; confirm each receipt on the Transactions page. Re-running Allocate keeps unchanged transfers, never doubles up.`}
               {strandedMinor > 0 &&
                 ` ${formatMoney(strandedMinor, CURRENCY)} stayed in ${sourceAccountName ?? 'the source account'} for ${strandedNames} (no savings account linked).`}
             </div>
@@ -523,9 +597,9 @@ export function AllocationPage() {
           )}
           {incomeMismatch && budgetIncomeMinor !== null && (
             <p className="mt-4 text-xs text-slate-500">
-              Note: the pooled income here ({formatMoney(poolMinor, CURRENCY)}) comes from each person’s
-              income on the People page and doesn’t match {monthName}’s budgeted income lines (
-              {formatMoney(budgetIncomeMinor, CURRENCY)}).
+              Note: the pooled income here ({formatMoney(poolMinor, CURRENCY)}) doesn’t match {monthName}’s
+              budgeted income lines ({formatMoney(budgetIncomeMinor, CURRENCY)}). Both come from the same
+              budget — refresh the page if you’ve just edited it.
             </p>
           )}
           {strandedMinor > 0 && (
@@ -544,7 +618,12 @@ export function AllocationPage() {
               <div key={m.memberId} className="rounded-xl border border-slate-200/70 p-4">
                 <p className="text-sm font-semibold text-slate-800">{m.name}</p>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  Savings {formatMoney(fromAmount(m.savingsBalance), CURRENCY)} → saves
+                  {!m.savingsAccountId
+                    ? 'No savings account'
+                    : m.savingsBalance === null
+                      ? 'Savings not available'
+                      : `Savings ${formatMoney(fromAmount(m.savingsBalance), CURRENCY)}`}{' '}
+                  → saves
                 </p>
                 <p
                   className={`text-xl font-bold tabular-nums ${
@@ -553,9 +632,11 @@ export function AllocationPage() {
                 >
                   {formatMoney(fromAmount(m.residual), CURRENCY)}
                 </p>
-                <p className="text-xs tabular-nums text-slate-500">
-                  Projected balance {formatMoney(fromAmount(m.savingsBalance + m.residual), CURRENCY)}
-                </p>
+                {m.savingsBalance !== null && (
+                  <p className="text-xs tabular-nums text-slate-500">
+                    Projected balance {formatMoney(fromAmount(m.savingsBalance + m.residual), CURRENCY)}
+                  </p>
+                )}
                 {!m.savingsAccountId && (
                   <div className="mt-2 space-y-1.5">
                     <p className="text-xs text-amber-700 dark:text-amber-400">
@@ -609,26 +690,92 @@ export function AllocationPage() {
         </Card>
       )}
 
-      {/* Allocating while someone's share has nowhere to go: explicit confirm, never a silent skip. */}
+      {/* Recording the allocation means recording completed bank transfers: the user confirms they
+          made them and when the money left. A stranded share is called out here, never silently skipped. */}
       {showCommitConfirm && (
-        <Modal title={`Allocate without ${strandedNames}?`} onClose={() => setShowCommitConfirm(false)}>
+        <Modal
+          title={strandedMinor > 0 ? `Allocate without ${strandedNames}?` : `Record ${monthName}’s transfers`}
+          onClose={() => setShowCommitConfirm(false)}
+        >
+          {error && (
+            <div className="mb-3">
+              <ErrorBanner>{error}</ErrorBanner>
+            </div>
+          )}
           <p className="text-sm text-slate-600">
-            {formatMoney(strandedMinor, CURRENCY)} will stay in {sourceAccountName ?? 'the source account'}{' '}
-            because {strandedNames} {strandedHasHave} no savings account linked. You can link one on the
-            person’s card and re-run — re-running Allocate replaces the transfers, never doubles up.
+            The suggested amounts become recorded transfers only once you’ve moved the money at the bank.
+            Each transfer is recorded as departed from {sourceAccountName ?? 'the source account'} on the date
+            below and stays in transit until you confirm its receipt on the Transactions page.
           </p>
+          {strandedMinor > 0 && (
+            <p className="mt-2 text-sm text-slate-600">
+              {formatMoney(strandedMinor, CURRENCY)} will stay in {sourceAccountName ?? 'the source account'}{' '}
+              because {strandedNames} {strandedHasHave} no savings account linked. You can link one on the
+              person’s card and re-run — re-running Allocate keeps unchanged transfers, never doubles up.
+            </p>
+          )}
+          <label className="mt-3 flex flex-col gap-1 text-xs font-medium text-slate-500">
+            Money left the source account on
+            <Input
+              type="date"
+              value={commitDate}
+              aria-label="Allocation departure date"
+              onChange={(e) => setCommitDate(e.target.value)}
+              className="w-full text-slate-700"
+            />
+          </label>
+          {jarMembers.length > 0 && (
+            <div className="mt-3 space-y-3">
+              <p className="text-xs text-slate-600">
+                A savings account below holds jars. Say how much of each person’s transfer goes into
+                which jar; whatever you leave empty stays unallocated.
+              </p>
+              {jarMembers.map(({ member, ledger, jars }) => (
+                <div key={member.memberId} className="space-y-1">
+                  <p className="text-sm font-semibold text-slate-800">
+                    {member.name} · {formatMoney(fromAmount(member.residual), CURRENCY)}
+                  </p>
+                  <JarAllocationFields
+                    idPrefix={`alloc-${member.memberId}`}
+                    compact
+                    jars={jars}
+                    accountName={ledger.accountName}
+                    currency={ledger.currency}
+                    amount={member.residual}
+                    value={allocJar[member.memberId] ?? {}}
+                    onChange={(value) => setAllocJar((prev) => ({ ...prev, [member.memberId]: value }))}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={commitConfirmed}
+              aria-label="Allocation completed confirmation"
+              onChange={(e) => setCommitConfirmed(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+            />
+            I’ve completed these transfers.
+          </label>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setShowCommitConfirm(false)}>
               Cancel
             </Button>
             <Button
-              onClick={() => {
+              onClick={async () => {
+                if (!commitConfirmed) {
+                  setError('Confirm that you’ve completed these transfers before recording them.')
+                  return
+                }
                 setShowCommitConfirm(false)
-                commit()
+                await commit()
               }}
-              aria-label="Allocate anyway"
+              disabled={busy}
+              aria-label="Confirm allocation"
             >
-              Allocate anyway
+              Record transfers
             </Button>
           </div>
         </Modal>

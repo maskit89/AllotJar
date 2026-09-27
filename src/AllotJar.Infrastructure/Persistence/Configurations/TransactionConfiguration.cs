@@ -10,7 +10,11 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
 {
     public void Configure(EntityTypeBuilder<Transaction> builder)
     {
-        builder.ToTable("Transactions");
+        // A transfer must carry at least one confirmed bank leg: a departure, a receipt, or both.
+        // Neither date is ever inferred from Date, so the database refuses a transfer with none.
+        builder.ToTable("Transactions", t => t.HasCheckConstraint(
+            "CK_Transactions_TransferLegs",
+            "[Type] <> 2 OR [DepartedOn] IS NOT NULL OR [ReceivedOn] IS NOT NULL"));
         builder.HasKey(t => t.Id);
 
         builder.Property(t => t.OwnerId)
@@ -43,6 +47,12 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
 
         builder.Property(t => t.BankReference)
             .HasMaxLength(140);
+
+        builder.Property(t => t.ReceiptBankReference)
+            .HasMaxLength(140);
+
+        // Derived from the two bank legs; never stored.
+        builder.Ignore(t => t.TransferStatus);
 
         builder.Property(t => t.Type)
             .HasConversion<int>();
@@ -84,5 +94,12 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         builder.HasIndex(t => new { t.OwnerId, t.AccountId, t.BankReference })
             .IsUnique()
             .HasFilter("[BankReference] IS NOT NULL");
+
+        // The destination statement's reference for a transfer's credit leg is deduplicated on
+        // the DESTINATION account, mirroring the source-leg index above: re-importing the
+        // receiving statement must confirm the existing movement, never insert another.
+        builder.HasIndex(t => new { t.OwnerId, t.TransferAccountId, t.ReceiptBankReference })
+            .IsUnique()
+            .HasFilter("[ReceiptBankReference] IS NOT NULL");
     }
 }

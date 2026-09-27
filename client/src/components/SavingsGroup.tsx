@@ -13,16 +13,20 @@ interface Props {
   onCommitItem: (itemId: string, plannedMinor: Minor) => void
   onRenameItem: (itemId: string, name: string) => void
   onDeleteItem: (itemId: string) => void
-  onAddItem: (categoryId: string, name: string) => void
+  /**
+   * Opens the shared jar form (rule 73): a savings line IS a jar's monthly contribution,
+   * so it's created through POST /jars — which plants the line here — never as a bare line.
+   */
+  onAddJar: (categoryId: string) => void
   onRenameCategory: (categoryId: string, name: string) => void
   onDeleteCategory: (categoryId: string) => void
 }
 
 /**
- * A group of sinking funds, in the same clean card style as the Income / Everyday
- * spending panels: a header (violet dot marks it as a fund) with the spent / planned
- * total, then each fund as a name + funding bar with its rolled-over **Available**
- * balance and an inline-editable monthly contribution.
+ * A group of jars, in the same clean card style as the Income / Everyday spending
+ * panels: a header (violet dot marks it as savings) with the spent / planned total,
+ * then each jar as a name + funding bar with its actual **Available** balance and an
+ * inline-editable monthly contribution. New lines come from the jar form (rule 73).
  */
 export function SavingsGroup({
   category,
@@ -31,16 +35,14 @@ export function SavingsGroup({
   onCommitItem,
   onRenameItem,
   onDeleteItem,
-  onAddItem,
+  onAddJar,
   onRenameCategory,
   onDeleteCategory,
 }: Props) {
   // Fund-group structure needs Admin+; rows self-gate internally.
   const { canWrite } = useAuth()
   const [name, setName] = useState(category.name)
-  const [newItemName, setNewItemName] = useState('')
   const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [adding, setAdding] = useState(false)
 
   useEffect(() => setName(category.name), [category.name])
 
@@ -51,14 +53,6 @@ export function SavingsGroup({
       return
     }
     if (trimmed !== category.name) onRenameCategory(category.id, trimmed)
-  }
-
-  function submitNewItem() {
-    const trimmed = newItemName.trim()
-    if (trimmed === '') return
-    onAddItem(category.id, trimmed)
-    setNewItemName('')
-    setAdding(false)
   }
 
   return (
@@ -132,51 +126,23 @@ export function SavingsGroup({
           onRename={onRenameItem}
           onDelete={onDeleteItem}
           availableMinor={item.savingsAvailableMinor}
+          savingsLine
         />
       ))}
       {category.items.length === 0 && (
-        <p className="py-2.5 text-sm text-slate-500">No savings goals yet — add one below.</p>
+        <p className="py-2.5 text-sm text-slate-500">No jars yet — add one below. Each jar is held in one of your accounts.</p>
       )}
 
-      {canWrite &&
-        (adding ? (
-          <div className="mt-1 flex items-center gap-2">
-            <input
-              type="text"
-              autoFocus
-              value={newItemName}
-              placeholder="Add a savings goal (e.g. Car, Holiday, Christmas)…"
-              aria-label={`Add a savings goal to ${category.name}`}
-              onChange={(e) => setNewItemName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submitNewItem()
-                if (e.key === 'Escape') {
-                  setNewItemName('')
-                  setAdding(false)
-                }
-              }}
-              onBlur={() => !newItemName.trim() && setAdding(false)}
-              className="flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
-            />
-            <button
-              type="button"
-              onClick={submitNewItem}
-              aria-label={`Add a savings goal to ${category.name}`}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-surface"
-            >
-              Add
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setAdding(true)}
-            aria-label={`Add a savings goal to ${category.name}`}
-            className="mt-1 rounded px-1 py-1 text-xs font-semibold text-slate-500 opacity-0 transition hover:text-brand-700 group-hover/grp:opacity-100 focus:opacity-100"
-          >
-            + Add a savings goal
-          </button>
-        ))}
+      {canWrite && (
+        <button
+          type="button"
+          onClick={() => onAddJar(category.id)}
+          aria-label={`Add a jar to ${category.name}`}
+          className="mt-1 rounded px-1 py-1 text-xs font-semibold text-slate-500 opacity-0 transition hover:text-brand-700 group-hover/grp:opacity-100 focus:opacity-100"
+        >
+          + Add jar
+        </button>
+      )}
     </Card>
   )
 }

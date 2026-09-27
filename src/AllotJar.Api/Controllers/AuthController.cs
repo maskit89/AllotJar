@@ -61,7 +61,7 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>Creates an account (owner membership + owner member, plus a sample budget only when
-    /// <see cref="RegisterRequest.IncludeSampleData"/> was opted into), returns a JWT.</summary>
+    /// returns a JWT.</summary>
     [HttpPost("register")]
     [EnableRateLimiting("auth")]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
@@ -123,11 +123,11 @@ public class AuthController : ControllerBase
             return BadRequest(new { errors = result.Errors.Select(e => e.Description) });
         }
 
-        // The new user owns their own household (Owner membership + owner member, plus the sample
-        // budget only when they opted in on the sign-up form). The owner is themselves member #1,
-        // so a household is never "0 members": solo is a household of one, shared is two or more.
+        // The new user owns their own household (Owner membership + owner member; nothing is
+        // seeded, rule 81). The owner is themselves member #1, so a household is never
+        // "0 members": solo is a household of one, shared is two or more.
         await HouseholdBootstrap.EnsureOwnHouseholdAsync(
-            _db, user, DateTime.UtcNow, seedSampleBudget: request.IncludeSampleData, ct);
+            _db, user, DateTime.UtcNow, ct);
 
         // Send the "confirm your email" link. The user is signed in immediately (below) and can use
         // the app right away — a persistent banner nudges them to confirm; sending is off-request.
@@ -407,7 +407,7 @@ public class AuthController : ControllerBase
 
         // Owner membership + owner member #1 — a household is never "0 members". No sample budget.
         await HouseholdBootstrap.EnsureOwnHouseholdAsync(
-            _db, user, DateTime.UtcNow, seedSampleBudget: false, ct);
+            _db, user, DateTime.UtcNow, ct);
 
         return (user, true);
     }

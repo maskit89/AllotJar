@@ -7,22 +7,20 @@ namespace AllotJar.Infrastructure.Persistence;
 
 /// <summary>
 /// Materializes a login's OWN household — an Owner membership and the owner as member #1 —
-/// idempotently, optionally seeding a sample budget month. This is what a brand-new registration
-/// gets, and it is also how a member who only ever joined someone else's household later starts a
-/// budget of their own. Every step is guarded, so it is safe to call when some or all of the
-/// pieces already exist.
+/// idempotently. This is what a brand-new registration gets, and it is also how a member who only
+/// ever joined someone else's household later starts a budget of their own. Nothing is seeded
+/// (rule 81): the household starts empty and the Budget page's first-run checklist takes over.
+/// Every step is guarded, so it is safe to call when some or all of the pieces already exist.
 /// </summary>
 public static class HouseholdBootstrap
 {
     /// <summary>
     /// Ensures <paramref name="user"/> owns a household: adds their Owner membership if missing
-    /// and creates the owner member. When <paramref name="seedSampleBudget"/> is true (the user
-    /// opted in at sign-up) it also seeds the sample budget for <paramref name="nowUtc"/>'s month;
-    /// otherwise the household starts empty and the dashboard's create-month flow takes over.
-    /// Returns true when an Owner membership was created by this call (false if it already existed).
+    /// and creates the owner member. Returns true when an Owner membership was created by this
+    /// call (false if it already existed).
     /// </summary>
     public static async Task<bool> EnsureOwnHouseholdAsync(
-        ApplicationDbContext db, ApplicationUser user, DateTime nowUtc, bool seedSampleBudget,
+        ApplicationDbContext db, ApplicationUser user, DateTime nowUtc,
         CancellationToken ct = default)
     {
         var hasOwnMembership = await db.HouseholdMemberships
@@ -43,14 +41,6 @@ public static class HouseholdBootstrap
             });
             await db.SaveChangesAsync(ct);
             created = true;
-        }
-
-        // Sample figures are strictly opt-in — an unasked-for pre-filled budget confuses more than
-        // it helps, and the dashboard has a first-class create-month flow (blank or template).
-        if (seedSampleBudget)
-        {
-            await BudgetSeeder.SeedDefaultMonthAsync(
-                db, user.Id, nowUtc.Year, nowUtc.Month, user.PreferredCurrency, ct);
         }
 
         // The owner as member #1, so the household is never "0 members". Idempotent.

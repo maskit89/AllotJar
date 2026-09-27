@@ -11,12 +11,12 @@ function dateLocale(): string {
   return 'en-US'
 }
 
-// Parse an ISO date (yyyy-MM-dd) into a *local* midnight Date, avoiding the UTC
-// shift `new Date("2026-06-20")` would introduce in negative-offset timezones.
+// These values are calendar dates, not instants. Use UTC for both construction
+// and formatting so cached formatters cannot shift the day if the timezone changes.
 function fromIso(iso: string): Date | null {
   const [y, m, d] = iso.split('-').map(Number)
   if (!y || !m || !d) return null
-  return new Date(y, m - 1, d)
+  return new Date(Date.UTC(y, m - 1, d))
 }
 
 // Intl.DateTimeFormat construction isn't free; cache one per (locale, style).
@@ -35,7 +35,7 @@ export function shortDate(iso: string): string {
   const loc = dateLocale()
   let fmt = shortFmt.get(loc)
   if (!fmt) {
-    fmt = new Intl.DateTimeFormat(loc, { month: 'short', day: 'numeric' })
+    fmt = new Intl.DateTimeFormat(loc, { month: 'short', day: 'numeric', timeZone: 'UTC' })
     shortFmt.set(loc, fmt)
   }
   return fmt.format(d)
@@ -52,7 +52,7 @@ export function formatDate(iso: string): string {
   const loc = dateLocale()
   let fmt = fullFmt.get(loc)
   if (!fmt) {
-    fmt = new Intl.DateTimeFormat(loc, { dateStyle: 'medium' })
+    fmt = new Intl.DateTimeFormat(loc, { dateStyle: 'medium', timeZone: 'UTC' })
     fullFmt.set(loc, fmt)
   }
   return fmt.format(d)
@@ -69,8 +69,16 @@ export function monthYear(iso: string): string {
   const loc = dateLocale()
   let fmt = monthYearFmt.get(loc)
   if (!fmt) {
-    fmt = new Intl.DateTimeFormat(loc, { month: 'short', year: 'numeric' })
+    fmt = new Intl.DateTimeFormat(loc, { month: 'short', year: 'numeric', timeZone: 'UTC' })
     monthYearFmt.set(loc, fmt)
   }
   return fmt.format(d)
+}
+
+/**
+ * Today's calendar date as an ISO `yyyy-MM-dd`, on the API's UTC basis (the server uses
+ * DateOnly.FromDateTime(DateTime.UtcNow)). The default for "as of today" date inputs.
+ */
+export function todayIso(now = new Date()): string {
+  return now.toISOString().slice(0, 10)
 }

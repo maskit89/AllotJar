@@ -39,3 +39,15 @@ export function signedAmountMinorFromAmount(t: Pick<TransactionDto, 'amount' | '
   const magnitude = Math.round(t.amount * 10_000)
   return t.type === TransactionType.Income ? magnitude : -magnitude
 }
+
+/**
+ * Budget line id → the jar (savings identity) it is the savings line of, for every jar line of
+ * the loaded month. A payment on such a line draws from that jar (rule 79), so the "which jar
+ * does this come from?" prompt never shows for it — provided the jar's money sits in the paying
+ * account, which the caller checks against the account's ledger.
+ */
+export function jarLinesOf(month: BudgetMonthDto | null): Map<string, string> {
+  const map = new Map<string, string>()
+  month?.categories.forEach((c) => c.items.forEach((i) => i.savingsId && map.set(i.id, i.savingsId)))
+  return map
+}

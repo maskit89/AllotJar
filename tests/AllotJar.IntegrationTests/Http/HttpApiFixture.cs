@@ -42,7 +42,7 @@ public sealed class HttpApiFixture : IAsyncLifetime
 
     public IServiceProvider Services => _factory.Services;
 
-    /// <summary>The seeded sample budget month (current UTC month) — a real referent for writes.</summary>
+    /// <summary>The current UTC budget month (created from the Essentials template) — a real referent for writes.</summary>
     public Guid BudgetMonthId { get; private set; }
 
     public Guid CheckingAccountId { get; private set; }
@@ -71,7 +71,7 @@ public sealed class HttpApiFixture : IAsyncLifetime
 
         var run = Guid.NewGuid().ToString("N")[..8];
 
-        // 1. Owner registers (sample budget on => real month/category/jar referents exist).
+        // 1. Owner registers. Nothing is seeded (rule 81), so the month is created below.
         var ownerEmail = $"owner-{run}@httpsweep.test";
         var ownerPassword = StrongPassword();
         var register = await client.PostAsJsonAsync("/api/auth/register", new
@@ -83,7 +83,6 @@ public sealed class HttpApiFixture : IAsyncLifetime
             preferredCurrency = "EUR",
             numberFormat = (string?)null,
             acceptedTerms = true,
-            includeSampleData = true,
         }, Json);
         await EnsureAsync(register, HttpStatusCode.OK, "owner registration");
         _tokens[HouseholdRole.Owner] = (await ReadJsonAsync(register)).RootElement.GetProperty("token").GetString()!;
@@ -116,9 +115,13 @@ public sealed class HttpApiFixture : IAsyncLifetime
         CheckingAccountId = await CreateAccountAsync(client, $"Sweep Checking {run}");
         SavingsAccountId = await CreateAccountAsync(client, $"Sweep Savings {run}");
 
-        // The seeded sample month is the current UTC month.
+        // The current UTC month, started from the Essentials template so real category referents exist.
+        var now = DateTime.UtcNow;
+        var create = await SendAsync(client, HttpMethod.Post, "/api/budget", _tokens[HouseholdRole.Owner],
+            new { year = now.Year, month = now.Month, copyFromPrevious = false, templateKey = "essentials" });
+        await EnsureAsync(create, HttpStatusCode.OK, "current budget month from the Essentials template");
         var month = await SendAsync(client, HttpMethod.Get, "/api/budget/current", _tokens[HouseholdRole.Owner]);
-        await EnsureAsync(month, HttpStatusCode.OK, "seeded current budget month");
+        await EnsureAsync(month, HttpStatusCode.OK, "current budget month");
         BudgetMonthId = (await ReadJsonAsync(month)).RootElement.GetProperty("id").GetGuid();
     }
 
@@ -147,7 +150,7 @@ public sealed class HttpApiFixture : IAsyncLifetime
     {
         var response = await SendAsync(client, HttpMethod.Post, "/api/accounts",
             _tokens[HouseholdRole.Owner],
-            new { name, type = 0, currency = "EUR", openingBalance = 100m });
+            new { name, type = 0, currency = "EUR", openingBalance = 100m, openingDate = "2026-01-01" });
         await EnsureAsync(response, HttpStatusCode.Created, $"account '{name}'");
         return (await ReadJsonAsync(response)).RootElement.GetProperty("id").GetGuid();
     }

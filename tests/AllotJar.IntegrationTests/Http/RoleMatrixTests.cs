@@ -42,7 +42,7 @@ public class RoleMatrixTests
     [Fact]
     public async Task Account_create_is_admin_and_up() =>
         await AssertMatrixAsync(HttpMethod.Post, _ => "/api/accounts",
-            role => new { name = $"Matrix {role} {Unique()}", type = 0, currency = "EUR", openingBalance = 0m },
+            role => new { name = $"Matrix {role} {Unique()}", type = 0, currency = "EUR", openingBalance = 0m, openingDate = "2026-01-01" },
             owner: Created, admin: Created, limited: Forbidden, readOnly: Forbidden);
 
     [Fact]
@@ -57,9 +57,7 @@ public class RoleMatrixTests
                 coverStart = (string?)null,
                 coverEnd = (string?)null,
                 accrual = 1,        // AccrualMethod.TargetByDate
-                openingBalance = 0m,
-                openingAsOf = (string?)null,
-                fundingAccountId = (Guid?)null,
+                fundingAccountId = _fixture.SavingsAccountId, // rule 73: a jar needs its account
                 recurMonths = (int?)null,
             },
             owner: Created, admin: Created, limited: Forbidden, readOnly: Forbidden);
@@ -105,7 +103,7 @@ public class RoleMatrixTests
         await AssertMatrixAsync(HttpMethod.Post, _ => "/api/transactions/transfer",
             role => new
             {
-                date = Today(),
+                departedOn = Today(),
                 amount = 5m,
                 fromAccountId = _fixture.CheckingAccountId,
                 toAccountId = _fixture.SavingsAccountId,

@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 // Catalog coverage for docs/testing/cases/02-registration-login.md (REG-*), the
 // `/login` page in both modes. These COMPLEMENT the five cases already in
 // LoginPage.test.tsx (registration-only fields hidden in sign-in mode; safe
-// internal returnUrl round-trip; full profile+prefs submit; includeSampleData
+// internal returnUrl round-trip; full profile+prefs submit; no sample-data opt-in
 // only when ticked; staging required data-loss ack) and DO NOT duplicate them.
 //
 // Harness matches the repo convention (PR #169 gotcha): hoisted api mock fns,
@@ -211,7 +211,8 @@ describe('LoginPage (REG catalog)', () => {
     expect(
       screen.getByText('You can change your currency and number format anytime in account settings.'),
     ).toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: /sample figures/i })).toBeInTheDocument()
+    // No sample-figures opt-in (rule 81: the household starts empty).
+    expect(screen.queryByRole('checkbox', { name: /sample figures/i })).not.toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: /I agree to the/ })).toBeRequired()
 
     // Password autocomplete switches to new-password; submit label becomes "Create account".
@@ -442,8 +443,8 @@ describe('LoginPage (REG catalog)', () => {
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(screen.queryByText(/my data may be reset or permanently lost/i)).not.toBeInTheDocument()
-    // Only the optional sample box + the required terms box (no staging box).
-    expect(screen.getAllByRole('checkbox')).toHaveLength(2)
+    // Only the required terms box (no sample box, no staging box).
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1)
 
     await user.type(screen.getByLabelText('First name'), 'Ana')
     await user.type(screen.getByLabelText('Last name'), 'Borg')
@@ -693,9 +694,8 @@ describe('LoginPage (REG catalog)', () => {
 
   // ---- Analytics wiring ----------------------------------------------------
 
-  // REG-050 — a successful registration fires one sign_up event carrying method AND
-  // the sample_data flag (whitelisted param — must not be dropped).
-  it('REG-050: a successful registration fires sign_up with method + sample_data', async () => {
+  // REG-050 — a successful registration fires one sign_up event carrying the method.
+  it('REG-050: a successful registration fires sign_up with method', async () => {
     mockPost.mockResolvedValue({ data: authResponse() })
     const user = userEvent.setup()
     renderAt('/login?register=1')
@@ -704,15 +704,14 @@ describe('LoginPage (REG catalog)', () => {
     await user.type(screen.getByLabelText('Last name'), 'Borg')
     await user.type(screen.getByLabelText('Email'), 'reg-050@example.test')
     await user.type(screen.getByLabelText('Password'), 'password123')
-    await user.click(screen.getByRole('checkbox', { name: /sample figures/i }))
     await user.click(screen.getByRole('checkbox', { name: /I agree to the/ }))
     await user.click(submitButton('Create account'))
 
     await waitFor(
-      () =>
-        expect(track).toHaveBeenCalledWith(EVENTS.signUp, { method: 'password', sample_data: true }),
+      () => expect(track).toHaveBeenCalledWith(EVENTS.signUp, { method: 'password' }),
       { timeout: 5000 },
     )
+    expect(mockPost).toHaveBeenCalledWith('/auth/register', expect.not.objectContaining({ includeSampleData: expect.anything() }))
   })
 
   // REG-050 — sign-in fires `login` on success and `login_failed` on a bad attempt.

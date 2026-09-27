@@ -99,7 +99,7 @@ public class HouseholdsController : ControllerBase
         // No sample figures: someone deliberately starting their own budget gets the dashboard's
         // create-month flow, not pre-filled data to clean up.
         await HouseholdBootstrap.EnsureOwnHouseholdAsync(
-            _db, user, DateTime.UtcNow, seedSampleBudget: false, ct);
+            _db, user, DateTime.UtcNow, ct);
 
         // Land them in their own household (null = own).
         if (user.ActiveOwnerId is not null)
@@ -160,7 +160,7 @@ public class HouseholdsController : ControllerBase
             // it from there; sample figures are never injected by a background path. Idempotent —
             // a no-op for a user who already owns a household.
             await HouseholdBootstrap.EnsureOwnHouseholdAsync(
-                _db, user, DateTime.UtcNow, seedSampleBudget: false, ct);
+                _db, user, DateTime.UtcNow, ct);
 
             // If they were viewing the household they just left, drop back to their own.
             if (user.ActiveOwnerId == request.OwnerId)

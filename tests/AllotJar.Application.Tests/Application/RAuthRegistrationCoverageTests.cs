@@ -20,9 +20,9 @@ namespace AllotJar.Application.Tests.Application;
 /// Auth-registration coverage (catalog prefix REG, docs/testing/cases/02-registration-login.md).
 ///
 /// Two layers are exercised here, both server-side and reachable from Application/Infrastructure:
-///  1. The opt-in sample-budget seed (PR #170): <see cref="BudgetSeeder"/> produces the exact starter
-///     figures a brand-new opted-in registrant lands on, and refuses to inject them into a household
-///     that already owns any month (REG-006/007/008).
+///  1. Registration seeds nothing (rule 81): <see cref="HouseholdBootstrap"/> creates only the owner
+///     membership and member; no budget month, jar or account is minted, and the quick-start
+///     templates carry no savings lines (REG-006/007/008 as re-agreed on 26 September 2026).
 ///  2. ASP.NET Core Identity as the registration/sign-in engine, driven through a real
 ///     <see cref="UserManager{TUser}"/> over EF InMemory with the SAME options as production
 ///     (see <c>src/AllotJar.Infrastructure/DependencyInjection.cs</c>): the password policy + HIBP
@@ -39,7 +39,7 @@ namespace AllotJar.Application.Tests.Application;
 public class RAuthRegistrationCoverageTests
 {
     // ---------------------------------------------------------------------------------------------
-    // Group A — opt-in sample budget seed vs default-empty account (PR #170)
+    // Group A — registration seeds nothing (rule 81; replaces the opt-in sample budget of PR #170)
     // ---------------------------------------------------------------------------------------------
 
     private static ApplicationDbContext NewContext() =>
@@ -47,88 +47,39 @@ public class RAuthRegistrationCoverageTests
             .UseInMemoryDatabase($"zbb-reg-{Guid.NewGuid()}")
             .Options);
 
-    // REG-007 — opting in to sample figures seeds the exact starter budget: Take-home Pay 3,000;
-    // Housing (Rent 1,100 / Utilities 180); Transport (Fuel 120 / Public Transport 60);
-    // Food (Groceries 400 / Dining Out 90); Savings (Emergency Fund 250). Income is seeded ABOVE the
-    // planned total on purpose, leaving Remaining to budget = 800.00 (positive, never the balanced badge).
+    private static ApplicationUser Registrant(string id) => new()
+    {
+        Id = id, UserName = $"{id}@x.com", Email = $"{id}@x.com", FirstName = "Sam", DisplayName = "Sam Solo",
+    };
+
+    // REG-007 — a brand-new registrant lands on an empty household: no month, no jar, no account,
+    // no ledger row. The Budget page's first-run checklist (accounts → month → jars) takes over.
     [Fact]
-    public async Task Sample_seed_creates_the_exact_starter_budget_with_positive_remaining()
+    public async Task Registration_seeds_no_budget_no_jars_and_no_accounts()
     {
         using var db = NewContext();
 
-        await BudgetSeeder.SeedDefaultMonthAsync(db, "owner-1", 2026, 7);
+        var created = await HouseholdBootstrap.EnsureOwnHouseholdAsync(
+            db, Registrant("owner-1"), new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
 
-        var month = await db.BudgetMonths
-            .Include(m => m.Categories).ThenInclude(c => c.Items)
-            .SingleAsync(m => m.OwnerId == "owner-1");
-
-        month.Year.Should().Be(2026);
-        month.Month.Should().Be(7);
-
-        decimal Planned(string group, string line) => month.Categories
-            .Single(c => c.Name == group).Items.Single(i => i.Name == line).PlannedAmount;
-
-        Planned("Income", "Take-home Pay").Should().Be(3000.00m);
-        Planned("Housing", "Rent").Should().Be(1100.00m);
-        Planned("Housing", "Utilities").Should().Be(180.00m);
-        Planned("Transport", "Fuel").Should().Be(120.00m);
-        Planned("Transport", "Public Transport").Should().Be(60.00m);
-        Planned("Food", "Groceries").Should().Be(400.00m);
-        Planned("Food", "Dining Out").Should().Be(90.00m);
-        Planned("Savings", "Emergency Fund").Should().Be(250.00m);
-
-        month.TotalIncome.Should().Be(3000.00m);
-        month.TotalPlanned.Should().Be(2200.00m); // 1280 housing + 180 transport + 490 food + 250 savings
-        month.RemainingToBudget.Should().Be(800.00m);
-        // Deliberately NOT balanced — a fresh sample budget has money still to assign (PR #172).
-        month.IsBalanced.Should().BeFalse();
-    }
-
-    // REG-007 — the seeded "Emergency Fund" line is a real jar from day one (BudgetItem.SavingsId is an
-    // enforced FK to Jars.Id), which is what makes its balance roll over and gives the Jars page
-    // something to show a brand-new user. (InMemory doesn't enforce the FK — SavingsForeignKeyTests
-    // guards that on SQL — but the seeder must still point the line at a genuine jar row.)
-    [Fact]
-    public async Task Sample_seed_backs_the_Emergency_Fund_line_with_a_real_jar()
-    {
-        using var db = NewContext();
-
-        await BudgetSeeder.SeedDefaultMonthAsync(db, "owner-1", 2026, 7);
-
-        var month = await db.BudgetMonths
-            .Include(m => m.Categories).ThenInclude(c => c.Items)
-            .SingleAsync(m => m.OwnerId == "owner-1");
-        var savingsGroup = month.Categories.Single(c => c.Kind == CategoryKind.Savings);
-        savingsGroup.Name.Should().Be("Savings");
-
-        var line = savingsGroup.Items.Single();
-        line.Name.Should().Be("Emergency Fund");
-        line.SavingsId.Should().NotBeNull();
-
-        var jar = await db.Jars.SingleAsync(j => j.OwnerId == "owner-1");
-        jar.Name.Should().Be("Emergency Fund");
-        line.SavingsId.Should().Be(jar.Id);
-    }
-
-    // REG-007 / REG-008 (PR #170 guard) — the seeder is strictly a brand-new-household seed: ANY
-    // existing month (not just the target one) means the owner has a real budget, and the sample
-    // figures must never be injected into it. It also mints no Emergency Fund jar on the blocked path.
-    [Fact]
-    public async Task Seed_is_a_no_op_when_the_owner_already_has_any_month()
-    {
-        using var db = NewContext();
-        // A real budget the owner built earlier, in a different month/year than the sample's target.
-        db.BudgetMonths.Add(new BudgetMonth { OwnerId = "owner-1", Year = 2025, Month = 12 });
-        await db.SaveChangesAsync();
-
-        await BudgetSeeder.SeedDefaultMonthAsync(db, "owner-1", 2026, 7);
-
-        var months = await db.BudgetMonths.Where(m => m.OwnerId == "owner-1").ToListAsync();
-        months.Should().ContainSingle().Which.Year.Should().Be(2025);
-
-        // No sample figures leaked in and no backing jar was created.
-        (await db.BudgetItems.AnyAsync(i => i.Name == "Take-home Pay")).Should().BeFalse();
+        created.Should().BeTrue();
+        (await db.BudgetMonths.AnyAsync(m => m.OwnerId == "owner-1")).Should().BeFalse();
+        (await db.BudgetItems.AnyAsync(i => i.Name == "Take-home Pay" || i.Name == "Emergency Fund")).Should().BeFalse();
         (await db.Jars.AnyAsync(j => j.OwnerId == "owner-1")).Should().BeFalse();
+        (await db.Accounts.AnyAsync(a => a.OwnerId == "owner-1")).Should().BeFalse();
+        (await db.JarAllocations.AnyAsync(a => a.OwnerId == "owner-1")).Should().BeFalse();
+        (await db.HouseholdMembers.CountAsync(m => m.OwnerId == "owner-1")).Should().Be(1);
+    }
+
+    // REG-008 — the quick-start templates keep income/expense structure only: no template can
+    // mint a savings line, because a savings line is a jar and a jar needs its account (rule 73).
+    [Fact]
+    public void Templates_carry_no_savings_groups()
+    {
+        AllotJar.Application.Budgets.Templates.BudgetTemplates.All.Should().NotBeEmpty();
+        AllotJar.Application.Budgets.Templates.BudgetTemplates.All
+            .SelectMany(t => t.Groups)
+            .Should().OnlyContain(g => g.Kind != CategoryKind.Savings);
     }
 
     // ---------------------------------------------------------------------------------------------

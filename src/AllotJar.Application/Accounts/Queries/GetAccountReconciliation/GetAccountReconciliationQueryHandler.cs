@@ -37,29 +37,32 @@ public class GetAccountReconciliationQueryHandler
             return Array.Empty<AccountReconciliationDto>();
         }
 
-        await AccountBalances.ApplyAsync(_db, userId, accounts, cancellationToken);
+        var asOf = request.AsOf ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var ledger = await AccountLedgerReader.ReadAsync(_db, userId, accounts, asOf, cancellationToken);
 
-        var funds = await _db.Jars
-            .AsNoTracking()
-            .Where(f => f.OwnerId == userId && !f.IsArchived && f.FundingAccountId != null)
-            .Select(f => new { f.Id, f.OpeningBalance, FundingAccountId = f.FundingAccountId!.Value })
-            .ToListAsync(cancellationToken);
-
-        var tracked = await JarBalances.ComputeAsync(_db, userId, cancellationToken);
+        // The jar side is actual money too (rules 1–6): each account's jars and unallocated
+        // remainder reconcile to its balance by construction, and rule 70 flags any account
+        // whose positive jars exceed its money.
+        var jars = await JarLedgerReader.ReadAsync(_db, userId, asOf, cancellationToken);
 
         return accounts
             .Select(a =>
             {
-                var backed = funds.Where(f => f.FundingAccountId == a.Id).ToList();
-                var backedTotal = backed.Sum(f => f.OpeningBalance + tracked.GetValueOrDefault(f.Id));
+                var view = ledger[a.Id];
+                jars.Accounts.TryGetValue(a.Id, out var jarView);
+                var backed = jars.Jars.Values.Where(j => j.FundingAccountId == a.Id && !j.IsArchived).ToList();
                 return new AccountReconciliationDto
                 {
                     AccountId = a.Id,
                     AccountName = a.Name,
-                    CurrentBalance = a.CurrentBalance,
-                    BackedJarsTotal = backedTotal,
+                    CurrentBalance = view.Balance,
+                    BackedJarsTotal = jarView?.IsAvailable == true
+                        ? backed.Sum(j => jarView.JarBalances.TryGetValue(j.Id, out var b) ? b : 0m)
+                        : 0m,
                     BackedJarCount = backed.Count,
-                    Float = a.CurrentBalance - backedTotal,
+                    Float = jarView is null ? view.Balance : jarView.Unallocated,
+                    HasBackingDeficit = jarView?.HasBackingDeficit ?? false,
+                    RequiresReview = view.RequiresReview,
                 };
             })
             .ToList();

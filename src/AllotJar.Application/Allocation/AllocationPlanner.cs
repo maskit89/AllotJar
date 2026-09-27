@@ -50,24 +50,10 @@ public static class AllocationPlanner
 
         var savingsBalances = await SavingsBalancesAsync(db, ownerId, members, year, month, ct);
 
-        // Per-member income precedence: when the month's budget attributes income lines to
-        // people, those PLANNED sums are the engine's income source (the budget is the single
-        // source of truth); unattributed income is shared equally (last member absorbs the
-        // rounding remainder, the IncomeAllocator.Split convention). A month with no attributed
-        // lines falls back to the static NetMonthlyIncome — exact pre-attribution behavior.
-        var budgetIncome = await MemberIncome.ForMonthAsync(
-            db, ownerId, year, month, members.Select(m => m.Id).ToList(), ct);
-        var equalShares = new Dictionary<Guid, decimal>();
-        if (budgetIncome.HasAttributedIncome && members.Count > 0 && budgetIncome.Unattributed != 0m)
-        {
-            var share = Math.Round(budgetIncome.Unattributed / members.Count, 4);
-            for (var i = 0; i < members.Count; i++)
-            {
-                equalShares[members[i].Id] = i == members.Count - 1
-                    ? budgetIncome.Unattributed - share * (members.Count - 1)
-                    : share;
-            }
-        }
+        // Rule 28: the engine's income is the month's budgeted income and nothing else — each
+        // person's attributed lines plus an equal share of the unattributed lines. The saved
+        // per-person defaults never supply or top up the pool; a month with no budget has none.
+        var budgetIncome = await MemberIncome.SharesAsync(db, ownerId, year, month, members, ct);
 
         var allocMembers = members
             .Select(m =>
@@ -80,12 +66,12 @@ public static class AllocationPlanner
                 var savingsId = m.PersonalSavingsAccountId is Guid sid && savingsBalances.ContainsKey(sid)
                     ? (Guid?)sid
                     : null;
-                var netIncome = budgetIncome.HasAttributedIncome
-                    ? budgetIncome.ByMember.GetValueOrDefault(m.Id) + equalShares.GetValueOrDefault(m.Id)
-                    : m.NetMonthlyIncome;
+                var netIncome = budgetIncome.Income.GetValueOrDefault(m.Id);
+                var savingsBalance = savingsId is Guid vid ? savingsBalances[vid] : null;
                 return new AllocationMember(
                     m.Id, m.Name, netIncome, savingsId,
-                    SavingsBalance: savingsId is Guid vid ? savingsBalances[vid] : 0m);
+                    SavingsBalance: savingsBalance ?? 0m,
+                    SavingsBalanceAvailable: savingsBalance.HasValue);
             })
             .ToList();
 
@@ -104,17 +90,20 @@ public static class AllocationPlanner
         var result = IncomeAllocator.Compute(allocMembers, ruleInputs, profile?.BalanceLeanPercent ?? 25);
         return new AllocationPlan(
             result, profile, envelopes, funds,
-            UnattributedIncome: budgetIncome.HasAttributedIncome ? budgetIncome.Unattributed : 0m,
-            IncomeFromBudget: budgetIncome.HasAttributedIncome);
+            UnattributedIncome: budgetIncome.Unattributed,
+            IncomeFromBudget: true);
     }
 
     /// <summary>
-    /// Current balance of each member's personal-savings account, used to tilt a balance-aware
-    /// savings split. Excludes <em>this month's</em> allocation transfers (BankReference prefix
+    /// Actual balance today of each member's personal-savings account, read through the shared
+    /// dated account ledger and used to tilt a balance-aware savings split. Excludes
+    /// <em>this month's</em> allocation transfers (BankReference prefix
     /// <c>alloc:{year}-{month}:</c>) so preview and a re-run commit both see the pre-allocation
-    /// balance — keeping the tilt stable and the commit idempotent.
+    /// balance — keeping the tilt stable and the commit idempotent. A null value means the
+    /// balance is unavailable (no opening date); the tilt treats it as zero, but it is reported
+    /// as unknown rather than displayed as money.
     /// </summary>
-    private static async Task<Dictionary<Guid, decimal>> SavingsBalancesAsync(
+    private static async Task<Dictionary<Guid, decimal?>> SavingsBalancesAsync(
         IApplicationDbContext db, string ownerId, IReadOnlyList<HouseholdMember> members, int year, int month, CancellationToken ct)
     {
         var savingsIds = members
@@ -124,39 +113,21 @@ public static class AllocationPlanner
             .ToList();
         if (savingsIds.Count == 0)
         {
-            return new Dictionary<Guid, decimal>();
+            return new Dictionary<Guid, decimal?>();
         }
 
         var accounts = await db.Accounts
             .AsNoTracking()
             .Where(a => a.OwnerId == ownerId && savingsIds.Contains(a.Id))
-            .Select(a => new { a.Id, a.OpeningBalance })
-            .ToListAsync(ct);
-
-        var nets = await db.Transactions
-            .Where(t => t.OwnerId == ownerId
-                        && t.AccountId != null && savingsIds.Contains(t.AccountId.Value)
-                        && (t.Type == TransactionType.Income || t.Type == TransactionType.Expense))
-            .GroupBy(t => new { AccountId = t.AccountId!.Value, t.Type })
-            .Select(g => new { g.Key.AccountId, g.Key.Type, Total = g.Sum(x => x.Amount) })
             .ToListAsync(ct);
 
         var prefix = $"alloc:{year}-{month}:";
-        var transfers = await db.Transactions
-            .Where(t => t.OwnerId == ownerId && t.Type == TransactionType.Transfer
-                        && (t.BankReference == null || !t.BankReference.StartsWith(prefix))
-                        && ((t.AccountId != null && savingsIds.Contains(t.AccountId.Value))
-                            || (t.TransferAccountId != null && savingsIds.Contains(t.TransferAccountId.Value))))
-            .Select(t => new { t.AccountId, t.TransferAccountId, t.Amount })
-            .ToListAsync(ct);
+        var asOf = DateOnly.FromDateTime(DateTime.UtcNow);
+        var views = await Accounts.AccountLedgerReader.ReadAsync(
+            db, ownerId, accounts, asOf, ct,
+            exclude: t => t.BankReference is not null && t.BankReference.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
 
-        return accounts.ToDictionary(
-            a => a.Id,
-            a => a.OpeningBalance
-                 + nets.Where(n => n.AccountId == a.Id && n.Type == TransactionType.Income).Sum(n => n.Total)
-                 - nets.Where(n => n.AccountId == a.Id && n.Type == TransactionType.Expense).Sum(n => n.Total)
-                 - transfers.Where(t => t.AccountId == a.Id).Sum(t => t.Amount)
-                 + transfers.Where(t => t.TransferAccountId == a.Id).Sum(t => t.Amount));
+        return accounts.ToDictionary(a => a.Id, a => views[a.Id].Balance);
     }
 }
 

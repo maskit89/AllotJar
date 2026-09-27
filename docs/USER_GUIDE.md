@@ -56,7 +56,7 @@ AllotJar's big banner tracks that goal live as you type.
 
 ### Registering and signing in
 
-- Open the app and you land on the sign-in card. New here? Switch to **Create account** and fill in your **name**, **email**, a **password of at least 8 characters**, your **preferred currency** and **number format**, and accept the **Terms**. Registration signs you in immediately.
+- Open the app and you land on the sign-in card. New here? Switch to **Create account** and fill in your **name**, **email**, a **password of at least 8 characters**, your **preferred currency** and **number format**, and accept the **Terms**. Registration signs you in immediately. Your household starts empty — there is no sample data — and the Budget page shows a short **Set up your budget** checklist: add your accounts with their opening balances, create this month's budget, then add a jar from an account.
 - Your **preferred currency** and **number format** are display preferences — they control how amounts are shown and entered. They are *not* an exchange-rate conversion; AllotJar keeps your figures in one currency.
 - Your data is private to your login. (You can deliberately share a household with other people — see [People & sharing](#8-people--sharing).)
 - Your session is kept alive securely in the background, so you stay signed in between visits without re-entering your password.
@@ -86,8 +86,8 @@ Use the **‹ / ›** arrows in the top bar to move between months. Every month-
 If the month you're viewing has no budget yet, you'll see three ways to start:
 
 - **Copy last month's budget** — brings over your whole structure and planned amounts (actuals reset to zero, bills reset to unpaid). This is the normal month-to-month flow.
-- **Start blank** — an empty budget with just an Income group.
-- **Start from a template** — quick-start layouts (**Essentials**, **Student**, **Family**), each a ready set of groups and lines with amounts at zero for you to fill in.
+- **Start blank** — a budget with just an Income group. If any of your people has a **Default income** on the People page, the group starts with one income line per person at that amount, attributed to them; otherwise it is empty.
+- **Start from a template** — quick-start layouts (**Essentials**, **Student**, **Family**), each a ready set of income and expense groups and lines with amounts at zero for you to fill in. Templates never create jars: add those from an account on the Jars page (or with **Add jar** in a Savings group) so each has a home for its money.
 
 ### The Remaining-to-Budget banner
 
@@ -126,13 +126,13 @@ Every line's **Spent** value is the live total of the transactions assigned to t
 
 ### Savings groups
 
-A **Savings** group (shown in violet) holds savings goals — "Car repairs", "Holidays", "Christmas" — whose money **rolls over from month to month** instead of resetting.
+A **Savings** group (shown in violet) holds your jars — "Car repairs", "Holidays", "Christmas" — whose money **rolls over from month to month** instead of resetting. Every line in a Savings group *is* a jar, so the group offers **Add jar** rather than a bare line: you name the jar, choose the **account that holds its money**, and its contribution line lands in this month and every later one.
 
-- The **Planned** amount on a savings line is this month's *contribution*. It counts toward Assigned, just like an expense.
-- The violet **Available** figure is the line's running balance: every contribution you've ever planned, minus everything you've ever spent from it, across all months up to the one you're viewing.
-- Spend from savings the same way you spend from any line — assign a transaction to it. The Available balance falls accordingly.
+- The **Planned** amount on a savings line is this month's *contribution*. It counts toward Assigned, just like an expense. It is a plan, not money.
+- The violet **Available** figure is the jar's **actual balance** at the end of the month you're viewing: the money you've actually set aside in its account, minus what you've spent from it, up to that month. Planned contributions never count until the money is really there (allocated in the account). It reads **Not available** when the jar's account has no balance yet for that date.
+- Spend from a jar the same way you spend from any line — record the expense **from the jar's account** and assign it to the jar's line. The Available balance falls accordingly. AllotJar refuses to put a payment from a different account (or from no account) on a jar's line, because that money never came out of the jar.
 
-When you copy a month, savings lines keep their identity, so the balance keeps accumulating. To track a goal visually — with a target, a date and a progress bar — pair a savings line with a **Jar** (see [Jars](#6-jars-savings-goals)).
+When you copy a month, savings lines keep their identity, so the balance keeps accumulating. The Jars page shows the same jars with a target, a date and a progress bar (see [Jars](#6-jars-savings-goals)).
 
 ### Bills and reminders
 
@@ -162,11 +162,36 @@ Use the **Add a transaction** form: date, payee, amount, type (**Expense** or **
 
 If you don't pick a budget line, AllotJar quietly fills one in for you: it assigns the new transaction to the same line as your **most recent earlier transaction with the same description**. So once you've categorised "REWE" or your landlord once, repeat payees sort themselves — with no rules to set up. Whatever it can't match is left *Unassigned* for you to place.
 
+**An account never goes below zero.** If a payment (or a transfer out) would take its account below zero on any date — including a back-dated payment that dips a past balance — AllotJar refuses it and tells you the account, the balance it would reach and the date. Record the money that reached the account first, or correct the amount; there is no "post anyway", and nothing is invented to balance it. The same check protects you when you delete or shrink an income that later payments relied on, and when you lower an account's opening balance.
+
+### When the account holds jars
+
+If the account you pick holds [jars](#6-jars-savings-goals), the form asks one more thing:
+
+- **Income** — *Put into jars*: how much of this money goes to each jar. Leave the fields empty to keep it all **unallocated** (you can allocate it later from the Jars page). Example: 500 arrives in Savings, which holds Holiday and Car; you enter Holiday 300 and Car 200, and the account's unallocated money is unchanged.
+- **Expense on a jar's Savings line** — nothing to answer: the payment comes out of that jar.
+- **Expense on any other line** — *Which jar does this come from?* Defaults to the account's unallocated money; pick a jar if the money was that jar's (a hotel bill on the "Travel" line paid from the Holiday jar, say). An expense with no line always draws from unallocated.
+
+Editing a transaction asks the same questions again, pre-filled with your earlier answer. The register shows a small tag on rows with a jar answer ("→ Holiday 300.00, Car 200.00", "from Holiday").
+
+### Recording a transfer between your own accounts
+
+With two or more accounts, the add form has a **Transfer** mode. A transfer is not income or spending — it never touches a budget line — but it does move money between two accounts, and each bank posts its own side on its own date:
+
+- Enter the amount, the **From** and **To** accounts, and the date the money **left the source account**. Tick **I've completed this transfer** to record it; AllotJar only records transfers you have actually made.
+- If you already know when it **arrived**, enter that date too. Otherwise leave it blank: the amount is shown as **in transit** — debited from the source, not yet credited to the destination — until you confirm the receipt from the register row (**Confirm receipt**). AllotJar never guesses an arrival date.
+- When importing a statement, a debit you mark as a transfer records the departure in the same way. A credit you mark as a transfer is a receipt whose departure isn't known yet: it is held as **pending review** and doesn't change either balance until you add the departure date (**Add departure date** on the register) or, when the other account's statement already recorded the movement, pick that transfer from the **Already recorded?** list — both statement references are then kept on the one transfer, and nothing moves twice. Candidates with the same amount are only suggestions; nothing is matched for you.
+- **Importing into an account that holds jars** asks the same jar questions row by row in the review table: a credit can be divided among the account's jars (blank = unallocated), and a debit on a line that is not a jar's — or a debit marked as a transfer — can name the jar it comes from. Imported rows are posted in date order, and any debit that would take the account below zero on its date is **held**: it stays in the review table with the reason, nothing is posted for it, and the rows that fit are imported. Record the missing deposit (or fix the account) and commit the held rows again, or untick them to discard them. Held rows live only in that review — if you leave the page, upload the statement again and only the rows not yet imported are offered.
+- Deleting a transfer removes both sides at once. An account can't be deleted while it is a side of a recorded transfer.
+- If the **From** account holds jars, you can say which jar the money leaves (**From jar**; unallocated by default). If the **To** account holds jars and you enter the arrival date, you can divide the receipt among its jars — and when you confirm a receipt later from the register row, the same question is asked then. The source account must be able to cover the departure: a transfer never takes an account below zero.
+
 ### Assigning to a budget line
 
 Every transaction row has an assignment dropdown grouped by category. Once assigned, the line's Spent (or an income line's Received) includes this transaction — Spent is always the live total of a line's assigned transactions.
 
 Choose "Unassigned" to detach a transaction again.
+
+When the transaction is an expense from an account that holds jars and you assign it to a line that is not a jar's Savings line, a small prompt asks **which jar it comes from** (unallocated by default). Assigning it to a jar's line needs no answer — the line names the jar.
 
 ### Splitting a transaction
 
@@ -178,6 +203,8 @@ One supermarket receipt, several budget lines? Use the **split** control on the 
 
 A split transaction shows a **Split** badge listing its slices, and each slice counts toward its own line. **Remove split** (or re-assigning the whole transaction) undoes it.
 
+For an expense from an account that holds jars, each slice on a jar's Savings line draws from that jar; the split editor asks once which jar the *other* slices come from (unallocated by default).
+
 ### Editing, deleting, finding
 
 - The edit control changes date, payee, amount and type in place; the delete control removes the transaction.
@@ -185,19 +212,22 @@ A split transaction shows a **Split** badge listing its slices, and each slice c
 
 ## 5. Accounts
 
-The **Accounts** page tracks *where your money sits* — current account, savings, cash, credit card.
+The **Accounts** page tracks *where your money sits* — current account, savings, cash, or a physical place such as a piggy bank. Credit cards are not accounts here: an account holds money, a card owes it.
 
-- **Add an account** with a name, a type, and an **opening balance** (what was in it when you started tracking; credit cards can start negative).
-- Each transaction can be tagged with the account it happened on (in the add form or the edit row). The account's **current balance** is then always: **opening balance + income − expenses** of its transactions.
-- The footer totals your balances into a single **Net** across all accounts.
+- **Add an account** with a name, a type, an **opening balance** (zero or more — an account never has a negative balance in AllotJar, even if your bank allows an overdraft) and an **opening date**. The opening balance is what the account held at the *start* of that date. Transactions dated before the opening date stay in your history but never change the balance again — the opening amount already includes them.
+- Optionally record the bank's identifiers — **IBAN**, **BIC/SWIFT**, **sort code**, **account number** — so you can tell accounts apart. None is required; they are only checked for format when filled in.
+- Each transaction can be tagged with the account it happened on (in the add form or the edit row). The account's **current balance** is then: **opening balance + income − expenses − transfers out + transfers in**, counting only what has posted from the opening date up to today. A balance is shown as **Not available** rather than zero when the account has no opening date yet, or when you look at a date before it.
+- Transfers between your own accounts move money on each bank's own date: the source is debited on the day the money left, the destination is credited only once you confirm the receipt. In between, the amount is shown as **in transit** on both cards and belongs to neither balance. A receipt you've identified as a transfer but whose departure date isn't known yet is shown as **pending review** and is not posted to either account until you supply it (see *Transactions* and *Importing*).
+- The footer totals the balances that are available into a single **Net** across all accounts; accounts without an opening date are left out and counted separately.
 - Open an account to see its own transaction register on the **account detail** page.
-- Editing an account changes its name, type and opening balance. Deleting an account keeps its transactions; they just lose the account tag.
+- Editing an account changes its name, type, opening balance, opening date and identifiers. Deleting an account keeps its income and expense transactions (they just lose the account tag), but an account that is a side of a recorded transfer, or that holds a jar's money, can't be deleted until those transfers are removed or those jars moved.
+- **Jar reconciliation** shows, for every account that holds jars, the account's balance, the total in its jars and the **Unallocated** remainder — the three always add up. If the positive jars ever add up to more than the account really holds (after a payment overdrew one jar, say), the row is flagged **Jars exceed account money** until you move money to cover it.
 
 **How it works:** like budget actuals, balances are derived from the register at read time — there's no stored balance to drift out of sync. A split transaction still moved in or out of one account, so its *full* amount counts toward that account regardless of how it's split across budget lines.
 
 ## 6. Jars (savings goals)
 
-The **Jars** page is where you set savings targets and watch them fill up. A jar is the visual, target-driven companion to a savings line on the Budget page.
+The **Jars** page is where you set savings targets and watch them fill up. A jar is a share of the money in one of your accounts, with a target: several jars can share one account, and whatever isn't in a jar is that account's **unallocated** money.
 
 The first thing you choose is the jar's **Type**, and that shapes the rest of the form:
 
@@ -208,12 +238,21 @@ You also set:
 
 - **Name** — e.g. "Home insurance", "Summer holiday".
 - **Target** — how much you want to reach.
-- **Saved so far** — money you'd already put aside before AllotJar started tracking (on an existing jar this field is labelled **Opening balance**, and the card shows the live total — don't retype it).
-- **Held in** *(optional)* — the account the money sits in, if you track accounts.
+- **Held in** — the account that holds this jar's money. Every jar needs one (add an account first if you have none); any account except a credit card will do, and a savings account is the natural choice.
+- **Already set aside** — money that is *already in that account* which you want to count as this jar's, and the date you set it aside. This divides the account's unallocated money into the jar; it never adds money. AllotJar checks the account really had that much unallocated on that date.
 
-As you fill the form, a live line estimates the **monthly set-aside** the jar needs ("Sets aside ≈ €120/mo toward Mar 2027, then it repeats"). Each jar card then shows a **progress bar**, a **status** (Behind, Funded, Overspent) where it matters, and its projected finish ("full by Nov 2026"). The page header totals your **Total saved**, the combined **monthly** set-aside, and the number of **active jars**.
+As you fill the form, a live line estimates the **monthly set-aside** the jar needs ("Sets aside ≈ €120/mo toward Mar 2027, then it repeats"). Each jar card shows its **actual balance** and the account it is held in, a **progress bar**, a **status** (Behind, Funded, Overspent) where it matters, and its projected finish ("full by Nov 2026"). The page header totals your **Total saved**, the combined **monthly** set-aside, and the number of **active jars**, and lists each account's **unallocated** money.
 
-**Jars and the Budget page work together:** the jar tells you *what to set aside each month*, and AllotJar seeds that amount onto its **Savings** budget line automatically when you create each month — so a new jar starts filling without extra steps. When you spend from a jar, record the expense against that Savings line and its balance falls, ready to fill again next cycle. Edit a jar any time to change its target, date or cadence, or **archive** it when you're done with it (archiving never touches your transactions; deleting the budget line instead just re-adds it next month).
+**What counts as saved:** only real money. A jar's balance is what you have actually allocated to it in its account, minus what you have spent from it; the planned contribution on the Budget page is a plan until the money is there. Money reaches a jar when you set it aside at creation, when you **Move money** into it from another jar or from the account's unallocated funds, or (later) when you allocate a deposit that arrives in the account. Money leaves a jar when you record an expense **from the jar's account** and assign it to the jar's Savings line — a payment can overdraw a jar (it shows **Overspent**), but never the account itself.
+
+**Move money** rearranges money: pick where it comes from (a jar or the account's unallocated money), where it goes, the amount and the date. A jar can give at most what it holds, and the move must leave every jar backed by real money.
+
+- **Inside one account** nothing touches your bank: the account balance doesn't change.
+- **Into a jar (or the unallocated money) of another account** is a real bank transfer, so AllotJar records it as one: tick **I have made this transfer**, give the date the money left, and the date it arrived (today by default). Clear the arrival date if the money hasn't landed yet — the amount shows as in transit and the destination jar receives it once you **Confirm receipt** on the Transactions page. The source account must be able to cover it.
+
+Money also reaches jars whenever money reaches their account: recording an income, confirming a transfer receipt, importing a statement credit and committing an income allocation all ask **how much goes to each jar** (see *Transactions*, *Importing* and *Income allocation*).
+
+**Jars and the Budget page work together:** the jar tells you *what to set aside each month*, and AllotJar seeds that amount onto its **Savings** budget line automatically when you create each month. Edit a jar any time to change its target, date or cadence. Its account can only be changed while the jar is empty — move the money first. **Archive** a jar when you're done with it: it must be at zero (move any remainder out, or cover a shortfall), and archiving never touches your transactions.
 
 ## 7. Reports
 
@@ -234,6 +273,18 @@ AllotJar is solo-friendly by default: on your own, the sharing features stay out
 
 - **Add a person** with their name. A "person" is a member of your household budget — useful for splitting shared costs and dividing savings even before anyone else signs in.
 - If one of the people you add is **you**, mark **"This is me"** to link your own login to that person.
+
+### Whose income is whose
+
+The People page shows the **same month as the Budget page** (change it with the month navigator in the top bar). Each person's **Income** is what the month's budget says: the income lines attributed to them (on the Budget page, each income line has a **Who earns** picker once the household is shared), plus an equal share of any income line left as "Whole household". Their **Share** is that income as a percentage of the household's, and **Spent** is what has been attributed to them in that month. If the month has no budget yet, the figures are zero until you create one.
+
+### Renaming and archiving people
+
+Renaming a person renames their **Pocket Money** budget line in every month too (the line belongs to the person, not to the name); the amounts do not change. A line you renamed yourself keeps your name for it.
+
+**Archiving** a person (the ✕ on their row) hides them from the People page and stops their pocket money from next month on: any pocket-money line already planned for a later month is cancelled. If this month still has pocket money planned beyond what has been paid, AllotJar asks first — **Keep this month** leaves this month's plan as it is, **Cancel remaining** lowers it to what has already been paid (a line nothing was paid against disappears), and **Don't archive** changes nothing. Whatever you choose, every recorded payment and every account balance stays exactly as it was; archiving never deletes transactions.
+
+A person's **Default income** is only a starting figure you keep on file: when you **start a blank month**, each person with a default gets an income line at that amount, attributed to them (a template or copied month keeps its own lines). Nothing is calculated from the default itself: the Allocation page, the shares and the People figures all read the month's budget lines. Amounts recorded in another currency are shown converted to your budget currency; a row whose rate is still pending is counted separately until it resolves.
 
 ### Inviting someone to sign in
 
@@ -257,11 +308,17 @@ You can belong to more than one household (for example your own and a shared one
 
 Once your household is **shared** (you've added at least one other person), an **Allocation** item appears in the sidebar. Income allocation answers "we both got paid — now what?":
 
-1. **Pool** everyone's income for the month.
+1. **Pool** everyone's income for the month — the income lines in that month's budget, attributed to each person or shared equally when left as "Whole household". A month with no income lines has nothing to allocate.
 2. **Cover** the shared costs (your expenses and savings) from the pool.
-3. **Split** whatever's left into each person's own savings, by whatever rule you set up.
+3. **Split** whatever's left into each person's own savings, by whatever rule you set up — equally, or in proportion to each person's budgeted income.
 
 You set this up once (who shares, how the remainder is divided), and AllotJar **previews** the result before anything is applied — so you can see exactly who contributes what and who keeps what before you commit.
+
+The suggested amounts stay a plan until you move the money at the bank. **Allocate** asks you to confirm **I've completed these transfers** and the date the money left the source account, then records one transfer per person as *in transit*; confirm each receipt on the Transactions page when the savings account shows it. Running Allocate again keeps transfers that haven't changed, replaces an in-transit one whose amount changed, and won't discard a transfer whose receipt you've already confirmed. The source account must be able to cover every transfer — allocation never takes it below zero.
+
+When a person's savings account holds jars, Allocate also asks **how much of that person's transfer goes to each jar**; whatever you leave blank stays unallocated in the account, and the jars are credited once the receipt is confirmed.
+
+**Pocket money.** If your allocation gives each person pocket money, **Add pocket money to {month}'s budget** puts one **Pocket Money** line per person into that month's budget. Each line is linked to its person rather than to their name: renaming the person renames the line, and running the sync again updates the same line instead of adding another. Archiving a person stops their pocket money from next month on (see *People & sharing*).
 
 ## 10. Your account & settings
 

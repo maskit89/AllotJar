@@ -11,8 +11,8 @@ namespace AllotJar.Domain.Services;
 ///
 /// Amounts for the fund-* rules are resolved by the caller (from the month's budget) and
 /// passed in as <see cref="AllocationRuleInput.ResolvedTotal"/>, keeping this pure.
-/// Equal/ratio splits round to the cent and give the last member the remainder so each
-/// split sums exactly to its total.
+/// Splits round down to cents, then distribute the remainder by fractional share,
+/// breaking ties in the supplied member/display order. The original total is preserved.
 ///
 /// The terminal <see cref="AllocationRuleType.SplitRemainderToMembers"/> step normally hands
 /// each member whatever is left of their own income. With <see cref="SplitMethod.BalanceTilt"/>
@@ -92,7 +92,8 @@ public static class IncomeAllocator
         }
 
         var residuals = members
-            .Select(m => new MemberResidual(m.Id, m.Name, m.NetIncome, balances[m.Id], m.SavingsAccountId, m.SavingsBalance))
+            .Select(m => new MemberResidual(
+                m.Id, m.Name, m.NetIncome, balances[m.Id], m.SavingsAccountId, m.SavingsBalance, m.SavingsBalanceAvailable))
             .ToList();
 
         return new AllocationResult(pool, steps, residuals);
@@ -107,29 +108,10 @@ public static class IncomeAllocator
             return Array.Empty<MemberShare>();
         }
 
-        var shares = new List<MemberShare>(n);
-        decimal allocated = 0m;
-        for (var i = 0; i < n; i++)
-        {
-            var m = members[i];
-            decimal amount;
-            if (i == n - 1)
-            {
-                // The last member absorbs the rounding remainder so the split is exact.
-                amount = total - allocated;
-            }
-            else
-            {
-                amount = split == SplitMethod.ByIncomeRatio && totalNet > 0m
-                    ? Math.Round(total * (m.NetIncome / totalNet), 2, MidpointRounding.AwayFromZero)
-                    : Math.Round(total / n, 2, MidpointRounding.AwayFromZero);
-                allocated += amount;
-            }
-
-            shares.Add(new MemberShare(m.Id, m.Name, amount));
-        }
-
-        return shares;
+        var exact = members.Select(m => split == SplitMethod.ByIncomeRatio && totalNet > 0m
+            ? total * (m.NetIncome / totalNet)
+            : total / n).ToArray();
+        return RoundShares(members, total, exact);
     }
 
     /// <summary>
@@ -137,8 +119,8 @@ public static class IncomeAllocator
     /// savings balance is lowest. Each member's share is a blend of an even split and a
     /// "fill the lowest balances first" (water-fill) target; <paramref name="leanPercent"/>
     /// (0–100) sets how far toward the water-fill target we lean. At 0 it is a plain even
-    /// split; below 100 every member always receives a positive share. Rounds to the cent,
-    /// with the largest share absorbing the remainder so the split is exact.
+    /// split; tiny shares may round to zero. Uses the same conserved rounding as equal
+    /// and income-based splits, so a tiny remainder cannot create a negative share.
     /// </summary>
     private static IReadOnlyList<MemberShare> BalanceTiltSplit(
         IReadOnlyList<AllocationMember> members, decimal remainder, int leanPercent)
@@ -148,29 +130,32 @@ public static class IncomeAllocator
         var even = remainder / n;
         var fill = WaterFill(members, remainder);
 
-        var shares = members
-            .Select(m => new MemberShare(
-                m.Id, m.Name,
-                Math.Round((1m - alpha) * even + alpha * fill[m.Id], 2, MidpointRounding.AwayFromZero)))
-            .ToList();
+        var exact = members.Select(m => (1m - alpha) * even + alpha * fill[m.Id]).ToArray();
+        return RoundShares(members, remainder, exact);
+    }
 
-        // Push any rounding drift onto the largest share, which can safely absorb a few cents.
-        var drift = remainder - shares.Sum(s => s.Amount);
-        if (drift != 0m)
+    private static IReadOnlyList<MemberShare> RoundShares(
+        IReadOnlyList<AllocationMember> members, decimal total, IReadOnlyList<decimal> exact)
+    {
+        const decimal cent = 0.01m;
+        var sign = total < 0m ? -1m : 1m;
+        var amounts = exact.Select(a => Math.Floor(a * sign / cent) * cent).ToArray();
+        var remaining = total * sign - amounts.Sum();
+        var order = Enumerable.Range(0, members.Count)
+            .OrderByDescending(i => exact[i] * sign - amounts[i])
+            .ThenBy(i => i);
+
+        foreach (var i in order)
         {
-            var maxIndex = 0;
-            for (var i = 1; i < n; i++)
-            {
-                if (shares[i].Amount > shares[maxIndex].Amount)
-                {
-                    maxIndex = i;
-                }
-            }
-
-            shares[maxIndex] = shares[maxIndex] with { Amount = shares[maxIndex].Amount + drift };
+            if (remaining <= 0m) break;
+            // Preserve any existing sub-cent amount too; changing storage/currency
+            // precision is a separate policy, not a reason to invent or discard money.
+            var extra = Math.Min(cent, remaining);
+            amounts[i] += extra;
+            remaining -= extra;
         }
 
-        return shares;
+        return members.Select((m, i) => new MemberShare(m.Id, m.Name, amounts[i] * sign)).ToList();
     }
 
     /// <summary>
@@ -223,7 +208,13 @@ public static class IncomeAllocator
     }
 }
 
-public record AllocationMember(Guid Id, string Name, decimal NetIncome, Guid? SavingsAccountId, decimal SavingsBalance = 0m);
+/// <param name="SavingsBalanceAvailable">
+/// False when the member's savings balance could not be read (no opening date on the account):
+/// the tilt then uses zero as a neutral weight, and readers must show the balance as unknown.
+/// </param>
+public record AllocationMember(
+    Guid Id, string Name, decimal NetIncome, Guid? SavingsAccountId, decimal SavingsBalance = 0m,
+    bool SavingsBalanceAvailable = true);
 
 public record AllocationRuleInput(
     int Order, AllocationRuleType Type, SplitMethod Split, decimal FixedAmountPerMember, decimal ResolvedTotal);
@@ -233,6 +224,7 @@ public record MemberShare(Guid MemberId, string Name, decimal Amount);
 public record AllocationStep(AllocationRuleType Type, decimal Total, IReadOnlyList<MemberShare> PerMember);
 
 public record MemberResidual(
-    Guid MemberId, string Name, decimal NetIncome, decimal Residual, Guid? SavingsAccountId, decimal SavingsBalance = 0m);
+    Guid MemberId, string Name, decimal NetIncome, decimal Residual, Guid? SavingsAccountId, decimal SavingsBalance = 0m,
+    bool SavingsBalanceAvailable = true);
 
 public record AllocationResult(decimal Pool, IReadOnlyList<AllocationStep> Steps, IReadOnlyList<MemberResidual> Members);

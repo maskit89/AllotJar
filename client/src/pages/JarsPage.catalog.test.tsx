@@ -41,9 +41,8 @@ function jar(over: Partial<JarDto> = {}): JarDto {
     coverEnd: null,
     accrual: 1,
     recurMonths: 12,
-    openingBalance: 0,
-    openingAsOf: null,
-    fundingAccountId: null,
+    fundingAccountId: 'acc1',
+    balanceAsOf: '2026-09-26',
     isArchived: false,
     currentBalance: 120,
     requiredMonthlyContribution: 25,
@@ -63,12 +62,14 @@ function me(role: number): MeResponse {
   return { userId: 'u1', email: 'alex@x.com', displayName: 'Alex', role, ownerId: 'u1', memberId: null }
 }
 
-// Route the three endpoints JarsPage + AuthProvider hit on mount: /jars, /accounts and
-// /auth/me. A non-numeric /auth/me role leaves the AuthContext at its Owner default
-// (canWrite = true); pass meRole to downgrade it (the read-only gating case).
+// Route the endpoints JarsPage + AuthProvider hit on mount: /jars, /jars/ledger, /accounts
+// and /auth/me. A non-numeric /auth/me role leaves the AuthContext at its Owner default
+// (canWrite = true); pass meRole to downgrade it (the read-only gating case). Accounts
+// default to the one JOINT account because a jar can't be created without one (rule 73).
 function mockLoads(opts: { jars?: JarDto[]; accounts?: AccountDto[]; meRole?: number; jarsError?: boolean } = {}) {
-  const { jars = [], accounts = [], meRole, jarsError = false } = opts
+  const { jars = [], accounts = [JOINT], meRole, jarsError = false } = opts
   mockGet.mockImplementation((url: string) => {
+    if (url.startsWith('/jars/ledger')) return Promise.resolve({ data: [] })
     if (url === '/jars') return jarsError ? Promise.reject(new Error('boom')) : Promise.resolve({ data: jars })
     if (url === '/accounts') return Promise.resolve({ data: accounts })
     if (url === '/auth/me') return Promise.resolve({ data: meRole === undefined ? {} : me(meRole) })
@@ -217,8 +218,8 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(await screen.findByText('New kitchen', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
-  it('JAR-015: "Saved so far" is sent as the openingBalance on create', { timeout: 15000 }, async () => {
-    mockPost.mockResolvedValue({ data: jar({ id: 'f9', name: 'Car repairs', kind: 1, targetAmount: 600, openingBalance: 150, currentBalance: 150, status: 'OnTrack' }) })
+  it('JAR-015: "Already set aside" is sent as a dated initialAllocation on create (rule 77)', { timeout: 15000 }, async () => {
+    mockPost.mockResolvedValue({ data: jar({ id: 'f9', name: 'Car repairs', kind: 1, targetAmount: 600, currentBalance: 150, status: 'OnTrack' }) })
     const user = userEvent.setup()
 
     renderPage()
@@ -227,13 +228,34 @@ describe('JarsPage — catalog (JAR)', () => {
     await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Jar name'), 'Car repairs')
     await user.type(dialog.getByLabelText('Target amount'), '600')
-    // The field's visible label reads "Saved so far" on create; its aria-label stays "Opening balance".
-    expect(dialog.getByText('Saved so far')).toBeInTheDocument()
-    await user.type(dialog.getByLabelText('Opening balance'), '150')
+    // The field divides money already in the account into the jar; it never adds money.
+    expect(dialog.getByText('Already set aside')).toBeInTheDocument()
+    expect(dialog.getByText(/It doesn.t add money/)).toBeInTheDocument()
+    await user.type(dialog.getByLabelText('Already set aside'), '150')
+    fireEvent.change(dialog.getByLabelText('Set aside on'), { target: { value: '2026-09-10' } })
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
     await waitFor(
-      () => expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ openingBalance: 150 })),
+      () => expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ initialAllocation: 150, initialAllocationDate: '2026-09-10', fundingAccountId: 'acc1' })),
+      { timeout: 5000 },
+    )
+    expect(mockPost.mock.calls[0][1]).not.toHaveProperty('openingBalance')
+  })
+
+  it('JAR-015: a blank "Already set aside" sends initialAllocation 0 with no date', { timeout: 15000 }, async () => {
+    mockPost.mockResolvedValue({ data: jar({ id: 'f9', name: 'Later', kind: 1, targetAmount: 600, currentBalance: 0, status: 'OnTrack' }) })
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+
+    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
+    await user.type(dialog.getByLabelText('Jar name'), 'Later')
+    await user.type(dialog.getByLabelText('Target amount'), '600')
+    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
+
+    await waitFor(
+      () => expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ initialAllocation: 0, initialAllocationDate: null })),
       { timeout: 5000 },
     )
   })
@@ -260,7 +282,8 @@ describe('JarsPage — catalog (JAR)', () => {
     const dialog = await openNewJar(user)
 
     const held = dialog.getByLabelText('Funding account') as HTMLSelectElement
-    expect(within(held).getByRole('option', { name: 'No account' })).toBeInTheDocument()
+    // Required (rule 73): no "No account" escape hatch.
+    expect(within(held).queryByRole('option', { name: 'No account' })).not.toBeInTheDocument()
     expect(within(held).getByRole('option', { name: 'Joint Current' })).toBeInTheDocument()
 
     await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal (no due-date guard)
@@ -275,7 +298,7 @@ describe('JarsPage — catalog (JAR)', () => {
     )
   })
 
-  it('JAR-021: with no accounts, "Held in" offers only "No account" plus the earmark helper', { timeout: 15000 }, async () => {
+  it('JAR-021: with no accounts, the form says to add one first (link to /accounts) and disables Add', { timeout: 15000 }, async () => {
     mockLoads({ accounts: [] })
     const user = userEvent.setup()
 
@@ -283,9 +306,43 @@ describe('JarsPage — catalog (JAR)', () => {
     const dialog = await openNewJar(user)
 
     const held = dialog.getByLabelText('Funding account') as HTMLSelectElement
-    expect(within(held).getAllByRole('option')).toHaveLength(1)
-    expect(within(held).getByRole('option', { name: 'No account' })).toBeInTheDocument()
-    expect(dialog.getByText(/Add accounts to earmark/)).toBeInTheDocument()
+    expect(within(held).queryAllByRole('option')).toHaveLength(0)
+    expect(dialog.getByText(/Add an account first — a jar.s money is held in an account/)).toBeInTheDocument()
+    expect(dialog.getByRole('link', { name: 'Go to accounts' })).toHaveAttribute('href', '/accounts')
+    expect(dialog.getByRole('button', { name: 'Add jar' })).toBeDisabled()
+  })
+
+  it('JAR-021: credit-card accounts are never offered as a jar\'s account (rule 75)', { timeout: 15000 }, async () => {
+    mockLoads({ accounts: [{ ...JOINT, id: 'cc1', name: 'Visa', type: 3 }, JOINT] })
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+
+    const held = dialog.getByLabelText('Funding account') as HTMLSelectElement
+    expect(within(held).getAllByRole('option').map((o) => o.textContent)).toEqual(['Joint Current'])
+  })
+
+  it('JAR-036: a refused account change on edit shows the server\'s FundingAccountId message (rule 80)', { timeout: 15000 }, async () => {
+    mockLoads({ jars: [jar({ currentBalance: 120 })], accounts: [JOINT, { ...JOINT, id: 'acc2', name: 'Rainy Day', type: 1 }] })
+    mockPut.mockRejectedValue({
+      response: { status: 400, data: { errors: { FundingAccountId: ['Home insurance holds 120 in Joint Current. Move the money before changing its account.'] } } },
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    const held = dialog.getByLabelText('Funding account') as HTMLSelectElement
+    expect(held).toBeEnabled()
+    expect(held.value).toBe('acc1')
+    await user.selectOptions(held, 'acc2')
+    await user.click(dialog.getByRole('button', { name: 'Save jar' }))
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/jars/f1', expect.objectContaining({ fundingAccountId: 'acc2' })), { timeout: 5000 })
+    expect(await dialog.findByText(/Move the money before changing its account/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
   it('JAR-027: a Goal with target 0 and no date is accepted (Unfunded, "No target yet")', { timeout: 15000 }, async () => {
@@ -466,12 +523,11 @@ describe('JarsPage — catalog (JAR)', () => {
     )
   })
 
-  it('JAR-041: the edit preview recomputes live from the Opening field', { timeout: 15000 }, async () => {
+  it('JAR-041: the edit preview builds on the jar\'s actual balance and recomputes from the target', { timeout: 15000 }, async () => {
     // No target date ⇒ the remainder spreads over 12 months (clock-independent). base =
-    // editedOpening + (currentBalance − storedOpening). Target 300, currentBalance 120,
-    // storedOpening 0 → base 120, remaining 180 ÷12 = €15.00; nudging Opening to 60 → base
-    // 180, remaining 120 ÷12 = €10.00.
-    mockLoads({ jars: [jar({ targetAmount: 300, openingBalance: 0, currentBalance: 120, targetDate: null, accrual: 1 })] })
+    // currentBalance (the ledger figure, rule 1 — there is no opening field to retype).
+    // Target 300, balance 120 → remaining 180 ÷12 = €15.00; target 900 → 780 ÷12 = €65.00.
+    mockLoads({ jars: [jar({ targetAmount: 300, currentBalance: 120, targetDate: null, accrual: 1 })] })
     const user = userEvent.setup()
 
     renderPage()
@@ -479,11 +535,37 @@ describe('JarsPage — catalog (JAR)', () => {
     await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByText(/€15\.00/)).toBeInTheDocument()
+    expect(dialog.queryByLabelText('Opening balance')).not.toBeInTheDocument()
 
-    await user.clear(dialog.getByLabelText('Opening balance'))
-    await user.type(dialog.getByLabelText('Opening balance'), '60')
-    expect(await dialog.findByText(/€10\.00/, {}, { timeout: 5000 })).toBeInTheDocument()
+    await user.clear(dialog.getByLabelText('Target amount'))
+    await user.type(dialog.getByLabelText('Target amount'), '900')
+    expect(await dialog.findByText(/€65\.00/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(dialog.queryByText(/€15\.00/)).not.toBeInTheDocument()
+  })
+
+  it('JAR-041: the create preview builds on "Already set aside"', { timeout: 15000 }, async () => {
+    // Target 1,200 with 600 already set aside → 600 ÷12 = €50.00/mo.
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+
+    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal, no date
+    await user.type(dialog.getByLabelText('Target amount'), '1200')
+    expect(await dialog.findByText(/€100\.00/, {}, { timeout: 5000 })).toBeInTheDocument()
+    await user.type(dialog.getByLabelText('Already set aside'), '600')
+    expect(await dialog.findByText(/€50\.00/, {}, { timeout: 5000 })).toBeInTheDocument()
+  })
+
+  it('JAR-041: no preview while the jar\'s balance is unavailable', { timeout: 15000 }, async () => {
+    mockLoads({ jars: [jar({ currentBalance: null, status: 'Unavailable', requiredMonthlyContribution: 0, projectedFullyFundedDate: null })] })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.queryByText(/Sets aside/)).not.toBeInTheDocument()
   })
 
   it('JAR-042: no preview renders for a non-TargetByDate (StraightLine) jar', { timeout: 15000 }, async () => {

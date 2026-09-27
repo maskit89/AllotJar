@@ -39,9 +39,6 @@ export function LoginPage() {
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   // Staging builds require a separate acknowledgment that data may be lost (see StagingBanner).
   const [acceptedStaging, setAcceptedStaging] = useState(false)
-  // Opt-in: pre-fill the first month with example figures. Off by default — surprise
-  // sample data reads as real data and confuses new users.
-  const [includeSampleData, setIncludeSampleData] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   // Register hit an existing UNVERIFIED email → a claim link was emailed, no session created.
@@ -91,7 +88,6 @@ export function LoginPage() {
           preferredCurrency: currency,
           numberFormat,
           acceptedTerms,
-          includeSampleData,
         })
         // The email already had an UNVERIFIED account: no session was created; a claim link was
         // emailed to that address so its true owner can take it over. Show that, don't navigate.
@@ -103,7 +99,7 @@ export function LoginPage() {
       if (mode === 'login') {
         track(EVENTS.login, { method: 'password' })
       } else {
-        track(EVENTS.signUp, { method: 'password', sample_data: includeSampleData })
+        track(EVENTS.signUp, { method: 'password' })
       }
       navigate(returnUrl ?? '/', { replace: true })
     } catch (err) {
@@ -307,19 +303,6 @@ export function LoginPage() {
                 <p className="text-xs text-slate-500">
                   You can change your currency and number format anytime in account settings.
                 </p>
-
-                <label className="flex items-start gap-2 text-sm text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={includeSampleData}
-                    onChange={(e) => setIncludeSampleData(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-slate-400 text-brand-600 focus:ring-2 focus:ring-brand-500/40"
-                  />
-                  <span>
-                    Start with sample figures to explore — example groups and amounts you can edit
-                    or delete anytime. Leave unticked to start with an empty budget.
-                  </span>
-                </label>
 
                 <label className="flex items-start gap-2 text-sm text-slate-600">
                   <input

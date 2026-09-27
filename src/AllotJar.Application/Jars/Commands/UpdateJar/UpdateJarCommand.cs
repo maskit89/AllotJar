@@ -4,7 +4,10 @@ using AllotJar.Domain.Enums;
 
 namespace AllotJar.Application.Jars.Commands.UpdateJar;
 
-/// <summary>Edits a sinking fund's definition. Returns it with refreshed derived figures.</summary>
+/// <summary>
+/// Edits a jar's definition. The designated account may only change while the jar's actual
+/// balance is zero (rule 80); money is never moved by an edit. Returns the jar with refreshed figures.
+/// </summary>
 public record UpdateJarCommand(
     Guid Id,
     string Name,
@@ -14,7 +17,5 @@ public record UpdateJarCommand(
     DateOnly? CoverStart,
     DateOnly? CoverEnd,
     AccrualMethod Accrual,
-    decimal OpeningBalance,
-    DateOnly? OpeningAsOf,
-    Guid? FundingAccountId,
+    Guid FundingAccountId,
     int? RecurMonths = null) : IRequest<JarDto>;

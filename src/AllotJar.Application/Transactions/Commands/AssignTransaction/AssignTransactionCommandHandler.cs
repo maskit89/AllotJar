@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -52,7 +53,7 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
             // request explicitly acknowledges it (the client sets that after a confirm dialog).
             var item = await TransactionInvariants.ValidateWholeLineAsync(
                 _db, userId, transaction.Type, itemId, transaction.Date, request.AcknowledgeCrossMonth,
-                "BudgetItemId", cancellationToken);
+                "BudgetItemId", cancellationToken, transaction.AccountId);
 
             transaction.BudgetItem = item;
             transaction.BudgetItemId = item.Id;
@@ -63,8 +64,16 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
             transaction.BudgetItemId = null;
         }
 
+        // The line decides which jar a payment from a jar-backed account draws from (rule 79);
+        // the stored answer is rewritten for the new line, or cleared back to the default.
+        if (transaction.Account is not null && transaction.Type == TransactionType.Expense)
+        {
+            await JarMovements.ApplyOutgoingAsync(
+                _db, userId, transaction, transaction.Account, request.PaidFromJarId, "PaidFromJarId", cancellationToken);
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
 
-        return transaction.ToDto();
+        return await TransactionReads.ReadDtoAsync(_db, transaction.Id, cancellationToken);
     }
 }
