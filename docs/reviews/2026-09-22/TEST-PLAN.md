@@ -130,6 +130,8 @@ The identity change keeps every existing sync assertion: `SyncPocketMoneyLinesTe
 - **New (client), `PeoplePage.catalog.test.tsx`:** PPL-084 (a remainder this month opens the keep-or-cancel dialog with amount, month, paid and the later month; nothing is sent until a choice; Keep sends decision 0), PPL-085 (Cancel remaining sends decision 1; the dialog says payments stay recorded), PPL-086 (Don't archive sends nothing; a fully paid month archives without asking), PPL-087 (a 400 from the archive shows the server's field message).
 - **Not covered by automation:** the real-backend archive from the People page against SQL Server (the unit suites use the in-memory provider; `PocketMoneyLines.CancelAsync` issues two `AnyAsync` queries per line, which the relational provider translates directly).
 
+- **Journey (CI only, added after the merge):** `e2e-journey/pocket-money-identity.spec.ts` — a real 2-person household: sync via the endpoint, rename on the People page (the linked line follows), re-sync (still two lines, 400.00 total), the next month copied with both lines, then the archive dialog's "Keep this month" (this month's line untouched, next month's removed, the other person's lines unchanged).
+
 ## Execution and completion criteria
 
 Run targeted regressions with the corresponding implementation, then the full affected suites once the change is coherent. Do not repeatedly rerun unchanged suites without a new reason.
