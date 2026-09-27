@@ -9,15 +9,15 @@ using AllotJar.Application.Jars.Dtos;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
-using AllotJar.Domain.Services;
 using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Application;
 
 /// <summary>
-/// The Type lifecycle: a Recurring jar's target date rolls forward by RecurMonths
-/// once it passes (the jar re-arms each cycle); a Goal's date never rolls — it
-/// completes at its target or reads Behind past its date.
+/// The Type lifecycle through the handlers and DTO: a Recurring jar re-arms each cycle and
+/// reads OnTrack past its anchor, a Goal's date never rolls (Behind past its date), the cycle
+/// length follows the Kind, and the schedule rules apply on edit. The date arithmetic itself
+/// is covered by Domain/JarScheduleTests.
 /// </summary>
 public class JarLifecycleTests
 {
@@ -38,63 +38,6 @@ public class JarLifecycleTests
         RecurMonths = recurMonths, FundingAccountId = accountId ?? Guid.Empty,
     };
 
-    // ---- EffectiveTargetDate -------------------------------------------------
-
-    [Fact]
-    public void EffectiveDate_RollsAPassedRecurringDate_ForwardByCycle()
-    {
-        var jar = Recurring(new DateOnly(2026, 3, 1));
-
-        JarAccrualCalculator.EffectiveTargetDate(jar, new DateOnly(2026, 7, 6))
-            .Should().Be(new DateOnly(2027, 3, 1));
-    }
-
-    [Fact]
-    public void EffectiveDate_RollsAcrossMultipleMissedCycles()
-    {
-        var jar = Recurring(new DateOnly(2024, 5, 1), recurMonths: 6);
-
-        // 2024-05 → 2024-11 → 2025-05 → 2025-11 → 2026-05 → 2026-11.
-        JarAccrualCalculator.EffectiveTargetDate(jar, new DateOnly(2026, 7, 6))
-            .Should().Be(new DateOnly(2026, 11, 1));
-    }
-
-    [Fact]
-    public void EffectiveDate_LeavesFutureDates_AndGoals_Untouched()
-    {
-        var future = Recurring(new DateOnly(2026, 12, 1));
-        JarAccrualCalculator.EffectiveTargetDate(future, new DateOnly(2026, 7, 6))
-            .Should().Be(new DateOnly(2026, 12, 1));
-
-        var goal = new Jar
-        {
-            Kind = JarKind.Goal, TargetAmount = 900m, TargetDate = new DateOnly(2026, 3, 1),
-        };
-        JarAccrualCalculator.EffectiveTargetDate(goal, new DateOnly(2026, 7, 6))
-            .Should().Be(new DateOnly(2026, 3, 1));
-    }
-
-    [Fact]
-    public void EffectiveDate_DueToday_DoesNotRoll()
-    {
-        var jar = Recurring(new DateOnly(2026, 7, 6));
-
-        JarAccrualCalculator.EffectiveTargetDate(jar, new DateOnly(2026, 7, 6))
-            .Should().Be(new DateOnly(2026, 7, 6));
-    }
-
-    // ---- Accrual over the rolled date -----------------------------------------
-
-    [Fact]
-    public void TargetByDate_SpreadsOverTheNextCycle_AfterTheDatePasses()
-    {
-        // Due March, it's July: rolled to next March = 8 months away; 600 ÷ 8 = 75.
-        var jar = Recurring(new DateOnly(2026, 3, 1));
-
-        JarAccrualCalculator.TargetByDate(jar, new DateOnly(2026, 7, 1), currentBalance: 0m)
-            .Should().Be(75.00m);
-    }
-
     // ---- Status ----------------------------------------------------------------
 
     [Fact]
@@ -102,7 +45,7 @@ public class JarLifecycleTests
     {
         var jar = Recurring(new DateOnly(2026, 3, 1));
 
-        var dto = jar.ToDto(currentBalance: 100m, requiredMonthly: 75m, asOf: new DateOnly(2026, 7, 6));
+        var dto = jar.ToDto(currentBalance: 100m, balanceAtMonthStart: 100m, storedPlanThisMonth: null, asOf: new DateOnly(2026, 7, 6));
 
         dto.Status.Should().Be("OnTrack");
         // The DTO carries the stored ANCHOR, not the rolled date — an edit round-trips
@@ -119,7 +62,7 @@ public class JarLifecycleTests
             Kind = JarKind.Goal, TargetAmount = 900m, TargetDate = new DateOnly(2026, 3, 1),
         };
 
-        var dto = goal.ToDto(currentBalance: 100m, requiredMonthly: 800m, asOf: new DateOnly(2026, 7, 6));
+        var dto = goal.ToDto(currentBalance: 100m, balanceAtMonthStart: 100m, storedPlanThisMonth: null, asOf: new DateOnly(2026, 7, 6));
 
         dto.Status.Should().Be("Behind");
         dto.TargetDate.Should().Be(new DateOnly(2026, 3, 1));
@@ -130,7 +73,7 @@ public class JarLifecycleTests
     {
         var goal = new Jar { Kind = JarKind.Goal, TargetAmount = 900m };
 
-        goal.ToDto(currentBalance: 900m, requiredMonthly: 0m, asOf: new DateOnly(2026, 7, 6))
+        goal.ToDto(currentBalance: 900m, balanceAtMonthStart: 900m, storedPlanThisMonth: null, asOf: new DateOnly(2026, 7, 6))
             .Status.Should().Be("FullyFunded");
     }
 
@@ -144,10 +87,10 @@ public class JarLifecycleTests
         var handler = new CreateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         var recurring = await handler.Handle(new CreateJarCommand(
-            "Road Tax", JarKind.Recurring, 150m, new DateOnly(2026, 10, 1), null, null,
+            "Road Tax", JarKind.Recurring, 150m, new DateOnly(2026, 10, 1),
             AccrualMethod.TargetByDate, account.Id, RecurMonths: 6), CancellationToken.None);
         var goal = await handler.Handle(new CreateJarCommand(
-            "Sofa", JarKind.Goal, 1200m, null, null, null,
+            "Sofa", JarKind.Goal, 1200m, null,
             AccrualMethod.TargetByDate, account.Id, RecurMonths: 6), CancellationToken.None);
 
         recurring.RecurMonths.Should().Be(6);
@@ -165,7 +108,7 @@ public class JarLifecycleTests
         var handler = new UpdateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         var dto = await handler.Handle(new UpdateJarCommand(
-            jar.Id, "Insurance", JarKind.Goal, 600m, new DateOnly(2026, 10, 1), null, null,
+            jar.Id, "Insurance", JarKind.Goal, 600m, new DateOnly(2026, 10, 1),
             AccrualMethod.TargetByDate, account.Id), CancellationToken.None);
 
         dto.RecurMonths.Should().BeNull();
@@ -192,59 +135,36 @@ public class JarLifecycleTests
 
         // The stored anchor is untouched — recurrence is a pure view, never persisted.
         (await db.Jars.SingleAsync()).TargetDate.Should().Be(due);
-        // The seeded line spreads over the months to the ROLLED date (11 months out).
+        // The seeded line spreads over the months up to the ROLLED date: from this month to the
+        // month before it (rule 12), in whole cents with the remainder in the last month (rule 35).
         var line = dto.Categories.Single(c => c.Kind == "Savings").Items.Single();
-        var monthsToRolled = ((due.AddMonths(12).Year * 12) + due.AddMonths(12).Month)
-            - ((today.Year * 12) + today.Month);
-        line.PlannedAmount.Should().Be(Math.Round(600m / monthsToRolled, 2, MidpointRounding.AwayFromZero));
-    }
-
-    [Theory]
-    [InlineData("2026-09-22", "2026-01-31", 1, "2026-09-30")]
-    [InlineData("2026-02-15", "2026-01-31", 1, "2026-02-28")]
-    [InlineData("2026-03-01", "2026-01-31", 1, "2026-03-31")]
-    [InlineData("2026-04-01", "2026-01-31", 1, "2026-04-30")]
-    [InlineData("2028-02-15", "2028-01-31", 1, "2028-02-29")]
-    [InlineData("2025-02-15", "2024-02-29", 12, "2025-02-28")]
-    [InlineData("2028-02-15", "2024-02-29", 12, "2028-02-29")]
-    [InlineData("2026-05-01", "2026-01-31", 3, "2026-07-31")]
-    public void EffectiveDate_PreservesMonthEndDay_AcrossRolls(
-        string today, string anchor, int cycle, string expectedDate)
-    {
-        // Matching preview cases are exercised through JarsPage's form. A shorter
-        // month clamps only that occurrence, never the stored intended day.
-        var jar = Recurring(DateOnly.ParseExact(anchor, "yyyy-MM-dd"), recurMonths: cycle);
-
-        JarAccrualCalculator.EffectiveTargetDate(jar, DateOnly.ParseExact(today, "yyyy-MM-dd"))
-            .Should().Be(DateOnly.ParseExact(expectedDate, "yyyy-MM-dd"));
-        jar.TargetDate.Should().Be(DateOnly.ParseExact(anchor, "yyyy-MM-dd"));
-    }
-
-    [Fact]
-    public void EffectiveDate_SameMonthLaterDay_RollsToNextCycle()
-    {
-        // Due the 15th, today is the 20th of the same month: it's passed, so roll.
-        var jar = Recurring(new DateOnly(2026, 3, 15), recurMonths: 12);
-
-        JarAccrualCalculator.EffectiveTargetDate(jar, new DateOnly(2026, 3, 20))
-            .Should().Be(new DateOnly(2027, 3, 15));
+        var rolled = due.AddMonths(12);
+        var months = ((rolled.Year * 12) + rolled.Month) - ((today.Year * 12) + today.Month);
+        line.PlannedAmount.Should().Be(Math.Floor(600m / months * 100m) / 100m);
     }
 
     // ---- Validators --------------------------------------------------------------
 
     [Fact]
-    public void Validator_StaysPermissive_ForDatelessRecurringJars()
+    public void Validator_RequiresADeadlinePlan_ForARecurringJar_AndAPlan_ForAGoal()
     {
-        // The "a recurring jar needs a date + target" rule is a form concern, not a
-        // server one — so imported/legacy Recurring jars (open-ended pools, date-less
-        // funds) remain editable rather than 400-ing on a plain rename.
+        // Rule 17 on edit as on create: a date-less recurring jar cannot be saved (nothing to roll,
+        // no twelve-month default), a Goal needs a deadline or a fixed monthly amount, and a fixed
+        // monthly plan carries no deadline.
         var validator = new UpdateJarCommandValidator();
 
-        var pool = validator.Validate(new UpdateJarCommand(
-            Guid.NewGuid(), "Living Costs", JarKind.Recurring, 0m, null, null, null,
-            AccrualMethod.ProportionalPool, Guid.NewGuid()));
-
-        pool.IsValid.Should().BeTrue();
+        validator.Validate(new UpdateJarCommand(
+                Guid.NewGuid(), "Living Costs", JarKind.Recurring, 600m, null,
+                AccrualMethod.TargetByDate, Guid.NewGuid()))
+            .Errors.Should().Contain(e => e.ErrorMessage == "Give the jar a deadline, or save a fixed amount each month instead.");
+        validator.Validate(new UpdateJarCommand(
+                Guid.NewGuid(), "Sofa", JarKind.Goal, 900m, new DateOnly(2027, 3, 1),
+                AccrualMethod.FixedMonthly, Guid.NewGuid(), MonthlyContribution: 100m))
+            .Errors.Should().Contain(e => e.ErrorMessage == "A fixed monthly plan has no deadline. Remove the date, or save by the deadline instead.");
+        validator.Validate(new UpdateJarCommand(
+                Guid.NewGuid(), "Sofa", JarKind.Goal, 900m, null,
+                AccrualMethod.FixedMonthly, Guid.NewGuid(), MonthlyContribution: 100m))
+            .IsValid.Should().BeTrue();
     }
 
     [Fact]
@@ -253,7 +173,7 @@ public class JarLifecycleTests
         var validator = new CreateJarCommandValidator();
 
         validator.Validate(new CreateJarCommand(
-                "X", JarKind.Recurring, 100m, new DateOnly(2026, 10, 1), null, null,
+                "X", JarKind.Recurring, 100m, new DateOnly(2026, 10, 1),
                 AccrualMethod.TargetByDate, Guid.NewGuid(), RecurMonths: 0))
             .Errors.Should().Contain(e => e.ErrorMessage == "Repeat cycle must be between 1 and 120 months.");
     }

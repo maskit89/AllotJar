@@ -1,33 +1,26 @@
 namespace AllotJar.Domain.Enums;
 
 /// <summary>
-/// How a <see cref="Entities.Jar"/>'s required monthly contribution is
-/// computed. The default, <see cref="TargetByDate"/>, is self-correcting: an
-/// under-funded month raises next month's required amount automatically.
+/// How a <see cref="Entities.Jar"/>'s monthly contribution is planned (rules 16–17): a jar
+/// with a target saves either toward a deadline or at a fixed monthly amount; an ongoing
+/// jar (no target) saves a fixed monthly amount. The earlier spreadsheet-derived modes
+/// (StraightLine 0, ProportionalPool 2, DailyRate 3) were retired on 27 September 2026
+/// (HANDOVER O6); the JarSchedules migration remaps any stored row to
+/// <see cref="TargetByDate"/>.
 /// </summary>
 public enum AccrualMethod
 {
     /// <summary>
-    /// Target ÷ 12 (or ÷ the cover-period length in months when one is set).
-    /// Matches the spreadsheet's straight-line commitments (e.g. insurance B/12).
-    /// </summary>
-    StraightLine = 0,
-
-    /// <summary>
-    /// (Target − current balance) ÷ months remaining until the target date, floored
-    /// at one month. The mathematically correct sinking-fund rule; recommended default.
+    /// The remaining target is spread over the months up to the deadline (rules 12–13, 35–36):
+    /// equal amounts with the rounding remainder in the final month, recalculated from the
+    /// actual balance at each month start. Required for a Recurring jar.
     /// </summary>
     TargetByDate = 1,
 
     /// <summary>
-    /// (Target ÷ Σ all pooled targets) × a fixed monthly savings pool. Replicates the
-    /// spreadsheet's "distribute €1400/month proportionally across funds" behaviour.
+    /// A fixed amount chosen by the user is planned every month (rule 16). With a target the
+    /// final contribution is capped at what remains and planning stops once the target is
+    /// actually reached (rule 18); the months still needed are shown as an estimate (rule 58).
     /// </summary>
-    ProportionalPool = 2,
-
-    /// <summary>
-    /// Target ÷ 365 × days — the daily accrual rate. Used mainly to prorate an opening
-    /// balance from historical progress (spreadsheet Yearly Expenses col J).
-    /// </summary>
-    DailyRate = 3
+    FixedMonthly = 2,
 }

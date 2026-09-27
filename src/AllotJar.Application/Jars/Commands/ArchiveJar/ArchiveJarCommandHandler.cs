@@ -57,6 +57,6 @@ public class ArchiveJarCommandHandler
         jar.IsArchived = request.Archived;
         await _db.SaveChangesAsync(cancellationToken);
 
-        return jar.ToDto(snapshot);
+        return await JarFigures.ReadOneAsync(_db, userId, jar, today, cancellationToken);
     }
 }

@@ -11,7 +11,7 @@ import { api } from '../lib/api'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import type { AccountDto, JarAccountLedgerDto, JarDto } from '../types'
 import { formatMoney, fromAmount } from '../lib/money'
-import { jarPaceLabel, jarStatusChip } from '../lib/jarStatus'
+import { jarHorizonLabel, jarMonthLabel, jarStatusChip } from '../lib/jarStatus'
 
 export function JarsPage() {
   // Managing jars needs Admin+ (canWrite); others see them read-only.
@@ -119,16 +119,16 @@ export function JarsPage() {
     [accounts, ledgers],
   )
 
-  // Hero totals — what's saved across the jars whose balance is known, and the monthly
-  // contribution they need. An unavailable balance (rule 67) is left out and called out,
-  // never counted as zero.
+  // Hero totals — what's saved across the jars whose balance is known, and what their plans
+  // set aside this month (rule 14). An unavailable balance (rule 67) is left out and called
+  // out, never counted as zero.
   const totalSavedMinor = useMemo(
     () => jars.reduce((s, f) => s + (f.currentBalance === null ? 0 : fromAmount(f.currentBalance)), 0),
     [jars],
   )
   const unavailableCount = useMemo(() => jars.filter((f) => f.currentBalance === null).length, [jars])
   const monthlyMinor = useMemo(
-    () => jars.reduce((s, f) => s + fromAmount(f.requiredMonthlyContribution), 0),
+    () => jars.reduce((s, f) => s + fromAmount(f.plannedThisMonth), 0),
     [jars],
   )
   const backedLedgers = useMemo(() => ledgers.filter((l) => l.jars.some((j) => !j.isArchived)), [ledgers])
@@ -140,7 +140,7 @@ export function JarsPage() {
         amount={formatMoney(totalSavedMinor, CURRENCY)}
         amountLabel={`Total saved: ${formatMoney(totalSavedMinor, CURRENCY)}`}
         tiles={[
-          { label: 'Monthly', value: `+${formatMoney(monthlyMinor, CURRENCY)}` },
+          { label: 'This month', value: `+${formatMoney(monthlyMinor, CURRENCY)}` },
           { label: 'Active jars', value: `${jars.length}` },
         ]}
         footnote={
@@ -271,6 +271,7 @@ function JarCard({
       ? Math.min(100, Math.max(0, Math.round((balanceMinor / targetMinor) * 100)))
       : 0
   const chip = jarStatusChip(jar.status)
+  const horizon = jarHorizonLabel(jar)
 
   return (
     <Card className="flex gap-4 p-5">
@@ -312,8 +313,9 @@ function JarCard({
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-2">
-          <span className="text-[12.5px] font-medium tabular-nums text-slate-500">
-            {jarPaceLabel(jar, currency)}
+          <span className="min-w-0 text-[12.5px] font-medium tabular-nums text-slate-500">
+            <span className="block">{jarMonthLabel(jar, currency)}</span>
+            {horizon && <span className="block text-[11.5px] font-normal">{horizon}</span>}
           </span>
           {canManage && (
             <span className="flex gap-3">

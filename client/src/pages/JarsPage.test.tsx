@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import type { AccountDto, JarAccountLedgerDto, JarDto } from '../types'
+import type { AccountDto, JarAccountLedgerDto, JarDto, JarScheduleDto, JarScheduleMonthDto } from '../types'
 
 const { mockGet, mockPut, mockPost } = vi.hoisted(() => ({
   mockGet: vi.fn(),
@@ -29,17 +29,42 @@ function fund(over: Partial<JarDto> = {}): JarDto {
     kind: 0,
     targetAmount: 300,
     targetDate: '2026-12-01',
-    coverStart: null,
-    coverEnd: null,
-    accrual: 0,
+    accrual: 1,
+    monthlyContribution: null,
+    includeDeadlineMonth: false,
     recurMonths: 12,
     fundingAccountId: 'acc1',
     balanceAsOf: '2026-09-26',
     isArchived: false,
     currentBalance: 120,
-    requiredMonthlyContribution: 25,
-    projectedFullyFundedDate: '2026-11-01',
+    plannedThisMonth: 25,
+    contributedThisMonth: 0,
+    remainingThisMonth: 25,
+    deadline: '2026-12-01',
+    fundingCompletesOn: '2026-11-30',
+    estimatedMonthsToTarget: null,
     status: 'OnTrack',
+    ...over,
+  }
+}
+
+// The server's answer to POST /jars/schedule (the same planner that seeds the Savings lines).
+function month(year: number, month: number, planned: number, over: Partial<JarScheduleMonthDto> = {}): JarScheduleMonthDto {
+  return { year, month, planned, hasBudget: false, shortfall: null, ...over }
+}
+
+function schedule(over: Partial<JarScheduleDto> = {}): JarScheduleDto {
+  return {
+    accrual: 1,
+    isOngoing: false,
+    hasSchedule: true,
+    balance: 0,
+    remaining: 300,
+    months: [month(2026, 9, 100), month(2026, 10, 100), month(2026, 11, 100)],
+    total: 300,
+    deadline: '2026-12-01',
+    fundingCompletesOn: '2026-11-30',
+    estimatedMonths: null,
     ...over,
   }
 }
@@ -85,6 +110,9 @@ describe('JarsPage', () => {
     mockGet.mockReset()
     mockPut.mockReset()
     mockPost.mockReset()
+    // The form asks the server for a schedule preview whenever a jar can be planned; answer
+    // with nothing plannable unless a test cares about the preview.
+    mockPost.mockResolvedValue({ data: {} })
     fundsData = []
     ledgerData = []
     mockGet.mockImplementation((url: string) => {
@@ -98,7 +126,7 @@ describe('JarsPage', () => {
   it('lists funds as jars with their balances and funded percentage', { timeout: 15000 }, async () => {
     fundsData = [
       fund(),
-      fund({ id: 'f2', name: 'Holiday', kind: 0, targetAmount: 1000, currentBalance: -40, requiredMonthlyContribution: 0, status: 'Overspent', targetDate: null, projectedFullyFundedDate: null }),
+      fund({ id: 'f2', name: 'Holiday', kind: 1, recurMonths: null, targetAmount: 1000, currentBalance: -40, plannedThisMonth: 0, remainingThisMonth: 0, status: 'Overspent', targetDate: null, deadline: null, fundingCompletesOn: null }),
     ]
 
     renderPage()
@@ -110,22 +138,29 @@ describe('JarsPage', () => {
     expect(screen.getByText('40%')).toBeInTheDocument()
   })
 
-  it('shows a status chip and the projected finish on the cards', { timeout: 15000 }, async () => {
+  it('shows a status chip, this month\'s plan and the funding horizon on the cards', { timeout: 15000 }, async () => {
     fundsData = [
-      fund({ requiredMonthlyContribution: 25, status: 'OnTrack', projectedFullyFundedDate: '2026-11-01' }),
-      fund({ id: 'f2', name: 'Roof', status: 'Behind', targetDate: '2026-01-01' }),
-      fund({ id: 'f3', name: 'Sofa', status: 'FullyFunded', currentBalance: 300, requiredMonthlyContribution: 0 }),
+      // OnTrack: no chip; the month line carries plan · in · to go (rule 14) and the horizon
+      // says when funding completes against the deadline it serves (rule 36).
+      fund({ plannedThisMonth: 25, contributedThisMonth: 10, remainingThisMonth: 15, status: 'OnTrack' }),
+      fund({ id: 'f2', name: 'Roof', kind: 1, recurMonths: null, status: 'Behind', targetDate: '2026-01-01', deadline: '2026-01-01', fundingCompletesOn: null }),
+      fund({ id: 'f3', name: 'Sofa', kind: 1, recurMonths: null, status: 'FullyFunded', currentBalance: 300, plannedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null }),
+      // A goal with neither a deadline nor a monthly amount plans nothing and says so (rule 17).
+      fund({ id: 'f4', name: 'Someday', kind: 1, recurMonths: null, targetAmount: 0, targetDate: null, status: 'Unscheduled', plannedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null }),
     ]
 
     renderPage()
 
-    // OnTrack jar: no chip, but the pace line carries the projection.
-    expect((await screen.findAllByText(/full by Nov 2026/, {}, { timeout: 5000 })).length).toBeGreaterThan(0)
+    expect(await screen.findByText(/Plan .*25\.00 · in .*10\.00 · to go .*15\.00/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText(/Funded by Nov 2026 · due .*, then it repeats/)).toBeInTheDocument()
     // Attention + celebration states surface as chips.
     expect(screen.getByText('Behind')).toBeInTheDocument()
+    expect(screen.getByText(/^Due /)).toBeInTheDocument()
     expect(screen.getByText('Funded')).toBeInTheDocument()
-    // A €0/mo funded jar reads "Fully funded", not a bare dash.
+    // A funded jar with nothing left to plan reads "Fully funded", not a bare dash.
     expect(screen.getByText('Fully funded')).toBeInTheDocument()
+    expect(screen.getByText('Needs a plan')).toBeInTheDocument()
+    expect(screen.getByText('Add a deadline or a monthly amount to plan contributions')).toBeInTheDocument()
   })
 
   it('adds a fund from the New jar modal', { timeout: 15000 }, async () => {
@@ -176,16 +211,28 @@ describe('JarsPage', () => {
     expect(dialog.queryByLabelText('Renews each year')).not.toBeInTheDocument()
     expect(dialog.queryByLabelText('Accrual method')).not.toBeInTheDocument()
 
-    // Recurring shows Next due + Repeats; Goal swaps to an optional target date.
+    // Recurring shows Next due + Repeats and always saves toward its due date; Goal swaps to a
+    // "How to save" choice (rule 17): by a deadline (the default) or a fixed amount each month.
     expect(dialog.getByLabelText('Next due date')).toBeInTheDocument()
     expect(dialog.getByLabelText('Repeat cycle')).toBeInTheDocument()
+    expect(dialog.queryByLabelText('How to save')).not.toBeInTheDocument()
     await user.selectOptions(dialog.getByLabelText('Jar type'), '1')
     expect(dialog.queryByLabelText('Repeat cycle')).not.toBeInTheDocument()
-    expect(dialog.getByLabelText('Target date')).toBeInTheDocument()
+    const how = dialog.getByLabelText('How to save') as HTMLSelectElement
+    expect(how.value).toBe('1')
+    expect(within(how).getByRole('option', { name: 'By a deadline' })).toBeInTheDocument()
+    expect(within(how).getByRole('option', { name: 'A fixed amount each month' })).toBeInTheDocument()
+    expect(dialog.getByLabelText('Deadline')).toBeInTheDocument()
+    await user.selectOptions(how, '2')
+    expect(dialog.queryByLabelText('Deadline')).not.toBeInTheDocument()
+    expect(dialog.getByLabelText('Monthly amount')).toBeInTheDocument()
   })
 
-  it('previews the monthly set-aside as you type', { timeout: 15000 }, async () => {
+  it('previews the schedule the server plans as you type (POST /jars/schedule)', { timeout: 15000 }, async () => {
     fundsData = []
+    mockPost.mockImplementation((url: string) =>
+      url === '/jars/schedule' ? Promise.resolve({ data: schedule() }) : Promise.resolve({ data: {} }),
+    )
     const user = userEvent.setup()
 
     renderPage()
@@ -193,10 +240,27 @@ describe('JarsPage', () => {
     await user.click(await screen.findByRole('button', { name: 'New jar' }, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
-    await user.type(dialog.getByLabelText('Target amount'), '1200')
-    // No date yet: the remainder spreads over 12 months -> 100.00/mo.
-    expect(dialog.getByText(/100\.00/)).toBeInTheDocument()
-    expect(dialog.getByText(/remainder spreads over 12 months/)).toBeInTheDocument()
+    await user.type(dialog.getByLabelText('Target amount'), '300')
+    // Nothing to plan until the recurring jar has its due date (rule 17): no request, no preview.
+    expect(dialog.queryByTestId('jar-schedule-preview')).not.toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+
+    fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: '2026-12-01' } })
+    const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
+    // What is previewed is what gets planned: the server's months, its funding-completion date
+    // and the deadline it serves (rules 35, 36), phrased for a repeating jar.
+    expect(preview).toHaveTextContent(/Sets aside .*100\.00 a month from Sep 2026 to Nov 2026, funded by .* for the deadline on .*, then it repeats every year\./)
+    expect(mockPost).toHaveBeenCalledWith('/jars/schedule', {
+      jarId: null,
+      kind: 0,
+      targetAmount: 300,
+      targetDate: '2026-12-01',
+      accrual: 1,
+      monthlyContribution: null,
+      includeDeadlineMonth: false,
+      recurMonths: 12,
+      initialAllocation: 0,
+    })
   })
 
   it('blocks a recurring jar without a due date, client-side', { timeout: 15000 }, async () => {
@@ -215,45 +279,63 @@ describe('JarsPage', () => {
     expect(mockPost).not.toHaveBeenCalled()
   })
 
-  it('lets a legacy date-less recurring jar be edited without inventing a date', { timeout: 15000 }, async () => {
-    // Imported/legacy recurring jars can lack a date/target; the create-only guard
-    // must not block a plain rename on edit (would 400 the server too, pre-fix).
-    fundsData = [fund({ kind: 0, targetDate: null, targetAmount: 0, recurMonths: 12 })]
-    mockPut.mockResolvedValue({ data: fundsData[0] })
-    const user = userEvent.setup()
-
-    renderPage()
-
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
-    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.clear(dialog.getByLabelText('Jar name'))
-    await user.type(dialog.getByLabelText('Jar name'), 'Living Costs')
-    await user.click(dialog.getByRole('button', { name: 'Save jar' }))
-
-    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/jars/f1', expect.objectContaining({ name: 'Living Costs' })))
-    expect(dialog.queryByText(/needs its next due date/)).not.toBeInTheDocument()
-  })
-
-  it('echoes the stored cover window and account when editing', { timeout: 15000 }, async () => {
-    // The form doesn't surface the cover window; an unrelated edit must not wipe it.
+  it('edits a Goal that saves a fixed amount each month: the method and amount are echoed and sent (rule 16)', { timeout: 15000 }, async () => {
+    // An ongoing pot: no target, a fixed monthly amount. The form must open on that method,
+    // show the amount, and send it back (with no deadline) on save.
     fundsData = [
-      fund({ coverStart: '2026-01-01', coverEnd: '2026-12-31' }),
+      fund({ kind: 1, accrual: 2, targetAmount: 0, targetDate: null, recurMonths: null, monthlyContribution: 50, plannedThisMonth: 50, remainingThisMonth: 50, deadline: null, fundingCompletesOn: null, status: 'Ongoing' }),
     ]
     mockPut.mockResolvedValue({ data: fundsData[0] })
     const user = userEvent.setup()
 
     renderPage()
 
+    expect(await screen.findByText('Ongoing', {}, { timeout: 5000 })).toBeInTheDocument()
+    await user.click(screen.getByLabelText('Edit Home insurance'))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByLabelText('How to save')).toHaveValue('2')
+    expect(dialog.getByLabelText('Monthly amount')).toHaveValue('50')
+    expect(dialog.queryByLabelText('Deadline')).not.toBeInTheDocument()
+    await user.clear(dialog.getByLabelText('Monthly amount'))
+    await user.type(dialog.getByLabelText('Monthly amount'), '75')
+    await user.click(dialog.getByRole('button', { name: 'Save jar' }))
+
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith('/jars/f1', {
+        name: 'Home insurance',
+        kind: 1,
+        targetAmount: 0,
+        targetDate: null,
+        accrual: 2,
+        monthlyContribution: 75,
+        includeDeadlineMonth: false,
+        fundingAccountId: 'acc1',
+        recurMonths: null,
+      }),
+    )
+  })
+
+  it('echoes the stored deadline-month option and account when editing (rule 36)', { timeout: 15000 }, async () => {
+    // The plan finishes the month before the deadline unless the jar opted into the deadline
+    // month; an unrelated save must carry that choice back, not silently reset it.
+    fundsData = [fund({ targetDate: '2026-12-15', deadline: '2026-12-15', includeDeadlineMonth: true, fundingCompletesOn: '2026-12-31' })]
+    mockPut.mockResolvedValue({ data: fundsData[0] })
+    const user = userEvent.setup()
+
+    renderPage()
+
     await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByLabelText('Include the deadline month')).toBeChecked()
     await user.click(dialog.getByRole('button', { name: 'Save jar' }))
 
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith(
         '/jars/f1',
         expect.objectContaining({
-          coverStart: '2026-01-01',
-          coverEnd: '2026-12-31',
+          targetDate: '2026-12-15',
+          accrual: 1,
+          includeDeadlineMonth: true,
           fundingAccountId: 'acc1',
         }),
       ),
@@ -299,6 +381,7 @@ describe('JarsPage', () => {
     await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Jar name'), 'Holiday')
     await user.type(dialog.getByLabelText('Target amount'), '1000')
+    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-06-01' } })
     await user.type(dialog.getByLabelText('Already set aside'), '400')
     fireEvent.change(dialog.getByLabelText('Set aside on'), { target: { value: '2026-09-01' } })
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
@@ -308,10 +391,10 @@ describe('JarsPage', () => {
         name: 'Holiday',
         kind: 1,
         targetAmount: 1000,
-        targetDate: null,
-        coverStart: null,
-        coverEnd: null,
+        targetDate: '2027-06-01',
         accrual: 1,
+        monthlyContribution: null,
+        includeDeadlineMonth: false,
         fundingAccountId: 'acc1',
         recurMonths: null,
         initialAllocation: 400,
@@ -319,7 +402,7 @@ describe('JarsPage', () => {
       }),
     )
     // Neither a retired opening-balance field nor its as-of date is sent any more.
-    const body = mockPost.mock.calls[0][1] as Record<string, unknown>
+    const body = mockPost.mock.calls.find((c) => c[0] === '/jars')![1] as Record<string, unknown>
     expect(body).not.toHaveProperty('openingBalance')
     expect(body).not.toHaveProperty('openingAsOf')
   })
@@ -338,7 +421,7 @@ describe('JarsPage', () => {
   })
 
   it('shows "Not available" with an Unavailable chip when the jar\'s balance is null, and the account it is held in', { timeout: 15000 }, async () => {
-    fundsData = [fund({ currentBalance: null, requiredMonthlyContribution: 0, projectedFullyFundedDate: null, status: 'Unavailable' })]
+    fundsData = [fund({ currentBalance: null, plannedThisMonth: 0, contributedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, status: 'Unavailable' })]
 
     renderPage()
 

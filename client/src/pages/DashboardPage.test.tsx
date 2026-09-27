@@ -503,8 +503,8 @@ describe('DashboardPage optimistic editing', () => {
 describe('DashboardPage jars and first-run checklist', () => {
   const JOINT: AccountDto = { id: 'acc1', name: 'Joint Current', type: 0, currency: 'EUR', openingBalance: 500, openingDate: '2026-01-01', currentBalance: 500, displayOrder: 0 }
   const HOLIDAY: JarDto = {
-    id: 'jar-holiday', name: 'Holiday', kind: 1, targetAmount: 1200, targetDate: null, coverStart: null, coverEnd: null, accrual: 1, recurMonths: null,
-    fundingAccountId: 'acc1', isArchived: false, currentBalance: 100, balanceAsOf: '2026-06-15', requiredMonthlyContribution: 100, projectedFullyFundedDate: null, status: 'OnTrack',
+    id: 'jar-holiday', name: 'Holiday', kind: 1, targetAmount: 1200, targetDate: null, accrual: 1, monthlyContribution: null, includeDeadlineMonth: false, recurMonths: null,
+    fundingAccountId: 'acc1', isArchived: false, currentBalance: 100, balanceAsOf: '2026-06-15', plannedThisMonth: 100, contributedThisMonth: 0, remainingThisMonth: 100, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, status: 'OnTrack',
   }
 
   function mockLoads(opts: { month?: BudgetMonthDto | null; accounts?: AccountDto[]; jars?: JarDto[] } = {}) {
@@ -541,7 +541,7 @@ describe('DashboardPage jars and first-run checklist', () => {
     mockLoads({ month: budgetWithSavings(100), accounts: [JOINT], jars: [HOLIDAY] })
     const planted = budgetWithSavings(100)
     planted.categories[2].items.push({ id: 'i-car', name: 'Car', displayOrder: 1, plannedAmount: 50, actualAmount: 0, remaining: 50, savingsId: 'jar-car', savingsAvailable: 0 })
-    mockPost.mockResolvedValue({ data: { ...HOLIDAY, id: 'jar-car', name: 'Car', targetAmount: 600, currentBalance: 0, requiredMonthlyContribution: 50 } })
+    mockPost.mockResolvedValue({ data: { ...HOLIDAY, id: 'jar-car', name: 'Car', targetAmount: 600, targetDate: '2027-03-01', deadline: '2027-03-01', currentBalance: 0, plannedThisMonth: 50, remainingThisMonth: 50 } })
     const user = userEvent.setup()
 
     renderPage()
@@ -558,6 +558,7 @@ describe('DashboardPage jars and first-run checklist', () => {
     await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Jar name'), 'Car')
     await user.type(dialog.getByLabelText('Target amount'), '600')
+    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-03-01' } })
     // After the POST the page re-reads the month (the server planted the line) and the jars.
     mockGet.mockImplementation((url: string) => {
       if (url === '/jars') return Promise.resolve({ data: [HOLIDAY, { ...HOLIDAY, id: 'jar-car', name: 'Car' }] })
@@ -577,7 +578,7 @@ describe('DashboardPage jars and first-run checklist', () => {
   })
 
   it('shows a savings line\'s Available as "Not available" when the server sends null', { timeout: 15000 }, async () => {
-    mockLoads({ month: budgetWithSavings(null), accounts: [JOINT], jars: [{ ...HOLIDAY, currentBalance: null, status: 'Unavailable', requiredMonthlyContribution: 0 }] })
+    mockLoads({ month: budgetWithSavings(null), accounts: [JOINT], jars: [{ ...HOLIDAY, currentBalance: null, status: 'Unavailable', plannedThisMonth: 0, remainingThisMonth: 0 }] })
 
     renderPage()
 

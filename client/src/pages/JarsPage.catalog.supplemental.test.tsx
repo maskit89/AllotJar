@@ -2,14 +2,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import type { AccountDto, JarDto, MeResponse } from '../types'
+import type { AccountDto, JarDto, JarScheduleDto, JarScheduleMonthDto, JarScheduleRequest, MeResponse } from '../types'
 
 // Supplements JarsPage.catalog.test.tsx (which already covers JAR-002/004/005/009/011/
 // 013/015/020/021/023/024/025/027/028/031/035/037/039/041/042/043/046/049) and
 // JarsPage.test.tsx (JAR-001/003/012/018/019/026/032/034/036/044). This file adds the
-// remaining jsdom-observable JAR cases neither file asserts: the dated live-preview
-// phrasing (JAR-016), the preview's hide/show gate (JAR-017), the loading state
-// (JAR-008), the jar-types InfoHint copy (JAR-022) and a Unicode round-trip (JAR-030).
+// remaining jsdom-observable JAR cases neither file asserts: the schedule preview's
+// phrasing (JAR-016) and its hide/show gate (JAR-017), the loading state (JAR-008), the
+// jar-types InfoHint copy (JAR-022), a Unicode round-trip (JAR-030) and the W02 preview
+// cases: the month list with its rounding remainder (JAR-083), the over-budget warning
+// (JAR-084), the ongoing / already-funded wording (JAR-085), the deadline-month option
+// (JAR-086) and the long-schedule summary (JAR-087).
 //
 // Same api-control harness as the sibling *.catalog.test.tsx files: vi.hoisted so the
 // mock factory can reference the fns, importOriginal spread so the rest of api.ts
@@ -35,8 +38,7 @@ import { AuthProvider } from '../auth/AuthContext'
 // independent of test-execution order.
 import { setMoneyFormat } from '../lib/money'
 
-// accrual defaults to TargetByDate (1) — the method every new jar saves — so the live
-// preview mirror is active by default.
+// A recurring jar saving 300 by 1 Dec, planned 25 this month.
 function jar(over: Partial<JarDto> = {}): JarDto {
   return {
     id: 'f1',
@@ -44,19 +46,51 @@ function jar(over: Partial<JarDto> = {}): JarDto {
     kind: 0,
     targetAmount: 300,
     targetDate: '2026-12-01',
-    coverStart: null,
-    coverEnd: null,
     accrual: 1,
+    monthlyContribution: null,
+    includeDeadlineMonth: false,
     recurMonths: 12,
     fundingAccountId: 'acc1',
     balanceAsOf: '2026-09-26',
     isArchived: false,
     currentBalance: 120,
-    requiredMonthlyContribution: 25,
-    projectedFullyFundedDate: '2026-11-01',
+    plannedThisMonth: 25,
+    contributedThisMonth: 0,
+    remainingThisMonth: 25,
+    deadline: '2026-12-01',
+    fundingCompletesOn: '2026-11-30',
+    estimatedMonthsToTarget: null,
     status: 'OnTrack',
     ...over,
   }
+}
+
+// The server's answer to POST /jars/schedule: the months the planner would seed.
+function month(year: number, month: number, planned: number, over: Partial<JarScheduleMonthDto> = {}): JarScheduleMonthDto {
+  return { year, month, planned, hasBudget: false, shortfall: null, ...over }
+}
+
+function schedule(over: Partial<JarScheduleDto> = {}): JarScheduleDto {
+  return {
+    accrual: 1,
+    isOngoing: false,
+    hasSchedule: true,
+    balance: 0,
+    remaining: 300,
+    months: [month(2026, 9, 100), month(2026, 10, 100), month(2026, 11, 100)],
+    total: 300,
+    deadline: '2026-12-01',
+    fundingCompletesOn: '2026-11-30',
+    estimatedMonths: null,
+    ...over,
+  }
+}
+
+/** Answer /jars/schedule from `plan` (given the request) and every other POST with `data`. */
+function mockPosts(plan: (request: JarScheduleRequest) => JarScheduleDto, data: unknown = {}) {
+  mockPost.mockImplementation((url: string, body: unknown) =>
+    url === '/jars/schedule' ? Promise.resolve({ data: plan(body as JarScheduleRequest) }) : Promise.resolve({ data }),
+  )
 }
 
 function me(role: number): MeResponse {
@@ -99,19 +133,26 @@ async function openNewJar(user: ReturnType<typeof userEvent.setup>) {
   return within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 }
 
+/** Type a recurring jar's target and due date, which is enough for the server to plan it. */
+async function describeRecurring(dialog: ReturnType<typeof within>, user: ReturnType<typeof userEvent.setup>, target = '300', due = '2026-12-01') {
+  await user.type(dialog.getByLabelText('Target amount'), target)
+  fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: due } })
+}
+
 describe('JarsPage — catalog supplemental (JAR)', () => {
   beforeEach(() => {
     mockGet.mockReset()
     mockPut.mockReset()
     mockPost.mockReset()
+    // The form asks the server for a schedule preview whenever a jar can be planned; answer
+    // with nothing plannable unless a test cares about the preview.
+    mockPost.mockResolvedValue({ data: {} })
     setMoneyFormat('comma-dot') // pin en-GB: €1,234.56
     mockLoads()
   })
 
   afterEach(() => {
-    vi.useRealTimers()
     vi.restoreAllMocks()
-    vi.unstubAllEnvs()
   })
 
   // --- List, hero & loading -------------------------------------------------
@@ -127,112 +168,196 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     // …the hero still renders, zeroed, until data arrives (€0.00 / +€0.00 / 0)…
     const hero = screen.getByText('Total saved').closest('section')!
     expect(within(hero).getByLabelText('Total saved: €0.00')).toBeInTheDocument()
-    expect(within(hero).getByText('Monthly').closest('div')!.textContent).toContain('+€0.00')
+    expect(within(hero).getByText('This month').closest('div')!.textContent).toContain('+€0.00')
     expect(within(hero).getByText('Active jars').closest('div')!.textContent).toContain('0')
     // …and neither cards nor the empty state flash before the response resolves.
     expect(screen.queryByRole('heading', { name: 'Your jars' })).not.toBeInTheDocument()
     expect(screen.queryByText(/No jars yet/)).not.toBeInTheDocument()
   })
 
-  // --- New jar modal: the live "set aside" preview --------------------------
+  // --- New jar modal: the schedule preview (POST /jars/schedule) -------------
 
-  it.each([
-    ['2026-09-22', '2026-01-31', 1, 'Sep 30, 2026', '€1,200.00'],
-    ['2026-02-15', '2026-01-31', 1, 'Feb 28, 2026', '€1,200.00'],
-    ['2026-03-01', '2026-01-31', 1, 'Mar 31, 2026', '€1,200.00'],
-    ['2026-04-01', '2026-01-31', 1, 'Apr 30, 2026', '€1,200.00'],
-    ['2028-02-15', '2028-01-31', 1, 'Feb 29, 2028', '€1,200.00'],
-    ['2025-02-15', '2024-02-29', 12, 'Feb 28, 2025', '€1,200.00'],
-    ['2028-02-15', '2024-02-29', 12, 'Feb 29, 2028', '€1,200.00'],
-    ['2026-05-01', '2026-01-31', 3, 'Jul 31, 2026', '€600.00'],
-    ['2026-09-22', '2026-09-01', 12, 'Sep 1, 2027', '€100.00'],
-    ['2026-09-22', '2026-09-22', 12, 'Sep 22, 2026', '€1,200.00'],
-  ])('previews %s from anchor %s every %i months as %s', async (today, anchor, cycle, expectedDate, expectedAmount) => {
-    // Fake only Date: user-event and Testing Library retain real timers. Pin the
-    // UTC calendar day used by the API, independently of the test host.
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date(`${today}T12:00:00Z`))
-    vi.spyOn(navigator, 'language', 'get').mockReturnValue('en-US')
-    const user = userEvent.setup()
-
-    renderPage()
-    const dialog = await openNewJar(user)
-    fireEvent.change(dialog.getByLabelText('Target amount'), { target: { value: '1200' } })
-    await user.selectOptions(dialog.getByLabelText('Repeat cycle'), String(cycle))
-    fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: anchor } })
-
-    const preview = await dialog.findByText(/Sets aside/)
-    expect(preview).toHaveTextContent(`≈ ${expectedAmount}/mo toward ${expectedDate}, then it repeats`)
-    // A clamped preview must not replace the intended day stored in the form.
-    expect(dialog.getByLabelText('Next due date')).toHaveValue(anchor)
-  })
-
-  it.each([
-    ['Europe/Malta', '2026-09-23T00:30:00+02:00', 23, '2026-09-22', 'Sep 22, 2026', '€1,200.00'],
-    ['America/New_York', '2026-09-22T23:30:00-04:00', 22, '2026-09-22', 'Sep 22, 2027', '€100.00'],
-    ['Europe/Malta', '2026-10-01T00:30:00+02:00', 1, '2026-11-01', 'Nov 1, 2026', '€600.00'],
-  ])('uses the API UTC date near midnight in %s at %s', async (timezone, instant, localDay, anchor, expectedDate, expectedAmount) => {
-    vi.stubEnv('TZ', timezone)
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date(instant))
-    vi.spyOn(navigator, 'language', 'get').mockReturnValue('en-US')
-    // Ensure this exercises an actual browser-local/UTC day disagreement.
-    expect(new Date().getDate()).toBe(localDay)
-    expect(new Date().getUTCDate()).not.toBe(localDay)
-    const user = userEvent.setup()
-
-    renderPage()
-    const dialog = await openNewJar(user)
-    fireEvent.change(dialog.getByLabelText('Target amount'), { target: { value: '1200' } })
-    fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: anchor } })
-
-    expect(await dialog.findByText(/Sets aside/))
-      .toHaveTextContent(`≈ ${expectedAmount}/mo toward ${expectedDate}, then it repeats`)
-  })
-
-  it('JAR-016: the dated preview reads "then it repeats" for Recurring and "until" for a Goal', { timeout: 15000 }, async () => {
+  it('JAR-016: the preview says the plan repeats for a Recurring jar, in its cycle, and not for a Goal', { timeout: 15000 }, async () => {
+    mockPosts(() => schedule())
     const user = userEvent.setup()
 
     renderPage()
     const dialog = await openNewJar(user) // Recurring is the default type
 
-    // Recurring + a due date: "… toward <date>, then it repeats".
-    await user.type(dialog.getByLabelText('Target amount'), '300')
-    fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: '2026-12-01' } })
-    const recurringPreview = await dialog.findByText(/Sets aside/, {}, { timeout: 5000 })
-    expect(recurringPreview.textContent).toMatch(/then it repeats/)
-    expect(recurringPreview.textContent).not.toMatch(/ until /)
+    await describeRecurring(dialog, user)
+    const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
+    expect(preview).toHaveTextContent(/for the deadline on .*, then it repeats every year\./)
 
-    // Switch to Goal with its own date: " until <date>", never "then it repeats".
+    // A 3-month cycle names the cycle.
+    await user.selectOptions(dialog.getByLabelText('Repeat cycle'), '3')
+    await waitFor(() => expect(preview).toHaveTextContent(/then it repeats every 3 months\./), { timeout: 5000 })
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ kind: 0, recurMonths: 3 })), { timeout: 5000 })
+
+    // A Goal by a deadline: funded by … for the deadline on …, and nothing about repeating.
     await user.selectOptions(dialog.getByLabelText('Jar type'), '1')
-    await user.clear(dialog.getByLabelText('Target amount'))
-    await user.type(dialog.getByLabelText('Target amount'), '1200')
-    fireEvent.change(dialog.getByLabelText('Target date'), { target: { value: '2027-07-01' } })
-    const goalPreview = await dialog.findByText(/Sets aside/, {}, { timeout: 5000 })
-    await waitFor(() => expect(goalPreview.textContent).toMatch(/ until /), { timeout: 5000 })
-    expect(goalPreview.textContent).not.toMatch(/then it repeats/)
+    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2026-12-01' } })
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ kind: 1, recurMonths: null, targetDate: '2026-12-01' })), { timeout: 5000 })
+    await waitFor(() => expect(dialog.getByTestId('jar-schedule-preview')).not.toHaveTextContent(/repeats/), { timeout: 5000 })
+    expect(dialog.getByTestId('jar-schedule-preview')).toHaveTextContent(/Sets aside €100\.00 a month from Sep 2026 to Nov 2026, funded by .* for the deadline on .*\./)
   })
 
-  it('JAR-017: the preview is hidden while the target is blank, 0 or unparseable', { timeout: 15000 }, async () => {
+  it('JAR-017: the preview is hidden, and nothing is asked, while the target is blank, 0 or unparseable', { timeout: 15000 }, async () => {
+    mockPosts(() => schedule())
     const user = userEvent.setup()
 
     renderPage()
     const dialog = await openNewJar(user)
 
+    fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: '2026-12-01' } })
     const target = dialog.getByLabelText('Target amount')
-    // Blank target → parses to 0 → no preview.
-    expect(dialog.queryByText(/Sets aside/)).not.toBeInTheDocument()
-    // Explicit 0 → still no preview.
+    // Blank target → parses to 0 → nothing to plan.
+    expect(dialog.queryByTestId('jar-schedule-preview')).not.toBeInTheDocument()
+    // Explicit 0 → still nothing.
     await user.type(target, '0')
-    expect(dialog.queryByText(/Sets aside/)).not.toBeInTheDocument()
-    // Unparseable → no preview.
+    // Unparseable → nothing.
     await user.clear(target)
     await user.type(target, 'abc')
-    expect(dialog.queryByText(/Sets aside/)).not.toBeInTheDocument()
-    // A positive parseable target brings the preview back.
+    await new Promise((r) => setTimeout(r, 400)) // past the preview debounce
+    expect(dialog.queryByTestId('jar-schedule-preview')).not.toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+    // A positive parseable target brings the preview.
     await user.clear(target)
     await user.type(target, '300')
     expect(await dialog.findByText(/Sets aside/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ targetAmount: 300 }))
+  })
+
+  it('JAR-083: the preview lists each month\'s amount, the rounding remainder visibly in the last (rule 35)', { timeout: 15000 }, async () => {
+    // 100 over three months: 33.33, 33.33 and 33.34 — never 33.33 × 3 = 99.99.
+    mockPosts(() => schedule({ remaining: 100, months: [month(2026, 9, 33.33), month(2026, 10, 33.33), month(2026, 11, 33.34)], total: 100 }))
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+
+    await describeRecurring(dialog, user, '100')
+    const preview = within(await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 }))
+    // Uneven months are summarised by their total, then listed one by one.
+    expect(preview.getByText(/Sets aside €100\.00 in total from Sep 2026 to Nov 2026/)).toBeInTheDocument()
+    const rows = preview.getAllByRole('listitem').map((li) => li.textContent)
+    expect(rows).toEqual(['Sep 2026€33.33', 'Oct 2026€33.33', 'Nov 2026€33.34'])
+  })
+
+  it('JAR-084: the preview flags the months whose budget the contribution would push over its income (rule 59)', { timeout: 15000 }, async () => {
+    // October already has a budget; planting 100 there leaves it 20 over its income.
+    mockPosts(() =>
+      schedule({ months: [month(2026, 9, 100, { hasBudget: true, shortfall: 0 }), month(2026, 10, 100, { hasBudget: true, shortfall: 20 }), month(2026, 11, 100)] }),
+    )
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+
+    await describeRecurring(dialog, user)
+    const preview = within(await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 }))
+    // The warning names the month and the overrun; the plan is never trimmed to fit.
+    expect(preview.getByRole('status')).toHaveTextContent('Over budget: Oct 2026 by €20.00. The full contribution stays planned; adjust other lines if you need to.')
+    expect(preview.getByText(/Sets aside €100\.00 a month/)).toBeInTheDocument()
+    // The month list shows, with the over-budget month's amount in rose.
+    const october = preview.getByText('Oct 2026').closest('li')!
+    expect(within(october).getByText('€100.00')).toHaveClass('text-rose-600')
+    const september = preview.getByText('Sep 2026').closest('li')!
+    expect(within(september).getByText('€100.00')).not.toHaveClass('text-rose-600')
+  })
+
+  it('JAR-085: an ongoing pot reads "every month, ongoing"; a funded jar reads "Already funded"', { timeout: 15000 }, async () => {
+    mockPosts((request) =>
+      request.accrual === 2
+        ? schedule({ accrual: 2, isOngoing: true, remaining: 0, months: [month(2026, 9, 50)], total: 50, deadline: null, fundingCompletesOn: null })
+        : schedule({ remaining: 0, months: [], total: 0 }),
+    )
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+
+    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
+    await user.selectOptions(dialog.getByLabelText('How to save'), '2') // a fixed amount each month
+    await user.type(dialog.getByLabelText('Monthly amount'), '50')
+    const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
+    expect(preview).toHaveTextContent('Sets aside €50.00 every month, ongoing.')
+    // No month list for an open-ended plan.
+    expect(within(preview).queryByRole('listitem')).not.toBeInTheDocument()
+    expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ kind: 1, targetAmount: 0, accrual: 2, monthlyContribution: 50, targetDate: null }))
+
+    // By a deadline with nothing left to save (already set aside covers the target).
+    await user.selectOptions(dialog.getByLabelText('How to save'), '1')
+    await user.type(dialog.getByLabelText('Target amount'), '300')
+    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2026-12-01' } })
+    await user.type(dialog.getByLabelText('Already set aside'), '300')
+    await waitFor(() => expect(dialog.getByTestId('jar-schedule-preview')).toHaveTextContent('Already funded — nothing more to set aside.'), { timeout: 5000 })
+  })
+
+  it('JAR-086: "Include the deadline month" is offered only when the deadline is not the 1st, and is sent when ticked (rule 36)', { timeout: 15000 }, async () => {
+    mockPosts((request) =>
+      request.includeDeadlineMonth
+        ? schedule({ months: [month(2026, 9, 75), month(2026, 10, 75), month(2026, 11, 75), month(2026, 12, 75)], deadline: '2026-12-15', fundingCompletesOn: '2026-12-31' })
+        : schedule({ deadline: '2026-12-15' }),
+    )
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+
+    // Due on the 1st: the money must be there before the month begins, so there is no option.
+    await describeRecurring(dialog, user)
+    expect(dialog.queryByLabelText('Include the deadline month')).not.toBeInTheDocument()
+
+    // Due mid-month: the option appears, off by default — the plan finishes the month before.
+    fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: '2026-12-15' } })
+    const option = dialog.getByLabelText('Include the deadline month')
+    expect(option).not.toBeChecked()
+    expect(dialog.getByText(/Also set aside money in Dec 2026, the deadline month\./)).toBeInTheDocument()
+    expect(dialog.getByText(/so the money is already in Joint Current on/)).toBeInTheDocument()
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ targetDate: '2026-12-15', includeDeadlineMonth: false })), { timeout: 5000 })
+    expect(await dialog.findByText(/Sets aside €100\.00 a month from Sep 2026 to Nov 2026/, {}, { timeout: 5000 })).toBeInTheDocument()
+
+    // Ticked: the preview is re-asked with the option and runs into December.
+    await user.click(option)
+    expect(await dialog.findByText(/Sets aside €75\.00 a month from Sep 2026 to Dec 2026/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ includeDeadlineMonth: true }))
+
+    // …and the choice is saved with the jar.
+    mockPosts(() => schedule(), jar({ id: 'f9', name: 'Road tax', targetDate: '2026-12-15', includeDeadlineMonth: true }))
+    await user.type(dialog.getByLabelText('Jar name'), 'Road tax')
+    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
+    await waitFor(
+      () => expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ targetDate: '2026-12-15', includeDeadlineMonth: true, accrual: 1 })),
+      { timeout: 5000 },
+    )
+  })
+
+  it('JAR-087: a long uneven schedule lists twelve months and counts the rest; a long even one is summarised only', { timeout: 15000 }, async () => {
+    const uneven = Array.from({ length: 14 }, (_, i) => month(2026 + Math.floor((8 + i) / 12), ((8 + i) % 12) + 1, i === 13 ? 10.1 : 10))
+    const even = Array.from({ length: 14 }, (_, i) => month(2026 + Math.floor((8 + i) / 12), ((8 + i) % 12) + 1, 10))
+    mockPosts((request) =>
+      request.targetAmount === 140.1
+        ? schedule({ remaining: 140.1, months: uneven, total: 140.1, deadline: '2027-11-01', fundingCompletesOn: '2027-10-31' })
+        : schedule({ remaining: 140, months: even, total: 140, deadline: '2027-11-01', fundingCompletesOn: '2027-10-31' }),
+    )
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+
+    await describeRecurring(dialog, user, '140.1', '2027-11-01')
+    let preview = within(await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 }))
+    expect(preview.getByText(/Sets aside €140\.10 in total from Sep 2026 to Oct 2027/)).toBeInTheDocument()
+    // Twelve listed months plus the "… and N more" line.
+    expect(preview.getAllByRole('listitem')).toHaveLength(13)
+    expect(preview.getByText('… and 2 more months')).toBeInTheDocument()
+
+    // An even long plan needs no list: the summary already says it all.
+    await user.clear(dialog.getByLabelText('Target amount'))
+    await user.type(dialog.getByLabelText('Target amount'), '140')
+    await waitFor(() => expect(dialog.getByTestId('jar-schedule-preview')).toHaveTextContent(/Sets aside €10\.00 a month from Sep 2026 to Oct 2027/), { timeout: 5000 })
+    preview = within(dialog.getByTestId('jar-schedule-preview'))
+    expect(preview.queryByRole('listitem')).not.toBeInTheDocument()
   })
 
   // --- Jar-types InfoHint ---------------------------------------------------
@@ -251,13 +376,14 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     expect(tip.textContent).toMatch(/Saves toward a due date, then repeats/)
     expect(tip.textContent).toContain('Goal')
     expect(tip.textContent).toMatch(/one-off savings target/)
+    expect(tip.textContent).toMatch(/ongoing pot you top up by a fixed amount each month/)
   })
 
   // --- Create-time round-trip ----------------------------------------------
 
   it('JAR-030: a Unicode / emoji jar name round-trips verbatim (trimmed only)', { timeout: 15000 }, async () => {
     const name = 'Café ☕ fund 🎉'
-    mockPost.mockResolvedValue({ data: jar({ id: 'f9', name, kind: 1, targetAmount: 50, status: 'OnTrack' }) })
+    mockPost.mockResolvedValue({ data: jar({ id: 'f9', name, kind: 1, recurMonths: null, targetAmount: 50, targetDate: '2027-03-01', deadline: '2027-03-01', status: 'OnTrack' }) })
     const user = userEvent.setup()
 
     renderPage()
@@ -268,6 +394,7 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     // by per-keystroke typing; the field is controlled, so this drives the same onChange.
     fireEvent.change(dialog.getByLabelText('Jar name'), { target: { value: name } })
     await user.type(dialog.getByLabelText('Target amount'), '50')
+    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-03-01' } })
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
     // The exact string reaches the wire (only trimmed) — no mojibake, no re-encoding.

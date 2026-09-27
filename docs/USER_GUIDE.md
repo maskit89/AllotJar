@@ -129,11 +129,11 @@ Every line's **Spent** value is the live total of the transactions assigned to t
 
 A **Savings** group (shown in violet) holds your jars — "Car repairs", "Holidays", "Christmas" — whose money **rolls over from month to month** instead of resetting. Every line in a Savings group *is* a jar, so the group offers **Add jar** rather than a bare line: you name the jar, choose the **account that holds its money**, and its contribution line lands in this month and every later one.
 
-- The **Planned** amount on a savings line is this month's *contribution*. It counts toward Assigned, just like an expense. It is a plan, not money.
+- The **Planned** amount on a savings line is this month's *contribution*. It counts toward Assigned, just like an expense. It is a plan, not money. AllotJar fills it in from the jar's own plan when you create the month (see [Jars](#6-jars-savings-goals)); if you change a jar's target, deadline or monthly amount later, this month's line and every later month's are updated to the new plan, while past months stay as they were.
 - The violet **Available** figure is the jar's **actual balance** at the end of the month you're viewing: the money you've actually set aside in its account, minus what you've spent from it, up to that month. Planned contributions never count until the money is really there (allocated in the account). It reads **Not available** when the jar's account has no balance yet for that date.
 - Spend from a jar the same way you spend from any line — record the expense **from the jar's account** and assign it to the jar's line. The Available balance falls accordingly. AllotJar refuses to put a payment from a different account (or from no account) on a jar's line, because that money never came out of the jar.
 
-When you copy a month, savings lines keep their identity, so the balance keeps accumulating. The Jars page shows the same jars with a target, a date and a progress bar (see [Jars](#6-jars-savings-goals)).
+When you copy a month, savings lines keep their identity, so the balance keeps accumulating. The Jars page shows the same jars with their plan for the month, a progress bar and when they will be funded (see [Jars](#6-jars-savings-goals)).
 
 ### Bills and reminders
 
@@ -242,17 +242,23 @@ The **Jars** page is where you set savings targets and watch them fill up. A jar
 
 The first thing you choose is the jar's **Type**, and that shapes the rest of the form:
 
-- **Recurring** — a cost that comes around again: you save toward a due date, and when the date passes the jar rolls forward to its next cycle and keeps going (home insurance, road tax, a yearly holiday). You give it a **Next due** date and a **Repeats** cadence (yearly, every 6 months, every 3 months, or monthly). If a cycle slips past its date, the remaining amount simply spreads over the next one.
-- **Goal** — a one-off target that's done once it's funded (a new kitchen, a sofa, a wedding). You give it a **Target date** if you have one; it's optional.
+- **Recurring** — a cost that comes around again: you save toward a due date, and when the date passes the jar rolls forward to its next cycle and keeps going (home insurance, road tax, a yearly holiday). You give it a **Target**, a **Next due** date and a **Repeats** cadence (yearly, every 6 months, every 3 months, or monthly). If a cycle slips past its date, the remaining amount spreads over the next one.
+- **Goal** — a one-off target that's done once it's funded (a new kitchen, a sofa, a wedding), or an open-ended pot you keep topping up. You choose how to **Save**:
+  - **By a deadline** — give the goal a **Target** and a **Deadline**, and AllotJar works out the monthly contribution.
+  - **A fixed amount each month** — give it the amount to set aside **Each month**; the **Target** is optional. With a target, the card shows roughly how many months that will take (an estimate, not a deadline) and the last contribution is capped at what remains; without one, the jar just keeps going.
 
 You also set:
 
 - **Name** — e.g. "Home insurance", "Summer holiday".
-- **Target** — how much you want to reach.
 - **Held in** — the account that holds this jar's money. Every jar needs one (add an account first if you have none); any account except a credit card will do, and a savings account is the natural choice.
 - **Already set aside** — money that is *already in that account* which you want to count as this jar's, and the date you set it aside. This divides the account's unallocated money into the jar; it never adds money. AllotJar checks the account really had that much unallocated on that date.
+- **Include the deadline month** — shown only when the deadline isn't the 1st of a month. By default the plan finishes the month *before* the deadline, so the money is already in the account on the day. Tick this only if that month's contribution will reach the account before the deadline.
 
-As you fill the form, a live line estimates the **monthly set-aside** the jar needs ("Sets aside ≈ €120/mo toward Mar 2027, then it repeats"). Each jar card shows its **actual balance** and the account it is held in, a **progress bar**, a **status** (Behind, Funded, Overspent) where it matters, and its projected finish ("full by Nov 2026"). The page header totals your **Total saved**, the combined **monthly** set-aside, and the number of **active jars**, and lists each account's **unallocated** money.
+**How the plan is worked out.** The remaining amount (target minus what the jar already holds) is split evenly, to the cent, over the months up to the one before the deadline; any rounding remainder goes into the last month, so the months add up exactly. The month you're in counts as a contribution month until it ends, and the deadline day itself never does: a jar created in September with €300 due on 1 December plans €100 in September, October and November. If you save less than planned one month, the next month's plan is recalculated from what the jar actually holds; if the deadline is this month or already passed, the whole remainder is planned now.
+
+As you fill the form, the preview shows the schedule the jar will actually be given — "Sets aside €100.00 a month from Sep 2026 to Nov 2026, funded by 30 Nov 2026 for the deadline on 1 Dec 2026, then it repeats every year." — listing each month when the amounts differ. If a month's budget already exists and the contribution would push it over its income, the preview says so in red ("Over budget: Oct 2026 by €20.00"); the full contribution is still planned, and you decide which lines to adjust.
+
+Each jar card shows its **actual balance** and the account it is held in, a **progress bar**, a **status** chip where it matters (Behind, Overspent, Funded, **Needs a plan** for a jar with neither a deadline nor a monthly amount), and this month's three figures — **Plan** (the month's contribution), **in** (what has actually gone into the jar since the month began) and **to go** (what's still to set aside). The plan never shrinks because money landed. Under it the card says when the jar will be funded and the deadline it serves ("Funded by Nov 2026 · due 1 Dec 2026, then it repeats"), the estimate for a fixed monthly target, or "Ongoing". The page header totals your **Total saved**, everything planned **This month** across your jars, and the number of **active jars**, and lists each account's **unallocated** money.
 
 **What counts as saved:** only real money. A jar's balance is what you have actually allocated to it in its account, minus what you have spent from it; the planned contribution on the Budget page is a plan until the money is there. Money reaches a jar when you set it aside at creation, when you **Move money** into it from another jar or from the account's unallocated funds, or (later) when you allocate a deposit that arrives in the account. Money leaves a jar when you record an expense **from the jar's account** and assign it to the jar's Savings line — a payment can overdraw a jar (it shows **Overspent**), but never the account itself.
 
@@ -263,7 +269,7 @@ As you fill the form, a live line estimates the **monthly set-aside** the jar ne
 
 Money also reaches jars whenever money reaches their account: recording an income, confirming a transfer receipt, importing a statement credit and committing an income allocation all ask **how much goes to each jar** (see *Transactions*, *Importing* and *Income allocation*).
 
-**Jars and the Budget page work together:** the jar tells you *what to set aside each month*, and AllotJar seeds that amount onto its **Savings** budget line automatically when you create each month. Edit a jar any time to change its target, date or cadence. Its account can only be changed while the jar is empty — move the money first. **Archive** a jar when you're done with it: it must be at zero (move any remainder out, or cover a shortfall), and archiving never touches your transactions.
+**Jars and the Budget page work together:** the jar tells you *what to set aside each month*, and AllotJar seeds that amount onto its **Savings** budget line automatically when you create each month — the same figures the preview showed. Edit a jar any time to change its target, deadline, monthly amount or cadence: the preview shows the revised schedule, and on Save this month's line and every later month's are updated to it (past months are never touched). Its account can only be changed while the jar is empty — move the money first. **Archive** a jar when you're done with it: it must be at zero (move any remainder out, or cover a shortfall), and archiving never touches your transactions.
 
 ## 7. Reports
 

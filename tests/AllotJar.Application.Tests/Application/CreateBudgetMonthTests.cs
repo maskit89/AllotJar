@@ -288,9 +288,10 @@ public class CreateBudgetMonthTests
             new CreateBudgetMonthCommand(2026, 6, CopyFromPrevious: false), CancellationToken.None);
 
         var line = june.Categories.Single(c => c.Kind == "Savings").Items.Single(i => i.Name == "Car Insurance");
-        var expected = JarAccrualCalculator.RequiredMonthlyContribution(jar, new DateOnly(2026, 6, 1), 0m);
-        expected.Should().BeGreaterThan(0m);        // the jar still needs funding as of June
-        line.PlannedAmount.Should().Be(expected);   // not 0, which the leaked all-time balance would produce
+        // Nothing saved as of 31 May: 600 over June–November (six months) = 100 — not 0, which the
+        // leaked all-time balance would produce.
+        line.PlannedAmount.Should().Be(100m);
+        line.PlannedAmount.Should().Be(JarSchedule.PlannedFor(jar, new DateOnly(2026, 6, 1), 0m));
     }
 
     [Fact]

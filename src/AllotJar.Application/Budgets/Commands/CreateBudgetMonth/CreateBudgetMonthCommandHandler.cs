@@ -57,14 +57,13 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                 .ThenByDescending(m => m.Month)
             .FirstOrDefaultAsync(cancellationToken);
 
-        // Every active jar takes part in month creation: funds with a configured target
-        // get this month's required contribution seeded from the accrual calculator
-        // (ProportionalPool funds wait for the pool — allocation engine, a later slice —
-        // and copy flat); and any jar without a line in the new month gets one appended,
-        // so a jar created on the Jars page starts filling without a manual budget step.
-        // Recurrence is applied virtually per seed month by the calculator — the stored
-        // date is an anchor and never rewritten here, so seeding a month is deterministic
-        // regardless of creation order.
+        // Every active jar takes part in month creation: a jar with a schedule (a deadline
+        // plan or a fixed monthly amount, rule 17) gets this month's planned contribution from
+        // the planner; a jar with no usable plan copies its line flat; and any jar without a
+        // line in the new month gets one appended, so a jar created on the Jars page starts
+        // filling without a manual budget step. Recurrence is applied virtually per month by
+        // the schedule — the stored date is an anchor and never rewritten here, so seeding a
+        // month is deterministic regardless of creation order.
         var allJars = await _db.Jars
             .AsNoTracking()
             .Where(f => f.OwnerId == userId)
@@ -85,25 +84,21 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                 .ToListAsync(cancellationToken))
             .ToHashSet();
 
-        // One eligibility rule for accrual seeding, shared by the copy path and the
-        // appended-lines step below.
-        static bool IsSeedable(Jar f) => f.TargetAmount > 0m && f.Accrual != AccrualMethod.ProportionalPool;
+        // One eligibility rule for seeding, shared by the copy path and the appended-lines
+        // step below: a jar with a schedule is planned, one without copies flat.
         bool NeedsSeed(BudgetItem i) =>
-            i.SavingsId is { } fid && activeJars.TryGetValue(fid, out var f) && IsSeedable(f);
+            i.SavingsId is { } fid && activeJars.TryGetValue(fid, out var f) && JarSchedule.HasSchedule(f);
 
-        // Actual jar balances are only needed when a jar line is actually being seeded or
-        // appended — read at most once, on first use. Balances as of the end of the previous
-        // month (rule 48): money that arrived later must not zero out this month's contribution
-        // when an earlier month is back-filled; for a future month, as of today.
-        var seedAsOf = new DateOnly(request.Year, request.Month, 1);
+        // The month's plans are only needed when a jar line is actually being seeded or
+        // appended — planned at most once, on first use. A month at or before the current one
+        // is planned from the balances as of the end of the previous month (rules 13/48: money
+        // that arrived later must not zero out this month's contribution when an earlier month
+        // is back-filled); a later month is projected from the current one (JarPlanner). An
+        // unavailable balance (rule 67) plans from nothing saved rather than inventing money.
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var balanceAsOf = seedAsOf.AddDays(-1) < today ? seedAsOf.AddDays(-1) : today;
-        JarLedgerSnapshot? ledger = null;
-        async Task<JarLedgerSnapshot> BalancesAsync() =>
-            ledger ??= await JarLedgerReader.ReadAsync(_db, userId, balanceAsOf, cancellationToken);
-        // An unavailable balance (rule 67) seeds from nothing saved rather than inventing money.
-        static decimal Seed(Jar jar, DateOnly asOf, JarLedgerSnapshot snapshot) =>
-            JarAccrualCalculator.RequiredMonthlyContribution(jar, asOf, snapshot.BalanceOf(jar.Id) ?? 0m);
+        IReadOnlyDictionary<Guid, decimal>? plans = null;
+        async Task<IReadOnlyDictionary<Guid, decimal>> PlansAsync() =>
+            plans ??= await JarPlanner.PlanMonthAsync(_db, userId, activeJars.Values, request.Year, request.Month, today, cancellationToken);
 
         // A later month inherits its predecessor's base. The FIRST month adopts the creating
         // login's preferred currency instead of assuming EUR: the account form defaults to that
@@ -159,10 +154,10 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         }
         else if (request.CopyFromPrevious && previous is not null)
         {
-            // Balances are needed to re-seed the copied fund lines at this month's
-            // required amount; skip the cross-history scan when none qualifies.
-            var balances = previous.Categories.SelectMany(c => c.Items).Any(NeedsSeed)
-                ? await BalancesAsync()
+            // Plans are needed to re-seed the copied jar lines at this month's amount; skip the
+            // ledger scan when none qualifies.
+            var monthPlans = previous.Categories.SelectMany(c => c.Items).Any(NeedsSeed)
+                ? await PlansAsync()
                 : null;
 
             // Copy the structure and planned amounts; actuals start fresh.
@@ -192,10 +187,10 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                         .Select(i => new BudgetItem
                         {
                             Name = i.Name,
-                            // Fund lines with a configured target are seeded at the
-                            // calculated required contribution; everything else copies.
+                            // Jar lines with a schedule are seeded at this month's planned
+                            // contribution; everything else copies.
                             PlannedAmount = NeedsSeed(i)
-                                ? Seed(activeJars[i.SavingsId!.Value], seedAsOf, balances!)
+                                ? monthPlans![i.SavingsId!.Value]
                                 : i.PlannedAmount,
                             DisplayOrder = i.DisplayOrder,
                             // Keep the fund's identity so its balance rolls over.
@@ -256,10 +251,10 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
             .ToList();
         if (missing.Count > 0)
         {
-            var balances = await BalancesAsync();
+            var monthPlans = await PlansAsync();
             foreach (var jar in missing)
             {
-                SavingsLines.AppendJarLine(_db, budget, jar, Seed(jar, seedAsOf, balances));
+                SavingsLines.AppendJarLine(_db, budget, jar, monthPlans[jar.Id]);
             }
         }
 

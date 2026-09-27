@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { register } from './helpers'
+import { firstOfMonthAhead, register } from './helpers'
 
 /**
  * Allocation end-to-end through the REAL stack (the ALLOC deferred set): a genuine
@@ -151,9 +151,9 @@ async function addAccount(page: Page, acc: { name: string; opening: string }) {
 }
 
 /**
- * Create a Goal jar held in a funding account through the real /jars modal.
- * Goal + no date → the accrual calculator plans (target − 0) ÷ 12 per month when the
- * jar's line is appended into a newly created budget month.
+ * Create a Goal jar held in a funding account through the real /jars modal. It saves by a
+ * deadline twelve months out (rule 17), so twelve contribution months plan target ÷ 12 per
+ * month when the jar's line is appended into a newly created budget month (rules 12, 35, 36).
  */
 async function createGoalJar(page: Page, jar: { name: string; target: string; heldIn: string }) {
   await page.getByRole('button', { name: 'New jar' }).click()
@@ -162,8 +162,10 @@ async function createGoalJar(page: Page, jar: { name: string; target: string; he
   // exact — the adjacent InfoHint is aria-labelled "About jar types" (a superstring).
   await dialog.getByLabel('Jar type', { exact: true }).selectOption({ label: 'Goal' })
   await dialog.getByLabel('Target amount').fill(jar.target)
+  await dialog.getByLabel('Deadline').fill(firstOfMonthAhead(12))
   await dialog.getByLabel('Funding account').selectOption({ label: jar.heldIn })
-  await committed(page, 'POST', '/api/jars', () =>
+  // Exactly the create — the form's schedule preview posts to /api/jars/schedule.
+  await committed(page, 'POST', (u) => u.endsWith('/api/jars'), () =>
     dialog.getByRole('button', { name: 'Add jar' }).click(),
   )
   await expect(page.getByRole('heading', { name: jar.name })).toBeVisible()
@@ -352,7 +354,7 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   await addAccount(page, { name: 'Alex Pot', opening: '1000' })
   await addAccount(page, { name: 'Robin Pot', opening: '500' })
 
-  // A Goal jar (6,000 ÷ 12 = 500.00/mo) held in the Joint funding account — created
+  // A Goal jar (6,000 over twelve contribution months = 500.00/mo) held in the Joint account — created
   // BEFORE the month so the blank create appends its accrual-planned Savings line.
   await page.getByRole('link', { name: 'Jars' }).click()
   await createGoalJar(page, { name: 'Holiday', target: '6000', heldIn: 'Joint' })

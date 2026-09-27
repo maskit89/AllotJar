@@ -178,18 +178,17 @@ AllocationPage:
 
 ## 6. Computed/derived values & money rules (as implemented)
 
-All jar math in `src/AllotJar.Domain/Services/JarAccrualCalculator.cs`; results rounded to 2 dp `MidpointRounding.AwayFromZero` (Excel ROUND parity).
+All jar planning in `src/AllotJar.Domain/Services/JarSchedule.cs` (pure) and `src/AllotJar.Application/Jars/JarPlanner.cs` (month seeding, replanting, the form's preview): an equal whole-cent split with the rounding remainder in the final month (rule 35), never half-away-from-zero rounding (W02, PR #271).
 
 **Jar current balance** (Jars page, reconciliation, `JarBalances.ComputeAsync`):
 `OpeningBalance + Σ over ALL months of linked Savings lines' PlannedAmount − Σ spends`, where spends = Expense transactions assigned to those lines + Expense split slices, each × `ExchangeRate`. Optional `asOf` (year,month) restricts to months **strictly before** it (used by month-creation seeding so back-filling an earlier month can't see later savings).
 
 **Budget-grid `SavingsAvailable`** (`BudgetActuals.ApplySavingsBalancesAsync`): same planned−spent net but months **≤ viewed month** and **WITHOUT OpeningBalance**. So Jars page balance ≠ grid Available for jars with an opening balance or future-month lines — a known two-flavour design, only consistent on the current month with no opening.
 
-**Accrual methods** (`RequiredMonthlyContribution`, dispatch on `jar.Accrual`):
-- StraightLine (0): `Round2(Target ÷ coverMonths)`; coverMonths = whole months CoverStart→CoverEnd when both set and > 0, else 12. Ignores balance (over-fills forever if seeded monthly).
-- TargetByDate (1, default & the only one the form creates): `remaining = Target − balance`; 0 when remaining ≤ 0; else `Round2(remaining ÷ max(1, MonthsBetween(asOf, EffectiveTargetDate)))`; no date → ÷ 12.
-- ProportionalPool (2): `Round2(target ÷ poolTargetTotal × monthlyPool)`; every production caller passes pool args 0 → always €0; month seeding excludes it explicitly (`IsSeedable` requires `Accrual != ProportionalPool`, CreateBudgetMonthCommandHandler.cs:75).
-- DailyRate (3): `Round2(target ÷ 365 × daysInMonth(asOf))`; ignores balance.
+**Plans** (`JarSchedule.Plan(jar, asOf, balanceEnteringTheMonth)`; `AccrualMethod` is TargetByDate = 1 | FixedMonthly = 2 — StraightLine, ProportionalPool and DailyRate were retired and migrated to TargetByDate, HANDOVER O6):
+- TargetByDate (1): `remaining = Target − balance`, 0 when ≤ 0; otherwise split in whole cents over the months from the planning month to the funding-completion month — the month before the deadline, or the deadline month itself when the deadline falls after the 1st and `IncludeDeadlineMonth` is set (rule 36) — with the remainder in the final month (rule 35); a deadline this month or already passed plans the whole remainder now. No deadline → no plan (rule 17: there is no ÷12 default).
+- FixedMonthly (2): `MonthlyContribution` every month; with a target the final month is capped at what remains and nothing is planned once the target is held (rule 18; `EstimatedMonths` is rule 58's estimate); with no target the jar is ongoing (rule 16).
+- Recurring jars re-arm the deadline from the stored anchor virtually (`EffectiveDeadline`, rule 62 clamps a 31st to a shorter month without losing it; never persisted).
 
 **Recurrence is a PURE VIEW (PR #149 invariant)**: `EffectiveTargetDate(jar, asOf)` — for Recurring jars with `RecurMonths ≥ 1` and anchor < asOf, jumps whole cycles from the **stored anchor** (closed-form + nudge loop; day-of-month preserved, no compounding drift). The anchor `TargetDate` is NEVER rewritten; the DTO returns the anchor so edits round-trip (`JarDto.cs:90-94`). Goal dates never roll. Kind↔RecurMonths lockstep: create sets `RecurMonths = Kind==Recurring ? (request ?? 12) : null`; update falls back `request ?? stored ?? 12` so a stale client can't reset a 3/6-month cycle (`UpdateJarCommandHandler.cs:48-50`).
 
@@ -218,8 +217,8 @@ All jar math in `src/AllotJar.Domain/Services/JarAccrualCalculator.cs`; results 
 ## 7. Known invariants, gotchas & recent-fix regressions
 
 1. **SavingsId FK invariant (PR #142)**: `BudgetItems.SavingsId` is an ENFORCED FK → `Jars.Id` on SQL Server. Every Savings-line writer must go through `SavingsLines` (`AddBackingJar` / `AppendJarLine`); minting a bare Guid passes EF InMemory tests but 500s in prod. Enforced-FK writers need a case in `tests/AllotJar.IntegrationTests/` (real mssql; EF InMemory doesn't enforce FKs).
-2. **Recurrence pure-view (PR #149)**: `RecurMonths int?` replaced `RecurAnnually`; the roll is virtual in `EffectiveTargetDate`; anchor never persisted; DTO returns anchor. Server validators stay PERMISSIVE (importer/legacy jars editable) — required-date/target is client-form-only for NEW Recurring jars. Regression to watch: an edit round-trip must not silently advance the date, and switching passed Recurring → Goal must keep the real anchor.
-3. **Edit must not wipe importer data**: the modal doesn't surface coverStart/End, openingAsOf, accrual — submit ECHOES `editingJar` stored values (JarsPage.tsx:226-238). Regression: nulling them changes StraightLine ÷coverMonths to ÷12.
+2. **Recurrence pure-view (PR #149)**: `RecurMonths int?` replaced `RecurAnnually`; the roll is virtual in `JarSchedule.EffectiveDeadline`; anchor never persisted; DTO returns anchor. Server validators enforce rule 17 through `JarDefinition` (PR #271): a recurring jar needs a target and a date; a goal needs a deadline or a fixed monthly amount; legacy jars with neither read Unscheduled until edited. Regression to watch: an edit round-trip must not silently advance the date, and switching passed Recurring → Goal must keep the real anchor.
+3. **Edit replants (rule 46)**: the modal submits the whole definition (kind, target, deadline, method, monthly amount, deadline-month option, cycle); when any schedule input changes, `UpdateJarCommandHandler` rewrites this month's and later months' planned lines through `JarPlanner.ReplantAsync` and leaves past months alone; a rename or an account change replants nothing. The cover window and `OpeningAsOf` columns are gone (W02).
 4. **"Saved so far" vs "Opening balance"**: same field, relabelled by mode; edit mode adds "Before tracking began…" helper to stop users retyping the card's live balance (double-count trap).
 5. **Two balance flavours**: Jars page = opening + ALL months (incl. future plantings); Budget grid `SavingsAvailable` = ≤ viewed month, NO opening. The jars shelf is current-month-only on the dashboard for exactly this reason.
 6. **WaterFill overflow (PR #162 BLOCKER fix)**: ≥2 members with equal/zero savings balances used to throw OverflowException (`k * decimal.MaxValue`) → 500 on preview AND commit for every brand-new couple. Now levelled via `FillToLevel`. High-value regression test.
@@ -267,7 +266,7 @@ Backend:
 - `src/AllotJar.Application/Common/Behaviours/AuthorizationBehaviour.cs`, `Common/Security/AllowLimitedAttribute.cs`
 - `src/AllotJar.Domain/Entities/Jar.cs`, `AllocationProfile.cs`, `AllocationRule.cs`, `BudgetMonth.cs` (IsBalanced)
 - `src/AllotJar.Domain/Enums/JarKind.cs`, `AccrualMethod.cs`, `AllocationRuleType.cs`, `SplitMethod.cs`
-- `src/AllotJar.Domain/Services/JarAccrualCalculator.cs`, `IncomeAllocator.cs`
+- `src/AllotJar.Domain/Services/JarSchedule.cs`, `IncomeAllocator.cs`; `src/AllotJar.Application/Jars/JarPlanner.cs`
 - `src/AllotJar.Infrastructure/Persistence/BudgetSeeder.cs` (opt-in sample seed jar)
 
 Client:
@@ -279,6 +278,6 @@ Client:
 - `client/src/features/FeatureContext.tsx`, `client/src/features/HouseholdContext.tsx`, `client/src/auth/AuthContext.tsx` (roles)
 - `client/src/pages/PeoplePage.tsx` (member savings account)
 
-Existing test surfaces: `tests/AllotJar.Application.Tests/Application/{JarsTests,JarBudgetLinkTests,JarLifecycleTests,AllocationTests}.cs`, `Domain/{JarAccrualCalculatorTests,IncomeAllocatorTests}.cs`; `tests/AllotJar.IntegrationTests/{SavingsForeignKeyTests,AllocationRerunTests}.cs` (real SQL Server); client `*.test.tsx` beside each page; e2e `client/e2e/a11y.spec.ts` (jar modal, axe + 375px). No journey-e2e spec covers jars/allocation yet.
+Existing test surfaces: `tests/AllotJar.Application.Tests/Application/{JarsTests,JarBudgetLinkTests,JarLifecycleTests,AllocationTests}.cs`, `Domain/{JarScheduleTests,IncomeAllocatorTests}.cs`, `Application/JarPlannerTests.cs`; `tests/AllotJar.IntegrationTests/{SavingsForeignKeyTests,AllocationRerunTests}.cs` (real SQL Server); client `*.test.tsx` beside each page; e2e `client/e2e/a11y.spec.ts` (jar modal, axe + 375px). Journeys: `client/e2e-journey/{jars-ledger,money-movement,allocation-commit,budget-lifecycle}.spec.ts` create Goal jars through the real form (a deadline twelve months out, or a fixed monthly amount — rule 17).
 
 Audit notes consulted (memory, verified against code): `jar-flow-audit-2026-07.md`, `allocation-coherence-audit-2026-07.md`.

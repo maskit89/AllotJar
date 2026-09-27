@@ -37,9 +37,11 @@ public class CreateJarCommandHandler
             Kind = request.Kind,
             TargetAmount = request.TargetAmount,
             TargetDate = request.TargetDate,
-            CoverStart = request.CoverStart,
-            CoverEnd = request.CoverEnd,
             Accrual = request.Accrual,
+            // A deadline plan has no fixed amount and a fixed monthly plan no deadline-month
+            // opt-in; the validator has already refused the combinations that don't make sense.
+            MonthlyContribution = request.Accrual == AccrualMethod.FixedMonthly ? request.MonthlyContribution : null,
+            IncludeDeadlineMonth = request.Accrual == AccrualMethod.TargetByDate && request.IncludeDeadlineMonth,
             // Recurring jars carry their cycle length (yearly unless told otherwise);
             // Goals are one-and-done and never roll.
             RecurMonths = request.Kind == JarKind.Recurring ? request.RecurMonths ?? 12 : null,
@@ -102,7 +104,7 @@ public class CreateJarCommandHandler
                 Postings = postings.Select(p => new JarAllocationPosting { JarId = p.JarId, Amount = p.Amount }).ToList(),
             });
             allocated = request.InitialAllocation;
-            await PlantLinesAsync(userId, jar, today, allocated, cancellationToken);
+            await JarPlanner.ReplantAsync(_db, userId, jar, today, allocated, cancellationToken);
             await _db.SaveChangesAsync(cancellationToken);
             if (write is not null)
             {
@@ -112,41 +114,13 @@ public class CreateJarCommandHandler
         else
         {
             _db.Jars.Add(jar);
-            await PlantLinesAsync(userId, jar, today, 0m, cancellationToken);
+            await JarPlanner.ReplantAsync(_db, userId, jar, today, 0m, cancellationToken);
             await _db.SaveChangesAsync(cancellationToken);
         }
 
         // Report the figures the Jars page will derive from the rows just written, so the
         // card doesn't change on the next load.
-        var result = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken, new[] { account.Id });
-        return jar.ToDto(result);
-    }
-
-    /// <summary>
-    /// Land the jar's contribution line in every already-created month from the current one
-    /// forward, so it starts filling without a manual Budget-page step (months created later
-    /// get their line from month creation). Past months are history and stay untouched. Each
-    /// month's planned amount is recomputed with the earlier plantings folded in — the same
-    /// figure month creation would have seeded had the months been created after the jar.
-    /// </summary>
-    private async Task PlantLinesAsync(string userId, Jar jar, DateOnly asOf, decimal balance, CancellationToken cancellationToken)
-    {
-        var months = await _db.BudgetMonths
-            .AsNoTracking()
-            .Include(m => m.Categories.Where(c => c.Kind == CategoryKind.Savings))
-                .ThenInclude(c => c.Items)
-            .Where(m => m.OwnerId == userId
-                        && (m.Year > asOf.Year || (m.Year == asOf.Year && m.Month >= asOf.Month)))
-            .OrderBy(m => m.Year).ThenBy(m => m.Month)
-            .ToListAsync(cancellationToken);
-        var planted = 0m;
-        foreach (var month in months)
-        {
-            var monthPlanned = JarAccrualCalculator.RequiredMonthlyContribution(
-                jar, new DateOnly(month.Year, month.Month, 1), balance + planted);
-            SavingsLines.AppendJarLine(_db, month, jar, monthPlanned);
-            planted += monthPlanned;
-        }
+        return await JarFigures.ReadOneAsync(_db, userId, jar, today, cancellationToken);
     }
 
     /// <summary>An account that backs no jar yet has no snapshot entry; read its money alone.</summary>

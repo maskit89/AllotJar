@@ -6,10 +6,12 @@ namespace AllotJar.Domain.Entities;
 /// <summary>
 /// A sinking fund: a periodic or one-off expense target that is saved towards a
 /// little each month and spent against over time (e.g. "Home Insurance €300/yr",
-/// "Yearly Holiday €4000"). It owns the fund's <see cref="TargetAmount"/>, due date
-/// and <see cref="AccrualMethod"/>; each month's contribution to it is an ordinary
-/// <see cref="BudgetItem"/> in a <see cref="CategoryKind.Savings"/> group whose
-/// <see cref="BudgetItem.SavingsId"/> equals this fund's <see cref="BaseEntity.Id"/>.
+/// "Yearly Holiday €4000"). It owns the fund's <see cref="TargetAmount"/>, deadline
+/// and the way its contributions are planned (<see cref="Accrual"/>); each month's
+/// contribution to it is an ordinary <see cref="BudgetItem"/> in a
+/// <see cref="CategoryKind.Savings"/> group whose <see cref="BudgetItem.SavingsId"/>
+/// equals this fund's <see cref="BaseEntity.Id"/>, planned by
+/// AllotJar.Domain.Services.JarSchedule.
 ///
 /// The actual balance is NOT stored here — it is derived at read time from the
 /// designated account's recorded money and the jar allocations posted against it
@@ -26,25 +28,41 @@ public class Jar : BaseEntity
 
     public JarKind Kind { get; set; } = JarKind.Recurring;
 
-    /// <summary>The amount to accumulate (spreadsheet col B). Mapped to decimal(18,4).</summary>
+    /// <summary>
+    /// The amount to accumulate; 0 for an ongoing jar that saves a fixed amount with no
+    /// target (rule 16). Mapped to decimal(18,4).
+    /// </summary>
     public decimal TargetAmount { get; set; }
 
-    /// <summary>When the money is needed by — drives <see cref="AccrualMethod.TargetByDate"/>. Null for open-ended funds.</summary>
+    /// <summary>
+    /// The deadline the target must be ready by (rule 15): the money must be in the
+    /// designated account before this date, so planned funding completes the month before
+    /// unless <see cref="IncludeDeadlineMonth"/> opts in (rule 36). Required for
+    /// <see cref="AccrualMethod.TargetByDate"/>; null for a fixed monthly plan.
+    /// </summary>
     public DateOnly? TargetDate { get; set; }
 
-    /// <summary>Start of a commitment's cover window (e.g. an insurance policy period). Null when not applicable.</summary>
-    public DateOnly? CoverStart { get; set; }
-
-    /// <summary>End of the cover window. With <see cref="CoverStart"/> it sets the straight-line divisor.</summary>
-    public DateOnly? CoverEnd { get; set; }
-
-    /// <summary>How the required monthly contribution is computed. Defaults to <see cref="AccrualMethod.TargetByDate"/>.</summary>
+    /// <summary>How the monthly contribution is planned (rules 16–17).</summary>
     public AccrualMethod Accrual { get; set; } = AccrualMethod.TargetByDate;
+
+    /// <summary>
+    /// The fixed amount planned each month under <see cref="AccrualMethod.FixedMonthly"/>
+    /// (rules 16–18); null for a deadline plan, whose monthly amount is calculated.
+    /// </summary>
+    public decimal? MonthlyContribution { get; set; }
+
+    /// <summary>
+    /// Rule 36: for a deadline partway through a month, planned funding completes at the end of
+    /// the previous month by default. True plans a contribution in the deadline month too — the
+    /// user has accepted that the money must reach the account before the deadline day.
+    /// Meaningless when the deadline falls on the 1st.
+    /// </summary>
+    public bool IncludeDeadlineMonth { get; set; }
 
     /// <summary>
     /// A Recurring jar's cycle length in months: when its <see cref="TargetDate"/>
     /// passes, the date rolls forward by this many months and the jar keeps saving
-    /// (see Services.JarAccrualCalculator.EffectiveTargetDate). Null for
+    /// (see Services.JarSchedule.EffectiveDeadline). Null for
     /// <see cref="JarKind.Goal"/> jars, which end at their target instead of renewing —
     /// the create/update handlers keep it in lockstep with <see cref="Kind"/>.
     /// </summary>

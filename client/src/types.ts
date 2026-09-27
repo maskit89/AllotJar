@@ -570,10 +570,9 @@ export const JAR_KIND_LABELS: Record<number, string> = {
   1: 'Goal',
 }
 
-// Matches Domain.Enums.AccrualMethod (serialized as a number). The form no longer
-// offers a choice — new jars are TargetByDate and edits echo the stored method
-// (imported jars may be StraightLine/DailyRate) — but the wire field remains.
-export const AccrualMethod = { StraightLine: 0, TargetByDate: 1, ProportionalPool: 2, DailyRate: 3 } as const
+// Matches Domain.Enums.AccrualMethod (serialized as a number): how a jar plans its monthly
+// contribution (rules 16–17) — toward a deadline, or a fixed amount each month.
+export const AccrualMethod = { TargetByDate: 1, FixedMonthly: 2 } as const
 
 /** A Recurring jar's cycle length choices for the "Repeats every" select. */
 export const RECUR_MONTHS_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
@@ -588,13 +587,16 @@ export interface JarDto {
   name: string
   /** Numeric JarKind. */
   kind: number
+  /** The amount to accumulate; 0 for an ongoing jar (a fixed monthly amount with no target). */
   targetAmount: number
-  /** ISO date (yyyy-MM-dd) or null. */
+  /** The stored deadline (ISO yyyy-MM-dd) or null; never the rolled date. See `deadline`. */
   targetDate: string | null
-  coverStart: string | null
-  coverEnd: string | null
   /** Numeric AccrualMethod. */
   accrual: number
+  /** The fixed amount planned each month under a fixed monthly plan; null for a deadline plan. */
+  monthlyContribution: number | null
+  /** Rule 36: whether the deadline month itself plans a contribution. */
+  includeDeadlineMonth: boolean
   /** A Recurring jar's cycle length in months (its date rolls forward by this); null for Goals. */
   recurMonths: number | null
   /** The account holding this jar's money (rule 2); always set. */
@@ -608,12 +610,65 @@ export interface JarDto {
   currentBalance: number | null
   /** The date `currentBalance` is calculated as of. */
   balanceAsOf: string
-  /** What to put in this month, per the fund's accrual method (0 when the balance is unavailable). */
-  requiredMonthlyContribution: number
-  /** When the fund reaches its target at the required rate; null when funded/open-ended. */
-  projectedFullyFundedDate: string | null
-  /** Unavailable | Overspent | Unfunded | FullyFunded | Behind | OnTrack. */
+  /** This month's planned contribution (rule 14); it does not fall as contributions land. */
+  plannedThisMonth: number
+  /** How much the balance has grown since the month began (rule 14). */
+  contributedThisMonth: number
+  /** Plan − contributed, floored at zero (rule 14). */
+  remainingThisMonth: number
+  /** The deadline saved toward, with a Recurring jar's cycle applied; null for fixed monthly plans. */
+  deadline: string | null
+  /** The last day of the final planned month (rule 36); null when funded or not a deadline plan. */
+  fundingCompletesOn: string | null
+  /** Fixed monthly plans with a target: monthly contributions still needed (rule 58, an estimate). */
+  estimatedMonthsToTarget: number | null
+  /** Unavailable | Overspent | Ongoing | Unscheduled | FullyFunded | Behind | OnTrack. */
   status: string
+}
+
+/** One month of a previewed schedule (POST /jars/schedule). */
+export interface JarScheduleMonthDto {
+  year: number
+  month: number
+  planned: number
+  /** Whether a budget already exists for this month. */
+  hasBudget: boolean
+  /** Rule 59: how far the month's plans would exceed its income with this contribution (0 fits); null with no budget. */
+  shortfall: number | null
+}
+
+/**
+ * A jar definition's contribution schedule from this month — exactly what saving it plants on
+ * the Savings lines (POST /jars/schedule). Mirrors AllotJar.Application.Jars.Dtos.JarScheduleDto.
+ */
+export interface JarScheduleDto {
+  accrual: number
+  /** A fixed monthly amount with no target: the one month listed stands for every month. */
+  isOngoing: boolean
+  /** Whether the definition yields a plan at all (rule 17). */
+  hasSchedule: boolean
+  /** The balance the plan starts from. */
+  balance: number
+  /** Target − balance, floored at zero. */
+  remaining: number
+  months: JarScheduleMonthDto[]
+  total: number
+  deadline: string | null
+  fundingCompletesOn: string | null
+  estimatedMonths: number | null
+}
+
+/** The body of POST /jars/schedule: the definition being previewed (jarId when editing). */
+export interface JarScheduleRequest {
+  jarId: string | null
+  kind: number
+  targetAmount: number
+  targetDate: string | null
+  accrual: number
+  monthlyContribution: number | null
+  includeDeadlineMonth: boolean
+  recurMonths: number | null
+  initialAllocation: number
 }
 
 /** One jar's line in its account's ledger (GET /jars/ledger). */

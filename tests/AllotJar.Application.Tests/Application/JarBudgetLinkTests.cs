@@ -187,22 +187,21 @@ public class JarBudgetLinkTests
         SeedMonth(db, "user-1", next.Year, next.Month, withSavingsGroup: true);
         var handler = new CreateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
+        // 1,000 due on the 1st three months out: this month and the next two plan 333.33, 333.33
+        // and 333.34 (rule 35) — the third month gets its line when it is created.
         var dto = await handler.Handle(
-            new CreateJarCommand("New Sofa", JarKind.Goal, 1200m, null, null, null,
+            new CreateJarCommand("New Sofa", JarKind.Goal, 1000m, new DateOnly(now.Year, now.Month, 1).AddMonths(3),
                 AccrualMethod.TargetByDate, account.Id),
             CancellationToken.None);
 
         var lines = db.BudgetItems.Where(i => i.SavingsId == dto.Id).ToList();
         lines.Should().HaveCount(2);
         lines.Should().OnlyContain(l => l.Name == "New Sofa");
-        // Each month is planned the way month creation would have seeded it — the open-ended
-        // remaining ÷ 12, with the earlier planting folded into the plan: month 1 = 1200/12 = 100;
-        // month 2 = (1200−100)/12 = 91.67.
-        lines.Select(l => l.PlannedAmount).Order().Should().Equal(91.67m, 100m);
+        lines.Select(l => l.PlannedAmount).Should().Equal(333.33m, 333.33m);
         // Rule 1: the planted lines are plans, not money. The jar holds nothing until money is
-        // allocated to it, and the required contribution is worked out from that empty balance.
+        // allocated to it, and this month's plan is worked out from that empty balance.
         dto.CurrentBalance.Should().Be(0m);
-        dto.RequiredMonthlyContribution.Should().Be(100m); // 1200 / 12
+        dto.PlannedThisMonth.Should().Be(333.33m);
     }
 
     [Fact]
@@ -215,7 +214,7 @@ public class JarBudgetLinkTests
         var handler = new CreateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         await handler.Handle(
-            new CreateJarCommand("Boiler", JarKind.Recurring, 900m, null, null, null,
+            new CreateJarCommand("Boiler", JarKind.Recurring, 900m, null,
                 AccrualMethod.TargetByDate, account.Id),
             CancellationToken.None);
 
@@ -232,7 +231,7 @@ public class JarBudgetLinkTests
         var handler = new CreateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         var dto = await handler.Handle(
-            new CreateJarCommand("Boiler", JarKind.Recurring, 900m, null, null, null,
+            new CreateJarCommand("Boiler", JarKind.Recurring, 900m, null,
                 AccrualMethod.TargetByDate, account.Id, InitialAllocation: 50m),
             CancellationToken.None);
 
@@ -253,7 +252,7 @@ public class JarBudgetLinkTests
         var handler = new CreateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         await handler.Handle(
-            new CreateJarCommand("Boiler", JarKind.Recurring, 900m, null, null, null,
+            new CreateJarCommand("Boiler", JarKind.Recurring, 900m, null,
                 AccrualMethod.TargetByDate, account.Id),
             CancellationToken.None);
 
@@ -268,7 +267,7 @@ public class JarBudgetLinkTests
         var handler = new CreateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
-            new CreateJarCommand("Boiler", JarKind.Recurring, 900m, null, null, null,
+            new CreateJarCommand("Boiler", JarKind.Recurring, 900m, null,
                 AccrualMethod.TargetByDate, Guid.NewGuid()),
             CancellationToken.None));
         db.Jars.Should().BeEmpty();

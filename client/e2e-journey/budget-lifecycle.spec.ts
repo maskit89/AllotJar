@@ -72,14 +72,16 @@ async function setPlanned(page: Page, lineName: string, value: string): Promise<
 }
 
 /**
- * Create a Goal jar (no due date needed) through the one jar form. Every jar is held in an
- * account (rule 73), so the household's "Pot" account is created on first use.
+ * Create a Goal jar through the one jar form: saving by a deadline twelve months out (so twelve
+ * contribution months plan target ÷ 12), or — with `monthly` — a fixed amount each month (an
+ * ongoing pot when `target` is empty, rule 16). Every jar is held in an account (rule 73), so
+ * the household's "Pot" account is created on first use.
  */
 async function createGoalJar(
   page: Page,
   name: string,
   target: string,
-  setAside?: string,
+  plan: { setAside?: string; monthly?: string } = {},
 ): Promise<void> {
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   // The list renders only after its fetch; counting before that would add a second Pot.
@@ -87,7 +89,7 @@ async function createGoalJar(
   if ((await page.getByRole('link', { name: 'View Pot', exact: true }).count()) === 0) {
     await addAccount(page, { name: 'Pot', opening: '5000' })
   }
-  await createJarHeldIn(page, { name, target, heldIn: 'Pot', setAside })
+  await createJarHeldIn(page, { name, target, heldIn: 'Pot', ...plan })
 }
 
 test('a jar-less blank month prompts for income, and a duplicate create fails friendly', async ({
@@ -190,8 +192,9 @@ test('a jar-owning household’s blank month is born over-budgeted with an accru
 }) => {
   await register(page)
 
-  // Own a jar before any month exists: Goal, target 1,200.00, no date → the accrual
-  // calculator wants (1,200 − 0) ÷ 12 = 100.00/mo. (Held in the Pot account, rule 73.)
+  // Own a jar before any month exists: Goal, target 1,200.00, due the 1st of the month twelve
+  // months out → twelve contribution months plan 1,200 ÷ 12 = 100.00/mo (rules 12, 35, 36).
+  // (Held in the Pot account, rule 73.)
   await createGoalJar(page, 'Holiday', '1200')
 
   // BUDG-029 / JAR-063: the create card tells the user their jar will be appended
@@ -237,9 +240,9 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await register(page)
 
   // --- Fixture: two Goal jars (held in the Pot account), then a current-month budget built through the UI ---
-  // Holiday holds 100.00 set aside today (rule 77). The current month seeds from the
-  // balance at the end of last month (nothing yet): 1,200 ÷ 12 = 100.00/mo.
-  await createGoalJar(page, 'Holiday', '1200', '100')
+  // Holiday holds 100.00 set aside today (rule 77). The current month plans from the balance
+  // entering it — nothing at the end of last month (rule 13): 1,200 ÷ 12 = 100.00/mo.
+  await createGoalJar(page, 'Holiday', '1200', { setAside: '100' })
   await createGoalJar(page, 'Old Boiler', '600') // 600 ÷ 12 = 50.00/mo — archived below
 
   // BUDG-029: plural jar-append note for two jars.
@@ -274,6 +277,9 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await addLine.fill('Rent')
   await committed(page, 'POST', '/items', () => addLine.press('Enter'))
   await setPlanned(page, 'Rent', '1000')
+
+  // Raise Holiday's plan for this month to 200.00 — a hand edit the copy must re-plan, not carry.
+  await setPlanned(page, 'Holiday', '200')
 
   // DASH-053: track Rent as a bill due day 1 — the Bill tag and strip appear.
   await page.getByRole('textbox', { name: 'Rename Rent' }).hover()
@@ -330,20 +336,22 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await expect(page.getByText(/Bills: 0\/1 paid/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Mark Rent paid' })).toBeVisible()
 
-  // BUDG-015: Holiday is seedable, so its line is RE-SEEDED from the accrual
-  // calculator using the jar's actual balance as of today (rule 1: the 100.00 set
-  // aside, never the amount planned last month) — (1,200 − 100) ÷ 12 = 91.67 —
-  // not copied flat at 100.00.
+  // BUDG-015: Holiday is scheduled, so its line is RE-PLANNED for the new month rather than
+  // copied flat at the 200.00 hand edit. The balance entering next month is projected through
+  // this month's saved plan (rule 13 / HANDOVER P27): nothing entered this month + 200.00
+  // planned — the 100.00 set aside today is this month's saving in progress, never counted
+  // twice. (1,200 − 200) over the eleven remaining contribution months = 90.90 (rule 35 floors
+  // to the cent; the remainder lands in the final month).
   await expect(page.getByRole('button', { name: 'Planned amount for Holiday' })).toHaveText(
-    '€91.67',
+    '€90.90',
   )
 
   // BUDG-017 / BUDG-032: the archived jar's line was dropped and not re-appended.
   await expect(page.getByRole('textbox', { name: 'Rename Old Boiler' })).toHaveCount(0)
 
-  // The hero locks the whole copy in one figure: 2,500 − (1,000 + 91.67) = 1,408.33.
-  await expect(page.getByLabel('Remaining to budget: €1,408.33')).toBeVisible()
-  await expect(page.getByText('€1,408.33 still to assign')).toBeVisible()
+  // The hero locks the whole copy in one figure: 2,500 − (1,000 + 90.90) = 1,409.10.
+  await expect(page.getByLabel('Remaining to budget: €1,409.10')).toBeVisible()
+  await expect(page.getByText('€1,409.10 still to assign')).toBeVisible()
 
   // --- Optimistic round-trips on the copied month (DASH-032 / DASH-043 / DASH-048) ---
   const incomeName = page.getByRole('textbox', { name: 'Income source name', exact: true })
@@ -362,7 +370,7 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   )
   await expect(page.getByRole('textbox', { name: 'Rename Rent' })).toHaveCount(0)
   await expect(page.getByText(/Bills:/)).toHaveCount(0)
-  await expect(page.getByLabel('Remaining to budget: €2,408.33')).toBeVisible()
+  await expect(page.getByLabel('Remaining to budget: €2,409.10')).toBeVisible()
 
   // --- Full reload: every optimistic edit must have really landed server-side ---
   await page.reload()
@@ -373,9 +381,9 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
     page.getByRole('textbox', { name: 'Income source name', exact: true }),
   ).toHaveValue('Consulting')
   await expect(page.getByRole('textbox', { name: 'Rename group Home' })).toBeVisible()
-  await expect(page.getByLabel('Remaining to budget: €2,408.33')).toBeVisible()
+  await expect(page.getByLabel('Remaining to budget: €2,409.10')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Planned amount for Holiday' })).toHaveText(
-    '€91.67',
+    '€90.90',
   )
   await expect(page.getByRole('textbox', { name: 'Rename Rent' })).toHaveCount(0)
   await expect(page.getByText(/Bills:/)).toHaveCount(0)
@@ -388,15 +396,20 @@ test('month navigation moves every screen together; the jars shelf is current-mo
   const prev = monthAt(-1)
   const next = monthAt(1)
 
-  // Nothing is seeded (rule 81): build a real current month from the Essentials template,
-  // then add a target-less Goal jar (held in the Pot account) whose line lands in the month.
+  // Nothing is seeded (rule 81): build a real current month from the Essentials template, then
+  // add an ongoing pot — a Goal with no target that saves 250.00 each month (rule 16), held in
+  // the Pot account — whose line lands in the month.
   await register(page, { starterBudget: true })
-  await createGoalJar(page, 'Emergency Fund', '0')
+  await createGoalJar(page, 'Emergency Fund', '', { monthly: '250' })
   await page.getByRole('link', { name: 'Budget' }).click()
   await expect(page.getByText('Remaining to budget')).toBeVisible()
-  // A jar created while the month exists plants its contribution line there; plan 250.00 on it.
+  // A jar created while the month exists plants its contribution line there at its plan
+  // (rule 46); hand-edit this month's line to 300.00.
   await expect(page.getByRole('textbox', { name: 'Rename Emergency Fund' })).toBeVisible()
-  await setPlanned(page, 'Emergency Fund', '250')
+  await expect(
+    page.getByRole('button', { name: 'Planned amount for Emergency Fund' }),
+  ).toHaveText('€250.00')
+  await setPlanned(page, 'Emergency Fund', '300')
   // Income 3,000 so the copied month reads "800.00 still to assign" after the 2,200 below.
   const addIncome = page.getByRole('textbox', { name: 'New income source name' })
   await addIncome.fill('Salary')
@@ -431,8 +444,8 @@ test('month navigation moves every screen together; the jars shelf is current-mo
     page.getByRole('button', { name: `Copy ${current.label}` }).click(),
   )
 
-  // BUDG-016: the Emergency Fund jar has target 0 → NOT seedable → its planned
-  // amount copies flat (250.00), no accrual recompute. Remaining = 3,000 − (1,950 + 250).
+  // BUDG-016: the Emergency Fund pot is re-planned at its fixed 250.00 (rule 16) — the 300.00
+  // hand edit is not carried flat. Remaining = 3,000 − (1,950 + 250).
   await expect(
     page.getByRole('button', { name: 'Planned amount for Emergency Fund' }),
   ).toHaveText('€250.00')

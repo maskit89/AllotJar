@@ -99,13 +99,18 @@ public class JarsTests
         var account = LedgerFixtures.SeedAccount(db, "user-1");
         var handler = new CreateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
+        // Due on the 1st three months out: this month and the next two plan 100 each (rule 12).
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var due = new DateOnly(today.Year, today.Month, 1).AddMonths(3);
         var dto = await handler.Handle(new CreateJarCommand(
-            "Home Insurance", JarKind.Recurring, 300m, null, null, null,
-            AccrualMethod.StraightLine, FundingAccountId: account.Id), CancellationToken.None);
+            "Home Insurance", JarKind.Recurring, 300m, due,
+            AccrualMethod.TargetByDate, FundingAccountId: account.Id), CancellationToken.None);
 
         dto.Name.Should().Be("Home Insurance");
         dto.FundingAccountId.Should().Be(account.Id);
-        dto.RequiredMonthlyContribution.Should().Be(25.00m);   // 300 / 12
+        dto.PlannedThisMonth.Should().Be(100.00m);
+        dto.FundingCompletesOn.Should().Be(due.AddDays(-1));
+        dto.Deadline.Should().Be(due);
         dto.CurrentBalance.Should().Be(0m);
 
         var stored = await db.Jars.SingleAsync();
@@ -151,20 +156,32 @@ public class JarsTests
     }
 
     [Fact]
-    public async Task Get_ComputesRequiredContribution_TargetByDate_Deterministically()
+    public async Task Get_PlansThisMonthFromTheMonthStartBalance_AndShowsContributedAndRemaining()
     {
+        // Rule 14: 1,200 due 1 November, planned from the balance entering the month; 200 lands on
+        // 5 January. January's plan stays 1,200 ÷ 10 months = 120 — it is not reduced by the 200 —
+        // while "contributed this month" reads 200 and "still to contribute" 0.
         await using var db = NewContext();
         var account = LedgerFixtures.SeedAccount(db, "user-1");
         var fundId = Guid.NewGuid();
         SeedFund(db, "user-1", fundId, target: 1200m, account,
-            accrual: AccrualMethod.TargetByDate, targetDate: new DateOnly(2026, 11, 1), allocated: 200m);
-
+            accrual: AccrualMethod.TargetByDate, targetDate: new DateOnly(2026, 11, 1),
+            allocated: 200m, allocatedOn: new DateOnly(2026, 1, 5));
         var handler = new GetJarsQueryHandler(db, new CurrentUserStub("user-1"));
-        var funds = await handler.Handle(
-            new GetJarsQuery(AsOf: new DateOnly(2026, 1, 1)), CancellationToken.None);
 
-        // (1200 − 200) / 10 months = 100.00
-        funds.Single().RequiredMonthlyContribution.Should().Be(100.00m);
+        var january = (await handler.Handle(new GetJarsQuery(AsOf: new DateOnly(2026, 1, 15)), CancellationToken.None)).Single();
+        january.PlannedThisMonth.Should().Be(120.00m);
+        january.ContributedThisMonth.Should().Be(200m);
+        january.RemainingThisMonth.Should().Be(0m);
+        january.Deadline.Should().Be(new DateOnly(2026, 11, 1));
+        january.FundingCompletesOn.Should().Be(new DateOnly(2026, 10, 31));
+
+        // Rule 13: February recalculates from what was actually saved by the end of January:
+        // (1,200 − 200) ÷ 9 months = 111.11, with the remainder due in the final month (rule 35).
+        var february = (await handler.Handle(new GetJarsQuery(AsOf: new DateOnly(2026, 2, 1)), CancellationToken.None)).Single();
+        february.PlannedThisMonth.Should().Be(111.11m);
+        february.ContributedThisMonth.Should().Be(0m);
+        february.RemainingThisMonth.Should().Be(111.11m);
     }
 
     [Fact]
@@ -222,12 +239,16 @@ public class JarsTests
 
         var dto = await new UpdateJarCommandHandler(db, new CurrentUserStub("user-1"))
             .Handle(new UpdateJarCommand(
-                fundId, "Renamed", JarKind.Goal, 500m, null, null, null,
-                AccrualMethod.StraightLine, account.Id), CancellationToken.None);
+                fundId, "Renamed", JarKind.Goal, 500m, null,
+                AccrualMethod.FixedMonthly, account.Id, MonthlyContribution: 50m), CancellationToken.None);
 
         dto.Name.Should().Be("Renamed");
         dto.TargetAmount.Should().Be(500m);
-        dto.RequiredMonthlyContribution.Should().Be(41.67m); // 500 / 12
+        dto.Accrual.Should().Be(AccrualMethod.FixedMonthly);
+        dto.MonthlyContribution.Should().Be(50m);
+        dto.PlannedThisMonth.Should().Be(50m);
+        dto.EstimatedMonthsToTarget.Should().Be(10); // rule 58: 500 at 50 a month
+        dto.Deadline.Should().BeNull();
     }
 
     [Fact]
@@ -237,7 +258,7 @@ public class JarsTests
         var handler = new UpdateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
-            new UpdateJarCommand(Guid.NewGuid(), "X", JarKind.Recurring, 1m, null, null, null,
+            new UpdateJarCommand(Guid.NewGuid(), "X", JarKind.Recurring, 1m, null,
                 AccrualMethod.TargetByDate, Guid.NewGuid()), CancellationToken.None));
     }
 
@@ -252,7 +273,7 @@ public class JarsTests
         var handler = new UpdateJarCommandHandler(db, new CurrentUserStub("user-2"));
 
         await Assert.ThrowsAsync<ForbiddenAccessException>(() => handler.Handle(
-            new UpdateJarCommand(fundId, "X", JarKind.Recurring, 1m, null, null, null,
+            new UpdateJarCommand(fundId, "X", JarKind.Recurring, 1m, null,
                 AccrualMethod.TargetByDate, account.Id), CancellationToken.None));
     }
 
@@ -291,8 +312,10 @@ public class JarsTests
             .Include(i => i.BudgetCategory).ThenInclude(c => c.BudgetMonth)
             .SingleAsync(i => i.SavingsId == fundId && i.BudgetCategory.BudgetMonth.Month == 6);
 
-        // Balance entering June (as of 31 May) = 200 allocated; remaining 1000 over 6 months (Jun→Dec) = 166.67.
-        juneLine.PlannedAmount.Should().Be(166.67m);
+        // Balance entering June (as of 31 May) = 200 allocated; remaining 1000 over the six
+        // contribution months Jun→Nov (the deadline day itself is not a contribution day, rule 12)
+        // = 166.666…, floored to the cent with the remainder in the final month (rule 35).
+        juneLine.PlannedAmount.Should().Be(166.66m);
     }
 
     [Fact]
@@ -337,27 +360,44 @@ public class JarsTests
     }
 
     [Fact]
-    public void Validator_RejectsEmptyName_NegativeTarget_MissingAccount_AndBadCoverWindow()
+    public void Validator_RejectsEmptyName_NegativeTarget_MissingAccount_AndAJarWithNoPlan()
     {
         var validator = new CreateJarCommandValidator();
         var account = Guid.NewGuid();
+        var due = new DateOnly(2026, 12, 1);
 
         validator.Validate(new CreateJarCommand(
-            "", JarKind.Recurring, 100m, null, null, null,
-            AccrualMethod.TargetByDate, account)).IsValid.Should().BeFalse();
+            "", JarKind.Recurring, 100m, due,
+            AccrualMethod.TargetByDate, account)).Errors
+            .Should().ContainSingle(e => e.ErrorMessage == "A jar needs a name.");
 
         validator.Validate(new CreateJarCommand(
-            "X", JarKind.Recurring, -1m, null, null, null,
+            "X", JarKind.Recurring, -1m, due,
             AccrualMethod.TargetByDate, account)).IsValid.Should().BeFalse();
 
         // Rule 73: no jar without its account.
         validator.Validate(new CreateJarCommand(
-            "X", JarKind.Recurring, 100m, null, null, null,
-            AccrualMethod.TargetByDate, Guid.Empty)).IsValid.Should().BeFalse();
+            "X", JarKind.Recurring, 100m, due,
+            AccrualMethod.TargetByDate, Guid.Empty)).Errors
+            .Should().ContainSingle(e => e.ErrorMessage == "Choose the account this jar's money is held in.");
 
+        // Rule 17: a target is saved by a deadline or at a fixed monthly amount — never neither.
+        validator.Validate(new CreateJarCommand(
+            "X", JarKind.Goal, 100m, null,
+            AccrualMethod.TargetByDate, account)).Errors
+            .Should().Contain(e => e.ErrorMessage == "Give the jar a deadline, or save a fixed amount each month instead.");
+        validator.Validate(new CreateJarCommand(
+            "X", JarKind.Goal, 100m, null,
+            AccrualMethod.FixedMonthly, account)).Errors
+            .Should().Contain(e => e.ErrorMessage == "Enter the amount to set aside each month.");
+        // A recurring jar saves toward its due date (a fixed monthly plan has no deadline to roll).
         validator.Validate(new CreateJarCommand(
             "X", JarKind.Recurring, 100m, null,
-            new DateOnly(2026, 6, 1), new DateOnly(2026, 1, 1),
-            AccrualMethod.StraightLine, account)).IsValid.Should().BeFalse();
+            AccrualMethod.FixedMonthly, account, MonthlyContribution: 10m)).Errors
+            .Should().Contain(e => e.ErrorMessage == "A recurring jar saves toward its next due date.");
+        // Rule 16: an ongoing jar — a fixed monthly amount and no target — is a valid plan.
+        validator.Validate(new CreateJarCommand(
+            "Rainy day", JarKind.Goal, 0m, null,
+            AccrualMethod.FixedMonthly, account, MonthlyContribution: 50m)).IsValid.Should().BeTrue();
     }
 }

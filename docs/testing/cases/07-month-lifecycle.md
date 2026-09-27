@@ -2,7 +2,7 @@
 
 **ID prefix:** BUDG | **Scope:** Everything about a budget MONTH as an object rather than what is rendered inside it: creating the viewed month from the dashboard not-found state via **"Start a blank budget"**, **"Copy {Month Year}"**, or an **"Or start from a template"** card (`POST /api/budget {year, month, copyFromPrevious, templateKey}` → `CreateBudgetMonthCommandHandler`); the exact semantics a copy carries (planned amounts flat vs. jar lines re-seeded from the accrual calculator, `DueDay` carried while `IsPaid` resets, `ExcludeFromAllocation` carried, category `DisplayOrder`/`Kind`, `SavingsId` identity, `BaseCurrency` inherited, archived-jar lines dropped, dangling `SavingsId` lines kept, actuals reset because they are always tx-derived); the "every active jar takes part" append step and the as-of (strictly-before) jar-seed balance used when back-filling an earlier month; template precedence and each built-in template's shape; the over-budgeted **empty** month a jar-owning household is born into (PR #172); month navigation via the TopBar `‹ {Month Year} ›` navigator (`MonthContext`, unbounded, clear-month-before-fetch, year-boundary roll, moves every month-scoped screen together); viewing/creating/editing past and future months; the first-ever month (no copy source); duplicate-month and concurrent-create friendly-400 recovery; and the absence of any month-delete affordance. | **Out of scope:** what the loaded month renders and how its groups/lines/bills/hero/jars-shelf/planned-editing behave → **06-dashboard-budget-view.md** (that file owns the four hero footnote states, the bills strip, the jars shelf, group/line CRUD, inline planned edits and dashboard role gating); jar accrual/recurrence maths, jar CRUD, the Jars page and the allocation engine that consumes `ExcludeFromAllocation` → **jars & allocation file** (09); the transactions/transfers that produce the actuals a copy resets → **transactions & transfers file** (08); the onboarding "Create your first month" checklist step, welcome dialog and tour → **05-onboarding.md**; deep role matrix across all pages and session/auth expiry → **03-session-auth-lifecycle.md** + households/roles file; sample-budget opt-in at sign-up (which pre-creates the first month) → **02-registration-login.md** / **05-onboarding.md**; GA event payloads (`budgetMonthCreated{source}`, `monthNavigated{direction}`) → analytics file; dark-mode/responsive/a11y sweeps → cross-cutting file. **Do not test for:** a delete-month button, route or `DELETE /api/budget/{year}/{month}` endpoint (none exists — only category/item delete); a min/max clamp on the TopBar month navigator (there is none — it reaches any year); server validation text surfacing in the dashboard (create failures are swallowed into the fixed string "Could not create that budget.").
 
-**Test data setup:** Local stack (API :5099, `ASPNETCORE_ENVIRONMENT=Development`) or staging (staging.allotjar.com). **Assumed "today" = 2026-07-15**, so **July 2026 is the current month**, June 2026 is last month, August 2026 is next month. Locale/format default **en-GB comma-dot** (money renders `€1,234.56`), currency **EUR** (noun "euro"). Logins (passwords random `Aa1-<uuid>` — HIBP rejects fixed common ones): **budg-owner@example.test** (Owner of household "Rollover"); **budg-limited@example.test** (role Limited) and **budg-readonly@example.test** (role ReadOnly) as members of the same household. Canonical copy source **JUN26** (June 2026, owned by budg-owner) unless a case builds its own: Income group **"Income"** (line **Salary** planned 2,500.00); expense group **"Housing"** (Rent 1,000.00 `dueDay 1` **IsPaid=true**; Council Tax 150.00 `dueDay 28` unpaid); expense group **"Food"** (Groceries 400.00); an importer-created expense category **"Personal Savings"** with `ExcludeFromAllocation=true` (one line, planned 300.00); savings group **"Savings"** with fund line **Holiday** (backed by jar). Jars owned by the household: **Holiday** (Kind Goal, Accrual TargetByDate, target 1,200.00, **no target date**, opening 0, active — seedable, so `RequiredMonthlyContribution = (1,200.00 − balanceₐₛ₋ₒf) ÷ 12`); **Car Fund** (target 0.00 → **not** seedable, copies flat); **Old Boiler** (archived). "Jar-less household" cases use **budg-solo@example.test** with zero jars/months. A month with `TotalIncome = 0` shows the plan-your-income hero prompt and is NOT balanced (`IsBalanced = TotalIncome > 0 && RemainingToBudget == 0`, PR #172). Automation hint: `POST /api/budget` returns **200** (not 201) with the full recomputed `BudgetMonthDto`; there is no month-delete verb.
+**Test data setup:** Local stack (API :5099, `ASPNETCORE_ENVIRONMENT=Development`) or staging (staging.allotjar.com). **Assumed "today" = 2026-07-15**, so **July 2026 is the current month**, June 2026 is last month, August 2026 is next month. Locale/format default **en-GB comma-dot** (money renders `€1,234.56`), currency **EUR** (noun "euro"). Logins (passwords random `Aa1-<uuid>` — HIBP rejects fixed common ones): **budg-owner@example.test** (Owner of household "Rollover"); **budg-limited@example.test** (role Limited) and **budg-readonly@example.test** (role ReadOnly) as members of the same household. Canonical copy source **JUN26** (June 2026, owned by budg-owner) unless a case builds its own: Income group **"Income"** (line **Salary** planned 2,500.00); expense group **"Housing"** (Rent 1,000.00 `dueDay 1` **IsPaid=true**; Council Tax 150.00 `dueDay 28` unpaid); expense group **"Food"** (Groceries 400.00); an importer-created expense category **"Personal Savings"** with `ExcludeFromAllocation=true` (one line, planned 300.00); savings group **"Savings"** with fund line **Holiday** (backed by jar). Jars owned by the household: **Holiday** (Kind Goal, Accrual TargetByDate, target 1,200.00, due **1 July 2027**, opening 0, active — scheduled, so a month plans `(1,200.00 − balance entering it)` split in whole cents over its contribution months up to June 2027 (twelve from July 2026), remainder in the final month — rules 12, 13, 35, 36); **Car Fund** (a legacy jar with no deadline and no monthly amount → Unscheduled, rule 17; its line copies flat); **Old Boiler** (archived). "Jar-less household" cases use **budg-solo@example.test** with zero jars/months. A month with `TotalIncome = 0` shows the plan-your-income hero prompt and is NOT balanced (`IsBalanced = TotalIncome > 0 && RemainingToBudget == 0`, PR #172). Automation hint: `POST /api/budget` returns **200** (not 201) with the full recomputed `BudgetMonthDto`; there is no month-delete verb.
 
 ## Creating a month — blank budget
 
@@ -169,23 +169,24 @@
 ### BUDG-015 - Copy re-seeds a seedable jar line from the accrual calculator, not the previous planned amount
 - **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** budg-owner; JUN26's "Holiday" fund line (jar Holiday: target 1,200.00, no target date, opening 0) was planned 100.00 in June, and June contributed 100.00 (so balance-as-of-July = 100.00); viewing July 2026 (no budget).
+- **Preconditions:** budg-owner; JUN26's "Holiday" fund line (jar Holiday: target 1,200.00, due 1 July 2027, opening 0) was planned 100.00 in June, and June contributed 100.00 (so balance-as-of-July = 100.00); viewing July 2026 (no budget).
 - **Steps:**
   1. Copy JUN26 into July.
 - **Expected:**
-  - The July Holiday line is re-seeded to `(1,200.00 − 100.00) ÷ 12 = 91.67` (2 dp, away-from-zero), NOT copied flat at June's 100.00 — because the jar is seedable (`TargetAmount > 0 && Accrual != ProportionalPool`).
+  - The July Holiday line is re-planned to `(1,200.00 − 100.00)` over the twelve contribution months Jul 2026→Jun 2027 = **91.66** (rule 35 floors to the cent; the remainder lands in June 2027), NOT copied flat at June's 100.00 — because the jar has a schedule (rule 17). A hand-edited June figure is not carried either: the `budget-lifecycle.spec.ts` journey raises the current month's line to 200.00 and sees the next month re-planned over the remaining months from the balance projected through that saved line (HANDOVER P27).
   - Its `SavingsId` is unchanged (same jar identity, so the balance rolls over).
-- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/JarsTests.cs — month-create seeds fund contribution from accrual when target set; Application/SavingsTests.cs — CreateBudgetMonth copies FundId)
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/JarsTests.cs — month-create plans a scheduled jar's line; Application/SavingsTests.cs — CreateBudgetMonth copies FundId; client/e2e-journey/budget-lifecycle.spec.ts — copy-from-previous re-plans the scheduled jar)
 
-### BUDG-016 - Copy carries a non-seedable jar line's planned amount flat
+### BUDG-016 - Copy carries an unscheduled jar line's planned amount flat; a scheduled jar is re-planned
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** budg-owner; JUN26 has a "Car Fund" line backed by jar Car Fund (**target 0.00**), planned 50.00; viewing July 2026 (no budget).
+- **Preconditions:** budg-owner; JUN26 has a "Car Fund" line backed by jar Car Fund (**no deadline and no monthly amount** — Unscheduled, rule 17), planned 50.00, and a "Holiday" line backed by a jar due 1 January 2027 (target 1,200, balance 300 on 30 June); viewing July 2026 (no budget).
 - **Steps:**
   1. Copy JUN26 into July.
 - **Expected:**
-  - The July Car Fund line copies flat at 50.00 (target 0 ⇒ not seedable ⇒ no accrual recompute); `SavingsId` preserved.
-- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/JarsTests.cs — keeps the copied amount when the jar has no target)
+  - The July Car Fund line copies flat at 50.00 (nothing to plan from ⇒ no recompute); `SavingsId` preserved.
+  - The July Holiday line is re-planned from the jar's balance entering July: (1,200 − 300) over the six contribution months Jul→Dec = **150.00** (rules 12/13, exact split); an ongoing fixed-monthly jar seeds its fixed amount (rule 16). Seeding a later month projects through the saved plans of the months in between (HANDOVER P27).
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/JarsTests.cs — keeps the copied amount when the jar has no plan; CreateBudgetMonthTests — backfills the seeded amount; JarPlannerTests — later-month projection, rule 16 seeding)
 
 ### BUDG-017 - Copy drops a line that funds an archived jar
 - **Priority:** P0
@@ -316,11 +317,11 @@
 - **Priority:** P0
 - **Type:** Regression
 - **Origin:** PR #172 (empty ≠ balanced; jar-owning blank month lands over-budgeted via appended accrual lines)
-- **Preconditions:** budg-owner owns active jar Holiday (target 1,200.00, no date, balance 0); NO month exists for July 2026; viewing July.
+- **Preconditions:** budg-owner owns active jar Holiday (target 1,200.00, due 1 July 2027, balance 0); NO month exists for July 2026; viewing July.
 - **Steps:**
   1. Click **"Start a blank budget"**.
 - **Expected:**
-  - The month is NOT the neutral empty state: the append step adds a "Savings" group with a Holiday line planned `1,200.00 ÷ 12 = 100.00` (income 0, planned > 0).
+  - The month is NOT the neutral empty state: the append step adds a "Savings" group with a Holiday line planned `1,200.00` over the twelve contribution months to June 2027 `= 100.00` (income 0, planned > 0).
   - Hero: Income `€0.00`, Allotted `€100.00`, Remaining `-€100.00`, rose footnote **"€100.00 over-budgeted — trim a line"** — NOT "Plan your income…", NOT the gold badge.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/JarBudgetLinkTests.cs — blank creates a Savings group for existing jars; Domain/RemainingToBudgetTests.cs + client budgetModel.test.ts — IsBalanced requires income, #172; the combined "blank+jars ⇒ over-budgeted" hero string is not asserted end-to-end)
 
@@ -390,11 +391,11 @@
 ### BUDG-035 - Seeding uses the balance as of the created month (contributions strictly BEFORE it)
 - **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** budg-owner; jar Holiday target 1,200.00, no date, opening 0; MAY26 and JUN26 each contributed 100.00 to Holiday (balance = 200 by end of June); viewing July 2026 (no budget).
+- **Preconditions:** budg-owner; jar Holiday target 1,200.00, due 1 July 2027, opening 0; MAY26 and JUN26 each contributed 100.00 to Holiday (balance = 200 by end of June); viewing July 2026 (no budget).
 - **Steps:**
   1. Copy JUN26 into July (or start July blank).
 - **Expected:**
-  - July's Holiday line is seeded from balance-as-of-July (= 200.00 from May+June): `(1,200.00 − 200.00) ÷ 12 = 83.33`.
+  - July's Holiday line is seeded from balance-as-of-July (= 200.00 from May+June): `(1,200.00 − 200.00)` over the twelve contribution months Jul 2026→Jun 2027 `= 83.33`.
   - Only months strictly before July count toward the as-of balance.
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs / JarsTests.cs — backfilled month seeds jar from as-of-that-month balance, not all-time)
 
@@ -402,22 +403,22 @@
 - **Priority:** P0
 - **Type:** Regression
 - **Origin:** PR #167 (jar seed used all-time balance → later months zeroed the back-filled seed)
-- **Preconditions:** budg-owner; jar Holiday target 1,200.00, no date, opening 0; JUL26 and AUG26 exist and together already contributed 1,200.00 (jar all-time balance = fully funded); NO budget for **April 2026**; viewing April via the TopBar.
+- **Preconditions:** budg-owner; jar Holiday target 1,200.00, due 1 July 2027, opening 0; JUL26 and AUG26 exist and together already contributed 1,200.00 (jar all-time balance = fully funded); NO budget for **April 2026**; viewing April via the TopBar.
 - **Steps:**
   1. On the April 2026 not-found card, click **"Start a blank budget"** (or copy an earlier month).
 - **Expected:**
-  - April's Holiday line is seeded from the as-of-April balance (only months before April count = 0.00), giving `1,200.00 ÷ 12 = 100.00` — it is NOT seeded to 0 just because later months (July/Aug) already filled the jar.
+  - April's Holiday line is seeded from the as-of-April balance (only months before April count = 0.00), giving `1,200.00` over the fifteen contribution months Apr 2026→Jun 2027 `= 80.00` — it is NOT seeded to 0 just because later months (July/Aug) already filled the jar.
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — backfilled month seeds from as-of-that-month balance)
 
-### BUDG-037 - Seeding folds the jar's OpeningBalance into the as-of balance
+### BUDG-037 - Seeding folds the jar's actual balance (its allocation as of the day before the month) into the plan
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** budg-owner; jar Holiday target 1,200.00, no date, **OpeningBalance 300.00**, no prior-month contributions; viewing July 2026 (no budget).
+- **Preconditions:** budg-owner; jar Holiday target 1,200.00 due **1 July 2027**, **300.00 allocated on 1 June 2026**, no prior-month contributions; viewing July 2026 (no budget).
 - **Steps:**
   1. Start July blank.
 - **Expected:**
-  - Holiday line seeded from `OpeningBalance + as-of contributions = 300.00 + 0`: `(1,200.00 − 300.00) ÷ 12 = 75.00`.
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Domain/JarAccrualCalculatorTests.cs — TargetByDate spreads remaining over months; opening-inclusive seeding via handler covered indirectly by JarsTests)
+  - Holiday line seeded from the ledger balance as of 30 June 2026 (300.00, rule 48): `(1,200.00 − 300.00)` over the twelve contribution months Jul 2026→Jun 2027 = **75.00** (rules 12, 13, 35). A jar with no deadline and no monthly amount would not be seeded at all (rule 17).
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/BMonthLifecycleCoverageTests.cs — `Create_SeedsAppendedJarLine_FoldingInTheJarsAllocatedBalance`; Domain/JarScheduleTests.cs — rule 14)
 
 ## Month navigation (TopBar ‹ ›)
 

@@ -9,6 +9,7 @@ using AllotJar.Application.Jars.Commands.UpdateJar;
 using AllotJar.Application.Jars.Dtos;
 using AllotJar.Application.Jars.Queries.GetJarLedger;
 using AllotJar.Application.Jars.Queries.GetJars;
+using AllotJar.Application.Jars.Queries.GetJarSchedule;
 using AllotJar.Domain.Enums;
 
 namespace AllotJar.Api.Controllers;
@@ -59,11 +60,25 @@ public class JarsController : ControllerBase
     public async Task<ActionResult<JarDto>> Create(CreateJarRequest request, CancellationToken ct)
     {
         var result = await _mediator.Send(new CreateJarCommand(
-            request.Name, request.Kind, request.TargetAmount, request.TargetDate,
-            request.CoverStart, request.CoverEnd, request.Accrual,
+            request.Name, request.Kind, request.TargetAmount, request.TargetDate, request.Accrual,
             request.FundingAccountId, request.InitialAllocation, request.InitialAllocationDate,
-            request.RecurMonths), ct);
+            request.RecurMonths, request.MonthlyContribution, request.IncludeDeadlineMonth), ct);
         return CreatedAtAction(nameof(List), new { }, result);
+    }
+
+    /// <summary>
+    /// Previews the contribution schedule a jar definition would plan from this month (rules 12–18, 35–36,
+    /// 58–59) — exactly what saving it plants on the Savings lines. Nothing is stored.
+    /// </summary>
+    [HttpPost("schedule")]
+    [ProducesResponseType(typeof(JarScheduleDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<JarScheduleDto>> Schedule(JarScheduleRequest request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new GetJarScheduleQuery(
+            request.JarId, request.Kind, request.TargetAmount, request.TargetDate, request.Accrual,
+            request.MonthlyContribution, request.IncludeDeadlineMonth, request.RecurMonths, request.InitialAllocation), ct);
+        return Ok(result);
     }
 
     /// <summary>Edits a jar's definition. Returns it.</summary>
@@ -75,9 +90,8 @@ public class JarsController : ControllerBase
     public async Task<ActionResult<JarDto>> Update(Guid id, UpdateJarRequest request, CancellationToken ct)
     {
         var result = await _mediator.Send(new UpdateJarCommand(
-            id, request.Name, request.Kind, request.TargetAmount, request.TargetDate,
-            request.CoverStart, request.CoverEnd, request.Accrual,
-            request.FundingAccountId, request.RecurMonths), ct);
+            id, request.Name, request.Kind, request.TargetAmount, request.TargetDate, request.Accrual,
+            request.FundingAccountId, request.RecurMonths, request.MonthlyContribution, request.IncludeDeadlineMonth), ct);
         return Ok(result);
     }
 
@@ -111,13 +125,13 @@ public record CreateJarRequest(
     JarKind Kind,
     decimal TargetAmount,
     DateOnly? TargetDate,
-    DateOnly? CoverStart,
-    DateOnly? CoverEnd,
     AccrualMethod Accrual,
     Guid FundingAccountId,
     decimal InitialAllocation = 0m,
     DateOnly? InitialAllocationDate = null,
-    int? RecurMonths = null);
+    int? RecurMonths = null,
+    decimal? MonthlyContribution = null,
+    bool IncludeDeadlineMonth = false);
 
 /// <summary>Request body for editing a jar (the id comes from the route).</summary>
 public record UpdateJarRequest(
@@ -125,11 +139,23 @@ public record UpdateJarRequest(
     JarKind Kind,
     decimal TargetAmount,
     DateOnly? TargetDate,
-    DateOnly? CoverStart,
-    DateOnly? CoverEnd,
     AccrualMethod Accrual,
     Guid FundingAccountId,
-    int? RecurMonths = null);
+    int? RecurMonths = null,
+    decimal? MonthlyContribution = null,
+    bool IncludeDeadlineMonth = false);
+
+/// <summary>Request body for previewing a jar definition's schedule; JarId is set when editing an existing jar.</summary>
+public record JarScheduleRequest(
+    Guid? JarId,
+    JarKind Kind,
+    decimal TargetAmount,
+    DateOnly? TargetDate,
+    AccrualMethod Accrual,
+    decimal? MonthlyContribution = null,
+    bool IncludeDeadlineMonth = false,
+    int? RecurMonths = null,
+    decimal InitialAllocation = 0m);
 
 /// <summary>Request body for archiving/restoring a jar.</summary>
 public record ArchiveJarRequest(bool Archived = true);
