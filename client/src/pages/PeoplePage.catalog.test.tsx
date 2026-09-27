@@ -11,7 +11,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import type { AccountDto, HouseholdMemberDto, MemberIncomeResultDto, MemberSpendingDto, MembershipDto } from '../types'
+import type {
+  AccountDto,
+  HouseholdMemberDto,
+  MemberArchivePreviewDto,
+  MemberIncomeResultDto,
+  MemberSpendingDto,
+  MembershipDto,
+} from '../types'
 import { formatMoney, fromAmount } from '../lib/money'
 
 const { mockGet, mockPost, mockPut, mockDelete, monthState } = vi.hoisted(() => ({
@@ -94,6 +101,9 @@ let accountsData: AccountDto[] = []
 let meData: Record<string, unknown> = {} // /auth/me — {} keeps the default Owner role.
 let spendingData: MemberSpendingDto[] = []
 let incomeData: MemberIncomeResultDto | null = null
+// Rule 54: what GET /members/{id}/archive-preview answers, keyed by member id (unset → `{}`,
+// i.e. nothing to ask, the single-click archive of PPL-022).
+let archivePreviews: Record<string, MemberArchivePreviewDto> = {}
 
 function setupGet() {
   mockGet.mockImplementation((url: string) => {
@@ -109,6 +119,8 @@ function setupGet() {
       return incomeData ? Promise.resolve({ data: incomeData }) : Promise.reject(new Error('404'))
     }
     if (url === '/auth/me') return Promise.resolve({ data: meData })
+    const preview = /^\/members\/([^/]+)\/archive-preview$/.exec(url)
+    if (preview && archivePreviews[preview[1]]) return Promise.resolve({ data: archivePreviews[preview[1]] })
     return Promise.resolve({ data: {} }) // TopBar / everything else — tolerated as empty
   })
 }
@@ -152,6 +164,7 @@ describe('PeoplePage — catalog (PPL)', () => {
     meData = {}
     spendingData = []
     incomeData = null
+    archivePreviews = {}
     monthState.year = 2026
     monthState.month = 7
     monthState.label = 'July 2026'
@@ -410,9 +423,10 @@ describe('PeoplePage — catalog (PPL)', () => {
     expect(mockPut).not.toHaveBeenCalled()
   })
 
-  // PPL-022 / PPL-023 — a single "✕" click archives immediately (no confirm dialog); the row leaves
-  // the table and the month-income hero recomputes on reload. (Transaction-persistence half of
-  // PPL-023 is backend-only — see the deferred note.)
+  // PPL-022 / PPL-023 — a single "✕" click archives immediately (no confirm dialog) when the
+  // archive preview has no pocket money to ask about; the row leaves the table and the
+  // month-income hero recomputes on reload. (Transaction-persistence half of PPL-023 is
+  // backend-only — see the deferred note.)
   it('PPL-022/PPL-023: archiving fires PUT {archived:true} on one click and removes the row', { timeout: 15000 }, async () => {
     membersData = [
       member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, budgetIncome: 3000, incomeSharePct: 0.75 }),
@@ -442,6 +456,155 @@ describe('PeoplePage — catalog (PPL)', () => {
     )
     await waitFor(() => expect(screen.queryByText('Sam')).not.toBeInTheDocument(), { timeout: 5000 })
     expect(screen.queryByText('€4,000.00')).not.toBeInTheDocument()
+  })
+
+  // ---- Archiving and pocket money (rule 54) -------------------------------------
+
+  const twoMembers = () => [
+    member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, budgetIncome: 3000, incomeSharePct: 0.75 }),
+    member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, budgetIncome: 1000, incomeSharePct: 0.25 }),
+  ]
+
+  // PPL-084 — pocket money still planned this month: the ✕ opens the keep-or-cancel question
+  // (nothing is archived yet); "Keep this month" archives with the Keep decision.
+  it('PPL-084: pocket money left this month asks keep-or-cancel; Keep archives with decision 0', { timeout: 15000 }, async () => {
+    membersData = twoMembers()
+    archivePreviews = {
+      m2: {
+        id: 'm2',
+        name: 'Sam',
+        isArchived: false,
+        thisMonth: { year: 2026, month: 9, planned: 100, paid: 60, remaining: 40 },
+        futureMonths: [{ year: 2026, month: 10, planned: 100, paid: 0, remaining: 100 }],
+      },
+    }
+    mockPut.mockImplementation((url: string) => {
+      if (url === '/members/m2/archive') {
+        membersData = [member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, budgetIncome: 3000, incomeSharePct: 1 })]
+      }
+      return Promise.resolve({ data: {} })
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    await user.click(screen.getByRole('button', { name: 'Archive Sam' }))
+
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByText('Archive Sam')).toBeInTheDocument()
+    // The remaining amount, the month and what was paid so far, in words the user can act on.
+    expect(dialog.getByText('€40.00')).toBeInTheDocument()
+    expect(dialog.getByText(/planned for September 2026 \(€60\.00 already paid\)/)).toBeInTheDocument()
+    expect(dialog.getByText(/already planned for October 2026 is cancelled/)).toBeInTheDocument()
+    // Nothing archived until a choice is made.
+    expect(mockPut).not.toHaveBeenCalled()
+
+    await user.click(dialog.getByRole('button', { name: 'Keep this month’s pocket money and archive' }))
+
+    await waitFor(
+      () => expect(mockPut).toHaveBeenCalledWith('/members/m2/archive', { archived: true, pocketMoneyThisMonth: 0 }),
+      { timeout: 5000 },
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
+    await waitFor(() => expect(screen.queryByText('Sam')).not.toBeInTheDocument(), { timeout: 5000 })
+  })
+
+  // PPL-085 — "Cancel remaining" archives with the Cancel decision (1); the server drops the
+  // planned amount to what was paid, so the dialog says the payments stay.
+  it('PPL-085: "Cancel remaining" archives with decision 1 and says payments stay recorded', { timeout: 15000 }, async () => {
+    membersData = twoMembers()
+    archivePreviews = {
+      m2: {
+        id: 'm2',
+        name: 'Sam',
+        isArchived: false,
+        thisMonth: { year: 2026, month: 9, planned: 100, paid: 0, remaining: 100 },
+        futureMonths: [],
+      },
+    }
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    await user.click(screen.getByRole('button', { name: 'Archive Sam' }))
+
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByText('€100.00')).toBeInTheDocument()
+    expect(dialog.queryByText(/already paid/)).not.toBeInTheDocument()
+    expect(dialog.getByText(/payments stay recorded, and no pocket money is planned from next month on\./)).toBeInTheDocument()
+
+    await user.click(dialog.getByRole('button', { name: 'Cancel remaining pocket money and archive' }))
+
+    await waitFor(
+      () => expect(mockPut).toHaveBeenCalledWith('/members/m2/archive', { archived: true, pocketMoneyThisMonth: 1 }),
+      { timeout: 5000 },
+    )
+    expect(mockPut).toHaveBeenCalledTimes(1)
+  })
+
+  // PPL-086 — "Don't archive" closes the question and nothing is sent; a preview with nothing
+  // remaining (this month fully paid) never asks and archives on the one click as PPL-022.
+  it('PPL-086: "Don’t archive" sends nothing; a fully paid month archives without asking', { timeout: 15000 }, async () => {
+    membersData = twoMembers()
+    archivePreviews = {
+      m2: {
+        id: 'm2',
+        name: 'Sam',
+        isArchived: false,
+        thisMonth: { year: 2026, month: 9, planned: 100, paid: 0, remaining: 100 },
+        futureMonths: [],
+      },
+    }
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    await user.click(screen.getByRole('button', { name: 'Archive Sam' }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.click(dialog.getByRole('button', { name: 'Don’t archive' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
+    expect(mockPut).not.toHaveBeenCalled()
+    expect(screen.getByText('Sam')).toBeInTheDocument()
+
+    // Fully paid: remaining 0 → no question, the plain archive request.
+    archivePreviews.m2.thisMonth = { year: 2026, month: 9, planned: 100, paid: 100, remaining: 0 }
+    await user.click(screen.getByRole('button', { name: 'Archive Sam' }))
+    await waitFor(
+      () => expect(mockPut).toHaveBeenCalledWith('/members/m2/archive', { archived: true }),
+      { timeout: 5000 },
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  // PPL-087 — the server's own refusal (400, a decision was needed after all) is shown in the
+  // page's words, not swallowed into the generic failure.
+  it('PPL-087: a 400 from the archive shows the server’s field message', { timeout: 15000 }, async () => {
+    membersData = twoMembers()
+    mockPut.mockImplementation((url: string) => {
+      if (url === '/members/m2/archive') {
+        return Promise.reject({
+          response: {
+            status: 400,
+            data: { errors: { PocketMoneyThisMonth: ['Sam still has 40.00 of pocket money planned for September 2026. Choose whether to keep or cancel it before archiving.'] } },
+          },
+        })
+      }
+      return Promise.resolve({ data: {} })
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    await user.click(screen.getByRole('button', { name: 'Archive Sam' }))
+
+    expect(await screen.findByText(/Sam still has 40\.00 of pocket money planned for September 2026/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.queryByText('Could not archive that person.')).not.toBeInTheDocument()
+    expect(screen.getByText('Sam')).toBeInTheDocument()
   })
 
   // PPL-026 — a Limited member gets no edit/archive hover actions.

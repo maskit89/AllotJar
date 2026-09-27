@@ -278,6 +278,12 @@ AllotJar is solo-friendly by default: on your own, the sharing features stay out
 
 The People page shows the **same month as the Budget page** (change it with the month navigator in the top bar). Each person's **Income** is what the month's budget says: the income lines attributed to them (on the Budget page, each income line has a **Who earns** picker once the household is shared), plus an equal share of any income line left as "Whole household". Their **Share** is that income as a percentage of the household's, and **Spent** is what has been attributed to them in that month. If the month has no budget yet, the figures are zero until you create one.
 
+### Renaming and archiving people
+
+Renaming a person renames their **Pocket Money** budget line in every month too (the line belongs to the person, not to the name); the amounts do not change. A line you renamed yourself keeps your name for it.
+
+**Archiving** a person (the ✕ on their row) hides them from the People page and stops their pocket money from next month on: any pocket-money line already planned for a later month is cancelled. If this month still has pocket money planned beyond what has been paid, AllotJar asks first — **Keep this month** leaves this month's plan as it is, **Cancel remaining** lowers it to what has already been paid (a line nothing was paid against disappears), and **Don't archive** changes nothing. Whatever you choose, every recorded payment and every account balance stays exactly as it was; archiving never deletes transactions.
+
 A person's **Default income** is only a starting figure you keep on file: when you **start a blank month**, each person with a default gets an income line at that amount, attributed to them (a template or copied month keeps its own lines). Nothing is calculated from the default itself: the Allocation page, the shares and the People figures all read the month's budget lines. Amounts recorded in another currency are shown converted to your budget currency; a row whose rate is still pending is counted separately until it resolves.
 
 ### Inviting someone to sign in
@@ -311,6 +317,8 @@ You set this up once (who shares, how the remainder is divided), and AllotJar **
 The suggested amounts stay a plan until you move the money at the bank. **Allocate** asks you to confirm **I've completed these transfers** and the date the money left the source account, then records one transfer per person as *in transit*; confirm each receipt on the Transactions page when the savings account shows it. Running Allocate again keeps transfers that haven't changed, replaces an in-transit one whose amount changed, and won't discard a transfer whose receipt you've already confirmed. The source account must be able to cover every transfer — allocation never takes it below zero.
 
 When a person's savings account holds jars, Allocate also asks **how much of that person's transfer goes to each jar**; whatever you leave blank stays unallocated in the account, and the jars are credited once the receipt is confirmed.
+
+**Pocket money.** If your allocation gives each person pocket money, **Add pocket money to {month}'s budget** puts one **Pocket Money** line per person into that month's budget. Each line is linked to its person rather than to their name: renaming the person renames the line, and running the sync again updates the same line instead of adding another. Archiving a person stops their pocket money from next month on (see *People & sharing*).
 
 ## 10. Your account & settings
 

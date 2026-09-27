@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Household.Dtos;
+using AllotJar.Domain.Entities;
+using AllotJar.Domain.Enums;
 
 namespace AllotJar.Application.Household.Commands.UpdateHouseholdMember;
 
@@ -48,12 +50,37 @@ public class UpdateHouseholdMemberCommandHandler
                 _db, userId, savingsId, cancellationToken);
         }
 
-        member.Name = request.Name.Trim();
+        var newName = request.Name.Trim();
+        if (!string.Equals(member.Name, newName, StringComparison.Ordinal))
+        {
+            await RenamePocketMoneyLinesAsync(userId, member, newName, cancellationToken);
+        }
+
+        member.Name = newName;
         member.NetMonthlyIncome = request.NetMonthlyIncome;
         member.PersonalSavingsAccountId = request.PersonalSavingsAccountId;
 
         await _db.SaveChangesAsync(cancellationToken);
 
         return await HouseholdMemberReads.ToDtoAsync(_db, userId, member, cancellationToken);
+    }
+
+    /// <summary>
+    /// Rule 53: the pocket-money lines linked to the person (their id, not their name) show the
+    /// new name in every month — the amounts and totals do not move. A line the user gave a name
+    /// of their own (anything but the person's current name) keeps it.
+    /// </summary>
+    private async Task RenamePocketMoneyLinesAsync(
+        string userId, HouseholdMember member, string newName, CancellationToken cancellationToken)
+    {
+        var lines = await _db.BudgetItems
+            .Where(i => i.MemberId == member.Id
+                        && i.BudgetCategory.Kind == CategoryKind.Expense
+                        && i.BudgetCategory.BudgetMonth.OwnerId == userId)
+            .ToListAsync(cancellationToken);
+        foreach (var line in lines.Where(l => string.Equals(l.Name, member.Name, StringComparison.OrdinalIgnoreCase)))
+        {
+            line.Name = newName;
+        }
     }
 }

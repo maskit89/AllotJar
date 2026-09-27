@@ -220,15 +220,15 @@
 
 ## Archive / remove a person
 
-### PPL-022 - Archive a person immediately (no confirm dialog)
+### PPL-022 - Archive a person on one click when no pocket money needs a decision (rule 54)
 - **Priority:** P1
 - **Type:** Happy
-- **Origin:** gotcha #21 (archive has no confirmation, no in-UI undo)
-- **Preconditions:** Fixture B; signed in as owner.
+- **Origin:** gotcha #21 (archive has no confirmation, no in-UI undo); W11 (rule 54) added the one case that asks first — PPL-084
+- **Preconditions:** Fixture B; signed in as owner. Sam has no pocket-money line this month, or one with nothing left beyond what was paid.
 - **Steps:**
   1. Hover Sam's row and click "✕" (aria "Archive Sam", title "Archive person").
-- **Expected:** `PUT /members/{id}/archive {archived:true}` fires on the single click — **no confirmation modal**. Sam disappears from the table; Combined income drops to `€3,000.00`; Alex's share becomes `100%`. Household refreshes; 1 remaining member flips shared→solo (Allocation nav hides). There is no restore UI — restore is API-only.
-- **Automated:** No
+- **Expected:** The page reads `GET /members/{id}/archive-preview`; with `thisMonth` null or `thisMonth.remaining` 0 it fires `PUT /members/{id}/archive {archived:true}` on the single click — **no confirmation modal**. Sam disappears from the table; "Income this month" drops to the remaining income lines' total; Alex's share becomes `100%`. Household refreshes; 1 remaining member flips shared→solo (Allocation nav hides). Any pocket-money line of Sam's already planned in a **later** month is cancelled by the server (PPL-084 for the amounts). There is no restore UI — restore is API-only (PPL-077).
+- **Automated:** Full (client PPL-022/023, PPL-086 second half; backend `PocketMoneyIdentityTests.Archive_NeedsNoDecision_WhenNothingRemainsThisMonth_OrTheLineIsOverspent`)
 
 ### PPL-023 - Archive a member who has income AND attributed transactions
 - **Priority:** P0
@@ -238,8 +238,8 @@
 - **Steps:**
   1. Archive Sam from `/people`.
   2. Open `/transactions` and check Sam's previously-attributed transactions.
-- **Expected:** Sam is excluded from `GET /members` (default), from the spending totals, and from income-share math (Combined income → €3,000.00). Her transactions are NOT deleted — they remain in the register (the `HouseholdMember` and all attributed data persist). No money is lost or moved.
-- **Automated:** Partial (`tests/AllotJar.Application.Tests/Application/HouseholdMembersTests.cs` archive-hides-from-default; `MemberSpendingTests.cs` excludes-archived)
+- **Expected:** Sam is excluded from `GET /members` (default), from the spending totals, and from income-share math (Combined income → €3,000.00). Her transactions are NOT deleted — they remain in the register (the `HouseholdMember` and all attributed data persist). No money is lost or moved. Rule 54: the pocket-money payments recorded against Sam's lines stay too, and a cancelled line's planned amount never falls below what was paid; her **income** lines in every month are untouched by the archive (only the Allocation pool folds an archived earner's lines into the unattributed pot — ALLOC-073).
+- **Automated:** Partial (`tests/AllotJar.Application.Tests/Application/HouseholdMembersTests.cs` archive-hides-from-default; `MemberSpendingTests.cs` excludes-archived; `PocketMoneyIdentityTests.Archive_LeavesIncomeLines_AndOtherPeoplesLinesAlone`, `Archive_Cancel_DropsThisMonthsPlanToWhatWasPaid_AndKeepsThePayment`)
 
 ### PPL-024 - Archived member is absent from the People table (no restore control)
 - **Priority:** P2
@@ -247,7 +247,7 @@
 - **Preconditions:** Fixture B with Sam already archived.
 - **Steps:**
   1. Open `/people`.
-- **Expected:** Sam does not appear (PeoplePage never passes `includeArchived=true`); there is no toggle to view or restore archived people from the UI. Restore requires `PUT /members/{id}/archive {archived:false}` via API.
+- **Expected:** Sam does not appear (PeoplePage never passes `includeArchived=true`); there is no toggle to view or restore archived people from the UI. Restore requires `PUT /members/{id}/archive {archived:false}` via API (PPL-077) and **recreates nothing** (HANDOVER P17): pocket-money lines cancelled by the archive stay cancelled; the Allocation page's "Add pocket money" sync creates Sam's line for the month again when it is run. The archive-preview of an already archived person reports `isArchived:true` and archiving again is a no-op for the lines.
 - **Automated:** No
 
 ### PPL-025 - Archived earner's income share is NOT zeroed when fetched with includeArchived
@@ -845,3 +845,46 @@
   1. Open `/people`.
 - **Expected:** Hero "Income this month" 0.00 with the note "No budget for {Month Year} yet" when there is none; every Income cell 0.00 and every Share 0%. The saved default is edited as **Default income for {name}** (add modal: "Default income") with the hint "Becomes this person's income line when you start a blank month. Calculations use the income lines in the month's budget." Nothing on the page or the Allocation page ever uses it as a pool (rule 28); its one use is seeding a blank month (BUDG-057).
 - **Automated:** Full (client PPL-079; backend `AllocationIncomeFromBudgetTests.NoBudget_YieldsAnEmptyPool_NotTheDefaults`)
+
+## Pocket money and the person (rules 53–54)
+
+### PPL-084 - Archiving with pocket money left this month asks keep-or-cancel; "Keep this month" (rule 54)
+- **Priority:** P0
+- **Type:** Happy
+- **Origin:** W11, rule 54 — "for the current month, ask the user whether to keep or cancel the remaining planned amount"
+- **Preconditions:** Fixture B; the Allocation sync has put a **Pocket Money** line for Sam (100.00) into the current month and into next month (100.00); 60.00 of this month's line is paid (an expense on that line). Signed in as owner.
+- **Steps:**
+  1. Click "✕" on Sam's row.
+  2. Read the dialog; click **Keep this month**.
+- **Expected:** `GET /members/{id}/archive-preview` answers `thisMonth {planned 100, paid 60, remaining 40}` and `futureMonths [next month: planned 100, paid 0, remaining 100]`, so instead of archiving the page opens the dialog **"Archive Sam"**: "Sam still has **€40.00** of pocket money planned for {Month Year} (€60.00 already paid)." and "Keep it for this month, or cancel what remains? Either way Sam's payments stay recorded, and the pocket money already planned for {next Month Year} is cancelled." (with several later months: "for N later months"). Nothing is sent until a button is pressed. **Keep this month** fires `PUT /members/{id}/archive {archived:true, pocketMoneyThisMonth:0}`; the server leaves this month's line at 100.00 (60.00 paid), removes next month's untouched line (a later line with payments would instead drop to its paid amount), archives Sam; the dialog closes and the row leaves the table. Calling the PUT without `pocketMoneyThisMonth` while 40.00 remains → **400** on `PocketMoneyThisMonth`: "Sam still has 40.00 of pocket money planned for {Month Year}. Choose whether to keep or cancel it before archiving." (PPL-087 shows it).
+- **Automated:** Full (client PPL-084; backend `Archive_ThisMonthWithARemainder_RequiresTheDecision`, `Archive_Keep_LeavesThisMonthsPlan_AndStillStopsNextMonth`, `Archive_ClearsFutureMonths_RemovingUntouchedLines_AndKeepingPaidOnes`, `ArchivePreview_ReportsThisMonthsRemainder_AndTheFutureMonthsToClear`)
+
+### PPL-085 - "Cancel remaining" lowers this month's plan to what was paid and keeps the payment (rule 54)
+- **Priority:** P0
+- **Type:** Happy
+- **Preconditions:** As PPL-084 (this month planned 100.00, paid 60.00).
+- **Steps:**
+  1. Click "✕" on Sam's row; click **Cancel remaining**.
+  2. Open the Budget page for the current month and the Transactions register.
+- **Expected:** `PUT /members/{id}/archive {archived:true, pocketMoneyThisMonth:1}`. This month's line is still there, planned **60.00** (= paid; the 40.00 remainder is cancelled), the 60.00 expense is still in the register and no account balance moved; a line nothing was ever recorded against is removed instead; an overspent line (paid above planned) is left as it is. Next month's line is cancelled as in PPL-084. The dialog's wording without payments: "€100.00 of pocket money planned for {Month Year}." with no "(… already paid)"; with no later month: "…payments stay recorded, and no pocket money is planned from next month on."
+- **Automated:** Full (client PPL-085; backend `Archive_Cancel_DropsThisMonthsPlanToWhatWasPaid_AndKeepsThePayment`, `Archive_Cancel_RemovesThisMonthsLine_WhenNothingWasRecorded`)
+
+### PPL-086 - "Don't archive" sends nothing; a fully paid or overspent month never asks
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** Fixture B; Sam's pocket-money line this month planned 100.00.
+- **Steps:**
+  1. Click "✕" on Sam's row; click **Don't archive** (or Escape / the backdrop).
+  2. Pay the full 100.00 against the line; click "✕" again.
+- **Expected:** Step 1: the dialog closes, no PUT is sent, Sam is still in the table and nothing changed on the server. Step 2: the preview's `remaining` is 0, so no dialog — the plain `PUT … {archived:true}` archives on the one click (PPL-022); the same when the line is overspent (paid 120.00 on planned 100.00: remaining 0, the line is left as it is). Later months are still cancelled.
+- **Automated:** Full (client PPL-086; backend `Archive_NeedsNoDecision_WhenNothingRemainsThisMonth_OrTheLineIsOverspent`)
+
+### PPL-087 - The server's own refusal is shown, and the lines are owner-scoped
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Fixture B with Sam's remainder this month (PPL-084); a second household whose person also has pocket-money lines.
+- **Steps:**
+  1. Send `PUT /api/members/{samId}/archive {archived:true}` (no decision) — or archive from a People page whose preview read failed.
+  2. Send `PUT /api/members/{otherHouseholdPersonId}/archive {archived:true, pocketMoneyThisMonth:1}` as Alex.
+- **Expected:** Step 1: **400** `{ errors: { PocketMoneyThisMonth: ["Sam still has 40.00 of pocket money planned for {Month Year}. Choose whether to keep or cancel it before archiving."] } }`; the People page shows that sentence in its error banner (not "Could not archive that person.") and Sam stays. Step 2: **403** before any line is read or changed — the other household's lines are untouched; an unknown id → **404**. Another person's lines and every income line in the same household are never touched by an archive.
+- **Automated:** Full (client PPL-087; backend `Archive_IsOwnerScoped_BeforeItTouchesAnyLine`, `Archive_LeavesIncomeLines_AndOtherPeoplesLinesAlone`)

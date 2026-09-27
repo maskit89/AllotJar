@@ -642,3 +642,13 @@
   - Income 5,000.00; the People page shows Alex 3,000.00 / Robin 2,000.00 (60% / 40%) read from these lines, not from the defaults.
   - A **template** month keeps the template's own income lines (all 0.00, unattributed) and a **copied** month keeps last month's lines exactly; neither adds lines from the defaults. A household where nobody has a default still gets the empty Income group of BUDG-001/002.
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — `Create_Blank_SeedsOneAttributedIncomeLinePerActivePersonWithADefault`, `Create_CopyWithNoPriorMonth_FallsBackToTheSeededBlank`, `Create_CopyOrTemplate_KeepsItsOwnIncomeLines_NeverTheDefaults`)
+
+### BUDG-058 - Copying a month drops an archived person's pocket-money line (rule 54)
+- **Priority:** P1
+- **Type:** Edge
+- **Origin:** W11, rule 54 — "stops their pocket-money planned allocations from the next month onward, including future budgets already created"
+- **Preconditions:** Shared household; the latest month holds a synced **Pocket Money** group with lines "Alex" (100.00) and "Sam" (100.00), each linked to its person; Sam is then archived (keeping this month). No budget for the next month.
+- **Steps:**
+  1. Create the next month with **Copy from {month}**.
+- **Expected:** The new month's Pocket Money group holds **Alex 100.00** only — Sam's linked line is not copied, exactly as an archived jar's Savings line is not; every other line (incl. Sam's income line, if any, and any unlinked expense line named after Sam) is copied as before. The archive itself already cancelled Sam's lines in months that existed at the time, so the copy is the case for months created afterwards. A template month is unaffected (templates carry no pocket-money lines).
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/PocketMoneyIdentityTests.cs — `CreateMonth_Copy_DropsAnArchivedPersonsPocketLine_AndKeepsTheOthers`)
