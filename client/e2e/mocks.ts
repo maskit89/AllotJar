@@ -50,9 +50,30 @@ function memberSpending() {
 // bars (incl. an overspent one).
 function jars() {
   return [
-    { id: 'f1', name: 'Home insurance', kind: 0, targetAmount: 300, targetDate: '2026-12-01', coverStart: null, coverEnd: null, accrual: 0, recurMonths: 12, openingBalance: 0, openingAsOf: null, fundingAccountId: null, isArchived: false, currentBalance: 120, requiredMonthlyContribution: 25, projectedFullyFundedDate: '2026-11-01', status: 'OnTrack' },
-    { id: 'f2', name: 'Holiday', kind: 1, targetAmount: 1000, targetDate: null, coverStart: null, coverEnd: null, accrual: 1, recurMonths: null, openingBalance: 0, openingAsOf: null, fundingAccountId: null, isArchived: false, currentBalance: -40, requiredMonthlyContribution: 0, projectedFullyFundedDate: null, status: 'Overspent' },
+    { id: 'f1', name: 'Home insurance', kind: 0, targetAmount: 300, targetDate: '2026-12-01', accrual: 1, monthlyContribution: null, includeDeadlineMonth: false, recurMonths: 12, fundingAccountId: 'acc1', isArchived: false, currentBalance: 120, plannedThisMonth: 25, contributedThisMonth: 0, remainingThisMonth: 25, deadline: '2026-12-01', fundingCompletesOn: '2026-11-30', estimatedMonthsToTarget: null, status: 'OnTrack' },
+    { id: 'f2', name: 'Holiday', kind: 1, targetAmount: 1000, targetDate: null, accrual: 1, monthlyContribution: null, includeDeadlineMonth: false, recurMonths: null, fundingAccountId: 'acc1', isArchived: false, currentBalance: -40, plannedThisMonth: 0, contributedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, status: 'Overspent' },
   ]
+}
+
+// The schedule preview the New/Edit jar form asks for (POST /jars/schedule): three even
+// months toward a 1 December deadline, so the modal renders its preview under the sweeps.
+function jarSchedule() {
+  return {
+    accrual: 1,
+    isOngoing: false,
+    hasSchedule: true,
+    balance: 0,
+    remaining: 300,
+    months: [
+      { year: 2026, month: 9, planned: 100, hasBudget: false, shortfall: null },
+      { year: 2026, month: 10, planned: 100, hasBudget: false, shortfall: null },
+      { year: 2026, month: 11, planned: 100, hasBudget: false, shortfall: null },
+    ],
+    total: 300,
+    deadline: '2026-12-01',
+    fundingCompletesOn: '2026-11-30',
+    estimatedMonths: null,
+  }
 }
 
 // A small but representative budget: income, an expense line that is also a bill,
@@ -284,6 +305,7 @@ export async function mockApi(route: Route) {
   if (path === '/accounts') return json(accountsList())
   if (path === '/accounts/reconciliation') return json(accountReconciliation())
   if (path === '/jars') return json(jars())
+  if (path === '/jars/schedule') return json(jarSchedule())
   if (path === '/members') return json(householdMembers())
   if (path === '/members/spending') return json(memberSpending())
   if (path === '/allocation/profile') return json(allocationProfile())

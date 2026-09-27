@@ -819,7 +819,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                     const avail = f.currentBalance === null ? null : fromAmount(f.currentBalance)
                     const target = fromAmount(f.targetAmount)
                     const pct = target > 0 && avail !== null ? (avail / target) * 100 : 0
-                    const monthly = fromAmount(f.requiredMonthlyContribution)
+                    const monthly = fromAmount(f.plannedThisMonth)
                     const chip = jarStatusChip(f.status)
                     return (
                       <div key={f.id} className="flex flex-col items-center gap-3">
@@ -834,8 +834,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                           <div className={`text-[13.5px] font-bold tabular-nums ${avail === null ? 'text-slate-500' : 'text-slate-900'}`}>
                             {avail === null ? 'Not available' : formatMoney(avail, month.currency)}
                           </div>
-                          {/* One status-aware line: an attention/funded chip wins, else the
-                              monthly set-aside — so the shelf never contradicts the Jars page. */}
+                          {/* One status-aware line: an attention/funded chip wins, else this
+                              month's plan — so the shelf never contradicts the Jars page. */}
                           {chip ? (
                             <div className="mt-1 flex justify-center">
                               <Badge tone={chip.tone}>{chip.label}</Badge>

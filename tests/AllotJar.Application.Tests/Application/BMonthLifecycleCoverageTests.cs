@@ -55,11 +55,13 @@ public class BMonthLifecycleCoverageTests
     {
         await using var db = NewContext();
         var account = LedgerFixtures.SeedAccount(db, "user-1");
-        // Holiday: Goal, TargetByDate, target 1,200, no target date, nothing allocated → seedable.
+        // Holiday: Goal, target 1,200 due 1 July 2027 (twelve contribution months from July 2026,
+        // rule 12), nothing allocated → seedable.
         db.Jars.Add(new Jar
         {
             OwnerId = "user-1", Name = "Holiday", Kind = JarKind.Goal,
             Accrual = AccrualMethod.TargetByDate, TargetAmount = 1200m,
+            TargetDate = new DateOnly(2027, 7, 1),
             FundingAccountId = account.Id,
         });
         await db.SaveChangesAsync();
@@ -68,7 +70,7 @@ public class BMonthLifecycleCoverageTests
         var july = await handler.Handle(
             new CreateBudgetMonthCommand(2026, 7, CopyFromPrevious: false), CancellationToken.None);
 
-        // Append step created a Savings group with the Holiday line planned 1,200 ÷ 12.
+        // Append step created a Savings group with the Holiday line planned 1,200 ÷ 12 months.
         var savings = july.Categories.Single(c => c.Kind == "Savings");
         savings.Items.Single(i => i.Name == "Holiday").PlannedAmount.Should().Be(100m);
 
@@ -80,7 +82,7 @@ public class BMonthLifecycleCoverageTests
 
     // BUDG-037: the as-of seed folds the jar's actual ledger balance (its allocation as of the
     // day before the month, rule 48) into the balance, so a jar already holding 300 needs only
-    // (1,200 − 300) ÷ 12 this month. This exercises the handler path.
+    // (1,200 − 300) ÷ 12 months this month. This exercises the handler path.
     [Fact]
     public async Task Create_SeedsAppendedJarLine_FoldingInTheJarsAllocatedBalance()
     {
@@ -90,6 +92,7 @@ public class BMonthLifecycleCoverageTests
         {
             OwnerId = "user-1", Name = "Holiday", Kind = JarKind.Goal,
             Accrual = AccrualMethod.TargetByDate, TargetAmount = 1200m,
+            TargetDate = new DateOnly(2027, 7, 1),
             FundingAccountId = account.Id,
         };
         db.Jars.Add(jar);

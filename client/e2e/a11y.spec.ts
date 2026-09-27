@@ -61,10 +61,23 @@ for (const theme of ['light', 'dark'] as const) {
       await dialog.getByLabel('Next due date').waitFor()
       await expectNoViolations(page)
 
-      // Switch to Goal → the conditional fields swap to an optional target date.
+      // Switch to Goal → the conditional fields swap to "How to save" + a Deadline.
       // Exact match: "Jar type" would otherwise also catch the "About jar types" info button.
       await dialog.getByLabel('Jar type', { exact: true }).selectOption('1')
-      await dialog.getByLabel('Target date').waitFor()
+      await dialog.getByLabel('Deadline').waitFor()
+      await expectNoViolations(page)
+
+      // A target with a mid-month deadline renders the server's schedule preview (the mocked
+      // POST /jars/schedule) and the "Include the deadline month" option; scan both (W02).
+      await dialog.getByLabel('Target amount').fill('300')
+      await dialog.getByLabel('Deadline').fill('2026-12-15')
+      await dialog.getByTestId('jar-schedule-preview').waitFor()
+      await dialog.getByLabel('Include the deadline month').waitFor()
+      await expectNoViolations(page)
+
+      // The fixed-monthly method swaps the Deadline for a Monthly amount.
+      await dialog.getByLabel('How to save').selectOption('2')
+      await dialog.getByLabel('Monthly amount').waitFor()
       await expectNoViolations(page)
 
       // Edit an existing jar (opening-balance hint, two-step Archive affordance).

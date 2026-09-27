@@ -45,9 +45,9 @@
   1. Copy December 2026 into January 2027 (TIME-002).
   2. Inspect the Holiday fund line's planned amount in January 2027.
 - **Expected:**
-  - The Holiday line is re-seeded at `RequiredMonthlyContribution(jar, 2027-01-01, OpeningBalance + asOfBalance)` where the as-of balance counts only months **strictly before** January 2027 (i.e. through December 2026) — it does NOT copy December's planned figure flat.
-  - With no target date the seed is `(1,200 − balance) ÷ 12`; the balance reflects contributions accrued through Dec 2026, so a partly-funded jar shows a smaller January contribution than a fresh 100.00.
-  - Non-seedable lines (target 0 or ProportionalPool jars) still copy flat; archived-jar lines are dropped.
+  - The Holiday line is re-seeded from the schedule at the jar's balance entering January 2027 (the ledger as of 31 December 2026, rule 48; HANDOVER P27) — it does NOT copy December's planned figure flat.
+  - A jar is seeded only with a deadline or a monthly amount (rule 17): by a deadline the remainder splits exactly over the contribution months up to the month before the deadline, remainder last (rule 35); a fixed monthly jar seeds its fixed amount, capped at what remains (rule 18). A partly-funded jar therefore shows a smaller January contribution than a fresh one.
+  - Unscheduled lines (no deadline and no monthly amount) copy flat; archived-jar lines are dropped.
   - Crosses month-create (07) + jar accrual (jars file) at the year edge; extends BUDG-015/BUDG-035.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — backfilled/created month seeds jar from the as-of-that-month balance, not all-time)
 
@@ -231,16 +231,17 @@
 
 ## 5. Jar time horizons
 
-### TIME-017 - A StraightLine cover window that spans a year end computes the right month count
+### TIME-017 - A deadline schedule that spans a year end counts its months on the absolute month index
 - **Priority:** P1
 - **Type:** Boundary
-- **Preconditions:** time-owner; a jar with Accrual StraightLine, target 600.00, `CoverStart` 2026-11-01, `CoverEnd` 2027-02-01.
+- **Origin:** Rewritten for W02 — the StraightLine cover window this case exercised is retired (rule 86); the year-edge concern moves to the deadline schedule.
+- **Preconditions:** time-owner; asOf 2026-11-15; a jar target 600.00 due **2027-03-01**, balance 0.
 - **Steps:**
-  1. View the jar's monthly set-aside on `/jars` (or read `requiredMonthlyContribution`).
+  1. Read the jar's schedule (`POST /jars/schedule`) and this month's plan on `/jars`.
 - **Expected:**
-  - Cover months = `MonthsBetween(2026-11, 2027-02)` = (2027×12+2) − (2026×12+11) = **3**, computed on the absolute month index so it crosses the year edge cleanly; monthly = `Round2(600 ÷ 3)` = **200.00**.
-  - A window with `CoverEnd ≤ CoverStart` would fall back to ÷12; StraightLine ignores the balance (over-fills if seeded every month).
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Domain/JarAccrualCalculatorTests.cs — StraightLine = target/cover-period length)
+  - Contribution months Nov 2026 → Feb 2027 (the month before the deadline): `JarSchedule.MonthsBetween(2026-11, 2027-02) + 1` = (2027×12+2) − (2026×12+11) + 1 = **4**, computed on the absolute month index so it crosses the year edge cleanly; **150.00** each, funded by 28 Feb 2027.
+  - The preview lists the four months in order across the year boundary; a mid-month deadline with the opt-in adds March (rule 36).
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Domain/JarScheduleTests.cs — every deadline case goes through `MonthsBetween`; no case crosses a year end explicitly)
 
 ### TIME-018 - A Goal jar with a target date in the past reads Behind and demands the full remainder this month
 - **Priority:** P1
@@ -249,10 +250,10 @@
 - **Steps:**
   1. View the jar on `/jars`; read its status chip and monthly set-aside.
 - **Expected:**
-  - Goal dates never roll, so `EffectiveTargetDate` = 2026-03-15 < asOf → **Behind** status chip.
-  - `TargetByDate`: remaining = 900 − 300 = 600; `MonthsBetween(2026-07, 2026-03)` is negative → floored to **1** → monthly = `Round2(600 ÷ 1)` = **600.00** (catch-up this month).
-  - A funded past-due Goal (balance ≥ target) shows 0/mo and FullyFunded, never Behind.
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/JarLifecycleTests.cs — past-due Goal stays Behind; JarAccrualCalculatorTests — floors at one month when overdue, 0 when funded)
+  - Goal dates never roll, so `JarSchedule.EffectiveDeadline` = 2026-03-15 < asOf → **Behind** status chip; the horizon reads "Due 15 Mar 2026".
+  - A passed (or this-month) deadline plans the whole remainder now: 900 − 300 = **600.00** in July, one month, never zero (rule 12 floor; HANDOVER P24). The month line reads "Plan €600.00 · in €0.00 · to go €600.00".
+  - A funded past-due Goal (balance ≥ target) plans nothing and reads Funded, never Behind (FullyFunded precedes Behind).
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/JarLifecycleTests.cs — past-due Goal stays Behind; Domain/JarScheduleTests.cs — `ADeadlineThisMonth_OrPassed_DemandsTheWholeRemainderNow`, `AFundedDeadlineJar_PlansNothing`)
 
 ### TIME-019 - A Recurring jar with a passed anchor re-arms to the next cycle across the year, preserving the day-of-month
 - **Priority:** P0
@@ -263,10 +264,10 @@
   1. View Insurance on `/jars`; read the projected-full date in the pace label.
   2. Open the Edit-jar modal and read the **"Next due"** date field.
 - **Expected:**
-  - `EffectiveTargetDate` jumps whole 12-month cycles from the anchor: cycles = `MonthsBetween(2025-12,2026-07)/12` = 0 → 2025-12-15 < asOf → +1 cycle → **2026-12-15** (≥ asOf) — day 15 preserved, no compounding drift; accrual spreads remaining over the months to 2026-12-15.
+  - `JarSchedule.EffectiveDeadline` jumps whole 12-month cycles from the anchor: cycles = `MonthsBetween(2025-12,2026-07)/12` = 0 → 2025-12-15 < asOf → +1 cycle → **2026-12-15** (≥ asOf) — day 15 preserved, no compounding drift; the schedule splits the remainder exactly over Jul→Nov (the deadline month is excluded unless opted in, rule 36) and the card reads "Funded by Nov 2026 · due 15 Dec 2026, then it repeats".
   - The Edit modal shows the **stored anchor 2025-12-15** (the DTO returns the anchor so edits round-trip), NOT the rolled 2026-12-15 — the roll is view-only.
   - A healthy past-due Recurring jar reads OnTrack (it re-arms), unlike the Goal in TIME-018.
-- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/JarLifecycleTests.cs — EffectiveDate rolls a passed recurring date forward by cycle, anchor never rewritten, month-end day preserved; rolls across multiple missed cycles)
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Domain/JarScheduleTests.cs — `ARecurringJar_PlansTowardItsNextCycle_OnceTheDateHasPassed`, `Rule62_AShorterMonth_ClampsOnlyThatOccurrence_AndKeepsTheIntendedDay`, `EffectiveDeadline_DueToday_DoesNotRoll_ButALaterDayThisMonth_Does`; JarsPage.catalog.test.tsx JAR-037 — the Edit modal shows the stored anchor)
 
 ### TIME-020 - A quarterly Recurring jar anchored on the 31st rolls to month-end without permanent drift
 - **Priority:** P2
@@ -404,7 +405,7 @@
   2. (Dev/inspection) confirm a non-ISO string passes through `shortDate` unchanged.
 - **Expected:**
   - `fromIso` builds `new Date(2026, 5, 20)` (local midnight), so the row shows **"Jun 20"** — never "Jun 19" from a UTC back-shift.
-  - A jar pace label's `monthYear`/projected-full date ("full by Nov 2026") uses the same local-parse; a non-parseable input is returned verbatim (no crash).
+  - A jar horizon's `monthYear` ("Funded by Nov 2026") and the preview's month names use the same parse; a non-parseable input is returned verbatim (no crash).
 - **Automated:** Yes (client/src/lib/dates.test.ts — no TZ day-shift; passthrough for non-ISO; monthYear month+year only)
 
 ---

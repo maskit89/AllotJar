@@ -31,6 +31,11 @@ public class JarConfiguration : IEntityTypeConfiguration<Jar>
         // Financial precision: decimal(18,4) for all currency fields.
         builder.Property(f => f.TargetAmount)
             .HasPrecision(18, 4);
+        builder.Property(f => f.MonthlyContribution)
+            .HasPrecision(18, 4);
+
+        builder.Property(f => f.IncludeDeadlineMonth)
+            .HasDefaultValue(false);
 
         builder.HasIndex(f => f.OwnerId);
 

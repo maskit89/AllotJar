@@ -56,13 +56,14 @@ public class UpdateJarCommandHandler
             jar.FundingAccountId = account.Id;
         }
 
+        var before = ScheduleInputs(jar);
         jar.Name = request.Name.Trim();
         jar.Kind = request.Kind;
         jar.TargetAmount = request.TargetAmount;
         jar.TargetDate = request.TargetDate;
-        jar.CoverStart = request.CoverStart;
-        jar.CoverEnd = request.CoverEnd;
         jar.Accrual = request.Accrual;
+        jar.MonthlyContribution = request.Accrual == AccrualMethod.FixedMonthly ? request.MonthlyContribution : null;
+        jar.IncludeDeadlineMonth = request.Accrual == AccrualMethod.TargetByDate && request.IncludeDeadlineMonth;
         // Recurring jars carry their cycle length; Goals never roll. Fall back to the
         // stored cycle (then yearly) when a request omits it, so an older/stale client
         // that doesn't send recurMonths can't silently reset a chosen 3/6-month cycle.
@@ -70,9 +71,20 @@ public class UpdateJarCommandHandler
             ? request.RecurMonths ?? jar.RecurMonths ?? 12
             : null;
 
+        // Rule 46: a changed target, deadline or plan revises this month's and later months'
+        // planned contributions — the schedule the form previewed before the user confirmed.
+        // Past months, actual transactions and balances are untouched; a plain rename or a
+        // change of account leaves every plan as it is. An archived jar plans nothing.
+        if (!jar.IsArchived && ScheduleInputs(jar) != before)
+        {
+            await JarPlanner.ReplantAsync(_db, userId, jar, today, 0m, cancellationToken);
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
 
-        var snapshot = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken, new[] { jar.FundingAccountId });
-        return jar.ToDto(snapshot);
+        return await JarFigures.ReadOneAsync(_db, userId, jar, today, cancellationToken);
     }
+
+    private static (JarKind, decimal, DateOnly?, AccrualMethod, decimal?, bool, int?) ScheduleInputs(Domain.Entities.Jar jar) =>
+        (jar.Kind, jar.TargetAmount, jar.TargetDate, jar.Accrual, jar.MonthlyContribution, jar.IncludeDeadlineMonth, jar.RecurMonths);
 }

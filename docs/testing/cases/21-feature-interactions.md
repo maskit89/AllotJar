@@ -280,8 +280,8 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 - **Preconditions:** shared household; jar with target; months 2026-05 and 2026-07 exist with contributions; 2026-06 is missing.
 - **Steps:**
   1. Create the missing 2026-06 via the ‹ back-fill (copy-from-previous, where "previous" is the most recent month strictly before 2026-06 = 2026-05).
-- **Expected:** the seeded contribution for 2026-06 uses the jar balance as of 2026-06 (`JarBalances.ComputeAsync(asOf: 2026-06)` counts only months strictly before it, i.e. 2026-05 and earlier) — 2026-07's later contribution/spend does NOT leak backward into the seed. Seeding is order-independent because the stored jar date is an anchor never rewritten (JAR-038/059).
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Domain/JarAccrualCalculatorTests.cs + SavingsTests.cs)
+- **Expected:** the seeded contribution for 2026-06 uses the jar's ledger balance as of 31 May 2026 (a month at or before the current one plans from the balance the day before it starts — HANDOVER P27; rule 48) — 2026-07's later contribution/spend does NOT leak backward into the seed. Seeding is order-independent because the stored jar date is an anchor never rewritten (JAR-038/059).
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — backfill seeds from the as-of balance; JarPlannerTests.cs; SavingsTests.cs)
 
 ### CMB-020 - A jar-owning household's blank month is over-budgeted; a no-jar household's is "plan your income"
 - **Priority:** P1

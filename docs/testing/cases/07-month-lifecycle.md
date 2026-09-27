@@ -177,15 +177,16 @@
   - Its `SavingsId` is unchanged (same jar identity, so the balance rolls over).
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/JarsTests.cs — month-create seeds fund contribution from accrual when target set; Application/SavingsTests.cs — CreateBudgetMonth copies FundId)
 
-### BUDG-016 - Copy carries a non-seedable jar line's planned amount flat
+### BUDG-016 - Copy carries an unscheduled jar line's planned amount flat; a scheduled jar is re-planned
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** budg-owner; JUN26 has a "Car Fund" line backed by jar Car Fund (**target 0.00**), planned 50.00; viewing July 2026 (no budget).
+- **Preconditions:** budg-owner; JUN26 has a "Car Fund" line backed by jar Car Fund (**no deadline and no monthly amount** — Unscheduled, rule 17), planned 50.00, and a "Holiday" line backed by a jar due 1 January 2027 (target 1,200, balance 300 on 30 June); viewing July 2026 (no budget).
 - **Steps:**
   1. Copy JUN26 into July.
 - **Expected:**
-  - The July Car Fund line copies flat at 50.00 (target 0 ⇒ not seedable ⇒ no accrual recompute); `SavingsId` preserved.
-- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/JarsTests.cs — keeps the copied amount when the jar has no target)
+  - The July Car Fund line copies flat at 50.00 (nothing to plan from ⇒ no recompute); `SavingsId` preserved.
+  - The July Holiday line is re-planned from the jar's balance entering July: (1,200 − 300) over the six contribution months Jul→Dec = **150.00** (rules 12/13, exact split); an ongoing fixed-monthly jar seeds its fixed amount (rule 16). Seeding a later month projects through the saved plans of the months in between (HANDOVER P27).
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/JarsTests.cs — keeps the copied amount when the jar has no plan; CreateBudgetMonthTests — backfills the seeded amount; JarPlannerTests — later-month projection, rule 16 seeding)
 
 ### BUDG-017 - Copy drops a line that funds an archived jar
 - **Priority:** P0
@@ -409,15 +410,15 @@
   - April's Holiday line is seeded from the as-of-April balance (only months before April count = 0.00), giving `1,200.00 ÷ 12 = 100.00` — it is NOT seeded to 0 just because later months (July/Aug) already filled the jar.
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — backfilled month seeds from as-of-that-month balance)
 
-### BUDG-037 - Seeding folds the jar's OpeningBalance into the as-of balance
+### BUDG-037 - Seeding folds the jar's actual balance (its allocation as of the day before the month) into the plan
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** budg-owner; jar Holiday target 1,200.00, no date, **OpeningBalance 300.00**, no prior-month contributions; viewing July 2026 (no budget).
+- **Preconditions:** budg-owner; jar Holiday target 1,200.00 due **1 July 2027**, **300.00 allocated on 1 June 2026**, no prior-month contributions; viewing July 2026 (no budget).
 - **Steps:**
   1. Start July blank.
 - **Expected:**
-  - Holiday line seeded from `OpeningBalance + as-of contributions = 300.00 + 0`: `(1,200.00 − 300.00) ÷ 12 = 75.00`.
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Domain/JarAccrualCalculatorTests.cs — TargetByDate spreads remaining over months; opening-inclusive seeding via handler covered indirectly by JarsTests)
+  - Holiday line seeded from the ledger balance as of 30 June 2026 (300.00, rule 48): `(1,200.00 − 300.00)` over the twelve contribution months Jul 2026→Jun 2027 = **75.00** (rules 12, 13, 35). A jar with no deadline and no monthly amount would not be seeded at all (rule 17).
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/BMonthLifecycleCoverageTests.cs — `Create_SeedsAppendedJarLine_FoldingInTheJarsAllocatedBalance`; Domain/JarScheduleTests.cs — rule 14)
 
 ## Month navigation (TopBar ‹ ›)
 

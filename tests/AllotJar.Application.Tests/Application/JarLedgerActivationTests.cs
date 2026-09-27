@@ -116,7 +116,7 @@ public class JarLedgerActivationTests
         var account = LedgerFixtures.SeedAccount(db, "user-1", opening: 500m);
 
         var dto = await new CreateJarCommandHandler(db, User).Handle(new CreateJarCommand(
-            "Holiday", JarKind.Goal, 1000m, null, null, null, AccrualMethod.TargetByDate,
+            "Holiday", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate,
             account.Id, InitialAllocation: 300m), CancellationToken.None);
 
         dto.CurrentBalance.Should().Be(300m);
@@ -138,7 +138,7 @@ public class JarLedgerActivationTests
         LedgerFixtures.Allocate(db, "user-1", account.Id, car.Id, 400m); // 100 left unallocated
 
         var act = () => new CreateJarCommandHandler(db, User).Handle(new CreateJarCommand(
-            "Holiday", JarKind.Goal, 1000m, null, null, null, AccrualMethod.TargetByDate,
+            "Holiday", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate,
             account.Id, InitialAllocation: 150m), CancellationToken.None);
 
         var ex = await act.Should().ThrowAsync<ValidationException>();
@@ -155,7 +155,7 @@ public class JarLedgerActivationTests
         var account = LedgerFixtures.SeedAccount(db, "user-1", opening: 500m, openingDate: new DateOnly(2026, 3, 1));
 
         var act = () => new CreateJarCommandHandler(db, User).Handle(new CreateJarCommand(
-            "Holiday", JarKind.Goal, 1000m, null, null, null, AccrualMethod.TargetByDate,
+            "Holiday", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate,
             account.Id, InitialAllocation: 100m, InitialAllocationDate: new DateOnly(2026, 2, 28)), CancellationToken.None);
 
         var ex = await act.Should().ThrowAsync<ValidationException>();
@@ -170,7 +170,7 @@ public class JarLedgerActivationTests
         var account = LedgerFixtures.SeedAccount(db, "user-1", opening: 500m);
 
         var act = () => new CreateJarCommandHandler(db, User).Handle(new CreateJarCommand(
-            "Holiday", JarKind.Goal, 1000m, null, null, null, AccrualMethod.TargetByDate,
+            "Holiday", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate,
             account.Id, InitialAllocation: 100m, InitialAllocationDate: Today.AddDays(1)), CancellationToken.None);
 
         var ex = await act.Should().ThrowAsync<ValidationException>();
@@ -189,13 +189,13 @@ public class JarLedgerActivationTests
         var handler = new CreateJarCommandHandler(db, User);
         // On 1 March the whole 500 was free.
         var dto = await handler.Handle(new CreateJarCommand(
-            "Holiday", JarKind.Goal, 1000m, null, null, null, AccrualMethod.TargetByDate,
+            "Holiday", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate,
             account.Id, InitialAllocation: 300m, InitialAllocationDate: new DateOnly(2026, 3, 1)), CancellationToken.None);
         dto.CurrentBalance.Should().Be(300m);
 
         // After the payment only 50 is unallocated: a second jar cannot claim 100 on 20 March.
         var act = () => handler.Handle(new CreateJarCommand(
-            "Car", JarKind.Goal, 1000m, null, null, null, AccrualMethod.TargetByDate,
+            "Car", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate,
             account.Id, InitialAllocation: 100m, InitialAllocationDate: new DateOnly(2026, 3, 20)), CancellationToken.None);
         await act.Should().ThrowAsync<ValidationException>();
     }
@@ -374,7 +374,7 @@ public class JarLedgerActivationTests
         LedgerFixtures.Allocate(db, "user-1", savings.Id, holiday.Id, 400m);
         var handler = new UpdateJarCommandHandler(db, User);
 
-        UpdateJarCommand Move() => new(holiday.Id, "Holiday", JarKind.Goal, 1000m, null, null, null, AccrualMethod.TargetByDate, current.Id);
+        UpdateJarCommand Move() => new(holiday.Id, "Holiday", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate, current.Id);
 
         var act = () => handler.Handle(Move(), CancellationToken.None);
         var ex = await act.Should().ThrowAsync<ValidationException>();
@@ -405,7 +405,7 @@ public class JarLedgerActivationTests
         var holiday = SeedJar(db, savings);
 
         var act = () => new UpdateJarCommandHandler(db, User).Handle(new UpdateJarCommand(
-            holiday.Id, "Holiday", JarKind.Goal, 1000m, null, null, null, AccrualMethod.TargetByDate, card.Id), CancellationToken.None);
+            holiday.Id, "Holiday", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate, card.Id), CancellationToken.None);
 
         var ex = await act.Should().ThrowAsync<ValidationException>();
         ex.Which.Errors.Should().ContainKey("FundingAccountId");
@@ -603,7 +603,7 @@ public class JarLedgerActivationTests
         var card = LedgerFixtures.SeedAccount(db, "user-1", "Visa", opening: 0m, type: AccountType.CreditCard);
 
         var act = () => new CreateJarCommandHandler(db, User).Handle(new CreateJarCommand(
-            "Holiday", JarKind.Goal, 1000m, null, null, null, AccrualMethod.TargetByDate, card.Id), CancellationToken.None);
+            "Holiday", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate, card.Id), CancellationToken.None);
 
         var ex = await act.Should().ThrowAsync<ValidationException>();
         ex.Which.Errors["FundingAccountId"].Single().Should().Contain("credit card");
@@ -617,7 +617,7 @@ public class JarLedgerActivationTests
         var theirs = LedgerFixtures.SeedAccount(db, "user-2");
 
         var act = () => new CreateJarCommandHandler(db, User).Handle(new CreateJarCommand(
-            "Holiday", JarKind.Goal, 1000m, null, null, null, AccrualMethod.TargetByDate, theirs.Id), CancellationToken.None);
+            "Holiday", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate, theirs.Id), CancellationToken.None);
 
         await act.Should().ThrowAsync<ForbiddenAccessException>();
     }

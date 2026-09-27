@@ -179,46 +179,64 @@ public class JJarsCoverageTests
         ex.Message.Should().Contain("was not found.");
     }
 
-    // ---- JAR-035 / JAR-034: an edit echoes the stored accrual method + cover window ---
+    // ---- Rule 46: an edit revises the current and later plans; a rename leaves them ----
 
     [Fact]
-    public async Task Update_KeepsStoredStraightLineAccrual_AndCoverWindow_OnAPlainRename()
+    public async Task Update_RevisesThisMonthsAndLaterLines_WhenThePlanChanges_AndLeavesPastMonthsAndRenamesAlone()
     {
-        // JAR-035 / JAR-034 — an imported StraightLine jar carries a cover window the
-        // form never surfaces; a rename must ECHO accrual:0 + the window rather than
-        // force the form default (TargetByDate, ÷12). The handler persists exactly what
-        // is sent, so the jar keeps StraightLine (target ÷ cover months).
         await using var db = NewContext();
         var account = LedgerFixtures.SeedAccount(db, "user-1");
-        var id = Guid.NewGuid();
-        db.Jars.Add(new Jar
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var current = new DateOnly(today.Year, today.Month, 1);
+        var jar = new Jar
         {
-            Id = id,
-            OwnerId = "user-1",
-            Name = "Car Insurance",
-            Kind = JarKind.Recurring,
-            TargetAmount = 600m,
-            Accrual = AccrualMethod.StraightLine,
-            CoverStart = new DateOnly(2026, 1, 1),
-            CoverEnd = new DateOnly(2026, 12, 31),
-            FundingAccountId = account.Id,
-        });
+            OwnerId = "user-1", Name = "Sofa", Kind = JarKind.Goal, TargetAmount = 300m,
+            TargetDate = current.AddMonths(3), Accrual = AccrualMethod.TargetByDate, FundingAccountId = account.Id,
+        };
+        db.Jars.Add(jar);
+        // Last month (history), this month and next month each carry the jar's line: 100 each (rule 12).
+        foreach (var offset in new[] { -1, 0, 1 })
+        {
+            var m = current.AddMonths(offset);
+            db.BudgetMonths.Add(new BudgetMonth
+            {
+                OwnerId = "user-1", Year = m.Year, Month = m.Month, BaseCurrency = CurrencyCode.Eur,
+                Categories = new List<BudgetCategory>
+                {
+                    new()
+                    {
+                        Name = "Savings", Kind = CategoryKind.Savings,
+                        Items = new List<BudgetItem> { new() { Name = "Sofa", PlannedAmount = 100m, SavingsId = jar.Id } },
+                    },
+                },
+            });
+        }
         db.SaveChanges();
+        var handler = new UpdateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
-        var dto = await new UpdateJarCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new UpdateJarCommand(
-                id, "Car Cover", JarKind.Recurring, 600m, TargetDate: null,
-                CoverStart: new DateOnly(2026, 1, 1), CoverEnd: new DateOnly(2026, 12, 31),
-                AccrualMethod.StraightLine, FundingAccountId: account.Id, RecurMonths: 12), CancellationToken.None);
+        // A rename changes nothing about the plan, so every line stays as it is.
+        await handler.Handle(new UpdateJarCommand(
+            jar.Id, "New sofa", JarKind.Goal, 300m, current.AddMonths(3), AccrualMethod.TargetByDate, account.Id), CancellationToken.None);
+        Lines(db, jar.Id).Should().Equal(100m, 100m, 100m);
 
-        dto.Accrual.Should().Be(AccrualMethod.StraightLine);
-        dto.CoverStart.Should().Be(new DateOnly(2026, 1, 1));
-        dto.CoverEnd.Should().Be(new DateOnly(2026, 12, 31));
-        // StraightLine ÷ cover months (Jan→Dec = 11 whole months): 600 / 11 = 54.55 —
-        // NOT the TargetByDate ÷12 (50.00) a forced-default edit would have produced.
-        dto.RequiredMonthlyContribution.Should().Be(54.55m);
+        // Doubling the target revises this month and next to 200 each; last month stays 100.
+        var dto = await handler.Handle(new UpdateJarCommand(
+            jar.Id, "New sofa", JarKind.Goal, 600m, current.AddMonths(3), AccrualMethod.TargetByDate, account.Id), CancellationToken.None);
+        Lines(db, jar.Id).Should().Equal(100m, 200m, 200m);
+        dto.PlannedThisMonth.Should().Be(200m);
 
-        (await db.Jars.SingleAsync(j => j.Id == id)).Accrual.Should().Be(AccrualMethod.StraightLine);
+        // Switching to a fixed 50 a month plans 50 in this month and next (rule 18: 600 needs twelve).
+        await handler.Handle(new UpdateJarCommand(
+            jar.Id, "New sofa", JarKind.Goal, 600m, null, AccrualMethod.FixedMonthly, account.Id, MonthlyContribution: 50m), CancellationToken.None);
+        Lines(db, jar.Id).Should().Equal(100m, 50m, 50m);
+        (await db.Jars.SingleAsync()).MonthlyContribution.Should().Be(50m);
+
+        static List<decimal> Lines(ApplicationDbContext db, Guid jarId) => db.BudgetItems
+            .Include(i => i.BudgetCategory).ThenInclude(c => c.BudgetMonth)
+            .Where(i => i.SavingsId == jarId)
+            .OrderBy(i => i.BudgetCategory.BudgetMonth.Year).ThenBy(i => i.BudgetCategory.BudgetMonth.Month)
+            .Select(i => i.PlannedAmount)
+            .ToList();
     }
 
     // ---- JAR-040: a stale client omitting recurMonths can't reset a chosen cycle ------
@@ -247,8 +265,7 @@ public class JJarsCoverageTests
 
         var dto = await new UpdateJarCommandHandler(db, new CurrentUserStub("user-1"))
             .Handle(new UpdateJarCommand(
-                jar.Id, "Road Tax", JarKind.Recurring, 150m, new DateOnly(2026, 10, 1),
-                null, null, AccrualMethod.TargetByDate, account.Id,
+                jar.Id, "Road Tax", JarKind.Recurring, 150m, new DateOnly(2026, 10, 1), AccrualMethod.TargetByDate, account.Id,
                 RecurMonths: null), CancellationToken.None);
 
         dto.RecurMonths.Should().Be(3); // preserved, not reset to 12
@@ -309,17 +326,17 @@ public class JJarsCoverageTests
         var validator = new CreateJarCommandValidator();
 
         validator.Validate(new CreateJarCommand(
-                "Overdrawn", JarKind.Goal, 300m, null, null, null,
+                "Overdrawn", JarKind.Goal, 300m, null,
                 AccrualMethod.TargetByDate, Guid.NewGuid(), InitialAllocation: -100m))
             .Errors.Should().Contain(e => e.PropertyName == "InitialAllocation");
 
         validator.Validate(new CreateJarCommand(
-                "Set aside", JarKind.Goal, 300m, null, null, null,
+                "Set aside", JarKind.Goal, 300m, new DateOnly(2027, 1, 1),
                 AccrualMethod.TargetByDate, Guid.NewGuid(), InitialAllocation: 100m))
             .IsValid.Should().BeTrue();
 
         validator.Validate(new CreateJarCommand(
-                "Bad target", JarKind.Goal, -1m, null, null, null,
+                "Bad target", JarKind.Goal, -1m, null,
                 AccrualMethod.TargetByDate, Guid.NewGuid()))
             .IsValid.Should().BeFalse();
     }
@@ -333,12 +350,12 @@ public class JJarsCoverageTests
         var validator = new CreateJarCommandValidator();
 
         validator.Validate(new CreateJarCommand(
-                "X", JarKind.Recurring, 100m, new DateOnly(2026, 10, 1), null, null,
+                "X", JarKind.Recurring, 100m, new DateOnly(2026, 10, 1),
                 AccrualMethod.TargetByDate, Guid.NewGuid(), RecurMonths: 120))
             .IsValid.Should().BeTrue();
 
         validator.Validate(new CreateJarCommand(
-                "X", JarKind.Recurring, 100m, new DateOnly(2026, 10, 1), null, null,
+                "X", JarKind.Recurring, 100m, new DateOnly(2026, 10, 1),
                 AccrualMethod.TargetByDate, Guid.NewGuid(), RecurMonths: 121))
             .Errors.Should().Contain(e => e.ErrorMessage == "Repeat cycle must be between 1 and 120 months.");
     }

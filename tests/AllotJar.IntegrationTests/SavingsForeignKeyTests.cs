@@ -162,7 +162,7 @@ public class SavingsForeignKeyTests
         // FundingAccountId is an enforced FK too, and the initial allocation is written under the
         // account's ledger lock.
         var dto = await handler.Handle(
-            new CreateJarCommand("New Sofa", JarKind.Goal, 1200m, null, null, null,
+            new CreateJarCommand("New Sofa", JarKind.Goal, 1200m, null,
                 AccrualMethod.TargetByDate, account.Id, InitialAllocation: 200m),
             CancellationToken.None);
 
@@ -189,7 +189,7 @@ public class SavingsForeignKeyTests
 
         var handler = new CreateJarCommandHandler(db, new CurrentUserStub(owner));
         var act = () => handler.Handle(
-            new CreateJarCommand("Orphan", JarKind.Goal, 100m, null, null, null,
+            new CreateJarCommand("Orphan", JarKind.Goal, 100m, null,
                 AccrualMethod.TargetByDate, Guid.NewGuid()),
             CancellationToken.None);
 

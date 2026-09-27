@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import type { AccountDto, JarDto, MeResponse } from '../types'
+import type { AccountDto, JarDto, JarScheduleDto, JarScheduleMonthDto, JarScheduleRequest, MeResponse } from '../types'
 
 // Same api-control harness as JarsPage.test.tsx / the other *.catalog.test.tsx files:
 // vi.hoisted so the mock factory can reference the fns, importOriginal spread so the
@@ -28,8 +28,7 @@ import { AuthProvider } from '../auth/AuthContext'
 // (€1,234.56), independent of test-execution order.
 import { setMoneyFormat } from '../lib/money'
 
-// A fully-populated JarDto; accrual defaults to TargetByDate (1) — the method every
-// genuinely-new jar saves — so the edit preview is live unless a test overrides it.
+// A fully-populated JarDto: a recurring jar saving 300 by 1 Dec, planned 25 this month.
 function jar(over: Partial<JarDto> = {}): JarDto {
   return {
     id: 'f1',
@@ -37,19 +36,56 @@ function jar(over: Partial<JarDto> = {}): JarDto {
     kind: 0,
     targetAmount: 300,
     targetDate: '2026-12-01',
-    coverStart: null,
-    coverEnd: null,
     accrual: 1,
+    monthlyContribution: null,
+    includeDeadlineMonth: false,
     recurMonths: 12,
     fundingAccountId: 'acc1',
     balanceAsOf: '2026-09-26',
     isArchived: false,
     currentBalance: 120,
-    requiredMonthlyContribution: 25,
-    projectedFullyFundedDate: '2026-11-01',
+    plannedThisMonth: 25,
+    contributedThisMonth: 0,
+    remainingThisMonth: 25,
+    deadline: '2026-12-01',
+    fundingCompletesOn: '2026-11-30',
+    estimatedMonthsToTarget: null,
     status: 'OnTrack',
     ...over,
   }
+}
+
+// The server's answer to POST /jars/schedule: the months the planner would seed.
+function month(year: number, month: number, planned: number, over: Partial<JarScheduleMonthDto> = {}): JarScheduleMonthDto {
+  return { year, month, planned, hasBudget: false, shortfall: null, ...over }
+}
+
+function schedule(over: Partial<JarScheduleDto> = {}): JarScheduleDto {
+  return {
+    accrual: 1,
+    isOngoing: false,
+    hasSchedule: true,
+    balance: 120,
+    remaining: 180,
+    months: [month(2026, 9, 60), month(2026, 10, 60), month(2026, 11, 60)],
+    total: 180,
+    deadline: '2026-12-01',
+    fundingCompletesOn: '2026-11-30',
+    estimatedMonths: null,
+    ...over,
+  }
+}
+
+/** Answer /jars/schedule from `plan` (given the request) and every other POST with `data`. */
+function mockPosts(plan: (request: JarScheduleRequest) => JarScheduleDto, data: unknown = {}) {
+  mockPost.mockImplementation((url: string, body: unknown) =>
+    url === '/jars/schedule' ? Promise.resolve({ data: plan(body as JarScheduleRequest) }) : Promise.resolve({ data }),
+  )
+}
+
+/** The body of the one POST /jars a test expects. */
+function createBody(): Record<string, unknown> {
+  return mockPost.mock.calls.find((c) => c[0] === '/jars')![1] as Record<string, unknown>
 }
 
 // Account name deliberately doesn't collide with any jar name so its <option> never
@@ -97,17 +133,20 @@ describe('JarsPage — catalog (JAR)', () => {
     mockGet.mockReset()
     mockPut.mockReset()
     mockPost.mockReset()
+    // The form asks the server for a schedule preview whenever a jar can be planned; answer
+    // with nothing plannable unless a test cares about the preview.
+    mockPost.mockResolvedValue({ data: {} })
     setMoneyFormat('comma-dot') // pin en-GB: €1,234.56
     mockLoads()
   })
 
   // --- List, hero, card & empty state --------------------------------------
 
-  it('JAR-002: the hero sums Total saved / Monthly / Active jars across the list', { timeout: 15000 }, async () => {
+  it('JAR-002: the hero sums Total saved / This month / Active jars across the list', { timeout: 15000 }, async () => {
     mockLoads({
       jars: [
-        jar({ id: 'f1', name: 'Home insurance', currentBalance: 120, requiredMonthlyContribution: 25 }),
-        jar({ id: 'f2', name: 'Holiday', currentBalance: 300, requiredMonthlyContribution: 50 }),
+        jar({ id: 'f1', name: 'Home insurance', currentBalance: 120, plannedThisMonth: 25 }),
+        jar({ id: 'f2', name: 'Holiday', currentBalance: 300, plannedThisMonth: 50 }),
       ],
     })
 
@@ -116,8 +155,8 @@ describe('JarsPage — catalog (JAR)', () => {
     const hero = (await screen.findByText('Total saved', {}, { timeout: 5000 })).closest('section')!
     // Total saved = Σ currentBalance (120 + 300); the gold number carries its accessible name.
     expect(within(hero).getByLabelText('Total saved: €420.00')).toBeInTheDocument()
-    // Monthly = Σ requiredMonthlyContribution (25 + 50), rendered with a leading "+".
-    expect(within(hero).getByText('Monthly').closest('div')!.textContent).toContain('+€75.00')
+    // This month = Σ plannedThisMonth (25 + 50, rule 14), rendered with a leading "+".
+    expect(within(hero).getByText('This month').closest('div')!.textContent).toContain('+€75.00')
     // Active jars = the count of jars in the list.
     expect(within(hero).getByText('Active jars').closest('div')!.textContent).toContain('2')
     expect(screen.getByRole('heading', { name: 'Your jars' })).toBeInTheDocument()
@@ -127,9 +166,9 @@ describe('JarsPage — catalog (JAR)', () => {
     mockLoads({
       jars: [
         // 250 of 100 → 250% → clamps to 100 (status kept quiet so the % pill still shows).
-        jar({ id: 'f1', name: 'Overshoot', targetAmount: 100, currentBalance: 250, status: 'OnTrack', requiredMonthlyContribution: 0, projectedFullyFundedDate: null }),
+        jar({ id: 'f1', name: 'Overshoot', targetAmount: 100, currentBalance: 250, status: 'OnTrack', plannedThisMonth: 0, remainingThisMonth: 0, fundingCompletesOn: null }),
         // −40 of 1000 → −4% → clamps to 0; balance renders as a negative.
-        jar({ id: 'f2', name: 'Negative', targetAmount: 1000, currentBalance: -40, status: 'Overspent', requiredMonthlyContribution: 0, projectedFullyFundedDate: null }),
+        jar({ id: 'f2', name: 'Negative', targetAmount: 1000, currentBalance: -40, status: 'Overspent', plannedThisMonth: 0, remainingThisMonth: 0, fundingCompletesOn: null }),
       ],
     })
 
@@ -149,8 +188,8 @@ describe('JarsPage — catalog (JAR)', () => {
   it('JAR-005: the % pill is hidden for a FullyFunded jar and a target-less jar', { timeout: 15000 }, async () => {
     mockLoads({
       jars: [
-        jar({ id: 'f1', name: 'Sofa', targetAmount: 300, currentBalance: 300, status: 'FullyFunded', requiredMonthlyContribution: 0, projectedFullyFundedDate: null }),
-        jar({ id: 'f2', name: 'Slush', targetAmount: 0, currentBalance: 500, status: 'Unfunded', requiredMonthlyContribution: 0, projectedFullyFundedDate: null }),
+        jar({ id: 'f1', name: 'Sofa', targetAmount: 300, currentBalance: 300, status: 'FullyFunded', plannedThisMonth: 0, remainingThisMonth: 0, fundingCompletesOn: null }),
+        jar({ id: 'f2', name: 'Slush', kind: 1, recurMonths: null, targetAmount: 0, targetDate: null, deadline: null, currentBalance: 500, status: 'Unscheduled', plannedThisMonth: 0, remainingThisMonth: 0, fundingCompletesOn: null }),
       ],
     })
 
@@ -160,11 +199,13 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(await screen.findByText('Funded', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.queryByText('100%')).not.toBeInTheDocument()
 
-    // Slush (target ≤ 0): no pill, no "of €…" suffix — just the bare balance — and "No target yet".
+    // Slush (target ≤ 0, no plan): no pill, no "of €…" suffix — just the bare balance — and the
+    // "Needs a plan" chip with the line saying what would plan it (rule 17).
     const slush = screen.getByRole('img', { name: 'Slush: 0% funded' }).parentElement!
     expect(within(slush).getByText('€500.00')).toBeInTheDocument()
     expect(within(slush).queryByText(/of €/)).not.toBeInTheDocument()
-    expect(within(slush).getByText('No target yet')).toBeInTheDocument()
+    expect(within(slush).getByText('Needs a plan')).toBeInTheDocument()
+    expect(within(slush).getByText('Add a deadline or a monthly amount to plan contributions')).toBeInTheDocument()
   })
 
   it('JAR-009: a failed /jars load shows the error banner and no cards', { timeout: 15000 }, async () => {
@@ -194,7 +235,7 @@ describe('JarsPage — catalog (JAR)', () => {
 
   // --- Creating a jar (New jar modal) --------------------------------------
 
-  it('JAR-013: a Goal create sends kind:1, recurMonths:null and the chosen target date', { timeout: 15000 }, async () => {
+  it('JAR-013: a Goal create sends kind:1, recurMonths:null and the chosen deadline', { timeout: 15000 }, async () => {
     mockPost.mockResolvedValue({ data: jar({ id: 'f9', name: 'New kitchen', kind: 1, targetAmount: 5000, recurMonths: null, targetDate: '2027-01-01', status: 'OnTrack' }) })
     const user = userEvent.setup()
 
@@ -204,7 +245,7 @@ describe('JarsPage — catalog (JAR)', () => {
     await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Jar name'), 'New kitchen')
     await user.type(dialog.getByLabelText('Target amount'), '5000')
-    fireEvent.change(dialog.getByLabelText('Target date'), { target: { value: '2027-01-01' } })
+    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-01-01' } })
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
     await waitFor(
@@ -228,6 +269,7 @@ describe('JarsPage — catalog (JAR)', () => {
     await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Jar name'), 'Car repairs')
     await user.type(dialog.getByLabelText('Target amount'), '600')
+    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-03-01' } })
     // The field divides money already in the account into the jar; it never adds money.
     expect(dialog.getByText('Already set aside')).toBeInTheDocument()
     expect(dialog.getByText(/It doesn.t add money/)).toBeInTheDocument()
@@ -239,7 +281,7 @@ describe('JarsPage — catalog (JAR)', () => {
       () => expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ initialAllocation: 150, initialAllocationDate: '2026-09-10', fundingAccountId: 'acc1' })),
       { timeout: 5000 },
     )
-    expect(mockPost.mock.calls[0][1]).not.toHaveProperty('openingBalance')
+    expect(createBody()).not.toHaveProperty('openingBalance')
   })
 
   it('JAR-015: a blank "Already set aside" sends initialAllocation 0 with no date', { timeout: 15000 }, async () => {
@@ -252,6 +294,7 @@ describe('JarsPage — catalog (JAR)', () => {
     await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Jar name'), 'Later')
     await user.type(dialog.getByLabelText('Target amount'), '600')
+    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-03-01' } })
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
     await waitFor(
@@ -286,9 +329,10 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(within(held).queryByRole('option', { name: 'No account' })).not.toBeInTheDocument()
     expect(within(held).getByRole('option', { name: 'Joint Current' })).toBeInTheDocument()
 
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal (no due-date guard)
+    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Jar name'), 'Wheels')
     await user.type(dialog.getByLabelText('Target amount'), '400')
+    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-03-01' } })
     await user.selectOptions(held, 'acc1')
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
@@ -345,8 +389,8 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
-  it('JAR-027: a Goal with target 0 and no date is accepted (Unfunded, "No target yet")', { timeout: 15000 }, async () => {
-    mockPost.mockResolvedValue({ data: jar({ id: 'f9', name: 'Someday', kind: 1, targetAmount: 0, targetDate: null, recurMonths: null, currentBalance: 0, requiredMonthlyContribution: 0, projectedFullyFundedDate: null, status: 'Unfunded' }) })
+  it('JAR-027: a Goal with no target saves as an ongoing pot at a fixed monthly amount (rule 16)', { timeout: 15000 }, async () => {
+    mockPost.mockResolvedValue({ data: jar({ id: 'f9', name: 'Someday', kind: 1, accrual: 2, monthlyContribution: 50, targetAmount: 0, targetDate: null, recurMonths: null, currentBalance: 0, plannedThisMonth: 50, contributedThisMonth: 0, remainingThisMonth: 50, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, status: 'Ongoing' }) })
     const user = userEvent.setup()
 
     renderPage()
@@ -354,15 +398,25 @@ describe('JarsPage — catalog (JAR)', () => {
 
     await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Jar name'), 'Someday')
-    // Leave Target + Target date blank — the target/date guards apply only to Recurring.
+    await user.selectOptions(dialog.getByLabelText('How to save'), '2') // a fixed amount each month
+    // The target is optional for this method; the monthly amount is what plans it.
+    expect(dialog.getByText('Target (optional)')).toBeInTheDocument()
+    await user.type(dialog.getByLabelText('Monthly amount'), '50')
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
     await waitFor(
-      () => expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ kind: 1, targetAmount: 0, targetDate: null })),
+      () =>
+        expect(mockPost).toHaveBeenCalledWith(
+          '/jars',
+          expect.objectContaining({ kind: 1, targetAmount: 0, targetDate: null, accrual: 2, monthlyContribution: 50, recurMonths: null }),
+        ),
       { timeout: 5000 },
     )
     expect(await screen.findByText('Someday', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText('No target yet')).toBeInTheDocument()
+    // The card: this month's plan, the "Ongoing" horizon, no % pill and no "of €…" (no target).
+    expect(screen.getByText('Plan €50.00 · in €0.00 · to go €50.00')).toBeInTheDocument()
+    expect(screen.getByText('Ongoing')).toBeInTheDocument()
+    expect(screen.queryByText(/of €/)).not.toBeInTheDocument()
   })
 
   it('JAR-028: a target with >4 decimals is rounded half-up to scale 4 on the wire', { timeout: 15000 }, async () => {
@@ -375,6 +429,7 @@ describe('JarsPage — catalog (JAR)', () => {
     await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Jar name'), 'Precise')
     await user.type(dialog.getByLabelText('Target amount'), '100.123456')
+    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-03-01' } })
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
     // parseMinor rounds HALF-UP on the 5th fractional digit: 100.123456 → 100.1235.
@@ -394,6 +449,7 @@ describe('JarsPage — catalog (JAR)', () => {
     await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Jar name'), 'Doomed')
     await user.type(dialog.getByLabelText('Target amount'), '100')
+    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-03-01' } })
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
     expect(await dialog.findByText('Could not add that jar.', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -459,22 +515,29 @@ describe('JarsPage — catalog (JAR)', () => {
 
   // --- Editing a jar --------------------------------------------------------
 
-  it('JAR-035: editing echoes the stored accrual method (importer StraightLine survives)', { timeout: 15000 }, async () => {
-    // The form has no Accrual control; a rename must send editingJar.accrual, not force TargetByDate.
-    mockLoads({ jars: [jar({ accrual: 0, coverStart: '2026-01-01', coverEnd: '2026-12-31' })] })
-    mockPut.mockResolvedValue({ data: jar({ accrual: 0, name: 'Living Costs' }) })
+  it('JAR-035: editing echoes the stored plan — a rename keeps the fixed monthly method and amount', { timeout: 15000 }, async () => {
+    // A rename must send the jar's own plan back (accrual 2 + its monthly amount), never
+    // silently switch it to "by a deadline".
+    mockLoads({ jars: [jar({ kind: 1, recurMonths: null, accrual: 2, monthlyContribution: 40, targetAmount: 480, targetDate: null, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: 9 })] })
+    mockPut.mockResolvedValue({ data: jar({ kind: 1, recurMonths: null, accrual: 2, monthlyContribution: 40, name: 'Living Costs' }) })
     const user = userEvent.setup()
 
     renderPage()
 
     await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByLabelText('How to save')).toHaveValue('2')
+    expect(dialog.getByLabelText('Monthly amount')).toHaveValue('40')
     await user.clear(dialog.getByLabelText('Jar name'))
     await user.type(dialog.getByLabelText('Jar name'), 'Living Costs')
     await user.click(dialog.getByRole('button', { name: 'Save jar' }))
 
     await waitFor(
-      () => expect(mockPut).toHaveBeenCalledWith('/jars/f1', expect.objectContaining({ name: 'Living Costs', accrual: 0 })),
+      () =>
+        expect(mockPut).toHaveBeenCalledWith(
+          '/jars/f1',
+          expect.objectContaining({ name: 'Living Costs', accrual: 2, monthlyContribution: 40, targetAmount: 480, targetDate: null }),
+        ),
       { timeout: 5000 },
     )
   })
@@ -502,8 +565,7 @@ describe('JarsPage — catalog (JAR)', () => {
   })
 
   it('JAR-039: a non-standard recurMonths is preserved as an extra Repeats option', { timeout: 15000 }, async () => {
-    // accrual 0 keeps the preview suppressed so this focuses purely on the cadence select.
-    mockLoads({ jars: [jar({ kind: 0, accrual: 0, recurMonths: 24, targetDate: '2026-06-01', targetAmount: 300 })] })
+    mockLoads({ jars: [jar({ kind: 0, recurMonths: 24, targetDate: '2026-06-01', targetAmount: 300 })] })
     mockPut.mockResolvedValue({ data: jar({ recurMonths: 24 }) })
     const user = userEvent.setup()
 
@@ -523,54 +585,57 @@ describe('JarsPage — catalog (JAR)', () => {
     )
   })
 
-  it('JAR-041: the edit preview builds on the jar\'s actual balance and recomputes from the target', { timeout: 15000 }, async () => {
-    // No target date ⇒ the remainder spreads over 12 months (clock-independent). base =
-    // currentBalance (the ledger figure, rule 1 — there is no opening field to retype).
-    // Target 300, balance 120 → remaining 180 ÷12 = €15.00; target 900 → 780 ÷12 = €65.00.
-    mockLoads({ jars: [jar({ targetAmount: 300, currentBalance: 120, targetDate: null, accrual: 1 })] })
+  it('JAR-041: the edit preview is the server\'s schedule for the edited definition, re-asked as the target changes', { timeout: 15000 }, async () => {
+    // The planner works from the jar's actual balance (rule 1), so the form sends the jar's id
+    // and no "already set aside"; target 300 → 60 a month, target 900 → 260 a month.
+    mockLoads({ jars: [jar({ targetAmount: 300, currentBalance: 120 })] })
+    mockPosts((request) =>
+      request.targetAmount === 900
+        ? schedule({ remaining: 780, months: [month(2026, 9, 260), month(2026, 10, 260), month(2026, 11, 260)], total: 780 })
+        : schedule(),
+    )
     const user = userEvent.setup()
 
     renderPage()
 
     await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    expect(dialog.getByText(/€15\.00/)).toBeInTheDocument()
+    expect(await dialog.findByText(/Sets aside €60\.00 a month from Sep 2026 to Nov 2026/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ jarId: 'f1', targetAmount: 300, targetDate: '2026-12-01', accrual: 1, initialAllocation: 0 }))
     expect(dialog.queryByLabelText('Opening balance')).not.toBeInTheDocument()
 
     await user.clear(dialog.getByLabelText('Target amount'))
     await user.type(dialog.getByLabelText('Target amount'), '900')
-    expect(await dialog.findByText(/€65\.00/, {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(dialog.queryByText(/€15\.00/)).not.toBeInTheDocument()
+    expect(await dialog.findByText(/Sets aside €260\.00 a month/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(dialog.queryByText(/€60\.00 a month/)).not.toBeInTheDocument()
+    expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ jarId: 'f1', targetAmount: 900 }))
   })
 
-  it('JAR-041: the create preview builds on "Already set aside"', { timeout: 15000 }, async () => {
-    // Target 1,200 with 600 already set aside → 600 ÷12 = €50.00/mo.
+  it('JAR-041: the create preview sends "Already set aside" so the server plans from it', { timeout: 15000 }, async () => {
+    // Target 1,200 with 600 already set aside: the server folds the allocation into the balance.
+    mockPosts((request) =>
+      request.initialAllocation === 600
+        ? schedule({ balance: 600, remaining: 600, months: [month(2026, 9, 200), month(2026, 10, 200), month(2026, 11, 200)], total: 600 })
+        : schedule({ balance: 0, remaining: 1200, months: [month(2026, 9, 400), month(2026, 10, 400), month(2026, 11, 400)], total: 1200 }),
+    )
     const user = userEvent.setup()
 
     renderPage()
     const dialog = await openNewJar(user)
 
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal, no date
+    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Target amount'), '1200')
-    expect(await dialog.findByText(/€100\.00/, {}, { timeout: 5000 })).toBeInTheDocument()
+    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2026-12-01' } })
+    expect(await dialog.findByText(/Sets aside €400\.00 a month/, {}, { timeout: 5000 })).toBeInTheDocument()
     await user.type(dialog.getByLabelText('Already set aside'), '600')
-    expect(await dialog.findByText(/€50\.00/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await dialog.findByText(/Sets aside €200\.00 a month/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ jarId: null, kind: 1, targetAmount: 1200, targetDate: '2026-12-01', recurMonths: null, initialAllocation: 600 }))
   })
 
-  it('JAR-041: no preview while the jar\'s balance is unavailable', { timeout: 15000 }, async () => {
-    mockLoads({ jars: [jar({ currentBalance: null, status: 'Unavailable', requiredMonthlyContribution: 0, projectedFullyFundedDate: null })] })
-    const user = userEvent.setup()
-
-    renderPage()
-
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
-    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    expect(dialog.queryByText(/Sets aside/)).not.toBeInTheDocument()
-  })
-
-  it('JAR-042: no preview renders for a non-TargetByDate (StraightLine) jar', { timeout: 15000 }, async () => {
-    // The client's TargetByDate mirror wouldn't match the server's StraightLine figure, so it's hidden.
-    mockLoads({ jars: [jar({ accrual: 0, targetAmount: 300, targetDate: null })] })
+  it('JAR-041: no preview, and no request, while the jar\'s balance is unavailable', { timeout: 15000 }, async () => {
+    // Rule 67: with no balance there is nothing to plan from, so the form doesn't ask.
+    mockLoads({ jars: [jar({ currentBalance: null, status: 'Unavailable', plannedThisMonth: 0, remainingThisMonth: 0, fundingCompletesOn: null })] })
+    mockPosts(() => schedule())
     const user = userEvent.setup()
 
     renderPage()
@@ -579,8 +644,42 @@ describe('JarsPage — catalog (JAR)', () => {
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.clear(dialog.getByLabelText('Target amount'))
     await user.type(dialog.getByLabelText('Target amount'), '900')
+    await new Promise((r) => setTimeout(r, 400)) // past the preview debounce
+    expect(dialog.queryByTestId('jar-schedule-preview')).not.toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+  })
 
-    expect(dialog.queryByText(/Sets aside/)).not.toBeInTheDocument()
+  it('JAR-042: no preview without a deadline or a monthly amount; either one brings it (rule 17)', { timeout: 15000 }, async () => {
+    // A goal with a target but no way to save it can't be planned: nothing is asked or shown
+    // until a deadline or a fixed monthly amount is given.
+    mockLoads({ jars: [jar({ kind: 1, recurMonths: null, targetAmount: 300, targetDate: null, deadline: null, fundingCompletesOn: null, plannedThisMonth: 0, remainingThisMonth: 0, status: 'Unscheduled' })] })
+    mockPosts((request) =>
+      request.accrual === 2
+        ? schedule({ accrual: 2, months: [month(2026, 9, 50), month(2026, 10, 50), month(2026, 11, 50), month(2026, 12, 30)], total: 180, deadline: null, fundingCompletesOn: null, estimatedMonths: 4 })
+        : schedule(),
+    )
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.clear(dialog.getByLabelText('Target amount'))
+    await user.type(dialog.getByLabelText('Target amount'), '900')
+    await new Promise((r) => setTimeout(r, 400)) // past the preview debounce
+    expect(dialog.queryByTestId('jar-schedule-preview')).not.toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+
+    // A fixed monthly amount plans it: the estimate is worded as an estimate (rule 58).
+    await user.selectOptions(dialog.getByLabelText('How to save'), '2')
+    await user.type(dialog.getByLabelText('Monthly amount'), '50')
+    expect(await dialog.findByText('Sets aside €50.00 a month — about 4 more months to reach the target (an estimate, not a deadline).', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ jarId: 'f1', accrual: 2, monthlyContribution: 50, targetDate: null }))
+
+    // …and so does a deadline.
+    await user.selectOptions(dialog.getByLabelText('How to save'), '1')
+    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2026-12-01' } })
+    expect(await dialog.findByText(/Sets aside €60\.00 a month from Sep 2026 to Nov 2026/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
   it('JAR-043: a failed edit save keeps the modal open with the save-error banner', { timeout: 15000 }, async () => {

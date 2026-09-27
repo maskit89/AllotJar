@@ -45,7 +45,7 @@
 - **Preconditions:** Stubbed Playwright, both themes.
 - **Steps:**
   1. `/import`: choose an account, upload a CSV, "Review transactions"; scan the review table, then an opened split editor ("Split AUTOMARKET on 2026-06-17"), then a marked transfer ("Mark WOLT on 2026-06-15 as a transfer") with its counterparty picker.
-  2. `/jars`: open "New jar" (Recurring → "Next due date" + Repeats), switch "Jar type" to Goal ("Target date"), then "Edit Home insurance" (opening-balance hint + two-step Archive).
+  2. `/jars`: open "New jar" (Recurring → "Next due date" + Repeats), switch "Jar type" to Goal ("Deadline"), fill Target `300` + Deadline `2026-12-15` (the mocked `POST /jars/schedule` preview and the "Include the deadline month" option render), choose "A fixed amount each month" ("Monthly amount"), then "Edit Home insurance" (two-step Archive).
   3. `/help` with `analytics` flag on: the "Analytics consent" region + "Privacy & analytics" control.
   4. `/` for a brand-new user: welcome dialog, every spotlight tour step through "Finish", the "Getting started" checklist region.
 - **Expected:** Zero violations on every overlay in light and dark — dialogs carry `role="dialog" aria-modal`, the consent banner is a labelled `role="region"`, the checklist a labelled `section`/region, tour steps announce "Step n of 9".

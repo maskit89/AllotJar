@@ -32,13 +32,6 @@ public class GetJarsQueryHandler
             .OrderBy(f => f.Name)
             .ToListAsync(cancellationToken);
 
-        if (jars.Count == 0)
-        {
-            return Array.Empty<JarDto>();
-        }
-
-        // Actual money only (rule 1): each jar's allocations in its account as of the date.
-        var snapshot = await JarLedgerReader.ReadAsync(_db, userId, asOf, cancellationToken);
-        return jars.Select(f => f.ToDto(snapshot)).ToList();
+        return await JarFigures.ReadAsync(_db, userId, jars, asOf, cancellationToken);
     }
 }
