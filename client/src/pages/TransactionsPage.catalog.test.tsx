@@ -31,7 +31,7 @@ vi.mock('../lib/api', async (importOriginal) => ({
 
 import { TransactionsPage } from './TransactionsPage'
 import { AuthProvider } from '../auth/AuthContext'
-import { monthYear } from '../lib/dates'
+import { monthYear, shortDate } from '../lib/dates'
 
 // --- Fixtures ---------------------------------------------------------------
 // The catalog's default month: Income group (Salary), Expense group (Groceries + Internet, the
@@ -1138,5 +1138,140 @@ describe('TransactionsPage catalog — cross-month "Budgeted to" tag', () => {
 
     expect(within(rowFor('No month')).queryByText(/Budgeted to/)).not.toBeInTheDocument()
     expect(within(rowFor('Unassigned buy')).queryByText(/Budgeted to/)).not.toBeInTheDocument()
+  })
+})
+
+describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
+  const purchase = () =>
+    tx({ id: 't-tesco', date: '2026-07-10', payee: 'Tesco', amount: 40, type: 0, budgetItemId: 'i-groceries', budgetItemName: 'Groceries' })
+  const refundRow = () =>
+    tx({
+      id: 't-refund', date: '2026-07-12', payee: 'Tesco refund', amount: 10, type: 1,
+      budgetItemId: 'i-groceries', budgetItemName: 'Groceries',
+      refundOfTransactionId: 't-tesco', refundOfPayee: 'Tesco', refundOfDate: '2026-07-10', refundOfAmount: 40,
+    })
+
+  // TX-099 — the Add modal's third type: a refund names the purchase it comes back from, offers
+  // only expense/savings lines (defaulting to the purchase's category) and posts as Income with
+  // the link; it never posts without a purchase.
+  it('adds a refund linked to a purchase, on expense lines only (TX-099)', { timeout: 15000 }, async () => {
+    mockLoad([purchase(), tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 })])
+    mockPost.mockResolvedValue({ data: refundRow() })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    await screen.findByRole('dialog', {}, { timeout: 5000 })
+    await user.selectOptions(screen.getByLabelText('Transaction type'), '-1')
+
+    // The purchase picker lists expenses only (never the income row), newest first.
+    const picker = screen.getByLabelText('Refund of') as HTMLSelectElement
+    const labels = within(picker).getAllByRole('option').map((o) => o.textContent)
+    expect(labels[0]).toBe('Choose the purchase')
+    expect(labels.some((l) => l?.includes('Tesco') && l.includes('€40.00'))).toBe(true)
+    expect(labels.some((l) => l?.includes('Payday'))).toBe(false)
+    // Category: expense and savings lines with the purchase's category as the default; no income line.
+    const category = screen.getByLabelText('Assign transaction to') as HTMLSelectElement
+    const lines = within(category).getAllByRole('option').map((o) => o.textContent)
+    expect(lines[0]).toBe('Same category as the purchase')
+    expect(lines).toContain('Groceries')
+    expect(lines).toContain('Emergency fund')
+    expect(lines).not.toContain('Salary')
+    expect(screen.queryByRole('button', { name: 'Split across categories' })).not.toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Transaction payee'), 'Tesco refund')
+    await user.type(screen.getByLabelText('Transaction amount'), '10')
+    const submit = within(screen.getByRole('dialog')).getByRole('button', { name: 'Add transaction' })
+    // No purchase chosen → refused client-side, nothing posted.
+    await user.click(submit)
+    expect(await screen.findByText('Choose the purchase this refund is for.')).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+
+    await user.selectOptions(picker, 't-tesco')
+    await user.click(submit)
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith(
+        '/transactions',
+        expect.objectContaining({ type: 1, refundOfTransactionId: 't-tesco', budgetItemId: null, payee: 'Tesco refund', amount: 10 }),
+      ),
+    )
+    expect(await screen.findByText('Tesco refund', {}, { timeout: 5000 })).toBeInTheDocument()
+  })
+
+  // TX-100 — a refund row is labelled with the purchase it came back from and is money received
+  // on the register, but never Money in; Money out is net of it. The purchase says it was refunded.
+  it('labels refund rows and nets them out of the hero totals (TX-100)', { timeout: 15000 }, async () => {
+    mockLoad([
+      { ...purchase(), refundCount: 1, refundedAmount: 10 },
+      refundRow(),
+      tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 }),
+    ])
+    renderPage()
+
+    await screen.findByText('Tesco refund', {}, { timeout: 5000 })
+    const row = rowFor('Tesco refund')
+    expect(within(row).getByText('Refund')).toBeInTheDocument()
+    expect(within(row).getByText(`Refund of Tesco · ${shortDate('2026-07-10')}`)).toBeInTheDocument()
+    expect(cellsFor('Tesco refund')[4]).toHaveTextContent('+€10.00')
+    // The purchase carries the refunded amount.
+    expect(within(rowFor('Tesco')).getByText('€10.00 refunded')).toBeInTheDocument()
+    // Money in = 2,500 (the refund is not income); Money out = 40 − 10 = 30.
+    expect(screen.getByLabelText(/^Money in for .*: €2,500\.00$/)).toBeInTheDocument()
+    expect(screen.getByText('€30.00')).toBeInTheDocument()
+  })
+
+  // TX-101 — money received can be marked as a refund of a purchase (PUT …/refund with the
+  // purchase) and a refund unmarked (PUT …/refund with null).
+  it('marks income as a refund and unmarks a refund (TX-101)', { timeout: 15000 }, async () => {
+    mockLoad([purchase(), refundRow(), tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 })])
+    mockPut.mockImplementation((url: string, body: { refundOfTransactionId: string | null }) =>
+      Promise.resolve({
+        data: body.refundOfTransactionId
+          ? { ...tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 }), refundOfTransactionId: 't-tesco', refundOfPayee: 'Tesco', refundOfDate: '2026-07-10' }
+          : { ...refundRow(), refundOfTransactionId: null, refundOfPayee: null, refundOfDate: null, budgetItemId: null, budgetItemName: null },
+      }),
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Payday', {}, { timeout: 5000 })
+    // A purchase offers no refund action; an income row does.
+    expect(screen.queryByRole('button', { name: 'Mark as refund: Tesco' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Mark as refund: Payday' }))
+    const save = screen.getByRole('button', { name: 'Save refund link' })
+    expect(save).toBeDisabled() // nothing picked yet
+    await user.selectOptions(screen.getByLabelText('Purchase refunded by Payday'), 't-tesco')
+    await user.click(save)
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t-inc/refund', { refundOfTransactionId: 't-tesco' }))
+    expect(within(await screen.findByText('Payday').then((el) => el.closest('tr') as HTMLElement)).getByText('Refund')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Not a refund: Tesco refund' }))
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t-refund/refund', { refundOfTransactionId: null }))
+    expect(within(rowFor('Tesco refund')).queryByText('Refund')).not.toBeInTheDocument()
+  })
+
+  // TX-102 — a refund keeps its direction (the edit's type select is locked) and is never split;
+  // its inline picker offers expense/savings lines only.
+  it('locks a refund’s type, hides split and offers expense lines to assign (TX-102)', { timeout: 15000 }, async () => {
+    mockLoad([{ ...purchase(), refundCount: 1, refundedAmount: 10 }, refundRow()])
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Tesco refund', {}, { timeout: 5000 })
+    expect(screen.queryByRole('button', { name: 'Split transaction: Tesco refund' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Split transaction: Tesco' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Reassign Tesco refund' }))
+    const picker = screen.getByLabelText('Assign Tesco refund') as HTMLSelectElement
+    const lines = within(picker).getAllByRole('option').map((o) => o.textContent)
+    expect(lines).toContain('Groceries')
+    expect(lines).not.toContain('Salary')
+
+    await user.click(screen.getByRole('button', { name: 'Edit transaction: Tesco refund' }))
+    expect(screen.getByLabelText('Edit type')).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Cancel edit' }))
+    // The refunded purchase's type is locked too, until its refunds are unmarked.
+    await user.click(screen.getByRole('button', { name: 'Edit transaction: Tesco' }))
+    expect(screen.getByLabelText('Edit type')).toBeDisabled()
   })
 })

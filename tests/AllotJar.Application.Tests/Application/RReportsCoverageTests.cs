@@ -200,11 +200,11 @@ public class RReportsCoverageTests
         }
     }
 
-    // ── RPT-015: the annual table deliberately mixes BUDGETED income against ACTUAL spend, so a
-    // month's annual Income is the budgeted figure (€3,000) even though only €2,950 was received —
-    // the same month's trend IncomeReceived is the €2,950. Both reads coexist over identical data.
+    // ── RPT-015 (rule 41, W12): the annual table and the trends carry the SAME budgeted income
+    // (€3,000), received income (€2,950) and signed variance (−50) for a month — the two reports
+    // no longer diverge, and the annual Net is received − spent.
     [Fact]
-    public async Task Annual_UsesBudgetedIncome_WhileTrendsUsesReceivedIncome_ForTheSameMonth()
+    public async Task Annual_AndTrends_ReportTheSameBudgetedAndReceivedIncome_ForTheSameMonth()
     {
         await using var db = NewContext();
         var user = new CurrentUserStub("user-1");
@@ -213,14 +213,18 @@ public class RReportsCoverageTests
 
         var annual = await Annual(db, user, 2026);
         var june = annual.Months.Single(m => m.Month == 6);
-        june.Income.Should().Be(3000m);  // budgeted, NOT the €2,950 received
-        june.Spent.Should().Be(2400m);   // actual
+        june.Income.Should().Be(3000m);          // budgeted
+        june.IncomeReceived.Should().Be(2950m);  // received
+        june.Variance.Should().Be(-50m);
+        june.Spent.Should().Be(2400m);           // actual
         annual.TotalIncome.Should().Be(3000m);
+        annual.TotalIncomeReceived.Should().Be(2950m);
 
         var trends = await Trends(db, user);
         var trendJune = trends.Points.Single();
-        trendJune.Income.Should().Be(3000m);          // budgeted
-        trendJune.IncomeReceived.Should().Be(2950m);  // received — where the two reports diverge
+        trendJune.Income.Should().Be(3000m);
+        trendJune.IncomeReceived.Should().Be(2950m);
+        trendJune.Variance.Should().Be(-50m);
     }
 
     // ── RPT-016 (+ the RPT-014 "average card disappears" server contract): the annual endpoint has

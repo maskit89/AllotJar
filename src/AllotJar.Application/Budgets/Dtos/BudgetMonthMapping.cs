@@ -51,6 +51,7 @@ public static class BudgetMonthMapping
                         PlannedAmount = i.PlannedAmount,
                         ActualAmount = i.ActualAmount,
                         Remaining = i.Remaining,
+                        RefundedAmount = i.RefundedAmount,
                         SavingsId = i.SavingsId,
                         SavingsAvailable = i.SavingsAvailable,
                         DueDay = i.DueDay,

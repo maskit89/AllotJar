@@ -58,6 +58,12 @@ public class BudgetItemDto
     public decimal ActualAmount { get; set; }
     public decimal Remaining { get; set; }
 
+    /// <summary>
+    /// Refunds received against this expense/savings line (rules 38/39), already subtracted from
+    /// <see cref="ActualAmount"/>; 0 on income lines. Lets the line say "80.00 after 20.00 refunded".
+    /// </summary>
+    public decimal RefundedAmount { get; set; }
+
     /// <summary>The sinking-fund identity for a fund line; null for ordinary lines.</summary>
     public Guid? SavingsId { get; set; }
 

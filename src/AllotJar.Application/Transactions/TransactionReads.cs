@@ -24,6 +24,8 @@ public static class TransactionReads
             .Include(t => t.JarAllocations)
                 .ThenInclude(a => a.Postings)
                 .ThenInclude(p => p.Jar)
+            .Include(t => t.RefundOf)
+            .Include(t => t.Refunds)
             .FirstAsync(t => t.Id == id, cancellationToken);
         return saved.ToDto();
     }

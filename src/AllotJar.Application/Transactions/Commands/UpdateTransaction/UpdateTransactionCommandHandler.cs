@@ -30,6 +30,7 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             .Include(t => t.BudgetItem)
             .Include(t => t.Account)
             .Include(t => t.Splits)
+            .Include(t => t.Refunds)
             .FirstOrDefaultAsync(t => t.Id == request.TransactionId, cancellationToken);
 
         if (transaction is null)
@@ -113,6 +114,49 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             }
         }
 
+        // A refund stays money received and keeps fitting the purchase it refunds (rules 38/39):
+        // its date can't move before the purchase and the purchase's refunds can't exceed it.
+        // The link itself is changed through LinkRefund, so an edit never silently turns a
+        // refund into income.
+        if (transaction.IsRefund)
+        {
+            if (request.Type != TransactionType.Income)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["Type"] = new[] { "A refund is money received. To record it as a payment, first unmark it as a refund." },
+                });
+            }
+            await RefundRules.ValidateOriginalAsync(
+                _db, userId, transaction.RefundOfTransactionId!.Value, transaction.Id, request.Date, request.Amount,
+                transaction.Currency, transaction.ExchangeRate, cancellationToken);
+        }
+
+        // A purchase with refunds linked to it stays a purchase that covers them: still an
+        // expense, not shrunk below what came back, and not moved after the money returned.
+        if (transaction.Refunds.Count > 0)
+        {
+            var errors = new Dictionary<string, string[]>();
+            if (request.Type != TransactionType.Expense)
+            {
+                errors["Type"] = new[] { "This purchase has refunds linked to it. Unmark them as refunds before changing its type." };
+            }
+            var refunded = transaction.Refunds.Sum(r => r.Amount);
+            if (request.Amount < refunded)
+            {
+                errors["Amount"] = new[] { $"This purchase has {refunded:0.##} refunded against it; its amount can't be less than that." };
+            }
+            var firstRefund = transaction.Refunds.Min(r => r.Date);
+            if (request.Date > firstRefund)
+            {
+                errors["Date"] = new[] { $"This purchase was refunded on {firstRefund:d MMM yyyy}; it can't be dated after its refund." };
+            }
+            if (errors.Count > 0)
+            {
+                throw new ValidationException(errors);
+            }
+        }
+
         var monthChanged = request.Date.Year != transaction.Date.Year
                            || request.Date.Month != transaction.Date.Month;
 
@@ -129,7 +173,8 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             && (request.Type != transaction.Type || monthChanged || accountChanged))
         {
             await TransactionInvariants.ValidateWholeLineAsync(
-                _db, userId, request.Type, retainedLineId, request.Date, request.AcknowledgeCrossMonth,
+                _db, userId, TransactionInvariants.LineDirection(request.Type, transaction.IsRefund), retainedLineId,
+                request.Date, request.AcknowledgeCrossMonth,
                 accountChanged && !monthChanged && request.Type == transaction.Type ? "AccountId" : "Type",
                 cancellationToken, request.AccountId);
         }

@@ -582,6 +582,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly?>("ReceivedOn")
                         .HasColumnType("date");
 
+                    b.Property<Guid?>("RefundOfTransactionId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("TransferAccountId")
                         .HasColumnType("uniqueidentifier");
 
@@ -597,6 +600,8 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.HasIndex("MemberId");
 
                     b.HasIndex("OwnerId");
+
+                    b.HasIndex("RefundOfTransactionId");
 
                     b.HasIndex("TransferAccountId");
 
@@ -942,7 +947,7 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.HasOne("AllotJar.Domain.Entities.Transaction", "Transaction")
-                        .WithMany()
+                        .WithMany("JarAllocations")
                         .HasForeignKey("TransactionId")
                         .OnDelete(DeleteBehavior.Cascade);
 
@@ -986,6 +991,11 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasForeignKey("MemberId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("AllotJar.Domain.Entities.Transaction", "RefundOf")
+                        .WithMany("Refunds")
+                        .HasForeignKey("RefundOfTransactionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("AllotJar.Domain.Entities.Account", "TransferAccount")
                         .WithMany()
                         .HasForeignKey("TransferAccountId")
@@ -996,6 +1006,8 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Navigation("BudgetItem");
 
                     b.Navigation("Member");
+
+                    b.Navigation("RefundOf");
 
                     b.Navigation("TransferAccount");
                 });
@@ -1108,6 +1120,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("AllotJar.Domain.Entities.Transaction", b =>
                 {
+                    b.Navigation("JarAllocations");
+
+                    b.Navigation("Refunds");
+
                     b.Navigation("Splits");
                 });
 #pragma warning restore 612, 618

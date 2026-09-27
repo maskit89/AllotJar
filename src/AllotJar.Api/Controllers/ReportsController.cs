@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using AllotJar.Application.Reports.Dtos;
 using AllotJar.Application.Reports.Queries.GetAnnualSummary;
 using AllotJar.Application.Reports.Queries.GetBudgetTrends;
+using AllotJar.Application.Reports.Queries.GetMonthReport;
 using AllotJar.Api.Features;
 
 namespace AllotJar.Api.Controllers;
@@ -36,6 +37,19 @@ public class ReportsController : ControllerBase
         CancellationToken ct = default)
     {
         var result = await _mediator.Send(new GetBudgetTrendsQuery(months), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// One calendar month's figures and spending by group (rules 37–39, 41): categorised and
+    /// uncategorised spending, refunds, received vs budgeted income and the variance.
+    /// </summary>
+    [HttpGet("month/{year:int}/{month:int}")]
+    [ProducesResponseType(typeof(MonthReportDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<MonthReportDto>> Month(int year, int month, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new GetMonthReportQuery(year, month), ct);
         return Ok(result);
     }
 

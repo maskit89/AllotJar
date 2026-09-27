@@ -44,6 +44,18 @@ public static class TransactionInvariants
         (kind == CategoryKind.Income) == (type == TransactionType.Income);
 
     /// <summary>
+    /// The direction a budget line must match for this transaction. A refund is money received
+    /// (<see cref="TransactionType.Income"/>) but it follows the purchase it refunds onto an
+    /// expense or savings line and never onto an income line (rules 38/39/41), so for line
+    /// matching it counts as an expense. Every write path that attributes a refund asks here.
+    /// </summary>
+    public static TransactionType LineDirection(TransactionType type, bool isRefund) =>
+        isRefund ? TransactionType.Expense : type;
+
+    public static TransactionType LineDirection(Transaction transaction) =>
+        LineDirection(transaction.Type, transaction.IsRefund);
+
+    /// <summary>
     /// Validate the slices of a split — transfer rejection, sum-to-parent, ownership, direction,
     /// month coherence (with the acknowledge escape), member ownership — and return the loaded
     /// target lines keyed by id. Shared by SplitTransaction (post-hoc), CreateTransaction (split

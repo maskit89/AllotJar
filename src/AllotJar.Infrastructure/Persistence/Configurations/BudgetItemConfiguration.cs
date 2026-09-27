@@ -24,8 +24,9 @@ public class BudgetItemConfiguration : IEntityTypeConfiguration<BudgetItem>
 
         builder.Ignore(i => i.Remaining);
 
-        // Transient presentation value derived at read time, never persisted.
+        // Transient presentation values derived at read time, never persisted.
         builder.Ignore(i => i.SavingsAvailable);
+        builder.Ignore(i => i.RefundedAmount);
 
         // IsBill is derived from DueDay; the columns themselves map by convention.
         builder.Ignore(i => i.IsBill);

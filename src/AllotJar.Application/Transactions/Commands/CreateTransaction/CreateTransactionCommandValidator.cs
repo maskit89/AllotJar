@@ -37,6 +37,18 @@ public class CreateTransactionCommandValidator : AbstractValidator<CreateTransac
             .Must((x, jar) => jar is null || (x.AccountId is not null && x.Type == TransactionType.Expense))
             .WithMessage("Only an expense recorded on an account can be paid from a jar.");
 
+        // A refund is money received that follows one purchase (rules 38/39): it is recorded as
+        // Income and is never split — its whole amount reduces the one line it lands on.
+        When(x => x.RefundOfTransactionId is not null, () =>
+        {
+            RuleFor(x => x.Type)
+                .Equal(TransactionType.Income)
+                .WithMessage("A refund is money received: record it as income linked to the purchase.");
+            RuleFor(x => x.Splits)
+                .Null()
+                .WithMessage("A refund follows one purchase and can't be split across lines.");
+        });
+
         // Create-with-splits mirrors SplitTransactionCommandValidator, plus the rule
         // that a split transaction carries no whole-transaction attribution.
         When(x => x.Splits is not null, () =>

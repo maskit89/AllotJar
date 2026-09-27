@@ -1,10 +1,8 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using AllotJar.Application.Budgets;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Reports.Dtos;
-using AllotJar.Domain.Enums;
 
 namespace AllotJar.Application.Reports.Queries.GetBudgetTrends;
 
@@ -46,29 +44,26 @@ public class GetBudgetTrendsQueryHandler : IRequestHandler<GetBudgetTrendsQuery,
         var points = new List<BudgetTrendPointDto>();
         foreach (var month in months.OrderBy(m => m.Year).ThenBy(m => m.Month))
         {
-            // Derive spending actuals the same way every other read does.
-            await BudgetActuals.ApplyAsync(_db, userId, month, cancellationToken);
-
-            var spent = month.Categories
-                .Where(c => c.Kind != CategoryKind.Income)
-                .Sum(c => c.TotalActual);
-
-            // Income lines roll up their assigned income transactions just like
-            // expense lines roll up spending, so this is the user's actually-received
-            // income for the month (vs the budgeted Income above).
-            var incomeReceived = month.Categories
-                .Where(c => c.Kind == CategoryKind.Income)
-                .Sum(c => c.TotalActual);
+            // One derivation for every report (rules 37–39, 41): spending includes uncategorised
+            // rows and is net of refunds; received income leaves out transfers and refunds.
+            var figures = await ReportFigures.ForMonthAsync(_db, userId, month.Year, month.Month, month, cancellationToken);
 
             points.Add(new BudgetTrendPointDto
             {
                 Year = month.Year,
                 Month = month.Month,
                 Key = month.Key,
-                Income = month.TotalIncome,       // budgeted income
-                IncomeReceived = incomeReceived,  // actually-received income
-                Planned = month.TotalPlanned,     // budgeted spending
-                Spent = spent,                    // actual spending
+                Income = figures.IncomeBudgeted,
+                IncomeReceived = figures.IncomeReceived,
+                IncomeUncategorised = figures.IncomeUncategorised,
+                Variance = figures.Variance,
+                Planned = figures.Planned,
+                Spent = figures.Spent,
+                SpentCategorised = figures.SpentCategorised,
+                SpentUncategorised = figures.SpentUncategorised,
+                Refunds = figures.Refunds,
+                UncategorisedCount = figures.UncategorisedCount,
+                FxPendingCount = figures.FxPendingCount,
             });
         }
 
@@ -77,7 +72,10 @@ public class GetBudgetTrendsQueryHandler : IRequestHandler<GetBudgetTrendsQuery,
             Points = points,
             TotalIncome = points.Sum(p => p.Income),
             TotalIncomeReceived = points.Sum(p => p.IncomeReceived),
+            TotalVariance = points.Sum(p => p.Variance),
             TotalSpent = points.Sum(p => p.Spent),
+            TotalSpentUncategorised = points.Sum(p => p.SpentUncategorised),
+            TotalRefunds = points.Sum(p => p.Refunds),
         };
     }
 }

@@ -11,7 +11,11 @@ namespace AllotJar.Application.Budgets;
 /// line's own kind (income lines roll up income transactions, expense lines roll
 /// up expense transactions), in the budget's base currency via
 /// Amount × ExchangeRate, plus any split slices. So an income line's "received"
-/// and an expense line's "spent" both work the same way. A line with no
+/// and an expense line's "spent" both work the same way. A refund (money received
+/// that is linked to an earlier purchase, rules 38/39) is subtracted from the
+/// expense/savings line it is assigned to — net spending in the month it was
+/// received, recorded on <see cref="BudgetItem.RefundedAmount"/> so the line can
+/// say so — and is never counted on an income line (rule 41). A line with no
 /// transactions reads zero. Computing at read time keeps a single, deterministic
 /// source of truth that can never drift.
 ///
@@ -56,24 +60,27 @@ public static class BudgetActuals
         var itemIds = items.Select(i => i.Id).ToList();
 
         // Whole (non-split) transactions assigned directly to a line. Pending-FX rows are
-        // excluded — see FxPendingCount above.
+        // excluded — see FxPendingCount above. Refunds are grouped apart: they are Income rows
+        // that reduce an expense/savings line (rules 38/39) and never feed an income line.
         var sums = await db.Transactions
             .Where(t => t.OwnerId == ownerId
                         && !t.FxPending
                         && t.BudgetItemId != null
                         && itemIds.Contains(t.BudgetItemId.Value))
-            .GroupBy(t => new { ItemId = t.BudgetItemId!.Value, t.Type })
-            .Select(g => new { g.Key.ItemId, g.Key.Type, Total = g.Sum(t => t.Amount * t.ExchangeRate) })
+            .GroupBy(t => new { ItemId = t.BudgetItemId!.Value, t.Type, IsRefund = t.RefundOfTransactionId != null })
+            .Select(g => new { g.Key.ItemId, g.Key.Type, g.Key.IsRefund, Total = g.Sum(t => t.Amount * t.ExchangeRate) })
             .ToListAsync(cancellationToken);
 
         // Slices of split transactions. A split transaction has BudgetItemId == null
         // so it never appears above — no double counting. Each slice rolls up at the
-        // parent's exchange rate and inherits the parent's direction (Type).
+        // parent's exchange rate and inherits the parent's direction (Type). A refund is
+        // never split (RefundRules), so the filter only guards a hand-crafted row.
         var splitRows = await (
             from s in db.TransactionSplits
             join t in db.Transactions on s.TransactionId equals t.Id
             where t.OwnerId == ownerId
                   && !t.FxPending
+                  && t.RefundOfTransactionId == null
                   && s.BudgetItemId != null
                   && itemIds.Contains(s.BudgetItemId.Value)
             select new { ItemId = s.BudgetItemId!.Value, t.Type, Total = s.Amount * t.ExchangeRate })
@@ -85,14 +92,28 @@ public static class BudgetActuals
 
         foreach (var item in items)
         {
-            var wantType = incomeItemIds.Contains(item.Id)
-                ? TransactionType.Income
-                : TransactionType.Expense;
-            var whole = sums
-                .Where(s => s.ItemId == item.Id && s.Type == wantType)
+            if (incomeItemIds.Contains(item.Id))
+            {
+                // Received income: income rows that are not refunds (rule 41), plus income slices.
+                var received = sums
+                    .Where(s => s.ItemId == item.Id && s.Type == TransactionType.Income && !s.IsRefund)
+                    .Sum(s => s.Total);
+                var receivedSlices = splitSums.TryGetValue((item.Id, TransactionType.Income), out var r) ? r : 0m;
+                item.ActualAmount = received + receivedSlices;
+                item.RefundedAmount = 0m;
+                continue;
+            }
+
+            // Spent: expense rows and slices, net of the refunds received against the line.
+            var spent = sums
+                .Where(s => s.ItemId == item.Id && s.Type == TransactionType.Expense)
                 .Sum(s => s.Total);
-            var fromSplits = splitSums.TryGetValue((item.Id, wantType), out var v) ? v : 0m;
-            item.ActualAmount = whole + fromSplits;
+            var spentSlices = splitSums.TryGetValue((item.Id, TransactionType.Expense), out var v) ? v : 0m;
+            var refunded = sums
+                .Where(s => s.ItemId == item.Id && s.IsRefund)
+                .Sum(s => s.Total);
+            item.RefundedAmount = refunded;
+            item.ActualAmount = spent + spentSlices - refunded;
         }
 
         await ApplySavingsBalancesAsync(db, ownerId, month, cancellationToken);

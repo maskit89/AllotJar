@@ -24,6 +24,7 @@ AllotJar is a zero-based budgeting app crafted in Europe and at home anywhere: e
    - [Adding a transaction](#adding-a-transaction)
    - [Assigning to a budget line](#assigning-to-a-budget-line)
    - [Splitting a transaction](#splitting-a-transaction)
+   - [Refunds](#refunds)
    - [Editing, deleting, finding](#editing-deleting-finding)
 5. [Accounts](#5-accounts)
 6. [Jars (savings goals)](#6-jars-savings-goals)
@@ -205,9 +206,19 @@ A split transaction shows a **Split** badge listing its slices, and each slice c
 
 For an expense from an account that holds jars, each slice on a jar's Savings line draws from that jar; the split editor asks once which jar the *other* slices come from (unallocated by default).
 
+### Refunds
+
+Money that comes back from a purchase — a returned jumper, a cancelled booking — is not income, and it belongs to the category you spent it from. Record it as a **Refund**:
+
+- In the add form, choose type **Refund** and pick the purchase it refunds under **Refund of** (your payments, newest first). The refund is recorded as money received on the account you choose and on the date it arrived, so your balance is right, but it is never counted as income.
+- Leave **Category** empty to put the refund on the same line as the purchase — in the refund's own month, if it arrived later: a September purchase refunded in October reduces October's spending, not September's. Choose a line if it belongs somewhere else. A refund of a purchase that was never categorised stays uncategorised until you place it.
+- Already recorded the money as income? Use the ↩ control on the row (**Mark as refund**) and pick the purchase: the row moves off the income line onto the purchase's category. ↩ on a refund (**Not a refund**) turns it back into plain income.
+
+The register shows a teal **Refund** badge with "Refund of {payee} · {date}" under the row, and the purchase itself shows "€X refunded". A refund can be partial, and several refunds can point at one purchase, but together they can never exceed what you paid, and a refund can't be dated before its purchase. A refund can't be split, a purchase with refunds can't be deleted until they are unlinked or removed, and a refund's type stays *money received* (use **Not a refund** first to change it).
+
 ### Editing, deleting, finding
 
-- The edit control changes date, payee, amount and type in place; the delete control removes the transaction.
+- The edit control changes date, payee, amount and type in place (type is locked on a refund and on a purchase that has refunds — see *Refunds*); the delete control removes the transaction.
 - The search box filters by payee as you type; **Unassigned only** shows just the transactions still needing a home — a quick way to do your weekly tidy-up.
 
 ## 5. Accounts
@@ -258,12 +269,18 @@ Money also reaches jars whenever money reaches their account: recording an incom
 
 The **Reports** page summarises your recent months (up to the last six budgets):
 
-- **Summary cards** — window totals for **Income (budgeted)**, **Income (received)**, **Spent**, and **Net** (budgeted income − spent).
-- **Income vs spending** — three bars per month: budgeted income, actually-received income, and spending (which turns rose when you spent more than your budgeted income). The +/− figure on each month is income minus spending.
-- **Annual overview** — a January-to-December table for any year (‹ / › to change year): income, spent and net per month, with year totals. Months without a budget show as dashes.
-- **Spending by category** — a breakdown of where the money went in a chosen month (pick any month from the dropdown), sorted largest first with each category's share. Savings count as spending here; income groups don't.
+- **Hero** — **Saved this month** (the latest month's received income minus its spending), the window's **Avg monthly spend**, and this month's **Savings rate** (saved ÷ received).
+- **Income vs spending** — two bars per month: the income you actually received and what you spent.
+- **Annual overview** — a January-to-December table for any year (‹ / › to change year) with **Budgeted** income, **Received** income, the **Variance** between them (received − budgeted, shown signed: `+€200.00` when more came in than planned, `-€200.00` when less), **Spent** and **Net** (received − spent), with year totals. A month without a budget shows dashes for Budgeted and Variance but still shows what you received and spent if anything was recorded.
+- **Average monthly spending by category** — each category's yearly average and total; a category that received refunds says "after €X refunded".
+- **Spending by category** — where the month's money went (pick any month from the dropdown), largest first with each category's share. Savings count as spending here; income groups don't.
 
-All report figures use the same derivations as the Budget page — spending comes from your assigned transactions, so the reports always agree with the budget.
+Two things keep the reports honest:
+
+- **Uncategorised spending is included.** Transactions you haven't placed on a line yet appear as their own **Uncategorised** row (with a *Review N transactions* link to the register), so the month's total is complete — categorising a transaction later moves money between rows without changing the total. Uncategorised income counts as received income.
+- **Refunds reduce spending, not income.** A refund lowers its category's spending in the month it was received, and the row says "after €X refunded". Received income and Variance never include refunds or transfers. A category whose refunds exceeded its spending stays on the list with a negative figure and no share.
+
+All report figures use the same derivations as the Budget page — categorised spending comes from your assigned transactions, so the reports always agree with the budget. Rows still waiting for an exchange rate are left out of every figure, as on the Budget page.
 
 ## 8. People & sharing
 
