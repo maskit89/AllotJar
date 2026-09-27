@@ -26,12 +26,21 @@ public class HouseholdMemberDto
 
     /// <summary>This member's share of the household's income in the selected month's budget (0–1), the figure an income-based split uses.</summary>
     public decimal IncomeSharePct { get; set; }
+
+    /// <summary>
+    /// The person's pocket-money line in the calendar current month (rule 54), whatever month is
+    /// selected: what archiving them asks about. Null when that month has no line for them.
+    /// </summary>
+    public MemberPocketMoneyDto? PocketMoneyThisMonth { get; set; }
 }
 
 public static class HouseholdMemberMapping
 {
     /// <param name="shares">The month's budget income per member (rule 28), from <see cref="MemberIncome.SharesAsync"/>.</param>
-    public static HouseholdMemberDto ToDto(this HouseholdMember m, MemberIncomeShares shares, int year, int month) => new()
+    /// <param name="pocketMoney">Each person's current-month pocket money, from <see cref="PocketMoneyLines.ForCurrentMonthAsync"/>.</param>
+    public static HouseholdMemberDto ToDto(
+        this HouseholdMember m, MemberIncomeShares shares, int year, int month,
+        IReadOnlyDictionary<Guid, MemberPocketMoneyDto> pocketMoney) => new()
     {
         Id = m.Id,
         Name = m.Name,
@@ -44,5 +53,6 @@ public static class HouseholdMemberMapping
         DisplayOrder = m.DisplayOrder,
         IsArchived = m.IsArchived,
         IncomeSharePct = shares.ShareOf(m.Id),
+        PocketMoneyThisMonth = pocketMoney.GetValueOrDefault(m.Id),
     };
 }

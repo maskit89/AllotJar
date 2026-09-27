@@ -845,3 +845,46 @@
   1. Open `/people`.
 - **Expected:** Hero "Income this month" 0.00 with the note "No budget for {Month Year} yet" when there is none; every Income cell 0.00 and every Share 0%. The saved default is edited as **Default income for {name}** (add modal: "Default income") with the hint "A starting figure for a new month's budget. Calculations use the income lines in the month's budget." Nothing on the page or the Allocation page ever uses it as a pool (rule 28).
 - **Automated:** Full (client PPL-079; backend `AllocationIncomeFromBudgetTests.NoBudget_YieldsAnEmptyPool_NotTheDefaults`)
+
+### PPL-084 - Archiving someone with pocket money left this month asks first; Keep leaves the line as it is (rule 54)
+- **Priority:** P0
+- **Type:** Happy
+- **Origin:** AGREED-RULES 54 (W11)
+- **Preconditions:** Fixture B; the calendar current month has a Pocket Money line for Sam planned 250.00 with 100.00 already paid out (`pocketMoneyThisMonth` = {planned 250, paid 100, remaining 150}); next month exists with Sam's line too.
+- **Steps:**
+  1. Click "✕" (aria "Archive Sam").
+  2. Read the dialog; leave "Keep this month’s remaining pocket money" selected; click "Archive Sam" (aria "Confirm archive Sam").
+- **Expected:** Nothing is sent on the first click. The dialog "Archive Sam" says pocket money stops from next month (months already created included) and that recorded payments stay, then "This month still plans €150.00 for Sam (€100.00 already paid out)." with Keep pre-selected. Confirming sends `PUT /members/{id}/archive {archived:true, cancelCurrentMonthPocketMoney:false}`; the dialog closes and Sam leaves the table. Server: this month's line is untouched (250.00); next month's and every later month's line for Sam is removed (or, if a payment is already recorded against it, cut to what was paid); past months are untouched; every transaction stays where it was; other people's lines are unchanged.
+- **Automated:** Full (client PPL-084; backend `PocketMoneyIdentityTests` archive cases; journey `pocket-money-identity.spec.ts`)
+
+### PPL-085 - "Cancel the remaining amount" cuts the current month's line to what was paid; dismissing sends nothing (rule 54)
+- **Priority:** P0
+- **Type:** Edge
+- **Origin:** AGREED-RULES 54 (W11)
+- **Preconditions:** As PPL-084 with paid 0 (remaining 250.00).
+- **Steps:**
+  1. Click "Archive Sam", then the dialog's "Cancel" button.
+  2. Click "Archive Sam" again, choose "Cancel the remaining amount (the planned line drops to what was paid)", confirm.
+- **Expected:** Step 1 closes the dialog with no request; Sam is still listed. Step 2 shows "This month still plans €250.00 for Sam." (no "already paid out" note) and sends `{archived:true, cancelCurrentMonthPocketMoney:true}`. Server: this month's line's planned amount becomes the amount already paid against it (0.00 here; 100.00 when 100.00 was paid), the line and its payments remain, account balances are unchanged.
+- **Automated:** Full (client PPL-085; backend `Archive_CancelCurrentMonth_CutsTheRemainderToWhatWasPaid_AndKeepsThePayments`)
+
+### PPL-086 - Nothing remaining this month → one-click archive as before (rule 54)
+- **Priority:** P1
+- **Type:** Edge
+- **Origin:** AGREED-RULES 54 (W11); keeps PPL-022
+- **Preconditions:** Sam's current-month pocket line is fully paid out (`remaining` 0), or there is no line / no budget for the current month.
+- **Steps:**
+  1. Click "Archive Sam".
+- **Expected:** No dialog; `PUT /members/{id}/archive {archived:true}` fires on the single click exactly as PPL-022. Future months' lines are still removed server-side.
+- **Automated:** Full (client PPL-086)
+
+### PPL-087 - Renaming a person renames their pocket-money line; a re-sync reuses it (rule 53)
+- **Priority:** P0
+- **Type:** Regression
+- **Origin:** AGREED-RULES 53 (W11), REVIEW A6
+- **Preconditions:** Pocket money 200.00 each was added to the month; Robin's line carries Robin's id (`memberId`).
+- **Steps:**
+  1. On `/people` edit Robin, change the name to "Robyn", save.
+  2. Open the Budget page; then add pocket money to the month again from the Allocation page (or `POST /allocation/pocket-lines/{y}/{m}`).
+- **Expected:** After step 1 the Pocket Money group shows "Robyn" (every month's line for that person is renamed; income attribution and other people's lines are untouched). After step 2 there are still exactly two lines and the group's total is still 400.00 — no "Robin" leftover, no duplicate "Robyn". A legacy line that matches a person's name but carries no id is adopted and stamped with the id on the next sync.
+- **Automated:** Full (backend `PocketMoneyIdentityTests` rule 53 cases, `SyncPocketMoneyLinesTests`; journey `pocket-money-identity.spec.ts`)

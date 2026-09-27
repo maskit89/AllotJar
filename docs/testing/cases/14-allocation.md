@@ -721,3 +721,14 @@
   1. Open `/allocation` on each month and compare the pool with the budget figures.
 - **Expected:** Case A: pool = the month's PLANNED attributed income plus the equally shared unattributed lines; each member's `netIncome` is their attributed sum plus their equal share. Case B: pool = the unattributed total shared equally (a 4,000 line → 2,000 each), `incomeFromBudget` true, `unattributedIncome` 4,000. Case C: pool 0 and the notice "No income in {Month Year}'s budget yet. Add income lines to the Budget (attribute them to people for a by-income split) and come back."; the defaults are never used. Lines attributed to an archived member fold into the unattributed pot. Linking a savings account from this page never rewrites a person's default income. PLANNED (not received) by design: the engine plans; a mid-month run must not see half a salary.
 - **Automated:** Full (backend `AllocationIncomeFromBudgetTests` incl. `NoAttributedLines_ShareTheUnattributedIncomeEqually_AndIgnoreTheSavedDefaults`, `NoBudget_YieldsAnEmptyPool_NotTheDefaults`; client ALLOC-073)
+
+### ALLOC-075 - Pocket-money lines are linked to the person; month copies drop an archived person's line (rules 53/54)
+- **Priority:** P0
+- **Type:** Regression
+- **Origin:** AGREED-RULES 53–54 (W11)
+- **Preconditions:** A profile with pocket money > 0; two active people; a month.
+- **Steps:**
+  1. Click "Add pocket money to {month}'s budget" (ALLOC-068).
+  2. Archive one person; create the following month with "copy from previous".
+- **Expected:** Each created line carries the person's `memberId`; a pre-existing unlinked line with the person's name (any casing) is adopted, renamed to the person's current name and stamped. The copy carries the active person's line (with its id) and does not copy the archived person's pocket line at all; income lines attributed to an archived person still copy as whole-household. The sync never touches an archived person's lines.
+- **Automated:** Full (backend `PocketMoneyIdentityTests.Sync_*`, `CopyingAMonth_DropsAnArchivedPersonsPocketLine`)

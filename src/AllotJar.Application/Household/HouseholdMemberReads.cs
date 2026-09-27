@@ -20,6 +20,7 @@ public static class HouseholdMemberReads
                 .ThenBy(m => m.Name)
             .ToListAsync(cancellationToken);
         var shares = await MemberIncome.SharesAsync(db, ownerId, year, month, members, cancellationToken);
-        return member.ToDto(shares, year, month);
+        var pocketMoney = await PocketMoneyLines.ForCurrentMonthAsync(db, ownerId, cancellationToken);
+        return member.ToDto(shares, year, month, pocketMoney);
     }
 }

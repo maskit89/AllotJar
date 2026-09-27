@@ -36,7 +36,10 @@ public class GetHouseholdMembersQueryHandler
         // hold no income and get a 0 share.
         var (year, month) = HouseholdMonth.Resolve(request.Year, request.Month);
         var shares = await MemberIncome.SharesAsync(_db, userId, year, month, members, cancellationToken);
+        // Pocket money is always read for the calendar current month: it is what archiving asks
+        // about (rule 54), not a figure of the selected month.
+        var pocketMoney = await PocketMoneyLines.ForCurrentMonthAsync(_db, userId, cancellationToken);
 
-        return members.Select(m => m.ToDto(shares, year, month)).ToList();
+        return members.Select(m => m.ToDto(shares, year, month, pocketMoney)).ToList();
     }
 }

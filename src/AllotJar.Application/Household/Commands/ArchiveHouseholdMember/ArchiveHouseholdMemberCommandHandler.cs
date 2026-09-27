@@ -34,6 +34,14 @@ public class ArchiveHouseholdMemberCommandHandler
         }
 
         member.IsArchived = request.Archived;
+        if (request.Archived)
+        {
+            // Rule 54: planned pocket money stops from next month (future budgets included); the
+            // current month keeps or cancels its remainder as the user chose; payments already
+            // recorded stay exactly where they are.
+            await PocketMoneyLines.StopFromNextMonthAsync(
+                _db, userId, member.Id, request.CancelCurrentMonthPocketMoney, cancellationToken);
+        }
         await _db.SaveChangesAsync(cancellationToken);
 
         return await HouseholdMemberReads.ToDtoAsync(_db, userId, member, cancellationToken);

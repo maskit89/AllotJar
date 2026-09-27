@@ -280,6 +280,12 @@ The People page shows the **same month as the Budget page** (change it with the 
 
 A person's **Default income** is only a starting figure you can keep on file for filling in a new month's budget. Nothing is calculated from it: the Allocation page, the shares and the People figures all read the month's budget lines. Amounts recorded in another currency are shown converted to your budget currency; a row whose rate is still pending is counted separately until it resolves.
 
+### Pocket money, renaming and archiving
+
+If your allocation gives each person pocket money, the Allocation page can add it to the month's budget as one **Pocket Money** line per person. Those lines belong to the person, not to their name: rename someone on the People page and their line is renamed with them, and adding pocket money again updates the same line instead of creating a second one.
+
+**Archiving** a person (the ✕ on their row) keeps everything they recorded. Their pocket money stops from next month, including in months you have already created. If this month still plans pocket money for them, AllotJar asks first: **keep** the remaining amount as planned, or **cancel** it, which lowers the planned line to what has already been paid out. Neither choice moves money or removes a payment.
+
 ### Inviting someone to sign in
 
 When you want someone else to log in and use the budget with you, **invite** them from their person entry. They get their own sign-in and join your household. People you've added but not invited simply exist as budget members until you're ready.

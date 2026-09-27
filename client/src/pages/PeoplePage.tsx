@@ -97,6 +97,10 @@ export function PeoplePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
+  // Rule 54: archiving someone with pocket money still planned this month asks whether to keep
+  // or cancel the remainder before anything is sent.
+  const [archiveTarget, setArchiveTarget] = useState<HouseholdMemberDto | null>(null)
+  const [archiveCancelsPocket, setArchiveCancelsPocket] = useState(false)
 
   // Add-a-person form (in a modal).
   const [showAdd, setShowAdd] = useState(false)
@@ -285,11 +289,17 @@ export function PeoplePage() {
   )
 
   const archive = useCallback(
-    async (id: string) => {
+    async (id: string, cancelCurrentMonthPocketMoney?: boolean) => {
       setSavingId(id)
       setError(null)
       try {
-        await api.put(`/members/${id}/archive`, { archived: true })
+        await api.put(
+          `/members/${id}/archive`,
+          cancelCurrentMonthPocketMoney === undefined
+            ? { archived: true }
+            : { archived: true, cancelCurrentMonthPocketMoney },
+        )
+        setArchiveTarget(null)
         await reloadAll()
         await refreshHousehold()
       } catch {
@@ -299,6 +309,19 @@ export function PeoplePage() {
       }
     },
     [reloadAll, refreshHousehold],
+  )
+
+  /** One click archives, unless this month still plans pocket money for them (rule 54). */
+  const startArchive = useCallback(
+    (m: HouseholdMemberDto) => {
+      if ((m.pocketMoneyThisMonth?.remaining ?? 0) > 0) {
+        setArchiveCancelsPocket(false)
+        setArchiveTarget(m)
+        return
+      }
+      void archive(m.id)
+    },
+    [archive],
   )
 
   function openInviteFor(personId: string) {
@@ -657,7 +680,7 @@ export function PeoplePage() {
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => archive(m.id)}
+                                    onClick={() => startArchive(m)}
                                     disabled={savingId === m.id}
                                     aria-label={`Archive ${m.name}`}
                                     title="Archive person"
@@ -683,6 +706,63 @@ export function PeoplePage() {
       )}
 
       {/* Add a person — a modal (mounted only while open so the focus trap engages). */}
+      {archiveTarget && canWrite && (
+        <Modal title={`Archive ${archiveTarget.name}`} onClose={() => setArchiveTarget(null)}>
+          {error && (
+            <div className="mb-3">
+              <ErrorBanner>{error}</ErrorBanner>
+            </div>
+          )}
+          <p className="text-sm text-slate-600">
+            Their pocket money stops from next month, including in months already created. Payments
+            already recorded stay as they are.
+          </p>
+          <fieldset className="mt-4 space-y-2">
+            <legend className="text-xs font-medium text-slate-500">
+              This month still plans{' '}
+              {formatMoney(fromAmount(archiveTarget.pocketMoneyThisMonth?.remaining ?? 0), CURRENCY)} for{' '}
+              {archiveTarget.name}
+              {(archiveTarget.pocketMoneyThisMonth?.paid ?? 0) > 0
+                ? ` (${formatMoney(fromAmount(archiveTarget.pocketMoneyThisMonth?.paid ?? 0), CURRENCY)} already paid out)`
+                : ''}
+              .
+            </legend>
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="radio"
+                name="archive-pocket-money"
+                checked={!archiveCancelsPocket}
+                onChange={() => setArchiveCancelsPocket(false)}
+                className="mt-0.5"
+              />
+              <span>Keep this month’s remaining pocket money</span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="radio"
+                name="archive-pocket-money"
+                checked={archiveCancelsPocket}
+                onChange={() => setArchiveCancelsPocket(true)}
+                className="mt-0.5"
+              />
+              <span>Cancel the remaining amount (the planned line drops to what was paid)</span>
+            </label>
+          </fieldset>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setArchiveTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void archive(archiveTarget.id, archiveCancelsPocket)}
+              disabled={savingId === archiveTarget.id}
+              aria-label={`Confirm archive ${archiveTarget.name}`}
+            >
+              Archive {archiveTarget.name}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
       {showAdd && canWrite && (
         <Modal title="Add a person" onClose={() => setShowAdd(false)}>
           {error && (

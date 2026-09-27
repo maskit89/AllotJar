@@ -61,9 +61,11 @@ public class BudgetItem : BaseEntity
     public bool IsBill => DueDay is not null;
 
     /// <summary>
-    /// The household member this INCOME line belongs to (who earns it) — the budget-side
-    /// half of per-person income. Null = whole-household / unattributed; always null on
-    /// expense/savings lines (write paths enforce it). Carried when a month is copied.
+    /// The household member this line belongs to. On an INCOME line: who earns it — the
+    /// budget-side half of per-person income (null = whole-household / unattributed; carried
+    /// when a month is copied). On an EXPENSE line: the person whose pocket money it is, set
+    /// only by the pocket-money sync (rule 53) so a rename or archive finds the line by id
+    /// (rule 54). Never set on a savings line, and never user-assigned on an expense line.
     /// </summary>
     public Guid? MemberId { get; set; }
 

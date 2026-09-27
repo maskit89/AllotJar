@@ -77,7 +77,8 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         var archivedJarIds = allJars.Where(f => f.IsArchived).Select(f => f.Id).ToHashSet();
 
         // Income attribution rolls forward, but not to archived people — their lines copy
-        // as whole-household (null) rather than crediting someone who left.
+        // as whole-household (null) rather than crediting someone who left. Their pocket-money
+        // lines (expense lines carrying their id) are not copied at all (rule 54).
         var archivedMemberIds = (await _db.HouseholdMembers
                 .AsNoTracking()
                 .Where(m => m.OwnerId == userId && m.IsArchived)
@@ -182,6 +183,10 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                         // must stop future contributions. (Non-savings lines have no
                         // SavingsId and stay; a dangling SavingsId also stays.)
                         .Where(i => i.SavingsId is not { } sid || !archivedJarIds.Contains(sid))
+                        // Nor an archived person's pocket money (rule 54).
+                        .Where(i => c.Kind != CategoryKind.Expense
+                                    || i.MemberId is not { } pm
+                                    || !archivedMemberIds.Contains(pm))
                         .OrderBy(i => i.DisplayOrder)
                         .Select(i => new BudgetItem
                         {

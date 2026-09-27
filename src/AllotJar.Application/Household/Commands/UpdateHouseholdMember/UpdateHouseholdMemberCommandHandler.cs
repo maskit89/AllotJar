@@ -48,7 +48,14 @@ public class UpdateHouseholdMemberCommandHandler
                 _db, userId, savingsId, cancellationToken);
         }
 
-        member.Name = request.Name.Trim();
+        var newName = request.Name.Trim();
+        if (!string.Equals(member.Name, newName, StringComparison.Ordinal))
+        {
+            // Rule 53: the pocket-money lines are linked to the person, so they show the new
+            // name; nothing is added and no amount changes.
+            await PocketMoneyLines.RenameAsync(_db, userId, member.Id, newName, cancellationToken);
+        }
+        member.Name = newName;
         member.NetMonthlyIncome = request.NetMonthlyIncome;
         member.PersonalSavingsAccountId = request.PersonalSavingsAccountId;
 

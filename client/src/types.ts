@@ -556,6 +556,18 @@ export interface HouseholdMemberDto {
   isArchived: boolean
   /** This member's share of the household's income in the selected month's budget (0–1). */
   incomeSharePct: number
+  /**
+   * The person's pocket-money line in the calendar current month (rule 54), whatever month is
+   * selected: what archiving them asks about. Null/absent when that month has no line for them.
+   */
+  pocketMoneyThisMonth?: MemberPocketMoneyDto | null
+}
+
+/** A person's current-month pocket money: planned, paid out so far and the remainder. */
+export interface MemberPocketMoneyDto {
+  planned: number
+  paid: number
+  remaining: number
 }
 
 /** Per-member attributed spending (the "who spent what" lens). */

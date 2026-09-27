@@ -444,6 +444,108 @@ describe('PeoplePage — catalog (PPL)', () => {
     expect(screen.queryByText('€4,000.00')).not.toBeInTheDocument()
   })
 
+  // PPL-084 — rule 54: when this month still plans pocket money for the person, the ✕ opens a
+  // keep-or-cancel dialog instead of archiving at once; "Keep" sends the flag false.
+  it('PPL-084: archiving someone with pocket money left this month asks first; Keep sends cancel=false', { timeout: 15000 }, async () => {
+    membersData = [
+      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, budgetIncome: 3000, incomeSharePct: 0.75 }),
+      member({
+        id: 'm2', name: 'Sam', netMonthlyIncome: 1000, budgetIncome: 1000, incomeSharePct: 0.25,
+        pocketMoneyThisMonth: { planned: 250, paid: 100, remaining: 150 },
+      }),
+    ]
+    mockPut.mockImplementation((url: string) => {
+      if (url === '/members/m2/archive') {
+        membersData = [member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, budgetIncome: 3000, incomeSharePct: 1 })]
+        return Promise.resolve({ data: {} })
+      }
+      return Promise.resolve({ data: {} })
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    await user.click(screen.getByRole('button', { name: 'Archive Sam' }))
+
+    // Nothing sent yet: the dialog states the remainder and what was already paid.
+    const dialog = await screen.findByRole('dialog', { name: 'Archive Sam' })
+    expect(mockPut).not.toHaveBeenCalled()
+    expect(dialog).toHaveTextContent('This month still plans €150.00 for Sam (€100.00 already paid out).')
+    expect(dialog).toHaveTextContent('Their pocket money stops from next month')
+    expect(screen.getByRole('radio', { name: 'Keep this month’s remaining pocket money' })).toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Confirm archive Sam' }))
+
+    await waitFor(
+      () => expect(mockPut).toHaveBeenCalledWith('/members/m2/archive', { archived: true, cancelCurrentMonthPocketMoney: false }),
+      { timeout: 5000 },
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
+    await waitFor(() => expect(screen.queryByText('Sam')).not.toBeInTheDocument(), { timeout: 5000 })
+  })
+
+  // PPL-085 — rule 54: choosing "Cancel the remaining amount" sends the flag true; closing the
+  // dialog with its Cancel button sends nothing.
+  it('PPL-085: "Cancel the remaining amount" sends cancel=true; dismissing sends nothing', { timeout: 15000 }, async () => {
+    membersData = [
+      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, budgetIncome: 3000, incomeSharePct: 0.75 }),
+      member({
+        id: 'm2', name: 'Sam', netMonthlyIncome: 1000, budgetIncome: 1000, incomeSharePct: 0.25,
+        pocketMoneyThisMonth: { planned: 250, paid: 0, remaining: 250 },
+      }),
+    ]
+    mockPut.mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    await user.click(screen.getByRole('button', { name: 'Archive Sam' }))
+    await screen.findByRole('dialog', { name: 'Archive Sam' })
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
+    expect(mockPut).not.toHaveBeenCalled()
+    expect(screen.getByText('Sam')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Archive Sam' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Archive Sam' })
+    expect(dialog).toHaveTextContent('This month still plans €250.00 for Sam.')
+    expect(dialog).not.toHaveTextContent('already paid out')
+    await user.click(screen.getByRole('radio', { name: /Cancel the remaining amount/ }))
+    await user.click(screen.getByRole('button', { name: 'Confirm archive Sam' }))
+
+    await waitFor(
+      () => expect(mockPut).toHaveBeenCalledWith('/members/m2/archive', { archived: true, cancelCurrentMonthPocketMoney: true }),
+      { timeout: 5000 },
+    )
+  })
+
+  // PPL-086 — a person whose pocket money is fully paid out (remaining 0) still archives on one
+  // click: there is nothing left to ask about.
+  it('PPL-086: nothing remaining this month → one-click archive, no dialog', { timeout: 15000 }, async () => {
+    membersData = [
+      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, budgetIncome: 3000, incomeSharePct: 0.75 }),
+      member({
+        id: 'm2', name: 'Sam', netMonthlyIncome: 1000, budgetIncome: 1000, incomeSharePct: 0.25,
+        pocketMoneyThisMonth: { planned: 250, paid: 250, remaining: 0 },
+      }),
+    ]
+    mockPut.mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    await user.click(screen.getByRole('button', { name: 'Archive Sam' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await waitFor(
+      () => expect(mockPut).toHaveBeenCalledWith('/members/m2/archive', { archived: true }),
+      { timeout: 5000 },
+    )
+  })
+
   // PPL-026 — a Limited member gets no edit/archive hover actions.
   it('PPL-026: edit and archive row actions are hidden for a non-writer (Limited)', { timeout: 15000 }, async () => {
     membersData = [member({ id: 'm2', name: 'Sam' })]

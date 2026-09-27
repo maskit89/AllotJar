@@ -103,25 +103,32 @@ public class SyncPocketMoneyLinesCommandHandler : IRequestHandler<SyncPocketMone
             category.ExcludeFromAllocation = true;
         }
 
-        // One line per active member, matched by name (case-insensitive). Lines for renamed or
-        // archived members are left untouched — visible leftovers beat silent deletion.
+        // One line per active member, linked by the person's id (rule 53). A line from before
+        // the link existed is adopted by name (case-insensitive) and stamped, so a later rename
+        // reuses it instead of adding a second one. Archived people's lines are rule 54's
+        // business (handled when they are archived), not the sync's.
         var nextOrder = category.Items.Select(i => i.DisplayOrder).DefaultIfEmpty(-1).Max() + 1;
         foreach (var member in members)
         {
-            var line = category.Items.FirstOrDefault(i =>
-                string.Equals(i.Name, member.Name, StringComparison.OrdinalIgnoreCase));
+            var line = category.Items.FirstOrDefault(i => i.MemberId == member.Id)
+                ?? category.Items.FirstOrDefault(i =>
+                    i.MemberId is null
+                    && string.Equals(i.Name, member.Name, StringComparison.OrdinalIgnoreCase));
             if (line is null)
             {
                 _db.BudgetItems.Add(new BudgetItem
                 {
                     BudgetCategoryId = category.Id,
                     Name = member.Name,
+                    MemberId = member.Id,
                     PlannedAmount = perMember,
                     DisplayOrder = nextOrder++,
                 });
             }
             else
             {
+                line.MemberId = member.Id;
+                line.Name = member.Name;
                 line.PlannedAmount = perMember;
             }
         }

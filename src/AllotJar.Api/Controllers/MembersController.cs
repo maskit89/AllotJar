@@ -96,14 +96,19 @@ public class MembersController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Archives or restores a member (soft). Returns it.</summary>
+    /// <summary>
+    /// Archives or restores a member (soft). Archiving stops their pocket money from next month
+    /// (rule 54); pass <c>cancelCurrentMonthPocketMoney</c> to cancel this month's remainder too.
+    /// Returns it.
+    /// </summary>
     [HttpPut("{id:guid}/archive")]
     [ProducesResponseType(typeof(HouseholdMemberDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<HouseholdMemberDto>> Archive(Guid id, ArchiveMemberRequest request, CancellationToken ct)
     {
-        var result = await _mediator.Send(new ArchiveHouseholdMemberCommand(id, request.Archived), ct);
+        var result = await _mediator.Send(
+            new ArchiveHouseholdMemberCommand(id, request.Archived, request.CancelCurrentMonthPocketMoney), ct);
         return Ok(result);
     }
 }
@@ -115,4 +120,4 @@ public record CreateMemberRequest(string Name, decimal NetMonthlyIncome, Guid? P
 public record UpdateMemberRequest(string Name, decimal NetMonthlyIncome, Guid? PersonalSavingsAccountId);
 
 /// <summary>Request body for archiving/restoring a member.</summary>
-public record ArchiveMemberRequest(bool Archived = true);
+public record ArchiveMemberRequest(bool Archived = true, bool CancelCurrentMonthPocketMoney = false);
