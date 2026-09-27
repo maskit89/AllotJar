@@ -53,9 +53,7 @@ public class RoleMatrixTests
                 name = $"Matrix {role} {Unique()}",
                 kind = 1,           // JarKind.Goal
                 targetAmount = 500m,
-                targetDate = (string?)null,
-                coverStart = (string?)null,
-                coverEnd = (string?)null,
+                targetDate = "2027-01-01", // rule 17: a goal saves by a deadline or a fixed monthly amount
                 accrual = 1,        // AccrualMethod.TargetByDate
                 fundingAccountId = _fixture.SavingsAccountId, // rule 73: a jar needs its account
                 recurMonths = (int?)null,
