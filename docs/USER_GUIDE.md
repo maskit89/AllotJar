@@ -86,7 +86,7 @@ Use the **‹ / ›** arrows in the top bar to move between months. Every month-
 If the month you're viewing has no budget yet, you'll see three ways to start:
 
 - **Copy last month's budget** — brings over your whole structure and planned amounts (actuals reset to zero, bills reset to unpaid). This is the normal month-to-month flow.
-- **Start blank** — an empty budget with just an Income group.
+- **Start blank** — a budget with just an Income group. If any of your people has a **Default income** on the People page, the group starts with one income line per person at that amount, attributed to them; otherwise it is empty.
 - **Start from a template** — quick-start layouts (**Essentials**, **Student**, **Family**), each a ready set of income and expense groups and lines with amounts at zero for you to fill in. Templates never create jars: add those from an account on the Jars page (or with **Add jar** in a Savings group) so each has a home for its money.
 
 ### The Remaining-to-Budget banner
@@ -278,7 +278,7 @@ AllotJar is solo-friendly by default: on your own, the sharing features stay out
 
 The People page shows the **same month as the Budget page** (change it with the month navigator in the top bar). Each person's **Income** is what the month's budget says: the income lines attributed to them (on the Budget page, each income line has a **Who earns** picker once the household is shared), plus an equal share of any income line left as "Whole household". Their **Share** is that income as a percentage of the household's, and **Spent** is what has been attributed to them in that month. If the month has no budget yet, the figures are zero until you create one.
 
-A person's **Default income** is only a starting figure you can keep on file for filling in a new month's budget. Nothing is calculated from it: the Allocation page, the shares and the People figures all read the month's budget lines. Amounts recorded in another currency are shown converted to your budget currency; a row whose rate is still pending is counted separately until it resolves.
+A person's **Default income** is only a starting figure you keep on file: when you **start a blank month**, each person with a default gets an income line at that amount, attributed to them (a template or copied month keeps its own lines). Nothing is calculated from the default itself: the Allocation page, the shares and the People figures all read the month's budget lines. Amounts recorded in another currency are shown converted to your budget currency; a row whose rate is still pending is counted separately until it resolves.
 
 ### Inviting someone to sign in
 

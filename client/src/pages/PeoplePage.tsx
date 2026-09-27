@@ -50,7 +50,7 @@ function sharePct(share: number): string {
 
 /** The hint shown wherever the saved default income is edited (rule 28: it is never calculated with). */
 const DEFAULT_INCOME_HINT =
-  'A starting figure for a new month’s budget. Calculations use the income lines in the month’s budget.'
+  'Becomes this person’s income line when you start a blank month. Calculations use the income lines in the month’s budget.'
 
 /** "+N pending rate": rows left out of a month figure because their exchange rate is unresolved. */
 function FxPendingHint({ count, what }: { count: number; what: string }) {

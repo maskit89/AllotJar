@@ -2,7 +2,9 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 using Xunit;
+using AllotJar.Application.Allocation;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
+using AllotJar.Application.Budgets.Templates;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonths;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
@@ -303,5 +305,90 @@ public class CreateBudgetMonthTests
             .Handle(new GetBudgetMonthsQuery(), CancellationToken.None);
 
         months.Select(m => m.Key).Should().ContainInOrder("2026-07", "2026-06");
+    }
+
+    // ---- Q1a (W06 follow-up): a blank month is filled in from the saved Default incomes ------
+
+    private static HouseholdMember SeedMember(
+        ApplicationDbContext db, string ownerId, string name, decimal defaultIncome, int order, bool archived = false)
+    {
+        var member = new HouseholdMember
+        {
+            OwnerId = ownerId, Name = name, NetMonthlyIncome = defaultIncome, DisplayOrder = order, IsArchived = archived,
+        };
+        db.HouseholdMembers.Add(member);
+        db.SaveChanges();
+        return member;
+    }
+
+    [Fact]
+    public async Task Create_Blank_SeedsOneAttributedIncomeLinePerActivePersonWithADefault()
+    {
+        // Rule 28 calls the saved per-person figure "a helper for populating a new budget": a
+        // blank month is where that happens. One line per active person with a default above
+        // zero, in People-page order, attributed to them; nobody else gets a line.
+        await using var db = NewContext();
+        var robin = SeedMember(db, "user-1", "Robin", 2000m, order: 1);
+        var alex = SeedMember(db, "user-1", "Alex", 3000m, order: 0);
+        SeedMember(db, "user-1", "Sam", 0m, order: 2);                     // no default → no line
+        SeedMember(db, "user-1", "Old", 1500m, order: 3, archived: true);  // archived → no line
+        SeedMember(db, "user-2", "Stranger", 9000m, order: 0);            // another household
+        var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
+
+        var july = await handler.Handle(
+            new CreateBudgetMonthCommand(2026, 7, CopyFromPrevious: false), CancellationToken.None);
+
+        var income = july.Categories.Should().ContainSingle().Subject;
+        income.Kind.Should().Be("Income");
+        income.Items.Select(i => (i.Name, i.PlannedAmount, i.MemberId, i.DisplayOrder)).Should().Equal(
+            ("Alex", 3000m, (Guid?)alex.Id, 0),
+            ("Robin", 2000m, (Guid?)robin.Id, 1));
+        july.TotalIncome.Should().Be(5000m);
+
+        // The seeded lines are ordinary income lines: the People/Allocation pool reads them
+        // from the month (rule 28), not from the defaults they were copied from.
+        var members = await db.HouseholdMembers.Where(m => m.OwnerId == "user-1").OrderBy(m => m.DisplayOrder).ToListAsync();
+        var shares = await MemberIncome.SharesAsync(db, "user-1", 2026, 7, members, CancellationToken.None);
+        shares.Income[alex.Id].Should().Be(3000m);
+        shares.Income[robin.Id].Should().Be(2000m);
+        shares.Unattributed.Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task Create_CopyWithNoPriorMonth_FallsBackToTheSeededBlank()
+    {
+        await using var db = NewContext();
+        var alex = SeedMember(db, "user-1", "Alex", 3000m, order: 0);
+        var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
+
+        var june = await handler.Handle(
+            new CreateBudgetMonthCommand(2026, 6, CopyFromPrevious: true), CancellationToken.None);
+
+        june.Categories.Single(c => c.Kind == "Income").Items
+            .Should().ContainSingle(i => i.Name == "Alex" && i.PlannedAmount == 3000m && i.MemberId == alex.Id);
+    }
+
+    [Fact]
+    public async Task Create_CopyOrTemplate_KeepsItsOwnIncomeLines_NeverTheDefaults()
+    {
+        await using var db = NewContext();
+        SeedJune(db, "user-1"); // Income: Pay 3000, whole-household
+        SeedMember(db, "user-1", "Alex", 4000m, order: 0);
+        var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
+
+        // A copy carries last month's income lines exactly; the default adds nothing.
+        var july = await handler.Handle(
+            new CreateBudgetMonthCommand(2026, 7, CopyFromPrevious: true), CancellationToken.None);
+        july.Categories.Single(c => c.Kind == "Income").Items
+            .Select(i => (i.Name, i.PlannedAmount, i.MemberId))
+            .Should().Equal(("Pay", 3000m, (Guid?)null));
+
+        // A template month carries the template's own income lines, all at zero.
+        var template = BudgetTemplates.All.First();
+        var august = await handler.Handle(
+            new CreateBudgetMonthCommand(2026, 8, CopyFromPrevious: false, TemplateKey: template.Key), CancellationToken.None);
+        var templateIncome = august.Categories.Single(c => c.Kind == "Income");
+        templateIncome.Items.Select(i => i.Name).Should().Equal(template.Groups.Single(g => g.Kind == CategoryKind.Income).Lines);
+        templateIncome.Items.Should().OnlyContain(i => i.PlannedAmount == 0m && i.MemberId == null);
     }
 }

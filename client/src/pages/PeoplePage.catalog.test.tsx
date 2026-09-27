@@ -879,6 +879,6 @@ describe('PeoplePage — catalog (PPL)', () => {
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByLabelText('Default income')).toBeInTheDocument()
     expect(dialog.queryByLabelText('Net monthly income')).not.toBeInTheDocument()
-    expect(dialog.getByText(/A starting figure for a new month’s budget\. Calculations use the income lines in the month’s budget\./)).toBeInTheDocument()
+    expect(dialog.getByText(/Becomes this person’s income line when you start a blank month\. Calculations use the income lines in the month’s budget\./)).toBeInTheDocument()
   })
 })

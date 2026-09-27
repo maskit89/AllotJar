@@ -9,7 +9,7 @@
 ### BUDG-001 - Start a blank budget for a jar-less household lands on an empty month
 - **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** budg-solo signed in, zero jars, zero months; viewing July 2026 (no budget → not-found writer state).
+- **Preconditions:** budg-solo signed in, zero jars, zero months, nobody with a Default income (a person with one seeds a line — BUDG-057); viewing July 2026 (no budget → not-found writer state).
 - **Steps:**
   1. On `/`, in the "No budget for July 2026 yet." card, click **"Start a blank budget"**.
 - **Expected:**
@@ -628,3 +628,17 @@
 - **Expected:**
   - The first month is born with appended accrual-planned savings line(s) → income 0, planned > 0 → **over-budgeted** rose hero, not the truly-empty state. Truly-empty first months exist only for jar-less households.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/JarBudgetLinkTests.cs — CreateJar plants its line, blank creates a Savings group for existing jars; the over-budgeted hero string is not asserted end-to-end)
+
+### BUDG-057 - A blank month starts with one income line per person who has a Default income (rule 28)
+- **Priority:** P1
+- **Type:** Happy
+- **Origin:** W06 follow-up, HANDOVER question Q1 answered (a) on 27 September 2026
+- **Preconditions:** People page: Alex (Default income 3,000.00, first), Robin (2,000.00), Sam (0.00), plus an archived person with a default; no budget for the viewed month.
+- **Steps:**
+  1. Click **"Start a blank budget"** (or "Copy …" when no strictly-earlier month exists, which falls back to blank).
+  2. Open the People page for the same month.
+- **Expected:**
+  - The Income group holds exactly two lines, in People-page order: **Alex 3,000.00** and **Robin 2,000.00**, each attributed to that person (the "Who earns" picker shows them once the household is shared). Sam (no default) and the archived person get no line; another household's people never do.
+  - Income 5,000.00; the People page shows Alex 3,000.00 / Robin 2,000.00 (60% / 40%) read from these lines, not from the defaults.
+  - A **template** month keeps the template's own income lines (all 0.00, unattributed) and a **copied** month keeps last month's lines exactly; neither adds lines from the defaults. A household where nobody has a default still gets the empty Income group of BUDG-001/002.
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — `Create_Blank_SeedsOneAttributedIncomeLinePerActivePersonWithADefault`, `Create_CopyWithNoPriorMonth_FallsBackToTheSeededBlank`, `Create_CopyOrTemplate_KeepsItsOwnIncomeLines_NeverTheDefaults`)

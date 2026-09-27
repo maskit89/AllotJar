@@ -115,6 +115,13 @@ Rule 28 removed the static-income fallback, so every test that seeded `Household
 - **New/rewritten (client):** `PeoplePage.test.tsx` (selected-month URLs, all-time spending route never called), `PeoplePage.catalog.test.tsx` PPL-001/078/079 rewritten to the budget figures, PPL-080–083 added (month reload, budget shares, pending-rate hints, "Default income" labels); `AllocationPage.catalog.test.tsx` ALLOC-007 (both) rewritten to `useMonth`, ALLOC-064 (linking a savings account keeps the saved default), ALLOC-071/072/073 rewritten, ALLOC-074 added (no budget → notice); the Allocation and People suites mock `MonthContext` so month assertions are clock-independent.
 - **Journeys (CI only):** `allocation-commit.spec.ts` adds attributed income lines on the Budget page (`addAttributedIncome`) after adding people, asserts "Income this month" on the People page, and uses the **Default income** labels; `households-roles.spec.ts` uses the new add-person label.
 
+### W06 follow-up review — 27 September 2026
+
+The blank-month seeding changes no existing assertion: every "blank = empty Income group" test and journey runs with no household member holding a Default income (`CreateBudgetMonthTests.Create_Blank_MakesAnEmptyIncomeGroupOnly`, `Create_OnlyCopiesTheCallersOwnPreviousMonth`, `register.spec.ts`, `budget-lifecycle.spec.ts`), and `allocation-commit.spec.ts` starts its blank month before it gives the people their incomes, so its `addAttributedIncome` lines remain the month's only income. No test was deleted or renamed.
+
+- **New (backend), `CreateBudgetMonthTests`:** `Create_Blank_SeedsOneAttributedIncomeLinePerActivePersonWithADefault` (Alex 3,000 / Robin 2,000 seeded in People order and attributed; Sam with 0, an archived person and another household's person get nothing; `MemberIncome.SharesAsync` then reads 3,000 / 2,000 from the month), `Create_CopyWithNoPriorMonth_FallsBackToTheSeededBlank`, `Create_CopyOrTemplate_KeepsItsOwnIncomeLines_NeverTheDefaults` (a copy carries "Pay 3,000" unattributed and a template its own zero lines, both ignoring a 4,000 default).
+- **Changed assertion (client):** `PeoplePage.catalog.test.tsx` PPL-083 expects the new hint text.
+
 ## Execution and completion criteria
 
 Run targeted regressions with the corresponding implementation, then the full affected suites once the change is coherent. Do not repeatedly rerun unchanged suites without a new reason.

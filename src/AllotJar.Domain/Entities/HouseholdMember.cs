@@ -15,7 +15,11 @@ public class HouseholdMember : BaseEntity
 
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>The member's take-home pay per month, in the household base currency. Mapped to decimal(18,4).</summary>
+    /// <summary>
+    /// The saved "Default income": the income line this person gets when a blank month is
+    /// created (rule 28). Never a figure any calculation reads — the month's budget lines are.
+    /// In the household base currency; mapped to decimal(18,4).
+    /// </summary>
     public decimal NetMonthlyIncome { get; set; }
 
     /// <summary>
