@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { jarHorizonLabel, jarMonthLabel, jarStatusChip } from './jarStatus'
+import { jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from './jarStatus'
 import type { JarDto } from '../types'
 
 function jar(over: Partial<JarDto> = {}): JarDto {
@@ -23,6 +23,8 @@ function jar(over: Partial<JarDto> = {}): JarDto {
     deadline: '2026-12-01',
     fundingCompletesOn: '2026-11-30',
     estimatedMonthsToTarget: null,
+    shortfall: null,
+    lastCycle: null,
     status: 'OnTrack',
     ...over,
   }
@@ -34,6 +36,11 @@ describe('jarStatusChip', () => {
     expect(jarStatusChip('Overspent')).toEqual({ label: 'Overspent', tone: 'rose' })
     expect(jarStatusChip('FullyFunded')).toEqual({ label: 'Funded', tone: 'teal' })
     expect(jarStatusChip('Unscheduled')).toEqual({ label: 'Needs a plan', tone: 'amber' })
+  })
+
+  it('calls out a missed recurring deadline (rule 20) and a cycle funded late (rule 57)', () => {
+    expect(jarStatusChip('DeadlineMissed')).toEqual({ label: 'Deadline missed', tone: 'rose' })
+    expect(jarStatusChip('FundedLate')).toEqual({ label: 'Funded late', tone: 'amber' })
   })
 
   it('flags an unavailable balance with a neutral chip (rule 67)', () => {
@@ -68,6 +75,14 @@ describe('jarMonthLabel', () => {
     )
     expect(jarMonthLabel(jar({ plannedThisMonth: 0, status: 'OnTrack' }), 'EUR')).toBe('Nothing to set aside this month')
   })
+
+  it('keeps a missed deadline and its shortfall in view until the user acts (rule 20), or says the target came late (rule 57)', () => {
+    const missed = jar({ status: 'DeadlineMissed', deadline: '2026-09-01', shortfall: 150, currentBalance: 450, plannedThisMonth: 150, remainingThisMonth: 150 })
+    expect(jarMonthLabel(missed, 'EUR')).toMatch(/^Deadline .*Sep.*2026 missed · €150\.00 short$/)
+    expect(jarMonthLabel(jar({ status: 'FundedLate', deadline: '2026-09-01', shortfall: 0, currentBalance: 600, plannedThisMonth: 0, remainingThisMonth: 0 }), 'EUR')).toMatch(
+      /^Funded after the deadline on .*Sep.*2026$/,
+    )
+  })
 })
 
 describe('jarHorizonLabel', () => {
@@ -89,7 +104,43 @@ describe('jarHorizonLabel', () => {
     expect(jarHorizonLabel(jar({ status: 'FullyFunded', fundingCompletesOn: null, deadline: null }))).toBeNull()
   })
 
+  it('tells a missed or late jar what to do next instead of a funding month (rules 20, 57)', () => {
+    expect(jarHorizonLabel(jar({ status: 'DeadlineMissed', deadline: '2026-09-01' }))).toBe('Mark the cycle paid, or dismiss it to save toward the next one')
+    expect(jarHorizonLabel(jar({ status: 'FundedLate', deadline: '2026-09-01' }))).toBe('Mark the cycle paid, or dismiss it to save toward the next one')
+  })
+
   it('falls back to the deadline alone once funding is complete but the date is still ahead', () => {
     expect(jarHorizonLabel(jar({ status: 'FullyFunded', fundingCompletesOn: null }))).toMatch(/^Due .*Dec.*2026$/)
+  })
+})
+
+describe('jarLastCycleLabel', () => {
+  const cycle = {
+    id: 'c1',
+    deadline: '2025-12-01',
+    targetAmount: 600,
+    outcome: 'Paid',
+    balanceAtDeadline: 600,
+    paymentTransactionId: 'tx1',
+    paymentPayee: 'Allianz',
+    paidOn: '2025-11-28',
+    paidAmount: 550,
+    paidOnTime: true,
+    closedOn: '2025-11-28',
+  }
+
+  it('says how the last cycle ended: paid (with the date and amount), funded on time, funded late or missed', () => {
+    expect(jarLastCycleLabel(jar({ lastCycle: cycle }), 'EUR')).toMatch(/^Last cycle · due .*Dec.*2025 · paid .*Nov.*2025 \(€550\.00\)$/)
+    expect(jarLastCycleLabel(jar({ lastCycle: { ...cycle, paidOn: '2025-12-03', paidOnTime: false } }), 'EUR')).toMatch(/, after the deadline$/)
+    expect(jarLastCycleLabel(jar({ lastCycle: { ...cycle, outcome: 'Funded', paymentTransactionId: null, paidOn: null, paidAmount: null, paidOnTime: false } }), 'EUR')).toMatch(
+      /· funded on time, payment not recorded$/,
+    )
+    expect(jarLastCycleLabel(jar({ lastCycle: { ...cycle, outcome: 'FundedLate', paidOnTime: false } }), 'EUR')).toMatch(/· funded late$/)
+    expect(jarLastCycleLabel(jar({ lastCycle: { ...cycle, outcome: 'Missed', balanceAtDeadline: 400, paidOnTime: false } }), 'EUR')).toMatch(/· missed$/)
+  })
+
+  it('is silent before any cycle has closed, and for a Goal', () => {
+    expect(jarLastCycleLabel(jar(), 'EUR')).toBeNull()
+    expect(jarLastCycleLabel(jar({ kind: 1, recurMonths: null, lastCycle: cycle }), 'EUR')).toBeNull()
   })
 })

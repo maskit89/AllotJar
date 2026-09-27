@@ -60,6 +60,8 @@ function jar(over: Partial<JarDto> = {}): JarDto {
     deadline: '2026-12-01',
     fundingCompletesOn: '2026-11-30',
     estimatedMonthsToTarget: null,
+    shortfall: null,
+    lastCycle: null,
     status: 'OnTrack',
     ...over,
   }

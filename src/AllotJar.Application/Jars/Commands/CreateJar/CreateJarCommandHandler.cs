@@ -45,6 +45,9 @@ public class CreateJarCommandHandler
             // Recurring jars carry their cycle length (yearly unless told otherwise);
             // Goals are one-and-done and never roll.
             RecurMonths = request.Kind == JarKind.Recurring ? request.RecurMonths ?? 12 : null,
+            // A Recurring jar's first cycle is due on the date given (W03); it advances as
+            // cycles close. Goals have no cycle.
+            CycleDeadline = request.Kind == JarKind.Recurring ? request.TargetDate : null,
             FundingAccountId = account.Id,
         };
 

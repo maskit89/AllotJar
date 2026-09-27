@@ -50,8 +50,17 @@ function memberSpending() {
 // bars (incl. an overspent one).
 function jars() {
   return [
-    { id: 'f1', name: 'Home insurance', kind: 0, targetAmount: 300, targetDate: '2026-12-01', accrual: 1, monthlyContribution: null, includeDeadlineMonth: false, recurMonths: 12, fundingAccountId: 'acc1', isArchived: false, currentBalance: 120, plannedThisMonth: 25, contributedThisMonth: 0, remainingThisMonth: 25, deadline: '2026-12-01', fundingCompletesOn: '2026-11-30', estimatedMonthsToTarget: null, status: 'OnTrack' },
-    { id: 'f2', name: 'Holiday', kind: 1, targetAmount: 1000, targetDate: null, accrual: 1, monthlyContribution: null, includeDeadlineMonth: false, recurMonths: null, fundingAccountId: 'acc1', isArchived: false, currentBalance: -40, plannedThisMonth: 0, contributedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, status: 'Overspent' },
+    { id: 'f1', name: 'Home insurance', kind: 0, targetAmount: 300, targetDate: '2026-12-01', accrual: 1, monthlyContribution: null, includeDeadlineMonth: false, recurMonths: 12, fundingAccountId: 'acc1', isArchived: false, currentBalance: 120, plannedThisMonth: 25, contributedThisMonth: 0, remainingThisMonth: 25, deadline: '2026-12-01', fundingCompletesOn: '2026-11-30', estimatedMonthsToTarget: null, shortfall: null, lastCycle: { id: 'c1', deadline: '2025-12-01', targetAmount: 300, outcome: 'Paid', balanceAtDeadline: 300, paymentTransactionId: 't9', paymentPayee: 'Insurer', paidOn: '2025-11-28', paidAmount: 290, paidOnTime: true, closedOn: '2025-11-28' }, status: 'OnTrack' },
+    { id: 'f2', name: 'Holiday', kind: 1, targetAmount: 1000, targetDate: null, accrual: 1, monthlyContribution: null, includeDeadlineMonth: false, recurMonths: null, fundingAccountId: 'acc1', isArchived: false, currentBalance: -40, plannedThisMonth: 0, contributedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, shortfall: null, lastCycle: null, status: 'Overspent' },
+    // W03: a recurring jar past its deadline, short — the Deadline missed state with its actions.
+    { id: 'f3', name: 'Road tax', kind: 0, targetAmount: 600, targetDate: '2026-06-01', accrual: 1, monthlyContribution: null, includeDeadlineMonth: false, recurMonths: 12, fundingAccountId: 'acc1', isArchived: false, currentBalance: 450, plannedThisMonth: 150, contributedThisMonth: 0, remainingThisMonth: 150, deadline: '2026-06-01', fundingCompletesOn: '2026-05-31', estimatedMonthsToTarget: null, shortfall: 150, lastCycle: null, status: 'DeadlineMissed' },
+  ]
+}
+
+// The payments a cycle can be marked paid with (GET /jars/{id}/payments).
+function jarPayments() {
+  return [
+    { id: 't1', date: '2026-05-20', payee: 'Motor Tax Office', amount: 590, currency: 'EUR', baseAmount: 590, fxPending: false, accountId: 'acc1', accountName: 'Savings Joint', budgetItemName: 'Road tax', fromJar: true },
   ]
 }
 
@@ -306,6 +315,7 @@ export async function mockApi(route: Route) {
   if (path === '/accounts/reconciliation') return json(accountReconciliation())
   if (path === '/jars') return json(jars())
   if (path === '/jars/schedule') return json(jarSchedule())
+  if (/^\/jars\/[^/]+\/payments$/.test(path)) return json(jarPayments())
   if (path === '/members') return json(householdMembers())
   if (path === '/members/spending') return json(memberSpending())
   if (path === '/allocation/profile') return json(allocationProfile())

@@ -1,0 +1,85 @@
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Common.Exceptions;
+using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Jars.Dtos;
+using AllotJar.Domain.Enums;
+
+namespace AllotJar.Application.Jars.Commands.MarkJarCyclePaid;
+
+public class MarkJarCyclePaidCommandHandler : IRequestHandler<MarkJarCyclePaidCommand, JarDto>
+{
+    private readonly IApplicationDbContext _db;
+    private readonly ICurrentUser _currentUser;
+
+    public MarkJarCyclePaidCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    {
+        _db = db;
+        _currentUser = currentUser;
+    }
+
+    public async Task<JarDto> Handle(MarkJarCyclePaidCommand request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.OwnerId
+            ?? throw new ForbiddenAccessException("No authenticated user on the request.");
+
+        var jar = await _db.Jars.FirstOrDefaultAsync(j => j.Id == request.JarId, cancellationToken)
+            ?? throw new NotFoundException($"Jar {request.JarId} was not found.");
+        if (jar.OwnerId != userId)
+        {
+            throw new ForbiddenAccessException();
+        }
+        if (jar.Kind != JarKind.Recurring)
+        {
+            throw JarAccounts.Validation("Deadline", $"{jar.Name} is a goal, not a recurring jar; it has no cycles to mark paid.");
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        // A funded cycle whose deadline has arrived rolls forward first (rule 21), so the open
+        // cycle is the one the user sees.
+        await JarCycles.SettleAsync(_db, userId, today, cancellationToken, jar.Id);
+
+        var payment = await _db.Transactions.FirstOrDefaultAsync(t => t.Id == request.PaymentTransactionId, cancellationToken)
+            ?? throw new NotFoundException($"Transaction {request.PaymentTransactionId} was not found.");
+        if (payment.OwnerId != userId)
+        {
+            throw new ForbiddenAccessException();
+        }
+        if (payment.Type != TransactionType.Expense || payment.IsRefund)
+        {
+            throw JarAccounts.Validation("PaymentTransactionId", "Choose the payment that settled the bill — money out, not income, a transfer or a refund.");
+        }
+        if (payment.Date > today)
+        {
+            throw JarAccounts.Validation("PaymentTransactionId", "That payment is dated in the future.");
+        }
+        var alreadyFulfilled = await _db.JarCycles
+            .Include(c => c.Jar)
+            .FirstOrDefaultAsync(c => c.PaymentTransactionId == payment.Id, cancellationToken);
+        if (alreadyFulfilled is not null)
+        {
+            throw JarAccounts.Validation("PaymentTransactionId",
+                $"That payment already fulfilled {alreadyFulfilled.Jar.Name}'s cycle due {alreadyFulfilled.Deadline:d MMM yyyy}. A payment settles one cycle.");
+        }
+
+        if (jar.CycleDeadline == request.Deadline)
+        {
+            await JarCycles.CloseOpenCycleAsync(_db, userId, jar, JarCycleOutcome.Paid, payment, today, cancellationToken);
+        }
+        else
+        {
+            var cycle = await _db.JarCycles
+                .FirstOrDefaultAsync(c => c.JarId == jar.Id && c.Deadline == request.Deadline, cancellationToken)
+                ?? throw JarAccounts.Validation("Deadline",
+                    $"{jar.Name} has no cycle due {request.Deadline:d MMM yyyy}. Its current cycle is due {jar.CycleDeadline:d MMM yyyy}.");
+            if (cycle.PaymentTransactionId is not null)
+            {
+                throw JarAccounts.Validation("Deadline", $"The cycle due {cycle.Deadline:d MMM yyyy} is already marked paid.");
+            }
+            JarCycles.Link(cycle, payment);
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return await JarFigures.ReadOneAsync(_db, userId, jar, today, cancellationToken);
+    }
+}

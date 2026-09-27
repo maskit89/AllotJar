@@ -8,7 +8,8 @@ namespace AllotJar.Application.Tests.Domain;
 
 /// <summary>
 /// The contribution schedule against the confirmed examples in AGREED-RULES (12–13, 16–18,
-/// 35–36, 58, 62): the planner behind the preview, month seeding and the Jars page.
+/// 20, 35–36, 58, 62): the planner behind the preview, month seeding and the Jars page. The
+/// cycle lifecycle around it (settling, marking paid, dismissing) is Application/JarCycleTests.
 /// </summary>
 public class JarScheduleTests
 {
@@ -156,51 +157,71 @@ public class JarScheduleTests
     // ---- Recurring deadlines (rules 21 view, 62) --------------------------------------
 
     [Fact]
-    public void ARecurringJar_PlansTowardItsNextCycle_OnceTheDateHasPassed()
+    public void ARecurringJar_PlansTowardItsOpenCycle_NotTheAnchor()
     {
-        // Due 1 March yearly, it's July: the next cycle is 1 March 2027, eight months (Jul–Feb) → 75 each.
+        // Anchored 1 March yearly; its open cycle (W03) is 1 March 2027 and it's July: eight
+        // months (Jul–Feb) → 75 each. The anchor itself is never rewritten.
         var jar = ByDeadline(600m, new DateOnly(2026, 3, 1), kind: JarKind.Recurring, recurMonths: 12);
+        jar.CycleDeadline = new DateOnly(2027, 3, 1);
         var plan = JarSchedule.Plan(jar, new DateOnly(2026, 7, 1), 0m);
 
         plan.Deadline.Should().Be(new DateOnly(2027, 3, 1));
         plan.Months.Should().HaveCount(8);
         Planned(plan).Should().OnlyContain(p => p == 75m);
-        jar.TargetDate.Should().Be(new DateOnly(2026, 3, 1)); // the anchor is never rewritten
+        jar.TargetDate.Should().Be(new DateOnly(2026, 3, 1));
+    }
+
+    [Fact]
+    public void Rule20_AMissedRecurringCycle_NeverRollsOnItsOwn_AndPlansTheShortfallNow()
+    {
+        // The open cycle is 1 March 2026 and it's July: the deadline stays where it is (Deadline
+        // missed, until the user acts) and the 150 still short is planned this month, in full.
+        var jar = ByDeadline(600m, new DateOnly(2026, 3, 1), kind: JarKind.Recurring, recurMonths: 12);
+        jar.CycleDeadline = new DateOnly(2026, 3, 1);
+
+        JarSchedule.CurrentDeadline(jar).Should().Be(new DateOnly(2026, 3, 1));
+        var plan = JarSchedule.Plan(jar, new DateOnly(2026, 7, 6), 450m);
+        plan.Deadline.Should().Be(new DateOnly(2026, 3, 1));
+        Planned(plan).Should().Equal(150m);
+
+        // A jar never settled (no open cycle stored) saves toward its anchor; a Goal's date is
+        // its deadline; a fixed monthly plan has none.
+        JarSchedule.CurrentDeadline(ByDeadline(100m, new DateOnly(2026, 3, 15), kind: JarKind.Recurring)).Should().Be(new DateOnly(2026, 3, 15));
+        JarSchedule.CurrentDeadline(ByDeadline(100m, new DateOnly(2026, 3, 1))).Should().Be(new DateOnly(2026, 3, 1));
+        JarSchedule.CurrentDeadline(FixedMonthly(50m)).Should().BeNull();
     }
 
     [Theory]
-    [InlineData("2026-09-22", "2026-01-31", 1, "2026-09-30")]
-    [InlineData("2026-02-15", "2026-01-31", 1, "2026-02-28")]
-    [InlineData("2026-03-01", "2026-01-31", 1, "2026-03-31")]
-    [InlineData("2026-04-01", "2026-01-31", 1, "2026-04-30")]
-    [InlineData("2028-02-15", "2028-01-31", 1, "2028-02-29")]
-    [InlineData("2025-02-15", "2024-02-29", 12, "2025-02-28")]
-    [InlineData("2028-02-15", "2024-02-29", 12, "2028-02-29")]
-    [InlineData("2026-05-01", "2026-01-31", 3, "2026-07-31")]
-    public void Rule62_AShorterMonth_ClampsOnlyThatOccurrence_AndKeepsTheIntendedDay(
-        string today, string anchor, int cycle, string expectedDate)
+    [InlineData("2026-01-31", 1, "2026-01-31", "2026-02-28")]
+    [InlineData("2026-01-31", 1, "2026-02-28", "2026-03-31")]
+    [InlineData("2026-01-31", 1, "2026-03-31", "2026-04-30")]
+    [InlineData("2028-01-31", 1, "2028-01-31", "2028-02-29")]
+    [InlineData("2024-02-29", 12, "2024-02-29", "2025-02-28")]
+    [InlineData("2024-02-29", 12, "2027-02-28", "2028-02-29")]
+    [InlineData("2026-01-31", 3, "2026-04-30", "2026-07-31")]
+    [InlineData("2026-01-31", 1, "2026-09-15", "2026-09-30")]
+    public void Rule62_TheNextCycle_IsSteppedFromTheAnchor_SoAShorterMonthClampsOnlyThatOccurrence(
+        string anchor, int cycle, string after, string expectedDate)
     {
         var jar = ByDeadline(100m, DateOnly.ParseExact(anchor, "yyyy-MM-dd"), kind: JarKind.Recurring, recurMonths: cycle);
 
-        JarSchedule.EffectiveDeadline(jar, DateOnly.ParseExact(today, "yyyy-MM-dd"))
+        JarSchedule.NextCycleDeadline(jar, DateOnly.ParseExact(after, "yyyy-MM-dd"))
             .Should().Be(DateOnly.ParseExact(expectedDate, "yyyy-MM-dd"));
         jar.TargetDate.Should().Be(DateOnly.ParseExact(anchor, "yyyy-MM-dd"));
     }
 
     [Fact]
-    public void EffectiveDeadline_DueToday_DoesNotRoll_ButALaterDayThisMonth_Does()
+    public void NextCycleDeadline_IsStrictlyAfterTheDateGiven_AndJumpsSeveralUnseenCycles()
     {
         var jar = ByDeadline(100m, new DateOnly(2026, 3, 15), kind: JarKind.Recurring, recurMonths: 12);
 
-        JarSchedule.EffectiveDeadline(jar, new DateOnly(2026, 3, 15)).Should().Be(new DateOnly(2026, 3, 15));
-        JarSchedule.EffectiveDeadline(jar, new DateOnly(2026, 3, 20)).Should().Be(new DateOnly(2027, 3, 15));
-        // A future date is left alone; several missed cycles are jumped in one go, from the anchor.
-        JarSchedule.EffectiveDeadline(jar, new DateOnly(2025, 7, 1)).Should().Be(new DateOnly(2026, 3, 15));
-        JarSchedule.EffectiveDeadline(ByDeadline(100m, new DateOnly(2024, 3, 1), kind: JarKind.Recurring, recurMonths: 12), new DateOnly(2026, 7, 1))
+        // Closing the cycle due on the 15th moves on to next year's; a date before the anchor
+        // yields the anchor itself; several cycles are jumped in one go, from the anchor.
+        JarSchedule.NextCycleDeadline(jar, new DateOnly(2026, 3, 15)).Should().Be(new DateOnly(2027, 3, 15));
+        JarSchedule.NextCycleDeadline(jar, new DateOnly(2025, 7, 1)).Should().Be(new DateOnly(2026, 3, 15));
+        JarSchedule.NextCycleDeadline(ByDeadline(100m, new DateOnly(2024, 3, 1), kind: JarKind.Recurring, recurMonths: 12), new DateOnly(2026, 7, 1))
             .Should().Be(new DateOnly(2027, 3, 1));
-        // Goals never roll, nor does a jar without a date have a deadline.
-        JarSchedule.EffectiveDeadline(ByDeadline(100m, new DateOnly(2026, 3, 1)), new DateOnly(2026, 7, 1)).Should().Be(new DateOnly(2026, 3, 1));
-        JarSchedule.EffectiveDeadline(FixedMonthly(50m), new DateOnly(2026, 7, 1)).Should().BeNull();
+        JarSchedule.NextCycleDeadline(FixedMonthly(50m), new DateOnly(2026, 7, 1)).Should().BeNull();
     }
 
     // ---- Fixed monthly plans (rules 16, 17, 18, 58) -----------------------------------

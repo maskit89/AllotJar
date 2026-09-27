@@ -50,6 +50,8 @@ function jar(over: Partial<JarDto> = {}): JarDto {
     deadline: '2026-12-01',
     fundingCompletesOn: '2026-11-30',
     estimatedMonthsToTarget: null,
+    shortfall: null,
+    lastCycle: null,
     status: 'OnTrack',
     ...over,
   }
@@ -542,24 +544,26 @@ describe('JarsPage — catalog (JAR)', () => {
     )
   })
 
-  it('JAR-037: switching a passed Recurring jar to Goal keeps its real anchor date', { timeout: 15000 }, async () => {
-    // The DTO carries the stored anchor (2026-01-01), not the rolled effective date.
-    mockLoads({ jars: [jar({ kind: 0, targetAmount: 500, targetDate: '2026-01-01', recurMonths: 12 })] })
-    mockPut.mockResolvedValue({ data: jar({ kind: 1, targetDate: '2026-01-01', recurMonths: null, status: 'Behind' }) })
+  it('JAR-037: a Recurring jar\'s form shows its open cycle\'s date (W03), and switching it to Goal sends that date', { timeout: 15000 }, async () => {
+    // The DTO carries both the stored anchor (2026-01-01) and the open cycle the server keeps
+    // (2027-01-01, after a funded cycle rolled forward); the form works in cycle dates.
+    mockLoads({ jars: [jar({ kind: 0, targetAmount: 500, targetDate: '2026-01-01', deadline: '2027-01-01', recurMonths: 12 })] })
+    mockPut.mockResolvedValue({ data: jar({ kind: 1, targetDate: '2027-01-01', deadline: '2027-01-01', recurMonths: null }) })
     const user = userEvent.setup()
 
     renderPage()
 
     await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    // The prefilled "Next due" shows the anchor, not the rolled 2027-01-01.
-    expect(dialog.getByLabelText('Next due date')).toHaveValue('2026-01-01')
+    // The prefilled "Next due" is the open cycle's date, not the old anchor.
+    expect(dialog.getByLabelText('Next due date')).toHaveValue('2027-01-01')
 
     await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // → Goal
     await user.click(dialog.getByRole('button', { name: 'Save jar' }))
 
+    // The Goal keeps the date the user saw; a Goal has no cycle, so that date is its deadline.
     await waitFor(
-      () => expect(mockPut).toHaveBeenCalledWith('/jars/f1', expect.objectContaining({ kind: 1, recurMonths: null, targetDate: '2026-01-01' })),
+      () => expect(mockPut).toHaveBeenCalledWith('/jars/f1', expect.objectContaining({ kind: 1, recurMonths: null, targetDate: '2027-01-01' })),
       { timeout: 5000 },
     )
   })

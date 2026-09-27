@@ -8,7 +8,8 @@ namespace AllotJar.Application.Jars;
 /// <summary>
 /// The one read path for <see cref="JarDto"/>s: the ledger as of the date and as of the end
 /// of the previous month (rule 14's "contributed this month"), plus the month's stored
-/// savings lines (its plans). Every handler that returns a jar goes through here so the card
+/// savings lines (its plans) and each jar's last closed cycle (W03). Callers settle the
+/// cycles first (<see cref="JarCycles.SettleAsync"/>) where a deadline may have arrived. Every handler that returns a jar goes through here so the card
 /// never changes between the write that returned it and the next load.
 /// </summary>
 public static class JarFigures
@@ -43,12 +44,22 @@ public static class JarFigures
             .Select(g => new { JarId = g.Key, Planned = g.Sum(i => i.PlannedAmount) })
             .ToDictionaryAsync(x => x.JarId, x => x.Planned, cancellationToken);
 
+        // Each Recurring jar's most recently closed cycle (W03), for the card's history line.
+        var lastCycles = (await db.JarCycles
+                .AsNoTracking()
+                .Include(c => c.PaymentTransaction)
+                .Where(c => ids.Contains(c.JarId))
+                .ToListAsync(cancellationToken))
+            .GroupBy(c => c.JarId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(c => c.Deadline).ThenByDescending(c => c.CreatedUtc).First());
+
         return jars
             .Select(j => j.ToDto(
                 now.BalanceOf(j.Id),
                 before.BalanceOf(j.Id),
                 storedPlans.TryGetValue(j.Id, out var planned) ? planned : null,
-                asOf))
+                asOf,
+                lastCycles.GetValueOrDefault(j.Id)))
             .ToList();
     }
 

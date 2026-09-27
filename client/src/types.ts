@@ -616,14 +616,58 @@ export interface JarDto {
   contributedThisMonth: number
   /** Plan − contributed, floored at zero (rule 14). */
   remainingThisMonth: number
-  /** The deadline saved toward, with a Recurring jar's cycle applied; null for fixed monthly plans. */
+  /** The deadline saved toward — a Recurring jar's open cycle (W03); null for fixed monthly plans. */
   deadline: string | null
+  /**
+   * Rule 20: while a Recurring jar's open cycle has passed its deadline short of the target
+   * (status DeadlineMissed, or FundedLate once reached, rule 57), target − balance floored at
+   * zero. Null otherwise.
+   */
+  shortfall: number | null
+  /** The jar's most recently closed cycle (W03); null when none has closed yet. */
+  lastCycle: JarCycleDto | null
   /** The last day of the final planned month (rule 36); null when funded or not a deadline plan. */
   fundingCompletesOn: string | null
   /** Fixed monthly plans with a target: monthly contributions still needed (rule 58, an estimate). */
   estimatedMonthsToTarget: number | null
-  /** Unavailable | Overspent | Ongoing | Unscheduled | FullyFunded | Behind | OnTrack. */
+  /** Unavailable | DeadlineMissed | FundedLate | Overspent | Ongoing | Unscheduled | FullyFunded | Behind | OnTrack. */
   status: string
+}
+
+/** A closed cycle of a Recurring jar (W03). Mirrors AllotJar.Application.Jars.Dtos.JarCycleDto. */
+export interface JarCycleDto {
+  id: string
+  /** The deadline the cycle worked toward (ISO yyyy-MM-dd). */
+  deadline: string
+  targetAmount: number
+  /** Paid | Funded | Missed | FundedLate. */
+  outcome: string
+  /** The balance at the end of the day before the deadline; null when it was unavailable. */
+  balanceAtDeadline: number | null
+  /** The payment chosen as fulfilling the cycle (rule 83); null once that transaction is deleted (the date and amount stay). */
+  paymentTransactionId: string | null
+  paymentPayee: string | null
+  paidOn: string | null
+  paidAmount: number | null
+  /** A paid cycle whose payment landed before the deadline (rule 22). */
+  paidOnTime: boolean
+  closedOn: string
+}
+
+/** A payment offered for marking a cycle paid (GET /jars/{id}/payments). Mirrors JarPaymentDto. */
+export interface JarPaymentDto {
+  id: string
+  date: string
+  payee: string
+  amount: number
+  currency: string
+  baseAmount: number
+  fxPending: boolean
+  accountId: string | null
+  accountName: string | null
+  budgetItemName: string | null
+  /** True when the payment drew from the jar in its own account (rule 79). */
+  fromJar: boolean
 }
 
 /** One month of a previewed schedule (POST /jars/schedule). */

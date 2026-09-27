@@ -37,14 +37,21 @@ public class GetJarScheduleQueryHandler : IRequestHandler<GetJarScheduleQuery, J
             {
                 throw new ForbiddenAccessException();
             }
+            // The preview of an edit starts from the cycle the jar is actually in (rule 21).
+            if (await JarCycles.SettleAsync(_db, userId, today, cancellationToken, existing.Id))
+            {
+                existing = await _db.Jars.AsNoTracking().FirstAsync(j => j.Id == id, cancellationToken);
+            }
         }
+        var (anchor, cycleDeadline) = JarCycles.DeadlinesFor(existing, request.Kind, request.TargetDate);
         var jar = new Jar
         {
             Id = existing?.Id ?? Guid.NewGuid(),
             OwnerId = userId,
             Kind = request.Kind,
             TargetAmount = request.TargetAmount,
-            TargetDate = request.TargetDate,
+            TargetDate = anchor,
+            CycleDeadline = cycleDeadline,
             Accrual = request.Accrual,
             MonthlyContribution = request.Accrual == AccrualMethod.FixedMonthly ? request.MonthlyContribution : null,
             IncludeDeadlineMonth = request.Accrual == AccrualMethod.TargetByDate && request.IncludeDeadlineMonth,
@@ -53,11 +60,9 @@ public class GetJarScheduleQueryHandler : IRequestHandler<GetJarScheduleQuery, J
         };
 
         var extra = existing is null ? request.InitialAllocation : 0m;
-        var plan = await JarPlanner.ScheduleAsync(_db, userId, jar, today, extra, cancellationToken);
-        var current = new DateOnly(today.Year, today.Month, 1);
-        var opening = await JarLedgerReader.ReadAsync(_db, userId, current.AddDays(-1), cancellationToken,
-            existing is null ? Array.Empty<Guid>() : new[] { existing.FundingAccountId });
-        var balance = (existing is null ? 0m : opening.BalanceOf(jar.Id) ?? 0m) + extra;
+        var balances = await JarPlanner.BalancesAsync(_db, userId, jar, today, extra, cancellationToken);
+        var plan = JarSchedule.Plan(jar, today, balances.Planning);
+        var balance = balances.Planning;
 
         // Rule 59: where a planned month already has a budget, say how far the full contribution
         // would push it over its income — shown, never trimmed.
@@ -98,7 +103,7 @@ public class GetJarScheduleQueryHandler : IRequestHandler<GetJarScheduleQuery, J
             Remaining = plan.Remaining,
             Months = months,
             Total = plan.Total,
-            Deadline = plan.Deadline ?? JarSchedule.EffectiveDeadline(jar, today),
+            Deadline = plan.Deadline ?? JarSchedule.CurrentDeadline(jar),
             FundingCompletesOn = plan.FundingCompletesOn,
             EstimatedMonths = plan.EstimatedMonths,
         };

@@ -4,10 +4,13 @@ using Microsoft.AspNetCore.Mvc;
 using AllotJar.Api.Features;
 using AllotJar.Application.Jars.Commands.ArchiveJar;
 using AllotJar.Application.Jars.Commands.CreateJar;
+using AllotJar.Application.Jars.Commands.DismissJarCycle;
+using AllotJar.Application.Jars.Commands.MarkJarCyclePaid;
 using AllotJar.Application.Jars.Commands.ReallocateJarMoney;
 using AllotJar.Application.Jars.Commands.UpdateJar;
 using AllotJar.Application.Jars.Dtos;
 using AllotJar.Application.Jars.Queries.GetJarLedger;
+using AllotJar.Application.Jars.Queries.GetJarPayments;
 using AllotJar.Application.Jars.Queries.GetJars;
 using AllotJar.Application.Jars.Queries.GetJarSchedule;
 using AllotJar.Domain.Enums;
@@ -15,8 +18,9 @@ using AllotJar.Domain.Enums;
 namespace AllotJar.Api.Controllers;
 
 /// <summary>
-/// The user's jars and their derived figures (actual balance, required monthly contribution,
-/// projection, status), plus each jar-backed account's ledger and same-account money moves.
+/// The user's jars and their derived figures (actual balance, this month's plan, schedule
+/// dates, cycle state, status), each jar-backed account's ledger, same-account money moves and
+/// a Recurring jar's cycle actions (mark paid, dismiss a missed deadline).
 /// Every handler is owner-scoped; balances are actual money read from the ledger, never stored
 /// and never plans.
 /// </summary>
@@ -107,6 +111,52 @@ public class JarsController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// The payments a Recurring jar's cycle can be marked paid with (rule 83): expenses not yet
+    /// linked to a cycle, newest first — those drawn from the jar, or every expense with <c>all</c>.
+    /// </summary>
+    [HttpGet("{id:guid}/payments")]
+    [ProducesResponseType(typeof(IReadOnlyList<JarPaymentDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<IReadOnlyList<JarPaymentDto>>> Payments(Guid id, [FromQuery] bool all, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new GetJarPaymentsQuery(id, all), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Marks a Recurring jar's cycle paid with the chosen payment (rule 83). The open cycle then
+    /// advances to the next deadline (rules 21–24); a closed cycle without a payment is simply
+    /// recorded as paid. No money moves. Returns the jar.
+    /// </summary>
+    [HttpPost("{id:guid}/cycles/paid")]
+    [ProducesResponseType(typeof(JarDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<JarDto>> MarkCyclePaid(Guid id, MarkJarCyclePaidRequest request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new MarkJarCyclePaidCommand(id, request.Deadline, request.PaymentTransactionId), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Dismisses a Recurring jar's Deadline-missed notice (rule 20): the open cycle closes as
+    /// missed (or funded late, rule 57) without a payment and the jar saves toward its next
+    /// deadline. Balances are untouched. Returns the jar.
+    /// </summary>
+    [HttpPost("{id:guid}/cycles/dismiss")]
+    [ProducesResponseType(typeof(JarDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<JarDto>> DismissCycle(Guid id, DismissJarCycleRequest request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new DismissJarCycleCommand(id, request.Deadline), ct);
+        return Ok(result);
+    }
+
     /// <summary>Moves money between one account's jars and/or its unallocated funds (null = unallocated). Returns that account's ledger.</summary>
     [HttpPost("reallocations")]
     [ProducesResponseType(typeof(JarAccountLedgerDto), StatusCodes.Status200OK)]
@@ -156,6 +206,12 @@ public record JarScheduleRequest(
     bool IncludeDeadlineMonth = false,
     int? RecurMonths = null,
     decimal InitialAllocation = 0m);
+
+/// <summary>Request body for marking a cycle paid: the cycle's deadline and the payment that fulfilled it.</summary>
+public record MarkJarCyclePaidRequest(DateOnly Deadline, Guid PaymentTransactionId);
+
+/// <summary>Request body for dismissing a missed cycle: the open cycle's deadline, so a stale page can't dismiss the wrong one.</summary>
+public record DismissJarCycleRequest(DateOnly Deadline);
 
 /// <summary>Request body for archiving/restoring a jar.</summary>
 public record ArchiveJarRequest(bool Archived = true);

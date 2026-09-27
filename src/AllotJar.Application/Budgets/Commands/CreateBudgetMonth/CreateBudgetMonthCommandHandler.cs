@@ -61,9 +61,10 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         // plan or a fixed monthly amount, rule 17) gets this month's planned contribution from
         // the planner; a jar with no usable plan copies its line flat; and any jar without a
         // line in the new month gets one appended, so a jar created on the Jars page starts
-        // filling without a manual budget step. Recurrence is applied virtually per month by
-        // the schedule — the stored date is an anchor and never rewritten here, so seeding a
-        // month is deterministic regardless of creation order.
+        // filling without a manual budget step. A Recurring jar plans toward its open cycle,
+        // settled first so a cycle whose deadline has arrived funded has rolled forward (W03,
+        // rule 21); the anchor date itself is never rewritten here.
+        await JarCycles.SettleAsync(_db, userId, DateOnly.FromDateTime(DateTime.UtcNow), cancellationToken);
         var allJars = await _db.Jars
             .AsNoTracking()
             .Where(f => f.OwnerId == userId)

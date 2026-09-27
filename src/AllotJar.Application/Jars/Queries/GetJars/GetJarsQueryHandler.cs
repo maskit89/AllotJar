@@ -26,6 +26,11 @@ public class GetJarsQueryHandler
 
         var asOf = request.AsOf ?? DateOnly.FromDateTime(DateTime.UtcNow);
 
+        // Rule 21: a Recurring cycle whose deadline has arrived with its target held rolls
+        // forward the first time the jars are read after it (there is no scheduler); one that
+        // was short stays open as Deadline missed (rule 20).
+        await JarCycles.SettleAsync(_db, userId, asOf, cancellationToken);
+
         var jars = await _db.Jars
             .AsNoTracking()
             .Where(f => f.OwnerId == userId && (request.IncludeArchived || !f.IsArchived))
