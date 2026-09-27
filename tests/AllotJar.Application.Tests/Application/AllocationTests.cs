@@ -139,8 +139,8 @@ public class AllocationTests
         var user = new CurrentUserStub("user-1");
         var chrisSavings = SeedAccount(db, "user-1", "Alex Savings", opening: 30000m);
         var lizaSavings = SeedAccount(db, "user-1", "Sam Savings", opening: 40000m);
-        var alex = SeedMember(db, "user-1", "Alex", 4200.50m, 0, chrisSavings.Id);
-        var sam = SeedMember(db, "user-1", "Sam", 3800.25m, 1, lizaSavings.Id);
+        var alexMember = SeedMember(db, "user-1", "Alex", 4200.50m, 0, chrisSavings.Id);
+        var samMember = SeedMember(db, "user-1", "Sam", 3800.25m, 1, lizaSavings.Id);
 
         // Real costs (3500 + 2000) plus a "Personal Savings" category that is the allocation
         // *output* — flagged out so it isn't double-counted as an obligation.
@@ -155,7 +155,7 @@ public class AllocationTests
             },
         });
         db.SaveChanges();
-        SeedIncomeLines(db, "user-1", 2026, 6, (alex, 4200.50m), (sam, 3800.25m));
+        SeedIncomeLines(db, "user-1", 2026, 6, (alexMember, 4200.50m), (samMember, 3800.25m));
 
         var rules = new List<AllocationRuleSpec>
         {

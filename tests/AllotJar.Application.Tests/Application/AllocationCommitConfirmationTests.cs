@@ -17,7 +17,8 @@ namespace AllotJar.Application.Tests.Application;
 /// Rules 7/29/71 on the allocation commit: suggested surpluses stay a plan until the user
 /// confirms "I've completed these transfers" with the departure date; the commit then records
 /// departures (receipt unknown), and re-running never rewrites a transfer whose receipt the bank
-/// has already confirmed. Solo member: net 3,000 − envelopes 1,000 − jars 500 − pocket 250 = 1,250.
+/// has already confirmed. Solo member: June's budgeted income 3,000 (rule 28) − envelopes 1,000 −
+/// jars 500 − pocket 250 = 1,250.
 /// </summary>
 public class AllocationCommitConfirmationTests
 {
@@ -71,6 +72,26 @@ public class AllocationCommitConfirmationTests
         db.SaveChanges();
     }
 
+    /// <summary>The month's income line attributed to <paramref name="member"/> — the only income the engine reads (rule 28).</summary>
+    private static void SeedIncomeLine(ApplicationDbContext db, HouseholdMember member, decimal amount)
+    {
+        var bm = db.BudgetMonths.Single(b => b.OwnerId == "user-1" && b.Year == 2026 && b.Month == 6);
+        db.BudgetCategories.Add(new BudgetCategory
+        {
+            BudgetMonthId = bm.Id, Name = "Income", Kind = CategoryKind.Income,
+            Items = new List<BudgetItem> { new() { Name = member.Name, PlannedAmount = amount, MemberId = member.Id } },
+        });
+        db.SaveChanges();
+    }
+
+    /// <summary>Corrects the member's June income line — the way a household changes its income.</summary>
+    private static async Task SetIncomeLineAsync(ApplicationDbContext db, HouseholdMember member, decimal amount)
+    {
+        var line = await db.BudgetItems.SingleAsync(i => i.MemberId == member.Id);
+        line.PlannedAmount = amount;
+        await db.SaveChangesAsync();
+    }
+
     private static Task SeedProfile(ApplicationDbContext db, Guid source) =>
         new UpsertAllocationProfileCommandHandler(db, User).Handle(
             new UpsertAllocationProfileCommand(null, "P", source, new List<AllocationRuleSpec>
@@ -90,6 +111,7 @@ public class AllocationCommitConfirmationTests
         var savings = SeedAccount(db, "Alex savings", 100m);
         var member = SeedMember(db, "Alex", 3000m, 0, savings.Id);
         SeedBudget(db);
+        SeedIncomeLine(db, member, 3000m);
         await SeedProfile(db, source.Id);
         return (source, savings, member);
     }
@@ -145,8 +167,7 @@ public class AllocationCommitConfirmationTests
         var before = await db.Transactions.SingleAsync();
 
         // The month's income is corrected upwards, so the surplus the user moved is different.
-        alex.NetMonthlyIncome = 3500m;
-        await db.SaveChangesAsync();
+        await SetIncomeLineAsync(db, alex, 3500m);
         var rerun = await handler.Handle(
             new AllocateIncomeCommand(2026, 6, DepartedOn: new DateOnly(2026, 6, 4), ConfirmedCompleted: true), CancellationToken.None);
 
@@ -170,8 +191,7 @@ public class AllocationCommitConfirmationTests
         await new ConfirmTransferLegsCommandHandler(db, User)
             .Handle(new ConfirmTransferLegsCommand(recorded.Id, ReceivedOn: Departure.AddDays(1)), CancellationToken.None);
 
-        alex.NetMonthlyIncome = 3500m;
-        await db.SaveChangesAsync();
+        await SetIncomeLineAsync(db, alex, 3500m);
         var ex = await Assert.ThrowsAsync<ValidationException>(() => handler.Handle(Confirmed(), CancellationToken.None));
 
         ex.Errors["Allocation"].Single().Should().Contain("confirmed as received");

@@ -8,14 +8,16 @@ using AllotJar.Application.Household.Commands.CreateHouseholdMember;
 using AllotJar.Application.Household.Commands.UpdateHouseholdMember;
 using AllotJar.Application.Household.Queries.GetHouseholdMembers;
 using AllotJar.Domain.Entities;
+using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
 using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Application;
 
 /// <summary>
-/// Household members: first-class people under one owner, each with a net income and a
-/// derived share of the household total (the basis for the allocation split).
+/// Household members: first-class people under one owner, each with a saved default income
+/// (a helper for filling in a new budget) and a share of the household's income in the
+/// selected month's budget (the basis for the allocation split, rule 28).
 /// </summary>
 public class HouseholdMembersTests
 {
@@ -37,6 +39,25 @@ public class HouseholdMembersTests
         return m;
     }
 
+    /// <summary>A budget month whose income lines are attributed to the given members (rule 28).</summary>
+    private static async Task SeedIncomeMonth(
+        ApplicationDbContext db, string ownerId, int year, int month, params (HouseholdMember Member, decimal Amount)[] lines)
+    {
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = ownerId, Year = year, Month = month, BaseCurrency = CurrencyCode.Eur,
+            Categories = new List<BudgetCategory>
+            {
+                new()
+                {
+                    Name = "Income", Kind = CategoryKind.Income,
+                    Items = lines.Select(l => new BudgetItem { Name = l.Member.Name, PlannedAmount = l.Amount, MemberId = l.Member.Id }).ToList(),
+                },
+            },
+        });
+        await db.SaveChangesAsync();
+    }
+
     [Fact]
     public async Task Create_SetsOwner_AndOrders()
     {
@@ -55,15 +76,21 @@ public class HouseholdMembersTests
     [Fact]
     public async Task Get_ComputesIncomeShare_AcrossActiveMembers()
     {
+        // The shares come from the selected month's budget, not the saved defaults (which are
+        // deliberately different here so they cannot be what is being divided).
         await using var db = NewContext();
-        await Seed(db, "user-1", "Alex", 6000m);
-        await Seed(db, "user-1", "Sam", 4000m);
+        var alex = await Seed(db, "user-1", "Alex", 1m);
+        var sam = await Seed(db, "user-1", "Sam", 1m);
+        await SeedIncomeMonth(db, "user-1", 2026, 7, (alex, 6000m), (sam, 4000m));
 
         var members = await new GetHouseholdMembersQueryHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
+            .Handle(new GetHouseholdMembersQuery(Year: 2026, Month: 7), CancellationToken.None);
 
         members.Single(m => m.Name == "Alex").IncomeSharePct.Should().Be(0.6m); // 6000 / 10000
         members.Single(m => m.Name == "Sam").IncomeSharePct.Should().Be(0.4m);
+        members.Single(m => m.Name == "Alex").BudgetIncome.Should().Be(6000m);
+        members.Single(m => m.Name == "Sam").BudgetIncome.Should().Be(4000m);
+        members.Should().OnlyContain(m => m.HasBudget && m.IncomeYear == 2026 && m.IncomeMonth == 7);
     }
 
     [Fact]
