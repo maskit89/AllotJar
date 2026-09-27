@@ -111,6 +111,8 @@ test('rename reuses the linked pocket-money line; archive stops next month and a
 
   // --- Rule 53: rename Robin → Robyn on the People page; the line follows, no duplicate ---
   await page.reload()
+  // The row's edit/archive actions are display:none until the row is hovered.
+  await page.getByRole('row').filter({ hasText: 'Robin' }).hover()
   await page.getByRole('button', { name: 'Edit Robin' }).click()
   await page.getByRole('textbox', { name: 'Name for Robin' }).fill('Robyn')
   await committed(page, 'PUT', `/api/members/${robin.id}`, () =>
@@ -136,6 +138,7 @@ test('rename reuses the linked pocket-money line; archive stops next month and a
 
   // --- Rule 54: archive Robyn; this month still plans 200.00 for them → the dialog asks ---
   await page.goto('/people')
+  await page.getByRole('row').filter({ hasText: 'Robyn' }).hover()
   await page.getByRole('button', { name: 'Archive Robyn' }).click()
   const dialog = page.getByRole('dialog', { name: 'Archive Robyn' })
   // Symbol-agnostic: the currency symbol follows the registration locale.
