@@ -558,6 +558,33 @@ export interface HouseholdMemberDto {
   incomeSharePct: number
 }
 
+/**
+ * What archiving a person does to their pocket money (rule 54), read before the People page
+ * archives them: while `thisMonth.remaining` is above zero the archive needs the keep-or-cancel
+ * decision; `futureMonths` are cancelled either way.
+ */
+export interface MemberArchivePreviewDto {
+  id: string
+  name: string
+  isArchived: boolean
+  /** The current month's pocket money for the person; null when there is none. */
+  thisMonth: PocketMoneyMonthDto | null
+  futureMonths: PocketMoneyMonthDto[]
+}
+
+/** One month's pocket money for a person: planned, paid so far and what remains planned. */
+export interface PocketMoneyMonthDto {
+  year: number
+  month: number
+  planned: number
+  paid: number
+  remaining: number
+}
+
+// Matches Application PocketMoneyDecision (serialized as a number): what happens to the pocket
+// money still planned this month when the person is archived (rule 54).
+export const PocketMoneyDecision = { Keep: 0, Cancel: 1 } as const
+
 /** Per-member attributed spending (the "who spent what" lens). */
 export interface MemberSpendingDto {
   memberId: string

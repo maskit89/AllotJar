@@ -182,6 +182,12 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                         // must stop future contributions. (Non-savings lines have no
                         // SavingsId and stay; a dangling SavingsId also stays.)
                         .Where(i => i.SavingsId is not { } sid || !archivedJarIds.Contains(sid))
+                        // Nor an archived person's pocket-money line (an expense line linked to
+                        // them, rule 53): their planned allocations stop from the next month
+                        // (rule 54). Their income lines still copy, as whole-household (below).
+                        .Where(i => c.Kind != CategoryKind.Expense
+                                    || i.MemberId is not { } pm
+                                    || !archivedMemberIds.Contains(pm))
                         .OrderBy(i => i.DisplayOrder)
                         .Select(i => new BudgetItem
                         {

@@ -18,15 +18,19 @@ import {
   HOUSEHOLD_ROLE_LABELS,
   InviteMethod,
   MembershipStatus,
+  PocketMoneyDecision,
   type AccountDto,
   type HouseholdMemberDto,
   type InviteResultDto,
+  type MemberArchivePreviewDto,
   type MemberIncomeDto,
   type MemberIncomeResultDto,
   type MemberSpendingDto,
   type MembershipDto,
+  type PocketMoneyMonthDto,
 } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import { serverErrors } from '../lib/serverErrors'
 import { accountOptionLabel, savingsFirst } from '../lib/accountOptions'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 
@@ -35,6 +39,11 @@ const GRANTABLE_ROLES = [HouseholdRole.Admin, HouseholdRole.Limited, HouseholdRo
 
 function inviteLinkFor(token: string): string {
   return `${window.location.origin}/accept-invite?code=${token}`
+}
+
+/** "September 2026" in the visitor's locale, for the month a pocket-money line belongs to. */
+function pocketMoneyMonthLabel(m: PocketMoneyMonthDto): string {
+  return new Date(m.year, m.month - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
 }
 
 /** Parse a non-negative amount string into a wire decimal; '' → 0; null when invalid. */
@@ -97,6 +106,9 @@ export function PeoplePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
+  // Rule 54: the archive-preview of the person being archived, while this month's pocket money
+  // still needs the keep-or-cancel answer (null = no question open).
+  const [archivePreview, setArchivePreview] = useState<MemberArchivePreviewDto | null>(null)
 
   // Add-a-person form (in a modal).
   const [showAdd, setShowAdd] = useState(false)
@@ -284,21 +296,54 @@ export function PeoplePage() {
     [eName, eIncome, eSavings, reloadAll],
   )
 
-  const archive = useCallback(
-    async (id: string) => {
+  /**
+   * Rule 54: archiving stops the person's pocket money from next month on (the server cancels the
+   * lines already planned in later months). When this month still has pocket money planned beyond
+   * what was paid, the server needs the keep-or-cancel decision, sent as `pocketMoneyThisMonth`;
+   * without one the request is the plain `{ archived: true }` it always was.
+   */
+  const commitArchive = useCallback(
+    async (id: string, pocketMoneyThisMonth?: number) => {
       setSavingId(id)
       setError(null)
       try {
-        await api.put(`/members/${id}/archive`, { archived: true })
+        await api.put(
+          `/members/${id}/archive`,
+          pocketMoneyThisMonth === undefined ? { archived: true } : { archived: true, pocketMoneyThisMonth },
+        )
+        setArchivePreview(null)
         await reloadAll()
         await refreshHousehold()
-      } catch {
-        setError('Could not archive that person.')
+      } catch (err) {
+        setError(serverErrors(err) ?? 'Could not archive that person.')
       } finally {
         setSavingId(null)
       }
     },
     [reloadAll, refreshHousehold],
+  )
+
+  // The ✕ still archives on the one click unless this month's pocket money needs the decision,
+  // in which case it opens the question instead. If the preview cannot be read the archive goes
+  // ahead and the server's own 400 (when a decision is needed) is shown.
+  const archive = useCallback(
+    async (id: string) => {
+      setSavingId(id)
+      setError(null)
+      let preview: MemberArchivePreviewDto | null = null
+      try {
+        preview = (await api.get<MemberArchivePreviewDto>(`/members/${id}/archive-preview`)).data
+      } catch {
+        // Unreadable preview: archive anyway; the server's own 400 (a decision was needed) is shown.
+      }
+      if (preview?.thisMonth && preview.thisMonth.remaining > 0) {
+        setSavingId(null)
+        setArchivePreview(preview)
+        return
+      }
+      await commitArchive(id)
+    },
+    [commitArchive],
   )
 
   function openInviteFor(personId: string) {
@@ -680,6 +725,59 @@ export function PeoplePage() {
             </Card>
           )}
         </section>
+      )}
+
+      {/* Rule 54: archiving with pocket money still planned this month — keep it or cancel what remains. */}
+      {archivePreview?.thisMonth && (
+        <Modal title={`Archive ${archivePreview.name}`} onClose={() => setArchivePreview(null)}>
+          {error && (
+            <div className="mb-3">
+              <ErrorBanner>{error}</ErrorBanner>
+            </div>
+          )}
+          <p className="text-sm text-slate-700">
+            {archivePreview.name} still has{' '}
+            <strong>{formatMoney(fromAmount(archivePreview.thisMonth.remaining), CURRENCY)}</strong> of pocket money
+            planned for {pocketMoneyMonthLabel(archivePreview.thisMonth)}
+            {archivePreview.thisMonth.paid > 0
+              ? ` (${formatMoney(fromAmount(archivePreview.thisMonth.paid), CURRENCY)} already paid)`
+              : ''}
+            .
+          </p>
+          <p className="mt-2 text-sm text-slate-600">
+            Keep it for this month, or cancel what remains? Either way {archivePreview.name}’s payments stay recorded
+            {archivePreview.futureMonths.length === 0
+              ? ', and no pocket money is planned from next month on.'
+              : archivePreview.futureMonths.length === 1
+                ? `, and the pocket money already planned for ${pocketMoneyMonthLabel(archivePreview.futureMonths[0])} is cancelled.`
+                : `, and the pocket money already planned for ${archivePreview.futureMonths.length} later months is cancelled.`}
+          </p>
+          <div className="mt-4 flex flex-wrap justify-end gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => setArchivePreview(null)}
+              disabled={savingId === archivePreview.id}
+              aria-label="Don’t archive"
+            >
+              Don’t archive
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => commitArchive(archivePreview.id, PocketMoneyDecision.Cancel)}
+              disabled={savingId === archivePreview.id}
+              aria-label="Cancel remaining pocket money and archive"
+            >
+              Cancel remaining
+            </Button>
+            <Button
+              onClick={() => commitArchive(archivePreview.id, PocketMoneyDecision.Keep)}
+              disabled={savingId === archivePreview.id}
+              aria-label="Keep this month’s pocket money and archive"
+            >
+              Keep this month
+            </Button>
+          </div>
+        </Modal>
       )}
 
       {/* Add a person — a modal (mounted only while open so the focus trap engages). */}
