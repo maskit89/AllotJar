@@ -64,12 +64,17 @@ public class AddBudgetItemCommandHandler : IRequestHandler<AddBudgetItemCommand,
             }
         }
 
-        // A line in a Savings group is a jar's monthly contribution — backed by a
-        // real jar (created here, shaped later on the Jars page), never a bare Guid,
-        // which would violate the SavingsId FK on SQL Server.
-        var savingsId = category.Kind == CategoryKind.Savings
-            ? SavingsLines.AddBackingJar(_db, userId, request.Name.Trim()).Id
-            : (Guid?)null;
+        // A line in a Savings group is a jar's monthly contribution, and a jar needs its
+        // designated account (rule 73): it is created through the jar form (POST /jars), which
+        // plants this month's line itself. A bare savings line would be a plan with no money.
+        if (category.Kind == CategoryKind.Savings)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["Name"] = new[] { "A savings line is a jar. Create the jar, choosing the account that holds its money, and its contribution line is added here." },
+            });
+        }
+        Guid? savingsId = null;
 
         _db.BudgetItems.Add(new BudgetItem
         {

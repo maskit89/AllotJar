@@ -13,9 +13,8 @@ function jar(over: Partial<JarDto> = {}): JarDto {
     coverEnd: null,
     accrual: 1,
     recurMonths: 12,
-    openingBalance: 0,
-    openingAsOf: null,
-    fundingAccountId: null,
+    fundingAccountId: 'acc1',
+    balanceAsOf: '2026-09-26',
     isArchived: false,
     currentBalance: 200,
     requiredMonthlyContribution: 80,
@@ -30,6 +29,10 @@ describe('jarStatusChip', () => {
     expect(jarStatusChip('Behind')).toEqual({ label: 'Behind', tone: 'amber' })
     expect(jarStatusChip('Overspent')).toEqual({ label: 'Overspent', tone: 'rose' })
     expect(jarStatusChip('FullyFunded')).toEqual({ label: 'Funded', tone: 'teal' })
+  })
+
+  it('flags an unavailable balance with a neutral chip (rule 67)', () => {
+    expect(jarStatusChip('Unavailable')).toEqual({ label: 'Unavailable', tone: 'neutral' })
   })
 
   it('stays quiet for OnTrack and Unfunded', () => {
@@ -47,6 +50,10 @@ describe('jarPaceLabel', () => {
     const label = jarPaceLabel(jar({ projectedFullyFundedDate: null }), 'EUR')
     expect(label).toMatch(/\/mo$/)
     expect(label).not.toContain('full by')
+  })
+
+  it('names an unavailable balance rather than a bare dash', () => {
+    expect(jarPaceLabel(jar({ currentBalance: null, requiredMonthlyContribution: 0, status: 'Unavailable' }), 'EUR')).toBe('Balance not available')
   })
 
   it('explains a zero-monthly jar instead of a bare dash', () => {

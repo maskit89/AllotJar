@@ -4,7 +4,6 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Dtos;
 using AllotJar.Domain.Enums;
-using AllotJar.Domain.Services;
 
 namespace AllotJar.Application.Jars.Commands.UpdateJar;
 
@@ -26,38 +25,54 @@ public class UpdateJarCommandHandler
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
-        var fund = await _db.Jars
+        var jar = await _db.Jars
             .FirstOrDefaultAsync(f => f.Id == request.Id, cancellationToken)
-            ?? throw new NotFoundException($"Sinking fund {request.Id} was not found.");
+            ?? throw new NotFoundException($"Jar {request.Id} was not found.");
 
-        if (fund.OwnerId != userId)
+        if (jar.OwnerId != userId)
         {
             throw new ForbiddenAccessException();
         }
 
-        fund.Name = request.Name.Trim();
-        fund.Kind = request.Kind;
-        fund.TargetAmount = request.TargetAmount;
-        fund.TargetDate = request.TargetDate;
-        fund.CoverStart = request.CoverStart;
-        fund.CoverEnd = request.CoverEnd;
-        fund.Accrual = request.Accrual;
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        if (request.FundingAccountId != jar.FundingAccountId)
+        {
+            // Rule 80: the account can change only while the jar holds nothing; a field change
+            // never moves money. Anything else goes through "Move money" (a confirmed transfer).
+            var account = await JarAccounts.LoadDesignatedAsync(_db, userId, request.FundingAccountId, "FundingAccountId", cancellationToken);
+            var current = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken, new[] { jar.FundingAccountId });
+            var balance = current.BalanceOf(jar.Id);
+            if (balance is null)
+            {
+                throw JarAccounts.Validation("FundingAccountId",
+                    $"{jar.Name}'s balance is not available today, so its account cannot be changed.");
+            }
+            if (balance != 0m)
+            {
+                throw JarAccounts.Validation("FundingAccountId",
+                    $"{jar.Name} holds {balance:0.##} in {current.AccountOf(jar.Id)?.Account.Name}. " +
+                    "Move that money first (a transfer to the new account, or a reallocation to another jar), then change the account.");
+            }
+            jar.FundingAccountId = account.Id;
+        }
+
+        jar.Name = request.Name.Trim();
+        jar.Kind = request.Kind;
+        jar.TargetAmount = request.TargetAmount;
+        jar.TargetDate = request.TargetDate;
+        jar.CoverStart = request.CoverStart;
+        jar.CoverEnd = request.CoverEnd;
+        jar.Accrual = request.Accrual;
         // Recurring jars carry their cycle length; Goals never roll. Fall back to the
         // stored cycle (then yearly) when a request omits it, so an older/stale client
         // that doesn't send recurMonths can't silently reset a chosen 3/6-month cycle.
-        fund.RecurMonths = request.Kind == JarKind.Recurring
-            ? request.RecurMonths ?? fund.RecurMonths ?? 12
+        jar.RecurMonths = request.Kind == JarKind.Recurring
+            ? request.RecurMonths ?? jar.RecurMonths ?? 12
             : null;
-        fund.OpeningBalance = request.OpeningBalance;
-        fund.OpeningAsOf = request.OpeningAsOf;
-        fund.FundingAccountId = request.FundingAccountId;
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        var asOf = DateOnly.FromDateTime(DateTime.UtcNow);
-        var tracked = await JarBalances.ComputeAsync(_db, userId, cancellationToken);
-        var balance = fund.OpeningBalance + tracked.GetValueOrDefault(fund.Id);
-        var required = JarAccrualCalculator.RequiredMonthlyContribution(fund, asOf, balance);
-        return fund.ToDto(balance, required, asOf);
+        var snapshot = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken, new[] { jar.FundingAccountId });
+        return jar.ToDto(snapshot);
     }
 }

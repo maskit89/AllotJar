@@ -12,9 +12,9 @@ test('an owner invites a new person who accepts and lands in the shared househol
   browser,
 }) => {
   // --- Inviter: register, add a person, create an invite link ---
-  // Sample figures opted in: the guest below asserts the shared budget renders after joining,
-  // which needs the inviter's household to have a budget month.
-  await register(page, { firstName: 'Ada', sampleBudget: true })
+  // Start the month from a template: the guest below asserts the shared budget renders after
+  // joining, which needs the inviter's household to have a budget month.
+  await register(page, { firstName: 'Ada', starterBudget: true })
 
   await page.goto('/people')
   // exact — the dialog's Cancel button is aria-labelled "Cancel add person" (contains "Add person").

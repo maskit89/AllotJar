@@ -66,6 +66,34 @@ describe('AccountDetailPage', () => {
     expect(screen.getByRole('link', { name: '‹ Accounts' })).toHaveAttribute('href', '/accounts')
   })
 
+  // Rule 76: the optional bank identifiers show on the detail page only when recorded.
+  it('shows recorded bank identifiers and hides the card when none are recorded', { timeout: 15000 }, async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/accounts')
+        return Promise.resolve({ data: [{ ...account(), iban: 'MT84MALT011000012345MTLCAST001S', bic: 'VALLMTMT', sortCode: null, accountNumber: '' }] })
+      return Promise.resolve({ data: [] })
+    })
+
+    const { unmount } = renderPage()
+
+    expect(await screen.findByRole('heading', { name: 'Account details' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText('IBAN')).toBeInTheDocument()
+    expect(screen.getByText('MT84MALT011000012345MTLCAST001S')).toBeInTheDocument()
+    expect(screen.getByText('BIC')).toBeInTheDocument()
+    expect(screen.getByText('VALLMTMT')).toBeInTheDocument()
+    // Null / blank identifiers are simply not listed.
+    expect(screen.queryByText('Sort code')).not.toBeInTheDocument()
+    expect(screen.queryByText('Account number')).not.toBeInTheDocument()
+    unmount()
+
+    mockGet.mockImplementation((url: string) =>
+      url === '/accounts' ? Promise.resolve({ data: [account()] }) : Promise.resolve({ data: [] }),
+    )
+    renderPage()
+    await screen.findByText(/2,000\.00|2,140\.00/, {}, { timeout: 5000 })
+    expect(screen.queryByRole('heading', { name: 'Account details' })).not.toBeInTheDocument()
+  })
+
   it('shows a not-found state for an unknown account', { timeout: 15000 }, async () => {
     mockGet.mockImplementation((url: string) =>
       url === '/accounts' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: [] }),

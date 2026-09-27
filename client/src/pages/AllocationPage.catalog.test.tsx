@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import type { AccountDto, AllocationProfileDto, AllocationResultDto, MemberAllocationDto } from '../types'
+import type { AccountDto, AllocationProfileDto, AllocationResultDto, HouseholdMemberDto, MemberAllocationDto } from '../types'
 
 // Colocated catalog tests for the Allocation screen (docs/testing/cases/14-allocation.md, prefix ALLOC).
 // This file is ADDITIVE — it does not touch AllocationPage.test.tsx. It converts the P0/cheap-P1/P2
@@ -14,10 +14,19 @@ import type { AccountDto, AllocationProfileDto, AllocationResultDto, MemberAlloc
 // The api mock, the importOriginal spread and the render helper deliberately mirror the sibling
 // AllocationPage.test.tsx so both files share one convention.
 
-const { mockGet, mockPut, mockPost } = vi.hoisted(() => ({
+const { mockGet, mockPut, mockPost, monthState } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockPut: vi.fn(),
   mockPost: vi.fn(),
+  // The app-wide selected month the page allocates (rule 29). Mutable so a case can move it
+  // and rerender; reset to July 2026 in beforeEach.
+  monthState: { year: 2026, month: 7, label: 'July 2026', goPrev: () => {}, goNext: () => {}, goToMonth: () => {} },
+}))
+
+// The selected month comes from MonthContext (rule 29); pin it so assertions are clock-independent.
+vi.mock('../features/MonthContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../features/MonthContext')>()),
+  useMonth: () => monthState,
 }))
 
 vi.mock('../lib/api', async (importOriginal) => ({
@@ -108,7 +117,10 @@ function workedPreview(transfersCreated = 0): AllocationResultDto {
 // Mutable per-test fixtures the mock reads at call time.
 let profileData: AllocationProfileDto | null = null
 let previewData: AllocationResultDto = workedPreview()
+// The selected month's budget (GET /budget/{year}/{month}); null = no budget yet (404).
 let currentBudget: { year?: number; month?: number; categories?: unknown[] } | null = { year: 2026, month: 7, categories: [] }
+// The saved member records the savings-link PUT echoes (name + DEFAULT income) — never the preview's figures.
+let membersData: HouseholdMemberDto[] = []
 let failProfile = false
 let failAccounts = false
 let failPreview = false
@@ -121,9 +133,10 @@ function setupGet() {
     if (url === '/accounts') {
       return failAccounts ? Promise.reject(new Error('500')) : Promise.resolve({ data: accountsData })
     }
-    if (url === '/budget/current') {
-      return Promise.resolve({ data: currentBudget })
+    if (url === `/budget/${monthState.year}/${monthState.month}`) {
+      return currentBudget ? Promise.resolve({ data: currentBudget }) : Promise.reject({ response: { status: 404 } })
     }
+    if (url === '/members') return Promise.resolve({ data: membersData })
     if (url.startsWith('/allocation/preview/')) {
       return failPreview ? Promise.reject(new Error('500')) : Promise.resolve({ data: previewData })
     }
@@ -179,6 +192,10 @@ describe('AllocationPage (catalog)', () => {
     accountsData = defaultAccounts()
     previewData = workedPreview()
     currentBudget = { year: 2026, month: 7, categories: [] }
+    membersData = []
+    monthState.year = 2026
+    monthState.month = 7
+    monthState.label = 'July 2026'
     failProfile = false
     failAccounts = false
     failPreview = false
@@ -198,26 +215,42 @@ describe('AllocationPage (catalog)', () => {
     expect(screen.getByRole('button', { name: 'Set up allocation' })).toBeInTheDocument()
   })
 
-  it('ALLOC-007: the viewed month tracks GET /budget/current (July heading + Allocate July)', async () => {
+  // ALLOC-007 (rewritten for rule 29) — the viewed month is the app-wide selected month, the same
+  // one the Budget shows; the preview and the month's budget are read for it.
+  it('ALLOC-007: the viewed month is the selected month (July heading, Allocate July, July preview)', async () => {
     profileData = profile()
-    currentBudget = { year: 2026, month: 7, categories: [] }
 
     renderPage()
 
     expect(await screen.findByText('How July is allocated', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Commit allocation' })).toHaveTextContent('Allocate July')
+    const urls = mockGet.mock.calls.map((c) => c[0] as string)
+    expect(urls).toContain('/allocation/preview/2026/7')
+    expect(urls).toContain('/budget/2026/7')
+    expect(urls).not.toContain('/budget/current')
   })
 
-  it('ALLOC-007: falls back to the browser-clock month when /budget/current carries no month', async () => {
+  it('ALLOC-007: moving the selected month reloads the preview for that month', async () => {
     profileData = profile()
-    currentBudget = {} // no year/month → period stays at today's getFullYear()/getMonth()+1
 
-    renderPage()
+    const view = renderPage()
+    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
 
-    // Mirror the component's own formatter so the assertion is clock-independent.
-    const now = new Date()
-    const expected = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString(undefined, { month: 'long' })
-    expect(await screen.findByText(`How ${expected} is allocated`, {}, { timeout: 5000 })).toBeInTheDocument()
+    // The top bar moves to August: heading, button and preview follow.
+    monthState.year = 2026
+    monthState.month = 8
+    monthState.label = 'August 2026'
+    view.rerender(
+      <MemoryRouter>
+        <AuthProvider>
+          <AllocationPage />
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('How August is allocated', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Commit allocation' })).toHaveTextContent('Allocate August')
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/allocation/preview/2026/8'), { timeout: 5000 })
   })
 
   it('ALLOC-009: a read-only user sees the empty-state but no Set up button', async () => {
@@ -377,7 +410,9 @@ describe('AllocationPage (catalog)', () => {
 
     // Commit first so the banner is showing.
     await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
-    expect(await screen.findByText(/2 savings transfers created/, {}, { timeout: 5000 })).toBeInTheDocument()
+    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
+    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
+    expect(await screen.findByText(/2 savings transfers recorded as in transit/, {}, { timeout: 5000 })).toBeInTheDocument()
 
     // Now edit + save — the figures just changed, so the banner must clear (setCommitted(null)).
     await user.click(screen.getByRole('button', { name: 'Allocation settings' }))
@@ -388,7 +423,7 @@ describe('AllocationPage (catalog)', () => {
     await user.click(dialog.getByRole('button', { name: 'Save allocation settings' }))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1), { timeout: 5000 })
-    await waitFor(() => expect(screen.queryByText(/savings transfers created/)).not.toBeInTheDocument(), { timeout: 5000 })
+    await waitFor(() => expect(screen.queryByText(/savings transfers recorded/)).not.toBeInTheDocument(), { timeout: 5000 })
   })
 
   it('ALLOC-021: Cancel reverts unsaved edits so a later Save cannot commit them', async () => {
@@ -708,6 +743,12 @@ describe('AllocationPage (catalog)', () => {
       ],
     })
     previewData = stranded()
+    // Robin's SAVED default income is 1,750; the preview's 2,000 is July's budget figure (rule 28)
+    // and must not be written back into the default by the link.
+    membersData = [
+      { id: 'm1', name: 'Alex', netMonthlyIncome: 3000, personalSavingsAccountId: 'accC', displayOrder: 0, isArchived: false, incomeSharePct: 0.6 },
+      { id: 'm2', name: 'Robin', netMonthlyIncome: 1750, personalSavingsAccountId: null, displayOrder: 1, isArchived: false, incomeSharePct: 0.4 },
+    ]
     mockPut.mockImplementation(() => {
       // Once the link lands the next preview shows Robin linked — the warning must clear.
       previewData = mkPreview({
@@ -736,10 +777,11 @@ describe('AllocationPage (catalog)', () => {
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/members/m2', {
         name: 'Robin',
-        netMonthlyIncome: 2000,
+        netMonthlyIncome: 1750, // the saved default, unchanged — not the preview's 2,000
         personalSavingsAccountId: 'accRobinSav',
       }),
     )
+    expect(mockPut).not.toHaveBeenCalledWith('/members/m2', expect.objectContaining({ netMonthlyIncome: 2000 }))
     // The preview reloaded and the warning cleared.
     await waitFor(() =>
       expect(screen.queryByText(/No savings account linked/)).not.toBeInTheDocument(),
@@ -808,7 +850,7 @@ describe('AllocationPage (catalog)', () => {
     renderPage()
     await screen.findByText('How July is allocated', {}, { timeout: 5000 })
 
-    // First press opens the confirm instead of committing.
+    // The record modal names the stranded share; nothing is sent until confirmed.
     await user.click(screen.getByRole('button', { name: 'Commit allocation' }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByText(/€1,250\.00 will stay in Joint because Robin has no savings account linked/)).toBeInTheDocument()
@@ -818,23 +860,24 @@ describe('AllocationPage (catalog)', () => {
     await user.click(dialog.getByRole('button', { name: 'Cancel' }))
     expect(mockPost).not.toHaveBeenCalled()
 
-    // Allocate anyway commits, and the success banner repeats where the money stayed.
+    // Confirming records the transfers, and the success banner repeats where the money stayed.
     await user.click(screen.getByRole('button', { name: 'Commit allocation' }))
     const dialog2 = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.click(dialog2.getByRole('button', { name: 'Allocate anyway' }))
+    await user.click(dialog2.getByLabelText('Allocation completed confirmation'))
+    await user.click(dialog2.getByRole('button', { name: 'Confirm allocation' }))
     await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(1))
     expect(await screen.findByText(/€1,250\.00 stayed in Joint for Robin/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
   // ---- Budget ↔ engine reconciliation (pocket-money coherence) ---------------
 
-  /** A real BudgetMonthDto for /budget/current: income 3,000; envelopes + optional flagged pocket. */
-  function budgetDto(opts: { envelopes: number; jars?: number; pocket?: { planned: number; flagged: boolean } }) {
-    const { envelopes, jars = 500, pocket } = opts
+  /** A real BudgetMonthDto for GET /budget/2026/7: income 3,000 by default; envelopes + optional flagged pocket. */
+  function budgetDto(opts: { envelopes: number; jars?: number; income?: number; pocket?: { planned: number; flagged: boolean } }) {
+    const { envelopes, jars = 500, income = 3000, pocket } = opts
     const categories = [
       {
-        id: 'inc', name: 'Income', kind: 'Income', displayOrder: 0, totalPlanned: 3000, totalActual: 0,
-        items: [{ id: 'pay', name: 'Pay', displayOrder: 0, plannedAmount: 3000, actualAmount: 0, remaining: 3000 }],
+        id: 'inc', name: 'Income', kind: 'Income', displayOrder: 0, totalPlanned: income, totalActual: 0,
+        items: [{ id: 'pay', name: 'Pay', displayOrder: 0, plannedAmount: income, actualAmount: 0, remaining: income }],
       },
       {
         id: 'liv', name: 'Living', kind: 'Expense', displayOrder: 0, totalPlanned: envelopes, totalActual: 0,
@@ -856,7 +899,7 @@ describe('AllocationPage (catalog)', () => {
         ],
       })
     }
-    return { id: 'bm1', key: '2026-07', year: 2026, month: 7, baseCurrency: 'EUR', totalIncome: 3000, totalPlanned: 0, remainingToBudget: 0, isBalanced: false, categories }
+    return { id: 'bm1', key: '2026-07', year: 2026, month: 7, baseCurrency: 'EUR', totalIncome: income, totalPlanned: 0, remainingToBudget: 0, isBalanced: false, categories }
   }
 
   /** The tester's scenario: pool 3,000 fully budgeted, pocket 250×2 only in the engine. */
@@ -939,21 +982,25 @@ describe('AllocationPage (catalog)', () => {
     expect(screen.getByText(/overshoot the pooled income by €500\.00 — pocket money can’t be funded/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Commit allocation' }))
+    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
+    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
     expect(
       await screen.findByText(/Allocated July — nothing was transferred because shared spending overshoots the pooled income\./, {}, { timeout: 5000 }),
     ).toBeInTheDocument()
   })
 
-  it('ALLOC-071: a pool that differs from the budgeted income gets the source note', async () => {
+  // ALLOC-071 (rewritten for rule 28) — the pool and the budget's income lines come from the same
+  // budget, so a mismatch (a stale read) is named as such; nothing claims a People-page source.
+  it('ALLOC-071: a pool that differs from the budgeted income gets a stale-read note, not a People-page source', async () => {
     profileData = profile()
     currentBudget = budgetDto({ envelopes: 2000 }) // budget income 3,000
-    previewData = workedPreview() // pool 5,000 from People-page incomes
+    previewData = workedPreview() // pool 5,000 — read before the budget was edited
 
     renderPage()
     await screen.findByText('How July is allocated', {}, { timeout: 5000 })
 
-    expect(screen.getByText(/pooled income here \(€5,000\.00\) comes from each person’s income on the People page/)).toBeInTheDocument()
-    expect(screen.getByText(/doesn’t match July’s budgeted income lines \(€3,000\.00\)/)).toBeInTheDocument()
+    expect(screen.getByText(/pooled income here \(€5,000\.00\) doesn’t match July’s budgeted income lines \(€3,000\.00\)/)).toBeInTheDocument()
+    expect(screen.queryByText(/People page/)).not.toBeInTheDocument()
   })
 
   // ---- Commit flow ----------------------------------------------------------
@@ -977,8 +1024,13 @@ describe('AllocationPage (catalog)', () => {
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
+    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
+    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
 
-    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/7', {}), { timeout: 5000 })
+    await waitFor(
+      () => expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/7', expect.objectContaining({ confirmedCompleted: true, receivedOn: null })),
+      { timeout: 5000 },
+    )
     expect(await screen.findByText(/no savings transfers were needed this month/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
@@ -990,8 +1042,10 @@ describe('AllocationPage (catalog)', () => {
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
+    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
+    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
 
-    expect(await screen.findByText(/Could not commit the allocation/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText(/Could not record the allocation/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
   // ---- Additional high-value gaps (P0/P1/cheap) not covered above or by the sibling file -----
@@ -1041,12 +1095,17 @@ describe('AllocationPage (catalog)', () => {
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
+    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
+    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
 
-    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/7', {}), { timeout: 5000 })
-    // committed === 1 takes the singular branch: "1 savings transfer created" (no plural s).
+    await waitFor(
+      () => expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/7', { departedOn: expect.any(String), receivedOn: null, confirmedCompleted: true }),
+      { timeout: 5000 },
+    )
+    // committed === 1 takes the singular branch: "1 savings transfer recorded" (no plural s).
     const banner = await screen.findByRole('status', {}, { timeout: 5000 })
     expect(banner).toHaveTextContent(
-      'Allocated July — 1 savings transfer created. Re-running Allocate replaces them, never doubles up.',
+      'Allocated July — 1 savings transfer recorded as in transit; confirm each receipt on the Transactions page. Re-running Allocate keeps unchanged transfers, never doubles up.',
     )
   })
 
@@ -1063,6 +1122,8 @@ describe('AllocationPage (catalog)', () => {
     expect(btn).toBeEnabled()
 
     await user.click(btn)
+    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
+    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
     // commit() flips busy=true synchronously before awaiting the POST → the button disables.
     await waitFor(() => expect(btn).toBeDisabled(), { timeout: 5000 })
 
@@ -1119,18 +1180,59 @@ describe('AllocationPage (catalog)', () => {
 
     expect(screen.getByText(/€350\.00 of July’s income isn’t assigned to a person/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Assign income lines on the Budget page' })).toBeInTheDocument()
-    // Fully-attributed months are quiet.
+    // A month with income is quiet about missing income, and nothing mentions People-page defaults.
+    expect(screen.queryByText(/No income in July 2026’s budget yet/)).not.toBeInTheDocument()
     expect(screen.queryByText(/default incomes from the People page/)).not.toBeInTheDocument()
   })
 
-  it('ALLOC-073: a month with no attributed income names the People-page fallback', async () => {
+  // ALLOC-073 (rewritten for rule 28) — there is no People-page fallback any more: a month whose
+  // budget has no income lines has a pool of 0 and the page says to add income lines to the Budget.
+  it('ALLOC-073: a month with no income in its budget shows the add-income notice, never a People-page fallback', async () => {
     profileData = profile()
-    previewData = { ...workedPreview(), incomeFromBudget: false, unattributedIncome: 0 }
+    currentBudget = budgetDto({ envelopes: 0, jars: 0, income: 0 }) // the budget exists; its income lines total 0
+    previewData = {
+      ...mkPreview({
+        pool: 0, env: 0, jars: 0, pocketTotal: 0, savingsTotal: 0,
+        members: [
+          { memberId: 'm1', name: 'Alex', netIncome: 0, residual: 0, savingsBalance: 1000, savingsAccountId: 'accC' },
+          { memberId: 'm2', name: 'Robin', netIncome: 0, residual: 0, savingsBalance: 500, savingsAccountId: 'accR' },
+        ],
+      }),
+      incomeFromBudget: true,
+      unattributedIncome: 0,
+    }
 
     renderPage()
     await screen.findByText('How July is allocated', {}, { timeout: 5000 })
 
-    expect(screen.getByText(/This split uses the default incomes from the People page/)).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'No income in July 2026’s budget yet. Add income lines to the Budget (attribute them to people for a by-income split) and come back.',
+    )
+    expect(screen.getByRole('button', { name: 'Open the Budget' })).toBeInTheDocument()
+    expect(screen.queryByText(/default incomes from the People page/)).not.toBeInTheDocument()
     expect(screen.queryByText(/isn’t assigned to a person/)).not.toBeInTheDocument()
+  })
+
+  it('ALLOC-074: a month with no budget at all shows the same add-income notice', async () => {
+    profileData = profile()
+    currentBudget = null // GET /budget/2026/7 → 404
+    previewData = {
+      ...mkPreview({
+        pool: 0, env: 0, jars: 0, pocketTotal: 0, savingsTotal: 0,
+        members: [
+          { memberId: 'm1', name: 'Alex', netIncome: 0, residual: 0, savingsBalance: 1000, savingsAccountId: 'accC' },
+          { memberId: 'm2', name: 'Robin', netIncome: 0, residual: 0, savingsBalance: 500, savingsAccountId: 'accR' },
+        ],
+      }),
+      incomeFromBudget: true,
+      unattributedIncome: 0,
+    }
+
+    renderPage()
+    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+
+    expect(screen.getByText(/No income in July 2026’s budget yet/)).toBeInTheDocument()
+    // The hero still renders honestly: nothing to allocate.
+    expect(screen.getByLabelText(/^Income to allocate:/)).toHaveTextContent('€0.00')
   })
 })

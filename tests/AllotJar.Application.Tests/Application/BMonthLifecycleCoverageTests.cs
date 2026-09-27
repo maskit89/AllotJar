@@ -7,6 +7,7 @@ using AllotJar.Application.Budgets.Dtos;
 using AllotJar.Application.Common.Behaviours;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -53,11 +54,13 @@ public class BMonthLifecycleCoverageTests
     public async Task Create_Blank_ForJarOwningHousehold_IsBornOverBudgeted()
     {
         await using var db = NewContext();
-        // Holiday: Goal, TargetByDate, target 1,200, no target date, opening 0 → seedable.
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
+        // Holiday: Goal, TargetByDate, target 1,200, no target date, nothing allocated → seedable.
         db.Jars.Add(new Jar
         {
             OwnerId = "user-1", Name = "Holiday", Kind = JarKind.Goal,
             Accrual = AccrualMethod.TargetByDate, TargetAmount = 1200m,
+            FundingAccountId = account.Id,
         });
         await db.SaveChangesAsync();
         var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
@@ -75,26 +78,29 @@ public class BMonthLifecycleCoverageTests
         july.IsBalanced.Should().BeFalse();        // income == 0 ⇒ never the gold balanced badge
     }
 
-    // BUDG-037: the as-of seed folds the jar's OpeningBalance into the balance, so a jar
-    // that already has an opening 300 needs only (1,200 − 300) ÷ 12 this month. Covered only
-    // indirectly today (JarAccrualCalculator unit test); this exercises the handler path.
+    // BUDG-037: the as-of seed folds the jar's actual ledger balance (its allocation as of the
+    // day before the month, rule 48) into the balance, so a jar already holding 300 needs only
+    // (1,200 − 300) ÷ 12 this month. This exercises the handler path.
     [Fact]
-    public async Task Create_SeedsAppendedJarLine_FoldingInTheJarsOpeningBalance()
+    public async Task Create_SeedsAppendedJarLine_FoldingInTheJarsAllocatedBalance()
     {
         await using var db = NewContext();
-        db.Jars.Add(new Jar
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
+        var jar = new Jar
         {
             OwnerId = "user-1", Name = "Holiday", Kind = JarKind.Goal,
             Accrual = AccrualMethod.TargetByDate, TargetAmount = 1200m,
-            OpeningBalance = 300m, OpeningAsOf = new DateOnly(2026, 6, 1),
-        });
+            FundingAccountId = account.Id,
+        };
+        db.Jars.Add(jar);
         await db.SaveChangesAsync();
+        LedgerFixtures.Allocate(db, "user-1", account.Id, jar.Id, 300m, new DateOnly(2026, 6, 1));
         var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
 
         var july = await handler.Handle(
             new CreateBudgetMonthCommand(2026, 7, CopyFromPrevious: false), CancellationToken.None);
 
-        // (1,200 − 300) ÷ 12 = 75.00 — the opening balance counts toward the as-of balance.
+        // (1,200 − 300) ÷ 12 = 75.00 — the allocated money counts toward the as-of balance.
         var line = july.Categories.Single(c => c.Kind == "Savings").Items.Single(i => i.Name == "Holiday");
         line.PlannedAmount.Should().Be(75m);
     }

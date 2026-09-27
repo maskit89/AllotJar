@@ -3,10 +3,7 @@ using AllotJar.Domain.Enums;
 
 namespace AllotJar.Api.Contracts.Auth;
 
-/// <summary>
-/// <see cref="IncludeSampleData"/> opts the new account into a pre-filled sample budget to
-/// explore; omitted/false (the default) starts the account empty.
-/// </summary>
+/// <summary>A new login. The household starts empty (rule 81); there is no sample data.</summary>
 public record RegisterRequest(
     [Required, EmailAddress] string Email,
     [Required, MinLength(8)] string Password,
@@ -14,8 +11,7 @@ public record RegisterRequest(
     [Required] string LastName,
     string? PreferredCurrency,
     string? NumberFormat,
-    bool AcceptedTerms,
-    bool IncludeSampleData);
+    bool AcceptedTerms);
 
 public record LoginRequest(
     [Required, EmailAddress] string Email,

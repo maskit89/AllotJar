@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Allocation;
 using AllotJar.Application.Household.Dtos;
 
 namespace AllotJar.Application.Household.Queries.GetHouseholdMembers;
@@ -31,10 +32,11 @@ public class GetHouseholdMembersQueryHandler
                 .ThenBy(m => m.Name)
             .ToListAsync(cancellationToken);
 
-        // Income share is computed against the active members (the pool the allocation
-        // engine splits); archived members get a 0 share.
-        var totalActiveNet = members.Where(m => !m.IsArchived).Sum(m => m.NetMonthlyIncome);
+        // Income and share come from the selected month's budget (rule 28); archived members
+        // hold no income and get a 0 share.
+        var (year, month) = HouseholdMonth.Resolve(request.Year, request.Month);
+        var shares = await MemberIncome.SharesAsync(_db, userId, year, month, members, cancellationToken);
 
-        return members.Select(m => m.ToDto(totalActiveNet)).ToList();
+        return members.Select(m => m.ToDto(shares, year, month)).ToList();
     }
 }

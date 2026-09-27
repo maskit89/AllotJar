@@ -21,8 +21,6 @@ export interface RegisterInput {
   preferredCurrency: string
   numberFormat: string
   acceptedTerms: boolean
-  /** Opt-in to a pre-filled sample budget to explore; default off — accounts start empty. */
-  includeSampleData: boolean
 }
 
 /** What the account-preferences form submits. */

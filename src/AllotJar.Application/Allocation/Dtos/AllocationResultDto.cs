@@ -12,18 +12,24 @@ public class AllocationResultDto
     public IReadOnlyList<AllocationStepDto> Steps { get; set; } = Array.Empty<AllocationStepDto>();
     public IReadOnlyList<MemberAllocationDto> Members { get; set; } = Array.Empty<MemberAllocationDto>();
 
-    /// <summary>How many savings transfers a commit created (0 for a preview).</summary>
+    /// <summary>How many savings transfers a commit recorded (0 for a preview).</summary>
     public int TransfersCreated { get; set; }
 
     /// <summary>
-    /// True when the pool came from the month's budgeted income lines (at least one line is
-    /// attributed to a person); false = the static People-page incomes fallback.
+    /// How many of this month's previously recorded transfers a commit left exactly as recorded
+    /// because the movement was unchanged (0 for a preview). Distinguishes "nothing changed" from
+    /// "nothing to save".
+    /// </summary>
+    public int TransfersRetained { get; set; }
+
+    /// <summary>
+    /// Always true since rule 28: the pool is the month's budgeted income lines and nothing
+    /// else. Kept so older clients and fixtures keep their shape.
     /// </summary>
     public bool IncomeFromBudget { get; set; }
 
     /// <summary>
-    /// Budgeted income not attributed to any active person, shared equally across members
-    /// when <see cref="IncomeFromBudget"/> is true (0 otherwise).
+    /// Budgeted income not attributed to any active person, shared equally across members.
     /// </summary>
     public decimal UnattributedIncome { get; set; }
 }
@@ -49,8 +55,12 @@ public class MemberAllocationDto
     public decimal NetIncome { get; set; }
     public decimal Residual { get; set; }
 
-    /// <summary>The member's savings-account balance before this month's allocation (for the balance-tilt view).</summary>
-    public decimal SavingsBalance { get; set; }
+    /// <summary>
+    /// The member's actual savings-account balance today, before this month's allocation (for
+    /// the balance-tilt view). Null when unavailable — the account has no opening date — rather
+    /// than zero.
+    /// </summary>
+    public decimal? SavingsBalance { get; set; }
 
     public Guid? SavingsAccountId { get; set; }
 }
@@ -63,12 +73,14 @@ public static class AllocationResultMapping
         decimal jarsTotal,
         int transfersCreated = 0,
         decimal unattributedIncome = 0m,
-        bool incomeFromBudget = false) => new()
+        bool incomeFromBudget = false,
+        int transfersRetained = 0) => new()
     {
         Pool = r.Pool,
         EnvelopesTotal = envelopesTotal,
         JarsTotal = jarsTotal,
         TransfersCreated = transfersCreated,
+        TransfersRetained = transfersRetained,
         IncomeFromBudget = incomeFromBudget,
         UnattributedIncome = unattributedIncome,
         Steps = r.Steps
@@ -88,7 +100,7 @@ public static class AllocationResultMapping
                 Name = m.Name,
                 NetIncome = m.NetIncome,
                 Residual = m.Residual,
-                SavingsBalance = m.SavingsBalance,
+                SavingsBalance = m.SavingsBalanceAvailable ? m.SavingsBalance : null,
                 SavingsAccountId = m.SavingsAccountId,
             })
             .ToList(),

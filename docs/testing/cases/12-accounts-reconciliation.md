@@ -104,7 +104,7 @@
 - **Expected:** Each POST carries the numeric type 0–4 respectively; each card's type badge reads the matching `ACCOUNT_TYPE_LABELS` string ("Current" / "Savings" / "Cash" / "Credit card" / "Other") and the hue tile follows `hueForAccountType` (Savings emerald, Cash amber, CreditCard rose, Current indigo, Other teal). `account_created` `kind` mirrors the label.
 - **Automated:** No
 
-### ACCT-011 - Negative opening balance is accepted (credit-card debt)
+### ACCT-011 - Negative opening balance is refused (rule 74; superseded — credit cards are not accounts, rule 75)
 - **Priority:** P1
 - **Type:** Boundary
 - **Preconditions:** Owner; adding a "Credit card" account.
@@ -222,16 +222,16 @@
 
 ## Editing an account
 
-### ACCT-023 - Edit name, type and opening balance
+### ACCT-023 - Edit name, type, opening balance and opening date
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Owner; account "Rainy Day" (Savings, opening 500.00) with some transactions.
+- **Preconditions:** Owner; account "Rainy Day" (Savings, opening 500.00 on 2026-01-01) with some transactions.
 - **Steps:**
-  1. Hover/focus the card and click "✎" (aria "Edit Rainy Day"). The inline edit card replaces it.
+  1. Hover/focus the card and click "✎" (aria "Edit Rainy Day"). The inline edit card replaces it (name, type, opening balance, opening date — aria "Opening date for Rainy Day").
   2. Change Name to "Emergency", Type to "Current", Opening balance to "750".
   3. Click "Save" (aria "Save Emergency").
-- **Expected:** One `PUT /accounts/{id}` with `{ name: "Emergency", type: 0, openingBalance: 750 }` (**no currency field** in the body). The 200 `AccountDto` returns a **recomputed** balance (`750 + net of the account's transactions`); the card updates in place and `account_edited` is tracked.
-- **Automated:** No
+- **Expected:** One `PUT /accounts/{id}` with `{ name: "Emergency", type: 0, openingBalance: 750, openingDate: "2026-01-01" }` (**no currency field** in the body). The 200 `AccountDto` returns a **recomputed** balance as of today (`750 + net of the account's legs dated from the opening date`); the card updates in place and `account_edited` is tracked. Saving without an opening date is blocked client-side ("Enter the date the opening balance applies from.") and server-side (400). A legacy account with no opening date shows **Not available** with "Set an opening date to calculate the balance." and is left out of the hero total (rules 40/67).
+- **Automated:** Yes (client/src/pages/AccountsPage.catalog.test.tsx — ACCT-023; AccountsPage.test.tsx — legacy account without an opening date; tests/AllotJar.Application.Tests/Application/AccountLedgerActivationTests.cs)
 
 ### ACCT-024 - Currency is immutable on edit (no input; read-only note)
 - **Priority:** P1
@@ -588,3 +588,41 @@
   1. Leave `/accounts` open; sign out in another tab (or revoke server-side); refocus the accounts tab or trigger its next fetch.
 - **Expected:** The dead session is detected (cross-tab broadcast via `authChannel` / focus revalidation) and the app redirects to `/login?reason=expired…` with "Your session has expired" — the user does **not** see a silently-broken accounts view with a stale hero. A grace-window 401 (a just-rotated cookie, PR #171) must **not** trigger this. (Full session behaviour lives in the session sibling file; only the accounts-tab manifestation is noted here.)
 - **Automated:** Partial (AuthContext.test.tsx — cross-tab sign-out + focus-revalidation prompt; not exercised specifically on the accounts route)
+
+## Jar ledger reconciliation and account rules (rules 70, 74–76)
+
+### ACCT-061 - Reconciliation shows In jars / Unallocated from the ledger and flags a backing deficit
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Savings 1,000 holding Holiday 400 and Car 300 (unallocated 300); Current 500 holding Repairs 400 and Holiday2 −50 after an overdrawing payment (balance 350).
+- **Steps:**
+  1. Open `/accounts` and read the "Jar reconciliation" card.
+- **Expected:** Savings row: Balance €1,000.00, In jars €700.00, Unallocated €300.00. Current row: Balance €350.00, In jars €350.00 (signed), Unallocated €0.00 and a "Jars exceed account money" badge (`hasBackingDeficit`, positive jars 400 > 350). Column "Float" is now "Unallocated". ACCT-052/054/055 read the same figures from the ledger; a negative unallocated never occurs (it reads as the deficit flag instead).
+- **Automated:** Yes (AccountReconciliationTests; AccountsPage tests)
+
+### ACCT-062 - Credit card is not an account type; opening balances are never negative
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Owner.
+- **Steps:**
+  1. Open "Add an account" and inspect the Type select. 2. `POST /accounts` with `type: 3` (CreditCard). 3. `POST /accounts` with `openingBalance: -10`.
+- **Expected:** 1: Current, Savings, Cash, Other only. 2: 400 "Credit cards are not accounts here: an account holds money, a card owes it." 3: 400 "The opening balance must be zero or more …" (rule 74).
+- **Automated:** Yes (account validator tests; AccountsPage tests)
+
+### ACCT-063 - Optional bank identifiers are stored, normalised and format-checked
+- **Priority:** P2
+- **Type:** Happy / Negative
+- **Preconditions:** Owner.
+- **Steps:**
+  1. Add "Main" with IBAN "de89 3704 0044 0532 0130 00", BIC "cobadeffxxx", Sort code "12-34-56", Account number "12345678". 2. Add "Piggy bank" with all four blank. 3. Add with IBAN "hello".
+- **Expected:** 1: stored as `DE89370400440532013000`, `COBADEFFXXX`, `123456`, `12345678` and shown on the detail page. 2: accepted — identifiers are never required (rule 76). 3: 400 "Enter a valid IBAN …".
+- **Automated:** Yes (BankIdentifiers/validator tests; AccountsPage tests)
+
+### ACCT-064 - An account holding jars cannot be deleted
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Savings holds Holiday.
+- **Steps:**
+  1. Delete Savings.
+- **Expected:** 400 "'Savings' holds the money of 1 jar. Move those jars to another account (or archive them) before deleting the account." The database backs this up with a Restrict foreign key.
+- **Automated:** Yes (DeleteAccount tests; JarLedgerSqlTests)

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { register, suppressOnboarding } from './helpers'
+import { addAccount, createGoalJar as createJarHeldIn, register, suppressOnboarding } from './helpers'
 
 /**
  * Month lifecycle through the real stack (the BUDG/DASH deferred set): creating the
@@ -71,19 +71,23 @@ async function setPlanned(page: Page, lineName: string, value: string): Promise<
   await committed(page, 'PUT', '/api/budget/items/', () => input.press('Enter'))
 }
 
-/** Create a Goal jar (no due date needed) through the real /jars page modal. */
-async function createGoalJar(page: Page, name: string, target: string): Promise<void> {
-  await page.getByRole('button', { name: 'New jar' }).click()
-  const dialog = page.getByRole('dialog')
-  await dialog.getByLabel('Jar name').fill(name)
-  // exact — the adjacent InfoHint is aria-labelled "About jar types" (a superstring).
-  await dialog.getByLabel('Jar type', { exact: true }).selectOption({ label: 'Goal' })
-  await dialog.getByLabel('Target amount').fill(target)
-  await committed(page, 'POST', '/api/jars', () =>
-    dialog.getByRole('button', { name: 'Add jar' }).click(),
-  )
-  // The card list reconciles from the POST response.
-  await expect(page.getByRole('heading', { name })).toBeVisible()
+/**
+ * Create a Goal jar (no due date needed) through the one jar form. Every jar is held in an
+ * account (rule 73), so the household's "Pot" account is created on first use.
+ */
+async function createGoalJar(
+  page: Page,
+  name: string,
+  target: string,
+  setAside?: string,
+): Promise<void> {
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
+  // The list renders only after its fetch; counting before that would add a second Pot.
+  await expect(page.getByRole('heading', { name: 'Your accounts' })).toBeVisible()
+  if ((await page.getByRole('link', { name: 'View Pot', exact: true }).count()) === 0) {
+    await addAccount(page, { name: 'Pot', opening: '5000' })
+  }
+  await createJarHeldIn(page, { name, target, heldIn: 'Pot', setAside })
 }
 
 test('a jar-less blank month prompts for income, and a duplicate create fails friendly', async ({
@@ -135,7 +139,7 @@ test('a jar-less blank month prompts for income, and a duplicate create fails fr
   await tabB.close()
 })
 
-test('creating from the Essentials template builds its catalogue structure with a jar-backed savings line', async ({
+test('creating from the Essentials template builds its catalogue structure with no savings lines', async ({
   page,
 }) => {
   await register(page)
@@ -146,37 +150,39 @@ test('creating from the Essentials template builds its catalogue structure with 
   await expect(essentials).toContainText(
     'A clean starting point covering the bills most households share.',
   )
-  await expect(essentials).toContainText('6 groups · 13 lines')
+  await expect(essentials).toContainText('5 groups · 12 lines')
   await expect(page.getByRole('button', { name: 'Start from the Student template' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Start from the Family template' })).toBeVisible()
 
   // BUDG-020 / DASH-010: Essentials builds Income / Housing / Food / Transport /
-  // Lifestyle / Savings with the template's named lines, every planned amount zero.
+  // Lifestyle with the template's named lines, every planned amount zero. Rule 81:
+  // templates carry no savings lines — jars come only from the jar form.
   await committed(page, 'POST', createMonthUrl, () => essentials.click())
   await expect(page.getByRole('heading', { name: 'Income' })).toBeVisible()
   await expect(
     page.getByRole('textbox', { name: 'Income source name', exact: true }),
   ).toHaveValue('Take-home Pay')
-  for (const group of ['Housing', 'Food', 'Transport', 'Lifestyle', 'Savings']) {
+  for (const group of ['Housing', 'Food', 'Transport', 'Lifestyle']) {
     await expect(page.getByRole('textbox', { name: `Rename group ${group}` })).toBeVisible()
   }
   await expect(page.getByRole('textbox', { name: 'Rename Rent / Mortgage' })).toBeVisible()
-  // The Savings line renders the fund layout (rolled-over Available column).
-  await expect(page.getByRole('textbox', { name: 'Rename Emergency Fund' })).toBeVisible()
-  await expect(page.getByText('avail.')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Rename group Savings' })).toHaveCount(0)
+  await expect(page.getByText('avail.')).toHaveCount(0)
 
   // BUDG-020 hero: all-zero planned + zero income = the empty prompt, no gold badge.
   await expect(page.getByLabel('Remaining to budget: €0.00')).toBeVisible()
   await expect(page.getByText('Plan your income, then give every euro a job')).toBeVisible()
   await expect(page.getByText('Every euro has a job')).toHaveCount(0)
 
-  // BUDG-022 / JAR-060: the template minted a REAL backing jar (enforced
-  // SavingsId → Jars FK). A reload refetches /jars — the Emergency Fund jar sits on
-  // the current-month shelf with the €0.00 total.
+  // BUDG-022 / JAR-060: the template minted NO jar. A reload refetches /jars — no shelf,
+  // and the first-run checklist still asks for an account and a jar.
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Your jars' })).toBeVisible()
-  await expect(page.getByText('Emergency Fund')).toBeVisible()
-  await expect(page.getByText('€0.00 saved')).toBeVisible()
+  await expect(page.getByText('Remaining to budget')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your jars' })).toHaveCount(0)
+  await expect(page.getByText('Emergency Fund')).toHaveCount(0)
+  const setup = page.getByRole('region', { name: 'Set up your budget' })
+  await expect(setup.getByRole('link', { name: 'Go to accounts' })).toBeVisible()
+  await expect(setup.getByRole('button', { name: 'Add a jar from an account' })).toBeDisabled()
 })
 
 test('a jar-owning household’s blank month is born over-budgeted with an accrual-planned savings line', async ({
@@ -185,8 +191,7 @@ test('a jar-owning household’s blank month is born over-budgeted with an accru
   await register(page)
 
   // Own a jar before any month exists: Goal, target 1,200.00, no date → the accrual
-  // calculator wants (1,200 − 0) ÷ 12 = 100.00/mo.
-  await page.getByRole('link', { name: 'Jars' }).click()
+  // calculator wants (1,200 − 0) ÷ 12 = 100.00/mo. (Held in the Pot account, rule 73.)
   await createGoalJar(page, 'Holiday', '1200')
 
   // BUDG-029 / JAR-063: the create card tells the user their jar will be appended
@@ -231,9 +236,10 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   const next = monthAt(1)
   await register(page)
 
-  // --- Fixture: two Goal jars, then a current-month budget built through the UI ---
-  await page.getByRole('link', { name: 'Jars' }).click()
-  await createGoalJar(page, 'Holiday', '1200') // seedable: 1,200 ÷ 12 = 100.00/mo
+  // --- Fixture: two Goal jars (held in the Pot account), then a current-month budget built through the UI ---
+  // Holiday holds 100.00 set aside today (rule 77). The current month seeds from the
+  // balance at the end of last month (nothing yet): 1,200 ÷ 12 = 100.00/mo.
+  await createGoalJar(page, 'Holiday', '1200', '100')
   await createGoalJar(page, 'Old Boiler', '600') // 600 ÷ 12 = 50.00/mo — archived below
 
   // BUDG-029: plural jar-append note for two jars.
@@ -325,8 +331,9 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await expect(page.getByRole('button', { name: 'Mark Rent paid' })).toBeVisible()
 
   // BUDG-015: Holiday is seedable, so its line is RE-SEEDED from the accrual
-  // calculator using the as-of balance — (1,200 − 100 already planned last month)
-  // ÷ 12 = 91.67 — not copied flat at 100.00.
+  // calculator using the jar's actual balance as of today (rule 1: the 100.00 set
+  // aside, never the amount planned last month) — (1,200 − 100) ÷ 12 = 91.67 —
+  // not copied flat at 100.00.
   await expect(page.getByRole('button', { name: 'Planned amount for Holiday' })).toHaveText(
     '€91.67',
   )
@@ -381,8 +388,21 @@ test('month navigation moves every screen together; the jars shelf is current-mo
   const prev = monthAt(-1)
   const next = monthAt(1)
 
-  // Sample figures give this user a real current month AND a jar (Emergency Fund).
-  await register(page, { sampleBudget: true })
+  // Nothing is seeded (rule 81): build a real current month from the Essentials template,
+  // then add a target-less Goal jar (held in the Pot account) whose line lands in the month.
+  await register(page, { starterBudget: true })
+  await createGoalJar(page, 'Emergency Fund', '0')
+  await page.getByRole('link', { name: 'Budget' }).click()
+  await expect(page.getByText('Remaining to budget')).toBeVisible()
+  // A jar created while the month exists plants its contribution line there; plan 250.00 on it.
+  await expect(page.getByRole('textbox', { name: 'Rename Emergency Fund' })).toBeVisible()
+  await setPlanned(page, 'Emergency Fund', '250')
+  // Income 3,000 so the copied month reads "800.00 still to assign" after the 2,200 below.
+  const addIncome = page.getByRole('textbox', { name: 'New income source name' })
+  await addIncome.fill('Salary')
+  await committed(page, 'POST', '/items', () => addIncome.press('Enter'))
+  await setPlanned(page, 'Salary', '3000')
+  await setPlanned(page, 'Rent / Mortgage', '1950')
 
   // JAR-060 / DASH-028: on the current calendar month the "Your jars" shelf renders.
   await expect(page.getByRole('heading', { name: 'Your jars' })).toBeVisible()
@@ -411,8 +431,8 @@ test('month navigation moves every screen together; the jars shelf is current-mo
     page.getByRole('button', { name: `Copy ${current.label}` }).click(),
   )
 
-  // BUDG-016: the sample Emergency Fund jar has target 0 → NOT seedable → its planned
-  // amount copies flat (250.00), no accrual recompute. Remaining = 3,000 − 2,200.
+  // BUDG-016: the Emergency Fund jar has target 0 → NOT seedable → its planned
+  // amount copies flat (250.00), no accrual recompute. Remaining = 3,000 − (1,950 + 250).
   await expect(
     page.getByRole('button', { name: 'Planned amount for Emergency Fund' }),
   ).toHaveText('€250.00')

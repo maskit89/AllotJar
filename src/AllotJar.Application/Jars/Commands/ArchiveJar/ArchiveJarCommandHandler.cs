@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Dtos;
-using AllotJar.Domain.Services;
 
 namespace AllotJar.Application.Jars.Commands.ArchiveJar;
 
@@ -25,22 +24,39 @@ public class ArchiveJarCommandHandler
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
-        var fund = await _db.Jars
+        var jar = await _db.Jars
             .FirstOrDefaultAsync(f => f.Id == request.Id, cancellationToken)
-            ?? throw new NotFoundException($"Sinking fund {request.Id} was not found.");
+            ?? throw new NotFoundException($"Jar {request.Id} was not found.");
 
-        if (fund.OwnerId != userId)
+        if (jar.OwnerId != userId)
         {
             throw new ForbiddenAccessException();
         }
 
-        fund.IsArchived = request.Archived;
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var snapshot = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken, new[] { jar.FundingAccountId });
+
+        if (request.Archived && !jar.IsArchived)
+        {
+            // Rule 26: archiving never discards money or erases a shortfall. The jar must be at
+            // zero — reallocated away, or its deficit covered — before it can be put away.
+            var balance = snapshot.BalanceOf(jar.Id);
+            if (balance is null)
+            {
+                throw JarAccounts.Validation("Id", $"{jar.Name}'s balance is not available today, so it cannot be archived yet.");
+            }
+            if (balance != 0m)
+            {
+                throw JarAccounts.Validation("Id",
+                    balance > 0m
+                        ? $"{jar.Name} still holds {balance:0.##}. Move it to another jar or to unallocated funds before archiving."
+                        : $"{jar.Name} is {(-balance):0.##} overdrawn. Cover the shortfall from another jar or unallocated funds before archiving.");
+            }
+        }
+
+        jar.IsArchived = request.Archived;
         await _db.SaveChangesAsync(cancellationToken);
 
-        var asOf = DateOnly.FromDateTime(DateTime.UtcNow);
-        var tracked = await JarBalances.ComputeAsync(_db, userId, cancellationToken);
-        var balance = fund.OpeningBalance + tracked.GetValueOrDefault(fund.Id);
-        var required = JarAccrualCalculator.RequiredMonthlyContribution(fund, asOf, balance);
-        return fund.ToDto(balance, required, asOf);
+        return jar.ToDto(snapshot);
     }
 }

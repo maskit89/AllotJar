@@ -33,8 +33,15 @@ public class AccountConfiguration : IEntityTypeConfiguration<Account>
         builder.Property(a => a.OpeningBalance)
             .HasPrecision(18, 4);
 
-        // CurrentBalance is derived at read time and never persisted.
-        builder.Ignore(a => a.CurrentBalance);
+        // Nullable in the schema only for rows that predate the column: the API requires it and
+        // the ledger reads a missing date as "balance unavailable", never as an inferred date.
+        builder.Property(a => a.OpeningDate);
+
+        // Optional bank identifiers (rule 76): bounded text, format-checked by the validators.
+        builder.Property(a => a.Iban).HasMaxLength(34);
+        builder.Property(a => a.Bic).HasMaxLength(11);
+        builder.Property(a => a.SortCode).HasMaxLength(8);
+        builder.Property(a => a.AccountNumber).HasMaxLength(34);
 
         builder.HasIndex(a => a.OwnerId);
 

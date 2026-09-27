@@ -10,7 +10,8 @@ namespace AllotJar.Application.Tests.Application;
 
 /// <summary>
 /// <see cref="HouseholdBootstrap.EnsureOwnHouseholdAsync"/> materializes a login's own household —
-/// Owner membership + owner member, with the sample budget strictly opt-in — and is idempotent,
+/// Owner membership + owner member, and nothing else: registration seeds no budget, jars or
+/// accounts (rule 81) — and is idempotent,
 /// so it backs registration, the "start my own budget" path for a member who only ever joined
 /// others, and the defensive leave-household path.
 /// </summary>
@@ -33,12 +34,12 @@ public class HouseholdBootstrapTests
     private static readonly DateTime Now = new(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc);
 
     [Fact]
-    public async Task EnsureOwnHousehold_without_sample_creates_membership_and_owner_member_but_no_budget()
+    public async Task EnsureOwnHousehold_creates_membership_and_owner_member_but_seeds_nothing()
     {
         using var db = NewContext();
         var user = User("user-1");
 
-        var created = await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, Now, seedSampleBudget: false);
+        var created = await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, Now);
 
         created.Should().BeTrue();
 
@@ -48,10 +49,12 @@ public class HouseholdBootstrapTests
         membership.Role.Should().Be(HouseholdRole.Owner);
         membership.Status.Should().Be(MembershipStatus.Active);
 
-        // No sample data unless asked for: the household starts with zero budget months (and zero
-        // jars — the sample "Emergency Fund" jar is part of the opt-in seed).
+        // Rule 81: onboarding is accounts-first with no sample data — zero budget months, zero
+        // jars (a jar needs an account the user has yet to add, rule 73) and zero accounts.
         (await db.BudgetMonths.AnyAsync(m => m.OwnerId == "user-1")).Should().BeFalse();
         (await db.Jars.AnyAsync(j => j.OwnerId == "user-1")).Should().BeFalse();
+        (await db.Accounts.AnyAsync(a => a.OwnerId == "user-1")).Should().BeFalse();
+        (await db.JarAllocations.AnyAsync(a => a.OwnerId == "user-1")).Should().BeFalse();
 
         var member = await db.HouseholdMembers.SingleAsync(m => m.OwnerId == "user-1");
         member.Name.Should().Be("Sam");
@@ -60,52 +63,35 @@ public class HouseholdBootstrapTests
     }
 
     [Fact]
-    public async Task EnsureOwnHousehold_with_sample_also_seeds_the_sample_budget()
-    {
-        using var db = NewContext();
-        var user = User("user-1");
-
-        var created = await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, Now, seedSampleBudget: true);
-
-        created.Should().BeTrue();
-
-        var month = await db.BudgetMonths.SingleAsync(m => m.OwnerId == "user-1");
-        month.Year.Should().Be(2026);
-        month.Month.Should().Be(7);
-
-        (await db.HouseholdMembers.CountAsync(m => m.OwnerId == "user-1")).Should().Be(1);
-    }
-
-    [Fact]
     public async Task EnsureOwnHousehold_is_idempotent_and_never_duplicates()
     {
         using var db = NewContext();
         var user = User("user-1");
 
-        var first = await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, Now, seedSampleBudget: true);
-        var second = await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, Now, seedSampleBudget: true);
+        var first = await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, Now);
+        var second = await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, Now);
 
         first.Should().BeTrue();
         second.Should().BeFalse(); // the Owner membership already existed the second time
 
         (await db.HouseholdMemberships.CountAsync(m => m.OwnerId == "user-1")).Should().Be(1);
-        (await db.BudgetMonths.CountAsync(m => m.OwnerId == "user-1")).Should().Be(1);
+        (await db.BudgetMonths.CountAsync(m => m.OwnerId == "user-1")).Should().Be(0);
         (await db.HouseholdMembers.CountAsync(m => m.OwnerId == "user-1")).Should().Be(1);
     }
 
     [Fact]
-    public async Task A_later_sample_request_never_injects_figures_into_an_established_budget()
+    public async Task A_later_bootstrap_never_injects_figures_into_an_established_budget()
     {
         using var db = NewContext();
         var user = User("user-1");
 
-        // Registered without sample data, then built a real month of their own.
-        await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, Now, seedSampleBudget: false);
+        // Registered, then built a real month of their own.
+        await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, Now);
         db.BudgetMonths.Add(new BudgetMonth { OwnerId = "user-1", Year = 2026, Month = 6 });
         await db.SaveChangesAsync();
 
-        // A later bootstrap asking for the seed (e.g. a re-used path) must respect the real budget.
-        await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, Now, seedSampleBudget: true);
+        // A later bootstrap (e.g. a re-used path) must respect the real budget and add nothing.
+        await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, Now);
 
         var months = await db.BudgetMonths.Where(m => m.OwnerId == "user-1").ToListAsync();
         months.Should().ContainSingle().Which.Month.Should().Be(6);
@@ -126,7 +112,7 @@ public class HouseholdBootstrapTests
         });
         await db.SaveChangesAsync();
 
-        await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, User("user-1"), Now, seedSampleBudget: false);
+        await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, User("user-1"), Now);
 
         // They now have two memberships: the joined one, plus their own new Owner one.
         var mine = await db.HouseholdMemberships.Where(m => m.UserId == "user-1").ToListAsync();

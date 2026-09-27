@@ -178,12 +178,13 @@ describe('TransactionsPage manual sheet', () => {
     await user.type(screen.getByLabelText('Transfer amount'), '50')
     await user.selectOptions(screen.getByLabelText('Transfer from account'), 'a1')
     await user.selectOptions(screen.getByLabelText('Transfer to account'), 'a2')
+    await user.click(screen.getByLabelText('Transfer completed confirmation'))
     await user.click(screen.getByRole('button', { name: 'Record transfer' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(
         '/transactions/transfer',
-        expect.objectContaining({ amount: 50, fromAccountId: 'a1', toAccountId: 'a2' }),
+        expect.objectContaining({ amount: 50, fromAccountId: 'a1', toAccountId: 'a2', receivedOn: null }),
       ),
     )
     const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))

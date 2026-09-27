@@ -29,13 +29,16 @@ public class ActualSavingsLedgerTests
         Guid.NewGuid(), _account.OwnerId, _account.Id, transaction?.Date ?? OpeningDate, transaction?.Id, postings);
 
     private SavingsLedgerBalance Calculate(Jar[] jars, Transaction[] transactions, params JarLedgerOperation[] operations) =>
-        ActualSavingsLedger.Calculate(_account, OpeningDate, new(2026, 9, 30), jars, transactions, operations);
+        ActualSavingsLedger.Calculate(_account, OpeningDate, new(2026, 9, 30), jars, transactions, operations,
+            // These fixtures describe confirmed, same-day transfers. Production callers
+            // must supply actual dates; the calculator deliberately has no date fallback.
+            transactions.Where(t => t.Type == TransactionType.Transfer)
+                .ToDictionary(t => t.Id, _ => new TransferPostingDates(OpeningDate, OpeningDate)));
 
     [Fact]
-    public void JarDefinitionsAndLegacyOpeningAmountsDoNotCreateActualSavings()
+    public void JarDefinitionsDoNotCreateActualSavings()
     {
         var jar = Jar();
-        jar.OpeningBalance = 600m;
         jar.TargetAmount = 1200m;
         var result = Calculate([jar], []);
 
@@ -119,7 +122,8 @@ public class ActualSavingsLedgerTests
             Allocation(null, new JarLedgerPosting(a.Id, 100m), new JarLedgerPosting(null, -100m)), Allocation(transfer, new JarLedgerPosting(a.Id, -50m)));
         var incoming = new JarLedgerOperation(Guid.NewGuid(), destination.OwnerId, destination.Id,
             transfer.Date, transfer.Id, [new JarLedgerPosting(b.Id, 50m)]);
-        var target = ActualSavingsLedger.Calculate(destination, OpeningDate, OpeningDate, [b], [transfer], [incoming]);
+        var target = ActualSavingsLedger.Calculate(destination, OpeningDate, OpeningDate, [b], [transfer], [incoming],
+            new Dictionary<Guid, TransferPostingDates> { [transfer.Id] = new(OpeningDate, OpeningDate) });
 
         source.AccountBalance.Should().Be(550m);
         target.AccountBalance.Should().Be(50m);
@@ -220,13 +224,25 @@ public class ActualSavingsLedgerTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void JarMustBelongToTheOwnerAndDesignateThisAccount(bool foreignOwner)
+    public void JarMustBelongToTheOwner_WhileARedesignatedOwnJarKeepsItsHistoryHere(bool foreignOwner)
     {
         var jar = Jar();
-        if (foreignOwner) jar.OwnerId = "another-household";
-        else jar.FundingAccountId = Guid.NewGuid();
-        var act = () => Calculate([jar], [], Allocation(null, new JarLedgerPosting(jar.Id, 10m), new JarLedgerPosting(null, -10m)));
-        act.Should().Throw<InvalidOperationException>().WithMessage("*designate this savings account*");
+        var operation = Allocation(null, new JarLedgerPosting(jar.Id, 10m), new JarLedgerPosting(null, -10m));
+        if (foreignOwner)
+        {
+            jar.OwnerId = "another-household";
+            var act = () => Calculate([jar], [], operation);
+            act.Should().Throw<InvalidOperationException>().WithMessage("*belong to this owner*");
+        }
+        else
+        {
+            // Rule 80: a jar moved to another account (only at zero) keeps its postings in this
+            // ledger; they still reconcile here rather than being rejected.
+            jar.FundingAccountId = Guid.NewGuid();
+            var result = Calculate([jar], [], operation, Allocation(null, new JarLedgerPosting(jar.Id, -10m), new JarLedgerPosting(null, 10m)));
+            result.JarBalances![jar.Id].Should().Be(0m);
+            result.Unallocated.Should().Be(600m);
+        }
     }
 
     [Theory]
@@ -256,10 +272,14 @@ public class ActualSavingsLedgerTests
     }
 
     [Fact]
-    public void NonSavingsAccountsCannotBackAJar()
+    public void AnyAccountMayBackAJar_ExceptACreditCard()
     {
+        // Rule 73: any account type may back a jar; rule 75: a credit card is not an account.
         _account.Type = AccountType.Current;
+        Calculate([], []).Unallocated.Should().Be(600m);
+
+        _account.Type = AccountType.CreditCard;
         var act = () => Calculate([], []);
-        act.Should().Throw<InvalidOperationException>().WithMessage("*savings account*");
+        act.Should().Throw<InvalidOperationException>().WithMessage("*credit card*");
     }
 }

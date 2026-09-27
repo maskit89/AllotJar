@@ -24,6 +24,21 @@ public class CreateAccountCommandHandler : IRequestHandler<CreateAccountCommand,
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
+        // The validators enforce both; a bypassing caller must still not create a credit-card
+        // account (rule 75) or a negative opening (rule 74).
+        if (request.Type == Domain.Enums.AccountType.CreditCard || request.OpeningBalance < 0m)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                [request.Type == Domain.Enums.AccountType.CreditCard ? "Type" : "OpeningBalance"] = new[]
+                {
+                    request.Type == Domain.Enums.AccountType.CreditCard
+                        ? "Credit cards are not accounts here: an account holds money, a card owes it."
+                        : "The opening balance must be zero or more: an account never has a negative balance here.",
+                },
+            });
+        }
+
         // New accounts sort after the user's existing ones.
         var nextOrder = await _db.Accounts
             .Where(a => a.OwnerId == userId)
@@ -37,14 +52,27 @@ public class CreateAccountCommandHandler : IRequestHandler<CreateAccountCommand,
             Type = request.Type,
             Currency = CurrencyCode.From(request.Currency),
             OpeningBalance = request.OpeningBalance,
+            // The validator guarantees a date; a defensive throw keeps a bypassing caller from
+            // persisting an account whose balance could never be calculated.
+            OpeningDate = request.OpeningDate
+                ?? throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    [nameof(request.OpeningDate)] = new[] { "Enter the date the opening balance applies from." },
+                }),
             DisplayOrder = nextOrder + 1,
+            Iban = BankIdentifiers.NormalizeIban(request.Iban),
+            Bic = BankIdentifiers.NormalizeBic(request.Bic),
+            SortCode = BankIdentifiers.NormalizeSortCode(request.SortCode),
+            AccountNumber = BankIdentifiers.NormalizeAccountNumber(request.AccountNumber),
         };
 
         _db.Accounts.Add(account);
         await _db.SaveChangesAsync(cancellationToken);
 
-        // No transactions yet, so the current balance is just the opening balance.
-        account.CurrentBalance = account.OpeningBalance;
-        return account.ToDto();
+        // Read back through the ledger so a future-dated opening reports "unavailable" today
+        // rather than pretending the money is already there.
+        var asOf = DateOnly.FromDateTime(DateTime.UtcNow);
+        var views = await AccountLedgerReader.ReadAsync(_db, userId, new[] { account }, asOf, cancellationToken);
+        return account.ToDto(views[account.Id]);
     }
 }

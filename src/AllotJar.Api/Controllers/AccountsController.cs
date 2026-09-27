@@ -54,11 +54,14 @@ public class AccountsController : ControllerBase
     public async Task<ActionResult<AccountDto>> Create(CreateAccountRequest request, CancellationToken ct)
     {
         var result = await _mediator.Send(
-            new CreateAccountCommand(request.Name, request.Type, request.Currency, request.OpeningBalance), ct);
+            new CreateAccountCommand(
+                request.Name, request.Type, request.Currency, request.OpeningBalance, request.OpeningDate,
+                request.Iban, request.Bic, request.SortCode, request.AccountNumber),
+            ct);
         return CreatedAtAction(nameof(List), new { }, result);
     }
 
-    /// <summary>Edits an account's name, type and opening balance. Returns it.</summary>
+    /// <summary>Edits an account's name, type, opening balance and opening date. Returns it.</summary>
     [HttpPut("{id:guid}")]
     [ProducesResponseType(typeof(AccountDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -67,13 +70,18 @@ public class AccountsController : ControllerBase
     public async Task<ActionResult<AccountDto>> Update(Guid id, UpdateAccountRequest request, CancellationToken ct)
     {
         var result = await _mediator.Send(
-            new UpdateAccountCommand(id, request.Name, request.Type, request.OpeningBalance), ct);
+            new UpdateAccountCommand(id, request.Name, request.Type, request.OpeningBalance, request.OpeningDate,
+                request.Iban, request.Bic, request.SortCode, request.AccountNumber), ct);
         return Ok(result);
     }
 
-    /// <summary>Deletes an account; its transactions survive but become unlinked.</summary>
+    /// <summary>
+    /// Deletes an account; its income/expense transactions survive but become unlinked. Refused
+    /// (400) while the account is a side of any transfer.
+    /// </summary>
     [HttpDelete("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
@@ -83,8 +91,12 @@ public class AccountsController : ControllerBase
     }
 }
 
-/// <summary>Request body for creating an account.</summary>
-public record CreateAccountRequest(string Name, AccountType Type, string Currency, decimal OpeningBalance);
+/// <summary>Request body for creating an account. The opening balance applies from the start of <c>OpeningDate</c>.</summary>
+public record CreateAccountRequest(
+    string Name, AccountType Type, string Currency, decimal OpeningBalance, DateOnly? OpeningDate = null,
+    string? Iban = null, string? Bic = null, string? SortCode = null, string? AccountNumber = null);
 
 /// <summary>Request body for editing an account (the id comes from the route; currency is immutable).</summary>
-public record UpdateAccountRequest(string Name, AccountType Type, decimal OpeningBalance);
+public record UpdateAccountRequest(
+    string Name, AccountType Type, decimal OpeningBalance, DateOnly? OpeningDate = null,
+    string? Iban = null, string? Bic = null, string? SortCode = null, string? AccountNumber = null);

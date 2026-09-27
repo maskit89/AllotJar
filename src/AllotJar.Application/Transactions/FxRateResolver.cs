@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
+using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
 
 namespace AllotJar.Application.Transactions;
@@ -120,6 +121,16 @@ public static class FxRateResolver
 
         foreach (var tx in transactions)
         {
+            // A transfer moves one authoritative amount between two same-currency accounts and
+            // never enters a budget total, so it has no rate to resolve and must never be marked
+            // pending: an unapproved rate on a transfer would be an automatic conversion (rule 42).
+            if (tx.Type == TransactionType.Transfer)
+            {
+                tx.ExchangeRate = 1m;
+                tx.FxPending = false;
+                continue;
+            }
+
             var baseCurrency = baseByMonth.TryGetValue((tx.Date.Year, tx.Date.Month), out var c)
                 ? c
                 : CurrencyCode.Eur;

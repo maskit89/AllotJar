@@ -28,6 +28,14 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("AccountNumber")
+                        .HasMaxLength(34)
+                        .HasColumnType("nvarchar(34)");
+
+                    b.Property<string>("Bic")
+                        .HasMaxLength(11)
+                        .HasColumnType("nvarchar(11)");
+
                     b.Property<string>("Currency")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -38,6 +46,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<int>("DisplayOrder")
                         .HasColumnType("int");
 
+                    b.Property<string>("Iban")
+                        .HasMaxLength(34)
+                        .HasColumnType("nvarchar(34)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(120)
@@ -47,10 +59,17 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 4)
                         .HasColumnType("decimal(18,4)");
 
+                    b.Property<DateOnly?>("OpeningDate")
+                        .HasColumnType("date");
+
                     b.Property<string>("OwnerId")
                         .IsRequired()
                         .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("SortCode")
+                        .HasMaxLength(8)
+                        .HasColumnType("nvarchar(8)");
 
                     b.Property<int>("Type")
                         .HasColumnType("int");
@@ -352,7 +371,7 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly?>("CoverStart")
                         .HasColumnType("date");
 
-                    b.Property<Guid?>("FundingAccountId")
+                    b.Property<Guid>("FundingAccountId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<bool>("IsArchived")
@@ -365,13 +384,6 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)");
-
-                    b.Property<DateOnly?>("OpeningAsOf")
-                        .HasColumnType("date");
-
-                    b.Property<decimal>("OpeningBalance")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18,4)");
 
                     b.Property<string>("OwnerId")
                         .IsRequired()
@@ -390,9 +402,79 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("FundingAccountId");
+
                     b.HasIndex("OwnerId");
 
                     b.ToTable("Jars", (string)null);
+                });
+
+            modelBuilder.Entity("AllotJar.Domain.Entities.JarAllocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(280)
+                        .HasColumnType("nvarchar(280)");
+
+                    b.Property<string>("OwnerId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<Guid?>("TransactionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId");
+
+                    b.HasIndex("TransactionId", "AccountId")
+                        .IsUnique()
+                        .HasFilter("[TransactionId] IS NOT NULL");
+
+                    b.HasIndex("OwnerId", "AccountId", "Date");
+
+                    b.ToTable("JarAllocations", (string)null);
+                });
+
+            modelBuilder.Entity("AllotJar.Domain.Entities.JarAllocationPosting", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<Guid>("JarAllocationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("JarId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JarAllocationId");
+
+                    b.HasIndex("JarId");
+
+                    b.ToTable("JarAllocationPostings", (string)null);
                 });
 
             modelBuilder.Entity("AllotJar.Domain.Entities.RefreshToken", b =>
@@ -464,6 +546,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly>("Date")
                         .HasColumnType("date");
 
+                    b.Property<DateOnly?>("DepartedOn")
+                        .HasColumnType("date");
+
                     b.Property<decimal>("ExchangeRate")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(18, 6)
@@ -490,6 +575,13 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("ReceiptBankReference")
+                        .HasMaxLength(140)
+                        .HasColumnType("nvarchar(140)");
+
+                    b.Property<DateOnly?>("ReceivedOn")
+                        .HasColumnType("date");
+
                     b.Property<Guid?>("TransferAccountId")
                         .HasColumnType("uniqueidentifier");
 
@@ -515,7 +607,14 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("[BankReference] IS NOT NULL");
 
-                    b.ToTable("Transactions", (string)null);
+                    b.HasIndex("OwnerId", "TransferAccountId", "ReceiptBankReference")
+                        .IsUnique()
+                        .HasFilter("[ReceiptBankReference] IS NOT NULL");
+
+                    b.ToTable("Transactions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Transactions_TransferLegs", "[Type] <> 2 OR [DepartedOn] IS NOT NULL OR [ReceivedOn] IS NOT NULL");
+                        });
                 });
 
             modelBuilder.Entity("AllotJar.Domain.Entities.TransactionSplit", b =>
@@ -813,12 +912,61 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasForeignKey("MemberId")
                         .OnDelete(DeleteBehavior.SetNull);
 
-                    b.HasOne("AllotJar.Domain.Entities.Jar", null)
+                    b.HasOne("AllotJar.Domain.Entities.Jar", "Jar")
                         .WithMany()
                         .HasForeignKey("SavingsId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("BudgetCategory");
+
+                    b.Navigation("Jar");
+                });
+
+            modelBuilder.Entity("AllotJar.Domain.Entities.Jar", b =>
+                {
+                    b.HasOne("AllotJar.Domain.Entities.Account", "FundingAccount")
+                        .WithMany()
+                        .HasForeignKey("FundingAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("FundingAccount");
+                });
+
+            modelBuilder.Entity("AllotJar.Domain.Entities.JarAllocation", b =>
+                {
+                    b.HasOne("AllotJar.Domain.Entities.Account", "Account")
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AllotJar.Domain.Entities.Transaction", "Transaction")
+                        .WithMany()
+                        .HasForeignKey("TransactionId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Account");
+
+                    b.Navigation("Transaction");
+                });
+
+            modelBuilder.Entity("AllotJar.Domain.Entities.JarAllocationPosting", b =>
+                {
+                    b.HasOne("AllotJar.Domain.Entities.JarAllocation", "JarAllocation")
+                        .WithMany("Postings")
+                        .HasForeignKey("JarAllocationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AllotJar.Domain.Entities.Jar", "Jar")
+                        .WithMany()
+                        .HasForeignKey("JarId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Jar");
+
+                    b.Navigation("JarAllocation");
                 });
 
             modelBuilder.Entity("AllotJar.Domain.Entities.Transaction", b =>
@@ -951,6 +1099,11 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("AllotJar.Domain.Entities.BudgetMonth", b =>
                 {
                     b.Navigation("Categories");
+                });
+
+            modelBuilder.Entity("AllotJar.Domain.Entities.JarAllocation", b =>
+                {
+                    b.Navigation("Postings");
                 });
 
             modelBuilder.Entity("AllotJar.Domain.Entities.Transaction", b =>

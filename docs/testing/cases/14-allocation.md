@@ -62,14 +62,14 @@
 - **Expected:** Each failing call is swallowed (`.catch` → `{ data: null }` / `{ data: [] }`), so `profile` is null and `accounts` is `[]`; the page falls through to the **"No allocation set up yet"** empty state instead of an error boundary. `/budget/current` failing leaves `period` at the browser-clock year/month. No unhandled rejection.
 - **Automated:** Partial (AllocationPage.test.tsx — "tolerates failed profile/accounts fetches")
 
-### ALLOC-007 - Viewed month tracks GET /budget/current, falls back to browser clock
+### ALLOC-007 - Viewed month is the app-wide selected month (rule 29)
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Shared household; `/budget/current` returns `{ year: 2026, month: 7 }`.
+- **Preconditions:** Shared household; the TopBar month is July 2026.
 - **Steps:**
-  1. Open `/allocation`; read the card heading and the Allocate button.
-- **Expected:** `period` = 2026/7, so the card reads **"How July is allocated"** and the commit button reads **"Allocate July"**; preview/commit target `/allocation/preview/2026/7` and `/allocation/commit/2026/7`. If `/budget/current` returns no month, `period` stays at today's `getFullYear()/getMonth()+1`.
-- **Automated:** No
+  1. Open `/allocation`; read the card heading and the Allocate button. 2. Move the TopBar month to June.
+- **Expected:** The page uses `useMonth()`: the card reads **"How July is allocated"**, the commit button **"Allocate July"**, preview/commit target `/allocation/preview/2026/7` and `/allocation/commit/2026/7`; after step 2 everything re-reads for 2026/6. `/budget/current` no longer sets the period.
+- **Automated:** Full (client ALLOC-007)
 
 ---
 
@@ -674,8 +674,8 @@
 - **Steps:**
   1. Open `/allocation`; read the amber banner between the card header and the waterfall.
   2. Click "Add pocket money to {month}'s budget".
-- **Expected:** With `remainingToBudget < U` the copy is the honest disagreement: "Your budget and your allocation disagree. The budget leaves only €R unassigned, but the allocation also promises €P in pocket money[ and €S to personal savings]. That's €(U−R) more than your income covers — trim budget lines, or lower pocket money in Settings." (with `remainingToBudget ≥ U`: "€U of your income is already promised by the allocation … the budget will keep showing it as 'still to assign'."). The CTA (Admin+ only, pocket > 0 only) POSTs `/allocation/pocket-lines/{y}/{m}` — the server creates/adopts a **"Pocket Money"** Expense category flagged `ExcludeFromAllocation` with one line per active member at the rule amount (idempotent; archived members skipped; unmatched lines left alone; pocket 0 zeroes lines) — then the budget and preview refresh, the banner clears once the flagged lines cover the promise, and a `role="status"` confirms "Pocket money added to {month}'s budget."
-- **Automated:** Full (backend `SyncPocketMoneyLinesTests` + `AllocationTests` end-to-end scenario; client ALLOC-068)
+- **Expected:** With `remainingToBudget < U` the copy is the honest disagreement: "Your budget and your allocation disagree. The budget leaves only €R unassigned, but the allocation also promises €P in pocket money[ and €S to personal savings]. That's €(U−R) more than your income covers — trim budget lines, or lower pocket money in Settings." (with `remainingToBudget ≥ U`: "€U of your income is already promised by the allocation … the budget will keep showing it as 'still to assign'."). The CTA (Admin+ only, pocket > 0 only) POSTs `/allocation/pocket-lines/{y}/{m}` — the server creates/adopts a **"Pocket Money"** Expense category flagged `ExcludeFromAllocation` with one line per active member at the rule amount, each line **linked to its member by id** (`BudgetItem.MemberId`, rule 53); an existing line with no link whose name is the member's is adopted and linked instead of duplicated (idempotent; archived members skipped and their linked lines left alone; unmatched lines left alone; pocket 0 zeroes lines) — then the budget and preview refresh, the banner clears once the flagged lines cover the promise, and a `role="status"` confirms "Pocket money added to {month}'s budget."
+- **Automated:** Full (backend `SyncPocketMoneyLinesTests` + `AllocationTests` end-to-end scenario, `PocketMoneyIdentityTests.Sync_LinksEachLineToItsPerson_AndARenameReusesTheLine`, `Sync_AdoptsALegacyLineByName_AndLinksIt`, `Sync_LeavesAnArchivedPersonsLinkedLineAlone`; client ALLOC-068)
 
 ### ALLOC-069 - The counted-twice banner: an unflagged "Pocket Money" category plus the rule
 - **Priority:** P1
@@ -701,23 +701,35 @@
 - **Preconditions:** The month's budgeted income lines total > 0 and ≠ the members' combined `NetMonthlyIncome`.
 - **Steps:**
   1. Open `/allocation` and read below the waterfall.
-- **Expected:** A muted note: "the pooled income here (€pool) comes from each person's income on the People page and doesn't match {month}'s budgeted income lines (€income)." — naming the two sources instead of letting the figures silently disagree (the full unification is the income-attribution workstream). Suppressed when the budget plans no income at all (empty month).
+- **Expected:** Since rule 28 the pool IS the month's budgeted income, so the two never disagree and no note is needed; the case is kept to assert that the pool equals the budget's income total on any month (attributed + unattributed). When the month has no income lines the page shows the no-income notice (ALLOC-073).
 - **Automated:** Full (client ALLOC-071)
 
 ### ALLOC-072 - Unattributed budget income: shared equally with an assign-it banner
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** The month's budget attributes at least one income line to a person AND has income lines with no person (or attributed to an archived member).
+- **Preconditions:** The month's budget has income lines with no person (or attributed to an archived member), whether or not any line is attributed.
 - **Steps:**
   1. Open `/allocation`; read above the committed banner.
 - **Expected:** The unattributed planned total is shared equally across active members (last member absorbs the rounding remainder, the `Split` convention; sum-preserving) and an amber banner names it: "€X of {month}'s income isn't assigned to a person, so it's treated as shared equally." with an "Assign income lines on the Budget page" link. Commit is never blocked. `AllocationResultDto` carries `unattributedIncome`/`incomeFromBudget` on preview AND commit.
 - **Automated:** Full (backend `AllocationIncomeFromBudgetTests`; client ALLOC-072)
 
-### ALLOC-073 - Income-source precedence: attributed lines > static People-page defaults
+### ALLOC-073 - The pool is the month's budgeted income and nothing else (rule 28)
 - **Priority:** P0
 - **Type:** Regression
-- **Preconditions:** Case A: a month whose income lines are attributed to people. Case B: a month with income lines but none attributed.
+- **Preconditions:** Case A: a month whose income lines are attributed to people. Case B: a month with income lines but none attributed. Case C: a month with no income lines (or no budget). Saved defaults 9,999 / 8,888 in every case.
 - **Steps:**
-  1. Open `/allocation` on each month and compare the pool with the budget/People figures.
-- **Expected:** Case A: the pool = the month's PLANNED attributed income (+ equally-shared unattributed) — the budget is the single source of truth; each member's `netIncome` in the preview is their attributed sum. Case B: exact pre-attribution behavior — pool = Σ static `NetMonthlyIncome`, flagged by the muted note "This split uses the default incomes from the People page — {month}'s budget has no income assigned to people yet." Lines attributed to an archived member fold into the unattributed pot. PLANNED (not received) by design: the engine plans; a mid-month run must not see half a salary.
-- **Automated:** Full (backend `AllocationIncomeFromBudgetTests` incl. fallback + archived-fold; client ALLOC-073)
+  1. Open `/allocation` on each month and compare the pool with the budget figures.
+- **Expected:** Case A: pool = the month's PLANNED attributed income plus the equally shared unattributed lines; each member's `netIncome` is their attributed sum plus their equal share. Case B: pool = the unattributed total shared equally (a 4,000 line → 2,000 each), `incomeFromBudget` true, `unattributedIncome` 4,000. Case C: pool 0 and the notice "No income in {Month Year}'s budget yet. Add income lines to the Budget (attribute them to people for a by-income split) and come back."; the defaults are never used. Lines attributed to an archived member fold into the unattributed pot. Linking a savings account from this page never rewrites a person's default income. PLANNED (not received) by design: the engine plans; a mid-month run must not see half a salary.
+- **Automated:** Full (backend `AllocationIncomeFromBudgetTests` incl. `NoAttributedLines_ShareTheUnattributedIncomeEqually_AndIgnoreTheSavedDefaults`, `NoBudget_YieldsAnEmptyPool_NotTheDefaults`; client ALLOC-073)
+
+### ALLOC-075 - A renamed person keeps one pocket-money line: the sync reuses it, the rename follows it (rule 53)
+- **Priority:** P0
+- **Type:** Regression
+- **Origin:** W11, rule 53 — "syncing after a rename must reuse the existing linked line rather than leaving the original amount and adding a duplicate"
+- **Preconditions:** Shared household with pocket money 100.00 per member; the current and next months hold synced **Pocket Money** lines "Alex" and "Sam" (linked). Sam also has a line the user renamed to "Sam — treats" in an earlier month.
+- **Steps:**
+  1. On `/people`, rename Sam to "Samantha".
+  2. Open the current and next months' budgets; then click "Add pocket money to {month}'s budget" on `/allocation` for the current month.
+  3. Set pocket money to 120.00 and sync again.
+- **Expected:** Step 1: the linked lines named "Sam" now read **"Samantha"** in every month (100.00 each, category and month totals unchanged); the customised "Sam — treats" line keeps its name. Step 2: the sync finds Samantha's line by its link — the category still has exactly two lines, no "Samantha" duplicate next to a stale "Sam"; the response reports nothing created. Step 3: the same two lines move to 120.00. A pre-W11 month whose "Sam" line has no link: the first sync after the rename finds no linked line and no unlinked "Samantha" line, so it adds one — the only case a rename can leave two lines, and it needs a month never synced since the change.
+- **Automated:** Full (backend `PocketMoneyIdentityTests.Sync_LinksEachLineToItsPerson_AndARenameReusesTheLine`, `Rename_FollowsEveryMonthsLinkedLine_ButKeepsACustomisedName`, `Sync_AdoptsALegacyLineByName_AndLinksIt`)

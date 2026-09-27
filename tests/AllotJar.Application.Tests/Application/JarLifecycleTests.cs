@@ -6,6 +6,7 @@ using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Jars.Commands.UpdateJar;
 using AllotJar.Application.Jars.Dtos;
+using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.Services;
@@ -30,11 +31,11 @@ public class JarLifecycleTests
             .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
             .Options);
 
-    private static Jar Recurring(DateOnly? due, int? recurMonths = 12, decimal target = 600m) => new()
+    private static Jar Recurring(DateOnly? due, int? recurMonths = 12, decimal target = 600m, Guid? accountId = null) => new()
     {
         OwnerId = "user-1", Name = "Insurance", Kind = JarKind.Recurring,
         TargetAmount = target, TargetDate = due, Accrual = AccrualMethod.TargetByDate,
-        RecurMonths = recurMonths,
+        RecurMonths = recurMonths, FundingAccountId = accountId ?? Guid.Empty,
     };
 
     // ---- EffectiveTargetDate -------------------------------------------------
@@ -139,14 +140,15 @@ public class JarLifecycleTests
     public async Task Create_StoresCycle_ForRecurring_AndNullsIt_ForGoal()
     {
         await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
         var handler = new CreateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         var recurring = await handler.Handle(new CreateJarCommand(
             "Road Tax", JarKind.Recurring, 150m, new DateOnly(2026, 10, 1), null, null,
-            AccrualMethod.TargetByDate, 0m, null, null, RecurMonths: 6), CancellationToken.None);
+            AccrualMethod.TargetByDate, account.Id, RecurMonths: 6), CancellationToken.None);
         var goal = await handler.Handle(new CreateJarCommand(
             "Sofa", JarKind.Goal, 1200m, null, null, null,
-            AccrualMethod.TargetByDate, 0m, null, null, RecurMonths: 6), CancellationToken.None);
+            AccrualMethod.TargetByDate, account.Id, RecurMonths: 6), CancellationToken.None);
 
         recurring.RecurMonths.Should().Be(6);
         goal.RecurMonths.Should().BeNull(); // forced null for Goals, whatever was sent
@@ -156,14 +158,15 @@ public class JarLifecycleTests
     public async Task Update_SwitchingToGoal_ClearsTheCycle()
     {
         await using var db = NewContext();
-        var jar = Recurring(new DateOnly(2026, 10, 1));
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
+        var jar = Recurring(new DateOnly(2026, 10, 1), accountId: account.Id);
         db.Jars.Add(jar);
         db.SaveChanges();
         var handler = new UpdateJarCommandHandler(db, new CurrentUserStub("user-1"));
 
         var dto = await handler.Handle(new UpdateJarCommand(
             jar.Id, "Insurance", JarKind.Goal, 600m, new DateOnly(2026, 10, 1), null, null,
-            AccrualMethod.TargetByDate, 0m, null, null), CancellationToken.None);
+            AccrualMethod.TargetByDate, account.Id), CancellationToken.None);
 
         dto.RecurMonths.Should().BeNull();
     }
@@ -177,7 +180,8 @@ public class JarLifecycleTests
         // Past-due yearly jar: €600 target, due last month, no contributions yet.
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var due = today.AddMonths(-1);
-        var jar = Recurring(due);
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
+        var jar = Recurring(due, accountId: account.Id);
         db.Jars.Add(jar);
         db.SaveChanges();
         var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
@@ -238,7 +242,7 @@ public class JarLifecycleTests
 
         var pool = validator.Validate(new UpdateJarCommand(
             Guid.NewGuid(), "Living Costs", JarKind.Recurring, 0m, null, null, null,
-            AccrualMethod.ProportionalPool, 0m, null, null));
+            AccrualMethod.ProportionalPool, Guid.NewGuid()));
 
         pool.IsValid.Should().BeTrue();
     }
@@ -250,7 +254,7 @@ public class JarLifecycleTests
 
         validator.Validate(new CreateJarCommand(
                 "X", JarKind.Recurring, 100m, new DateOnly(2026, 10, 1), null, null,
-                AccrualMethod.TargetByDate, 0m, null, null, RecurMonths: 0))
+                AccrualMethod.TargetByDate, Guid.NewGuid(), RecurMonths: 0))
             .Errors.Should().Contain(e => e.ErrorMessage == "Repeat cycle must be between 1 and 120 months.");
     }
 }

@@ -12,14 +12,26 @@ import { useAuth } from '../auth/AuthContext'
 import axios from 'axios'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
-import type { AccountDto, BudgetMonthDto, HouseholdMemberDto, TransactionDto } from '../types'
+import type {
+  AccountDto,
+  BudgetMonthDto,
+  ConfirmTransferLegsRequest,
+  CreateTransferRequest,
+  HouseholdMemberDto,
+  TransactionDto,
+} from '../types'
 import { TransactionType } from '../types'
-import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount, toEditString } from '../lib/money'
+import { formatMoney, formatPlain, fromAmount, parseMinor, sumMinor, toAmount, toEditString } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
-import { monthYear, shortDate } from '../lib/dates'
+import { formatDate, monthYear, shortDate } from '../lib/dates'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
-import { buildItemOptions, transactionTypeLabel } from '../lib/transactions'
+import { buildItemOptions, jarLinesOf, transactionTypeLabel } from '../lib/transactions'
 import { SplitLinesEditor, SplitRemainderChip, type SplitRowDraft } from '../components/SplitLinesEditor'
+import { JarAllocationFields } from '../components/jars/JarAllocationFields'
+import { PAID_FROM_UNALLOCATED, PaidFromJarSelect } from '../components/jars/PaidFromJarSelect'
+import { activeJars, incomingAllocationsOf, paidFromJarOf, useJarLedgers } from '../lib/jarLedgers'
+import { fromJarAllocations, toJarAllocations } from '../lib/jarAllocationFields'
+import { serverErrors } from '../lib/serverErrors'
 
 function today(): string {
   return new Date().toISOString().slice(0, 10)
@@ -59,6 +71,25 @@ function crossMonthError(err: unknown): string | undefined {
   return messages[0] ?? 'This transaction is dated in a different month than that budget line.'
 }
 
+/**
+ * The register's compact description of a stored jar split (rules 78/79): "→ Holiday 300.00,
+ * Car 200.00" for money put into jars, "from Holiday" for money drawn from one jar (with the
+ * amounts when it came from several). Empty when the leg follows the default.
+ */
+function jarSplitLabels(t: TransactionDto): string[] {
+  const postings = (t.jarAllocations ?? []).filter((a) => a.jarId)
+  const name = (a: { jarName: string | null }) => a.jarName ?? 'a jar'
+  const withAmount = (a: { jarName: string | null; amount: number }) =>
+    `${name(a)} ${formatPlain(fromAmount(Math.abs(a.amount)))}`
+  const out = postings.filter((a) => a.amount < 0)
+  const into = postings.filter((a) => a.amount > 0)
+  const labels: string[] = []
+  if (out.length === 1) labels.push(`from ${name(out[0])}`)
+  else if (out.length > 1) labels.push(`from ${out.map(withAmount).join(', ')}`)
+  if (into.length > 0) labels.push(`→ ${into.map(withAmount).join(', ')}`)
+  return labels
+}
+
 export function TransactionsPage() {
   const features = useFeatures()
   // Recording/editing transactions is day-to-day entry (Limited+); importing needs Admin+.
@@ -94,13 +125,22 @@ export function TransactionsPage() {
   const [addSplit, setAddSplit] = useState(false)
   const [addRows, setAddRows] = useState<SplitRowDraft[]>(blankSplitRows)
 
-  // Transfer form state (move money between two of the user's own accounts).
+  // Transfer form state (a completed bank transfer between two of the user's own accounts).
+  // tDate is the departure the user confirms; tReceived is optional — left blank, the money is
+  // shown in transit until the receipt is confirmed on the register (rule 71).
   const [tDate, setTDate] = useState(today)
+  const [tReceived, setTReceived] = useState('')
+  const [tConfirmed, setTConfirmed] = useState(false)
   const [tAmount, setTAmount] = useState('')
   const [tFrom, setTFrom] = useState('')
   const [tTo, setTTo] = useState('')
   const [tPayee, setTPayee] = useState('')
   const [transferring, setTransferring] = useState(false)
+
+  // Inline leg confirmation on a transfer row: the receipt date for an in-transit transfer, or
+  // the departure date for a receipt held for review.
+  const [legId, setLegId] = useState<string | null>(null)
+  const [legDate, setLegDate] = useState(today)
 
   // Register filter — All or just Unassigned (the design's toolbar segmented control).
   const [filter, setFilter] = useState<'all' | 'unassigned'>('all')
@@ -120,6 +160,86 @@ export function TransactionsPage() {
   // Split editor state.
   const [splittingId, setSplittingId] = useState<string | null>(null)
   const [splitRows, setSplitRows] = useState<{ budgetItemId: string; amount: string; memberId: string }[]>([])
+
+  // The jar prompts (rules 78/79): which accounts back jars, and each surface's answer. Every
+  // answer defaults to "unallocated" (empty fields / no jar) and is reset when its account,
+  // direction or line changes, so a stale jar id never rides along with a different account.
+  const { ledgers, reload: reloadLedgers } = useJarLedgers()
+  const [addJarAlloc, setAddJarAlloc] = useState<Record<string, string>>({})
+  const [addPaidFrom, setAddPaidFrom] = useState(PAID_FROM_UNALLOCATED)
+  const [tFromJar, setTFromJar] = useState(PAID_FROM_UNALLOCATED)
+  const [tJarAlloc, setTJarAlloc] = useState<Record<string, string>>({})
+  const [eJarAlloc, setEJarAlloc] = useState<Record<string, string>>({})
+  const [ePaidFrom, setEPaidFrom] = useState(PAID_FROM_UNALLOCATED)
+  const [splitPaidFrom, setSplitPaidFrom] = useState(PAID_FROM_UNALLOCATED)
+  const [legJarAlloc, setLegJarAlloc] = useState<Record<string, string>>({})
+  const [legFromJar, setLegFromJar] = useState(PAID_FROM_UNALLOCATED)
+  // "+ Assign" of a payment from a jar-backed account to a line that is not a jar asks which
+  // jar it comes from before the assignment is saved (rule 79).
+  const [paidFromPrompt, setPaidFromPrompt] = useState<
+    { transaction: TransactionDto; budgetItemId: string; value: string } | null
+  >(null)
+
+  const ledgerOf = useCallback(
+    (accountId: string | null | undefined) => (accountId ? ledgers.find((l) => l.accountId === accountId) : undefined),
+    [ledgers],
+  )
+  const jarsOf = useCallback((accountId: string | null | undefined) => activeJars(ledgerOf(accountId)), [ledgerOf])
+  // Budget line → the jar it is the savings line of, for this month's jar lines.
+  const jarLines = useMemo(() => jarLinesOf(month), [month])
+  /**
+   * A line is a jar line for a payment when it is a jar's savings line AND that jar's money sits
+   * in the paying account (the server's rule): the payment draws from that jar, so no prompt.
+   */
+  const isJarLineFor = useCallback(
+    (budgetItemId: string | null | undefined, accountId: string | null | undefined) => {
+      const jarId = budgetItemId ? jarLines.get(budgetItemId) : undefined
+      return !!jarId && (ledgerOf(accountId)?.jars.some((j) => j.jarId === jarId) ?? false)
+    },
+    [jarLines, ledgerOf],
+  )
+  /** True when part of the payment sits on a line that is not a jar, so rule 79's prompt applies. */
+  const hasNonJarLine = useCallback(
+    (t: TransactionDto, accountId: string | null = t.accountId) =>
+      t.isSplit
+        ? t.splits.some((s) => !!s.budgetItemId && !isJarLineFor(s.budgetItemId, accountId))
+        : !!t.budgetItemId && !isJarLineFor(t.budgetItemId, accountId),
+    [isJarLineFor],
+  )
+  /** The jars named by the transaction's own lines (their portions never need the paid-from answer). */
+  const lineJarIdsOf = useCallback(
+    (t: TransactionDto) => {
+      const ids = new Set<string>()
+      for (const line of t.isSplit ? t.splits.map((s) => s.budgetItemId) : [t.budgetItemId]) {
+        const jarId = line ? jarLines.get(line) : undefined
+        if (jarId) ids.add(jarId)
+      }
+      return ids
+    },
+    [jarLines],
+  )
+  const resetAddJarPrompts = useCallback(() => {
+    setAddJarAlloc({})
+    setAddPaidFrom(PAID_FROM_UNALLOCATED)
+    setTFromJar(PAID_FROM_UNALLOCATED)
+    setTJarAlloc({})
+  }, [])
+
+  // Which of the add modal's prompts apply, from its current answers.
+  const addLedger = ledgerOf(account)
+  const addJars = activeJars(addLedger)
+  const addSplitting = addSplit && type === TransactionType.Expense
+  const addIncomeJarsApply = addJars.length > 0 && type === TransactionType.Income
+  const addPaidFromApplies =
+    addJars.length > 0 &&
+    type === TransactionType.Expense &&
+    (addSplitting
+      ? addRows.some((r) => !!r.budgetItemId && !isJarLineFor(r.budgetItemId, account))
+      : !!assignTo && !isJarLineFor(assignTo, account))
+  const tFromLedger = ledgerOf(tFrom)
+  const tFromJars = activeJars(tFromLedger)
+  const tToLedger = ledgerOf(tTo)
+  const tToJars = activeJars(tToLedger)
 
   useEffect(() => {
     let cancelled = false
@@ -145,29 +265,36 @@ export function TransactionsPage() {
   }, [])
 
   const assign = useCallback(
-    async (id: string, budgetItemId: string | null, acknowledgeCrossMonth = false) => {
+    async (id: string, budgetItemId: string | null, acknowledgeCrossMonth = false, paidFromJarId?: string | null) => {
       setSavingId(id)
       setError(null)
       try {
-        const body = acknowledgeCrossMonth ? { budgetItemId, acknowledgeCrossMonth: true } : { budgetItemId }
+        const body = {
+          budgetItemId,
+          ...(acknowledgeCrossMonth ? { acknowledgeCrossMonth: true } : {}),
+          // Rule 79: the answer to "which jar does this come from?" rides along with the line
+          // (null = unallocated); omitted when the prompt did not apply.
+          ...(paidFromJarId !== undefined ? { paidFromJarId } : {}),
+        }
         const { data } = await api.put<TransactionDto>(`/transactions/${id}/assignment`, body)
         setTransactions((prev) => prev.map((t) => (t.id === id ? data : t)))
         setCrossMonthPrompt(null)
+        reloadLedgers()
       } catch (err) {
         // A cross-month assignment isn't a failure — it's a confirmable choice (a purchase dated
         // last month that you want budgeted to this month's line). The server flags it under the
-        // `crossMonth` key; prompt, then re-send acknowledged.
+        // `crossMonth` key; prompt, then re-send acknowledged (with the same jar answer).
         const crossMonth = crossMonthError(err)
         if (crossMonth && !acknowledgeCrossMonth) {
-          setCrossMonthPrompt({ message: crossMonth, retry: () => assign(id, budgetItemId, true) })
+          setCrossMonthPrompt({ message: crossMonth, retry: () => assign(id, budgetItemId, true, paidFromJarId) })
         } else {
-          setError('Could not save that assignment.')
+          setError(serverErrors(err) ?? 'Could not save that assignment.')
         }
       } finally {
         setSavingId(null)
       }
     },
-    [],
+    [reloadLedgers],
   )
 
   // Add-modal split-row helpers (mirror updateSplitRow/addSplitRow/removeSplitRow for the register editor).
@@ -223,8 +350,16 @@ export function TransactionsPage() {
             }))
           : null,
         ...(acknowledgeCrossMonth ? { acknowledgeCrossMonth: true } : {}),
+        // Rule 78: how income reaching a jar-backed account is divided among its jars (nothing
+        // named = all unallocated). Rule 79: which jar a payment on a non-jar line comes from
+        // (null = unallocated). Neither key is sent when its prompt did not apply.
+        ...(addIncomeJarsApply && toJarAllocations(addJarAlloc).length > 0
+          ? { jarAllocations: toJarAllocations(addJarAlloc) }
+          : {}),
+        ...(addPaidFromApplies ? { paidFromJarId: addPaidFrom || null } : {}),
       })
       setTransactions((prev) => [data, ...prev])
+      reloadLedgers()
       track(EVENTS.transactionAdded, {
         line_type: type === TransactionType.Income ? 'income' : 'expense',
         ...(splitting ? { split: true } : {}),
@@ -235,6 +370,7 @@ export function TransactionsPage() {
       // silently inherits the previous line and the server-side auto-categorizer never runs.
       setAssignTo('')
       resetAddSplit()
+      resetAddJarPrompts()
       setShowAdd(false)
       setCrossMonthPrompt(null)
     } catch (err) {
@@ -243,12 +379,16 @@ export function TransactionsPage() {
       if (crossMonth && !acknowledgeCrossMonth) {
         setCrossMonthPrompt({ message: crossMonth, retry: () => addTransaction(true) })
       } else {
-        setError('Could not add that transaction.')
+        // Rule 74 refusals ("Savings would be -50.00 EUR on …") and jar validation show verbatim.
+        setError(serverErrors(err) ?? 'Could not add that transaction.')
       }
     } finally {
       setAdding(false)
     }
-  }, [date, payee, amount, type, assignTo, account, member, addSplit, addRows, resetAddSplit])
+  }, [
+    date, payee, amount, type, assignTo, account, member, addSplit, addRows, resetAddSplit,
+    addIncomeJarsApply, addJarAlloc, addPaidFromApplies, addPaidFrom, resetAddJarPrompts, reloadLedgers,
+  ])
 
   const addTransfer = useCallback(async () => {
     const minor = parseMinor(tAmount)
@@ -264,27 +404,79 @@ export function TransactionsPage() {
       setError('A transfer needs two different accounts.')
       return
     }
+    if (tReceived && tReceived < tDate) {
+      setError('The receipt date can’t be before the departure date.')
+      return
+    }
+    if (!tConfirmed) {
+      setError('Confirm that you’ve completed this transfer before recording it.')
+      return
+    }
     setTransferring(true)
     setError(null)
     try {
-      const { data } = await api.post<TransactionDto>('/transactions/transfer', {
-        date: tDate,
+      const body: CreateTransferRequest = {
+        departedOn: tDate,
+        receivedOn: tReceived || null,
         amount: toAmount(minor),
         fromAccountId: tFrom,
         toAccountId: tTo,
         payee: tPayee || null,
-      })
+      }
+      // Rule 80: a transfer out of a jar-backed account may say which jar it leaves (null =
+      // unallocated); rule 78: a receipt already dated into one says how it is divided.
+      if (tFromJars.length > 0) body.fromJarId = tFromJar || null
+      if (tToJars.length > 0 && tReceived) {
+        const rows = toJarAllocations(tJarAlloc)
+        if (rows.length > 0) body.jarAllocations = rows
+      }
+      const { data } = await api.post<TransactionDto>('/transactions/transfer', body)
       setTransactions((prev) => [data, ...prev])
+      reloadLedgers()
       track(EVENTS.transferCreated)
       setTAmount('')
       setTPayee('')
+      setTReceived('')
+      setTConfirmed(false)
+      resetAddJarPrompts()
       setShowAdd(false)
-    } catch {
-      setError('Could not record that transfer.')
+    } catch (err) {
+      setError(serverErrors(err) ?? 'Could not record that transfer.')
     } finally {
       setTransferring(false)
     }
-  }, [tDate, tAmount, tFrom, tTo, tPayee])
+  }, [tDate, tReceived, tConfirmed, tAmount, tFrom, tTo, tPayee, tFromJars, tFromJar, tToJars, tJarAlloc, resetAddJarPrompts, reloadLedgers])
+
+  /** Confirm the bank leg a transfer is still missing (never rewrites a confirmed one). */
+  const confirmLeg = useCallback(
+    async (t: TransactionDto) => {
+      if (!legDate) return
+      const body: ConfirmTransferLegsRequest = {}
+      if (t.transferStatus === 'PendingReview') {
+        body.departedOn = legDate
+        // Rule 80: the departure from a jar-backed account may name the jar it left.
+        if (jarsOf(t.accountId).length > 0) body.fromJarId = legFromJar || null
+      } else {
+        body.receivedOn = legDate
+        // Rule 78: the receipt into a jar-backed account says how it is divided among its jars.
+        const rows = jarsOf(t.transferAccountId).length > 0 ? toJarAllocations(legJarAlloc) : []
+        if (rows.length > 0) body.jarAllocations = rows
+      }
+      setSavingId(t.id)
+      setError(null)
+      try {
+        const { data } = await api.put<TransactionDto>(`/transactions/${t.id}/transfer-legs`, body)
+        setTransactions((prev) => prev.map((x) => (x.id === t.id ? data : x)))
+        setLegId(null)
+        reloadLedgers()
+      } catch (err) {
+        setError(serverErrors(err) ?? 'Could not confirm that transfer.')
+      } finally {
+        setSavingId(null)
+      }
+    },
+    [legDate, legFromJar, legJarAlloc, jarsOf, reloadLedgers],
+  )
 
   const removeTransaction = useCallback(async (id: string) => {
     setSavingId(id)
@@ -292,13 +484,14 @@ export function TransactionsPage() {
     try {
       await api.delete(`/transactions/${id}`)
       setTransactions((prev) => prev.filter((t) => t.id !== id))
+      reloadLedgers()
       track(EVENTS.transactionDeleted)
-    } catch {
-      setError('Could not delete that transaction.')
+    } catch (err) {
+      setError(serverErrors(err) ?? 'Could not delete that transaction.')
     } finally {
       setSavingId(null)
     }
-  }, [])
+  }, [reloadLedgers])
 
   function startEdit(t: TransactionDto) {
     setSplittingId(null)
@@ -309,15 +502,21 @@ export function TransactionsPage() {
     setEType(t.type)
     setEAccount(t.accountId ?? '')
     setEMember(t.memberId ?? '')
+    // The edit re-answers the jar prompts, so pre-fill them from the stored split (an omitted
+    // answer would reset the leg to its default on save).
+    setEJarAlloc(fromJarAllocations(incomingAllocationsOf(t.jarAllocations, t.accountId)))
+    setEPaidFrom(paidFromJarOf(t.jarAllocations, t.accountId, lineJarIdsOf(t)) ?? PAID_FROM_UNALLOCATED)
   }
 
   const saveEdit = useCallback(
-    async (id: string, acknowledgeCrossMonth = false) => {
+    async (t: TransactionDto, acknowledgeCrossMonth = false) => {
       const minor = parseMinor(eAmount)
       if (minor === null || minor <= 0) {
         setError('Enter a valid amount greater than zero.')
         return
       }
+      const id = t.id
+      const backsJars = jarsOf(eAccount).length > 0
       setSavingId(id)
       setError(null)
       try {
@@ -329,8 +528,15 @@ export function TransactionsPage() {
           accountId: eAccount || null,
           memberId: eMember || null,
           ...(acknowledgeCrossMonth ? { acknowledgeCrossMonth: true } : {}),
+          // An edit re-answers the jar prompts: the current answer is always sent when the
+          // account backs jars, because omitting it would reset the leg to its default.
+          ...(backsJars && eType === TransactionType.Income ? { jarAllocations: toJarAllocations(eJarAlloc) } : {}),
+          ...(backsJars && eType === TransactionType.Expense
+            ? { paidFromJarId: hasNonJarLine(t, eAccount || null) ? ePaidFrom || null : null }
+            : {}),
         })
-        setTransactions((prev) => prev.map((t) => (t.id === id ? data : t)))
+        setTransactions((prev) => prev.map((x) => (x.id === id ? data : x)))
+        reloadLedgers()
         track(EVENTS.transactionEdited)
         setEditingId(null)
         setCrossMonthPrompt(null)
@@ -339,20 +545,21 @@ export function TransactionsPage() {
         // original month's line — a confirmable choice, not a failure.
         const crossMonth = crossMonthError(err)
         if (crossMonth && !acknowledgeCrossMonth) {
-          setCrossMonthPrompt({ message: crossMonth, retry: () => saveEdit(id, true) })
+          setCrossMonthPrompt({ message: crossMonth, retry: () => saveEdit(t, true) })
         } else {
-          setError('Could not save that change.')
+          setError(serverErrors(err) ?? 'Could not save that change.')
         }
       } finally {
         setSavingId(null)
       }
     },
-    [eDate, ePayee, eAmount, eType, eAccount, eMember],
+    [eDate, ePayee, eAmount, eType, eAccount, eMember, eJarAlloc, ePaidFrom, jarsOf, hasNonJarLine, reloadLedgers],
   )
 
   function startSplit(t: TransactionDto) {
     setEditingId(null)
     setSplittingId(t.id)
+    setSplitPaidFrom(paidFromJarOf(t.jarAllocations, t.accountId, lineJarIdsOf(t)) ?? PAID_FROM_UNALLOCATED)
     if (t.isSplit && t.splits.length > 0) {
       setSplitRows(
         t.splits.map((s) => ({
@@ -413,6 +620,11 @@ export function TransactionsPage() {
         setError('The split lines must add up to the transaction total.')
         return
       }
+      // Rule 79: the slices on lines that are not jars draw from the named jar (null = unallocated).
+      const paidFromApplies =
+        t.type === TransactionType.Expense &&
+        jarsOf(t.accountId).length > 0 &&
+        parsed.some((a) => !isJarLineFor(a.budgetItemId, t.accountId))
       setSavingId(t.id)
       setError(null)
       try {
@@ -423,10 +635,12 @@ export function TransactionsPage() {
             memberId: a.memberId || null,
           })),
           ...(acknowledgeCrossMonth ? { acknowledgeCrossMonth: true } : {}),
+          ...(paidFromApplies ? { paidFromJarId: splitPaidFrom || null } : {}),
         })
         setTransactions((prev) => prev.map((x) => (x.id === t.id ? data : x)))
         cancelSplit()
         setCrossMonthPrompt(null)
+        reloadLedgers()
       } catch (err) {
         // Splitting an older transaction across this month's lines is the same confirmable
         // cross-month choice as a whole assignment.
@@ -434,13 +648,13 @@ export function TransactionsPage() {
         if (crossMonth && !acknowledgeCrossMonth) {
           setCrossMonthPrompt({ message: crossMonth, retry: () => saveSplit(t, true) })
         } else {
-          setError('Could not save that split.')
+          setError(serverErrors(err) ?? 'Could not save that split.')
         }
       } finally {
         setSavingId(null)
       }
     },
-    [splitRows],
+    [splitRows, splitPaidFrom, jarsOf, isJarLineFor, reloadLedgers],
   )
 
   const optionGroups = buildItemOptions(month)
@@ -448,6 +662,13 @@ export function TransactionsPage() {
   const expenseSplitOptions = buildItemOptions(month, TransactionType.Expense)
   const addRemainderMinor = (parseMinor(amount) ?? 0) - sumMinor(addRows.map((r) => parseMinor(r.amount) ?? 0))
   const addCurrency = month?.baseCurrency ?? 'EUR'
+  // The prompts' "stays unallocated" line needs the arriving amount in major units (null while unparsable).
+  const addMinor = parseMinor(amount)
+  const addAmountMajor = addMinor === null ? null : toAmount(addMinor)
+  const tMinor = parseMinor(tAmount)
+  const tAmountMajor = tMinor === null ? null : toAmount(tMinor)
+  const eMinor = parseMinor(eAmount)
+  const eAmountMajor = eMinor === null ? null : toAmount(eMinor)
 
   // Map each budget line to its category's hue, so an assigned transaction's pill
   // carries the same colour dot as its group on the Budget screen. Income lines
@@ -569,6 +790,9 @@ export function TransactionsPage() {
                     setType(next)
                     // Splits are an expense-only affordance in the add modal.
                     if (next === TransactionType.Income) resetAddSplit()
+                    // The jar prompts belong to one direction each.
+                    setAddJarAlloc({})
+                    setAddPaidFrom(PAID_FROM_UNALLOCATED)
                   }}
                   className="w-full"
                 >
@@ -621,7 +845,12 @@ export function TransactionsPage() {
                   <Select
                     value={account}
                     aria-label="Transaction account"
-                    onChange={(e) => setAccount(e.target.value)}
+                    onChange={(e) => {
+                      setAccount(e.target.value)
+                      // Another account has other jars — never carry a jar answer across.
+                      setAddJarAlloc({})
+                      setAddPaidFrom(PAID_FROM_UNALLOCATED)
+                    }}
                     className="w-full"
                   >
                     <option value="">No account</option>
@@ -634,6 +863,18 @@ export function TransactionsPage() {
                 </label>
               )}
             </div>
+            {/* Rule 78: income reaching a jar-backed account asks how much goes to each jar. */}
+            {addIncomeJarsApply && addLedger && (
+              <JarAllocationFields
+                jars={addJars}
+                accountName={addLedger.accountName}
+                currency={addLedger.currency}
+                amount={addAmountMajor}
+                value={addJarAlloc}
+                onChange={setAddJarAlloc}
+                idPrefix="add"
+              />
+            )}
             {/* Category — hidden for income, per the design. NOT a <label>: the split toggle
                 button must not become the label's control (the InfoHint lesson). */}
             {type === TransactionType.Expense && (
@@ -643,7 +884,11 @@ export function TransactionsPage() {
                   {expenseSplitOptions.length > 0 && (
                     <button
                       type="button"
-                      onClick={() => (addSplit ? resetAddSplit() : setAddSplit(true))}
+                      onClick={() => {
+                        if (addSplit) resetAddSplit()
+                        else setAddSplit(true)
+                        setAddPaidFrom(PAID_FROM_UNALLOCATED)
+                      }}
                       aria-pressed={addSplit}
                       className="rounded px-1 text-xs font-semibold text-violet-600 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-500/10"
                     >
@@ -680,7 +925,10 @@ export function TransactionsPage() {
                   <Select
                     value={assignTo}
                     aria-label="Assign transaction to"
-                    onChange={(e) => setAssignTo(e.target.value)}
+                    onChange={(e) => {
+                      setAssignTo(e.target.value)
+                      setAddPaidFrom(PAID_FROM_UNALLOCATED)
+                    }}
                     className="w-full"
                   >
                     <option value="">Unassigned</option>
@@ -694,6 +942,18 @@ export function TransactionsPage() {
                       </optgroup>
                     ))}
                   </Select>
+                )}
+                {/* Rule 79: a payment from a jar-backed account on a line that is not a jar asks
+                    which jar it comes from. A jar line draws from its jar; no line, from unallocated. */}
+                {addPaidFromApplies && addLedger && (
+                  <PaidFromJarSelect
+                    id="add-paid-from"
+                    jars={addJars}
+                    accountName={addLedger.accountName}
+                    currency={addLedger.currency}
+                    value={addPaidFrom}
+                    onChange={setAddPaidFrom}
+                  />
                 )}
               </div>
             )}
@@ -738,7 +998,7 @@ export function TransactionsPage() {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Date
+                Left the source account on
                 <Input
                   type="date"
                   value={tDate}
@@ -770,7 +1030,10 @@ export function TransactionsPage() {
                 <Select
                   value={tFrom}
                   aria-label="Transfer from account"
-                  onChange={(e) => setTFrom(e.target.value)}
+                  onChange={(e) => {
+                    setTFrom(e.target.value)
+                    setTFromJar(PAID_FROM_UNALLOCATED)
+                  }}
                   className="w-full"
                 >
                   <option value="">Choose…</option>
@@ -786,7 +1049,10 @@ export function TransactionsPage() {
                 <Select
                   value={tTo}
                   aria-label="Transfer to account"
-                  onChange={(e) => setTTo(e.target.value)}
+                  onChange={(e) => {
+                    setTTo(e.target.value)
+                    setTJarAlloc({})
+                  }}
                   className="w-full"
                 >
                   <option value="">Choose…</option>
@@ -798,6 +1064,18 @@ export function TransactionsPage() {
                 </Select>
               </label>
             </div>
+            {/* Rule 80: money leaving a jar-backed account may say which jar it comes from. */}
+            {tFromLedger && tFromJars.length > 0 && (
+              <PaidFromJarSelect
+                id="transfer-from-jar"
+                compact
+                jars={tFromJars}
+                accountName={tFromLedger.accountName}
+                currency={tFromLedger.currency}
+                value={tFromJar}
+                onChange={setTFromJar}
+              />
+            )}
             <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
               Note
               <Input
@@ -808,6 +1086,42 @@ export function TransactionsPage() {
                 onChange={(e) => setTPayee(e.target.value)}
                 className="w-full"
               />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Arrived in the destination account on (optional)
+              <Input
+                type="date"
+                value={tReceived}
+                aria-label="Transfer receipt date"
+                onChange={(e) => setTReceived(e.target.value)}
+                className="w-full text-slate-700"
+              />
+              <span className="font-normal text-slate-400">
+                Leave blank until the receiving bank shows it: the amount stays in transit and belongs to
+                neither account until then.
+              </span>
+            </label>
+            {/* Rule 78: a receipt already dated into a jar-backed account asks how it is divided. */}
+            {tToLedger && tToJars.length > 0 && tReceived && (
+              <JarAllocationFields
+                jars={tToJars}
+                accountName={tToLedger.accountName}
+                currency={tToLedger.currency}
+                amount={tAmountMajor}
+                value={tJarAlloc}
+                onChange={setTJarAlloc}
+                idPrefix="transfer"
+              />
+            )}
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={tConfirmed}
+                aria-label="Transfer completed confirmation"
+                onChange={(e) => setTConfirmed(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+              />
+              I’ve completed this transfer.
             </label>
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={() => setShowAdd(false)}>
@@ -839,6 +1153,44 @@ export function TransactionsPage() {
             </div>
           </Modal>
         )}
+
+        {/* Rule 79's inline prompt: "+ Assign" put a payment from a jar-backed account on a line
+            that is not a jar. Unallocated is the default; closing the prompt saves nothing. */}
+        {paidFromPrompt &&
+          (() => {
+            const { transaction: pt, budgetItemId, value } = paidFromPrompt
+            const ledger = ledgerOf(pt.accountId)
+            const choose = (paidFromJarId: string | null) => {
+              setPaidFromPrompt(null)
+              assign(pt.id, budgetItemId, false, paidFromJarId)
+            }
+            return (
+              <Modal title="Which jar does this come from?" onClose={() => setPaidFromPrompt(null)}>
+                <p className="text-sm text-slate-600">
+                  {ledger?.accountName ?? pt.accountName ?? 'This account'} holds jars, and this budget line is not one of
+                  them. Say which jar pays for {pt.payee || 'this'}, or leave it to the account’s unallocated money.
+                </p>
+                <div className="mt-3">
+                  <PaidFromJarSelect
+                    id="assign-paid-from"
+                    jars={activeJars(ledger)}
+                    accountName={ledger?.accountName ?? pt.accountName ?? ''}
+                    currency={ledger?.currency ?? pt.currency}
+                    value={value}
+                    onChange={(next) => setPaidFromPrompt({ ...paidFromPrompt, value: next })}
+                  />
+                </div>
+                <div className="mt-5 flex justify-end gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => choose(null)}>
+                    Unallocated
+                  </Button>
+                  <Button size="sm" onClick={() => choose(value)} disabled={!value}>
+                    Use this jar
+                  </Button>
+                </div>
+              </Modal>
+            )
+          })()}
 
         {loading && <p className="text-slate-500">Loading…</p>}
 
@@ -877,6 +1229,7 @@ export function TransactionsPage() {
                       // its aria-labels, and two mounted editors would collide.
                       cancelSplit()
                       resetAddSplit()
+                      resetAddJarPrompts()
                       setShowAdd(true)
                     }}
                     aria-label="Add transaction"
@@ -966,7 +1319,12 @@ export function TransactionsPage() {
                                 <select
                                   value={eAccount}
                                   aria-label="Edit account"
-                                  onChange={(e) => setEAccount(e.target.value)}
+                                  onChange={(e) => {
+                                    setEAccount(e.target.value)
+                                    // Another account has other jars — start its answers from the default.
+                                    setEJarAlloc({})
+                                    setEPaidFrom(PAID_FROM_UNALLOCATED)
+                                  }}
                                   className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-600"
                                 >
                                   <option value="">No account</option>
@@ -992,8 +1350,44 @@ export function TransactionsPage() {
                                   ))}
                                 </select>
                               )}
+                              {/* The jar prompts, pre-filled from the stored split (rules 78/79). */}
+                              {(() => {
+                                const ledger = ledgerOf(eAccount)
+                                const jars = activeJars(ledger)
+                                if (!ledger || jars.length === 0) return null
+                                if (eType === TransactionType.Income) {
+                                  return (
+                                    <div className="basis-full">
+                                      <JarAllocationFields
+                                        jars={jars}
+                                        accountName={ledger.accountName}
+                                        currency={ledger.currency}
+                                        amount={eAmountMajor}
+                                        value={eJarAlloc}
+                                        onChange={setEJarAlloc}
+                                        idPrefix={`edit-${t.id}`}
+                                        compact
+                                      />
+                                    </div>
+                                  )
+                                }
+                                if (!hasNonJarLine(t, eAccount || null)) return null
+                                return (
+                                  <div className="basis-full">
+                                    <PaidFromJarSelect
+                                      id={`edit-${t.id}-paid-from`}
+                                      compact
+                                      jars={jars}
+                                      accountName={ledger.accountName}
+                                      currency={ledger.currency}
+                                      value={ePaidFrom}
+                                      onChange={setEPaidFrom}
+                                    />
+                                  </div>
+                                )
+                              })()}
                               <div className="ml-auto flex gap-1">
-                                <Button size="sm" onClick={() => saveEdit(t.id)} disabled={savingId === t.id} aria-label="Save transaction">
+                                <Button size="sm" onClick={() => saveEdit(t)} disabled={savingId === t.id} aria-label="Save transaction">
                                   Save
                                 </Button>
                                 <Button size="sm" variant="ghost" onClick={() => setEditingId(null)} aria-label="Cancel edit">
@@ -1028,10 +1422,73 @@ export function TransactionsPage() {
                                   ) : null
                                 })()}
                               </span>
+                              {/* A stored jar split (rules 78/79): where this money went, or came from. */}
+                              {(() => {
+                                const labels = jarSplitLabels(t)
+                                return labels.length > 0 ? (
+                                  <span className="mt-1 flex flex-wrap gap-1">
+                                    {labels.map((label) => (
+                                      <Badge key={label} tone="neutral" className="max-w-full" title={`Jars: ${label}`}>
+                                        <span className="truncate">{label}</span>
+                                      </Badge>
+                                    ))}
+                                  </span>
+                                ) : null
+                              })()}
                             </td>
                             <td className="px-4 py-3.5">
                               {isTransfer ? (
-                                <Badge tone="brand">Transfer</Badge>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <Badge tone="brand">Transfer</Badge>
+                                  {t.transferStatus === 'InTransit' && (
+                                    <span
+                                      title={`Left ${t.accountName ?? 'the source'} on ${formatDate(t.departedOn ?? t.date)}; receipt not yet confirmed`}
+                                      className="rounded-[5px] border border-sky-200 bg-sky-50 px-1.5 py-px text-[9.5px] font-semibold text-sky-700 dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-300"
+                                    >
+                                      In transit
+                                    </span>
+                                  )}
+                                  {t.transferStatus === 'PendingReview' && (
+                                    <span
+                                      title={`Received by ${t.transferAccountName ?? 'the destination'} on ${formatDate(t.receivedOn ?? t.date)}; departure date unknown — nothing is posted until it is supplied`}
+                                      className="rounded-[5px] border border-amber-200 bg-amber-50 px-1.5 py-px text-[9.5px] font-semibold text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300"
+                                    >
+                                      Pending review
+                                    </span>
+                                  )}
+                                  {canEnterData && t.transferStatus && t.transferStatus !== 'Completed' && legId !== t.id && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setLegId(t.id)
+                                        setLegDate(t.transferStatus === 'PendingReview' ? t.receivedOn ?? today() : t.departedOn ?? today())
+                                        setLegJarAlloc({})
+                                        setLegFromJar(PAID_FROM_UNALLOCATED)
+                                      }}
+                                      aria-label={`${t.transferStatus === 'PendingReview' ? 'Add departure date' : 'Confirm receipt'}: ${t.payee || t.date}`}
+                                      className="text-[11px] font-semibold text-brand-700 hover:underline dark:text-brand-200"
+                                    >
+                                      {t.transferStatus === 'PendingReview' ? 'Add departure date' : 'Confirm receipt'}
+                                    </button>
+                                  )}
+                                  {legId === t.id && (
+                                    <span className="flex items-center gap-1">
+                                      <input
+                                        type="date"
+                                        value={legDate}
+                                        aria-label={t.transferStatus === 'PendingReview' ? 'Departure date' : 'Receipt date'}
+                                        onChange={(e) => setLegDate(e.target.value)}
+                                        className="rounded-md border border-slate-300 px-1.5 py-0.5 text-xs"
+                                      />
+                                      <Button size="sm" onClick={() => confirmLeg(t)} disabled={savingId === t.id} aria-label="Save transfer leg">
+                                        Save
+                                      </Button>
+                                      <Button size="sm" variant="ghost" onClick={() => setLegId(null)} aria-label="Cancel transfer leg">
+                                        Cancel
+                                      </Button>
+                                    </span>
+                                  )}
+                                </div>
                               ) : t.isSplit ? (
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <Badge tone="violet">Split</Badge>
@@ -1053,8 +1510,21 @@ export function TransactionsPage() {
                                   disabled={savingId === t.id}
                                   aria-label={`Assign ${t.payee || 'transaction'}`}
                                   onChange={(e) => {
-                                    assign(t.id, e.target.value || null)
+                                    const next = e.target.value || null
                                     setAssigningId(null)
+                                    // Rule 79: a payment from a jar-backed account put on a line that is
+                                    // not a jar asks which jar it comes from first; a jar line draws from
+                                    // its own jar and clearing the line draws from unallocated — no prompt.
+                                    if (
+                                      next &&
+                                      t.type === TransactionType.Expense &&
+                                      jarsOf(t.accountId).length > 0 &&
+                                      !isJarLineFor(next, t.accountId)
+                                    ) {
+                                      setPaidFromPrompt({ transaction: t, budgetItemId: next, value: PAID_FROM_UNALLOCATED })
+                                    } else {
+                                      assign(t.id, next)
+                                    }
                                   }}
                                   onBlur={() => setAssigningId(null)}
                                   className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50"
@@ -1177,6 +1647,44 @@ export function TransactionsPage() {
                           </>
                         )}
                       </tr>
+                      {/* The jar question of the leg being confirmed (rules 78/80), under its row so
+                          the fields have room: a receipt into a jar-backed account asks how it is
+                          divided; a departure from one may name the jar it left. */}
+                      {legId === t.id &&
+                        (() => {
+                          const pending = t.transferStatus === 'PendingReview'
+                          const ledger = ledgerOf(pending ? t.accountId : t.transferAccountId)
+                          const jars = activeJars(ledger)
+                          if (!ledger || jars.length === 0) return null
+                          return (
+                            <tr className="bg-sky-50/40 dark:bg-sky-400/5">
+                              <td colSpan={6} className="px-4 py-3">
+                                {pending ? (
+                                  <PaidFromJarSelect
+                                    id={`departure-${t.id}-from-jar`}
+                                    compact
+                                    jars={jars}
+                                    accountName={ledger.accountName}
+                                    currency={ledger.currency}
+                                    value={legFromJar}
+                                    onChange={setLegFromJar}
+                                  />
+                                ) : (
+                                  <JarAllocationFields
+                                    jars={jars}
+                                    accountName={ledger.accountName}
+                                    currency={ledger.currency}
+                                    amount={t.amount}
+                                    value={legJarAlloc}
+                                    onChange={setLegJarAlloc}
+                                    idPrefix={`receipt-${t.id}`}
+                                    compact
+                                  />
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })()}
                       {splitting && (
                         <tr className="bg-violet-50/40">
                           <td colSpan={6} className="px-4 py-4">
@@ -1204,6 +1712,28 @@ export function TransactionsPage() {
                                 onChangeRow={updateSplitRow}
                                 onRemoveRow={removeSplitRow}
                               />
+
+                              {/* Rule 79: the slices on lines that are not jars draw from one named jar. */}
+                              {(() => {
+                                const ledger = ledgerOf(t.accountId)
+                                const jars = activeJars(ledger)
+                                const applies =
+                                  t.type === TransactionType.Expense &&
+                                  !!ledger &&
+                                  jars.length > 0 &&
+                                  splitRows.some((r) => !!r.budgetItemId && !isJarLineFor(r.budgetItemId, t.accountId))
+                                return applies && ledger ? (
+                                  <PaidFromJarSelect
+                                    id="split-paid-from"
+                                    compact
+                                    jars={jars}
+                                    accountName={ledger.accountName}
+                                    currency={ledger.currency}
+                                    value={splitPaidFrom}
+                                    onChange={setSplitPaidFrom}
+                                  />
+                                ) : null
+                              })()}
 
                               <div className="flex items-center gap-2">
                                 <button

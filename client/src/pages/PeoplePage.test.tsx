@@ -24,8 +24,13 @@ import { PeoplePage } from './PeoplePage'
 import { AuthProvider } from '../auth/AuthContext'
 
 function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
-  return { id: 'm1', name: 'Alex', netMonthlyIncome: 6000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1, ...over }
+  return { id: 'm1', name: 'Alex', netMonthlyIncome: 6000, budgetIncome: 6000, hasBudget: true, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1, ...over }
 }
+
+// No MonthProvider here, so the page reads the context default — the current calendar month.
+const NOW = new Date()
+const YEAR = NOW.getFullYear()
+const MONTH = NOW.getMonth() + 1
 
 function membership(over: Partial<MembershipDto> = {}): MembershipDto {
   return { id: 'mem1', email: 'alex@x.com', displayName: 'Alex', role: 0, status: 0, memberId: 'm1', isOwner: true, isSelf: true, createdUtc: '2026-01-01', ...over }
@@ -37,10 +42,11 @@ const accountsData: AccountDto[] = []
 
 function setupGet() {
   mockGet.mockImplementation((url: string) => {
+    if (url === `/members?year=${YEAR}&month=${MONTH}`) return Promise.resolve({ data: membersData })
     if (url === '/members') return Promise.resolve({ data: membersData })
     if (url === '/access/members') return Promise.resolve({ data: membershipsData })
     if (url === '/accounts') return Promise.resolve({ data: accountsData })
-    if (url === '/members/spending') return Promise.resolve({ data: [] })
+    if (url === `/members/spending/${YEAR}/${MONTH}`) return Promise.resolve({ data: [] })
     return Promise.resolve({ data: {} }) // /auth/me — ignored (no numeric role ⇒ default Owner)
   })
 }
@@ -114,7 +120,7 @@ describe('PeoplePage', () => {
     await user.click(await screen.findByRole('button', { name: 'Add person' }, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.type(dialog.getByLabelText('Person name'), 'Alex')
-    await user.type(dialog.getByLabelText('Net monthly income'), '6000')
+    await user.type(dialog.getByLabelText('Default income'), '6000')
     await user.click(dialog.getByRole('button', { name: 'Add person' }))
 
     await waitFor(() =>
@@ -123,6 +129,21 @@ describe('PeoplePage', () => {
         expect.objectContaining({ name: 'Alex', netMonthlyIncome: 6000 }),
       ),
     )
+  })
+
+  // Rules 28/29: every month-scoped read names the selected month (the context default here).
+  it('requests members, income and spending for the selected month', { timeout: 15000 }, async () => {
+    membersData = [member()]
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    const urls = mockGet.mock.calls.map((c) => c[0] as string)
+    expect(urls).toContain(`/members?year=${YEAR}&month=${MONTH}`)
+    expect(urls).toContain(`/members/income/${YEAR}/${MONTH}`)
+    expect(urls).toContain(`/members/spending/${YEAR}/${MONTH}`)
+    // The all-time spending endpoint is no longer used by this page.
+    expect(urls).not.toContain('/members/spending')
   })
 
   it('shows a solo-friendly empty state when there are no people', { timeout: 15000 }, async () => {

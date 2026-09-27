@@ -48,9 +48,8 @@ function jar(over: Partial<JarDto> = {}): JarDto {
     coverEnd: null,
     accrual: 1,
     recurMonths: 12,
-    openingBalance: 0,
-    openingAsOf: null,
-    fundingAccountId: null,
+    fundingAccountId: 'acc1',
+    balanceAsOf: '2026-09-26',
     isArchived: false,
     currentBalance: 120,
     requiredMonthlyContribution: 25,
@@ -67,11 +66,17 @@ function me(role: number): MeResponse {
 // Route the three endpoints JarsPage + AuthProvider hit on mount: /jars, /accounts and
 // /auth/me. `jarsPending` leaves the /jars request unresolved (the loading-state case);
 // a non-numeric /auth/me role leaves the AuthContext at its Owner default (canWrite).
+// Accounts default to one account because a jar can't be created without one (rule 73).
+const JOINT: AccountDto = {
+  id: 'acc1', name: 'Joint Current', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0,
+}
+
 function mockLoads(
   opts: { jars?: JarDto[]; accounts?: AccountDto[]; meRole?: number; jarsPending?: boolean } = {},
 ) {
-  const { jars = [], accounts = [], meRole, jarsPending = false } = opts
+  const { jars = [], accounts = [JOINT], meRole, jarsPending = false } = opts
   mockGet.mockImplementation((url: string) => {
+    if (url.startsWith('/jars/ledger')) return Promise.resolve({ data: [] })
     if (url === '/jars') return jarsPending ? new Promise<never>(() => {}) : Promise.resolve({ data: jars })
     if (url === '/accounts') return Promise.resolve({ data: accounts })
     if (url === '/auth/me') return Promise.resolve({ data: meRole === undefined ? {} : me(meRole) })

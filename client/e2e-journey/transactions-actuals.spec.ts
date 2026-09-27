@@ -304,10 +304,12 @@ test('deleting a budget line or an account detaches its transactions but never d
   await addLine(page, 'Everyday', 'Groceries')
   await addLine(page, 'Everyday', 'Internet')
 
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await page.getByRole('button', { name: 'Add account', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Account name').fill('Joint')
+  // Rule 74: the 140.00 spent below must be covered — an account never goes below zero.
+  await dialog.getByLabel('Opening balance').fill('500')
   await dialog.getByRole('button', { name: 'Add account', exact: true }).click()
   await expect(dialog).toBeHidden()
   await expect(page.getByText('Joint', { exact: true })).toBeVisible()
@@ -349,7 +351,7 @@ test('deleting a budget line or an account detaches its transactions but never d
 
   // --- TX-093: deleting the account (confirm modal; Transactions.AccountId is
   // ON DELETE SET NULL) leaves both rows in the register with a "—" account cell.
-  await page.getByRole('link', { name: 'Accounts' }).click()
+  await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await page.getByRole('button', { name: 'Delete Joint', exact: true }).click()
   await page.getByRole('button', { name: 'Confirm delete Joint', exact: true }).click()
   await expect(page.getByText('No accounts yet')).toBeVisible()

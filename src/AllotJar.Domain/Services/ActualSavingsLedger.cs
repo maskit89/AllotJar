@@ -23,7 +23,8 @@ public sealed record JarLedgerOperation(
 /// <summary>
 /// Calculates a fully attributed savings ledger. Missing transaction allocations
 /// are rejected rather than silently selecting an outgoing jar or unallocated funds.
-/// This foundation is not yet connected to the existing plan-based jar endpoints.
+/// Connected through the Application JarLedgerReader, which supplies stored allocations and
+/// derives the budget-line attribution of every other movement (rule 79).
 /// Callers must supply account/jar definitions valid for the requested period;
 /// changing a jar's designated account requires a separate history-aware workflow.
 /// </summary>
@@ -33,19 +34,23 @@ public static class ActualSavingsLedger
         Account account, DateOnly openingDate, DateOnly asOf,
         IReadOnlyCollection<Jar> jars,
         IReadOnlyCollection<Transaction> transactions,
-        IReadOnlyCollection<JarLedgerOperation> operations)
+        IReadOnlyCollection<JarLedgerOperation> operations,
+        IReadOnlyDictionary<Guid, TransferPostingDates>? transferDates = null)
     {
-        if (account.Type != AccountType.Savings)
-            throw new InvalidOperationException("Jar money must reside in a designated savings account.");
+        // Any account may back jars (rule 73); credit cards are not accounts (rule 75).
+        if (account.Type == AccountType.CreditCard)
+            throw new InvalidOperationException("A credit card cannot hold jar money.");
         if (asOf < openingDate) return new(asOf, null, null, null);
 
-        var movements = ActualAccountLedger.Movements(account, openingDate, asOf, transactions);
-        var dates = transactions.Where(t => t.OwnerId == account.OwnerId && movements.ContainsKey(t.Id))
-            .ToDictionary(t => t.Id, t => t.Date);
-        // Archived jars still own money and must remain in reconciliation. Ignore
-        // legacy Jar.OpeningBalance: existing account money needs an explicit allocation.
+        var entries = ActualAccountLedger.Entries(account, openingDate, asOf, transactions, transferDates);
+        var movements = entries.Movements;
+        // Archived jars still own money and must remain in reconciliation. Existing account
+        // money needs an explicit allocation (rules 9/77); nothing is seeded from a plan.
         var jarBalances = jars.Where(j => j.OwnerId == account.OwnerId && j.FundingAccountId == account.Id)
             .ToDictionary(j => j.Id, _ => 0m);
+        // A jar re-designated to another account (rule 80, only at a zero balance) keeps its
+        // history here: its postings in this ledger still sum to zero and stay reconcilable.
+        var ownedJars = jars.Where(j => j.OwnerId == account.OwnerId).Select(j => j.Id).ToHashSet();
         var operationIds = new HashSet<Guid>();
         var allocatedTransactions = new HashSet<Guid>();
         var unallocated = account.OpeningBalance;
@@ -61,8 +66,9 @@ public static class ActualSavingsLedger
             decimal expected = 0;
             if (operation.TransactionId is Guid transactionId)
             {
-                if (!movements.TryGetValue(transactionId, out expected) || dates[transactionId] != operation.Date)
+                if (!movements.TryGetValue(transactionId, out var movement) || movement.Date != operation.Date)
                     throw new InvalidOperationException("An allocation must match its transaction account and date.");
+                expected = movement.Amount;
                 if (!allocatedTransactions.Add(transactionId))
                     throw new InvalidOperationException("A transaction account leg can only be allocated once.");
                 if (operation.Postings.Any(p => Math.Sign(p.Amount) != Math.Sign(expected)))
@@ -76,19 +82,26 @@ public static class ActualSavingsLedger
                 if (posting.JarId is Guid jarId)
                 {
                     if (!jarBalances.ContainsKey(jarId))
-                        throw new InvalidOperationException("An allocation jar must belong to this owner and designate this savings account.");
+                    {
+                        if (!ownedJars.Contains(jarId))
+                            throw new InvalidOperationException("An allocation jar must belong to this owner and designate this account.");
+                        jarBalances[jarId] = 0m;
+                    }
                     jarBalances[jarId] += posting.Amount;
                 }
                 else unallocated += posting.Amount;
             }
         }
         if (allocatedTransactions.Count != movements.Count)
-            throw new InvalidOperationException("Every savings-account movement requires an explicit jar/unallocated allocation.");
+            throw new InvalidOperationException("Every movement on a jar-backed account requires an explicit jar/unallocated allocation.");
 
-        var balance = account.OpeningBalance + movements.Values.Sum();
+        var balance = account.OpeningBalance + movements.Values.Sum(m => m.Amount);
         if (jarBalances.Values.Sum() + unallocated != balance)
             throw new InvalidOperationException("Jar and unallocated balances must reconcile to account money.");
-        return new(asOf, balance, new ReadOnlyDictionary<Guid, decimal>(jarBalances), unallocated);
+        return new(asOf, balance, new ReadOnlyDictionary<Guid, decimal>(jarBalances), unallocated)
+        {
+            PendingTransferReceipts = entries.PendingReceipts,
+        };
     }
 }
 
@@ -104,4 +117,12 @@ public sealed record SavingsLedgerBalance(
     public bool IsAvailable => AccountBalance.HasValue;
     public bool HasAccountDeficit => AccountBalance < 0;
     public bool HasUnallocatedDeficit => Unallocated < 0;
+
+    /// <summary>The sum of positive jar balances — what the account's money must cover (rule 70).</summary>
+    public decimal PositiveAllocations => JarBalances?.Values.Where(v => v > 0m).Sum() ?? 0m;
+
+    /// <summary>True when positive jar balances exceed the account's actual money (rule 70): an explicit reallocation is required.</summary>
+    public bool HasBackingDeficit => AccountBalance is decimal balance && PositiveAllocations > balance;
+    public IReadOnlyList<PendingTransferReceipt> PendingTransferReceipts { get; init; } = [];
+    public bool RequiresReview => PendingTransferReceipts.Count > 0;
 }

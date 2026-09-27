@@ -217,6 +217,19 @@ describe('budgetModel selectors', () => {
     expect(remainingToBudget(vm)).toBe(fromAmount(1600))
   })
 
+  it('keeps a savings line whose available balance is unavailable (null) as null, never zero', () => {
+    // Rule 67: the jar's account balance can't be calculated → the server sends null.
+    const d = dto()
+    d.categories.push({
+      id: 'f1', name: 'Jars', kind: 'Savings', displayOrder: 0, totalPlanned: 100, totalActual: 0,
+      items: [{ id: 'car', name: 'Car', displayOrder: 0, plannedAmount: 100, actualAmount: 0, remaining: 100, savingsId: 'fund-car', savingsAvailable: null }],
+    })
+    const vm = fromDto(d)
+    expect(vm.categories.find(isSavings)!.items[0].savingsAvailableMinor).toBeNull()
+    // The planned contribution still counts toward the month's plan.
+    expect(monthPlanned(vm)).toBe(fromAmount(1400))
+  })
+
   it('withItemBill sets/clears a due day; clearing also marks it unpaid', () => {
     const vm = fromDto(dto())
     const billed = withItemBill(vm, 'i1', 15) // Rent due on the 15th

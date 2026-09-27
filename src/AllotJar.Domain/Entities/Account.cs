@@ -5,8 +5,8 @@ using AllotJar.Domain.ValueObjects;
 namespace AllotJar.Domain.Entities;
 
 /// <summary>
-/// A real-world place the user's money sits (a current account, savings pot, cash,
-/// a credit card). Its balance is not stored: it is derived at read time as the
+/// A real-world place the user's money sits (a current account, savings pot, cash;
+/// credit cards are not accounts, rule 75). Its balance is not stored: it is derived at read time as the
 /// <see cref="OpeningBalance"/> plus every assigned transaction (income adds, expense
 /// subtracts), so the transaction register stays the single source of truth. This is
 /// a "where my money is" view alongside the budget, not part of the zero-based plan.
@@ -24,20 +24,31 @@ public class Account : BaseEntity
     public CurrencyCode Currency { get; set; } = CurrencyCode.Eur;
 
     /// <summary>
-    /// The balance the account started with (before any tracked transactions). Can be
-    /// negative — e.g. a credit card's opening debt. Mapped to decimal(18,4).
+    /// The balance the account held at the start of <see cref="OpeningDate"/>, before any
+    /// tracked transaction dated on or after it. Never negative (rule 74). Mapped to decimal(18,4).
     /// </summary>
     public decimal OpeningBalance { get; set; }
 
+    /// <summary>
+    /// The date the <see cref="OpeningBalance"/> applies from (rule 40): transactions dated
+    /// earlier remain history but never change the balance again, and a balance as of an
+    /// earlier date is unavailable rather than reconstructed (rule 67). Required for every
+    /// account written by the API; null only on rows that predate the column, whose balance
+    /// is therefore unavailable until the user records the date — never inferred.
+    /// </summary>
+    public DateOnly? OpeningDate { get; set; }
+
     public int DisplayOrder { get; set; }
+
+    /// <summary>
+    /// Optional bank identifiers (rule 76). Never required — an account may be a physical place
+    /// such as a piggy bank — and only format-checked when supplied.
+    /// </summary>
+    public string? Iban { get; set; }
+    public string? Bic { get; set; }
+    public string? SortCode { get; set; }
+    public string? AccountNumber { get; set; }
 
     /// <summary>The transactions that have moved money in or out of this account.</summary>
     public ICollection<Transaction> Transactions { get; set; } = new List<Transaction>();
-
-    /// <summary>
-    /// Transient (not persisted): the account's current balance — the
-    /// <see cref="OpeningBalance"/> plus the net of its assigned transactions. Derived
-    /// at read time (see AllotJar.Application.Accounts).
-    /// </summary>
-    public decimal CurrentBalance { get; set; }
 }

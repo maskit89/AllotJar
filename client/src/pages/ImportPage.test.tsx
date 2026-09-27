@@ -318,6 +318,67 @@ describe('ImportPage', () => {
     expect(transfer).toEqual(expect.objectContaining({ transferAccountId: 'acc2', budgetItemId: null, memberId: null }))
   })
 
+  // Rules 50/51/72 — a credit marked as a transfer is held for review unless the user picks the
+  // recorded transfer it confirms; candidates are suggestions, choosing one fixes the counterparty,
+  // and the commit carries the chosen transfer so no second balance movement is recorded.
+  it('offers recorded-transfer candidates on a transfer row and commits the chosen match', { timeout: 15000 }, async () => {
+    const preview = previewWithTransfer()
+    const credit = preview.items.find((i: { payee: string }) => i.payee === 'E-BANKING PAYMENT') as { transferMatches?: unknown[] }
+    credit.transferMatches = [
+      {
+        transferId: 'tr-1', counterpartyAccountId: 'acc2', counterpartyAccountName: 'Pot',
+        amount: 234.24, currency: 'EUR', departedOn: '2026-06-15', receivedOn: null, payee: 'Transfer',
+      },
+    ]
+    mockPreview.mockResolvedValue(preview)
+    mockCommit.mockResolvedValue({
+      totalEntries: 2, imported: 1, skippedDuplicates: 0, credits: 0, debits: 1, iban: null,
+      autoCategorized: 0, transfers: 1, matchedTransfers: 1, pendingReviewTransfers: 0,
+    })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
+    await user.upload(screen.getByLabelText('Statement file'), csv())
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+    await screen.findByText('E-BANKING PAYMENT')
+
+    await user.click(screen.getByRole('button', { name: 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer' }))
+    // Without a chosen match a credit is a receipt with an unknown departure.
+    expect(screen.getByText(/Held for review until the departure date is known/)).toBeInTheDocument()
+    const match = screen.getByLabelText('Match recorded transfer for E-BANKING PAYMENT on 2026-06-16')
+    expect(match.querySelectorAll('option')).toHaveLength(2) // "record as new" + the one candidate
+    expect(match).toHaveTextContent('From Pot')
+
+    await user.selectOptions(match, 'tr-1')
+    expect(screen.getByLabelText('Transfer account for E-BANKING PAYMENT on 2026-06-16')).toHaveValue('acc2')
+    expect(screen.getByText(/Confirms the other side of the recorded transfer/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
+    const [, items] = mockCommit.mock.calls[0]
+    const transfer = items.find((i: { payee: string }) => i.payee === 'E-BANKING PAYMENT')
+    expect(transfer).toEqual(expect.objectContaining({ transferAccountId: 'acc2', matchTransferId: 'tr-1' }))
+    // The result reports the confirmation separately from newly recorded transfers.
+    expect(await screen.findByText('Matched')).toBeInTheDocument()
+  })
+
+  // Rule 71 — a debit marked as a transfer is a confirmed departure with the receipt still unknown.
+  it('explains that a debit transfer row is recorded as departed and in transit', { timeout: 15000 }, async () => {
+    mockPreview.mockResolvedValue(previewWithTransfer())
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
+    await user.upload(screen.getByLabelText('Statement file'), csv())
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+    await screen.findByText('AUTOMARKET')
+
+    await user.click(screen.getByRole('button', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' }))
+    expect(screen.getByText(/Recorded as departed on/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Match recorded transfer for AUTOMARKET on 2026-06-17')).not.toBeInTheDocument()
+  })
+
   it('blocks import while a transfer has no counterparty chosen', { timeout: 15000 }, async () => {
     mockPreview.mockResolvedValue(previewWithTransfer())
     const user = userEvent.setup()
