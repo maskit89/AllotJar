@@ -14,10 +14,10 @@ using AllotJar.Infrastructure.Persistence;
 namespace AllotJar.Application.Tests.Application;
 
 /// <summary>
-/// The Type lifecycle through the handlers and DTO: a Recurring jar re-arms each cycle and
-/// reads OnTrack past its anchor, a Goal's date never rolls (Behind past its date), the cycle
-/// length follows the Kind, and the schedule rules apply on edit. The date arithmetic itself
-/// is covered by Domain/JarScheduleTests.
+/// The Type lifecycle through the handlers and DTO: a Recurring jar saves toward its open
+/// cycle and reads Deadline missed past it (W03), a Goal's date never rolls (Behind past its
+/// date), the cycle length follows the Kind, and the schedule rules apply on edit. The date
+/// arithmetic itself is covered by Domain/JarScheduleTests; closing cycles by JarCycleTests.
 /// </summary>
 public class JarLifecycleTests
 {
@@ -41,17 +41,32 @@ public class JarLifecycleTests
     // ---- Status ----------------------------------------------------------------
 
     [Fact]
-    public void Status_PastDueRecurring_ReadsOnTrack_NotBehind()
+    public void Status_PastDueRecurring_ReadsDeadlineMissed_WithTheShortfall_ThenFundedLate()
     {
+        // Rule 20: 450 held against 600 due 1 March, read in July with the cycle still open —
+        // Deadline missed, 150 short, the whole 150 planned now. Rule 57: once the target is
+        // reached the notice stays (Funded late, nothing short) until the user dismisses it.
         var jar = Recurring(new DateOnly(2026, 3, 1));
+        jar.CycleDeadline = new DateOnly(2026, 3, 1);
 
-        var dto = jar.ToDto(currentBalance: 100m, balanceAtMonthStart: 100m, storedPlanThisMonth: null, asOf: new DateOnly(2026, 7, 6));
-
-        dto.Status.Should().Be("OnTrack");
-        // The DTO carries the stored ANCHOR, not the rolled date — an edit round-trips
-        // faithfully rather than silently advancing the date. Recurrence shows up in
-        // the status (OnTrack, not Behind), computed from the effective date internally.
+        var dto = jar.ToDto(currentBalance: 450m, balanceAtMonthStart: 450m, storedPlanThisMonth: null, asOf: new DateOnly(2026, 7, 6));
+        dto.Status.Should().Be("DeadlineMissed");
+        dto.Shortfall.Should().Be(150m);
+        dto.Deadline.Should().Be(new DateOnly(2026, 3, 1));
+        dto.PlannedThisMonth.Should().Be(150m);
+        // The DTO carries the stored ANCHOR, so an edit round-trips faithfully.
         dto.TargetDate.Should().Be(new DateOnly(2026, 3, 1));
+
+        var late = jar.ToDto(currentBalance: 600m, balanceAtMonthStart: 450m, storedPlanThisMonth: null, asOf: new DateOnly(2026, 7, 6));
+        late.Status.Should().Be("FundedLate");
+        late.Shortfall.Should().Be(0m);
+
+        // An open cycle still ahead reads OnTrack, and carries no shortfall.
+        jar.CycleDeadline = new DateOnly(2027, 3, 1);
+        var ahead = jar.ToDto(currentBalance: 450m, balanceAtMonthStart: 450m, storedPlanThisMonth: null, asOf: new DateOnly(2026, 7, 6));
+        ahead.Status.Should().Be("OnTrack");
+        ahead.Shortfall.Should().BeNull();
+        ahead.Deadline.Should().Be(new DateOnly(2027, 3, 1));
     }
 
     [Fact]
@@ -94,7 +109,10 @@ public class JarLifecycleTests
             AccrualMethod.TargetByDate, account.Id, RecurMonths: 6), CancellationToken.None);
 
         recurring.RecurMonths.Should().Be(6);
+        recurring.Deadline.Should().Be(new DateOnly(2026, 10, 1)); // the first cycle opens on the date given (W03)
+        (await db.Jars.SingleAsync(j => j.Id == recurring.Id)).CycleDeadline.Should().Be(new DateOnly(2026, 10, 1));
         goal.RecurMonths.Should().BeNull(); // forced null for Goals, whatever was sent
+        (await db.Jars.SingleAsync(j => j.Id == goal.Id)).CycleDeadline.Should().BeNull();
     }
 
     [Fact]
@@ -103,6 +121,7 @@ public class JarLifecycleTests
         await using var db = NewContext();
         var account = LedgerFixtures.SeedAccount(db, "user-1");
         var jar = Recurring(new DateOnly(2026, 10, 1), accountId: account.Id);
+        jar.CycleDeadline = new DateOnly(2026, 10, 1);
         db.Jars.Add(jar);
         db.SaveChanges();
         var handler = new UpdateJarCommandHandler(db, new CurrentUserStub("user-1"));
@@ -112,35 +131,44 @@ public class JarLifecycleTests
             AccrualMethod.TargetByDate, account.Id), CancellationToken.None);
 
         dto.RecurMonths.Should().BeNull();
+        (await db.Jars.SingleAsync()).CycleDeadline.Should().BeNull();
     }
 
-    // ---- Month creation seeds from the anchor, never rewrites it ------------------
+    // ---- Month creation plans toward the open cycle, never rewrites the anchor ------
 
     [Fact]
-    public async Task CreateMonth_SeedsFromTheRolledDate_WithoutRewritingTheStoredAnchor()
+    public async Task CreateMonth_PlansAFundedCycleTowardTheNextDeadline_AndAMissedOneInFull_WithoutRewritingTheAnchor()
     {
         await using var db = NewContext();
-        // Past-due yearly jar: €600 target, due last month, no contributions yet.
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var due = today.AddMonths(-1);
-        var account = LedgerFixtures.SeedAccount(db, "user-1");
-        var jar = Recurring(due, accountId: account.Id);
-        db.Jars.Add(jar);
+        var account = LedgerFixtures.SeedAccount(db, "user-1", opening: 2000m);
+        // Two yearly €600 jars due last month: one held its target in time, one held nothing.
+        var funded = Recurring(due, accountId: account.Id);
+        funded.Name = "Funded";
+        funded.CycleDeadline = due;
+        var missed = Recurring(due, accountId: account.Id);
+        missed.Name = "Missed";
+        missed.CycleDeadline = due;
+        db.Jars.AddRange(funded, missed);
         db.SaveChanges();
+        LedgerFixtures.Allocate(db, "user-1", account.Id, funded.Id, 600m, due.AddDays(-10));
         var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
 
         var dto = await handler.Handle(
             new CreateBudgetMonthCommand(today.Year, today.Month, CopyFromPrevious: false),
             CancellationToken.None);
 
-        // The stored anchor is untouched — recurrence is a pure view, never persisted.
-        (await db.Jars.SingleAsync()).TargetDate.Should().Be(due);
-        // The seeded line spreads over the months up to the ROLLED date: from this month to the
-        // month before it (rule 12), in whole cents with the remainder in the last month (rule 35).
-        var line = dto.Categories.Single(c => c.Kind == "Savings").Items.Single();
-        var rolled = due.AddMonths(12);
-        var months = ((rolled.Year * 12) + rolled.Month) - ((today.Year * 12) + today.Month);
-        line.PlannedAmount.Should().Be(Math.Floor(600m / months * 100m) / 100m);
+        // Both anchors are untouched. The funded jar rolled forward (rule 21) and, still holding
+        // its 600, plans nothing; the missed one stays on its passed deadline (rule 20) and plans
+        // the whole 600 now.
+        var jars = await db.Jars.ToListAsync();
+        jars.Should().OnlyContain(j => j.TargetDate == due);
+        jars.Single(j => j.Id == funded.Id).CycleDeadline.Should().Be(due.AddMonths(12));
+        jars.Single(j => j.Id == missed.Id).CycleDeadline.Should().Be(due);
+        var lines = dto.Categories.Single(c => c.Kind == "Savings").Items;
+        lines.Single(i => i.Name == "Funded").PlannedAmount.Should().Be(0m);
+        lines.Single(i => i.Name == "Missed").PlannedAmount.Should().Be(600m);
     }
 
     // ---- Validators --------------------------------------------------------------

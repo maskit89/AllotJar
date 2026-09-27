@@ -5,13 +5,16 @@ import { Hero } from '../components/Hero'
 import { Jar } from '../components/Jar'
 import { JarFormModal } from '../components/JarFormModal'
 import { MoveMoneyModal } from '../components/MoveMoneyModal'
+import { MarkCyclePaidModal } from '../components/jars/MarkCyclePaidModal'
+import { DismissCycleModal } from '../components/jars/DismissCycleModal'
 import { JarsIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import type { AccountDto, JarAccountLedgerDto, JarDto } from '../types'
 import { formatMoney, fromAmount } from '../lib/money'
-import { jarHorizonLabel, jarMonthLabel, jarStatusChip } from '../lib/jarStatus'
+import { formatDate } from '../lib/dates'
+import { jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from '../lib/jarStatus'
 
 export function JarsPage() {
   // Managing jars needs Admin+ (canWrite); others see them read-only.
@@ -28,6 +31,10 @@ export function JarsPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   // The jar whose "Move money" modal is open.
   const [movingId, setMovingId] = useState<string | null>(null)
+  // W03: the cycle being marked paid (a jar and the cycle's deadline), and the jar whose missed
+  // deadline is being dismissed.
+  const [markingPaid, setMarkingPaid] = useState<{ jarId: string; deadline: string } | null>(null)
+  const [dismissingId, setDismissingId] = useState<string | null>(null)
   const editingJar = useMemo(
     () => (editingId ? jars.find((f) => f.id === editingId) ?? null : null),
     [editingId, jars],
@@ -35,6 +42,14 @@ export function JarsPage() {
   const movingJar = useMemo(
     () => (movingId ? jars.find((f) => f.id === movingId) ?? null : null),
     [movingId, jars],
+  )
+  const markingPaidJar = useMemo(
+    () => (markingPaid ? jars.find((f) => f.id === markingPaid.jarId) ?? null : null),
+    [markingPaid, jars],
+  )
+  const dismissingJar = useMemo(
+    () => (dismissingId ? jars.find((f) => f.id === dismissingId) ?? null : null),
+    [dismissingId, jars],
   )
 
   const loadLedgers = useCallback(() => {
@@ -113,6 +128,18 @@ export function JarsPage() {
     setMovingId(null)
     void refreshJars()
   }, [refreshJars])
+
+  // A cycle closed (paid or dismissed): the server returns the jar as it now reads; its lines
+  // were replanted, so the ledgers are re-read too.
+  const onCycleChanged = useCallback(
+    (changed: JarDto) => {
+      setJars((prev) => prev.map((f) => (f.id === changed.id ? changed : f)))
+      setMarkingPaid(null)
+      setDismissingId(null)
+      loadLedgers()
+    },
+    [loadLedgers],
+  )
 
   const accountName = useCallback(
     (id: string) => accounts.find((a) => a.id === id)?.name ?? ledgers.find((l) => l.accountId === id)?.accountName ?? null,
@@ -219,6 +246,14 @@ export function JarsPage() {
                     setError(null)
                     setMovingId(f.id)
                   }}
+                  onMarkPaid={(deadline) => {
+                    setError(null)
+                    setMarkingPaid({ jarId: f.id, deadline })
+                  }}
+                  onDismiss={() => {
+                    setError(null)
+                    setDismissingId(f.id)
+                  }}
                   canManage={canWrite}
                 />
               ))}
@@ -242,6 +277,29 @@ export function JarsPage() {
       {movingJar && canWrite && (
         <MoveMoneyModal jar={movingJar} currency={CURRENCY} accounts={accounts} onClose={() => setMovingId(null)} onMoved={onMoved} />
       )}
+
+      {markingPaidJar && markingPaid && canWrite && (
+        <MarkCyclePaidModal
+          jar={markingPaidJar}
+          deadline={markingPaid.deadline}
+          currency={CURRENCY}
+          onClose={() => setMarkingPaid(null)}
+          onMarked={onCycleChanged}
+        />
+      )}
+
+      {dismissingJar && !markingPaid && canWrite && (
+        <DismissCycleModal
+          jar={dismissingJar}
+          currency={CURRENCY}
+          onClose={() => setDismissingId(null)}
+          onDismissed={onCycleChanged}
+          onMarkPaidInstead={() => {
+            if (dismissingJar.deadline) setMarkingPaid({ jarId: dismissingJar.id, deadline: dismissingJar.deadline })
+            setDismissingId(null)
+          }}
+        />
+      )}
     </AppShell>
   )
 }
@@ -253,6 +311,8 @@ function JarCard({
   heldIn,
   onEdit,
   onMove,
+  onMarkPaid,
+  onDismiss,
   canManage,
 }: {
   jar: JarDto
@@ -261,6 +321,10 @@ function JarCard({
   heldIn: string | null
   onEdit: () => void
   onMove: () => void
+  /** W03: mark the cycle due on the given date paid (the open cycle, or the last closed one without a payment). */
+  onMarkPaid: (deadline: string) => void
+  /** W03: dismiss the Deadline-missed notice (rule 20). */
+  onDismiss: () => void
   canManage: boolean
 }) {
   // Null = the account's balance is unavailable (rule 67): shown as such, never as zero.
@@ -272,6 +336,13 @@ function JarCard({
       : 0
   const chip = jarStatusChip(jar.status)
   const horizon = jarHorizonLabel(jar)
+  const lastCycle = jarLastCycleLabel(jar, currency)
+  // W03: a Recurring jar with an open cycle can be marked paid at any time (rule 83); the
+  // missed-deadline notice can also be dismissed (rule 20). A last cycle that rolled forward
+  // funded but never had its payment recorded can still be given one.
+  const recurring = jar.recurMonths !== null && jar.deadline !== null && jar.status !== 'Unavailable'
+  const missed = jar.status === 'DeadlineMissed' || jar.status === 'FundedLate'
+  const unpaidLastCycle = jar.lastCycle && jar.lastCycle.outcome === 'Funded' ? jar.lastCycle : null
 
   return (
     <Card className="flex gap-4 p-5">
@@ -314,11 +385,42 @@ function JarCard({
 
         <div className="mt-3 flex items-center justify-between gap-2">
           <span className="min-w-0 text-[12.5px] font-medium tabular-nums text-slate-500">
-            <span className="block">{jarMonthLabel(jar, currency)}</span>
+            <span className={`block ${missed ? 'text-rose-700 dark:text-rose-300' : ''}`}>{jarMonthLabel(jar, currency)}</span>
             {horizon && <span className="block text-[11.5px] font-normal">{horizon}</span>}
+            {lastCycle && <span className="block text-[11.5px] font-normal">{lastCycle}</span>}
+            {unpaidLastCycle && canManage && (
+              <button
+                type="button"
+                onClick={() => onMarkPaid(unpaidLastCycle.deadline)}
+                aria-label={`Record the payment for ${jar.name}'s cycle due ${formatDate(unpaidLastCycle.deadline)}`}
+                className="block text-[11.5px] font-semibold text-slate-500 underline transition hover:text-brand-700 dark:hover:text-brand-200"
+              >
+                Paid it? Record the payment
+              </button>
+            )}
           </span>
           {canManage && (
-            <span className="flex gap-3">
+            <span className="flex flex-wrap justify-end gap-3">
+              {recurring && missed && (
+                <button
+                  type="button"
+                  onClick={onDismiss}
+                  aria-label={`Dismiss ${jar.name}'s missed deadline`}
+                  className="text-[12.5px] font-semibold text-slate-500 transition hover:text-brand-700 dark:hover:text-brand-200"
+                >
+                  Dismiss
+                </button>
+              )}
+              {recurring && (
+                <button
+                  type="button"
+                  onClick={() => onMarkPaid(jar.deadline!)}
+                  aria-label={`Mark ${jar.name} paid`}
+                  className="text-[12.5px] font-semibold text-slate-500 transition hover:text-brand-700 dark:hover:text-brand-200"
+                >
+                  Mark paid
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onMove}

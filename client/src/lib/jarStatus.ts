@@ -3,9 +3,10 @@ import type { JarDto } from '../types'
 import { formatMoney, fromAmount } from './money'
 import { formatDate, monthYear } from './dates'
 
-// Mirrors the server's JarDto.Status (Unavailable | Overspent | Ongoing | Unscheduled |
-// FullyFunded | Behind | OnTrack — see AllotJar.Application/Jars/Dtos/JarDto.cs). Kept here so
-// the Jars page and the dashboard shelf label a jar's state identically.
+// Mirrors the server's JarDto.Status (Unavailable | DeadlineMissed | FundedLate | Overspent |
+// Ongoing | Unscheduled | FullyFunded | Behind | OnTrack — see
+// AllotJar.Application/Jars/Dtos/JarDto.cs). Kept here so the Jars page and the dashboard shelf
+// label a jar's state identically.
 
 export interface JarStatusChip {
   label: string
@@ -13,15 +14,20 @@ export interface JarStatusChip {
 }
 
 /**
- * A chip for the states worth calling out — the ones that need attention (Behind, Overspent,
- * a jar with no usable plan), the one worth celebrating (FullyFunded) and Unavailable (the
- * account's balance can't be calculated, rule 67). Returns null for the quiet defaults
- * (OnTrack, Ongoing), so a healthy jar isn't stamped with a redundant "On track" on every card.
+ * A chip for the states worth calling out — the ones that need attention (a missed deadline
+ * (rule 20) and Funded late (rule 57), Behind, Overspent, a jar with no usable plan), the one
+ * worth celebrating (FullyFunded) and Unavailable (the account's balance can't be calculated,
+ * rule 67). Returns null for the quiet defaults (OnTrack, Ongoing), so a healthy jar isn't
+ * stamped with a redundant "On track" on every card.
  */
 export function jarStatusChip(status: string): JarStatusChip | null {
   switch (status) {
     case 'Unavailable':
       return { label: 'Unavailable', tone: 'neutral' }
+    case 'DeadlineMissed':
+      return { label: 'Deadline missed', tone: 'rose' }
+    case 'FundedLate':
+      return { label: 'Funded late', tone: 'amber' }
     case 'Behind':
       return { label: 'Behind', tone: 'amber' }
     case 'Overspent':
@@ -43,6 +49,12 @@ export function jarStatusChip(status: string): JarStatusChip | null {
 export function jarMonthLabel(jar: JarDto, currency: string): string {
   if (jar.status === 'Unavailable') return 'Balance not available'
   if (jar.status === 'Unscheduled') return 'Add a deadline or a monthly amount to plan contributions'
+  // Rule 20: the missed deadline and what is still short stay in view until the user acts;
+  // rule 57: reached late, the notice stays but nothing is short.
+  if (jar.status === 'DeadlineMissed' && jar.deadline) {
+    return `Deadline ${formatDate(jar.deadline)} missed · ${formatMoney(fromAmount(jar.shortfall ?? 0), currency)} short`
+  }
+  if (jar.status === 'FundedLate' && jar.deadline) return `Funded after the deadline on ${formatDate(jar.deadline)}`
   const planned = fromAmount(jar.plannedThisMonth)
   if (planned <= 0) {
     if (jar.status === 'FullyFunded') {
@@ -61,6 +73,7 @@ export function jarMonthLabel(jar: JarDto, currency: string): string {
  */
 export function jarHorizonLabel(jar: JarDto): string | null {
   if (jar.status === 'Unavailable' || jar.status === 'Unscheduled') return null
+  if (jar.status === 'DeadlineMissed' || jar.status === 'FundedLate') return 'Mark the cycle paid, or dismiss it to save toward the next one'
   if (jar.status === 'Ongoing') return 'Ongoing'
   if (jar.fundingCompletesOn) {
     const due = jar.deadline ? ` · due ${formatDate(jar.deadline)}` : ''
@@ -73,4 +86,30 @@ export function jarHorizonLabel(jar: JarDto): string | null {
   }
   if (jar.deadline) return `Due ${formatDate(jar.deadline)}`
   return null
+}
+
+/**
+ * How a Recurring jar's last cycle ended (W03), in one line: "Last cycle · due 1 Dec 2025 ·
+ * paid 28 Nov 2025 (€550.00)", "… · funded on time", "… · funded late", "… · missed". Null when
+ * no cycle has closed yet, or for a Goal.
+ */
+export function jarLastCycleLabel(jar: JarDto, currency: string): string | null {
+  const cycle = jar.lastCycle
+  if (!cycle || jar.recurMonths === null) return null
+  const due = `Last cycle · due ${formatDate(cycle.deadline)}`
+  switch (cycle.outcome) {
+    case 'Paid': {
+      const paid = cycle.paidOn ? `paid ${formatDate(cycle.paidOn)}` : 'paid'
+      const amount = cycle.paidAmount !== null ? ` (${formatMoney(fromAmount(cycle.paidAmount), currency)})` : ''
+      return `${due} · ${paid}${amount}${cycle.paidOn && !cycle.paidOnTime ? ', after the deadline' : ''}`
+    }
+    case 'Funded':
+      return `${due} · funded on time, payment not recorded`
+    case 'FundedLate':
+      return `${due} · funded late`
+    case 'Missed':
+      return `${due} · missed`
+    default:
+      return due
+  }
 }

@@ -57,7 +57,9 @@ function initialForm(jar: JarDto | null, accounts: AccountDto[]): FormState {
       kind: jar.kind,
       method: jar.accrual === AccrualMethod.FixedMonthly ? AccrualMethod.FixedMonthly : AccrualMethod.TargetByDate,
       target: jar.targetAmount > 0 ? toEditString(fromAmount(jar.targetAmount)) : '',
-      targetDate: jar.targetDate ?? '',
+      // A Recurring jar's "Next due" is its open cycle (W03) — sent back unchanged it keeps the
+      // cycle; a Goal's date is its deadline.
+      targetDate: (jar.kind === JarKind.Recurring ? jar.deadline ?? jar.targetDate : jar.targetDate) ?? '',
       includeDeadlineMonth: jar.includeDeadlineMonth,
       monthly: jar.monthlyContribution !== null && jar.monthlyContribution > 0 ? toEditString(fromAmount(jar.monthlyContribution)) : '',
       recurMonths: jar.recurMonths ?? 12,
@@ -335,8 +337,10 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
               <label htmlFor="jar-type">Type</label>
               <InfoHint label="About jar types">
                 <span className="block font-semibold text-slate-700">Recurring</span>
-                Saves toward a due date, then repeats: when the date passes, it rolls
-                forward a cycle and keeps going (insurance, road tax, holiday).
+                Saves toward a due date, then repeats: mark each cycle paid when the bill
+                is settled and it moves on to the next due date; a cycle that reaches its
+                target rolls on by itself, one that falls short says so until you act
+                (insurance, road tax, holiday).
                 <span className="mt-2 block font-semibold text-slate-700">Goal</span>
                 A one-off savings target — once it&rsquo;s funded, it&rsquo;s done (new kitchen,
                 sofa, wedding) — or an ongoing pot you top up by a fixed amount each month.

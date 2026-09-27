@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Xunit;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Jars.Queries.GetJarSchedule;
 using AllotJar.Application.Tests.TestDoubles;
@@ -106,6 +107,37 @@ public class JarPlannerTests
             .Handle(new CreateBudgetMonthCommand(afterNext.Year, afterNext.Month, CopyFromPrevious: false), CancellationToken.None);
 
         LineFor(db, jar, afterNext).Should().Be(100m);
+    }
+
+    [Fact]
+    public async Task MoneyLeavingTheJarThisMonth_CountsAtOnce_WhileAContribution_NeverShrinksTheMonthsPlan()
+    {
+        // 300 due on the 1st three months out with 150 held entering the month: 50/50/50. A
+        // contribution of 40 today changes nothing (rule 14) — the next month still projects
+        // through the kept plan. A payment of 120 out of the jar today (the bill it was saving
+        // for) is planned from at once: 30 left → 90 this month and next.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, "user-1");
+        var jar = SeedJar(db, account, 300m, Current.AddMonths(3));
+        LedgerFixtures.Allocate(db, "user-1", account.Id, jar.Id, 150m, Current.AddDays(-1));
+        var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
+        var next = Current.AddMonths(1);
+
+        LedgerFixtures.Allocate(db, "user-1", account.Id, jar.Id, 40m, Today);
+        (await handler.Handle(new CreateBudgetMonthCommand(Current.Year, Current.Month, CopyFromPrevious: false), CancellationToken.None))
+            .Categories.Single(c => c.Kind == "Savings").Items.Single().PlannedAmount.Should().Be(50m);
+        var nextMonth = await handler.Handle(new CreateBudgetMonthCommand(next.Year, next.Month, CopyFromPrevious: false), CancellationToken.None);
+        nextMonth.Categories.Single(c => c.Kind == "Savings").Items.Single().PlannedAmount.Should().Be(50m);
+
+        var line = db.BudgetItems.Single(i => i.SavingsId == jar.Id && i.BudgetCategory.BudgetMonth.Month == Current.Month);
+        LedgerFixtures.Expense(db, "user-1", account.Id, 160m, Today, line.Id); // 190 − 160 = 30 left
+        await JarPlanner.ReplantAsync(db, "user-1", jar, Today, 0m, CancellationToken.None);
+        await db.SaveChangesAsync();
+        LineFor(db, jar, Current).Should().Be(90m);
+        LineFor(db, jar, next).Should().Be(90m);
+        (await new GetJarScheduleQueryHandler(db, new CurrentUserStub("user-1"))
+                .Handle(new GetJarScheduleQuery(jar.Id, JarKind.Goal, 300m, Current.AddMonths(3), AccrualMethod.TargetByDate), CancellationToken.None))
+            .Balance.Should().Be(30m);
     }
 
     [Fact]

@@ -60,13 +60,24 @@ public class Jar : BaseEntity
     public bool IncludeDeadlineMonth { get; set; }
 
     /// <summary>
-    /// A Recurring jar's cycle length in months: when its <see cref="TargetDate"/>
-    /// passes, the date rolls forward by this many months and the jar keeps saving
-    /// (see Services.JarSchedule.EffectiveDeadline). Null for
+    /// A Recurring jar's cycle length in months: each closed cycle advances
+    /// <see cref="CycleDeadline"/> by this many months from the anchor <see cref="TargetDate"/>
+    /// (see Services.JarSchedule.NextCycleDeadline). Null for
     /// <see cref="JarKind.Goal"/> jars, which end at their target instead of renewing —
     /// the create/update handlers keep it in lockstep with <see cref="Kind"/>.
     /// </summary>
     public int? RecurMonths { get; set; }
+
+    /// <summary>
+    /// A Recurring jar's open cycle: the concrete deadline it is saving toward right now (W03).
+    /// Starts at <see cref="TargetDate"/> and advances one cycle at a time — automatically when
+    /// the target was held as the deadline arrived (rule 21), or when the user marks the cycle
+    /// paid (rule 83) or dismisses a missed deadline (rule 20); each closed cycle becomes a
+    /// <see cref="JarCycle"/>. A deadline at or before today that was not met is the persistent
+    /// <b>Deadline missed</b> state. Each cycle is stepped from the anchor <see cref="TargetDate"/>
+    /// so the intended day-of-month survives a shorter month (rule 62). Null for Goals.
+    /// </summary>
+    public DateOnly? CycleDeadline { get; set; }
 
     /// <summary>
     /// The account that holds this jar's money (rule 2): every jar has exactly one, chosen at

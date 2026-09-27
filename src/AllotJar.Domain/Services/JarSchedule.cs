@@ -17,7 +17,7 @@ public readonly record struct JarPlannedMonth(int Year, int Month, decimal Plann
 /// </summary>
 /// <param name="Months">The planned months in order. One month for an ongoing jar (every month plans the same fixed amount).</param>
 /// <param name="Remaining">Target − balance, floored at zero; 0 for an ongoing jar.</param>
-/// <param name="Deadline">The deadline the plan works toward, with a Recurring jar's cycle applied. Deadline plans only.</param>
+/// <param name="Deadline">The deadline the plan works toward (a Recurring jar's open cycle). Deadline plans only.</param>
 /// <param name="FundingCompletesOn">The last day of the final planned month — when planned funding is complete (rule 36 distinguishes it from the deadline). Deadline plans with something left to save only.</param>
 /// <param name="EstimatedMonths">Fixed monthly plans with a target: how many monthly contributions are still needed (rule 58, an estimate, never a deadline).</param>
 /// <param name="IsOngoing">A fixed monthly plan with no target (rule 16).</param>
@@ -76,30 +76,35 @@ public static class JarSchedule
         jar.Accrual == AccrualMethod.FixedMonthly && jar.MonthlyContribution is > 0m && jar.TargetAmount <= 0m;
 
     /// <summary>
-    /// The jar's deadline with recurrence applied: a <see cref="JarKind.Recurring"/> jar whose
-    /// date has passed re-arms to the next cycle on or after <paramref name="asOf"/>. This is a
-    /// pure view over the stored <see cref="Jar.TargetDate"/> (the anchor), never persisted: each
-    /// cycle is jumped from the anchor, so the intended day-of-month is kept and a shorter month
-    /// clamps only that occurrence (rule 62). Goal dates never roll: a past-due Goal stays past-due.
-    /// The Deadline-missed lifecycle (rules 20–24, W03) will replace the silent roll.
+    /// The deadline the jar is saving toward: a Recurring jar's open cycle
+    /// (<see cref="Jar.CycleDeadline"/>, falling back to the anchor for a jar never settled),
+    /// a Goal's date. Never rolls on its own (W03): a Recurring deadline that has passed is the
+    /// persistent <b>Deadline missed</b> state until the cycle is closed — automatically when
+    /// the target was held in time (rule 21), or by the user marking it paid (rule 83) or
+    /// dismissing it (rule 20) — which advances the jar to <see cref="NextCycleDeadline"/>.
     /// </summary>
-    public static DateOnly? EffectiveDeadline(Jar jar, DateOnly asOf)
+    public static DateOnly? CurrentDeadline(Jar jar) =>
+        jar.Kind == JarKind.Recurring ? jar.CycleDeadline ?? jar.TargetDate : jar.TargetDate;
+
+    /// <summary>
+    /// The cycle after <paramref name="after"/>: the first deadline stepped whole cycles from
+    /// the anchor <see cref="Jar.TargetDate"/> that falls after it. Stepping from the anchor keeps
+    /// the intended day-of-month, so a shorter month clamps only that occurrence (rule 62:
+    /// 31 January → 28 February → 31 March). Null for a jar with no date.
+    /// </summary>
+    public static DateOnly? NextCycleDeadline(Jar jar, DateOnly after)
     {
         if (jar.TargetDate is not { } anchor)
         {
             return null;
         }
 
-        if (jar.Kind != JarKind.Recurring || jar.RecurMonths is not { } step || step < 1 || anchor >= asOf)
-        {
-            return anchor;
-        }
-
+        var step = jar.RecurMonths is > 0 ? jar.RecurMonths.Value : 12;
         // Closed-form: land near the boundary in one jump from the anchor, then nudge
         // the ≤1 cycle the whole-month estimate can be short (it ignores day-of-month).
-        var cycles = MonthsBetween(anchor, asOf) / step;
+        var cycles = Math.Max(0, MonthsBetween(anchor, after) / step);
         var next = anchor.AddMonths(cycles * step);
-        while (next < asOf)
+        while (next <= after)
         {
             next = anchor.AddMonths(++cycles * step);
         }
@@ -132,16 +137,16 @@ public static class JarSchedule
 
         var from = new DateOnly(asOf.Year, asOf.Month, 1);
         return jar.Accrual == AccrualMethod.TargetByDate
-            ? PlanByDeadline(jar, asOf, from, balance)
+            ? PlanByDeadline(jar, from, balance)
             : PlanFixedMonthly(jar, from, balance);
     }
 
     /// <summary>What <paramref name="month"/> plans, given the balance entering it; 0 when nothing is planned.</summary>
     public static decimal PlannedFor(Jar jar, DateOnly month, decimal balance) => Plan(jar, month, balance).First;
 
-    private static JarPlan PlanByDeadline(Jar jar, DateOnly asOf, DateOnly from, decimal balance)
+    private static JarPlan PlanByDeadline(Jar jar, DateOnly from, decimal balance)
     {
-        var deadline = EffectiveDeadline(jar, asOf)!.Value;
+        var deadline = CurrentDeadline(jar)!.Value;
         var remaining = Math.Max(0m, jar.TargetAmount - balance);
         if (remaining == 0m)
         {
@@ -149,8 +154,9 @@ public static class JarSchedule
         }
 
         // Months from the planning month to the completion month, inclusive. A deadline that is
-        // already this month (or has passed, for a Goal) leaves no spread: the whole remainder is
-        // due now — the recalculation of rule 13 with no months left.
+        // already this month, or has passed (a Goal past its date, or a Recurring cycle in its
+        // Deadline-missed state), leaves no spread: the whole remainder is due now — the
+        // recalculation of rule 13 with no months left, and the overdue amount stays visible.
         var count = MonthsBetween(from, FundingCompletionMonth(jar, deadline)) + 1;
         if (count < 1)
         {

@@ -35,6 +35,10 @@ public class UpdateJarCommandHandler
         }
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        // A funded cycle whose deadline has arrived rolls forward before the edit is compared
+        // (rule 21), so an edit never re-plants toward a cycle that is already over.
+        await JarCycles.SettleAsync(_db, userId, today, cancellationToken, jar.Id);
+
         if (request.FundingAccountId != jar.FundingAccountId)
         {
             // Rule 80: the account can change only while the jar holds nothing; a field change
@@ -57,10 +61,14 @@ public class UpdateJarCommandHandler
         }
 
         var before = ScheduleInputs(jar);
+        // A Recurring jar's form shows its open cycle's date: sent back unchanged it keeps the
+        // anchor and the cycle; any other date is a deliberate change and restarts both (W03).
+        var (anchor, cycleDeadline) = JarCycles.DeadlinesFor(jar, request.Kind, request.TargetDate);
         jar.Name = request.Name.Trim();
         jar.Kind = request.Kind;
         jar.TargetAmount = request.TargetAmount;
-        jar.TargetDate = request.TargetDate;
+        jar.TargetDate = anchor;
+        jar.CycleDeadline = cycleDeadline;
         jar.Accrual = request.Accrual;
         jar.MonthlyContribution = request.Accrual == AccrualMethod.FixedMonthly ? request.MonthlyContribution : null;
         jar.IncludeDeadlineMonth = request.Accrual == AccrualMethod.TargetByDate && request.IncludeDeadlineMonth;
@@ -85,6 +93,6 @@ public class UpdateJarCommandHandler
         return await JarFigures.ReadOneAsync(_db, userId, jar, today, cancellationToken);
     }
 
-    private static (JarKind, decimal, DateOnly?, AccrualMethod, decimal?, bool, int?) ScheduleInputs(Domain.Entities.Jar jar) =>
-        (jar.Kind, jar.TargetAmount, jar.TargetDate, jar.Accrual, jar.MonthlyContribution, jar.IncludeDeadlineMonth, jar.RecurMonths);
+    private static (JarKind, decimal, DateOnly?, DateOnly?, AccrualMethod, decimal?, bool, int?) ScheduleInputs(Domain.Entities.Jar jar) =>
+        (jar.Kind, jar.TargetAmount, jar.TargetDate, jar.CycleDeadline, jar.Accrual, jar.MonthlyContribution, jar.IncludeDeadlineMonth, jar.RecurMonths);
 }

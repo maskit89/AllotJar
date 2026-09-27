@@ -250,35 +250,36 @@
 - **Steps:**
   1. View the jar on `/jars`; read its status chip and monthly set-aside.
 - **Expected:**
-  - Goal dates never roll, so `JarSchedule.EffectiveDeadline` = 2026-03-15 < asOf → **Behind** status chip; the horizon reads "Due 15 Mar 2026".
+  - Goal dates never roll, so `JarSchedule.CurrentDeadline` = 2026-03-15 < asOf → **Behind** status chip; the horizon reads "Due 15 Mar 2026".
   - A passed (or this-month) deadline plans the whole remainder now: 900 − 300 = **600.00** in July, one month, never zero (rule 12 floor; HANDOVER P24). The month line reads "Plan €600.00 · in €0.00 · to go €600.00".
   - A funded past-due Goal (balance ≥ target) plans nothing and reads Funded, never Behind (FullyFunded precedes Behind).
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/JarLifecycleTests.cs — past-due Goal stays Behind; Domain/JarScheduleTests.cs — `ADeadlineThisMonth_OrPassed_DemandsTheWholeRemainderNow`, `AFundedDeadlineJar_PlansNothing`)
 
-### TIME-019 - A Recurring jar with a passed anchor re-arms to the next cycle across the year, preserving the day-of-month
+### TIME-019 - A Recurring jar whose cycle was funded at its deadline advances to the next cycle across the year, preserving the day-of-month; a short one does not
 - **Priority:** P0
 - **Type:** Regression
-- **Origin:** PR #141–#146 / jar recurrence is a pure view — the stored anchor is NEVER rewritten
-- **Preconditions:** time-owner; Insurance jar (Recurring, RecurMonths 12, anchor `TargetDate` 2025-12-15, target 600.00), asOf 2026-07-15.
+- **Origin:** PR #141–#146 made recurrence a pure view (the stored anchor is NEVER rewritten); W03 replaced the silent roll with a persisted open cycle (`Jar.CycleDeadline`) that advances only when the cycle was funded, marked paid or dismissed (rules 20, 21).
+- **Preconditions:** time-owner; Insurance jar (Recurring, RecurMonths 12, anchor `TargetDate` 2025-12-15, target 600.00) that held 600.00 on 14 Dec 2025; asOf 2026-07-15. A second Insurance jar that held 450.00.
 - **Steps:**
-  1. View Insurance on `/jars`; read the projected-full date in the pace label.
+  1. View Insurance on `/jars`; read the horizon and *Last cycle* lines.
   2. Open the Edit-jar modal and read the **"Next due"** date field.
+  3. View the second jar.
 - **Expected:**
-  - `JarSchedule.EffectiveDeadline` jumps whole 12-month cycles from the anchor: cycles = `MonthsBetween(2025-12,2026-07)/12` = 0 → 2025-12-15 < asOf → +1 cycle → **2026-12-15** (≥ asOf) — day 15 preserved, no compounding drift; the schedule splits the remainder exactly over Jul→Nov (the deadline month is excluded unless opted in, rule 36) and the card reads "Funded by Nov 2026 · due 15 Dec 2026, then it repeats".
-  - The Edit modal shows the **stored anchor 2025-12-15** (the DTO returns the anchor so edits round-trip), NOT the rolled 2026-12-15 — the roll is view-only.
-  - A healthy past-due Recurring jar reads OnTrack (it re-arms), unlike the Goal in TIME-018.
-- **Automated:** Yes (tests/AllotJar.Application.Tests/Domain/JarScheduleTests.cs — `ARecurringJar_PlansTowardItsNextCycle_OnceTheDateHasPassed`, `Rule62_AShorterMonth_ClampsOnlyThatOccurrence_AndKeepsTheIntendedDay`, `EffectiveDeadline_DueToday_DoesNotRoll_ButALaterDayThisMonth_Does`; JarsPage.catalog.test.tsx JAR-037 — the Edit modal shows the stored anchor)
+  - On the first read after the deadline the cycle due 2025-12-15 settles as **Funded** (balance 600.00 at the end of 14 Dec) and the open cycle becomes `JarSchedule.NextCycleDeadline` — stepped in whole 12-month cycles from the anchor: **2026-12-15**, day 15 preserved, no compounding drift; the schedule splits the remainder exactly over Jul→Nov (the deadline month is excluded unless opted in, rule 36) and the card reads "Funded by Nov 2026 · due 15 Dec 2026, then it repeats" with "Last cycle · due 15 Dec 2025 · funded on time, payment not recorded". No money moved.
+  - The Edit modal shows the **open cycle 2026-12-15** (the DTO's `deadline`); saving it back unchanged keeps the anchor 2025-12-15 and the cycle (HANDOVER P38); the stored anchor is never rewritten by settlement.
+  - The second jar does **not** advance: its deadline stays 2025-12-15, status **Deadline missed**, "Deadline 15 Dec 2025 missed · €150.00 short", the whole 150.00 planned in July, until the user marks the cycle paid or dismisses it (JAR-088–091).
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Domain/JarScheduleTests.cs — `ARecurringJar_PlansTowardItsOpenCycle_NotTheAnchor`, `Rule20_AMissedRecurringCycle_NeverRollsOnItsOwn_AndPlansTheShortfallNow`, `NextCycleDeadline_IsStrictlyAfterTheDateGiven_AndJumpsSeveralUnseenCycles`; Application/JarCycleTests.cs — `Rule21_ACycleHeldInFull_WhenItsDeadlineArrives_RollsForward_AndMovesNoMoney`, `Rule20_ACycleShortAtItsDeadline_ReadsDeadlineMissed_WithTheShortfall_AndStaysThatWay`, `Update_EchoingTheOpenCyclesDate_KeepsTheCycle_AndANewDateRestartsIt`; JarsPage.catalog.test.tsx JAR-037 — the Edit modal shows the open cycle's date)
 
-### TIME-020 - A quarterly Recurring jar anchored on the 31st rolls to month-end without permanent drift
+### TIME-020 - A quarterly Recurring jar anchored on the 31st steps to month-end without permanent drift
 - **Priority:** P2
 - **Type:** Boundary
-- **Preconditions:** time-owner; Boiler Service jar (Recurring, RecurMonths 3, anchor 2026-01-31, target 300.00), asOf 2026-07-15.
+- **Preconditions:** time-owner; Boiler Service jar (Recurring, RecurMonths 3, anchor 2026-01-31, target 300.00) funded before each deadline, asOf 2026-07-15.
 - **Steps:**
-  1. Read the jar's effective due date / projected-full month.
+  1. Read the jar's due date / projected-full month.
 - **Expected:**
-  - Each roll is `anchor.AddMonths(cycles × 3)` from the fixed anchor, so cycles = `MonthsBetween(2026-01,2026-07)/3` = 2 → 2026-01-31.AddMonths(6) = **2026-07-31** (≥ asOf, valid 31-day month).
-  - Because rolls always start from the anchor (not the previous roll), a step into a short month clamps to that month's end (e.g. a step landing in a 30-day month yields the 30th) but the anchor's 31 is never lost — the next long month renders 31 again. No cumulative drift toward the 28th.
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/JarLifecycleTests.cs — rolls across multiple missed cycles, month-end day preserved across rolls)
+  - Each funded cycle advances to `anchor.AddMonths(k × 3)`, the first strictly after the closed deadline, from the fixed anchor: 2026-01-31 → 2026-04-30 (clamped) → **2026-07-31** (≥ asOf, valid 31-day month), one closed Funded row per cycle.
+  - Because every step starts from the anchor (not the previous cycle), a step into a short month clamps to that month's end (a 30-day month yields the 30th) but the anchor's 31 is never lost — the next long month renders 31 again. No cumulative drift toward the 28th.
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Domain/JarScheduleTests.cs — `Rule62_TheNextCycle_IsSteppedFromTheAnchor_SoAShorterMonthClampsOnlyThatOccurrence`; Application/JarCycleTests.cs — `Rule62_ClosedCycles_StepFromTheAnchor_SoAMonthEndDeadlineKeepsItsDay`, `Rule21_SeveralFundedCyclesPassedUnseen_EachRollsForward_InOrder`)
 
 ### TIME-021 - The current-month boundary (jars shelf, checklist) can disagree with the server's UTC "current" near midnight
 - **Priority:** P2
