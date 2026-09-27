@@ -11,14 +11,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import type { AccountDto, HouseholdMemberDto, MembershipDto } from '../types'
+import type { AccountDto, HouseholdMemberDto, MemberIncomeResultDto, MemberSpendingDto, MembershipDto } from '../types'
 import { formatMoney, fromAmount } from '../lib/money'
 
-const { mockGet, mockPost, mockPut, mockDelete } = vi.hoisted(() => ({
+const { mockGet, mockPost, mockPut, mockDelete, monthState } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockPost: vi.fn(),
   mockPut: vi.fn(),
   mockDelete: vi.fn(),
+  // The app-wide selected month the page reads (rule 29). Mutable so a case can move it and
+  // rerender; reset to July 2026 in beforeEach.
+  monthState: { year: 2026, month: 7, label: 'July 2026', goPrev: () => {}, goNext: () => {}, goToMonth: () => {} },
+}))
+
+// The selected month comes from MonthContext; pin it so the assertions are clock-independent.
+vi.mock('../features/MonthContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../features/MonthContext')>()),
+  useMonth: () => monthState,
 }))
 
 vi.mock('../lib/api', async (importOriginal) => ({
@@ -39,6 +48,9 @@ function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
     id: 'm1',
     name: 'Alex',
     netMonthlyIncome: 3000,
+    // The month's budget figure (rule 28); equal to the default unless a case says otherwise.
+    budgetIncome: 3000,
+    hasBudget: true,
     personalSavingsAccountId: null,
     displayOrder: 0,
     isArchived: false,
@@ -80,13 +92,22 @@ let membersData: HouseholdMemberDto[] = []
 let membershipsData: MembershipDto[] = []
 let accountsData: AccountDto[] = []
 let meData: Record<string, unknown> = {} // /auth/me — {} keeps the default Owner role.
+let spendingData: MemberSpendingDto[] = []
+let incomeData: MemberIncomeResultDto | null = null
 
 function setupGet() {
   mockGet.mockImplementation((url: string) => {
-    if (url === '/members') return Promise.resolve({ data: membersData })
+    // Month-scoped reads carry the selected month (rule 29); the bare /members is the
+    // HouseholdProvider's own read.
+    if (url === `/members?year=${monthState.year}&month=${monthState.month}` || url === '/members') {
+      return Promise.resolve({ data: membersData })
+    }
     if (url === '/access/members') return Promise.resolve({ data: membershipsData })
     if (url === '/accounts') return Promise.resolve({ data: accountsData })
-    if (url === '/members/spending') return Promise.resolve({ data: [] })
+    if (url === `/members/spending/${monthState.year}/${monthState.month}`) return Promise.resolve({ data: spendingData })
+    if (url === `/members/income/${monthState.year}/${monthState.month}`) {
+      return incomeData ? Promise.resolve({ data: incomeData }) : Promise.reject(new Error('404'))
+    }
     if (url === '/auth/me') return Promise.resolve({ data: meData })
     return Promise.resolve({ data: {} }) // TopBar / everything else — tolerated as empty
   })
@@ -129,23 +150,33 @@ describe('PeoplePage — catalog (PPL)', () => {
     membershipsData = []
     accountsData = []
     meData = {}
+    spendingData = []
+    incomeData = null
+    monthState.year = 2026
+    monthState.month = 7
+    monthState.label = 'July 2026'
     setupGet()
   })
 
-  // PPL-001 — hero combined income, per-row share, and the "You" sub-label on the linked login.
-  it('PPL-001: hero sums combined income and rows show share + the "You" sub-label', { timeout: 15000 }, async () => {
+  // PPL-001 (rewritten for rule 28) — the hero is the month's BUDGET income (each member's
+  // budgetIncome), never the saved defaults; rows show the budget-based share and the "You" sub-label.
+  it('PPL-001: hero sums the month\'s budget income (not the defaults) and rows show share + "You"', { timeout: 15000 }, async () => {
     membersData = [
-      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, incomeSharePct: 0.75 }),
-      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 }),
+      // Defaults 9,000 + 9,000 would read €18,000.00 — the hero must show the budget's 4,000.
+      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 9000, budgetIncome: 3000, incomeSharePct: 0.75 }),
+      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 9000, budgetIncome: 1000, incomeSharePct: 0.25 }),
     ]
     membershipsData = [membership()] // Alex is the current login (isSelf), linked to m1
 
     renderPage()
 
     await screen.findByRole('table', {}, { timeout: 5000 })
-    const combined = formatMoney(fromAmount(3000) + fromAmount(1000), 'EUR')
-    expect(combined).toBe('€4,000.00')
-    expect(screen.getByText('€4,000.00')).toBeInTheDocument()
+    const budgeted = formatMoney(fromAmount(3000) + fromAmount(1000), 'EUR')
+    expect(budgeted).toBe('€4,000.00')
+    expect(screen.getByText('Income this month')).toBeInTheDocument()
+    expect(screen.getByLabelText(/^Income this month:/)).toHaveTextContent('€4,000.00')
+    expect(screen.queryByText('€18,000.00')).not.toBeInTheDocument()
+    expect(screen.queryByText('Combined income')).not.toBeInTheDocument()
     expect(screen.getByText('75%')).toBeInTheDocument()
     expect(screen.getByText('25%')).toBeInTheDocument()
     expect(screen.getByText('You')).toBeInTheDocument()
@@ -154,8 +185,8 @@ describe('PeoplePage — catalog (PPL)', () => {
   // PPL-073 — every active member income 0: combined €0.00, all shares 0% (no divide-by-zero / NaN).
   it('PPL-073: all-zero incomes render €0.00 combined and 0% shares (no NaN)', { timeout: 15000 }, async () => {
     membersData = [
-      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 0, incomeSharePct: 0 }),
-      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 0, incomeSharePct: 0 }),
+      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 0, budgetIncome: 0, incomeSharePct: 0 }),
+      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 0, budgetIncome: 0, incomeSharePct: 0 }),
     ]
 
     renderPage()
@@ -177,7 +208,7 @@ describe('PeoplePage — catalog (PPL)', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Add person' }, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.type(dialog.getByLabelText('Net monthly income'), '100')
+    await user.type(dialog.getByLabelText('Default income'), '100')
     await user.click(dialog.getByRole('button', { name: 'Add person' }))
 
     expect(await dialog.findByText('Give the person a name.', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -210,7 +241,7 @@ describe('PeoplePage — catalog (PPL)', () => {
     await user.click(await screen.findByRole('button', { name: 'Add person' }, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.type(dialog.getByLabelText('Person name'), 'Sam')
-    const incomeInput = dialog.getByLabelText('Net monthly income')
+    const incomeInput = dialog.getByLabelText('Default income')
 
     for (const bad of ['abc', '-5', '1.2.3']) {
       await user.clear(incomeInput)
@@ -256,7 +287,7 @@ describe('PeoplePage — catalog (PPL)', () => {
     await user.click(await screen.findByRole('button', { name: 'Add person' }, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.type(dialog.getByLabelText('Person name'), 'Sam')
-    await user.type(dialog.getByLabelText('Net monthly income'), '500')
+    await user.type(dialog.getByLabelText('Default income'), '500')
     await user.selectOptions(dialog.getByLabelText('Savings account'), 'a1')
     await user.click(dialog.getByRole('button', { name: 'Add person' }))
 
@@ -301,7 +332,7 @@ describe('PeoplePage — catalog (PPL)', () => {
 
   // PPL-018 — inline edit rewrites name/income/savings via PUT /members/{id} with the new values.
   it('PPL-018: inline edit saves name, income and savings account via PUT', { timeout: 15000 }, async () => {
-    membersData = [member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 })]
+    membersData = [member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, budgetIncome: 1000, incomeSharePct: 0.25 })]
     accountsData = [account({ id: 'a1', name: 'Joint' })]
     mockPut.mockResolvedValue({ data: member({ id: 'm2', name: 'Sam M' }) })
     const user = userEvent.setup()
@@ -312,7 +343,7 @@ describe('PeoplePage — catalog (PPL)', () => {
     await user.click(screen.getByRole('button', { name: 'Edit Sam' }))
 
     const nameInput = screen.getByLabelText('Name for Sam')
-    const incomeInput = screen.getByLabelText('Net monthly income for Sam')
+    const incomeInput = screen.getByLabelText('Default income for Sam')
     await user.clear(nameInput)
     await user.type(nameInput, 'Sam M')
     await user.clear(incomeInput)
@@ -337,7 +368,7 @@ describe('PeoplePage — catalog (PPL)', () => {
 
   // PPL-019 — Cancel leaves display mode with the original values and sends no PUT.
   it('PPL-019: cancelling an inline edit discards changes and does not PUT', { timeout: 15000 }, async () => {
-    membersData = [member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 })]
+    membersData = [member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, budgetIncome: 1000, incomeSharePct: 0.25 })]
     const user = userEvent.setup()
 
     renderPage()
@@ -356,7 +387,7 @@ describe('PeoplePage — catalog (PPL)', () => {
 
   // PPL-020 — inline edit validation mirrors add: empty name, then bad income; no PUT until valid.
   it('PPL-020: inline edit validation rejects empty name then bad income without PUT', { timeout: 15000 }, async () => {
-    membersData = [member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 })]
+    membersData = [member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, budgetIncome: 1000, incomeSharePct: 0.25 })]
     const user = userEvent.setup()
 
     renderPage()
@@ -370,7 +401,7 @@ describe('PeoplePage — catalog (PPL)', () => {
     expect(await screen.findByText('Give the person a name.', {}, { timeout: 5000 })).toBeInTheDocument()
 
     await user.type(nameInput, 'Sam')
-    const incomeInput = screen.getByLabelText('Net monthly income for Sam')
+    const incomeInput = screen.getByLabelText('Default income for Sam')
     await user.clear(incomeInput)
     await user.type(incomeInput, 'abc')
     await user.click(screen.getByRole('button', { name: 'Save Sam' }))
@@ -380,16 +411,16 @@ describe('PeoplePage — catalog (PPL)', () => {
   })
 
   // PPL-022 / PPL-023 — a single "✕" click archives immediately (no confirm dialog); the row leaves
-  // the table and the combined-income hero recomputes on reload. (Transaction-persistence half of
+  // the table and the month-income hero recomputes on reload. (Transaction-persistence half of
   // PPL-023 is backend-only — see the deferred note.)
   it('PPL-022/PPL-023: archiving fires PUT {archived:true} on one click and removes the row', { timeout: 15000 }, async () => {
     membersData = [
-      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, incomeSharePct: 0.75 }),
-      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 }),
+      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, budgetIncome: 3000, incomeSharePct: 0.75 }),
+      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, budgetIncome: 1000, incomeSharePct: 0.25 }),
     ]
     mockPut.mockImplementation((url: string) => {
       if (url === '/members/m2/archive') {
-        membersData = [member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, incomeSharePct: 1 })]
+        membersData = [member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, budgetIncome: 3000, incomeSharePct: 1 })]
         return Promise.resolve({ data: {} })
       }
       return Promise.resolve({ data: {} })
@@ -434,7 +465,7 @@ describe('PeoplePage — catalog (PPL)', () => {
   it('PPL-034/PPL-037: linked member shows role select + Remove; owner shows a Badge only', { timeout: 15000 }, async () => {
     membersData = [
       member({ id: 'm1', name: 'Alex' }),
-      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 }),
+      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, budgetIncome: 1000, incomeSharePct: 0.25 }),
     ]
     membershipsData = [
       membership(), // Alex: owner + self
@@ -636,12 +667,12 @@ describe('PeoplePage — catalog (PPL)', () => {
   // PPL-030 — adding a 2nd member calls refreshHousehold(); isShared flips true live and the
   // "Allocation" nav item appears without a manual reload.
   it('PPL-030: adding a 2nd member flips solo→shared live (Allocation nav appears)', { timeout: 15000 }, async () => {
-    membersData = [member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, incomeSharePct: 1 })]
+    membersData = [member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, budgetIncome: 3000, incomeSharePct: 1 })]
     mockPost.mockImplementation((url: string) => {
       if (url === '/members') {
         membersData = [
-          member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, incomeSharePct: 0.75 }),
-          member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 }),
+          member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, budgetIncome: 3000, incomeSharePct: 0.75 }),
+          member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, budgetIncome: 1000, incomeSharePct: 0.25 }),
         ]
         return Promise.resolve({ data: membersData[1] })
       }
@@ -658,7 +689,7 @@ describe('PeoplePage — catalog (PPL)', () => {
     await user.click(screen.getByRole('button', { name: 'Add person' }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.type(dialog.getByLabelText('Person name'), 'Sam')
-    await user.type(dialog.getByLabelText('Net monthly income'), '1000')
+    await user.type(dialog.getByLabelText('Default income'), '1000')
     await user.click(dialog.getByRole('button', { name: 'Add person' }))
 
     // Shared: refreshHousehold() re-fetched /members (now 2) → Allocation appears.
@@ -671,12 +702,12 @@ describe('PeoplePage — catalog (PPL)', () => {
   // PPL-031 — archiving back down to 1 member flips isShared false live and hides "Allocation".
   it('PPL-031: archiving back to 1 member flips shared→solo live (Allocation nav disappears)', { timeout: 15000 }, async () => {
     membersData = [
-      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, incomeSharePct: 0.75 }),
-      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, incomeSharePct: 0.25 }),
+      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, budgetIncome: 3000, incomeSharePct: 0.75 }),
+      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, budgetIncome: 1000, incomeSharePct: 0.25 }),
     ]
     mockPut.mockImplementation((url: string) => {
       if (url === '/members/m2/archive') {
-        membersData = [member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, incomeSharePct: 1 })]
+        membersData = [member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, budgetIncome: 3000, incomeSharePct: 1 })]
         return Promise.resolve({ data: {} })
       }
       return Promise.resolve({ data: {} })
@@ -698,51 +729,156 @@ describe('PeoplePage — catalog (PPL)', () => {
     await waitFor(() => expect(screen.queryAllByRole('link', { name: 'Allocation' })).toHaveLength(0), { timeout: 5000 })
   })
 
-  // ---- Derived income (budget-attributed) ------------------------------------
+  // ---- Month income from the budget (rule 28) --------------------------------
 
-  it('PPL-078: budget-attributed income drives the hero and the income column', async () => {
+  // PPL-078 (rewritten) — the per-person `income` from /members/income drives the hero and the
+  // Income column; the saved default is only a sub-line, shown when it differs.
+  it('PPL-078: the month payload\'s per-person income drives the hero and the income column', async () => {
     membersData = [
-      member(),
-      { ...member(), id: 'm2', name: 'Sam', netMonthlyIncome: 2000 },
+      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, budgetIncome: 3250, incomeSharePct: 0.61 }),
+      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 2050, budgetIncome: 2050, incomeSharePct: 0.39 }),
     ]
-    setupGet()
-    mockGet.mockImplementation((url: string) => {
-      if (url === '/members') return Promise.resolve({ data: membersData })
-      if (url === '/access/members') return Promise.resolve({ data: membershipsData })
-      if (url === '/accounts') return Promise.resolve({ data: accountsData })
-      if (url === '/members/spending') return Promise.resolve({ data: [] })
-      if (url.startsWith('/members/income/')) {
-        return Promise.resolve({
-          data: {
-            incomeFromBudget: true,
-            unattributedPlanned: 100,
-            items: [
-              { memberId: 'm1', name: 'Alex', planned: 3200, received: 1500 },
-              { memberId: 'm2', name: 'Sam', planned: 2000, received: 0 },
-            ],
-          },
-        })
-      }
-      return Promise.resolve({ data: {} })
-    })
+    incomeData = {
+      incomeFromBudget: true,
+      hasBudget: true,
+      fxPendingCount: 0,
+      unattributedPlanned: 100,
+      items: [
+        { memberId: 'm1', name: 'Alex', planned: 3200, received: 1500, income: 3250, sharePct: 0.61 },
+        { memberId: 'm2', name: 'Sam', planned: 2000, received: 0, income: 2050, sharePct: 0.39 },
+      ],
+    }
 
     renderPage()
 
-    // Hero: this month's budgeted income (3,200 + 2,000 + 100 unattributed).
+    // Hero: this month's budgeted income (3,250 + 2,050 — the unattributed 100 already shared out).
     expect(await screen.findByText('Income this month', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByLabelText(/^Income this month:/)).toHaveTextContent('5,300.00')
-    // Alex's cell shows the derived figure with the static default as a sub-line.
-    expect(screen.getByText('€3,200.00')).toBeInTheDocument()
+    // Alex's cell shows the month figure with the saved default as a sub-line; Sam's default matches → no sub-line.
+    expect(screen.getByText('€3,250.00')).toBeInTheDocument()
+    expect(screen.getByText(/default\s+€3,000\.00/)).toBeInTheDocument()
+    expect(screen.queryByText(/default\s+€2,050\.00/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Combined income')).not.toBeInTheDocument()
+  })
+
+  // PPL-079 (rewritten for rule 28) — a month with no budget has NO income: the hero reads €0.00
+  // under the same label with a "no budget yet" note, and the saved defaults never stand in.
+  it('PPL-079: a month without a budget shows €0.00 income and a "No budget for July 2026 yet" note', async () => {
+    membersData = [
+      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 3000, budgetIncome: 0, hasBudget: false, incomeSharePct: 0 }),
+      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, budgetIncome: 0, hasBudget: false, incomeSharePct: 0 }),
+    ]
+    incomeData = { incomeFromBudget: true, hasBudget: false, fxPendingCount: 0, unattributedPlanned: 0, items: [] }
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    expect(screen.getByText('Income this month')).toBeInTheDocument()
+    expect(screen.getByLabelText(/^Income this month:/)).toHaveTextContent('€0.00')
+    expect(screen.queryByText('Combined income')).not.toBeInTheDocument()
+    expect(screen.queryByText('€4,000.00')).not.toBeInTheDocument()
+    expect(screen.getByText(/No budget for July 2026 yet/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open the Budget' })).toBeInTheDocument()
+    // The defaults still show as the sub-line, so the user knows what a new budget would start from.
     expect(screen.getByText(/default\s+€3,000\.00/)).toBeInTheDocument()
   })
 
-  it('PPL-079: without attributed income the page keeps the static figures and label', async () => {
-    setupGet() // default mock: /members/income falls through to {} → treated as absent
+  // PPL-080 — every month-scoped read names the selected month, and moving the month reloads.
+  it('PPL-080: requests the selected month and reloads when the month changes', async () => {
+    membersData = [member()]
+
+    const view = renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    let urls = mockGet.mock.calls.map((c) => c[0] as string)
+    expect(urls).toContain('/members?year=2026&month=7')
+    expect(urls).toContain('/members/income/2026/7')
+    expect(urls).toContain('/members/spending/2026/7')
+    expect(urls).not.toContain('/members/spending')
+
+    // The top bar moves to August: the page re-reads everything for August.
+    monthState.year = 2026
+    monthState.month = 8
+    monthState.label = 'August 2026'
+    view.rerender(
+      <MemoryRouter>
+        <AuthProvider>
+          <PeoplePage />
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      urls = mockGet.mock.calls.map((c) => c[0] as string)
+      expect(urls).toContain('/members?year=2026&month=8')
+      expect(urls).toContain('/members/income/2026/8')
+      expect(urls).toContain('/members/spending/2026/8')
+    }, { timeout: 5000 })
+  })
+
+  // PPL-081 — the Share column is the month payload's incomeSharePct, not a ratio of the defaults.
+  it('PPL-081: shares come from the month payload, not from the saved defaults', async () => {
+    membersData = [
+      // Equal defaults would be 50/50; the month's budget gives Alex 80%.
+      member({ id: 'm1', name: 'Alex', netMonthlyIncome: 2000, budgetIncome: 4000, incomeSharePct: 0.8 }),
+      member({ id: 'm2', name: 'Sam', netMonthlyIncome: 2000, budgetIncome: 1000, incomeSharePct: 0.2 }),
+    ]
 
     renderPage()
 
-    expect(await screen.findByText('Combined income', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.queryByText('Income this month')).not.toBeInTheDocument()
-    expect(screen.queryByText(/default\s+€/)).not.toBeInTheDocument()
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    expect(screen.getByText('80%')).toBeInTheDocument()
+    expect(screen.getByText('20%')).toBeInTheDocument()
+    expect(screen.queryByText('50%')).not.toBeInTheDocument()
+  })
+
+  // PPL-082 — rows awaiting an exchange rate are not counted, and the page says so: a "+N pending
+  // rate" hint on the member's Spent cell, and one under the hero for the income result.
+  it('PPL-082: FX-pending spending and income rows show a "+N pending rate" hint', async () => {
+    membersData = [member({ id: 'm1', name: 'Alex' }), member({ id: 'm2', name: 'Sam', incomeSharePct: 0.5 })]
+    spendingData = [
+      { memberId: 'm1', name: 'Alex', spent: 120, fxPendingCount: 2 },
+      { memberId: 'm2', name: 'Sam', spent: 80, fxPendingCount: 0 },
+    ]
+    incomeData = {
+      incomeFromBudget: true,
+      hasBudget: true,
+      fxPendingCount: 1,
+      unattributedPlanned: 0,
+      items: [
+        { memberId: 'm1', name: 'Alex', planned: 3000, received: 0, income: 3000, sharePct: 0.5 },
+        { memberId: 'm2', name: 'Sam', planned: 3000, received: 0, income: 3000, sharePct: 0.5 },
+      ],
+    }
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    expect(screen.getByText('€120.00')).toBeInTheDocument()
+    expect(screen.getByText('+2 pending rate')).toBeInTheDocument()
+    expect(screen.getByText(/\+1 income row pending rate/)).toBeInTheDocument()
+    // Sam has nothing pending → exactly one row hint on the page.
+    expect(screen.getAllByText(/^\+\d+ pending rate$/)).toHaveLength(1)
+  })
+
+  // PPL-083 — the add-person and inline income fields are the DEFAULT income, labelled and hinted
+  // as such (rule 28: a helper for a new budget, never a figure the month calculates with).
+  it('PPL-083: income fields are labelled as the default income with the new-budget hint', async () => {
+    membersData = [member({ id: 'm2', name: 'Sam', netMonthlyIncome: 1000, budgetIncome: 1000, incomeSharePct: 1 })]
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    await user.click(screen.getByRole('button', { name: 'Edit Sam' }))
+    expect(screen.getByLabelText('Default income for Sam')).toHaveValue('1000')
+    expect(screen.queryByLabelText('Net monthly income for Sam')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancel edit' }))
+
+    await user.click(screen.getByRole('button', { name: 'Add person' }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByLabelText('Default income')).toBeInTheDocument()
+    expect(dialog.queryByLabelText('Net monthly income')).not.toBeInTheDocument()
+    expect(dialog.getByText(/A starting figure for a new month’s budget\. Calculations use the income lines in the month’s budget\./)).toBeInTheDocument()
   })
 })
