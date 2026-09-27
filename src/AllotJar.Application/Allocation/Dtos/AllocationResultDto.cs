@@ -23,14 +23,13 @@ public class AllocationResultDto
     public int TransfersRetained { get; set; }
 
     /// <summary>
-    /// True when the pool came from the month's budgeted income lines (at least one line is
-    /// attributed to a person); false = the static People-page incomes fallback.
+    /// Always true since rule 28: the pool is the month's budgeted income lines and nothing
+    /// else. Kept so older clients and fixtures keep their shape.
     /// </summary>
     public bool IncomeFromBudget { get; set; }
 
     /// <summary>
-    /// Budgeted income not attributed to any active person, shared equally across members
-    /// when <see cref="IncomeFromBudget"/> is true (0 otherwise).
+    /// Budgeted income not attributed to any active person, shared equally across members.
     /// </summary>
     public decimal UnattributedIncome { get; set; }
 }

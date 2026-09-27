@@ -36,10 +36,6 @@ public class ArchiveHouseholdMemberCommandHandler
         member.IsArchived = request.Archived;
         await _db.SaveChangesAsync(cancellationToken);
 
-        var totalActiveNet = await _db.HouseholdMembers
-            .Where(m => m.OwnerId == userId && !m.IsArchived)
-            .SumAsync(m => m.NetMonthlyIncome, cancellationToken);
-
-        return member.ToDto(totalActiveNet);
+        return await HouseholdMemberReads.ToDtoAsync(_db, userId, member, cancellationToken);
     }
 }

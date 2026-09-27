@@ -42,13 +42,22 @@ public class GetMemberSpendingQueryHandler
         // Load expense transactions (with their slices) and attribute in memory so
         // a split is counted by its per-member slices and a whole transaction by its
         // own member — never both (a split has no whole-transaction attribution).
-        var expenses = await _db.Transactions
+        var query = _db.Transactions
             .AsNoTracking()
             .Include(t => t.Splits)
-            .Where(t => t.OwnerId == userId && t.Type == TransactionType.Expense)
-            .ToListAsync(cancellationToken);
+            .Where(t => t.OwnerId == userId && t.Type == TransactionType.Expense);
+        if (request.Year is int year && request.Month is int month)
+        {
+            var from = new DateOnly(year, month, 1);
+            var to = from.AddMonths(1);
+            query = query.Where(t => t.Date >= from && t.Date < to);
+        }
+        var expenses = await query.ToListAsync(cancellationToken);
 
+        // Base-currency amounts, like the budget grid; a row whose rate is still pending is
+        // counted separately rather than at face value (rules 41–44).
         var spentByMember = new Dictionary<Guid, decimal>();
+        var pendingByMember = new Dictionary<Guid, int>();
         foreach (var t in expenses)
         {
             if (t.Splits.Count > 0)
@@ -57,13 +66,23 @@ public class GetMemberSpendingQueryHandler
                 {
                     if (slice.MemberId is Guid sliceMember && memberIds.Contains(sliceMember))
                     {
-                        spentByMember[sliceMember] = spentByMember.GetValueOrDefault(sliceMember) + slice.Amount;
+                        if (t.FxPending)
+                        {
+                            pendingByMember[sliceMember] = pendingByMember.GetValueOrDefault(sliceMember) + 1;
+                            continue;
+                        }
+                        spentByMember[sliceMember] = spentByMember.GetValueOrDefault(sliceMember) + slice.Amount * t.ExchangeRate;
                     }
                 }
             }
             else if (t.MemberId is Guid wholeMember && memberIds.Contains(wholeMember))
             {
-                spentByMember[wholeMember] = spentByMember.GetValueOrDefault(wholeMember) + t.Amount;
+                if (t.FxPending)
+                {
+                    pendingByMember[wholeMember] = pendingByMember.GetValueOrDefault(wholeMember) + 1;
+                    continue;
+                }
+                spentByMember[wholeMember] = spentByMember.GetValueOrDefault(wholeMember) + t.BaseAmount;
             }
         }
 
@@ -73,6 +92,7 @@ public class GetMemberSpendingQueryHandler
                 MemberId = m.Id,
                 Name = m.Name,
                 Spent = spentByMember.GetValueOrDefault(m.Id),
+                FxPendingCount = pendingByMember.GetValueOrDefault(m.Id),
             })
             .ToList();
     }

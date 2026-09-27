@@ -54,16 +54,16 @@
 - **Expected:** EmptyState with title "Budgeting on your own?" and copy inviting the user to add a partner/housemate; no table. Hero "People" tile shows `0`.
 - **Automated:** Partial (`client/src/pages/PeoplePage.test.tsx`)
 
-### PPL-006 - Spending tile ("Shared this month") is actually all-time
+### PPL-006 - Spending tile ("Shared this month") follows the selected month, in the budget currency
 - **Priority:** P2
-- **Type:** Regression
-- **Origin:** PR — gotcha #12 (`GetMemberSpendingQueryHandler` has NO date/month filter, but the hero tile + code comment say "this month")
-- **Preconditions:** Fixture B; Sam has attributed expense transactions of €120 in the current month and €80 in a prior month.
+- **Type:** Happy
+- **Origin:** REVIEW P2 / rule 29 (the People page shows the same month and figures as the Budget)
+- **Preconditions:** Fixture B; Sam has attributed expense transactions of €120 in the selected month, €80 in a prior month, and a £100 row at 1.20 in the selected month plus a foreign row whose rate is still pending.
 - **Steps:**
   1. Open `/people`; read the "Shared this month" tile and the per-row "Spent" column.
-  2. Navigate the TopBar month to a different month and re-open `/people`.
-- **Expected:** The tile and per-member "Spent" sum **all-time** attributed expenses (€200 for Sam), unchanged by the selected month — despite the "this month" label. Flag as a copy/scope defect: either the label must say "shared" (all-time) or the query must gain a month filter. Split transactions attribute per-slice `MemberId`; unsplit via `t.MemberId`; unattributed count for no one.
-- **Automated:** Partial (`tests/AllotJar.Application.Tests/Application/MemberSpendingTests.cs` covers the sum, not the label)
+  2. Navigate the TopBar month to the prior month.
+- **Expected:** The page loads `GET /members/spending/{year}/{month}` for the selected month: Sam's Spent is €240.00 (120 + 100 × 1.20), the pending-rate row is left out and shown as a "+1 pending rate" hint; after step 2 the figures are the prior month's (€80.00). Split transactions attribute per-slice `MemberId`; unsplit via `t.MemberId`; unattributed count for no one. The all-time `GET /members/spending` remains for other consumers.
+- **Automated:** Full (backend `MemberFiguresRule28Tests`, `MemberSpendingTests`; client PPL-006)
 
 ---
 
@@ -828,20 +828,20 @@
   - **Guards:** the restore obeys the same owner scoping as archive — `PUT …/archive` for a member whose `OwnerId != userId` → **403** (`ArchiveHouseholdMemberCommandHandler.cs:31-34`); an unknown id → **404 "Household member {id} was not found."** No sample/undo side effects; nothing was ever deleted by the earlier archive (PPL-023), so the restored member carries her original income and attributed transactions intact. A broken restore leg (IsArchived left true, or income not re-summed into the active pool) would leave Sam absent from the default list, the hero stuck at `€3,000.00`, and the Allocation nav hidden — all caught here.
 - **Automated:** No
 
-### PPL-078 - Budget-attributed income drives the People hero and income column
-- **Priority:** P1
+### PPL-078 - The selected month's budget drives the People hero, income column and shares (rule 28)
+- **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** The current month's budget attributes income lines to people (`GET /members/income/{y}/{m}` → `incomeFromBudget: true`).
+- **Preconditions:** The selected month's budget has income lines: Alex 3,000 attributed, Robin 1,000 attributed, 1,000 "Whole household"; saved defaults Alex 1,000 / Robin 1,000.
 - **Steps:**
-  1. Open `/people`; read the hero and each person's Income cell.
-- **Expected:** The hero relabels to **"Income this month"** = Σ attributed planned + unattributed planned. Each person's Income cell shows their derived month figure, with the static field as a "default €X" sub-line when the two differ. `Received` per member (whole income transactions + slices, month-dated) is available on the same endpoint for future surfacing.
-- **Automated:** Full (client PPL-078; backend `AllocationIncomeFromBudgetTests.GetMemberIncome_…`)
+  1. Open `/people`; read the hero, each person's Income cell and Share.
+- **Expected:** The page requests `GET /members?year=&month=`, `/members/income/{y}/{m}` and `/members/spending/{y}/{m}` for the TopBar month. Hero **"Income this month"** = 5,000.00. Alex's Income 3,500.00 (3,000 + half of the unattributed 1,000), Robin's 1,500.00; Shares 70% / 30% — from `incomeSharePct` of the month payload, never from the defaults. The "default €1,000.00" sub-line appears under each because the default differs. `Received` per member is base-currency and excludes pending-rate rows (`fxPendingCount`).
+- **Automated:** Full (client PPL-078; backend `MemberFiguresRule28Tests`, `AllocationIncomeFromBudgetTests`)
 
-### PPL-079 - Without attributed income the static figures and labels stay
-- **Priority:** P1
+### PPL-079 - Without income lines (or without a budget) every figure is zero; the defaults never fill in
+- **Priority:** P0
 - **Type:** Edge
-- **Preconditions:** No income line in the current month is attributed to a person (or the endpoint fails).
+- **Preconditions:** The selected month has no budget, or income lines totalling 0; saved defaults 3,000 / 2,000.
 - **Steps:**
   1. Open `/people`.
-- **Expected:** Exactly the pre-switchover page: hero "Combined income" over the static `NetMonthlyIncome` sum, plain income cells, no "default" sub-lines. The add-person income field's helper text explains the field's new role: "Used as the default for months whose budget doesn't assign income to people." (labels/aria unchanged — the journey suite keys on them).
-- **Automated:** Full (client PPL-079)
+- **Expected:** Hero "Income this month" 0.00 with the note "No budget for {Month Year} yet" when there is none; every Income cell 0.00 and every Share 0%. The saved default is edited as **Default income for {name}** (add modal: "Default income") with the hint "A starting figure for a new month's budget. Calculations use the income lines in the month's budget." Nothing on the page or the Allocation page ever uses it as a pool (rule 28).
+- **Automated:** Full (client PPL-079; backend `AllocationIncomeFromBudgetTests.NoBudget_YieldsAnEmptyPool_NotTheDefaults`)
