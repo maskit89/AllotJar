@@ -223,13 +223,13 @@ Actuals (`src/AllotJar.Application/Budgets/BudgetActuals.cs`, recomputed on EVER
 - `SavingsAvailable` (fund lines only, transient): per SavingsId, `Σ (PlannedAmount − expense-spend on that line)` over ALL of the household's months with Year/Month ≤ the viewed month (BudgetActuals.cs:94-171). **Does NOT include `Jar.OpeningBalance`** — whereas the jars shelf's `JarDto.currentBalance` DOES; the dashboard "avail." and shelf figures can legitimately differ by the opening balance.
 
 Month creation (`CreateBudgetMonthCommandHandler.cs`):
-- **Copy** (source = most recent month strictly before the target): carries category Name/Kind/DisplayOrder/**ExcludeFromAllocation** (PR #167), item Name/DisplayOrder/SavingsId/**DueDay**; resets `IsPaid` (not copied → false) and actuals (derived). PlannedAmount copies flat, EXCEPT seedable jar lines which re-seed at `JarAccrualCalculator.RequiredMonthlyContribution(jar, firstOfTargetMonth, OpeningBalance + asOfBalance)`. Seedable = active jar with `TargetAmount > 0` and `Accrual != ProportionalPool`. Archived-jar lines are dropped; dangling SavingsIds copy as-is.
+- **Copy** (source = most recent month strictly before the target): carries category Name/Kind/DisplayOrder/**ExcludeFromAllocation** (PR #167), item Name/DisplayOrder/SavingsId/**DueDay**; resets `IsPaid` (not copied → false) and actuals (derived). PlannedAmount copies flat, EXCEPT the lines of jars with a schedule (rule 17: a deadline with a target, or a fixed monthly amount), which `JarPlanner.PlanMonthAsync` re-plans — a month at or before the current one from the jar's ledger balance the day before it starts; a later month from the current month's opening balance projected through the saved planned lines in between (HANDOVER P27). An unscheduled jar's line copies flat. Archived-jar lines are dropped; dangling SavingsIds copy as-is.
 - **Template**: groups + named lines, all planned = 0; every Savings-kind template line mints a NEW backing jar (`SavingsLines.AddBackingJar` → `Jar.ForSavingsLine`: Kind=Goal, Accrual=TargetByDate, target 0). Template lookup is case-insensitive on key.
 - **Blank**: exactly one category — "Income", Kind=Income, DisplayOrder 0.
-- **All three paths** then append a line for every active jar not already represented (alphabetical by name, case-insensitive), planned = accrual requirement, into the first Savings group (creating a group named "Savings" if none — `SavingsLines.AppendJarLine`).
-- As-of balance for seeding: `JarBalances.ComputeAsync(..., asOf:(Year,Month))` — only months STRICTLY BEFORE the target count, so back-filling an earlier month can't be zeroed by later savings (PR #167).
+- **All three paths** then append a line for every active jar not already represented (alphabetical by name, case-insensitive), planned = the schedule's figure for that month (0 for an unscheduled jar), into the first Savings group (creating a group named "Savings" if none — `SavingsLines.AppendJarLine`).
+- As-of balance for seeding: `JarLedgerReader.ReadAsync(..., asOf: the day before the month)` — only money STRICTLY BEFORE the target month counts, so back-filling an earlier month can't be zeroed by later savings (PR #167).
 - `BaseCurrency` inherits from the previous month, else EUR.
-- Accrual maths (`src/AllotJar.Domain/Services/JarAccrualCalculator.cs`): TargetByDate = `(target − balance) / monthsUntilEffectiveTargetDate` (floor 1 month, 0 when funded, ÷12 with no date); recurring jars re-arm the date from the anchor virtually (never persisted); StraightLine = target ÷ cover months (÷12 default); DailyRate = target/365 × days-in-month; all rounded to 2 dp half-away-from-zero.
+- Schedule maths (`src/AllotJar.Domain/Services/JarSchedule.cs`, PR #271): TargetByDate splits `(target − balance entering the month)` in whole cents over the months up to the funding-completion month (the month before the deadline, or the deadline month with the opt-in — rule 36), remainder in the final month (rule 35), 0 when funded, the whole remainder when the deadline is this month or passed; no deadline → no plan (rule 17); recurring jars re-arm the date from the anchor virtually (never persisted); FixedMonthly plans its amount every month, capped at what remains when there is a target (rule 18), ongoing without one (rule 16). StraightLine, ProportionalPool and DailyRate are retired (migrated to TargetByDate).
 
 Client money model (`client/src/budgetModel.ts`, `client/src/lib/money.ts`):
 - Wire decimals → integer minor units at scale 4 (`Math.round(amount * 10_000)`); ALL UI totals are integer sums, mirroring the domain exactly, so optimistic edits recompute the same banner the server would return. `totalIncome`, `monthPlanned`, `remainingToBudget`, `isBalanced` mirror the domain formulas (budgetModel.ts:87-106).
@@ -298,7 +298,7 @@ Server:
 - `src/AllotJar.Application/Common/Security/AllowLimitedAttribute.cs`
 - `src/AllotJar.Application/Common/Interfaces/ICurrentUser.cs` (excerpt)
 - `src/AllotJar.Domain/Entities/{BudgetMonth,BudgetCategory,BudgetItem}.cs`, `Jar.cs` (ForSavingsLine excerpt)
-- `src/AllotJar.Domain/Services/JarAccrualCalculator.cs`
+- `src/AllotJar.Domain/Services/JarSchedule.cs`, `src/AllotJar.Application/Jars/JarPlanner.cs`
 
 Client:
 - `client/src/App.tsx`
