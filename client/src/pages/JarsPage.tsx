@@ -240,7 +240,7 @@ export function JarsPage() {
       )}
 
       {movingJar && canWrite && (
-        <MoveMoneyModal jar={movingJar} currency={CURRENCY} onClose={() => setMovingId(null)} onMoved={onMoved} />
+        <MoveMoneyModal jar={movingJar} currency={CURRENCY} accounts={accounts} onClose={() => setMovingId(null)} onMoved={onMoved} />
       )}
     </AppShell>
   )

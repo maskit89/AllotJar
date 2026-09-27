@@ -1,5 +1,6 @@
 using MediatR;
 using AllotJar.Application.Imports.Commands.ImportStatement;
+using AllotJar.Application.Jars;
 
 namespace AllotJar.Application.Imports.Commands.CommitImport;
 
@@ -26,6 +27,15 @@ public record CommitImportSplit(Guid BudgetItemId, decimal Amount, Guid? MemberI
 /// transfer's open leg and no new transaction is created. Requires
 /// <paramref name="TransferAccountId"/> to name the same counterparty.
 /// </param>
+/// <param name="JarAllocations">
+/// For a credit into a jar-backed statement account (an income, or a transfer receipt this row
+/// records or confirms): how much goes to each of that account's jars, the rest unallocated
+/// (rule 78). Null or empty leaves it all unallocated.
+/// </param>
+/// <param name="PaidFromJarId">
+/// For a debit from a jar-backed statement account on a line that is not a jar (or a transfer
+/// out of it): the jar the money comes from; unallocated when null (rule 79).
+/// </param>
 /// <param name="AcknowledgeCrossMonth">
 /// Set only after the user confirms budgeting this row (or its slices) to a line in a
 /// different month than the row's date (see TransactionInvariants.CrossMonthKey).
@@ -42,7 +52,9 @@ public record CommitImportItem(
     IReadOnlyList<CommitImportSplit>? Splits = null,
     Guid? TransferAccountId = null,
     bool AcknowledgeCrossMonth = false,
-    Guid? MatchTransferId = null);
+    Guid? MatchTransferId = null,
+    IReadOnlyList<JarAllocationInput>? JarAllocations = null,
+    Guid? PaidFromJarId = null);
 
 /// <summary>
 /// Persists the rows the user kept after reviewing an import. Idempotent: any row whose

@@ -63,6 +63,21 @@ public class TransactionDto
 
     /// <summary>The per-line slices when <see cref="IsSplit"/>; empty otherwise.</summary>
     public IReadOnlyList<TransactionSplitDto> Splits { get; set; } = Array.Empty<TransactionSplitDto>();
+
+    /// <summary>
+    /// The stored jar split of each account leg (rules 78/79): signed amounts per jar, a null jar
+    /// meaning unallocated. Empty when the leg follows the derived default (incoming money
+    /// unallocated; a payment drawn from its budget line's jar or unallocated).
+    /// </summary>
+    public IReadOnlyList<TransactionJarAllocationDto> JarAllocations { get; set; } = Array.Empty<TransactionJarAllocationDto>();
+}
+
+public class TransactionJarAllocationDto
+{
+    public Guid AccountId { get; set; }
+    public Guid? JarId { get; set; }
+    public string? JarName { get; set; }
+    public decimal Amount { get; set; }
 }
 
 public class TransactionSplitDto
@@ -115,6 +130,15 @@ public static class TransactionMapping
                 MemberName = s.Member?.Name,
                 Amount = s.Amount,
             })
+            .ToList(),
+        JarAllocations = t.JarAllocations
+            .SelectMany(a => a.Postings.Select(p => new TransactionJarAllocationDto
+            {
+                AccountId = a.AccountId,
+                JarId = p.JarId,
+                JarName = p.Jar?.Name,
+                Amount = p.Amount,
+            }))
             .ToList(),
     };
 }

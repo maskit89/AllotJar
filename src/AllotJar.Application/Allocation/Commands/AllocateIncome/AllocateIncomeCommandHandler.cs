@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Allocation.Dtos;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Accounts;
+using AllotJar.Application.Jars;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 
@@ -102,8 +104,14 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
             .ToDictionaryAsync(a => a.Id, cancellationToken);
 
         var created = 0;
+        var added = new List<Transaction>();
+        var removed = new List<Guid>();
+        // Each member's transfer, new or retained, for the jar prompt's answer below.
+        var transfersByMember = new Dictionary<Guid, (Transaction Transfer, Account Savings)>();
         // Prior transfers left exactly as recorded because this run produced the same movement.
         var retained = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Serialise against the source account's other writers for the rule 74 check below.
+        await using var write = await _db.BeginLedgerWriteAsync(sourceId, cancellationToken);
         foreach (var m in plan.Result.Members)
         {
             if (m.Residual <= 0m || m.SavingsAccountId is not Guid savingsId)
@@ -148,6 +156,7 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                 if (existing.Amount == m.Residual && existing.AccountId == sourceId && existing.TransferAccountId == savingsId)
                 {
                     retained.Add(reference);
+                    transfersByMember[m.MemberId] = (existing, savings);
                     continue;
                 }
                 // A changed movement can only replace an in-transit transfer. Once its receipt is
@@ -165,7 +174,7 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                 }
             }
 
-            _db.Transactions.Add(new Transaction
+            var transfer = new Transaction
             {
                 OwnerId = userId,
                 Date = departedOn,
@@ -180,7 +189,10 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                 AccountId = sourceId,
                 TransferAccountId = savingsId,
                 BankReference = reference,
-            });
+            };
+            _db.Transactions.Add(transfer);
+            added.Add(transfer);
+            transfersByMember[m.MemberId] = (transfer, savings);
             created++;
         }
 
@@ -205,9 +217,36 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                 });
             }
             _db.Transactions.Remove(stale);
+            removed.Add(stale.Id);
+        }
+
+        // Rule 74: the source must stay at or above zero on every date with this month's
+        // transfers recorded (superseded in-transit rows no longer count).
+        await AccountBalanceGuard.EnsureNonNegativeAsync(_db, new[] { source }, added, removed, "Allocation", cancellationToken);
+
+        // Rule 78: divide each member's receipt among their savings account's jars as answered.
+        if (request.JarAllocations is { Count: > 0 })
+        {
+            foreach (var group in request.JarAllocations.GroupBy(a => a.MemberId))
+            {
+                if (!transfersByMember.TryGetValue(group.Key, out var target))
+                {
+                    throw new ValidationException(new Dictionary<string, string[]>
+                    {
+                        ["JarAllocations"] = new[] { "Jar amounts were given for a member with no allocation transfer this month." },
+                    });
+                }
+                await JarMovements.ApplyIncomingAsync(
+                    _db, userId, target.Transfer, target.Savings, target.Transfer.ReceivedOn ?? departedOn, target.Transfer.Amount,
+                    group.Select(a => new JarAllocationInput(a.JarId, a.Amount)).ToList(), "JarAllocations", cancellationToken);
+            }
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
 
         return plan.Result.ToDto(
             plan.EnvelopesTotal, plan.JarsTotal, created,

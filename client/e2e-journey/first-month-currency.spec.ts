@@ -56,6 +56,8 @@ test('a non-EUR registrant can budget and log account-linked spending — the fi
   await page.getByRole('button', { name: 'Add account', exact: true }).click()
   const accountDialog = page.getByRole('dialog')
   await accountDialog.getByLabel('Account name').fill('Joint')
+  // Rule 74: the 40.00 expense below must be covered — an account never goes below zero.
+  await accountDialog.getByLabel('Opening balance').fill('500')
   await accountDialog.getByRole('button', { name: 'Add account', exact: true }).click()
   await expect(accountDialog).toBeHidden()
   await expect(page.getByText('Joint', { exact: true })).toBeVisible()

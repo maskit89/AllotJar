@@ -23,6 +23,11 @@ import { buildItemOptions, type ItemOptionGroup } from '../lib/transactions'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { formatDate, monthYear } from '../lib/dates'
+import { serverErrors } from '../lib/serverErrors'
+import { activeJars, useJarLedgers } from '../lib/jarLedgers'
+import { jarAllocationsTotal, toJarAllocations } from '../lib/jarAllocationFields'
+import { JarAllocationFields } from '../components/jars/JarAllocationFields'
+import { PaidFromJarSelect } from '../components/jars/PaidFromJarSelect'
 
 type Format = 'generic' | 'hsbc' | 'camt'
 type Phase = 'upload' | 'review' | 'done'
@@ -110,6 +115,15 @@ interface ReviewRow {
   transferMatches: TransferMatchCandidate[]
   /** The recorded transfer this row confirms, chosen by the user; '' = record it as its own movement. */
   matchTransferId: string
+  /**
+   * A credit into a jar-backed account: the typed amount per jar id (rule 78), as entered.
+   * Empty = all unallocated, the default.
+   */
+  jarAllocation: Record<string, string>
+  /** A debit from a jar-backed account on a non-jar line (or out to another account): the jar it comes from; '' = unallocated (rule 79). */
+  paidFromJarId: string
+  /** Set once a commit held this row back (rule 74): the server's reason. Null for a row never held. */
+  heldMessage: string | null
 }
 
 /** Pull a human message out of an axios error (ProblemDetails `title`, or a 400 `error`). */
@@ -168,6 +182,30 @@ function splitInfo(row: ReviewRow): { valid: boolean; remainingMinor: number } {
   return { valid, remainingMinor }
 }
 
+/** A DOM id prefix for one row's prompts: the statement reference, sanitised, plus the row's position. */
+function rowDomId(reference: string, index: number): string {
+  return `import-row-${index}-${reference.replace(/[^A-Za-z0-9_-]/g, '_')}`
+}
+
+/**
+ * Rule 79: a debit from a jar-backed account asks "which jar does this come from?" only when
+ * the money isn't already tied to a jar by its line — a plain row on a non-jar line, a split
+ * with any slice on a non-jar line, or a transfer out to another account. A row with no line
+ * (or on a jar line) shows nothing.
+ */
+function paidFromApplies(r: ReviewRow, jarLineIds: Set<string>): boolean {
+  if (r.isCredit) return false
+  if (r.isTransfer) return true
+  if (r.splits) return r.splits.some((l) => l.budgetItemId !== '' && !jarLineIds.has(l.budgetItemId))
+  return r.budgetItemId !== '' && !jarLineIds.has(r.budgetItemId)
+}
+
+/** Rule 78 fields parse and don't exceed the amount received (the server would refuse otherwise). */
+function jarAllocationValid(r: ReviewRow): boolean {
+  const total = jarAllocationsTotal(r.jarAllocation)
+  return total !== null && total <= r.amount
+}
+
 function CategoryOptions({ groups }: { groups: ItemOptionGroup[] }) {
   return (
     <>
@@ -209,12 +247,21 @@ export function ImportPage() {
   const [bulkMember, setBulkMember] = useState('')
   const [bulkCategory, setBulkCategory] = useState('')
 
-  const [result, setResult] = useState<ImportStatementResult | null>(null)
+  // Every commit of this review, in order: a commit that held rows (rule 74) keeps the review
+  // open for just those rows, so the done screen sums what each commit imported.
+  const [results, setResults] = useState<ImportStatementResult[]>([])
+  // The reviewed rows each commit accepted (imported or skipped as a duplicate) — the done
+  // screen's money in/out sums. Held rows join once a later commit posts them.
+  const [committedRows, setCommittedRows] = useState<ReviewRow[]>([])
+  // The latest commit that held rows back: while set, the review shows only those rows.
+  const [heldResult, setHeldResult] = useState<ImportStatementResult | null>(null)
   // Count of categorised rows dated outside the loaded budget month — set when Import needs the
   // one-per-batch cross-month confirmation before committing.
   const [crossMonthCount, setCrossMonthCount] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The jar-backed accounts (rules 78/79): the prompts only apply when the import account is one.
+  const { byAccount } = useJarLedgers()
 
   useEffect(() => {
     let cancelled = false
@@ -245,16 +292,34 @@ export function ImportPage() {
   const otherAccounts = accounts.filter((a) => a.id !== accountId)
   // A transfer needs an import account plus another account to move to/from.
   const canTransfer = !!accountId && otherAccounts.length > 0
-  // Block the import while a split doesn't add up, or a transfer hasn't picked a counterparty.
+  // The import account's jars, when it backs any: money reaching it asks which jars it goes
+  // into (rule 78) and money leaving it which jar it comes from (rule 79).
+  const importLedger = accountId ? byAccount.get(accountId) : undefined
+  const importJars = useMemo(() => activeJars(importLedger), [importLedger])
+  const importBacksJars = importJars.length > 0
+  const importCurrency = importLedger?.currency || importAccount?.currency || preferredCurrency
+  // The month's jar lines (a savings line names its jar), whose debits never ask for a jar.
+  const jarLineIds = useMemo(
+    () => new Set((month?.categories ?? []).flatMap((c) => c.items).filter((i) => i.savingsId).map((i) => i.id)),
+    [month],
+  )
+  // Block the import while a split doesn't add up, a transfer hasn't picked a counterparty, or
+  // a credit's jar amounts exceed what arrived.
   const reviewIncomplete = useMemo(
     () =>
       rows.some(
         (r) =>
           r.include &&
-          ((r.splits && !splitInfo(r).valid) || (r.isTransfer && !r.transferAccountId)),
+          ((r.splits && !splitInfo(r).valid) ||
+            (r.isTransfer && !r.transferAccountId) ||
+            (importBacksJars && r.isCredit && !jarAllocationValid(r))),
       ),
-    [rows],
+    [rows, importBacksJars],
   )
+  // Rows held by the latest commit (rule 74): the review shows only those until they post or are unticked.
+  const heldMode = heldResult !== null
+  // Every row held at some point in this review (a row may be held by more than one commit).
+  const heldEverCount = useMemo(() => new Set(results.flatMap((r) => (r.held ?? []).map((h) => h.reference))).size, [results])
 
   // Fold a preview result into the review state (shared by the first upload and CSV re-scans).
   // On a re-scan, `priorRows` carries the user's per-row work forward for any row whose identity
@@ -284,6 +349,9 @@ export function ImportPage() {
           transferAccountId: kept ? kept.transferAccountId : '',
           transferMatches: c.transferMatches ?? [],
           matchTransferId: kept ? kept.matchTransferId : '',
+          jarAllocation: kept ? kept.jarAllocation : {},
+          paidFromJarId: kept ? kept.paidFromJarId : '',
+          heldMessage: null,
         }
       }),
     )
@@ -434,46 +502,69 @@ export function ImportPage() {
     return Number(r.date.slice(0, 4)) !== month.year || Number(r.date.slice(5, 7)) !== month.month
   }
 
+  /**
+   * The jar answer for one row, when the import account backs jars: a credit carries its jar
+   * amounts (rule 78; left out when all unallocated), a debit the jar it comes from (rule 79;
+   * null = unallocated, and always null where the prompt doesn't apply). The server rejects a
+   * jar answer in the wrong direction, so a credit never carries `paidFromJarId` and vice versa.
+   */
+  function jarAnswer(r: ReviewRow): Pick<CommitImportItem, 'jarAllocations' | 'paidFromJarId'> {
+    if (!importBacksJars) return {}
+    if (r.isCredit) {
+      const jarAllocations = toJarAllocations(r.jarAllocation)
+      return jarAllocations.length > 0 ? { jarAllocations } : {}
+    }
+    return { paidFromJarId: paidFromApplies(r, jarLineIds) ? r.paidFromJarId || null : null }
+  }
+
   async function onCommit(acknowledgeCrossMonth = false) {
-    const items: CommitImportItem[] = rows
-      .filter((r) => r.include)
-      .map((r) => {
-        const base = {
-          reference: r.reference,
-          date: r.date,
-          payee: r.payee,
-          amount: r.amount,
-          currency: r.currency,
-          isCredit: r.isCredit,
+    const sent = rows.filter((r) => r.include)
+    const items: CommitImportItem[] = sent.map((r) => {
+      const base = {
+        reference: r.reference,
+        date: r.date,
+        payee: r.payee,
+        amount: r.amount,
+        currency: r.currency,
+        isCredit: r.isCredit,
+        ...jarAnswer(r),
+      }
+      if (r.isTransfer) {
+        return {
+          ...base,
+          budgetItemId: null,
+          memberId: null,
+          transferAccountId: r.transferAccountId,
+          matchTransferId: r.matchTransferId || null,
         }
-        if (r.isTransfer) {
-          return {
-            ...base,
-            budgetItemId: null,
-            memberId: null,
-            transferAccountId: r.transferAccountId,
-            matchTransferId: r.matchTransferId || null,
-          }
+      }
+      const acknowledged = acknowledgeCrossMonth && isCrossMonthRow(r) ? { acknowledgeCrossMonth: true } : {}
+      if (r.splits) {
+        return {
+          ...base,
+          budgetItemId: null,
+          memberId: null,
+          splits: r.splits.map((l) => ({
+            budgetItemId: l.budgetItemId,
+            amount: toAmount(parseMinor(l.amount) ?? 0),
+            memberId: l.memberId || null,
+          })),
+          ...acknowledged,
         }
-        const acknowledged = acknowledgeCrossMonth && isCrossMonthRow(r) ? { acknowledgeCrossMonth: true } : {}
-        if (r.splits) {
-          return {
-            ...base,
-            budgetItemId: null,
-            memberId: null,
-            splits: r.splits.map((l) => ({
-              budgetItemId: l.budgetItemId,
-              amount: toAmount(parseMinor(l.amount) ?? 0),
-              memberId: l.memberId || null,
-            })),
-            ...acknowledged,
-          }
-        }
-        return { ...base, budgetItemId: r.budgetItemId || null, memberId: r.memberId || null, ...acknowledged }
-      })
+      }
+      return { ...base, budgetItemId: r.budgetItemId || null, memberId: r.memberId || null, ...acknowledged }
+    })
     // Never commit a stale parse (the Import button is already disabled while dirty; this guards
     // against any future path that reaches onCommit without that gate).
-    if (items.length === 0 || mappingDirty) return
+    if (mappingDirty) return
+    // Every held row unticked (rule 74: discarded): nothing is left to post, so finish here.
+    if (items.length === 0) {
+      if (heldMode) {
+        setHeldResult(null)
+        setPhase('done')
+      }
+      return
+    }
 
     // Historical rows put on this month's lines are a deliberate choice — confirm once for the
     // batch, then re-run with the affected rows acknowledged (the server rejects them otherwise).
@@ -486,12 +577,25 @@ export function ImportPage() {
     setBusy(true)
     setError(null)
     try {
-      setResult(await commitImport(accountId || null, items))
-      setPhase('done')
+      const result = await commitImport(accountId || null, items)
+      setResults((prev) => [...prev, result])
       setCrossMonthCount(null)
       track(EVENTS.importCommitted, { row_bucket: bucketCount(items.length) })
+      // Rule 74: the rows the account could not take on their date were held, not posted.
+      // Everything else went in; the review stays open for just the held rows, each with the
+      // server's reason, until a later commit posts them or the user unticks them.
+      const held = new Map((result.held ?? []).map((h) => [h.reference, h.message]))
+      setCommittedRows((prev) => [...prev, ...sent.filter((r) => !held.has(r.reference))])
+      if (held.size > 0) {
+        setRows(rows.filter((r) => held.has(r.reference)).map((r) => ({ ...r, heldMessage: held.get(r.reference) ?? null })))
+        setSplitOpen(null)
+        setHeldResult(result)
+      } else {
+        setHeldResult(null)
+        setPhase('done')
+      }
     } catch (err) {
-      setError(errorMessage(err))
+      setError(serverErrors(err) ?? errorMessage(err))
     } finally {
       setBusy(false)
     }
@@ -506,7 +610,9 @@ export function ImportPage() {
     setMapping(null)
     setScannedMapping(null)
     setSplitOpen(null)
-    setResult(null)
+    setResults([])
+    setCommittedRows([])
+    setHeldResult(null)
     setError(null)
     setBulkMember('')
     setBulkCategory('')
@@ -631,16 +737,38 @@ export function ImportPage() {
 
       {canWrite && phase === 'review' && preview && rows.length > 0 && (
         <>
-          <p className="text-sm text-slate-600">
-            <span className="font-semibold text-slate-800">{preview.newCount}</span> new transaction
-            {preview.newCount === 1 ? '' : 's'} to review
-            {preview.skippedDuplicates > 0 &&
-              ` — ${preview.skippedDuplicates} already imported (skipped)`}
-            {possibleDuplicateCount > 0 &&
-              ` — ${possibleDuplicateCount} possible duplicate${possibleDuplicateCount === 1 ? '' : 's'} unticked (tick to include)`}
-            . Categorise them (split a row, or mark a transfer), untick any you don't want, then import.
-          </p>
-          {possibleDuplicateCount > 0 && (
+          {/* Rule 74: the last commit held these rows because the account would go below zero on
+              their date. Nothing is posted "anyway" — the user records the missing money (or
+              changes the row) and commits again, or unticks a row to discard it. */}
+          {heldResult && (
+            <div
+              role="status"
+              className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200"
+            >
+              <p className="font-semibold">
+                {heldResult.held?.length ?? 0} row{(heldResult.held?.length ?? 0) === 1 ? ' was' : 's were'} held because the
+                account would go below zero on {(heldResult.held?.length ?? 0) === 1 ? 'its' : 'their'} date.
+              </p>
+              <p className="mt-1">Record the missing money first and commit again, or untick a row to discard it.</p>
+              <p className="mt-1 text-xs">
+                The rest went in: {heldResult.imported} transaction{heldResult.imported === 1 ? '' : 's'} imported
+                {heldResult.skippedDuplicates > 0 && `, ${heldResult.skippedDuplicates} skipped`}
+                {heldResult.transfers > 0 && `, ${heldResult.transfers} transfer${heldResult.transfers === 1 ? '' : 's'}`}.
+              </p>
+            </div>
+          )}
+          {!heldMode && (
+            <p className="text-sm text-slate-600">
+              <span className="font-semibold text-slate-800">{preview.newCount}</span> new transaction
+              {preview.newCount === 1 ? '' : 's'} to review
+              {preview.skippedDuplicates > 0 &&
+                ` — ${preview.skippedDuplicates} already imported (skipped)`}
+              {possibleDuplicateCount > 0 &&
+                ` — ${possibleDuplicateCount} possible duplicate${possibleDuplicateCount === 1 ? '' : 's'} unticked (tick to include)`}
+              . Categorise them (split a row, or mark a transfer), untick any you don't want, then import.
+            </p>
+          )}
+          {!heldMode && possibleDuplicateCount > 0 && (
             <p className="-mt-3 text-xs text-slate-500">
               A row is flagged as a possible duplicate when an existing transaction has the same amount and a
               similar payee within a few days — tick it to import anyway (e.g. two genuine identical purchases).
@@ -654,18 +782,26 @@ export function ImportPage() {
           )}
           {importAccount && (
             <p className="-mt-3 text-xs text-slate-500">
-              Importing into <span className="font-medium text-slate-700">{importAccount.name}</span>.
+              Importing into <span className="font-medium text-slate-700">{importAccount.name}</span>
+              {importBacksJars && (
+                <>
+                  , which holds jars — say which jars incoming money goes into and which jar a payment comes from
+                  (leave them as they are to keep the money unallocated)
+                </>
+              )}
+              .
             </p>
           )}
-          {!accountId && rows.some((r) => r.likelyTransfer) && (
+          {!heldMode && !accountId && rows.some((r) => r.likelyTransfer) && (
             <p className="-mt-3 text-xs text-amber-700 dark:text-amber-400">
               Some rows look like transfers between your accounts. Re-import with an account selected (on the
               previous step) to record them as transfers.
             </p>
           )}
 
-          {/* Generic-CSV column mapping — confirm/correct what we guessed, then re-scan. */}
-          {format === 'generic' && layout && mapping && (
+          {/* Generic-CSV column mapping — confirm/correct what we guessed, then re-scan. Hidden once
+              rows are held: a re-scan would bring back the rows already imported. */}
+          {!heldMode && format === 'generic' && layout && mapping && (
             <Card as="section" aria-labelledby="csv-mapping-heading" className="grid gap-4 p-5">
               <div>
                 <h2 id="csv-mapping-heading" className="text-sm font-bold text-slate-800">
@@ -908,6 +1044,10 @@ export function ImportPage() {
                   const nameById = new Map(groups.flatMap((g) => g.items).map((i) => [i.id, i.name]))
                   const info = splitInfo(r)
                   const open = splitOpen === r.reference
+                  const domId = rowDomId(r.reference, index)
+                  // The jar prompts (rules 78/79) apply only to a ticked row into/out of a jar-backed account.
+                  const showAllocation = importBacksJars && r.include && r.isCredit
+                  const showPaidFrom = importBacksJars && r.include && paidFromApplies(r, jarLineIds)
                   return (
                     <Fragment key={r.reference}>
                       {/* A flagged-but-unticked row needs its badge readable (an opacity-dimmed
@@ -934,6 +1074,14 @@ export function ImportPage() {
                         <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-500">{formatDate(r.date)}</td>
                         <td className="px-3 py-2 font-medium text-slate-700">
                           {r.payee}
+                          {r.heldMessage !== null && (
+                            <Badge tone="rose" className="ml-1.5 align-middle">
+                              Held
+                            </Badge>
+                          )}
+                          {r.heldMessage !== null && (
+                            <span className="block max-w-md text-xs font-normal text-rose-700 dark:text-rose-300">{r.heldMessage}</span>
+                          )}
                           {r.possibleDuplicate && (
                             <span className="block text-xs font-normal text-amber-700 dark:text-amber-400">
                               Possibly already imported
@@ -954,121 +1102,135 @@ export function ImportPage() {
                           {formatMoney(fromAmount(r.amount), r.currency)}
                         </td>
                         <td className="px-3 py-2">
-                          {r.isTransfer ? (
-                            <div className="flex flex-col gap-1">
-                              <div className="flex items-center gap-2">
-                                <Badge tone="brand">Transfer</Badge>
-                                <span className="text-xs text-slate-500">{r.isCredit ? 'from' : 'to'}</span>
-                                <Select
-                                  aria-label={`Transfer account for ${r.payee} on ${r.date}`}
-                                  value={r.transferAccountId}
-                                  disabled={!r.include || !!r.matchTransferId}
-                                  onChange={(e) => updateRow(index, { transferAccountId: e.target.value })}
-                                  className="w-44"
-                                >
-                                  <option value="">Choose account…</option>
-                                  {otherAccounts.map((a) => (
-                                    <option key={a.id} value={a.id}>
-                                      {a.name}
-                                    </option>
-                                  ))}
-                                </Select>
-                                <button
-                                  type="button"
-                                  onClick={() => clearTransfer(index)}
-                                  aria-label={`Cancel transfer for ${r.payee} on ${r.date}`}
-                                  className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-200"
-                                >
-                                  Undo
-                                </button>
-                              </div>
-                              {r.transferMatches.length > 0 && (
+                          <div className="flex flex-col gap-1.5">
+                            {r.isTransfer ? (
+                              <div className="flex flex-col gap-1">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-xs text-slate-500">Already recorded?</span>
+                                  <Badge tone="brand">Transfer</Badge>
+                                  <span className="text-xs text-slate-500">{r.isCredit ? 'from' : 'to'}</span>
                                   <Select
-                                    aria-label={`Match recorded transfer for ${r.payee} on ${r.date}`}
-                                    value={r.matchTransferId}
-                                    disabled={!r.include}
-                                    onChange={(e) => chooseMatch(index, e.target.value)}
-                                    className="w-72"
+                                    aria-label={`Transfer account for ${r.payee} on ${r.date}`}
+                                    value={r.transferAccountId}
+                                    disabled={!r.include || !!r.matchTransferId}
+                                    onChange={(e) => updateRow(index, { transferAccountId: e.target.value })}
+                                    className="w-44"
                                   >
-                                    <option value="">No — record it as a new transfer</option>
-                                    {r.transferMatches.map((m) => (
-                                      <option key={m.transferId} value={m.transferId}>
-                                        {r.isCredit ? `From ${m.counterpartyAccountName}` : `To ${m.counterpartyAccountName}`} ·{' '}
-                                        {formatMoney(fromAmount(m.amount), m.currency)} ·{' '}
-                                        {m.departedOn ? `left ${formatDate(m.departedOn)}` : `received ${formatDate(m.receivedOn ?? r.date)}`}
+                                    <option value="">Choose account…</option>
+                                    {otherAccounts.map((a) => (
+                                      <option key={a.id} value={a.id}>
+                                        {a.name}
                                       </option>
                                     ))}
                                   </Select>
+                                  <button
+                                    type="button"
+                                    onClick={() => clearTransfer(index)}
+                                    aria-label={`Cancel transfer for ${r.payee} on ${r.date}`}
+                                    className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-200"
+                                  >
+                                    Undo
+                                  </button>
                                 </div>
-                              )}
-                              {r.matchTransferId ? (
-                                <span className="text-xs text-slate-500">
-                                  Confirms the other side of the recorded transfer — no second balance movement.
-                                </span>
-                              ) : r.isCredit ? (
-                                <span className="text-xs text-amber-700 dark:text-amber-400">
-                                  Held for review until the departure date is known; nothing is posted to either account yet.
-                                </span>
-                              ) : (
-                                <span className="text-xs text-slate-500">
-                                  Recorded as departed on {formatDate(r.date)}; in transit until the receipt is confirmed.
-                                </span>
-                              )}
-                            </div>
-                          ) : r.splits ? (
-                            <div className="flex flex-col gap-0.5">
-                              <div className="flex items-center gap-2">
-                                <Badge tone={info.valid ? 'violet' : 'amber'}>Split · {r.splits.length}</Badge>
-                                <button
-                                  type="button"
-                                  onClick={() => setSplitOpen(open ? null : r.reference)}
-                                  aria-label={`Edit split for ${r.payee} on ${r.date}`}
-                                  className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-200"
-                                >
-                                  {open ? 'Close' : 'Edit'}
-                                </button>
+                                {r.transferMatches.length > 0 && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500">Already recorded?</span>
+                                    <Select
+                                      aria-label={`Match recorded transfer for ${r.payee} on ${r.date}`}
+                                      value={r.matchTransferId}
+                                      disabled={!r.include}
+                                      onChange={(e) => chooseMatch(index, e.target.value)}
+                                      className="w-72"
+                                    >
+                                      <option value="">No — record it as a new transfer</option>
+                                      {r.transferMatches.map((m) => (
+                                        <option key={m.transferId} value={m.transferId}>
+                                          {r.isCredit ? `From ${m.counterpartyAccountName}` : `To ${m.counterpartyAccountName}`} ·{' '}
+                                          {formatMoney(fromAmount(m.amount), m.currency)} ·{' '}
+                                          {m.departedOn ? `left ${formatDate(m.departedOn)}` : `received ${formatDate(m.receivedOn ?? r.date)}`}
+                                        </option>
+                                      ))}
+                                    </Select>
+                                  </div>
+                                )}
+                                {r.matchTransferId ? (
+                                  <span className="text-xs text-slate-500">
+                                    Confirms the other side of the recorded transfer — no second balance movement.
+                                  </span>
+                                ) : r.isCredit ? (
+                                  <span className="text-xs text-amber-700 dark:text-amber-400">
+                                    Held for review until the departure date is known; nothing is posted to either account yet.
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-500">
+                                    Recorded as departed on {formatDate(r.date)}; in transit until the receipt is confirmed.
+                                  </span>
+                                )}
                               </div>
-                              {!open && (
-                                <span className="max-w-[14rem] truncate text-xs text-slate-500">
-                                  {r.splits.map((s) => nameById.get(s.budgetItemId) ?? 'Unassigned').join(' · ')}
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <Select
-                                aria-label={`Category for ${r.payee} on ${r.date}`}
-                                value={r.budgetItemId}
-                                disabled={!r.include}
-                                onChange={(e) => updateRow(index, { budgetItemId: e.target.value })}
-                                className="w-48"
-                              >
-                                <CategoryOptions groups={groups} />
-                              </Select>
-                              <button
-                                type="button"
-                                onClick={() => startSplit(index, r.reference)}
-                                disabled={!r.include}
-                                aria-label={`Split ${r.payee} on ${r.date}`}
-                                className="text-xs font-medium text-brand-700 hover:underline disabled:opacity-40 dark:text-brand-200"
-                              >
-                                Split
-                              </button>
-                              {canTransfer && (
+                            ) : r.splits ? (
+                              <div className="flex flex-col gap-0.5">
+                                <div className="flex items-center gap-2">
+                                  <Badge tone={info.valid ? 'violet' : 'amber'}>Split · {r.splits.length}</Badge>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSplitOpen(open ? null : r.reference)}
+                                    aria-label={`Edit split for ${r.payee} on ${r.date}`}
+                                    className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-200"
+                                  >
+                                    {open ? 'Close' : 'Edit'}
+                                  </button>
+                                </div>
+                                {!open && (
+                                  <span className="max-w-[14rem] truncate text-xs text-slate-500">
+                                    {r.splits.map((s) => nameById.get(s.budgetItemId) ?? 'Unassigned').join(' · ')}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <Select
+                                  aria-label={`Category for ${r.payee} on ${r.date}`}
+                                  value={r.budgetItemId}
+                                  disabled={!r.include}
+                                  onChange={(e) => updateRow(index, { budgetItemId: e.target.value })}
+                                  className="w-48"
+                                >
+                                  <CategoryOptions groups={groups} />
+                                </Select>
                                 <button
                                   type="button"
-                                  onClick={() => startTransfer(index)}
+                                  onClick={() => startSplit(index, r.reference)}
                                   disabled={!r.include}
-                                  aria-label={`Mark ${r.payee} on ${r.date} as a transfer`}
+                                  aria-label={`Split ${r.payee} on ${r.date}`}
                                   className="text-xs font-medium text-brand-700 hover:underline disabled:opacity-40 dark:text-brand-200"
                                 >
-                                  Transfer
+                                  Split
                                 </button>
-                              )}
-                            </div>
-                          )}
+                                {canTransfer && (
+                                  <button
+                                    type="button"
+                                    onClick={() => startTransfer(index)}
+                                    disabled={!r.include}
+                                    aria-label={`Mark ${r.payee} on ${r.date} as a transfer`}
+                                    className="text-xs font-medium text-brand-700 hover:underline disabled:opacity-40 dark:text-brand-200"
+                                  >
+                                    Transfer
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                            {/* Rule 79: which jar this payment comes from (unallocated unless chosen). */}
+                            {showPaidFrom && (
+                              <PaidFromJarSelect
+                                jars={importJars}
+                                accountName={importAccount?.name ?? ''}
+                                currency={importCurrency}
+                                value={r.paidFromJarId}
+                                onChange={(jarId) => updateRow(index, { paidFromJarId: jarId })}
+                                id={`${domId}-paid-from`}
+                                compact
+                              />
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-2">
                           {r.isTransfer ? (
@@ -1225,6 +1387,33 @@ export function ImportPage() {
                           </tr>
                         )
                       })()}
+
+                      {/* Rule 78: money reaching a jar-backed account asks which jars it goes into.
+                          Every field starts empty (unallocated). A credit transfer whose departure
+                          is unknown stores the answer now; it applies once the departure is confirmed. */}
+                      {showAllocation && (
+                        <tr>
+                          <td colSpan={6} className="p-0">
+                            <div className="mx-2 mb-2">
+                              <JarAllocationFields
+                                jars={importJars}
+                                accountName={importAccount?.name ?? ''}
+                                currency={importCurrency}
+                                amount={r.amount}
+                                value={r.jarAllocation}
+                                onChange={(value) => updateRow(index, { jarAllocation: value })}
+                                idPrefix={domId}
+                                compact
+                              />
+                              {r.isTransfer && !r.matchTransferId && (
+                                <p className="mt-1 text-xs text-slate-500">
+                                  These jar amounts apply once the transfer&rsquo;s departure is confirmed.
+                                </p>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
                     </Fragment>
                   )
                 })}
@@ -1234,7 +1423,8 @@ export function ImportPage() {
 
           {reviewIncomplete && (
             <p className="text-sm text-rose-600 dark:text-rose-400">
-              Finish the highlighted rows first — splits must add up, and transfers need an account.
+              Finish the highlighted rows first — splits must add up, transfers need an account, and jar amounts can&rsquo;t
+              exceed what arrived.
             </p>
           )}
           {mappingDirty && (
@@ -1245,8 +1435,14 @@ export function ImportPage() {
           )}
 
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={() => onCommit()} disabled={busy || includedCount === 0 || reviewIncomplete || mappingDirty}>
-              {busy ? 'Importing…' : `Import ${includedCount} transaction${includedCount === 1 ? '' : 's'}`}
+            <Button onClick={() => onCommit()} disabled={busy || (includedCount === 0 && !heldMode) || reviewIncomplete || mappingDirty}>
+              {busy
+                ? 'Importing…'
+                : heldMode
+                  ? includedCount === 0
+                    ? 'Finish without the held rows'
+                    : 'Commit held rows'
+                  : `Import ${includedCount} transaction${includedCount === 1 ? '' : 's'}`}
             </Button>
             <Button variant="ghost" onClick={reset} disabled={busy}>
               Choose a different file
@@ -1277,36 +1473,49 @@ export function ImportPage() {
         </>
       )}
 
-      {canWrite && phase === 'done' && result && (
+      {canWrite && phase === 'done' && results.length > 0 && (
         <Card as="section" aria-labelledby="import-result-heading" className="p-6">
-          <h2 id="import-result-heading" className="text-lg font-semibold text-slate-900">
-            Import complete
-          </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            {result.imported} transaction{result.imported === 1 ? '' : 's'} added
-            {result.skippedDuplicates > 0 && `, ${result.skippedDuplicates} skipped`}.
-          </p>
           {(() => {
-            // Money in/out are the actual sums of what was imported (the reviewed rows are still in
-            // state), not transaction counts. Transfers are internal moves, so they stay a count.
-            const moneyIn = moneyByCurrency(rows, (r) => !r.isTransfer && r.isCredit)
-            const moneyOut = moneyByCurrency(rows, (r) => !r.isTransfer && !r.isCredit)
+            // One review can take several commits when rows were held (rule 74); the summary
+            // adds up what each of them posted.
+            const total = results.reduce(
+              (t, r) => ({
+                imported: t.imported + r.imported,
+                skipped: t.skipped + r.skippedDuplicates,
+                transfers: t.transfers + r.transfers,
+                matched: t.matched + (r.matchedTransfers ?? 0),
+                pendingReview: t.pendingReview + (r.pendingReviewTransfers ?? 0),
+              }),
+              { imported: 0, skipped: 0, transfers: 0, matched: 0, pendingReview: 0 },
+            )
+            // Money in/out are the actual sums of what was imported (the accepted rows are still
+            // in state), not transaction counts. Transfers are internal moves, so they stay a count.
+            const moneyIn = moneyByCurrency(committedRows, (r) => !r.isTransfer && r.isCredit)
+            const moneyOut = moneyByCurrency(committedRows, (r) => !r.isTransfer && !r.isCredit)
             const money = (groups: { currency: string; minor: number }[]) =>
               groups.length === 0
                 ? formatMoney(0, preferredCurrency)
                 : groups.map((g) => formatMoney(g.minor, g.currency)).join(' + ')
             return (
-              <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-                <Stat label="Imported" value={result.imported} />
-                <Stat label="Skipped" value={result.skippedDuplicates} />
-                <Stat label="Money in" value={money(moneyIn)} />
-                <Stat label="Money out" value={money(moneyOut)} />
-                <Stat label="Transfers" value={result.transfers} />
-                {(result.matchedTransfers ?? 0) > 0 && <Stat label="Matched" value={result.matchedTransfers ?? 0} />}
-                {(result.pendingReviewTransfers ?? 0) > 0 && (
-                  <Stat label="Pending review" value={result.pendingReviewTransfers ?? 0} />
-                )}
-              </dl>
+              <>
+                <h2 id="import-result-heading" className="text-lg font-semibold text-slate-900">
+                  Import complete
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {total.imported} transaction{total.imported === 1 ? '' : 's'} added
+                  {total.skipped > 0 && `, ${total.skipped} skipped`}.
+                </p>
+                <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                  <Stat label="Imported" value={total.imported} />
+                  <Stat label="Skipped" value={total.skipped} />
+                  <Stat label="Money in" value={money(moneyIn)} />
+                  <Stat label="Money out" value={money(moneyOut)} />
+                  <Stat label="Transfers" value={total.transfers} />
+                  {total.matched > 0 && <Stat label="Matched" value={total.matched} />}
+                  {total.pendingReview > 0 && <Stat label="Pending review" value={total.pendingReview} />}
+                  {heldEverCount > 0 && <Stat label="Held" value={heldEverCount} />}
+                </dl>
+              </>
             )
           })()}
           <div className="mt-6">

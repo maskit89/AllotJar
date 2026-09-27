@@ -223,7 +223,7 @@ public class AllocationCoverageTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
-        var source = SeedAccount(db, "Joint");
+        var source = SeedAccount(db, "Joint", opening: 100_000m);
         var chrisSavings = SeedAccount(db, "Alex Savings", opening: 0m);
         var robinSavings = SeedAccount(db, "Robin Savings", opening: 0m);
         SeedMember(db, "Alex", 3000m, 0, chrisSavings.Id);
@@ -280,7 +280,7 @@ public class AllocationCoverageTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
-        var source = SeedAccount(db, "Joint");
+        var source = SeedAccount(db, "Joint", opening: 100_000m);
         var chrisSavings = SeedAccount(db, "Alex Savings");
         var robinSavings = SeedAccount(db, "Robin Savings");
         SeedMember(db, "Alex", 3000m, 0, chrisSavings.Id);
@@ -302,7 +302,7 @@ public class AllocationCoverageTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
-        var source = SeedAccount(db, "Joint");
+        var source = SeedAccount(db, "Joint", opening: 100_000m);
         var chrisSavings = SeedAccount(db, "Alex Savings", opening: 0m);
         var ghostId = Guid.NewGuid(); // an account that no longer exists
         SeedMember(db, "Alex", 3000m, 0, chrisSavings.Id);
@@ -331,7 +331,7 @@ public class AllocationCoverageTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
-        var source = SeedAccount(db, "Joint");
+        var source = SeedAccount(db, "Joint", opening: 100_000m);
         var aliceSavings = SeedAccount(db, "Alice Savings");
         var bobSavings = SeedAccount(db, "Bob Savings");
         var caraSavings = SeedAccount(db, "Cara Savings");
@@ -410,7 +410,7 @@ public class AllocationCoverageTests
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
         var gbp = CurrencyCode.From("GBP");
-        var source = SeedAccount(db, "Joint", currency: gbp);
+        var source = SeedAccount(db, "Joint", opening: 100_000m, currency: gbp);
         var chrisSavings = SeedAccount(db, "Alex Savings", currency: gbp);
         var alex = SeedMember(db, "Alex", 3000m, 0, chrisSavings.Id);
         SeedBudget(db, 2026, 7, envelopes: 2000m, funds: 0m, currency: gbp); // remainder 1000
@@ -439,7 +439,7 @@ public class AllocationCoverageTests
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
         var gbp = CurrencyCode.From("GBP");
-        var source = SeedAccount(db, "Joint", currency: gbp);
+        var source = SeedAccount(db, "Joint", opening: 100_000m, currency: gbp);
         var eurSavings = SeedAccount(db, "Alex Savings", currency: CurrencyCode.Eur); // mismatched
         var alex = SeedMember(db, "Alex", 3000m, 0, eurSavings.Id);
         SeedBudget(db, 2026, 7, envelopes: 2000m, funds: 0m, currency: gbp);
@@ -458,7 +458,7 @@ public class AllocationCoverageTests
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
         var gbp = CurrencyCode.From("GBP");
-        var source = SeedAccount(db, "Joint", currency: gbp);
+        var source = SeedAccount(db, "Joint", opening: 100_000m, currency: gbp);
         var savings = SeedAccount(db, "Savings", currency: gbp);
         var member = SeedMember(db, "Alex", 3000m, 0, savings.Id);
         SeedBudget(db, 2026, 6, 2000m, 0m, currency: gbp);
@@ -490,7 +490,7 @@ public class AllocationCoverageTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
-        var source = SeedAccount(db, "Joint");
+        var source = SeedAccount(db, "Joint", opening: 100_000m);
         var savings = SeedAccount(db, "Savings");
         SeedMember(db, "Alex", 3000m, 0, savings.Id);
         db.BudgetMonths.Add(new BudgetMonth
@@ -531,7 +531,7 @@ public class AllocationCoverageTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
-        SeedAccount(db, "Joint");
+        SeedAccount(db, "Joint", opening: 100_000m);
         SeedMember(db, "Alex", 3000m, 0, null);
         SeedBudget(db, 2026, 7, envelopes: 2000m, funds: 500m);
 

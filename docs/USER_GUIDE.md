@@ -162,6 +162,18 @@ Use the **Add a transaction** form: date, payee, amount, type (**Expense** or **
 
 If you don't pick a budget line, AllotJar quietly fills one in for you: it assigns the new transaction to the same line as your **most recent earlier transaction with the same description**. So once you've categorised "REWE" or your landlord once, repeat payees sort themselves — with no rules to set up. Whatever it can't match is left *Unassigned* for you to place.
 
+**An account never goes below zero.** If a payment (or a transfer out) would take its account below zero on any date — including a back-dated payment that dips a past balance — AllotJar refuses it and tells you the account, the balance it would reach and the date. Record the money that reached the account first, or correct the amount; there is no "post anyway", and nothing is invented to balance it. The same check protects you when you delete or shrink an income that later payments relied on, and when you lower an account's opening balance.
+
+### When the account holds jars
+
+If the account you pick holds [jars](#6-jars-savings-goals), the form asks one more thing:
+
+- **Income** — *Put into jars*: how much of this money goes to each jar. Leave the fields empty to keep it all **unallocated** (you can allocate it later from the Jars page). Example: 500 arrives in Savings, which holds Holiday and Car; you enter Holiday 300 and Car 200, and the account's unallocated money is unchanged.
+- **Expense on a jar's Savings line** — nothing to answer: the payment comes out of that jar.
+- **Expense on any other line** — *Which jar does this come from?* Defaults to the account's unallocated money; pick a jar if the money was that jar's (a hotel bill on the "Travel" line paid from the Holiday jar, say). An expense with no line always draws from unallocated.
+
+Editing a transaction asks the same questions again, pre-filled with your earlier answer. The register shows a small tag on rows with a jar answer ("→ Holiday 300.00, Car 200.00", "from Holiday").
+
 ### Recording a transfer between your own accounts
 
 With two or more accounts, the add form has a **Transfer** mode. A transfer is not income or spending — it never touches a budget line — but it does move money between two accounts, and each bank posts its own side on its own date:
@@ -169,13 +181,17 @@ With two or more accounts, the add form has a **Transfer** mode. A transfer is n
 - Enter the amount, the **From** and **To** accounts, and the date the money **left the source account**. Tick **I've completed this transfer** to record it; AllotJar only records transfers you have actually made.
 - If you already know when it **arrived**, enter that date too. Otherwise leave it blank: the amount is shown as **in transit** — debited from the source, not yet credited to the destination — until you confirm the receipt from the register row (**Confirm receipt**). AllotJar never guesses an arrival date.
 - When importing a statement, a debit you mark as a transfer records the departure in the same way. A credit you mark as a transfer is a receipt whose departure isn't known yet: it is held as **pending review** and doesn't change either balance until you add the departure date (**Add departure date** on the register) or, when the other account's statement already recorded the movement, pick that transfer from the **Already recorded?** list — both statement references are then kept on the one transfer, and nothing moves twice. Candidates with the same amount are only suggestions; nothing is matched for you.
+- **Importing into an account that holds jars** asks the same jar questions row by row in the review table: a credit can be divided among the account's jars (blank = unallocated), and a debit on a line that is not a jar's — or a debit marked as a transfer — can name the jar it comes from. Imported rows are posted in date order, and any debit that would take the account below zero on its date is **held**: it stays in the review table with the reason, nothing is posted for it, and the rows that fit are imported. Record the missing deposit (or fix the account) and commit the held rows again, or untick them to discard them. Held rows live only in that review — if you leave the page, upload the statement again and only the rows not yet imported are offered.
 - Deleting a transfer removes both sides at once. An account can't be deleted while it is a side of a recorded transfer.
+- If the **From** account holds jars, you can say which jar the money leaves (**From jar**; unallocated by default). If the **To** account holds jars and you enter the arrival date, you can divide the receipt among its jars — and when you confirm a receipt later from the register row, the same question is asked then. The source account must be able to cover the departure: a transfer never takes an account below zero.
 
 ### Assigning to a budget line
 
 Every transaction row has an assignment dropdown grouped by category. Once assigned, the line's Spent (or an income line's Received) includes this transaction — Spent is always the live total of a line's assigned transactions.
 
 Choose "Unassigned" to detach a transaction again.
+
+When the transaction is an expense from an account that holds jars and you assign it to a line that is not a jar's Savings line, a small prompt asks **which jar it comes from** (unallocated by default). Assigning it to a jar's line needs no answer — the line names the jar.
 
 ### Splitting a transaction
 
@@ -186,6 +202,8 @@ One supermarket receipt, several budget lines? Use the **split** control on the 
 - Expenses split across expense/savings lines; income across income lines.
 
 A split transaction shows a **Split** badge listing its slices, and each slice counts toward its own line. **Remove split** (or re-assigning the whole transaction) undoes it.
+
+For an expense from an account that holds jars, each slice on a jar's Savings line draws from that jar; the split editor asks once which jar the *other* slices come from (unallocated by default).
 
 ### Editing, deleting, finding
 
@@ -227,7 +245,12 @@ As you fill the form, a live line estimates the **monthly set-aside** the jar ne
 
 **What counts as saved:** only real money. A jar's balance is what you have actually allocated to it in its account, minus what you have spent from it; the planned contribution on the Budget page is a plan until the money is there. Money reaches a jar when you set it aside at creation, when you **Move money** into it from another jar or from the account's unallocated funds, or (later) when you allocate a deposit that arrives in the account. Money leaves a jar when you record an expense **from the jar's account** and assign it to the jar's Savings line — a payment can overdraw a jar (it shows **Overspent**), but never the account itself.
 
-**Move money** rearranges money inside one account without touching your bank: pick where it comes from (a jar or unallocated), where it goes, the amount and the date. A jar can give at most what it holds, and the move must leave every jar backed by real money. Moving money *between accounts* is a bank transfer — record it on the Transactions page.
+**Move money** rearranges money: pick where it comes from (a jar or the account's unallocated money), where it goes, the amount and the date. A jar can give at most what it holds, and the move must leave every jar backed by real money.
+
+- **Inside one account** nothing touches your bank: the account balance doesn't change.
+- **Into a jar (or the unallocated money) of another account** is a real bank transfer, so AllotJar records it as one: tick **I have made this transfer**, give the date the money left, and the date it arrived (today by default). Clear the arrival date if the money hasn't landed yet — the amount shows as in transit and the destination jar receives it once you **Confirm receipt** on the Transactions page. The source account must be able to cover it.
+
+Money also reaches jars whenever money reaches their account: recording an income, confirming a transfer receipt, importing a statement credit and committing an income allocation all ask **how much goes to each jar** (see *Transactions*, *Importing* and *Income allocation*).
 
 **Jars and the Budget page work together:** the jar tells you *what to set aside each month*, and AllotJar seeds that amount onto its **Savings** budget line automatically when you create each month. Edit a jar any time to change its target, date or cadence. Its account can only be changed while the jar is empty — move the money first. **Archive** a jar when you're done with it: it must be at zero (move any remainder out, or cover a shortfall), and archiving never touches your transactions.
 
@@ -279,7 +302,9 @@ Once your household is **shared** (you've added at least one other person), an *
 
 You set this up once (who shares, how the remainder is divided), and AllotJar **previews** the result before anything is applied — so you can see exactly who contributes what and who keeps what before you commit.
 
-The suggested amounts stay a plan until you move the money at the bank. **Allocate** asks you to confirm **I've completed these transfers** and the date the money left the source account, then records one transfer per person as *in transit*; confirm each receipt on the Transactions page when the savings account shows it. Running Allocate again keeps transfers that haven't changed, replaces an in-transit one whose amount changed, and won't discard a transfer whose receipt you've already confirmed.
+The suggested amounts stay a plan until you move the money at the bank. **Allocate** asks you to confirm **I've completed these transfers** and the date the money left the source account, then records one transfer per person as *in transit*; confirm each receipt on the Transactions page when the savings account shows it. Running Allocate again keeps transfers that haven't changed, replaces an in-transit one whose amount changed, and won't discard a transfer whose receipt you've already confirmed. The source account must be able to cover every transfer — allocation never takes it below zero.
+
+When a person's savings account holds jars, Allocate also asks **how much of that person's transfer goes to each jar**; whatever you leave blank stays unallocated in the account, and the jars are credited once the receipt is confirmed.
 
 ## 10. Your account & settings
 

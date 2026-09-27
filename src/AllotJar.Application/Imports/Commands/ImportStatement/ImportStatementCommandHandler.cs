@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Accounts;
 using AllotJar.Application.Transactions;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -76,8 +77,22 @@ public class ImportStatementCommandHandler : IRequestHandler<ImportStatementComm
 
         int imported = 0, skipped = 0, credits = 0, debits = 0;
         var created = new List<Transaction>();
+        var held = new List<ImportHeldRow>();
 
-        foreach (var entry in statement.Entries)
+        // Rule 74/11: rows are posted in date order and a debit that would take the account
+        // below zero on any date is held (reported, not posted); later rows are judged without it.
+        var candidate = new List<Transaction>();
+        if (account is not null)
+        {
+            candidate.AddRange(await _db.Transactions
+                .AsNoTracking()
+                .Where(t => t.OwnerId == userId
+                            && (t.AccountId == account.Id
+                                || (t.Type == TransactionType.Transfer && t.TransferAccountId == account.Id)))
+                .ToListAsync(cancellationToken));
+        }
+
+        foreach (var entry in statement.Entries.OrderBy(e => e.BookingDate))
         {
             // Skip an entry we have already imported (by bank reference).
             if (entry.Reference is not null && !seen.Add(entry.Reference))
@@ -98,8 +113,16 @@ public class ImportStatementCommandHandler : IRequestHandler<ImportStatementComm
                 BankReference = entry.Reference,
                 AccountId = request.AccountId,
             };
+            if (account is not null && !entry.IsCredit
+                && AccountBalanceGuard.FirstShortfall(new[] { account }, candidate.Append(transaction).ToList()) is string shortfall)
+            {
+                if (entry.Reference is not null) seen.Remove(entry.Reference);
+                held.Add(new ImportHeldRow(entry.Reference ?? string.Empty, shortfall));
+                continue;
+            }
             _db.Transactions.Add(transaction);
             created.Add(transaction);
+            candidate.Add(transaction);
 
             imported++;
             if (entry.IsCredit) credits++; else debits++;
@@ -127,7 +150,8 @@ public class ImportStatementCommandHandler : IRequestHandler<ImportStatementComm
             Credits: credits,
             Debits: debits,
             Iban: statement.Iban,
-            AutoCategorized: autoCategorized);
+            AutoCategorized: autoCategorized,
+            Held: held);
     }
 
     private static string Truncate(string value, int max) =>

@@ -1,5 +1,6 @@
 using MediatR;
 using AllotJar.Application.Common.Security;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Dtos;
 
 namespace AllotJar.Application.Transactions.Commands.ConfirmTransferLegs;
@@ -10,7 +11,11 @@ namespace AllotJar.Application.Transactions.Commands.ConfirmTransferLegs;
 /// held for review (rule 72). Only unknown legs are filled — an already confirmed date is
 /// left alone when the same value is re-sent and refused when a different one is, because
 /// correcting confirmed bank history is a separate, not yet agreed workflow. Statement
-/// references may be attached to the leg they belong to. Returns the updated transaction.
+/// references may be attached to the leg they belong to. A departure supplied for a jar-backed
+/// source may name the jar it leaves (<paramref name="FromJarId"/>); a receipt confirmed into a
+/// jar-backed destination may be divided among its jars (<paramref name="JarAllocations"/>,
+/// rule 78; null leaves any earlier answer, an empty list makes it all unallocated). Returns
+/// the updated transaction.
 /// </summary>
 [AllowLimited]
 public record ConfirmTransferLegsCommand(
@@ -18,4 +23,6 @@ public record ConfirmTransferLegsCommand(
     DateOnly? DepartedOn = null,
     DateOnly? ReceivedOn = null,
     string? BankReference = null,
-    string? ReceiptBankReference = null) : IRequest<TransactionDto>;
+    string? ReceiptBankReference = null,
+    Guid? FromJarId = null,
+    IReadOnlyList<JarAllocationInput>? JarAllocations = null) : IRequest<TransactionDto>;

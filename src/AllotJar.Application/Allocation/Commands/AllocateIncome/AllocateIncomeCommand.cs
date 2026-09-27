@@ -1,6 +1,7 @@
 using MediatR;
 using AllotJar.Application.Allocation.Dtos;
 using AllotJar.Application.Common.Security;
+using AllotJar.Application.Jars;
 
 namespace AllotJar.Application.Allocation.Commands.AllocateIncome;
 
@@ -13,7 +14,10 @@ namespace AllotJar.Application.Allocation.Commands.AllocateIncome;
 /// <paramref name="ReceivedOn"/> supplies the same-day or later arrival for all of them.
 /// Re-running keeps an unchanged member transfer (and any receipt already confirmed on it),
 /// re-records one whose amount changed, and refuses to discard a transfer whose receipt is
-/// already confirmed. Returns the computed result with the number of transfers created.
+/// already confirmed. <paramref name="JarAllocations"/> answers the incoming-money prompt for
+/// each member whose savings account backs jars (rule 78): how much of that member's transfer
+/// goes to which jar, the rest unallocated; it applies once the receipt is posted. Returns the
+/// computed result with the number of transfers created.
 /// </summary>
 [AllowLimited]
 public record AllocateIncomeCommand(
@@ -22,5 +26,9 @@ public record AllocateIncomeCommand(
     Guid? ProfileId = null,
     DateOnly? DepartedOn = null,
     DateOnly? ReceivedOn = null,
-    bool ConfirmedCompleted = false)
+    bool ConfirmedCompleted = false,
+    IReadOnlyList<AllocateIncomeJarAllocation>? JarAllocations = null)
     : IRequest<AllocationResultDto>;
+
+/// <summary>Part of one member's allocation transfer put into a jar of their savings account.</summary>
+public record AllocateIncomeJarAllocation(Guid MemberId, Guid JarId, decimal Amount);

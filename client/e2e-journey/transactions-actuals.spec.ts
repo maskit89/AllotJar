@@ -308,6 +308,8 @@ test('deleting a budget line or an account detaches its transactions but never d
   await page.getByRole('button', { name: 'Add account', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Account name').fill('Joint')
+  // Rule 74: the 140.00 spent below must be covered — an account never goes below zero.
+  await dialog.getByLabel('Opening balance').fill('500')
   await dialog.getByRole('button', { name: 'Add account', exact: true }).click()
   await expect(dialog).toBeHidden()
   await expect(page.getByText('Joint', { exact: true })).toBeVisible()

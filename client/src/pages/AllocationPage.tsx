@@ -16,6 +16,10 @@ import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount, toEditString }
 import { categoryPlanned, fromDto, remainingToBudget, totalIncome, type MonthVM } from '../budgetModel'
 import { accountOptionLabel, formatNames, savingsFirst } from '../lib/accountOptions'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
+import { activeJars, useJarLedgers } from '../lib/jarLedgers'
+import { toJarAllocations } from '../lib/jarAllocationFields'
+import { serverErrors } from '../lib/serverErrors'
+import { JarAllocationFields } from '../components/jars/JarAllocationFields'
 
 interface RuleSpec {
   order: number
@@ -65,6 +69,10 @@ export function AllocationPage() {
   // Inline savings-link (member card) + the allocate-with-stranded-shares confirm.
   const [linkingId, setLinkingId] = useState<string | null>(null)
   const [showCommitConfirm, setShowCommitConfirm] = useState(false)
+  // Rule 78 for the commit: each member whose savings account backs jars says how their
+  // transfer is divided among those jars (member id → jar id → typed amount; empty = unallocated).
+  const { ledgers } = useJarLedgers()
+  const [allocJar, setAllocJar] = useState<Record<string, Record<string, string>>>({})
 
   // Setup/edit form (in a modal).
   const [showSettings, setShowSettings] = useState(false)
@@ -216,6 +224,10 @@ export function AllocationPage() {
       setError('Confirm that you’ve completed these transfers, and the date the money left the source account.')
       return
     }
+    // Every member's jar answer, flattened; sent only when someone named a jar.
+    const jarAllocations = Object.entries(allocJar).flatMap(([memberId, value]) =>
+      toJarAllocations(value).map((row) => ({ memberId, ...row })),
+    )
     setBusy(true)
     setError(null)
     setCommitted(null)
@@ -224,24 +236,24 @@ export function AllocationPage() {
         departedOn: commitDate,
         receivedOn: null,
         confirmedCompleted: true,
+        ...(jarAllocations.length > 0 ? { jarAllocations } : {}),
       })
       setPreview(data)
       setCommitted(data.transfersCreated)
       setRetained(data.transfersRetained ?? 0)
       setCommitConfirmed(false)
+      setAllocJar({})
       track(EVENTS.allocationCommitted, { count_bucket: bucketCount(data.transfersCreated) })
     } catch (err) {
-      const e = err as { response?: { status?: number; data?: { errors?: Record<string, string[]> } } }
-      const messages = e?.response?.status === 400 ? Object.values(e.response.data?.errors ?? {}).flat() : []
+      // Rule 74 refusals and jar validation messages show verbatim.
       setError(
-        messages.length > 0
-          ? messages.join(' ')
-          : 'Could not record the allocation. Check the source account and members’ savings accounts are set.',
+        serverErrors(err) ??
+          'Could not record the allocation. Check the source account and members’ savings accounts are set.',
       )
     } finally {
       setBusy(false)
     }
-  }, [period, commitDate, commitConfirmed])
+  }, [period, commitDate, commitConfirmed, allocJar])
 
   // Re-seed the settings form from the saved profile (defaults when there's none). Called when the
   // modal opens (clean start) and closes (Cancel/backdrop discards unsaved edits, so a later Save
@@ -293,6 +305,14 @@ export function AllocationPage() {
   const strandedHasHave = strandedMembers.length === 1 ? 'has' : 'have'
   const nothingToSave = !!preview && toSavingsMinor <= 0
   const hasSource = !!profile?.sourceAccountId
+  // The members whose transfer lands in a jar-backed savings account: the commit asks how each
+  // is divided among that account's jars (rule 78).
+  const jarMembers = members.flatMap((m) => {
+    if (m.residual <= 0 || !m.savingsAccountId) return []
+    const ledger = ledgers.find((l) => l.accountId === m.savingsAccountId)
+    const jars = activeJars(ledger)
+    return ledger && jars.length > 0 ? [{ member: m, ledger, jars }] : []
+  })
   const sourceAccountName = accounts.find((a) => a.id === profile?.sourceAccountId)?.name
 
   // The inline link picker's offerings: savings accounts first, and a one-click suggestion
@@ -677,6 +697,31 @@ export function AllocationPage() {
               className="w-full text-slate-700"
             />
           </label>
+          {jarMembers.length > 0 && (
+            <div className="mt-3 space-y-3">
+              <p className="text-xs text-slate-600">
+                A savings account below holds jars. Say how much of each person’s transfer goes into
+                which jar; whatever you leave empty stays unallocated.
+              </p>
+              {jarMembers.map(({ member, ledger, jars }) => (
+                <div key={member.memberId} className="space-y-1">
+                  <p className="text-sm font-semibold text-slate-800">
+                    {member.name} · {formatMoney(fromAmount(member.residual), CURRENCY)}
+                  </p>
+                  <JarAllocationFields
+                    idPrefix={`alloc-${member.memberId}`}
+                    compact
+                    jars={jars}
+                    accountName={ledger.accountName}
+                    currency={ledger.currency}
+                    amount={member.residual}
+                    value={allocJar[member.memberId] ?? {}}
+                    onChange={(value) => setAllocJar((prev) => ({ ...prev, [member.memberId]: value }))}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
           <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"

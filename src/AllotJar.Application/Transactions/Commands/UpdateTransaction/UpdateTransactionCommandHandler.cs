@@ -2,6 +2,8 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Accounts;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -54,6 +56,11 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
                 throw new ForbiddenAccessException();
             }
         }
+        var previousAccount = transaction.Account;
+        // Serialise against other writers on the account that receives the edited row (rule 74).
+        await using var write = account is null
+            ? null
+            : await _db.BeginLedgerWriteAsync(account.Id, cancellationToken);
 
         // Moving a transaction onto an account of a different currency would corrupt that
         // account's (currency-blind) balance — reject it. The transaction's currency is not
@@ -184,8 +191,42 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         transaction.Member = member;
         transaction.MemberId = member?.Id;
 
-        await _db.SaveChangesAsync(cancellationToken);
+        // Rule 74 on every account the edit touches: the one losing the row as much as the one
+        // receiving it (moving an income away, or shrinking it, can leave later payments uncovered).
+        var affected = new[] { previousAccount, account }.Where(a => a is not null).Select(a => a!).ToList();
+        if (affected.Count > 0)
+        {
+            await AccountBalanceGuard.EnsureNonNegativeAsync(
+                _db, affected, new[] { transaction }, Array.Empty<Guid>(), "Amount", cancellationToken);
+        }
 
-        return transaction.ToDto();
+        // The jar split of the previous leg no longer describes this row once it changes account
+        // or direction; the edited leg carries the re-answered prompt (rules 78/79).
+        if (previousAccount is not null && previousAccount.Id != account?.Id)
+        {
+            await JarMovements.ClearAsync(_db, transaction, previousAccount.Id, cancellationToken);
+        }
+        if (account is not null)
+        {
+            if (request.Type == TransactionType.Expense)
+            {
+                await JarMovements.ApplyOutgoingAsync(
+                    _db, userId, transaction, account, request.PaidFromJarId, "PaidFromJarId", cancellationToken);
+            }
+            else
+            {
+                await JarMovements.ApplyIncomingAsync(
+                    _db, userId, transaction, account, transaction.Date, transaction.Amount, request.JarAllocations,
+                    "JarAllocations", cancellationToken);
+            }
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
+
+        return await TransactionReads.ReadDtoAsync(_db, transaction.Id, cancellationToken);
     }
 }

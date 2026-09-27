@@ -376,15 +376,16 @@ describe('JarsPage', () => {
 
     await user.click(await screen.findByLabelText('Move money from Home insurance', {}, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    // The ledger for this jar's account was loaded: unallocated and each jar's balance show.
-    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/jars/ledger?accountId=acc1'))
+    // Every jar-backed account's ledger was loaded (a move may cross accounts): the jar's own
+    // account shows its unallocated money and each jar's balance.
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/jars/ledger'))
     const held = await dialog.findByLabelText('Money held in Joint Current', {}, { timeout: 5000 })
     expect(within(held).getByText('Unallocated funds').parentElement!.textContent).toContain('600.00')
     expect(within(held).getByText('Home insurance').parentElement!.textContent).toContain('400.00')
 
     // This jar is preselected as the source; swap so money comes FROM unallocated INTO it.
     expect(dialog.getByLabelText('Move from')).toHaveValue('f1')
-    await user.selectOptions(dialog.getByLabelText('Move from'), 'unallocated')
+    await user.selectOptions(dialog.getByLabelText('Move from'), 'unallocated:acc1')
     await user.selectOptions(dialog.getByLabelText('Move to'), 'f1')
     await user.type(dialog.getByLabelText('Move amount'), '100')
     fireEvent.change(dialog.getByLabelText('Move date'), { target: { value: '2026-09-20' } })

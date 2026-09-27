@@ -311,9 +311,8 @@ test('client-side transfer validation blocks bad input without an API call, and 
   expect(transferPosts).toBe(0)
 
   // --- TRF-021 + TRF-015: EUR → USD passes the client checks, so the POST goes
-  // out and the server's cross-currency guard rejects it (400). The client maps
-  // every server failure to the one generic string, prepends no row, and the
-  // modal stays open.
+  // out and the server's cross-currency guard rejects it (400). The client shows
+  // the server's own message verbatim, prepends no row, and the modal stays open.
   await dialog.getByLabel('Transfer completed confirmation').check()
   const rejected = page.waitForResponse(
     (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/transactions/transfer',
@@ -322,7 +321,7 @@ test('client-side transfer validation blocks bad input without an API call, and 
   const rejection = await rejected
   expect(rejection.status()).toBe(400)
   expect(await rejection.text()).toContain('Both accounts must use the same currency to transfer between them.')
-  await expect(dialog.getByText('Could not record that transfer.')).toBeVisible()
+  await expect(dialog.getByText('Both accounts must use the same currency to transfer between them.')).toBeVisible()
   await expect(page.getByRole('dialog', { name: 'Record a transfer' })).toBeVisible()
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(page.getByText('No transactions yet')).toBeVisible() // no phantom row
