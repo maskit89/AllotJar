@@ -50,24 +50,10 @@ public static class AllocationPlanner
 
         var savingsBalances = await SavingsBalancesAsync(db, ownerId, members, year, month, ct);
 
-        // Per-member income precedence: when the month's budget attributes income lines to
-        // people, those PLANNED sums are the engine's income source (the budget is the single
-        // source of truth); unattributed income is shared equally (last member absorbs the
-        // rounding remainder, the IncomeAllocator.Split convention). A month with no attributed
-        // lines falls back to the static NetMonthlyIncome — exact pre-attribution behavior.
-        var budgetIncome = await MemberIncome.ForMonthAsync(
-            db, ownerId, year, month, members.Select(m => m.Id).ToList(), ct);
-        var equalShares = new Dictionary<Guid, decimal>();
-        if (budgetIncome.HasAttributedIncome && members.Count > 0 && budgetIncome.Unattributed != 0m)
-        {
-            var share = Math.Round(budgetIncome.Unattributed / members.Count, 4);
-            for (var i = 0; i < members.Count; i++)
-            {
-                equalShares[members[i].Id] = i == members.Count - 1
-                    ? budgetIncome.Unattributed - share * (members.Count - 1)
-                    : share;
-            }
-        }
+        // Rule 28: the engine's income is the month's budgeted income and nothing else — each
+        // person's attributed lines plus an equal share of the unattributed lines. The saved
+        // per-person defaults never supply or top up the pool; a month with no budget has none.
+        var budgetIncome = await MemberIncome.SharesAsync(db, ownerId, year, month, members, ct);
 
         var allocMembers = members
             .Select(m =>
@@ -80,9 +66,7 @@ public static class AllocationPlanner
                 var savingsId = m.PersonalSavingsAccountId is Guid sid && savingsBalances.ContainsKey(sid)
                     ? (Guid?)sid
                     : null;
-                var netIncome = budgetIncome.HasAttributedIncome
-                    ? budgetIncome.ByMember.GetValueOrDefault(m.Id) + equalShares.GetValueOrDefault(m.Id)
-                    : m.NetMonthlyIncome;
+                var netIncome = budgetIncome.Income.GetValueOrDefault(m.Id);
                 var savingsBalance = savingsId is Guid vid ? savingsBalances[vid] : null;
                 return new AllocationMember(
                     m.Id, m.Name, netIncome, savingsId,
@@ -106,8 +90,8 @@ public static class AllocationPlanner
         var result = IncomeAllocator.Compute(allocMembers, ruleInputs, profile?.BalanceLeanPercent ?? 25);
         return new AllocationPlan(
             result, profile, envelopes, funds,
-            UnattributedIncome: budgetIncome.HasAttributedIncome ? budgetIncome.Unattributed : 0m,
-            IncomeFromBudget: budgetIncome.HasAttributedIncome);
+            UnattributedIncome: budgetIncome.Unattributed,
+            IncomeFromBudget: true);
     }
 
     /// <summary>

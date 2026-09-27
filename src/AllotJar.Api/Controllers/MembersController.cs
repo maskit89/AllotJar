@@ -29,22 +29,34 @@ public class MembersController : ControllerBase
         _mediator = mediator;
     }
 
-    /// <summary>Lists the household's members with each one's income share.</summary>
+    /// <summary>
+    /// Lists the household's members with each one's income and share in the selected month's
+    /// budget (rule 28); <c>year</c>/<c>month</c> default to the current month.
+    /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<HouseholdMemberDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<HouseholdMemberDto>>> List(
-        [FromQuery] bool includeArchived, CancellationToken ct)
+        [FromQuery] bool includeArchived, [FromQuery] int? year, [FromQuery] int? month, CancellationToken ct)
     {
-        var result = await _mediator.Send(new GetHouseholdMembersQuery(includeArchived), ct);
+        var result = await _mediator.Send(new GetHouseholdMembersQuery(includeArchived, year, month), ct);
         return Ok(result);
     }
 
-    /// <summary>Per-member attributed spending (the "who spent what" lens).</summary>
+    /// <summary>Per-member attributed spending (the "who spent what" lens) across all time, in the base currency.</summary>
     [HttpGet("spending")]
     [ProducesResponseType(typeof(IReadOnlyList<MemberSpendingDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<MemberSpendingDto>>> Spending(CancellationToken ct)
     {
         var result = await _mediator.Send(new GetMemberSpendingQuery(), ct);
+        return Ok(result);
+    }
+
+    /// <summary>Per-member attributed spending in one month (the same month the Budget shows, rule 29), in the base currency.</summary>
+    [HttpGet("spending/{year:int}/{month:int}")]
+    [ProducesResponseType(typeof(IReadOnlyList<MemberSpendingDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<MemberSpendingDto>>> SpendingForMonth(int year, int month, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new GetMemberSpendingQuery(year, month), ct);
         return Ok(result);
     }
 

@@ -8,9 +8,17 @@ import { Modal } from '../components/Modal'
 import { AllocationIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { useHousehold } from '../features/HouseholdContext'
+import { useMonth } from '../features/MonthContext'
 import { api } from '../lib/api'
 import { bucketCount, EVENTS, track } from '../analytics'
-import type { AccountDto, AllocationProfileDto, AllocationResultDto, BudgetMonthDto, MemberAllocationDto } from '../types'
+import type {
+  AccountDto,
+  AllocationProfileDto,
+  AllocationResultDto,
+  BudgetMonthDto,
+  HouseholdMemberDto,
+  MemberAllocationDto,
+} from '../types'
 import { AccountType, AllocationRuleType, SplitMethod } from '../types'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount, toEditString } from '../lib/money'
 import { categoryPlanned, fromDto, remainingToBudget, totalIncome, type MonthVM } from '../budgetModel'
@@ -51,13 +59,13 @@ export function AllocationPage() {
   const { isShared, loading: householdLoading } = useHousehold()
   const navigate = useNavigate()
   const CURRENCY = preferredCurrency
+  // The app-wide selected month (rule 29): the allocation reads the same month and figures as
+  // the Budget page, and moves with the top bar's month navigator.
+  const { year, month, label: monthLabel } = useMonth()
+  const period = useMemo(() => ({ year, month }), [year, month])
   const [profile, setProfile] = useState<AllocationProfileDto | null>(null)
   const [accounts, setAccounts] = useState<AccountDto[]>([])
   const [preview, setPreview] = useState<AllocationResultDto | null>(null)
-  const [period, setPeriod] = useState<{ year: number; month: number }>(() => {
-    const now = new Date()
-    return { year: now.getFullYear(), month: now.getMonth() + 1 }
-  })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -91,13 +99,17 @@ export function AllocationPage() {
     }
   }, [])
 
+  // Reloads whenever the selected month changes: the preview and the budget it reconciles
+  // against are both that month's.
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     Promise.all([
       api.get<AllocationProfileDto | null>('/allocation/profile').catch(() => ({ data: null })),
       api.get<AccountDto[]>('/accounts').catch(() => ({ data: [] })),
-      api.get<BudgetMonthDto>('/budget/current').catch(() => null),
+      // The selected month's budget (a 404 = no budget yet → null), the other half of the
+      // reconciliation banner and the source of the "no income yet" notice.
+      api.get<BudgetMonthDto>(`/budget/${year}/${month}`).catch(() => null),
     ])
       .then(async ([prof, acc, budget]) => {
         if (cancelled) return
@@ -106,12 +118,12 @@ export function AllocationPage() {
         const p = prof?.data || null
         setProfile(p)
         setAccounts(Array.isArray(acc?.data) ? acc.data : [])
-        const year = budget?.data?.year ?? period.year
-        const month = budget?.data?.month ?? period.month
-        setPeriod({ year, month })
-        // Keep the budget itself too (not just year/month): the reconciliation banner
-        // compares its remaining-to-budget with the engine's promised outputs.
-        setMonthVM(budget?.data?.categories ? fromDto(budget.data) : null)
+        // A banner about another month's commit/sync would be stale under this month's heading.
+        setCommitted(null)
+        setSyncedMsg(null)
+        // Keep the budget itself: the reconciliation banner compares its remaining-to-budget
+        // with the engine's promised outputs.
+        setMonthVM(Array.isArray(budget?.data?.categories) ? fromDto(budget.data) : null)
         if (p) {
           setSourceAccountId(p.sourceAccountId ?? '')
           const pocketRule = p.rules.find((r) => r.type === AllocationRuleType.FixedPerMember)
@@ -129,8 +141,7 @@ export function AllocationPage() {
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [year, month, loadPreview])
 
   const saveProfile = useCallback(async () => {
     const pocketAmount = pocket.trim() === '' ? 0 : parseMinor(pocket)
@@ -187,19 +198,21 @@ export function AllocationPage() {
     }
   }, [period, loadPreview])
 
-  // Link a savings account to a member straight from the warning on their card. Full-echo
-  // PUT: name + income come from the preview DTO, so a concurrent People-page income edit in
-  // the window between preview load and this PUT is overwritten (last write wins) — a narrow,
-  // accepted race for a link action.
+  // Link a savings account to a member straight from the warning on their card. The PUT is a
+  // full echo, so the member's saved record is read first: the preview's `netIncome` is the
+  // month's BUDGET figure (rule 28) and must never be written into the saved default income.
   const linkSavings = useCallback(
     async (m: MemberAllocationDto, accountId: string) => {
       if (!accountId) return
       setLinkingId(m.memberId)
       setError(null)
       try {
+        const { data: list } = await api.get<HouseholdMemberDto[]>('/members')
+        const current = Array.isArray(list) ? list.find((x) => x.id === m.memberId) : undefined
+        if (!current) throw new Error('member not found')
         await api.put(`/members/${m.memberId}`, {
-          name: m.name,
-          netMonthlyIncome: m.netIncome,
+          name: current.name,
+          netMonthlyIncome: current.netMonthlyIncome,
           personalSavingsAccountId: accountId,
         })
         // The balance-tilt figures change once the link lands; a prior banner is stale.
@@ -284,6 +297,10 @@ export function AllocationPage() {
     () => new Date(period.year, period.month - 1, 1).toLocaleDateString(undefined, { month: 'long' }),
     [period],
   )
+  // Rule 28: the pool is the month's budgeted income and nothing else, so an empty pool means
+  // the budget has no income lines (or there is no budget yet) — never a missing default.
+  const noIncomeInBudget =
+    !!preview && fromAmount(preview.pool) === 0 && (monthVM === null || totalIncome(monthVM) === 0)
 
   // Hero figures. The pool splits into shared spending (costs + jars + pocket money) and savings,
   // so those two tiles reconcile exactly to the pooled income; the waterfall below breaks spending
@@ -455,9 +472,25 @@ export function AllocationPage() {
             </p>
           )}
 
-          {/* Income-source honesty: the pool comes from the budget's attributed income lines
-              when any exist; unattributed lines are shared equally with a nudge to assign
-              them, and a month with no attribution falls back to People-page defaults. */}
+          {/* Income-source honesty (rule 28): the pool is the month's budgeted income lines —
+              attributed ones per person, unattributed ones shared equally with a nudge to
+              assign them. A month with no income lines has nothing to allocate. */}
+          {noIncomeInBudget && (
+            <div
+              role="status"
+              className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-200"
+            >
+              No income in {monthLabel}’s budget yet. Add income lines to the Budget (attribute them to
+              people for a by-income split) and come back.{' '}
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="font-semibold text-brand-700 underline underline-offset-2 hover:text-brand-800 dark:text-brand-200"
+              >
+                Open the Budget
+              </button>
+            </div>
+          )}
           {(preview.unattributedIncome ?? 0) > 0 && (
             <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
               {formatMoney(fromAmount(preview.unattributedIncome ?? 0), CURRENCY)} of {monthName}’s income
@@ -470,12 +503,6 @@ export function AllocationPage() {
                 Assign income lines on the Budget page
               </button>{' '}
               for an accurate split.
-            </p>
-          )}
-          {!preview.incomeFromBudget && (
-            <p className="mb-4 text-xs text-slate-500">
-              This split uses the default incomes from the People page — {monthName}’s budget has no income
-              assigned to people yet.
             </p>
           )}
 
@@ -570,9 +597,9 @@ export function AllocationPage() {
           )}
           {incomeMismatch && budgetIncomeMinor !== null && (
             <p className="mt-4 text-xs text-slate-500">
-              Note: the pooled income here ({formatMoney(poolMinor, CURRENCY)}) comes from each person’s
-              income on the People page and doesn’t match {monthName}’s budgeted income lines (
-              {formatMoney(budgetIncomeMinor, CURRENCY)}).
+              Note: the pooled income here ({formatMoney(poolMinor, CURRENCY)}) doesn’t match {monthName}’s
+              budgeted income lines ({formatMoney(budgetIncomeMinor, CURRENCY)}). Both come from the same
+              budget — refresh the page if you’ve just edited it.
             </p>
           )}
           {strandedMinor > 0 && (

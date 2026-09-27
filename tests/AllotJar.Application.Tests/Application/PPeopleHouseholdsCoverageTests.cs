@@ -23,11 +23,15 @@ namespace AllotJar.Application.Tests.Application;
 /// transactions is archived (PPL-023); cross-household data isolation / owner-scoping
 /// (PPL-058); the untested archive-toggle <c>{archived:false}</c> restore leg that
 /// re-includes the member and recomputes the income-share pool (PPL-077); the all-zero
-/// income divide-by-zero guard (PPL-073); the documented mapping quirk where an archived
-/// earner fetched with <c>includeArchived=true</c> keeps a non-zero share (PPL-025); and
+/// income divide-by-zero guard (PPL-073); an archived member fetched with
+/// <c>includeArchived=true</c> having a zero share while their month's lines are shared by the
+/// active people (PPL-025); and
 /// the guard-before-write on a foreign/bogus personal savings account for both create and
 /// update (PPL-075 / PPL-076). Conventions mirror HouseholdMembersTests / MemberSpendingTests
 /// (EF InMemory context, CurrentUserStub whose OwnerId defaults to UserId, FluentAssertions 7).
+/// Income and shares are read from a month's budget (rule 28): each share test seeds a budget
+/// month with attributed income lines and asks for that month; the saved default
+/// <c>NetMonthlyIncome</c> is only the People page's helper field and never a divisor.
 /// </summary>
 public class PPeopleHouseholdsCoverageTests
 {
@@ -56,6 +60,25 @@ public class PPeopleHouseholdsCoverageTests
         db.HouseholdMembers.Add(m);
         await db.SaveChangesAsync();
         return m;
+    }
+
+    /// <summary>A budget month whose income lines are attributed to the given members (rule 28).</summary>
+    private static async Task SeedIncomeMonth(
+        ApplicationDbContext db, string ownerId, int year, int month, params (HouseholdMember Member, decimal Amount)[] lines)
+    {
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = ownerId, Year = year, Month = month, BaseCurrency = CurrencyCode.Eur,
+            Categories = new List<BudgetCategory>
+            {
+                new()
+                {
+                    Name = "Income", Kind = CategoryKind.Income,
+                    Items = lines.Select(l => new BudgetItem { Name = l.Member.Name, PlannedAmount = l.Amount, MemberId = l.Member.Id }).ToList(),
+                },
+            },
+        });
+        await db.SaveChangesAsync();
     }
 
     private static async Task<Account> SeedAccount(ApplicationDbContext db, string ownerId, string name)
@@ -88,13 +111,15 @@ public class PPeopleHouseholdsCoverageTests
     {
         // PPL-023 (P0) — archiving is soft: leave/revoke/archive keep the budget person's
         // attributed data ("Nothing was deleted"). After archiving Sam she leaves the default
-        // member list, the spending lens and the income-share pool, but her HouseholdMember row
+        // member list, the spending lens and the income shares (her June income line stays in the
+        // budget and folds into the household's income, rule 28), but her HouseholdMember row
         // and every transaction attributed to her stay exactly where they were. Existing tests
         // cover archive-hides-from-default and spending-excludes-archived, but never assert the
         // transactions survive the archive.
         await using var db = NewContext();
         var alex = await SeedMember(db, "user-1", "Alex", 3000m, order: 0);
         var sam = await SeedMember(db, "user-1", "Sam", 1000m, order: 1);
+        await SeedIncomeMonth(db, "user-1", 2026, 6, (alex, 3000m), (sam, 1000m));
         await SeedExpense(db, "user-1", sam.Id, 200m, new DateOnly(2026, 6, 1));
         await SeedExpense(db, "user-1", sam.Id, 300m, new DateOnly(2026, 6, 2));
 
@@ -109,11 +134,13 @@ public class PPeopleHouseholdsCoverageTests
         lizaTx.Should().HaveCount(2);
         lizaTx.Sum(t => t.Amount).Should().Be(500m);
 
-        // Default member list now excludes her; Alex carries the whole active pool (share 100%).
+        // Default member list now excludes her; Alex carries the whole of June's income (share
+        // 100%): Sam's 1,000 line is no longer hers, so it is shared among the active — Alex alone.
         var members = await new GetHouseholdMembersQueryHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
+            .Handle(new GetHouseholdMembersQuery(Year: 2026, Month: 6), CancellationToken.None);
         members.Should().ContainSingle().Which.Name.Should().Be("Alex");
-        members.Single().IncomeSharePct.Should().Be(1m); // 3000 / 3000 — Sam's 1000 no longer in the pool
+        members.Single().IncomeSharePct.Should().Be(1m); // 4000 / 4000
+        members.Single().BudgetIncome.Should().Be(4000m); // 3000 attributed + Sam's 1000 now unattributed
 
         // Spending lens drops her €500 too (she is out of the active member set).
         var spending = await new GetMemberSpendingQueryHandler(db, new CurrentUserStub("user-1"))
@@ -200,31 +227,37 @@ public class PPeopleHouseholdsCoverageTests
     public async Task RestoreArchivedMember_ReAddsToDefaultList_AndRecomputesIncomeShares()
     {
         // PPL-077 (P1) — ArchiveHouseholdMemberCommand(Id, Archived) is a set-to-value toggle,
-        // so {archived:false} RESTORES. The handler re-sums totalActiveNet over the now-larger
-        // active pool. Starting solo (Sam archived → Alex alone at 100%, combined €3,000), a
-        // restore must return Sam to the default list, recompute shares to 75/25 against the
-        // restored €4,000 pool (not the stale €3,000 divisor), and carry her original income back.
+        // so {archived:false} RESTORES. Shares are read from the month's budget (rule 28): while
+        // Sam is archived her 1,000 income line is unattributed and Alex alone holds all €4,000
+        // (100%); a restore must return Sam to the default list, give her line back to her, and
+        // recompute the shares to 75/25 — and carry her saved default back untouched. The
+        // handler's returned DTO reads the CURRENT month, so that is the month seeded here.
         // The restore leg has no UI control and was never exercised.
         await using var db = NewContext();
+        var (year, month) = (DateTime.UtcNow.Year, DateTime.UtcNow.Month);
         var alex = await SeedMember(db, "user-1", "Alex", 3000m, order: 0);
         var sam = await SeedMember(db, "user-1", "Sam", 1000m, archived: true, order: 1);
+        await SeedIncomeMonth(db, "user-1", year, month, (alex, 3000m), (sam, 1000m));
 
-        // Baseline: solo — the default list is Alex alone at 100%.
+        // Baseline: solo — the default list is Alex alone at 100% of the month's €4,000.
         var before = await new GetHouseholdMembersQueryHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
+            .Handle(new GetHouseholdMembersQuery(Year: year, Month: month), CancellationToken.None);
         before.Should().ContainSingle().Which.IncomeSharePct.Should().Be(1m);
+        before.Single().BudgetIncome.Should().Be(4000m);
 
         var restored = await new ArchiveHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"))
             .Handle(new ArchiveHouseholdMemberCommand(sam.Id, Archived: false), CancellationToken.None);
 
-        // The returned DTO reflects the restored active pool: share = 1000 / (3000 + 1000) = 0.25.
+        // The returned DTO reflects the restored month: share = 1000 / (3000 + 1000) = 0.25.
         restored.IsArchived.Should().BeFalse();
-        restored.NetMonthlyIncome.Should().Be(1000m); // income intact — nothing was ever deleted
+        restored.NetMonthlyIncome.Should().Be(1000m); // the saved default is intact — nothing was ever deleted
+        restored.BudgetIncome.Should().Be(1000m);     // her line is hers again
         restored.IncomeSharePct.Should().Be(0.25m);
+        (restored.IncomeYear, restored.IncomeMonth).Should().Be((year, month));
 
-        // Default list re-includes her, and both shares recompute against the €4,000 pool.
+        // Default list re-includes her, and both shares recompute against the €4,000 month.
         var after = await new GetHouseholdMembersQueryHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
+            .Handle(new GetHouseholdMembersQuery(Year: year, Month: month), CancellationToken.None);
         after.Should().HaveCount(2); // 2 active members → the data behind the shared/solo flip (PPL-031 inverse)
         after.Single(m => m.Id == alex.Id).IncomeSharePct.Should().Be(0.75m);
         after.Single(m => m.Id == sam.Id).IncomeSharePct.Should().Be(0.25m);
@@ -259,51 +292,72 @@ public class PPeopleHouseholdsCoverageTests
     [Fact]
     public async Task AllZeroActiveIncome_EveryShareIsZero_ThenRecomputesWhenIncomeIsAdded()
     {
-        // PPL-073 (P1) — when the active pool's total net income is 0 the DTO mapping returns a 0
-        // share for every member (the `totalActiveNet > 0` guard), so there is no divide-by-zero
-        // and no NaN/Infinity. Adding income to one member makes the shares recompute against the
-        // new pool. Existing coverage only exercises a non-zero pool (6000/4000).
+        // PPL-073 (P1) — when the month's income is 0 (every line zero, or no budget month at
+        // all) the share is 0 for every member (the `Total > 0` guard), so there is no
+        // divide-by-zero and no NaN/Infinity. Adding an attributed income line to the month
+        // makes the shares recompute; changing a saved default does not (rule 28). Existing
+        // coverage only exercises a non-zero month (6000/4000).
         await using var db = NewContext();
         var alex = await SeedMember(db, "user-1", "Alex", 0m, order: 0);
         var sam = await SeedMember(db, "user-1", "Sam", 0m, order: 1);
+        await SeedIncomeMonth(db, "user-1", 2026, 6, (alex, 0m), (sam, 0m));
 
         var handler = new GetHouseholdMembersQueryHandler(db, new CurrentUserStub("user-1"));
-        var zero = await handler.Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
-        zero.Should().OnlyContain(m => m.IncomeSharePct == 0m);
+        var zero = await handler.Handle(new GetHouseholdMembersQuery(Year: 2026, Month: 6), CancellationToken.None);
+        zero.Should().OnlyContain(m => m.IncomeSharePct == 0m && m.BudgetIncome == 0m && m.HasBudget);
         zero.Sum(m => m.NetMonthlyIncome).Should().Be(0m);
 
-        // Give Alex an income; the pool becomes 1000 and the shares recompute (100% / 0%).
+        // A month with no budget at all is the same: zero for everyone, and flagged as such.
+        var noMonth = await handler.Handle(new GetHouseholdMembersQuery(Year: 2026, Month: 7), CancellationToken.None);
+        noMonth.Should().OnlyContain(m => m.IncomeSharePct == 0m && m.BudgetIncome == 0m && !m.HasBudget);
+
+        // Raising Alex's saved default changes nothing in the month: it is not an income figure.
         await new UpdateHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"))
             .Handle(new UpdateHouseholdMemberCommand(alex.Id, "Alex", 1000m, null), CancellationToken.None);
+        var stillZero = await handler.Handle(new GetHouseholdMembersQuery(Year: 2026, Month: 6), CancellationToken.None);
+        stillZero.Should().OnlyContain(m => m.IncomeSharePct == 0m);
+        stillZero.Single(m => m.Id == alex.Id).NetMonthlyIncome.Should().Be(1000m);
 
-        var recomputed = await handler.Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
+        // Give Alex an income line in June; the month becomes 1000 and the shares recompute (100% / 0%).
+        var alexLine = await db.BudgetItems.SingleAsync(i => i.MemberId == alex.Id);
+        alexLine.PlannedAmount = 1000m;
+        await db.SaveChangesAsync();
+
+        var recomputed = await handler.Handle(new GetHouseholdMembersQuery(Year: 2026, Month: 6), CancellationToken.None);
         recomputed.Single(m => m.Id == alex.Id).IncomeSharePct.Should().Be(1m);
         recomputed.Single(m => m.Id == sam.Id).IncomeSharePct.Should().Be(0m);
     }
 
-    // ---- PPL-025: includeArchived leaves an archived earner a non-zero share ----------
+    // ---- PPL-025: includeArchived shows an archived member with a zero share ----------
 
     [Fact]
-    public async Task IncludeArchived_ArchivedEarnerKeepsNonZeroShare_SoSharesCanExceed100()
+    public async Task IncludeArchived_ArchivedMemberHasZeroShare_AndTheirLinesAreSharedByTheActive()
     {
-        // PPL-025 (P2, regression lock) — contrary to the handler comment ("archived members get a
-        // 0 share"), HouseholdMemberDto.ToDto applies income/totalActiveNet to EVERY member it maps,
-        // including archived ones. So GET /members?includeArchived=true returns an archived earner
-        // with a non-zero share and the shares across the full list can sum past 100%. The default
-        // (active-only) list is unaffected. This pins the documented mapping quirk.
+        // PPL-025 (P2) — an archived member holds no income in any month (rule 28): the month's
+        // lines attributed to them fold into the household's unattributed income and are shared
+        // equally by the ACTIVE people. So GET /members?includeArchived=true returns the archived
+        // member at income 0 / share 0, the shares across the full list still sum to exactly 100%,
+        // and the default (active-only) list shows Alex alone holding the whole month.
         await using var db = NewContext();
         var alex = await SeedMember(db, "user-1", "Alex", 3000m, order: 0);
         var sam = await SeedMember(db, "user-1", "Sam", 1000m, archived: true, order: 1);
+        await SeedIncomeMonth(db, "user-1", 2026, 6, (alex, 3000m), (sam, 1000m));
         var handler = new GetHouseholdMembersQueryHandler(db, new CurrentUserStub("user-1"));
 
-        var all = await handler.Handle(new GetHouseholdMembersQuery(IncludeArchived: true), CancellationToken.None);
-        // totalActiveNet excludes Sam (= 3000), but the mapping still divides HER income by it.
-        all.Single(m => m.Id == sam.Id).IncomeSharePct.Should().Be(0.3333m); // 1000 / 3000, 4dp away-from-zero
-        all.Single(m => m.Id == alex.Id).IncomeSharePct.Should().Be(1m);     // 3000 / 3000
-        all.Sum(m => m.IncomeSharePct).Should().BeGreaterThan(1m);            // exceeds 100%
+        var all = await handler.Handle(new GetHouseholdMembersQuery(IncludeArchived: true, Year: 2026, Month: 6), CancellationToken.None);
+        all.Should().HaveCount(2);
+        var samDto = all.Single(m => m.Id == sam.Id);
+        samDto.IsArchived.Should().BeTrue();
+        samDto.BudgetIncome.Should().Be(0m);
+        samDto.IncomeSharePct.Should().Be(0m);
+        samDto.NetMonthlyIncome.Should().Be(1000m); // the saved default is still shown, it is just not income
+        var alexDto = all.Single(m => m.Id == alex.Id);
+        alexDto.BudgetIncome.Should().Be(4000m);  // 3000 attributed + Sam's 1000, now the household's
+        alexDto.IncomeSharePct.Should().Be(1m);   // 4000 / 4000
+        all.Sum(m => m.IncomeSharePct).Should().Be(1m);
 
-        // The default list the People UI actually requests is unaffected: Alex alone at 100%.
-        var active = await handler.Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
+        // The default list the People UI actually requests: Alex alone at 100%.
+        var active = await handler.Handle(new GetHouseholdMembersQuery(Year: 2026, Month: 6), CancellationToken.None);
         active.Should().ContainSingle().Which.IncomeSharePct.Should().Be(1m);
     }
 

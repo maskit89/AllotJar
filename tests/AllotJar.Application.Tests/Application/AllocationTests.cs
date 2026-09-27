@@ -39,11 +39,28 @@ public class AllocationTests
         return a;
     }
 
-    private static void SeedMember(ApplicationDbContext db, string owner, string name, decimal net, int order, Guid? savings)
+    private static HouseholdMember SeedMember(ApplicationDbContext db, string owner, string name, decimal net, int order, Guid? savings)
     {
-        db.HouseholdMembers.Add(new HouseholdMember
+        var m = new HouseholdMember
         {
             OwnerId = owner, Name = name, NetMonthlyIncome = net, DisplayOrder = order, PersonalSavingsAccountId = savings,
+        };
+        db.HouseholdMembers.Add(m);
+        db.SaveChanges();
+        return m;
+    }
+
+    /// <summary>
+    /// The month's income, the only pool the engine reads (rule 28): one attributed income line
+    /// per member in the given month's budget (which must already exist).
+    /// </summary>
+    private static void SeedIncomeLines(ApplicationDbContext db, string owner, int year, int month, params (HouseholdMember Member, decimal Amount)[] lines)
+    {
+        var bm = db.BudgetMonths.Single(b => b.OwnerId == owner && b.Year == year && b.Month == month);
+        db.BudgetCategories.Add(new BudgetCategory
+        {
+            BudgetMonthId = bm.Id, Name = "Income", Kind = CategoryKind.Income,
+            Items = lines.Select(l => new BudgetItem { Name = l.Member.Name, PlannedAmount = l.Amount, MemberId = l.Member.Id }).ToList(),
         });
         db.SaveChanges();
     }
@@ -95,9 +112,10 @@ public class AllocationTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub("user-1");
-        SeedMember(db, "user-1", "Alex", 4200.50m, 0, null);
-        SeedMember(db, "user-1", "Sam", 3800.25m, 1, null);
+        var alex = SeedMember(db, "user-1", "Alex", 4200.50m, 0, null);
+        var sam = SeedMember(db, "user-1", "Sam", 3800.25m, 1, null);
         SeedBudget(db, "user-1", 2026, 6, envelopes: 3500m, funds: 2000m);
+        SeedIncomeLines(db, "user-1", 2026, 6, (alex, 4200.50m), (sam, 3800.25m));
         await new UpsertAllocationProfileCommandHandler(db, user)
             .Handle(new UpsertAllocationProfileCommand(null, "P", null, StandardRules()), CancellationToken.None);
 
@@ -121,8 +139,8 @@ public class AllocationTests
         var user = new CurrentUserStub("user-1");
         var chrisSavings = SeedAccount(db, "user-1", "Alex Savings", opening: 30000m);
         var lizaSavings = SeedAccount(db, "user-1", "Sam Savings", opening: 40000m);
-        SeedMember(db, "user-1", "Alex", 4200.50m, 0, chrisSavings.Id);
-        SeedMember(db, "user-1", "Sam", 3800.25m, 1, lizaSavings.Id);
+        var alexMember = SeedMember(db, "user-1", "Alex", 4200.50m, 0, chrisSavings.Id);
+        var samMember = SeedMember(db, "user-1", "Sam", 3800.25m, 1, lizaSavings.Id);
 
         // Real costs (3500 + 2000) plus a "Personal Savings" category that is the allocation
         // *output* — flagged out so it isn't double-counted as an obligation.
@@ -137,6 +155,7 @@ public class AllocationTests
             },
         });
         db.SaveChanges();
+        SeedIncomeLines(db, "user-1", 2026, 6, (alexMember, 4200.50m), (samMember, 3800.25m));
 
         var rules = new List<AllocationRuleSpec>
         {
@@ -173,9 +192,10 @@ public class AllocationTests
         var source = SeedAccount(db, "user-1", "Joint Current", opening: 100_000m);
         var chrisSavings = SeedAccount(db, "user-1", "Alex Savings");
         var lizaSavings = SeedAccount(db, "user-1", "Sam Savings");
-        SeedMember(db, "user-1", "Alex", 4200.50m, 0, chrisSavings.Id);
-        SeedMember(db, "user-1", "Sam", 3800.25m, 1, lizaSavings.Id);
+        var alex = SeedMember(db, "user-1", "Alex", 4200.50m, 0, chrisSavings.Id);
+        var sam = SeedMember(db, "user-1", "Sam", 3800.25m, 1, lizaSavings.Id);
         SeedBudget(db, "user-1", 2026, 6, envelopes: 3500m, funds: 2000m);
+        SeedIncomeLines(db, "user-1", 2026, 6, (alex, 4200.50m), (sam, 3800.25m));
         await new UpsertAllocationProfileCommandHandler(db, user)
             .Handle(new UpsertAllocationProfileCommand(null, "P", source.Id, StandardRules()), CancellationToken.None);
 
@@ -212,11 +232,12 @@ public class AllocationTests
         var source = SeedAccount(db, "user-1", "Joint", opening: 100_000m);
         var aSav = SeedAccount(db, "user-1", "A Savings");
         var bSav = SeedAccount(db, "user-1", "B Savings");
-        SeedMember(db, "user-1", "A", 1500m, 0, aSav.Id);
-        SeedMember(db, "user-1", "B", 1500m, 1, bSav.Id);
-        // Pool 3,000 fully budgeted: envelopes 2,500 + jars 500. Pocket 250 each exists ONLY
-        // as the FixedPerMember rule.
+        var a = SeedMember(db, "user-1", "A", 1500m, 0, aSav.Id);
+        var b = SeedMember(db, "user-1", "B", 1500m, 1, bSav.Id);
+        // Pool 3,000 (the month's attributed income lines) fully budgeted: envelopes 2,500 +
+        // jars 500. Pocket 250 each exists ONLY as the FixedPerMember rule.
         SeedBudget(db, "user-1", 2026, 6, envelopes: 2500m, funds: 500m);
+        SeedIncomeLines(db, "user-1", 2026, 6, (a, 1500m), (b, 1500m));
         await new UpsertAllocationProfileCommandHandler(db, user)
             .Handle(new UpsertAllocationProfileCommand(null, "P", source.Id, StandardRules()), CancellationToken.None);
 
@@ -256,8 +277,9 @@ public class AllocationTests
         await using var db = NewContext();
         var user = new CurrentUserStub("user-1");
         var source = SeedAccount(db, "user-1", "Joint Current", opening: 100_000m);
-        SeedMember(db, "user-1", "Alex", 3000m, 0, source.Id); // savings IS the source
+        var alex = SeedMember(db, "user-1", "Alex", 3000m, 0, source.Id); // savings IS the source
         SeedBudget(db, "user-1", 2026, 6, envelopes: 1000m, funds: 500m);
+        SeedIncomeLines(db, "user-1", 2026, 6, (alex, 3000m));
         db.AllocationProfiles.Add(new AllocationProfile
         {
             OwnerId = "user-1", Name = "P", SourceAccountId = source.Id,

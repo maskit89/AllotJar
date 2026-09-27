@@ -18,8 +18,9 @@ namespace AllotJar.Application.Tests.Application;
 /// <summary>
 /// The allocation commit's money rules: its transfers must leave the source account at or above
 /// zero (rule 74, key "Allocation"), and each member's receipt may be divided among the jars of
-/// their savings account (rule 78), applying once the receipt is posted. Solo member: net 3,000 −
-/// envelopes 1,000 − jars 500 − pocket 250 = 1,250 transferred from Joint to Alex's savings.
+/// their savings account (rule 78), applying once the receipt is posted. Solo member: June's budgeted
+/// income 3,000 (rule 28) − envelopes 1,000 − jars 500 − pocket 250 = 1,250 transferred from Joint to
+/// Alex's savings.
 /// </summary>
 public class AllocationJarPromptTests
 {
@@ -59,13 +60,15 @@ public class AllocationJarPromptTests
         return jar;
     }
 
-    private static void SeedBudget(ApplicationDbContext db)
+    /// <summary>June's budget, with the member's 3,000 as an attributed income line (rule 28).</summary>
+    private static void SeedBudget(ApplicationDbContext db, HouseholdMember member)
     {
         db.BudgetMonths.Add(new BudgetMonth
         {
             OwnerId = Owner, Year = 2026, Month = 6, BaseCurrency = CurrencyCode.Eur,
             Categories = new List<BudgetCategory>
             {
+                new() { Name = "Income", Kind = CategoryKind.Income, Items = new List<BudgetItem> { new() { Name = member.Name, PlannedAmount = 3000m, MemberId = member.Id } } },
                 new() { Name = "Living", Kind = CategoryKind.Expense, Items = new List<BudgetItem> { new() { Name = "Living", PlannedAmount = 1000m } } },
                 new() { Name = "Funds", Kind = CategoryKind.Savings, Items = new List<BudgetItem> { new() { Name = "Funds", SavingsId = Guid.NewGuid(), PlannedAmount = 500m } } },
             },
@@ -85,14 +88,14 @@ public class AllocationJarPromptTests
 
     private sealed record Household(Account Source, Account Savings, HouseholdMember Alex, Jar Holiday);
 
-    /// <summary>Joint (source) and Alex's savings of 100 backing an empty Holiday jar; Alex nets 3,000.</summary>
+    /// <summary>Joint (source) and Alex's savings of 100 backing an empty Holiday jar; Alex's June income line is 3,000.</summary>
     private static async Task<Household> SeedHouseholdAsync(ApplicationDbContext db, decimal sourceOpening = 5000m)
     {
         var source = LedgerFixtures.SeedAccount(db, Owner, "Joint", opening: sourceOpening, type: AccountType.Current);
         var savings = LedgerFixtures.SeedAccount(db, Owner, "Alex savings", opening: 100m, order: 1);
         var holiday = SeedJar(db, savings, "Holiday");
         var alex = SeedMember(db, "Alex", 3000m, savings.Id);
-        SeedBudget(db);
+        SeedBudget(db, alex);
         await SeedProfile(db, source.Id);
         return new Household(source, savings, alex, holiday);
     }

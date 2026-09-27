@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
+import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { Badge, Button, Card, EmptyState, ErrorBanner, Input, Select, SegmentedControl } from '../components/ui'
 import { Hero } from '../components/Hero'
@@ -8,6 +9,7 @@ import { MembersIcon, CopyIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { useHousehold } from '../features/HouseholdContext'
 import { useFeatures } from '../features/FeatureContext'
+import { useMonth } from '../features/MonthContext'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import {
@@ -46,6 +48,23 @@ function sharePct(share: number): string {
   return `${Math.round(share * 100)}%`
 }
 
+/** The hint shown wherever the saved default income is edited (rule 28: it is never calculated with). */
+const DEFAULT_INCOME_HINT =
+  'A starting figure for a new month’s budget. Calculations use the income lines in the month’s budget.'
+
+/** "+N pending rate": rows left out of a month figure because their exchange rate is unresolved. */
+function FxPendingHint({ count, what }: { count: number; what: string }) {
+  if (count <= 0) return null
+  return (
+    <span
+      title={`${count} ${what} ${count === 1 ? 'row is' : 'rows are'} awaiting an exchange rate and not counted yet`}
+      className="block text-[11px] font-normal text-amber-700 dark:text-amber-400"
+    >
+      +{count} pending rate
+    </span>
+  )
+}
+
 /** Up to two initials for a person's avatar (first + last word). */
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -59,11 +78,16 @@ function initials(name: string): string {
  * together with their sign-in and access level. Adding a person never requires an account —
  * inviting them to sign in is a separate, optional step on the same row. Budget edits need
  * Admin+ (canWrite); managing sign-ins/roles is owner-only (canManageHousehold).
+ *
+ * Every income, share and spending figure is the app-wide selected month's (rules 28/29): the
+ * income comes from that month's budget lines, never from the saved per-person default, which
+ * is only a helper for filling in a new budget.
  */
 export function PeoplePage() {
   const { canWrite, canManageHousehold, preferredCurrency } = useAuth()
   const { refresh: refreshHousehold } = useHousehold()
   const features = useFeatures()
+  const { year, month, label: monthLabel } = useMonth()
   const CURRENCY = preferredCurrency
 
   const [members, setMembers] = useState<HouseholdMemberDto[]>([])
@@ -103,26 +127,29 @@ export function PeoplePage() {
 
   const canAccess = features.householdAccess && canManageHousehold
 
+  // Everything month-scoped is read for the selected month, so the page moves with the top
+  // bar's month navigator together with Budget (rule 29).
   const reloadAll = useCallback(async () => {
-    const now = new Date()
     const [m, acc, spend, mem, inc] = await Promise.all([
-      api.get<HouseholdMemberDto[]>('/members'),
+      api.get<HouseholdMemberDto[]>(`/members?year=${year}&month=${month}`),
       api.get<AccountDto[]>('/accounts').catch(() => ({ data: [] as AccountDto[] })),
-      api.get<MemberSpendingDto[]>('/members/spending').catch(() => ({ data: [] as MemberSpendingDto[] })),
-      api.get<MembershipDto[]>('/access/members').catch(() => ({ data: [] as MembershipDto[] })),
-      // Derived income for the CURRENT month — the budget-attributed figures.
       api
-        .get<MemberIncomeResultDto>(`/members/income/${now.getFullYear()}/${now.getMonth() + 1}`)
+        .get<MemberSpendingDto[]>(`/members/spending/${year}/${month}`)
+        .catch(() => ({ data: [] as MemberSpendingDto[] })),
+      api.get<MembershipDto[]>('/access/members').catch(() => ({ data: [] as MembershipDto[] })),
+      // Per-person income for the month — attributed budget lines plus their share of the rest.
+      api
+        .get<MemberIncomeResultDto>(`/members/income/${year}/${month}`)
         .catch(() => ({ data: null as MemberIncomeResultDto | null })),
     ])
-    setMembers(m.data)
+    setMembers(Array.isArray(m?.data) ? m.data : [])
     setAccounts(Array.isArray(acc?.data) ? acc.data : [])
     setSpending(Array.isArray(spend?.data) ? spend.data : [])
     setMemberships(Array.isArray(mem?.data) ? mem.data : [])
-    // Accept only a well-shaped payload — a failed/foreign response falls back to null
-    // (static incomes), never a partial object.
+    // Accept only a well-shaped payload — a failed/foreign response falls back to null (the
+    // members' own month figures still carry the page), never a partial object.
     setMonthIncome(Array.isArray(inc?.data?.items) ? inc.data : null)
-  }, [])
+  }, [year, month])
 
   useEffect(() => {
     let cancelled = false
@@ -154,27 +181,25 @@ export function PeoplePage() {
   const myMembership = useMemo(() => memberships.find((m) => m.isSelf) ?? null, [memberships])
   const myUnlinked = myMembership !== null && !myMembership.memberId
 
-  // Hero figures — the household's combined monthly income, its headcount, and
-  // what the people have spent so far this month.
-  const combinedIncomeMinor = useMemo(
-    () => members.reduce((s, m) => s + fromAmount(m.netMonthlyIncome), 0),
-    [members],
-  )
-  // When the current month's budget attributes income to people, the hero reports THAT
-  // (planned attributed + unattributed) as "Income this month"; otherwise the static
-  // People-page defaults under the old label.
-  const incomeFromBudget = monthIncome?.incomeFromBudget === true
-  const monthIncomeMinor = useMemo(
-    () =>
-      (monthIncome?.items ?? []).reduce((s, i) => s + fromAmount(i.planned), 0) +
-      fromAmount(monthIncome?.unattributedPlanned ?? 0),
-    [monthIncome],
-  )
+  // Hero figures — the household's income in the selected month's budget (rule 28: the budget
+  // lines, never the saved defaults), its headcount, and what the people spent in that month.
   const incomeByMember = useMemo(() => {
     const map = new Map<string, MemberIncomeDto>()
     for (const i of monthIncome?.items ?? []) map.set(i.memberId, i)
     return map
   }, [monthIncome])
+  /** A member's income in the month's budget: attributed lines plus an equal share of the unattributed ones. */
+  const memberBudgetIncome = useCallback(
+    (m: HouseholdMemberDto): number => incomeByMember.get(m.id)?.income ?? m.budgetIncome ?? 0,
+    [incomeByMember],
+  )
+  const monthIncomeMinor = useMemo(
+    () => members.reduce((s, m) => s + fromAmount(memberBudgetIncome(m)), 0),
+    [members, memberBudgetIncome],
+  )
+  // False only when the server says the month has no budget yet; absent flags read as "has one".
+  const hasBudget = monthIncome?.hasBudget ?? members[0]?.hasBudget ?? true
+  const incomeFxPending = monthIncome?.fxPendingCount ?? 0
   const sharedSpentMinor = useMemo(
     () => spending.reduce((s, sp) => s + fromAmount(sp.spent), 0),
     [spending],
@@ -185,8 +210,8 @@ export function PeoplePage() {
     return accounts.find((a) => a.id === id)?.name ?? '—'
   }
 
-  function memberSpent(id: string): number {
-    return spending.find((s) => s.memberId === id)?.spent ?? 0
+  function memberSpending(id: string): MemberSpendingDto | undefined {
+    return spending.find((s) => s.memberId === id)
   }
 
   const addMember = useCallback(async () => {
@@ -390,9 +415,23 @@ export function PeoplePage() {
   return (
     <AppShell active="people" title="People">
       <Hero
-        eyebrow={incomeFromBudget ? 'Income this month' : 'Combined income'}
-        amount={formatMoney(incomeFromBudget ? monthIncomeMinor : combinedIncomeMinor, CURRENCY)}
-        amountLabel={`${incomeFromBudget ? 'Income this month' : 'Combined income'}: ${formatMoney(incomeFromBudget ? monthIncomeMinor : combinedIncomeMinor, CURRENCY)}`}
+        eyebrow="Income this month"
+        amount={formatMoney(monthIncomeMinor, CURRENCY)}
+        amountLabel={`Income this month: ${formatMoney(monthIncomeMinor, CURRENCY)}`}
+        footnote={
+          !loading && !hasBudget ? (
+            <p className="text-[13px] text-white/85">
+              No budget for {monthLabel} yet.{' '}
+              <Link to="/" className="font-semibold underline underline-offset-2 hover:text-white">
+                Open the Budget
+              </Link>
+            </p>
+          ) : incomeFxPending > 0 ? (
+            <p className="text-[13px] text-white/85">
+              +{incomeFxPending} income {incomeFxPending === 1 ? 'row' : 'rows'} pending rate — not counted yet.
+            </p>
+          ) : undefined
+        }
         tiles={[
           { label: 'People', value: `${members.length}` },
           { label: 'Shared this month', value: formatMoney(sharedSpentMinor, CURRENCY) },
@@ -472,27 +511,28 @@ export function PeoplePage() {
                             inputMode="decimal"
                             {...selectOnFocusProps}
                             value={eIncome}
-                            aria-label={`Net monthly income for ${m.name}`}
+                            aria-label={`Default income for ${m.name}`}
+                            title={DEFAULT_INCOME_HINT}
                             onChange={(e) => setEIncome(e.target.value)}
                             className="w-full rounded-md border border-slate-300 px-2 py-1 text-right text-sm tabular-nums"
                           />
-                        ) : incomeFromBudget ? (
-                          <div>
-                            {formatMoney(fromAmount(incomeByMember.get(m.id)?.planned ?? 0), CURRENCY)}
-                            {fromAmount(incomeByMember.get(m.id)?.planned ?? 0) !==
-                              fromAmount(m.netMonthlyIncome) && (
-                              <div className="text-xs font-normal text-slate-500">
-                                default {formatMoney(fromAmount(m.netMonthlyIncome), CURRENCY)}
-                              </div>
-                            )}
-                          </div>
                         ) : (
-                          formatMoney(fromAmount(m.netMonthlyIncome), CURRENCY)
+                          <div>
+                            {formatMoney(fromAmount(memberBudgetIncome(m)), CURRENCY)}
+                            {/* The saved default is only a helper for a new budget; shown when it differs. */}
+                            {fromAmount(m.netMonthlyIncome) !== 0 &&
+                              fromAmount(memberBudgetIncome(m)) !== fromAmount(m.netMonthlyIncome) && (
+                                <div className="text-xs font-normal text-slate-500">
+                                  default {formatMoney(fromAmount(m.netMonthlyIncome), CURRENCY)}
+                                </div>
+                              )}
+                          </div>
                         )}
                       </td>
                       <td className="px-4 py-4 text-right tabular-nums text-slate-500">{sharePct(m.incomeSharePct)}</td>
                       <td className="px-4 py-4 text-right tabular-nums text-slate-700">
-                        {formatMoney(fromAmount(memberSpent(m.id)), CURRENCY)}
+                        {formatMoney(fromAmount(memberSpending(m.id)?.spent ?? 0), CURRENCY)}
+                        <FxPendingHint count={memberSpending(m.id)?.fxPendingCount ?? 0} what="spending" />
                       </td>
                       <td className="px-4 py-4 text-slate-500">
                         {editing ? (
@@ -663,23 +703,21 @@ export function PeoplePage() {
               />
             </label>
             <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Net monthly income
+              Default income
               <Input
                 type="text"
                 inputMode="decimal"
                 {...selectOnFocusProps}
                 value={income}
                 placeholder="0.00"
-                aria-label="Net monthly income"
+                aria-label="Default income"
                 onChange={(e) => setIncome(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') addMember()
                 }}
                 className="w-full text-right tabular-nums"
               />
-              <span className="font-normal text-slate-500">
-                Used as the default for months whose budget doesn’t assign income to people.
-              </span>
+              <span className="font-normal text-slate-500">{DEFAULT_INCOME_HINT}</span>
             </label>
             {accounts.length > 0 && (
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">

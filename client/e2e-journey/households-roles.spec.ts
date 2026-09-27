@@ -20,7 +20,7 @@ async function addPerson(page: Page, name: string, income: string): Promise<void
   await page.getByRole('button', { name: 'Add person', exact: true }).first().click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Person name').fill(name)
-  await dialog.getByLabel('Net monthly income').fill(income)
+  await dialog.getByLabel('Default income').fill(income)
   await dialog.getByRole('button', { name: 'Add person', exact: true }).click()
   // The modal closes only after the POST + table & household refreshes complete.
   await expect(dialog).toBeHidden()

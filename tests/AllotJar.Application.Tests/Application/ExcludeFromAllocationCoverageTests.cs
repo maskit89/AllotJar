@@ -115,14 +115,21 @@ public class ExcludeFromAllocationCoverageTests
     {
         await using var db = NewContext();
         var user = new CurrentUserStub(Owner);
-        db.HouseholdMembers.Add(new HouseholdMember { OwnerId = Owner, Name = "Alex", NetMonthlyIncome = 3000m, DisplayOrder = 0 });
-        db.HouseholdMembers.Add(new HouseholdMember { OwnerId = Owner, Name = "Robin", NetMonthlyIncome = 2000m, DisplayOrder = 1 });
+        var alex = new HouseholdMember { OwnerId = Owner, Name = "Alex", NetMonthlyIncome = 3000m, DisplayOrder = 0 };
+        var robin = new HouseholdMember { OwnerId = Owner, Name = "Robin", NetMonthlyIncome = 2000m, DisplayOrder = 1 };
+        db.HouseholdMembers.AddRange(alex, robin);
 
         db.BudgetMonths.Add(new BudgetMonth
         {
             OwnerId = Owner, Year = 2026, Month = 7, BaseCurrency = CurrencyCode.Eur,
             Categories = new List<BudgetCategory>
             {
+                // The month's income — the pool (rule 28): 3,000 + 2,000 attributed to the two members.
+                new() { Name = "Income", Kind = CategoryKind.Income, Items = new List<BudgetItem>
+                {
+                    new() { Name = "Alex", PlannedAmount = 3000m, MemberId = alex.Id },
+                    new() { Name = "Robin", PlannedAmount = 2000m, MemberId = robin.Id },
+                } },
                 // Comparable INCLUDED categories — the catalog's worked example (2,000 / 500).
                 new() { Name = "Living", Kind = CategoryKind.Expense, Items = new List<BudgetItem> { new() { Name = "Living", PlannedAmount = 2000m } } },
                 new() { Name = "Funds", Kind = CategoryKind.Savings, Items = new List<BudgetItem> { new() { Name = "Funds", SavingsId = Guid.NewGuid(), PlannedAmount = 500m } } },

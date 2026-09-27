@@ -170,6 +170,23 @@ async function createGoalJar(page: Page, jar: { name: string; target: string; he
 }
 
 /**
+ * Add an income line to the month's Income group, set its planned amount and attribute it to
+ * a person (rule 28: People and Allocation read the month's budgeted income, never the saved
+ * per-person defaults). The "Who earns" picker only renders once the household is shared.
+ */
+async function addAttributedIncome(page: Page, line: { name: string; amount: string; formatted: string; person: string }) {
+  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('textbox', { name: 'New income source name', exact: true }).fill(line.name)
+  await committed(page, 'POST', '/api/budget/categories/', () =>
+    page.getByRole('button', { name: 'Add income source', exact: true }).click(),
+  )
+  await setPlanned(page, line.name, line.amount, line.formatted)
+  await committed(page, 'PUT', '/api/budget/items/', () =>
+    page.getByLabel(`Who earns ${line.name}`, { exact: true }).selectOption({ label: line.person }),
+  )
+}
+
+/**
  * Rename the auto-seeded owner member (first name "Journey") and give them an income
  * and a personal savings account, through the People page row editor (hover-revealed).
  */
@@ -181,7 +198,7 @@ async function configureOwnerMember(
   await row.hover()
   await page.getByRole('button', { name: 'Edit Journey', exact: true }).click()
   await page.getByLabel('Name for Journey', { exact: true }).fill(m.newName)
-  await page.getByLabel('Net monthly income for Journey', { exact: true }).fill(m.income)
+  await page.getByLabel('Default income for Journey', { exact: true }).fill(m.income)
   // The savings picker labels options "Name — Type"; journey accounts are all Current.
   await page.getByLabel('Savings account for Journey', { exact: true }).selectOption({ label: `${m.savings} — Current` })
   await committed(page, 'PUT', '/api/members/', () =>
@@ -196,7 +213,7 @@ async function addPerson(page: Page, m: { name: string; income: string; savings?
   await page.getByRole('button', { name: 'Add person', exact: true }).first().click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Person name', { exact: true }).fill(m.name)
-  await dialog.getByLabel('Net monthly income', { exact: true }).fill(m.income)
+  await dialog.getByLabel('Default income', { exact: true }).fill(m.income)
   if (m.savings) {
     await dialog.getByLabel('Savings account', { exact: true }).selectOption({ label: `${m.savings} — Current` })
   }
@@ -354,7 +371,11 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   await page.getByRole('link', { name: 'People' }).click()
   await configureOwnerMember(page, { newName: 'Alex', income: '3000', savings: 'Alex Pot' })
   await addPerson(page, { name: 'Robin', income: '2000', savings: 'Robin Pot' })
-  await expect(page.getByLabel(/^Combined income:/)).toContainText('5,000.00')
+  // Rule 28: the saved defaults drive nothing — the month's budget must carry the income.
+  await addAttributedIncome(page, { name: 'Alex salary', amount: '3000', formatted: '3,000.00', person: 'Alex' })
+  await addAttributedIncome(page, { name: 'Robin salary', amount: '2000', formatted: '2,000.00', person: 'Robin' })
+  await page.getByRole('link', { name: 'People' }).click()
+  await expect(page.getByLabel(/^Income this month:/)).toContainText('5,000.00')
 
   // --- ALLOC-003: the Allocation nav link appears live once the household is shared.
   await expect(page.getByRole('link', { name: 'Allocation' })).toBeVisible()
@@ -541,6 +562,8 @@ test('a member without a savings account strands their share; over-committing th
   await page.getByRole('link', { name: 'People' }).click()
   await configureOwnerMember(page, { newName: 'Alex', income: '3000', savings: 'Alex Pot' })
   await addPerson(page, { name: 'Robin', income: '2000' }) // savings left "None"
+  await addAttributedIncome(page, { name: 'Alex salary', amount: '3000', formatted: '3,000.00', person: 'Alex' })
+  await addAttributedIncome(page, { name: 'Robin salary', amount: '2000', formatted: '2,000.00', person: 'Robin' })
 
   // Profile: source Joint, pocket 50.00 each, savings sent Equally (raw-API seed —
   // the first-run modal cannot open, see the skipped BUG test).
@@ -654,6 +677,8 @@ test('a new couple with equal zero balances previews and commits under the defau
   await page.getByRole('link', { name: 'People' }).click()
   await configureOwnerMember(page, { newName: 'Alex', income: '2500', savings: 'Pot A' })
   await addPerson(page, { name: 'Sam', income: '2500', savings: 'Pot B' })
+  await addAttributedIncome(page, { name: 'Alex salary', amount: '2500', formatted: '2,500.00', person: 'Alex' })
+  await addAttributedIncome(page, { name: 'Sam salary', amount: '2500', formatted: '2,500.00', person: 'Sam' })
 
   // The DEFAULT profile — savings split Balance (BalanceTilt), lean 25 — seeded via
   // the raw API (the first-run modal cannot open, see the skipped BUG test).

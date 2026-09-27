@@ -4,10 +4,18 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, AllocationProfileDto, AllocationResultDto, JarAccountLedgerDto } from '../types'
 
-const { mockGet, mockPut, mockPost } = vi.hoisted(() => ({
+const { mockGet, mockPut, mockPost, monthState } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockPut: vi.fn(),
   mockPost: vi.fn(),
+  // The app-wide selected month the page allocates (rule 29): June 2026 for this file.
+  monthState: { year: 2026, month: 6, label: 'June 2026', goPrev: () => {}, goNext: () => {}, goToMonth: () => {} },
+}))
+
+// The selected month comes from MonthContext (rule 29); pin it so assertions are clock-independent.
+vi.mock('../features/MonthContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../features/MonthContext')>()),
+  useMonth: () => monthState,
 }))
 
 vi.mock('../lib/api', async (importOriginal) => ({
@@ -76,7 +84,7 @@ function setupGet() {
   mockGet.mockImplementation((url: string) => {
     if (url === '/allocation/profile') return Promise.resolve({ data: profile() })
     if (url === '/accounts') return Promise.resolve({ data: accountsData })
-    if (url === '/budget/current') return Promise.resolve({ data: { year: 2026, month: 6, categories: [] } })
+    if (url === '/budget/2026/6') return Promise.resolve({ data: { year: 2026, month: 6, categories: [] } })
     if (url.startsWith('/allocation/preview/')) return Promise.resolve({ data: preview() })
     if (url.startsWith('/jars/ledger')) return Promise.resolve({ data: ledgerData })
     return Promise.resolve({ data: [] })

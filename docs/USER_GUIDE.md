@@ -274,6 +274,12 @@ AllotJar is solo-friendly by default: on your own, the sharing features stay out
 - **Add a person** with their name. A "person" is a member of your household budget — useful for splitting shared costs and dividing savings even before anyone else signs in.
 - If one of the people you add is **you**, mark **"This is me"** to link your own login to that person.
 
+### Whose income is whose
+
+The People page shows the **same month as the Budget page** (change it with the month navigator in the top bar). Each person's **Income** is what the month's budget says: the income lines attributed to them (on the Budget page, each income line has a **Who earns** picker once the household is shared), plus an equal share of any income line left as "Whole household". Their **Share** is that income as a percentage of the household's, and **Spent** is what has been attributed to them in that month. If the month has no budget yet, the figures are zero until you create one.
+
+A person's **Default income** is only a starting figure you can keep on file for filling in a new month's budget. Nothing is calculated from it: the Allocation page, the shares and the People figures all read the month's budget lines. Amounts recorded in another currency are shown converted to your budget currency; a row whose rate is still pending is counted separately until it resolves.
+
 ### Inviting someone to sign in
 
 When you want someone else to log in and use the budget with you, **invite** them from their person entry. They get their own sign-in and join your household. People you've added but not invited simply exist as budget members until you're ready.
@@ -296,9 +302,9 @@ You can belong to more than one household (for example your own and a shared one
 
 Once your household is **shared** (you've added at least one other person), an **Allocation** item appears in the sidebar. Income allocation answers "we both got paid — now what?":
 
-1. **Pool** everyone's income for the month.
+1. **Pool** everyone's income for the month — the income lines in that month's budget, attributed to each person or shared equally when left as "Whole household". A month with no income lines has nothing to allocate.
 2. **Cover** the shared costs (your expenses and savings) from the pool.
-3. **Split** whatever's left into each person's own savings, by whatever rule you set up.
+3. **Split** whatever's left into each person's own savings, by whatever rule you set up — equally, or in proportion to each person's budgeted income.
 
 You set this up once (who shares, how the remainder is divided), and AllotJar **previews** the result before anything is applied — so you can see exactly who contributes what and who keeps what before you commit.
 

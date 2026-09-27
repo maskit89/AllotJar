@@ -542,11 +542,19 @@ export interface JarAccountLedgerDto {
 export interface HouseholdMemberDto {
   id: string
   name: string
+  /** The saved default income: a helper for filling in a new budget, never a figure any calculation uses (rule 28). */
   netMonthlyIncome: number
+  /** This member's income in the selected month's budget: attributed lines plus an equal share of the unattributed ones. */
+  budgetIncome?: number
+  /** The month `budgetIncome` and `incomeSharePct` were read from. */
+  incomeYear?: number
+  incomeMonth?: number
+  /** False when that month has no budget yet (income and share are then zero). */
+  hasBudget?: boolean
   personalSavingsAccountId: string | null
   displayOrder: number
   isArchived: boolean
-  /** This member's share of household net income (0–1). */
+  /** This member's share of the household's income in the selected month's budget (0–1). */
   incomeSharePct: number
 }
 
@@ -554,7 +562,10 @@ export interface HouseholdMemberDto {
 export interface MemberSpendingDto {
   memberId: string
   name: string
+  /** Attributed spending in the budget's base currency; rows with a pending exchange rate are left out. */
   spent: number
+  /** Attributed rows whose exchange rate is still unresolved and therefore not counted. */
+  fxPendingCount?: number
 }
 
 // Matches Domain.Enums.AllocationRuleType (serialized as a number).
@@ -641,7 +652,12 @@ export interface AllocationResultDto {
 
 /** Per-member income for a month, derived from the budget (GET /members/income/{y}/{m}). */
 export interface MemberIncomeResultDto {
+  /** Always true since rule 28: every figure comes from the month's budget. */
   incomeFromBudget: boolean
+  /** False when the month has no budget yet. */
+  hasBudget?: boolean
+  /** Income rows in the month whose exchange rate is still unresolved and therefore not in `received`. */
+  fxPendingCount?: number
   unattributedPlanned: number
   items: MemberIncomeDto[]
 }
@@ -649,8 +665,14 @@ export interface MemberIncomeResultDto {
 export interface MemberIncomeDto {
   memberId: string
   name: string
+  /** The month's income lines attributed to this person. */
   planned: number
+  /** Income transactions attributed to this person in the month, base currency, pending-rate rows left out. */
   received: number
+  /** Planned plus an equal share of the unattributed lines: the figure the allocation uses. */
+  income?: number
+  /** This person's share of the household's month income (0–1). */
+  sharePct?: number
 }
 
 /** Toggles for the features beyond core zero-based budgeting (from GET /api/features). */
