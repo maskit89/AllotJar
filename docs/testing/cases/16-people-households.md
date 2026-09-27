@@ -843,5 +843,5 @@
 - **Preconditions:** The selected month has no budget, or income lines totalling 0; saved defaults 3,000 / 2,000.
 - **Steps:**
   1. Open `/people`.
-- **Expected:** Hero "Income this month" 0.00 with the note "No budget for {Month Year} yet" when there is none; every Income cell 0.00 and every Share 0%. The saved default is edited as **Default income for {name}** (add modal: "Default income") with the hint "A starting figure for a new month's budget. Calculations use the income lines in the month's budget." Nothing on the page or the Allocation page ever uses it as a pool (rule 28).
+- **Expected:** Hero "Income this month" 0.00 with the note "No budget for {Month Year} yet" when there is none; every Income cell 0.00 and every Share 0%. The saved default is edited as **Default income for {name}** (add modal: "Default income") with the hint "Becomes this person's income line when you start a blank month. Calculations use the income lines in the month's budget." Nothing on the page or the Allocation page ever uses it as a pool (rule 28); its one use is seeding a blank month (BUDG-057).
 - **Automated:** Full (client PPL-079; backend `AllocationIncomeFromBudgetTests.NoBudget_YieldsAnEmptyPool_NotTheDefaults`)

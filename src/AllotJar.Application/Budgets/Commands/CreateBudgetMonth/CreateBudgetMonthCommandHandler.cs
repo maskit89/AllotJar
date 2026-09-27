@@ -208,11 +208,31 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         }
         else
         {
-            // A blank budget still keeps the Income group at the top.
-            budget.Categories = new List<BudgetCategory>
+            // A blank budget still keeps the Income group at the top, filled in from each active
+            // person's saved Default income — the one thing that figure is for (rule 28: a helper
+            // for populating a new budget, never a pool). One line per person with a default above
+            // zero, named after them and attributed to them, so the People and Allocation pages
+            // read this month's income without a manual step; a person with no default gets no
+            // line, and a template or copied month keeps its own income lines instead.
+            var income = new BudgetCategory { Name = "Income", Kind = CategoryKind.Income, DisplayOrder = 0 };
+            var earners = await _db.HouseholdMembers
+                .AsNoTracking()
+                .Where(m => m.OwnerId == userId && !m.IsArchived && m.NetMonthlyIncome > 0m)
+                .OrderBy(m => m.DisplayOrder)
+                    .ThenBy(m => m.Name)
+                .ToListAsync(cancellationToken);
+            var lineOrder = 0;
+            foreach (var earner in earners)
             {
-                new() { Name = "Income", Kind = CategoryKind.Income, DisplayOrder = 0 },
-            };
+                income.Items.Add(new BudgetItem
+                {
+                    Name = earner.Name,
+                    PlannedAmount = earner.NetMonthlyIncome,
+                    MemberId = earner.Id,
+                    DisplayOrder = lineOrder++,
+                });
+            }
+            budget.Categories = new List<BudgetCategory> { income };
         }
 
         // Any active jar the new month doesn't already carry gets its line appended
