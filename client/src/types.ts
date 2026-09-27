@@ -8,6 +8,11 @@ export interface BudgetItemDto {
   /** Spent (or, for income, received) — always derived from the line's assigned transactions. */
   actualAmount: number
   remaining: number
+  /**
+   * Refunds received against this expense/savings line (rules 38/39), already subtracted from
+   * actualAmount; 0 on income lines. Optional so existing fixtures stay valid; absent reads as 0.
+   */
+  refundedAmount?: number
   /** Savings identity for a savings line; null for ordinary lines. */
   savingsId: string | null
   /** For a savings line, the running available balance (rolled over from prior months); null otherwise. */
@@ -108,6 +113,19 @@ export interface TransactionDto {
   receiptBankReference?: string | null
   /** For a transfer: 'Completed' | 'InTransit' | 'PendingReview', derived from the two bank legs. */
   transferStatus?: TransferStatus | null
+  /**
+   * For a refund (rules 38/39): the purchase this money came back from. A refund is money received
+   * (type Income) but never income; it reduces net spending on the expense/savings line it sits on.
+   * Optional so existing fixtures stay valid; absent reads as "not a refund".
+   */
+  refundOfTransactionId?: string | null
+  refundOfPayee?: string | null
+  refundOfDate?: string | null
+  /** The purchase's amount in the budget base currency. */
+  refundOfAmount?: number | null
+  /** For a purchase: how many refunds point at it, and their base-currency total (0 when none). */
+  refundCount?: number
+  refundedAmount?: number
   /** Household member this whole transaction is attributed to, if any. */
   memberId: string | null
   memberName: string | null
@@ -397,12 +415,27 @@ export interface BudgetTrendPointDto {
   key: string
   /** Budgeted income (Σ income planned). */
   income: number
-  /** Actually-received income (Σ income actuals). */
+  /** Income actually received: income lines' actuals plus uncategorised income; never transfers or refunds (rule 41). */
   incomeReceived: number
   /** Budgeted spending (Σ non-income planned). */
   planned: number
-  /** Actual spending (Σ non-income actuals). */
+  /** Net spending: categorised and uncategorised, less refunds (rules 37–39). */
   spent: number
+  // The breakdown below is optional so existing fixtures stay valid; absent reads as 0.
+  /** The part of incomeReceived no income line carries yet. */
+  incomeUncategorised?: number
+  /** Received − budgeted income, signed (rule 41). */
+  variance?: number
+  /** Spending on the month's lines, net of the refunds assigned to them. */
+  spentCategorised?: number
+  /** Spending no line carries yet, less unplaced refunds (rule 37). */
+  spentUncategorised?: number
+  /** Every refund received in the month (rules 38/39). */
+  refunds?: number
+  /** Expense rows and refunds still needing a line (flagged for review). */
+  uncategorisedCount?: number
+  /** Rows awaiting an exchange rate, left out of the figures. */
+  fxPendingCount?: number
 }
 
 export interface BudgetTrendsDto {
@@ -410,23 +443,40 @@ export interface BudgetTrendsDto {
   totalIncome: number
   totalIncomeReceived: number
   totalSpent: number
+  // Optional so existing fixtures stay valid.
+  totalVariance?: number
+  totalSpentUncategorised?: number
+  totalRefunds?: number
 }
 
 export interface AnnualMonthDto {
   month: number
   key: string
   hasBudget: boolean
+  /** Budgeted income. */
   income: number
+  /** Income actually received (rule 41); carried even for a month with no budget. */
+  incomeReceived: number
+  /** Received − budgeted, signed. */
+  variance: number
   planned: number
+  /** Net spending (rules 37–39); carried even for a month with no budget. */
   spent: number
+  /** Spending no line carries yet. Optional so existing fixtures stay valid. */
+  spentUncategorised?: number
+  /** Refunds received in the month. Optional so existing fixtures stay valid. */
+  refunds?: number
+  uncategorisedCount?: number
 }
 
 export interface AnnualCategoryDto {
   name: string
-  /** "Expense" or "Savings". */
+  /** "Expense", "Savings" or "Uncategorised". */
   kind: string
-  /** Total actual spending for this category across the year. */
+  /** Total net spending for this category across the year (refunds already subtracted). */
   total: number
+  /** Refunds received against this category across the year. Optional so existing fixtures stay valid. */
+  refunds?: number
   /** Total ÷ number of budgeted months. */
   averagePerMonth: number
 }
@@ -434,13 +484,69 @@ export interface AnnualCategoryDto {
 export interface AnnualSummaryDto {
   year: number
   months: AnnualMonthDto[]
+  /** Σ budgeted income. */
   totalIncome: number
+  /** Σ income actually received (rule 41). */
+  totalIncomeReceived: number
+  /** Σ (received − budgeted), signed. */
+  totalVariance: number
   totalPlanned: number
+  /** Σ net spending. */
   totalSpent: number
+  /** Σ refunds across the year. Optional so existing fixtures stay valid. */
+  totalRefunds?: number
   /** How many of the 12 months have a budget (the averaging denominator). */
   budgetedMonths: number
   /** Per-category spending across the year, biggest average first. */
   categories: AnnualCategoryDto[]
+}
+
+/**
+ * One calendar month as the reports read it (rules 37–39, 41): line-derived figures plus what no
+ * line carries yet, by the transaction's own date. Mirrors AllotJar.Application.Reports.Dtos.
+ */
+export interface MonthReportDto {
+  year: number
+  month: number
+  key: string
+  hasBudget: boolean
+  /** The budget's base currency; null when the month has no budget. */
+  baseCurrency: string | null
+  incomeBudgeted: number
+  incomeReceived: number
+  incomeUncategorised: number
+  /** Received − budgeted, signed. */
+  variance: number
+  planned: number
+  spentCategorised: number
+  spentUncategorised: number
+  refunds: number
+  /** Net spending: spentCategorised + spentUncategorised. */
+  spent: number
+  /** Expense rows and refunds still needing a line. */
+  uncategorisedCount: number
+  uncategorisedIncomeCount: number
+  fxPendingCount: number
+  categories: MonthReportCategoryDto[]
+}
+
+export interface MonthReportCategoryDto {
+  /** The budget category's id; null for the Uncategorised row. */
+  id: string | null
+  name: string
+  /** "Expense", "Savings" or "Uncategorised". */
+  kind: string
+  /** Position among the month's non-income groups (matches the Budget screen's hue); -1 for Uncategorised. */
+  index: number
+  /** What went out, before refunds. */
+  spent: number
+  /** Refunds received in the month against this group. */
+  refunds: number
+  /** spent − refunds; negative when more came back than went out this month. */
+  net: number
+  isUncategorised: boolean
+  /** For the Uncategorised row: how many rows need a line. */
+  count: number
 }
 
 export interface BudgetTemplateGroupDto {

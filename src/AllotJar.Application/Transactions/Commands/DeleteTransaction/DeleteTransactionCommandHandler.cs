@@ -26,6 +26,7 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
         var transaction = await _db.Transactions
             .Include(t => t.Account)
             .Include(t => t.TransferAccount)
+            .Include(t => t.Refunds)
             .FirstOrDefaultAsync(t => t.Id == request.TransactionId, cancellationToken);
 
         if (transaction is null)
@@ -35,6 +36,23 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
         if (transaction.OwnerId != userId)
         {
             throw new ForbiddenAccessException();
+        }
+
+        // Rule 38: a refund and its purchase both stay in history. Deleting the purchase would
+        // leave its refunds pointing nowhere — and, unlinked, they would silently become income —
+        // so the user unlinks or deletes the refunds first.
+        if (transaction.Refunds.Count > 0)
+        {
+            var count = transaction.Refunds.Count;
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["TransactionId"] = new[]
+                {
+                    count == 1
+                        ? "This purchase has a refund linked to it. Unlink or delete the refund first."
+                        : $"This purchase has {count} refunds linked to it. Unlink or delete them first.",
+                },
+            });
         }
 
         // Rule 74: removing money that reached an account (an income, a receipt) can leave later

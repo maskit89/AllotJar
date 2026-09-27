@@ -62,8 +62,8 @@
 - **Steps:**
   1. Open `/people`; read the "Shared this month" tile and the per-row "Spent" column.
   2. Navigate the TopBar month to the prior month.
-- **Expected:** The page loads `GET /members/spending/{year}/{month}` for the selected month: Sam's Spent is €240.00 (120 + 100 × 1.20), the pending-rate row is left out and shown as a "+1 pending rate" hint; after step 2 the figures are the prior month's (€80.00). Split transactions attribute per-slice `MemberId`; unsplit via `t.MemberId`; unattributed count for no one. The all-time `GET /members/spending` remains for other consumers.
-- **Automated:** Full (backend `MemberFiguresRule28Tests`, `MemberSpendingTests`; client PPL-006)
+- **Expected:** The page loads `GET /members/spending/{year}/{month}` for the selected month: Sam's Spent is €240.00 (120 + 100 × 1.20), the pending-rate row is left out and shown as a "+1 pending rate" hint; after step 2 the figures are the prior month's (€80.00). Split transactions attribute per-slice `MemberId`; unsplit via `t.MemberId`; unattributed count for no one. A **refund** attributed to a person (an income row linked to a purchase, rules 38/39, W12) counts **negative** in their Spent for the month it was received and never in their Received income. The all-time `GET /members/spending` remains for other consumers.
+- **Automated:** Full (backend `MemberFiguresRule28Tests`, `MemberSpendingTests`, `RefundTests.MemberFigures_NetRefundsOutOfSpending_AndLeaveThemOutOfIncome`; client PPL-006)
 
 ---
 

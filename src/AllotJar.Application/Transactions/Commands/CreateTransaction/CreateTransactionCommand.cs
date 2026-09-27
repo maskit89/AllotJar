@@ -16,8 +16,10 @@ namespace AllotJar.Application.Transactions.Commands.CreateTransaction;
 /// carry the attribution. On an account that backs jars, <c>JarAllocations</c> is the answer to
 /// the incoming-money prompt (rule 78: how much of an income goes to each jar, the rest
 /// unallocated) and <c>PaidFromJarId</c> the answer to "which jar does this come from?" for an
-/// expense on a line that is not a jar (rule 79; unallocated when null). Returns the created
-/// transaction.
+/// expense on a line that is not a jar (rule 79; unallocated when null). With
+/// <c>RefundOfTransactionId</c> the row is a refund of that purchase (rules 38/39): money received
+/// (<c>Type</c> must be Income) that is never income, lands by default on the line that continues
+/// the purchase's line in its own month, and can't be split. Returns the created transaction.
 /// </summary>
 [AllowLimited]
 public record CreateTransactionCommand(
@@ -33,4 +35,5 @@ public record CreateTransactionCommand(
     // transaction's date (see TransactionInvariants.CrossMonthKey).
     bool AcknowledgeCrossMonth = false,
     IReadOnlyList<JarAllocationInput>? JarAllocations = null,
-    Guid? PaidFromJarId = null) : IRequest<TransactionDto>;
+    Guid? PaidFromJarId = null,
+    Guid? RefundOfTransactionId = null) : IRequest<TransactionDto>;

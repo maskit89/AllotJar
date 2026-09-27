@@ -54,6 +54,22 @@ public class TransactionDto
     /// <summary>For a transfer: Completed | InTransit | PendingReview, derived from the two bank legs. Null for income/expense rows.</summary>
     public string? TransferStatus { get; set; }
 
+    /// <summary>
+    /// For a refund (rules 38/39): the purchase this money came back from, with enough of it to
+    /// label the row ("Refund of Payee · date"). A refund is money received but never income; it
+    /// reduces net spending on the expense/savings line it is assigned to. Null otherwise.
+    /// </summary>
+    public Guid? RefundOfTransactionId { get; set; }
+    public string? RefundOfPayee { get; set; }
+    public DateOnly? RefundOfDate { get; set; }
+
+    /// <summary>The purchase's amount in the budget base currency, so the client can offer only what remains.</summary>
+    public decimal? RefundOfAmount { get; set; }
+
+    /// <summary>For a purchase: how many refunds point at it, and their base-currency total (0 when none).</summary>
+    public int RefundCount { get; set; }
+    public decimal RefundedAmount { get; set; }
+
     /// <summary>The household member this whole transaction is attributed to, if any.</summary>
     public Guid? MemberId { get; set; }
     public string? MemberName { get; set; }
@@ -117,6 +133,12 @@ public static class TransactionMapping
         ReceivedOn = t.Type == TransactionType.Transfer ? t.ReceivedOn : null,
         ReceiptBankReference = t.Type == TransactionType.Transfer ? t.ReceiptBankReference : null,
         TransferStatus = t.Type == TransactionType.Transfer ? t.TransferStatus.ToString() : null,
+        RefundOfTransactionId = t.RefundOfTransactionId,
+        RefundOfPayee = t.RefundOf?.Payee,
+        RefundOfDate = t.RefundOf?.Date,
+        RefundOfAmount = t.RefundOf?.BaseAmount,
+        RefundCount = t.Refunds.Count,
+        RefundedAmount = t.Refunds.Sum(r => r.BaseAmount),
         MemberId = t.MemberId,
         MemberName = t.Member?.Name,
         IsSplit = t.Splits.Count > 0,

@@ -6,6 +6,7 @@ using AllotJar.Application.Transactions.Commands.ConfirmTransferLegs;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.CreateTransfer;
 using AllotJar.Application.Transactions.Commands.DeleteTransaction;
+using AllotJar.Application.Transactions.Commands.LinkRefund;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Application.Transactions.Commands.UpdateTransaction;
@@ -57,7 +58,8 @@ public class TransactionsController : ControllerBase
                 request.Splits?.Select(a => new SplitAllocationInput(a.BudgetItemId, a.Amount, a.MemberId)).ToList(),
                 request.AcknowledgeCrossMonth,
                 request.JarAllocations?.Select(a => new JarAllocationInput(a.JarId, a.Amount)).ToList(),
-                request.PaidFromJarId),
+                request.PaidFromJarId,
+                request.RefundOfTransactionId),
             ct);
         return CreatedAtAction(nameof(List), new { }, result);
     }
@@ -155,6 +157,25 @@ public class TransactionsController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Marks money received as a refund of one of the user's purchases (rules 38/39), or clears the
+    /// link when refundOfTransactionId is null. Returns the updated transaction.
+    /// </summary>
+    [HttpPut("{id:guid}/refund")]
+    [ProducesResponseType(typeof(TransactionDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<TransactionDto>> LinkRefund(
+        Guid id,
+        LinkRefundRequest request,
+        CancellationToken ct)
+    {
+        var result = await _mediator.Send(
+            new LinkRefundCommand(id, request.RefundOfTransactionId, request.BudgetItemId, request.AcknowledgeCrossMonth), ct);
+        return Ok(result);
+    }
+
     /// <summary>Assigns a transaction to a budget line, or clears it when budgetItemId is null.</summary>
     [HttpPut("{id:guid}/assignment")]
     [ProducesResponseType(typeof(TransactionDto), StatusCodes.Status200OK)]
@@ -177,6 +198,13 @@ public class TransactionsController : ControllerBase
 /// <summary>Request body for assigning a transaction (null clears the assignment).</summary>
 public record AssignTransactionRequest(Guid? BudgetItemId, bool AcknowledgeCrossMonth = false, Guid? PaidFromJarId = null);
 
+/// <summary>
+/// Request body for marking a transaction as a refund of a purchase (null clears the link). The
+/// optional line is validated as an expense/savings line when linking and as an income line when
+/// unlinking; when omitted, a linked refund lands on the purchase's line in its own month.
+/// </summary>
+public record LinkRefundRequest(Guid? RefundOfTransactionId, Guid? BudgetItemId = null, bool AcknowledgeCrossMonth = false);
+
 /// <summary>Part of money reaching a jar-backed account, put into one of its jars (rule 78).</summary>
 public record JarAllocationRequest(Guid JarId, decimal Amount);
 
@@ -196,7 +224,8 @@ public record CreateTransactionRequest(
     IReadOnlyList<SplitAllocationRequest>? Splits = null,
     bool AcknowledgeCrossMonth = false,
     IReadOnlyList<JarAllocationRequest>? JarAllocations = null,
-    Guid? PaidFromJarId = null);
+    Guid? PaidFromJarId = null,
+    Guid? RefundOfTransactionId = null);
 
 /// <summary>
 /// Request body for recording a completed transfer between two accounts. <c>DepartedOn</c> is

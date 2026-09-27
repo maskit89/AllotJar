@@ -33,14 +33,47 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
+        // Manual entries are in the budget's base currency for that month (no FX). A date with no
+        // budget yet falls back to the owner's preferred currency — the same rule the first month
+        // follows (#216) — not a hardcoded EUR, which would wrongly clash with a non-EUR
+        // household's accounts on the check below.
+        var month = await _db.BudgetMonths
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                m => m.OwnerId == userId
+                     && m.Year == request.Date.Year
+                     && m.Month == request.Date.Month,
+                cancellationToken);
+        var currency = month?.BaseCurrency;
+        if (currency is null && _identity is not null)
+        {
+            currency = await _identity.GetPreferredCurrencyAsync(userId);
+        }
+        currency ??= CurrencyCode.Eur;
+
+        // A refund follows the purchase it comes back from (rules 38/39): the original must be
+        // the user's own expense, dated on or before the refund, and not already refunded in full.
+        Transaction? original = null;
+        var isRefund = request.RefundOfTransactionId is not null;
+        if (request.RefundOfTransactionId is Guid originalId)
+        {
+            original = await RefundRules.ValidateOriginalAsync(
+                _db, userId, originalId, refundId: null, request.Date, request.Amount, currency, 1m, cancellationToken);
+        }
+
         BudgetItem? item = null;
         if (request.BudgetItemId is Guid itemId)
         {
             // Owner + direction/kind + month coherence (cross-month allowed only when the
-            // request acknowledges it).
+            // request acknowledges it). A refund matches expense/savings lines, never income.
             item = await TransactionInvariants.ValidateWholeLineAsync(
-                _db, userId, request.Type, itemId, request.Date, request.AcknowledgeCrossMonth,
-                "BudgetItemId", cancellationToken, request.AccountId);
+                _db, userId, TransactionInvariants.LineDirection(request.Type, isRefund), itemId, request.Date,
+                request.AcknowledgeCrossMonth, "BudgetItemId", cancellationToken, request.AccountId);
+        }
+        else if (original is not null)
+        {
+            // No line chosen: the refund lands where the purchase was budgeted, in its own month.
+            item = await RefundRules.DefaultLineAsync(_db, userId, original, request.Date, request.AccountId, cancellationToken);
         }
 
         Account? account = null;
@@ -80,24 +113,6 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
             }
         }
 
-        // Manual entries are in the budget's base currency for that month (no FX). A date with no
-        // budget yet falls back to the owner's preferred currency — the same rule the first month
-        // follows (#216) — not a hardcoded EUR, which would wrongly clash with a non-EUR
-        // household's accounts on the check below.
-        var month = await _db.BudgetMonths
-            .AsNoTracking()
-            .FirstOrDefaultAsync(
-                m => m.OwnerId == userId
-                     && m.Year == request.Date.Year
-                     && m.Month == request.Date.Month,
-                cancellationToken);
-        var currency = month?.BaseCurrency;
-        if (currency is null && _identity is not null)
-        {
-            currency = await _identity.GetPreferredCurrencyAsync(userId);
-        }
-        currency ??= CurrencyCode.Eur;
-
         // A transaction on an account must be in that account's currency (balances sum raw
         // amounts with no FX), so reject e.g. a EUR-budget entry pinned to a GBP account.
         TransactionInvariants.EnsureAccountCurrency(account, currency, "AccountId");
@@ -117,6 +132,9 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
             AccountId = account?.Id,
             Member = member,
             MemberId = member?.Id,
+            // Scalar FK only: the original is tracked by this context, and EF fixes the
+            // navigation up on save.
+            RefundOfTransactionId = original?.Id,
         };
 
         _db.Transactions.Add(transaction);
@@ -149,8 +167,9 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
         // recent earlier transaction with the same description (a quiet, zero-config
         // default — no user-managed rules). Slices ARE an assignment: without the
         // hasSplits guard the categorizer would set a whole-transaction line on a
-        // split transaction, an illegal state BudgetActuals would double-count.
-        if (item is null && !hasSplits)
+        // split transaction, an illegal state BudgetActuals would double-count. A refund's
+        // default is the purchase's line (above), never a payee's learned income line.
+        if (item is null && !hasSplits && !isRefund)
         {
             await AutoCategorizer.ApplyAsync(_db, userId, new[] { transaction }, cancellationToken);
         }
@@ -182,9 +201,9 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
             await write.CommitAsync(cancellationToken);
         }
 
-        // The slices and any jar split were saved with scalar FKs, so re-read with line, member
-        // and jar names for the DTO — the same shape SplitTransaction returns.
-        if (hasSplits || transaction.JarAllocations.Count > 0)
+        // The slices, any jar split and the refund link were saved with scalar FKs, so re-read
+        // with line, member, jar and purchase details for the DTO — the same shape the list returns.
+        if (hasSplits || transaction.JarAllocations.Count > 0 || isRefund)
         {
             return await TransactionReads.ReadDtoAsync(_db, transaction.Id, cancellationToken);
         }

@@ -27,6 +27,14 @@ public class BudgetItem : BaseEntity
     public decimal ActualAmount { get; set; }
 
     /// <summary>
+    /// Transient (not persisted): the refunds received against this expense/savings line (rules
+    /// 38/39), already subtracted from <see cref="ActualAmount"/> — so the line can say "spent
+    /// 80.00 after 20.00 refunded" and a negative Spent is explicable. Always 0 on income lines.
+    /// Derived at read time (see AllotJar.Application.Budgets.BudgetActuals).
+    /// </summary>
+    public decimal RefundedAmount { get; set; }
+
+    /// <summary>
     /// For a line in a <see cref="CategoryKind.Savings"/> group: a stable id shared by
     /// every month's instance of the same sinking fund, so its balance can roll over.
     /// Generated when the fund line is first created and preserved when a month is

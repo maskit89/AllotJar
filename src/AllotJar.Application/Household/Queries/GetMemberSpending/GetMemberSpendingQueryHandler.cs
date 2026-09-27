@@ -41,11 +41,14 @@ public class GetMemberSpendingQueryHandler
 
         // Load expense transactions (with their slices) and attribute in memory so
         // a split is counted by its per-member slices and a whole transaction by its
-        // own member — never both (a split has no whole-transaction attribution).
+        // own member — never both (a split has no whole-transaction attribution). A refund
+        // attributed to a person reduces their spending in the month it was received
+        // (rules 38/39); it is Income-typed with a link to the purchase.
         var query = _db.Transactions
             .AsNoTracking()
             .Include(t => t.Splits)
-            .Where(t => t.OwnerId == userId && t.Type == TransactionType.Expense);
+            .Where(t => t.OwnerId == userId
+                        && (t.Type == TransactionType.Expense || t.RefundOfTransactionId != null));
         if (request.Year is int year && request.Month is int month)
         {
             var from = new DateOnly(year, month, 1);
@@ -60,6 +63,7 @@ public class GetMemberSpendingQueryHandler
         var pendingByMember = new Dictionary<Guid, int>();
         foreach (var t in expenses)
         {
+            var sign = t.IsRefund ? -1m : 1m;
             if (t.Splits.Count > 0)
             {
                 foreach (var slice in t.Splits)
@@ -71,7 +75,7 @@ public class GetMemberSpendingQueryHandler
                             pendingByMember[sliceMember] = pendingByMember.GetValueOrDefault(sliceMember) + 1;
                             continue;
                         }
-                        spentByMember[sliceMember] = spentByMember.GetValueOrDefault(sliceMember) + slice.Amount * t.ExchangeRate;
+                        spentByMember[sliceMember] = spentByMember.GetValueOrDefault(sliceMember) + sign * slice.Amount * t.ExchangeRate;
                     }
                 }
             }
@@ -82,7 +86,7 @@ public class GetMemberSpendingQueryHandler
                     pendingByMember[wholeMember] = pendingByMember.GetValueOrDefault(wholeMember) + 1;
                     continue;
                 }
-                spentByMember[wholeMember] = spentByMember.GetValueOrDefault(wholeMember) + t.BaseAmount;
+                spentByMember[wholeMember] = spentByMember.GetValueOrDefault(wholeMember) + sign * t.BaseAmount;
             }
         }
 

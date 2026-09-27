@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import type { AnnualSummaryDto, BudgetMonthDto, BudgetTrendsDto } from '../types'
+import type { AnnualSummaryDto, BudgetTrendsDto, MonthReportDto, MonthReportCategoryDto } from '../types'
 
 const { mockGet } = vi.hoisted(() => ({ mockGet: vi.fn() }))
 
@@ -30,27 +30,27 @@ function trends(): BudgetTrendsDto {
   }
 }
 
-function latestMonth(): BudgetMonthDto {
+function group(id: string, name: string, index: number, net: number, refunds = 0): MonthReportCategoryDto {
+  return { id, name, kind: 'Expense', index, spent: net + refunds, refunds, net, isUncategorised: false, count: 0 }
+}
+
+function monthReport(year: number, month: number, categories: MonthReportCategoryDto[]): MonthReportDto {
+  const spent = categories.reduce((s, c) => s + c.net, 0)
   return {
-    id: 'm6', key: '2026-06', year: 2026, month: 6, baseCurrency: 'EUR',
-    totalIncome: 3000, totalPlanned: 2900, remainingToBudget: 100, isBalanced: false,
-    categories: [
-      { id: 'inc', name: 'Income', kind: 'Income', displayOrder: 0, totalPlanned: 3000, totalActual: 3000, items: [] },
-      { id: 'house', name: 'Housing', kind: 'Expense', displayOrder: 0, totalPlanned: 1500, totalActual: 1500, items: [] },
-      { id: 'food', name: 'Food', kind: 'Expense', displayOrder: 1, totalPlanned: 800, totalActual: 1200, items: [] },
-    ],
+    year, month, key: `${year}-${String(month).padStart(2, '0')}`, hasBudget: true, baseCurrency: 'EUR',
+    incomeBudgeted: 3000, incomeReceived: 3000, incomeUncategorised: 0, variance: 0, planned: 2900,
+    spentCategorised: spent, spentUncategorised: 0, refunds: 0, spent,
+    uncategorisedCount: 0, uncategorisedIncomeCount: 0, fxPendingCount: 0, categories,
   }
 }
 
-function mayMonth(): BudgetMonthDto {
-  return {
-    id: 'm5', key: '2026-05', year: 2026, month: 5, baseCurrency: 'EUR',
-    totalIncome: 3000, totalPlanned: 2800, remainingToBudget: 200, isBalanced: false,
-    categories: [
-      { id: 'inc5', name: 'Income', kind: 'Income', displayOrder: 0, totalPlanned: 3000, totalActual: 2900, items: [] },
-      { id: 'trans', name: 'Transport', kind: 'Expense', displayOrder: 0, totalPlanned: 600, totalActual: 900, items: [] },
-    ],
-  }
+// The month report lists only the non-income groups (income never appears in the breakdown).
+function latestMonth(): MonthReportDto {
+  return monthReport(2026, 6, [group('house', 'Housing', 0, 1500), group('food', 'Food', 1, 1200)])
+}
+
+function mayMonth(): MonthReportDto {
+  return monthReport(2026, 5, [group('trans', 'Transport', 0, 900)])
 }
 
 function annual(year: number): AnnualSummaryDto {
@@ -59,6 +59,8 @@ function annual(year: number): AnnualSummaryDto {
     key: `${year}-${String(i + 1).padStart(2, '0')}`,
     hasBudget: i + 1 === 6,
     income: i + 1 === 6 ? 3000 : 0,
+    incomeReceived: i + 1 === 6 ? 2950 : 0,
+    variance: i + 1 === 6 ? -50 : 0,
     planned: i + 1 === 6 ? 2900 : 0,
     spent: i + 1 === 6 ? 2700 : 0,
   }))
@@ -66,6 +68,8 @@ function annual(year: number): AnnualSummaryDto {
     year,
     months,
     totalIncome: 3000,
+    totalIncomeReceived: 2950,
+    totalVariance: -50,
     totalPlanned: 2900,
     totalSpent: 2700,
     budgetedMonths: 1,
@@ -92,7 +96,7 @@ describe('ReportsPage', () => {
   it('shows the income-vs-spending trend and spending by category', { timeout: 15000 }, async () => {
     mockGet.mockImplementation((url?: string) => {
       if (url?.startsWith('/reports/trends')) return Promise.resolve({ data: trends() })
-      if (url === '/budget/2026/6') return Promise.resolve({ data: latestMonth() })
+      if (url === '/reports/month/2026/6') return Promise.resolve({ data: latestMonth() })
       return Promise.resolve({ data: {} })
     })
 
@@ -117,8 +121,8 @@ describe('ReportsPage', () => {
   it('lets you pick which month to break spending down by', { timeout: 15000 }, async () => {
     mockGet.mockImplementation((url?: string) => {
       if (url?.startsWith('/reports/trends')) return Promise.resolve({ data: trends() })
-      if (url === '/budget/2026/6') return Promise.resolve({ data: latestMonth() })
-      if (url === '/budget/2026/5') return Promise.resolve({ data: mayMonth() })
+      if (url === '/reports/month/2026/6') return Promise.resolve({ data: latestMonth() })
+      if (url === '/reports/month/2026/5') return Promise.resolve({ data: mayMonth() })
       return Promise.resolve({ data: {} })
     })
     const user = userEvent.setup()
@@ -130,7 +134,7 @@ describe('ReportsPage', () => {
 
     // Switching to May reloads that month's breakdown (Transport).
     await user.selectOptions(screen.getByLabelText('Breakdown month'), '2026-05')
-    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/budget/2026/5'))
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/reports/month/2026/5'))
     expect(await screen.findByLabelText('Spending for Transport', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.queryByLabelText('Spending for Food')).not.toBeInTheDocument()
   })
@@ -138,7 +142,7 @@ describe('ReportsPage', () => {
   it('shows the annual overview and navigates between years', { timeout: 15000 }, async () => {
     mockGet.mockImplementation((url?: string) => {
       if (url?.startsWith('/reports/trends')) return Promise.resolve({ data: trends() })
-      if (url === '/budget/2026/6') return Promise.resolve({ data: latestMonth() })
+      if (url === '/reports/month/2026/6') return Promise.resolve({ data: latestMonth() })
       if (url === '/reports/annual/2026') return Promise.resolve({ data: annual(2026) })
       if (url === '/reports/annual/2025') return Promise.resolve({ data: annual(2025) })
       return Promise.resolve({ data: {} })
@@ -161,7 +165,7 @@ describe('ReportsPage', () => {
   it('shows the average monthly spend per category for the year', { timeout: 15000 }, async () => {
     mockGet.mockImplementation((url?: string) => {
       if (url?.startsWith('/reports/trends')) return Promise.resolve({ data: trends() })
-      if (url === '/budget/2026/6') return Promise.resolve({ data: latestMonth() })
+      if (url === '/reports/month/2026/6') return Promise.resolve({ data: latestMonth() })
       if (url === '/reports/annual/2026') return Promise.resolve({ data: annual(2026) })
       return Promise.resolve({ data: {} })
     })

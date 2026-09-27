@@ -54,6 +54,18 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         // Derived from the two bank legs; never stored.
         builder.Ignore(t => t.TransferStatus);
 
+        // Derived from the refund link; never stored.
+        builder.Ignore(t => t.IsRefund);
+
+        // A refund points at the expense it comes back from (rule 38). Restrict, not SetNull: an
+        // unlinked refund would silently turn into income, so the original cannot be deleted while
+        // refunds hang off it — DeleteTransactionCommandHandler refuses first with a readable message.
+        builder.HasOne(t => t.RefundOf)
+            .WithMany(t => t.Refunds)
+            .HasForeignKey(t => t.RefundOfTransactionId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(t => t.RefundOfTransactionId);
+
         builder.Property(t => t.Type)
             .HasConversion<int>();
 

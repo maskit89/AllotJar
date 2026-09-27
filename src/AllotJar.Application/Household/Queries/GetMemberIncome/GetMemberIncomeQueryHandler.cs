@@ -44,13 +44,15 @@ public class GetMemberIncomeQueryHandler : IRequestHandler<GetMemberIncomeQuery,
         var shares = await MemberIncome.SharesAsync(_db, userId, request.Year, request.Month, members, cancellationToken);
 
         // Received side: income transactions dated in the month, attributed whole or by
-        // slice — a split counts by its slices only (it has no whole-tx attribution).
+        // slice — a split counts by its slices only (it has no whole-tx attribution). A refund
+        // is money back from a purchase, never income (rule 41).
         var from = new DateOnly(request.Year, request.Month, 1);
         var to = from.AddMonths(1);
         var incomes = await _db.Transactions
             .AsNoTracking()
             .Include(t => t.Splits)
             .Where(t => t.OwnerId == userId && t.Type == TransactionType.Income
+                        && t.RefundOfTransactionId == null
                         && t.Date >= from && t.Date < to)
             .ToListAsync(cancellationToken);
 

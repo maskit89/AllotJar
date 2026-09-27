@@ -32,6 +32,22 @@ public class Transaction : BaseEntity
     public Account? TransferAccount { get; set; }
 
     /// <summary>
+    /// For a refund (rules 38/39): the original expense this money comes back from. A refund is
+    /// money reaching the account on its own date (<see cref="Type"/> is <see cref="TransactionType.Income"/>),
+    /// but it is never income: it reduces net spending in the original's category in the month it
+    /// is received, so it may be assigned to an expense or savings line and never to an income
+    /// line, and every income figure leaves it out (rule 41). Null for everything else.
+    /// </summary>
+    public Guid? RefundOfTransactionId { get; set; }
+    public Transaction? RefundOf { get; set; }
+
+    /// <summary>The refunds linked to this expense (rule 38); both sides stay in history.</summary>
+    public ICollection<Transaction> Refunds { get; set; } = new List<Transaction>();
+
+    /// <summary>True when this is a refund of an earlier expense (<see cref="RefundOfTransactionId"/> set).</summary>
+    public bool IsRefund => RefundOfTransactionId is not null;
+
+    /// <summary>
     /// The household member this whole transaction is attributed to (optional) — e.g. whose
     /// spend it was. When the transaction is split, per-member attribution lives on the
     /// slices instead (<see cref="TransactionSplit.MemberId"/>), mirroring how the budget-line

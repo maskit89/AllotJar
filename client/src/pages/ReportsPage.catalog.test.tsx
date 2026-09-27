@@ -8,8 +8,9 @@
 // empty / error surfaces. Fixtures follow the catalog's "H2" baseline exactly.
 //
 // Determinism notes: every mock resolves synchronously; async waits carry an
-// explicit 5s timeout; the api mock answers /reports/trends, /budget/{y}/{m}
-// (with a categories[] array so the breakdown memo never dereferences undefined)
+// explicit 5s timeout; the api mock answers /reports/trends, /reports/month/{y}/{m}
+// (the W12 month report: non-income groups net of refunds plus an Uncategorised row,
+// with a categories[] array so the breakdown memo never dereferences undefined)
 // AND /reports/annual/{year}, plus a catch-all for /auth/me.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -17,10 +18,10 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type {
   AnnualSummaryDto,
-  BudgetCategoryDto,
-  BudgetMonthDto,
   BudgetTrendsDto,
   AnnualCategoryDto,
+  MonthReportCategoryDto,
+  MonthReportDto,
 } from '../types'
 
 const { mockGet, mockTrack } = vi.hoisted(() => ({ mockGet: vi.fn(), mockTrack: vi.fn() }))
@@ -43,28 +44,42 @@ import { AuthProvider } from '../auth/AuthContext'
 
 // --- fixtures ---------------------------------------------------------------
 
-function cat(
-  id: string,
-  name: string,
-  kind: BudgetCategoryDto['kind'],
-  actual: number,
-  planned = actual,
-): BudgetCategoryDto {
-  return { id, name, kind, displayOrder: 0, totalPlanned: planned, totalActual: actual, items: [] }
+/** One spending group of the month report: its net actual and the refunds already taken off it (rules 38/39). */
+function cat(id: string, name: string, kind: 'Expense' | 'Savings', net: number, refunds = 0): MonthReportCategoryDto {
+  return { id, name, kind, index: 0, spent: net + refunds, refunds, net, isUncategorised: false, count: 0 }
 }
 
-function month(year: number, mo: number, currency: string, categories: BudgetCategoryDto[]): BudgetMonthDto {
+/** The month report's Uncategorised row (rule 37): expenses no line carries yet, flagged for review. */
+function uncategorised(net: number, count: number, refunds = 0): MonthReportCategoryDto {
+  return { id: null, name: 'Uncategorised', kind: 'Uncategorised', index: -1, spent: net + refunds, refunds, net, isUncategorised: true, count }
+}
+
+function month(year: number, mo: number, currency: string, categories: MonthReportCategoryDto[]): MonthReportDto {
+  // Hue indexes follow group order, as the server assigns them from the budget's display order.
+  let index = 0
+  const groups = categories.map((c) => (c.isUncategorised ? c : { ...c, index: index++ }))
+  const loose = groups.find((c) => c.isUncategorised)
+  const spentCategorised = groups.filter((c) => !c.isUncategorised).reduce((s, c) => s + c.net, 0)
+  const spentUncategorised = loose?.net ?? 0
   return {
-    id: `m${year}-${mo}`,
-    key: `${year}-${String(mo).padStart(2, '0')}`,
     year,
     month: mo,
+    key: `${year}-${String(mo).padStart(2, '0')}`,
+    hasBudget: true,
     baseCurrency: currency,
-    totalIncome: 0,
-    totalPlanned: 0,
-    remainingToBudget: 0,
-    isBalanced: false,
-    categories,
+    incomeBudgeted: 3000,
+    incomeReceived: 2950,
+    incomeUncategorised: 0,
+    variance: -50,
+    planned: 0,
+    spentCategorised,
+    spentUncategorised,
+    refunds: groups.reduce((s, c) => s + c.refunds, 0),
+    spent: spentCategorised + spentUncategorised,
+    uncategorisedCount: loose?.count ?? 0,
+    uncategorisedIncomeCount: 0,
+    fxPendingCount: 0,
+    categories: groups,
   }
 }
 
@@ -83,42 +98,46 @@ function h2Trends(): BudgetTrendsDto {
   }
 }
 
-// June breakdown (H2): Housing 1400, Food 700, Emergency Fund 300 (+ excluded income).
-function juneBreakdown(currency = 'EUR'): BudgetMonthDto {
+// June breakdown (H2): Housing 1400, Food 700, Emergency Fund 300 (the month report never lists income).
+function juneBreakdown(currency = 'EUR'): MonthReportDto {
   return month(2026, 6, currency, [
-    cat('inc6', 'Income', 'Income', 2950, 3000),
-    cat('house6', 'Housing', 'Expense', 1400, 1500),
-    cat('food6', 'Food', 'Expense', 700, 800),
-    cat('fund6', 'Emergency Fund', 'Savings', 300, 300),
+    cat('house6', 'Housing', 'Expense', 1400),
+    cat('food6', 'Food', 'Expense', 700),
+    cat('fund6', 'Emergency Fund', 'Savings', 300),
   ])
 }
 
 // May breakdown (H2): Housing 1400, Food 1000, Emergency Fund 300.
-function mayBreakdown(currency = 'EUR'): BudgetMonthDto {
+function mayBreakdown(currency = 'EUR'): MonthReportDto {
   return month(2026, 5, currency, [
-    cat('inc5', 'Income', 'Income', 2900, 3000),
-    cat('house5', 'Housing', 'Expense', 1400, 1400),
-    cat('food5', 'Food', 'Expense', 1000, 700),
-    cat('fund5', 'Emergency Fund', 'Savings', 300, 300),
+    cat('house5', 'Housing', 'Expense', 1400),
+    cat('food5', 'Food', 'Expense', 1000),
+    cat('fund5', 'Emergency Fund', 'Savings', 300),
   ])
 }
 
-function annualMonth(mo: number, hasBudget: boolean, income = 0, spent = 0, planned = 0) {
-  return { month: mo, key: `2026-${String(mo).padStart(2, '0')}`, hasBudget, income, planned, spent }
+/** An annual row; `received` defaults to the budgeted income (variance 0). */
+function annualMonth(mo: number, hasBudget: boolean, income = 0, spent = 0, planned = 0, received = income) {
+  return {
+    month: mo, key: `2026-${String(mo).padStart(2, '0')}`, hasBudget,
+    income, incomeReceived: received, variance: received - income, planned, spent,
+  }
 }
 
-// H2 annual 2026: May + June budgeted; annual income column uses BUDGETED income (3000).
+// H2 annual 2026: May + June budgeted; Budgeted income 3000 next to the 2900/2950 received (rule 41).
 function annual2026(year = 2026, categories?: AnnualCategoryDto[], budgetedMonths = 2): AnnualSummaryDto {
   const months = Array.from({ length: 12 }, (_, i) => {
     const m = i + 1
-    if (m === 5) return annualMonth(5, true, 3000, 2700, 2400)
-    if (m === 6) return annualMonth(6, true, 3000, 2400, 2600)
+    if (m === 5) return annualMonth(5, true, 3000, 2700, 2400, 2900)
+    if (m === 6) return annualMonth(6, true, 3000, 2400, 2600, 2950)
     return annualMonth(m, false)
   })
   return {
     year,
     months,
     totalIncome: 6000,
+    totalIncomeReceived: 5850,
+    totalVariance: -150,
     totalPlanned: 5000,
     totalSpent: 5100,
     budgetedMonths,
@@ -135,6 +154,8 @@ function emptyAnnual(year: number): AnnualSummaryDto {
     year,
     months: Array.from({ length: 12 }, (_, i) => annualMonth(i + 1, false)),
     totalIncome: 0,
+    totalIncomeReceived: 0,
+    totalVariance: 0,
     totalPlanned: 0,
     totalSpent: 0,
     budgetedMonths: 0,
@@ -146,7 +167,7 @@ function emptyAnnual(year: number): AnnualSummaryDto {
 
 interface Wiring {
   trends: BudgetTrendsDto
-  months?: Record<string, BudgetMonthDto>
+  months?: Record<string, MonthReportDto>
   annuals?: Record<number, AnnualSummaryDto>
   rejectMonthUrls?: string[]
   rejectAnnualYears?: number[]
@@ -156,7 +177,7 @@ function wire(w: Wiring) {
   mockGet.mockImplementation((url?: string) => {
     if (url?.startsWith('/reports/trends')) return Promise.resolve({ data: w.trends })
 
-    const mMatch = url?.match(/^\/budget\/(\d+)\/(\d+)$/)
+    const mMatch = url?.match(/^\/reports\/month\/(\d+)\/(\d+)$/)
     if (mMatch) {
       if (w.rejectMonthUrls?.includes(url!)) return Promise.reject(new Error('boom'))
       const y = Number(mMatch[1])
@@ -320,8 +341,8 @@ describe('ReportsPage — catalog (RPT)', () => {
   })
 
   // RPT-007, RPT-015 — income bars plot received income, but height scales to a
-  // window max that includes the (undrawn) budgeted income; the annual table
-  // instead shows the budgeted income for the same month.
+  // window max that includes the (undrawn) budgeted income; the annual table shows
+  // the budgeted and the received income side by side with their Variance (rule 41).
   it('plots received income yet scales bars to the budgeted max (RPT-007, RPT-015)', T, async () => {
     wire({ trends: h2Trends(), months: { '2026-6': juneBreakdown() }, annuals: { 2026: annual2026() } })
     renderPage()
@@ -330,13 +351,14 @@ describe('ReportsPage — catalog (RPT)', () => {
     const incomeBar = await screen.findByTitle('Income €2,950.00', {}, W)
     expect(incomeBar.style.height).toBe('98%')
 
-    // Same June, annual table income column shows the BUDGETED 3,000 — differs from
-    // the 2,950 received the trend bar drew.
+    // Same June in the annual table: Budgeted 3,000 | Received 2,950 | Variance −50 | Spent 2,400 | Net 550.
     const table = await annualTable()
-    const juneRow = rowFor(table, 'Jun')
-    expect(juneRow).toHaveTextContent('€3,000.00')
-    expect(juneRow).toHaveTextContent('€2,400.00') // actual spend
-    expect(juneRow).toHaveTextContent('€600.00') // net = 3,000 − 2,400
+    const juneCells = rowFor(table, 'Jun').querySelectorAll('td')
+    expect(juneCells[1]).toHaveTextContent('€3,000.00')
+    expect(juneCells[2]).toHaveTextContent('€2,950.00')
+    expect(juneCells[3]).toHaveTextContent('-€50.00')
+    expect(juneCells[4]).toHaveTextContent('€2,400.00')
+    expect(juneCells[5]).toHaveTextContent('€550.00') // net = received 2,950 − spent 2,400
   })
 
   // RPT-008 — a tiny non-zero bar gets a 2% sliver; a zero value gets 0%.
@@ -396,24 +418,28 @@ describe('ReportsPage — catalog (RPT)', () => {
     renderPage()
 
     const table = await annualTable()
-    // Headers.
-    ;['Month', 'Income', 'Spent', 'Net'].forEach((h) =>
+    // Headers (rule 41: budgeted next to received, with the signed Variance).
+    ;['Month', 'Budgeted', 'Received', 'Variance', 'Spent', 'Net'].forEach((h) =>
       expect(within(table).getByText(h)).toBeInTheDocument(),
     )
-    // May: 3,000 / 2,700 / 300.
-    const may = rowFor(table, 'May')
-    expect(may).toHaveTextContent('€3,000.00')
-    expect(may).toHaveTextContent('€2,700.00')
-    expect(may).toHaveTextContent('€300.00')
-    // June: 3,000 / 2,400 / 600.
-    const jun = rowFor(table, 'Jun')
-    expect(jun).toHaveTextContent('€2,400.00')
-    expect(jun).toHaveTextContent('€600.00')
-    // Footer: 6,000 / 5,100 / 900.
-    const total = rowFor(table, 'Total')
-    expect(total).toHaveTextContent('€6,000.00')
-    expect(total).toHaveTextContent('€5,100.00')
-    expect(total).toHaveTextContent('€900.00')
+    // May: 3,000 budgeted / 2,900 received / −100 / 2,700 spent / net 200.
+    const may = rowFor(table, 'May').querySelectorAll('td')
+    expect(may[1]).toHaveTextContent('€3,000.00')
+    expect(may[2]).toHaveTextContent('€2,900.00')
+    expect(may[3]).toHaveTextContent('-€100.00')
+    expect(may[4]).toHaveTextContent('€2,700.00')
+    expect(may[5]).toHaveTextContent('€200.00')
+    // June: 3,000 / 2,950 / −50 / 2,400 / 550.
+    const jun = rowFor(table, 'Jun').querySelectorAll('td')
+    expect(jun[4]).toHaveTextContent('€2,400.00')
+    expect(jun[5]).toHaveTextContent('€550.00')
+    // Footer: 6,000 / 5,850 / −150 / 5,100 / 750.
+    const total = rowFor(table, 'Total').querySelectorAll('td')
+    expect(total[1]).toHaveTextContent('€6,000.00')
+    expect(total[2]).toHaveTextContent('€5,850.00')
+    expect(total[3]).toHaveTextContent('-€150.00')
+    expect(total[4]).toHaveTextContent('€5,100.00')
+    expect(total[5]).toHaveTextContent('€750.00')
   })
 
   // RPT-012 — non-budgeted months show em dashes; Net is emerald/rose by sign.
@@ -428,16 +454,18 @@ describe('ReportsPage — catalog (RPT)', () => {
     const jan = rowFor(table, 'Jan')
     expect(jan).toHaveClass('text-slate-500')
     const janCells = jan.querySelectorAll('td')
-    ;[1, 2, 3].forEach((i) => expect(janCells[i]).toHaveTextContent('—'))
-    expect(janCells[3]).not.toHaveClass('text-emerald-600')
-    expect(janCells[3]).not.toHaveClass('text-rose-600')
+    ;[1, 2, 3, 4, 5].forEach((i) => expect(janCells[i]).toHaveTextContent('—'))
+    expect(janCells[5]).not.toHaveClass('text-emerald-600')
+    expect(janCells[5]).not.toHaveClass('text-rose-600')
 
     // Positive net → emerald.
-    expect(rowFor(table, 'May').querySelectorAll('td')[3]).toHaveClass('text-emerald-600')
-    // July spent 3,200 > income 3,000 → Net −€200.00 in rose.
+    expect(rowFor(table, 'May').querySelectorAll('td')[5]).toHaveClass('text-emerald-600')
+    // July spent 3,200 > received 3,000 → Net −€200.00 in rose; a zero Variance is plain, not an error.
     const julCells = rowFor(table, 'Jul').querySelectorAll('td')
-    expect(julCells[3]).toHaveTextContent('-€200.00')
-    expect(julCells[3]).toHaveClass('text-rose-600')
+    expect(julCells[3]).toHaveTextContent('€0.00')
+    expect(julCells[3]).not.toHaveClass('text-rose-600')
+    expect(julCells[5]).toHaveTextContent('-€200.00')
+    expect(julCells[5]).toHaveClass('text-rose-600')
   })
 
   // RPT-013 — year navigation refetches and fires the annual analytics event
@@ -483,7 +511,7 @@ describe('ReportsPage — catalog (RPT)', () => {
     const table = await annualTable()
     const total = rowFor(table, 'Total')
     const totalCells = total.querySelectorAll('td')
-    ;[1, 2, 3].forEach((i) => expect(totalCells[i]).toHaveTextContent('€0.00'))
+    ;[1, 2, 3, 4, 5].forEach((i) => expect(totalCells[i]).toHaveTextContent('€0.00'))
 
     // Average card gone; the trend + breakdown cards remain.
     await waitFor(
@@ -614,7 +642,7 @@ describe('ReportsPage — catalog (RPT)', () => {
     expect(mockTrack.mock.calls.filter((c) => c[1]?.report_type === 'breakdown')).toHaveLength(0)
 
     await user.selectOptions(screen.getByLabelText('Breakdown month'), '2026-05')
-    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/budget/2026/5'), W)
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/reports/month/2026/5'), W)
 
     // May's numbers now show, and the breakdown event fired exactly once.
     expect(await screen.findByLabelText('Spending for Food', {}, W)).toHaveTextContent('€1,000.00')
@@ -628,9 +656,8 @@ describe('ReportsPage — catalog (RPT)', () => {
   // RPT-022 — a breakdown month with no non-income spend shows the empty line.
   it('shows the empty line for a breakdown month with no spending (RPT-022)', T, async () => {
     const barrenJune = month(2026, 6, 'EUR', [
-      cat('inc6', 'Income', 'Income', 2950, 3000),
-      cat('house6', 'Housing', 'Expense', 0, 1500),
-      cat('food6', 'Food', 'Expense', 0, 800),
+      cat('house6', 'Housing', 'Expense', 0),
+      cat('food6', 'Food', 'Expense', 0),
     ])
     wire({ trends: h2Trends(), months: { '2026-6': barrenJune }, annuals: { 2026: annual2026() } })
     renderPage()
@@ -641,24 +668,113 @@ describe('ReportsPage — catalog (RPT)', () => {
     expect(screen.getByText('Saved this month')).toBeInTheDocument()
   })
 
-  // RPT-023 — a category whose net actual is ≤ 0 is dropped and excluded from
+  // RPT-023 — a category that netted below zero this month (more refunded than spent, rule 39)
+  // stays on the list, labelled with what was refunded, carries no share and is left out of
   // the share denominator.
-  it('excludes a negative-net category and its share from the breakdown (RPT-023)', T, async () => {
+  it('keeps a negative-net category, labelled, without a share (RPT-023)', T, async () => {
     const withRefund = month(2026, 6, 'EUR', [
-      cat('inc6', 'Income', 'Income', 2950, 3000),
-      cat('house6', 'Housing', 'Expense', 1400, 1500),
-      cat('food6', 'Food', 'Expense', 700, 800),
-      cat('util6', 'Utilities', 'Expense', -50, 200),
+      cat('house6', 'Housing', 'Expense', 1400),
+      cat('food6', 'Food', 'Expense', 700),
+      cat('util6', 'Utilities', 'Expense', -50, 120), // spent 70, refunded 120
     ])
     wire({ trends: h2Trends(), months: { '2026-6': withRefund }, annuals: { 2026: annual2026() } })
     renderPage()
 
     await screen.findByLabelText('Spending for Housing', {}, W)
-    // Utilities dropped entirely.
-    expect(screen.queryByLabelText('Spending for Utilities')).not.toBeInTheDocument()
-    // Denominator is 1,400 + 700 = 2,100 → Housing 67%, Food 33% (refund not counted).
+    // Utilities is shown last, as a negative figure explained by its refunds, with no share %.
+    const utilities = screen.getByLabelText('Spending for Utilities')
+    expect(utilities).toHaveTextContent('-€50.00 · after €120.00 refunded')
+    expect(utilities).not.toHaveTextContent('%')
+    expect(screen.getAllByLabelText(/^Spending for /).map((r) => r.getAttribute('aria-label'))).toEqual([
+      'Spending for Housing',
+      'Spending for Food',
+      'Spending for Utilities',
+    ])
+    // Denominator is 1,400 + 700 = 2,100 → Housing 67%, Food 33% (the negative row not counted).
     expect(screen.getByLabelText('Spending for Housing')).toHaveTextContent('€1,400.00 · 67%')
     expect(screen.getByLabelText('Spending for Food')).toHaveTextContent('€700.00 · 33%')
+  })
+
+  // RPT-038 — rule 37: spending no line carries yet is its own Uncategorised row, in the
+  // total and the shares, flagged for review with a link to the register.
+  it('lists uncategorised spending as its own row with a review link (RPT-038)', T, async () => {
+    const withLoose = month(2026, 6, 'EUR', [cat('house6', 'Housing', 'Expense', 1400), uncategorised(100, 2)])
+    wire({ trends: h2Trends(), months: { '2026-6': withLoose }, annuals: { 2026: annual2026() } })
+    renderPage()
+
+    const loose = await screen.findByLabelText('Spending for Uncategorised', {}, W)
+    // 100 of a 1,500 total → 7%; Housing 93%.
+    expect(loose).toHaveTextContent('€100.00 · 7%')
+    expect(screen.getByLabelText('Spending for Housing')).toHaveTextContent('€1,400.00 · 93%')
+    const review = within(loose).getByRole('link', { name: 'Review uncategorised transactions' })
+    expect(review).toHaveTextContent('Review 2 transactions')
+    expect(review).toHaveAttribute('href', '/transactions')
+  })
+
+  // RPT-039 — rules 38/39: a group's figure is net of the refunds received against it this
+  // month, and says so.
+  it('shows a group net of its refunds with the refunded amount (RPT-039)', T, async () => {
+    const withRefund = month(2026, 6, 'EUR', [
+      cat('house6', 'Housing', 'Expense', 1400),
+      cat('food6', 'Food', 'Expense', 680, 20), // spent 700, refunded 20
+    ])
+    wire({ trends: h2Trends(), months: { '2026-6': withRefund }, annuals: { 2026: annual2026() } })
+    renderPage()
+
+    const food = await screen.findByLabelText('Spending for Food', {}, W)
+    // 680 of 2,080 → 33%, then the refund note.
+    expect(food).toHaveTextContent('€680.00 · 33% · after €20.00 refunded')
+    expect(screen.getByLabelText('Spending for Housing')).toHaveTextContent('€1,400.00 · 67%')
+    expect(screen.getByLabelText('Spending for Housing')).not.toHaveTextContent('refunded')
+  })
+
+  // RPT-040 — rule 41 in the annual table: Received next to Budgeted with a signed Variance
+  // (plus above plan, minus below, plain at zero), and a month with no budget still shows what
+  // its transactions say while its Budgeted and Variance cells stay dashed.
+  it('shows budgeted vs received income with a signed variance per month (RPT-040)', T, async () => {
+    const annual = annual2026()
+    annual.months = annual.months.map((m) => {
+      if (m.month === 7) return annualMonth(7, true, 3000, 2500, 3000, 3200) // +200
+      if (m.month === 8) return { ...annualMonth(8, false, 0, 120, 0, 80), uncategorisedCount: 1 } // no budget, loose rows
+      return m
+    })
+    wire({ trends: h2Trends(), months: { '2026-6': juneBreakdown() }, annuals: { 2026: annual } })
+    renderPage()
+
+    const table = await annualTable()
+    const jul = rowFor(table, 'Jul').querySelectorAll('td')
+    expect(jul[2]).toHaveTextContent('€3,200.00')
+    expect(jul[3]).toHaveTextContent('+€200.00')
+    expect(jul[3]).toHaveClass('text-emerald-600')
+    const jun = rowFor(table, 'Jun').querySelectorAll('td')
+    expect(jun[3]).toHaveTextContent('-€50.00')
+    expect(jun[3]).toHaveClass('text-rose-600')
+    // August: no budget, but €80 received and €120 spent were recorded.
+    const aug = rowFor(table, 'Aug').querySelectorAll('td')
+    expect(aug[1]).toHaveTextContent('—')
+    expect(aug[2]).toHaveTextContent('€80.00')
+    expect(aug[3]).toHaveTextContent('—')
+    expect(aug[4]).toHaveTextContent('€120.00')
+    expect(aug[5]).toHaveTextContent('-€40.00')
+  })
+
+  // RPT-041 — the yearly average card carries the Uncategorised group with a Review badge and
+  // says what was refunded against a group over the year.
+  it('lists Uncategorised and refunded amounts in the yearly averages (RPT-041)', T, async () => {
+    const categories: AnnualCategoryDto[] = [
+      { name: 'Housing', kind: 'Expense', total: 2800, refunds: 0, averagePerMonth: 1400 },
+      { name: 'Food', kind: 'Expense', total: 1660, refunds: 40, averagePerMonth: 830 },
+      { name: 'Uncategorised', kind: 'Uncategorised', total: 100, refunds: 0, averagePerMonth: 50 },
+    ]
+    wire({ trends: h2Trends(), months: { '2026-6': juneBreakdown() }, annuals: { 2026: annual2026(2026, categories) } })
+    renderPage()
+
+    const food = await screen.findByLabelText('Average spending for Food', {}, W)
+    expect(food).toHaveTextContent('€830.00/mo · €1,660.00 total · after €40.00 refunded')
+    const loose = screen.getByLabelText('Average spending for Uncategorised')
+    expect(within(loose).getByText('Review')).toBeInTheDocument()
+    expect(loose).toHaveTextContent('€50.00/mo · €100.00 total')
+    expect(within(screen.getByLabelText('Average spending for Housing')).queryByText('Review')).not.toBeInTheDocument()
   })
 
   // RPT-027 — brand-new empty account: the EmptyState copy, no hero, no error.
@@ -693,7 +809,7 @@ describe('ReportsPage — catalog (RPT)', () => {
       trends: h2Trends(),
       months: { '2026-6': juneBreakdown() },
       annuals: { 2026: annual2026() },
-      rejectMonthUrls: ['/budget/2026/5'],
+      rejectMonthUrls: ['/reports/month/2026/5'],
     })
     const user = userEvent.setup()
     renderPage()
@@ -701,7 +817,7 @@ describe('ReportsPage — catalog (RPT)', () => {
     expect(await screen.findByLabelText('Spending for Housing', {}, W)).toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('Breakdown month'), '2026-05')
-    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/budget/2026/5'), W)
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/reports/month/2026/5'), W)
 
     // No error banner; the select shows May; June's rows persist (setBreakdownMonth
     // only ran on success).
@@ -753,7 +869,7 @@ describe('ReportsPage — catalog (RPT)', () => {
 
     // Switch to the GBP month → every card re-labels to £.
     await user.selectOptions(screen.getByLabelText('Breakdown month'), '2026-05')
-    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/budget/2026/5'), W)
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/reports/month/2026/5'), W)
 
     expect(await screen.findByLabelText('Saved this month: £550.00', {}, W)).toBeInTheDocument()
     expect(screen.getByTitle('Income £2,950.00')).toBeInTheDocument() // trend tooltip
@@ -773,6 +889,8 @@ describe('ReportsPage — catalog (RPT)', () => {
       year: 2026,
       months: Array.from({ length: 12 }, (_, i) => annualMonth(i + 1, i + 1 === 7, 0, 0, i + 1 === 7 ? 300 : 0)),
       totalIncome: 0,
+      totalIncomeReceived: 0,
+      totalVariance: 0,
       totalPlanned: 300,
       totalSpent: 0,
       budgetedMonths: 1,
@@ -789,7 +907,7 @@ describe('ReportsPage — catalog (RPT)', () => {
     // Annual July row: has a budget, Net €0.00 shown emerald (net ≥ 0), not dashed.
     const table = await annualTable()
     const julCells = rowFor(table, 'Jul').querySelectorAll('td')
-    expect(julCells[3]).toHaveTextContent('€0.00')
-    expect(julCells[3]).toHaveClass('text-emerald-600')
+    expect(julCells[5]).toHaveTextContent('€0.00')
+    expect(julCells[5]).toHaveClass('text-emerald-600')
   })
 })

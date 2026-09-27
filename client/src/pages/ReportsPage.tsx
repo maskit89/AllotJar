@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { Card, EmptyState, ErrorBanner } from '../components/ui'
 import { Hero } from '../components/Hero'
 import { ReportsIcon } from '../components/icons'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
-import type { AnnualSummaryDto, BudgetMonthDto, BudgetTrendsDto } from '../types'
+import type { AnnualMonthDto, AnnualSummaryDto, BudgetTrendsDto, MonthReportDto } from '../types'
 import { formatMoney, fromAmount, type Minor } from '../lib/money'
 import { hueColor, hueForIndex, hueTint } from '../lib/categoryColors'
 
@@ -16,18 +17,38 @@ const SHORT_MONTHS = [
 
 const monthLabel = (year: number, month: number) => `${SHORT_MONTHS[month - 1]} ${year}`
 
+/** Rule 41: the Variance is signed — a plus for more than planned, the formatter's minus for less. */
+function signedMoney(minor: Minor, currency: string): string {
+  return minor > 0 ? `+${formatMoney(minor, currency)}` : formatMoney(minor, currency)
+}
+
+/** Emerald above zero, rose below, plain at zero — a variance is not an error (rule 41). */
+function signClass(minor: Minor): string {
+  return minor < 0 ? 'text-rose-600 dark:text-rose-400' : minor > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''
+}
+
+/** Net: rose when more went out than came in, emerald otherwise (a zero month lost nothing). */
+function netClass(minor: Minor): string {
+  return minor < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
+}
+
 interface CategorySpend {
   id: string
   name: string
   kind: string
-  spentMinor: Minor
+  /** Net of the refunds received against the group this month (rules 38/39). */
+  netMinor: Minor
+  refundsMinor: Minor
   /** Position among the month's non-income groups, so the hue matches the Budget screen. */
   hueIndex: number
+  /** Rule 37: spending no line carries yet, flagged for review. */
+  isUncategorised: boolean
+  count: number
 }
 
 export function ReportsPage() {
   const [trends, setTrends] = useState<BudgetTrendsDto | null>(null)
-  const [breakdownMonth, setBreakdownMonth] = useState<BudgetMonthDto | null>(null)
+  const [breakdown, setBreakdown] = useState<MonthReportDto | null>(null)
   const [breakdownKey, setBreakdownKey] = useState<string | null>(null)
   const [annual, setAnnual] = useState<AnnualSummaryDto | null>(null)
   const [annualYear, setAnnualYear] = useState<number | null>(null)
@@ -55,14 +76,15 @@ export function ReportsPage() {
     }
   }, [])
 
-  // Load the chosen month's full budget for the category breakdown.
+  // Load the chosen month's report for the category breakdown: the budget's groups net of
+  // refunds, plus whatever no line carries yet (rules 37–39).
   useEffect(() => {
     if (!breakdownKey) return
     const [year, month] = breakdownKey.split('-').map(Number)
     let cancelled = false
     api
-      .get<BudgetMonthDto>(`/budget/${year}/${month}`)
-      .then(({ data }) => !cancelled && setBreakdownMonth(data))
+      .get<MonthReportDto>(`/reports/month/${year}/${month}`)
+      .then(({ data }) => !cancelled && setBreakdown(data))
       .catch(() => {})
     return () => {
       cancelled = true
@@ -82,7 +104,7 @@ export function ReportsPage() {
     }
   }, [annualYear])
 
-  const currency = breakdownMonth?.baseCurrency ?? 'EUR'
+  const currency = breakdown?.baseCurrency ?? 'EUR'
 
   // Scale the income-vs-spending bars to the largest value in the window.
   const trendMaxMinor = useMemo(() => {
@@ -93,18 +115,29 @@ export function ReportsPage() {
     )
   }, [trends])
 
-  // Spending by category for the chosen month (non-income groups, biggest first).
+  // Spending by group for the chosen month, biggest net first. A group that only saw refunds
+  // this month (net ≤ 0) stays on the list, labelled, so a negative figure is explicable
+  // (rule 39); a group with nothing at all is left out.
   const categorySpend = useMemo<CategorySpend[]>(() => {
-    if (!breakdownMonth) return []
-    return breakdownMonth.categories
-      .filter((c) => c.kind !== 'Income')
-      .map((c, i) => ({ id: c.id, name: c.name, kind: c.kind, spentMinor: fromAmount(c.totalActual), hueIndex: i }))
-      .filter((c) => c.spentMinor > 0)
-      .sort((a, b) => b.spentMinor - a.spentMinor)
-  }, [breakdownMonth])
+    if (!breakdown) return []
+    return breakdown.categories
+      .map((c) => ({
+        id: c.id ?? 'uncategorised',
+        name: c.name,
+        kind: c.kind,
+        netMinor: fromAmount(c.net),
+        refundsMinor: fromAmount(c.refunds),
+        hueIndex: c.index,
+        isUncategorised: c.isUncategorised,
+        count: c.count,
+      }))
+      .filter((c) => c.netMinor !== 0 || c.refundsMinor !== 0)
+      .sort((a, b) => b.netMinor - a.netMinor)
+  }, [breakdown])
 
-  const categoryTotalMinor = categorySpend.reduce((s, c) => s + c.spentMinor, 0)
-  const categoryMaxMinor = categorySpend.reduce((m, c) => Math.max(m, c.spentMinor), 0)
+  // Shares are of the positive spending only; a group that netted below zero has no share.
+  const categoryTotalMinor = categorySpend.reduce((s, c) => s + Math.max(0, c.netMinor), 0)
+  const categoryMaxMinor = categorySpend.reduce((m, c) => Math.max(m, c.netMinor), 0)
 
   // Scale the per-category yearly-average bars to the biggest average.
   const annualAvgMaxMinor = useMemo(
@@ -122,6 +155,9 @@ export function ReportsPage() {
   const avgSpendMinor = trends && trends.points.length > 0 ? Math.round(totalSpentMinor / trends.points.length) : 0
   const latestReceivedMinor = latest ? fromAmount(latest.incomeReceived) : 0
   const savingsRate = latestReceivedMinor > 0 ? Math.round((savedThisMonthMinor / latestReceivedMinor) * 100) : 0
+
+  /** A month with no budget and nothing recorded reads as a dash across the row. */
+  const annualRowIsBlank = (m: AnnualMonthDto) => !m.hasBudget && m.incomeReceived === 0 && m.spent === 0
 
   return (
     <AppShell active="reports" title="Reports">
@@ -204,7 +240,8 @@ export function ReportsPage() {
               </div>
             </Card>
 
-            {/* Whole-year overview, with its own year navigator. */}
+            {/* Whole-year overview, with its own year navigator. Budgeted income sits next to what
+                was received and their signed Variance (rule 41); Net is received − spent. */}
             {annual?.months && annual.months.length > 0 && (
               <Card as="section" className="px-6 py-[22px]">
                 <div className="mb-4 flex items-center justify-between">
@@ -237,35 +274,43 @@ export function ReportsPage() {
                     </button>
                   </div>
                 </div>
-                <table className="w-full text-sm">
+                <div className="overflow-x-auto">
+                <table className="w-full min-w-[560px] text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
                       <th className="py-1.5 font-medium">Month</th>
-                      <th className="py-1.5 text-right font-medium">Income</th>
+                      <th className="py-1.5 text-right font-medium">Budgeted</th>
+                      <th className="py-1.5 text-right font-medium">Received</th>
+                      <th className="py-1.5 text-right font-medium">Variance</th>
                       <th className="py-1.5 text-right font-medium">Spent</th>
                       <th className="py-1.5 text-right font-medium">Net</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {annual.months.map((m) => {
-                      const incomeMinor = fromAmount(m.income)
+                      const blank = annualRowIsBlank(m)
+                      const budgetedMinor = fromAmount(m.income)
+                      const receivedMinor = fromAmount(m.incomeReceived)
+                      const varianceMinor = fromAmount(m.variance)
                       const spentMinor = fromAmount(m.spent)
-                      const net = incomeMinor - spentMinor
+                      const net = receivedMinor - spentMinor
                       return (
                         <tr key={m.month} className={m.hasBudget ? '' : 'text-slate-500'}>
                           <td className="py-1.5">{SHORT_MONTHS[m.month - 1]}</td>
                           <td className="py-1.5 text-right tabular-nums">
-                            {m.hasBudget ? formatMoney(incomeMinor, currency) : '—'}
+                            {m.hasBudget ? formatMoney(budgetedMinor, currency) : '—'}
                           </td>
                           <td className="py-1.5 text-right tabular-nums">
-                            {m.hasBudget ? formatMoney(spentMinor, currency) : '—'}
+                            {blank ? '—' : formatMoney(receivedMinor, currency)}
                           </td>
-                          <td
-                            className={`py-1.5 text-right font-medium tabular-nums ${
-                              !m.hasBudget ? '' : net < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
-                            }`}
-                          >
-                            {m.hasBudget ? formatMoney(net, currency) : '—'}
+                          <td className={`py-1.5 text-right tabular-nums ${m.hasBudget ? signClass(varianceMinor) : ''}`}>
+                            {m.hasBudget ? signedMoney(varianceMinor, currency) : '—'}
+                          </td>
+                          <td className="py-1.5 text-right tabular-nums">
+                            {blank ? '—' : formatMoney(spentMinor, currency)}
+                          </td>
+                          <td className={`py-1.5 text-right font-medium tabular-nums ${blank ? '' : netClass(net)}`}>
+                            {blank ? '—' : formatMoney(net, currency)}
                           </td>
                         </tr>
                       )
@@ -278,14 +323,21 @@ export function ReportsPage() {
                         {formatMoney(fromAmount(annual.totalIncome), currency)}
                       </td>
                       <td className="py-2 text-right tabular-nums">
+                        {formatMoney(fromAmount(annual.totalIncomeReceived), currency)}
+                      </td>
+                      <td className={`py-2 text-right tabular-nums ${signClass(fromAmount(annual.totalVariance))}`}>
+                        {signedMoney(fromAmount(annual.totalVariance), currency)}
+                      </td>
+                      <td className="py-2 text-right tabular-nums">
                         {formatMoney(fromAmount(annual.totalSpent), currency)}
                       </td>
                       <td className="py-2 text-right tabular-nums">
-                        {formatMoney(fromAmount(annual.totalIncome) - fromAmount(annual.totalSpent), currency)}
+                        {formatMoney(fromAmount(annual.totalIncomeReceived) - fromAmount(annual.totalSpent), currency)}
                       </td>
                     </tr>
                   </tfoot>
                 </table>
+                </div>
               </Card>
             )}
 
@@ -302,6 +354,7 @@ export function ReportsPage() {
                 <div className="space-y-3">
                   {annual.categories.map((c) => {
                     const avgMinor = fromAmount(c.averagePerMonth)
+                    const refundsMinor = fromAmount(c.refunds ?? 0)
                     return (
                       <div key={`${c.kind}-${c.name}`} aria-label={`Average spending for ${c.name}`}>
                         <div className="mb-1 flex items-center justify-between text-xs">
@@ -312,14 +365,20 @@ export function ReportsPage() {
                                 Fund
                               </span>
                             )}
+                            {c.kind === 'Uncategorised' && (
+                              <span className="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-700">
+                                Review
+                              </span>
+                            )}
                           </span>
                           <span className="tabular-nums text-slate-500">
                             {formatMoney(avgMinor, currency)}/mo · {formatMoney(fromAmount(c.total), currency)} total
+                            {refundsMinor > 0 && ` · after ${formatMoney(refundsMinor, currency)} refunded`}
                           </span>
                         </div>
                         <Bar
                           widthPct={pct(avgMinor, annualAvgMaxMinor)}
-                          className="bg-sky-500"
+                          className={c.kind === 'Uncategorised' ? 'bg-amber-400' : 'bg-sky-500'}
                           label={`Average for ${c.name}`}
                         />
                       </div>
@@ -354,10 +413,16 @@ export function ReportsPage() {
               ) : (
                 <div className="space-y-3">
                   {categorySpend.map((c) => {
-                    const hue = hueForIndex(c.hueIndex)
+                    const hue = c.isUncategorised ? null : hueForIndex(c.hueIndex)
+                    const share =
+                      c.netMinor > 0 && categoryTotalMinor > 0
+                        ? `${Math.round((c.netMinor / categoryTotalMinor) * 100)}%`
+                        : c.netMinor > 0
+                          ? '0%'
+                          : null
                     return (
                       <div key={c.id} aria-label={`Spending for ${c.name}`}>
-                        <div className="mb-1 flex items-center justify-between text-xs">
+                        <div className="mb-1 flex items-center justify-between gap-2 text-xs">
                           <span className="font-medium text-slate-600">
                             {c.name}
                             {c.kind === 'Savings' && (
@@ -365,18 +430,28 @@ export function ReportsPage() {
                                 Fund
                               </span>
                             )}
+                            {c.isUncategorised && (
+                              // Rule 37: flagged for review, with the way to fix it.
+                              <Link
+                                to="/transactions"
+                                aria-label="Review uncategorised transactions"
+                                className="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-200 dark:bg-amber-500/15 dark:text-amber-300"
+                              >
+                                Review {c.count} {c.count === 1 ? 'transaction' : 'transactions'}
+                              </Link>
+                            )}
                           </span>
-                          <span className="tabular-nums text-slate-500">
-                            {formatMoney(c.spentMinor, currency)} ·{' '}
-                            {categoryTotalMinor === 0
-                              ? '0%'
-                              : `${Math.round((c.spentMinor / categoryTotalMinor) * 100)}%`}
+                          <span className="text-right tabular-nums text-slate-500">
+                            {formatMoney(c.netMinor, currency)}
+                            {share !== null && ` · ${share}`}
+                            {/* Rules 38/39: say what was refunded, so a small or negative figure is explicable. */}
+                            {c.refundsMinor > 0 && ` · after ${formatMoney(c.refundsMinor, currency)} refunded`}
                           </span>
                         </div>
                         <Bar
-                          widthPct={pct(c.spentMinor, categoryMaxMinor)}
-                          color={hueColor(hue)}
-                          track={hueTint(hue)}
+                          widthPct={pct(c.netMinor, categoryMaxMinor)}
+                          color={hue === null ? 'var(--color-amber-400, #fbbf24)' : hueColor(hue)}
+                          track={hue === null ? 'var(--color-amber-100, #fef3c7)' : hueTint(hue)}
                           label={c.name}
                         />
                       </div>

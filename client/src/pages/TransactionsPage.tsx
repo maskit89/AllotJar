@@ -51,6 +51,26 @@ function budgetedToLabel(t: TransactionDto): string | null {
   return monthYear(`${t.budgetItemYear}-${String(t.budgetItemMonth).padStart(2, '0')}-01`)
 }
 
+/**
+ * The add form's third "type": a refund is money received (sent as Income) linked to the
+ * purchase it comes back from (rules 38/39). UI-only — the API knows Expense/Income/Transfer.
+ */
+const ADD_REFUND = -1
+
+/** The register's label for a refund row: which purchase the money came back from. */
+function refundOfLabel(t: TransactionDto): string | null {
+  if (!t.refundOfTransactionId) return null
+  const who = t.refundOfPayee || 'a purchase'
+  return t.refundOfDate ? `Refund of ${who} · ${shortDate(t.refundOfDate)}` : `Refund of ${who}`
+}
+
+/** Purchases a refund can point at: the user's expenses that are not themselves refunds, newest first. */
+function refundablePurchases(transactions: TransactionDto[]): TransactionDto[] {
+  return transactions
+    .filter((t) => t.type === TransactionType.Expense && !t.refundOfTransactionId && !t.isSplit)
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+}
+
 function blankSplitRows(): SplitRowDraft[] {
   return [
     { budgetItemId: '', amount: '', memberId: '' },
@@ -117,6 +137,8 @@ export function TransactionsPage() {
   const [payee, setPayee] = useState('')
   const [amount, setAmount] = useState('')
   const [type, setType] = useState<number>(TransactionType.Expense)
+  // The purchase a new refund comes back from (rules 38/39); only read when type is ADD_REFUND.
+  const [refundOf, setRefundOf] = useState('')
   const [assignTo, setAssignTo] = useState('')
   const [account, setAccount] = useState('')
   const [member, setMember] = useState('')
@@ -147,6 +169,10 @@ export function TransactionsPage() {
 
   // Which row is showing its inline category picker (the redesign's "+ Assign").
   const [assigningId, setAssigningId] = useState<string | null>(null)
+
+  // Which income row is being marked as a refund, and the purchase picked for it (rules 38/39).
+  const [refundingId, setRefundingId] = useState<string | null>(null)
+  const [refundPick, setRefundPick] = useState('')
 
   // Inline edit state.
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -225,11 +251,15 @@ export function TransactionsPage() {
     setTJarAlloc({})
   }, [])
 
-  // Which of the add modal's prompts apply, from its current answers.
+  // Which of the add modal's prompts apply, from its current answers. A refund is money received
+  // (the rule 78 prompt applies as to any income) that lands on an expense/savings line.
+  const addIsRefund = type === ADD_REFUND
+  const addApiType = addIsRefund ? TransactionType.Income : type
+  const addLineDirection = addIsRefund ? TransactionType.Expense : type
   const addLedger = ledgerOf(account)
   const addJars = activeJars(addLedger)
   const addSplitting = addSplit && type === TransactionType.Expense
-  const addIncomeJarsApply = addJars.length > 0 && type === TransactionType.Income
+  const addIncomeJarsApply = addJars.length > 0 && addApiType === TransactionType.Income
   const addPaidFromApplies =
     addJars.length > 0 &&
     type === TransactionType.Expense &&
@@ -318,6 +348,10 @@ export function TransactionsPage() {
       setError('Enter a valid amount greater than zero.')
       return
     }
+    if (addIsRefund && !refundOf) {
+      setError('Choose the purchase this refund is for.')
+      return
+    }
     const splitting = addSplit && type === TransactionType.Expense
     if (splitting) {
       const rowMinors = addRows.map((r) => parseMinor(r.amount))
@@ -337,9 +371,12 @@ export function TransactionsPage() {
         date,
         payee,
         amount: toAmount(minor),
-        type,
+        type: addApiType,
         // A split transaction carries no whole-transaction category/member — the slices do.
         budgetItemId: splitting ? null : assignTo || null,
+        // Rules 38/39: a refund names the purchase it comes back from; with no category chosen
+        // the server puts it on the purchase's line in this month.
+        ...(addIsRefund ? { refundOfTransactionId: refundOf } : {}),
         accountId: account || null,
         memberId: splitting ? null : member || null,
         splits: splitting
@@ -361,11 +398,12 @@ export function TransactionsPage() {
       setTransactions((prev) => [data, ...prev])
       reloadLedgers()
       track(EVENTS.transactionAdded, {
-        line_type: type === TransactionType.Income ? 'income' : 'expense',
+        line_type: addIsRefund ? 'refund' : type === TransactionType.Income ? 'income' : 'expense',
         ...(splitting ? { split: true } : {}),
       })
       setPayee('')
       setAmount('')
+      setRefundOf('')
       // Reset the category back to its Unassigned default too — otherwise a later "unassigned" add
       // silently inherits the previous line and the server-side auto-categorizer never runs.
       setAssignTo('')
@@ -386,7 +424,7 @@ export function TransactionsPage() {
       setAdding(false)
     }
   }, [
-    date, payee, amount, type, assignTo, account, member, addSplit, addRows, resetAddSplit,
+    date, payee, amount, type, addIsRefund, addApiType, refundOf, assignTo, account, member, addSplit, addRows, resetAddSplit,
     addIncomeJarsApply, addJarAlloc, addPaidFromApplies, addPaidFrom, resetAddJarPrompts, reloadLedgers,
   ])
 
@@ -492,6 +530,38 @@ export function TransactionsPage() {
       setSavingId(null)
     }
   }, [reloadLedgers])
+
+  /**
+   * Mark money received as a refund of a purchase, or clear the link (rules 38/39). The server
+   * moves a newly linked refund off any income line onto the purchase's line in its own month,
+   * and an unlinked one off its expense line.
+   */
+  const linkRefund = useCallback(
+    async (id: string, refundOfTransactionId: string | null) => {
+      setSavingId(id)
+      setError(null)
+      try {
+        const { data } = await api.put<TransactionDto>(`/transactions/${id}/refund`, { refundOfTransactionId })
+        setTransactions((prev) =>
+          prev.map((t) => {
+            if (t.id === id) return data
+            // The purchase's own row carries its refund count; refresh the one that changed.
+            if (t.id === refundOfTransactionId) {
+              return { ...t, refundCount: (t.refundCount ?? 0) + 1, refundedAmount: (t.refundedAmount ?? 0) + data.baseAmount }
+            }
+            return t
+          }),
+        )
+        setRefundingId(null)
+        setRefundPick('')
+      } catch (err) {
+        setError(serverErrors(err) ?? 'Could not update that refund.')
+      } finally {
+        setSavingId(null)
+      }
+    },
+    [],
+  )
 
   function startEdit(t: TransactionDto) {
     setSplittingId(null)
@@ -686,15 +756,24 @@ export function TransactionsPage() {
     return map
   }, [month])
 
-  // Hero totals — derived (never stored), like the budget's read-time actuals.
+  // Hero totals — derived (never stored), like the budget's read-time actuals. A refund is
+  // never money in (rule 41); it comes off money out in the month it was received (rules 38/39).
   const moneyInMinor = useMemo(
-    () => sumMinor(transactions.filter((t) => t.type === TransactionType.Income).map((t) => fromAmount(t.amount))),
+    () =>
+      sumMinor(
+        transactions
+          .filter((t) => t.type === TransactionType.Income && !t.refundOfTransactionId)
+          .map((t) => fromAmount(t.amount)),
+      ),
     [transactions],
   )
   const moneyOutMinor = useMemo(
-    () => sumMinor(transactions.filter((t) => t.type === TransactionType.Expense).map((t) => fromAmount(t.amount))),
+    () =>
+      sumMinor(transactions.filter((t) => t.type === TransactionType.Expense).map((t) => fromAmount(t.amount))) -
+      sumMinor(transactions.filter((t) => !!t.refundOfTransactionId).map((t) => fromAmount(t.amount))),
     [transactions],
   )
+  const purchases = useMemo(() => refundablePurchases(transactions), [transactions])
   const unassignedCount = useMemo(
     () =>
       transactions.filter(
@@ -789,7 +868,10 @@ export function TransactionsPage() {
                     const next = Number(e.target.value)
                     setType(next)
                     // Splits are an expense-only affordance in the add modal.
-                    if (next === TransactionType.Income) resetAddSplit()
+                    if (next !== TransactionType.Expense) resetAddSplit()
+                    // The category select offers different lines per direction.
+                    setAssignTo('')
+                    setRefundOf('')
                     // The jar prompts belong to one direction each.
                     setAddJarAlloc({})
                     setAddPaidFrom(PAID_FROM_UNALLOCATED)
@@ -798,6 +880,7 @@ export function TransactionsPage() {
                 >
                   <option value={TransactionType.Expense}>Expense</option>
                   <option value={TransactionType.Income}>Income</option>
+                  <option value={ADD_REFUND}>Refund</option>
                 </Select>
               </label>
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
@@ -863,6 +946,28 @@ export function TransactionsPage() {
                 </label>
               )}
             </div>
+            {/* Rules 38/39: a refund names the purchase it comes back from. */}
+            {addIsRefund && (
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Refund of
+                <Select
+                  value={refundOf}
+                  aria-label="Refund of"
+                  onChange={(e) => setRefundOf(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="">Choose the purchase</option>
+                  {purchases.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {shortDate(p.date)} · {p.payee || 'Purchase'} · {formatMoney(fromAmount(p.amount), p.currency)}
+                    </option>
+                  ))}
+                </Select>
+                {purchases.length === 0 && (
+                  <span className="font-normal text-slate-500">No purchases to refund yet.</span>
+                )}
+              </label>
+            )}
             {/* Rule 78: income reaching a jar-backed account asks how much goes to each jar. */}
             {addIncomeJarsApply && addLedger && (
               <JarAllocationFields
@@ -875,13 +980,14 @@ export function TransactionsPage() {
                 idPrefix="add"
               />
             )}
-            {/* Category — hidden for income, per the design. NOT a <label>: the split toggle
-                button must not become the label's control (the InfoHint lesson). */}
-            {type === TransactionType.Expense && (
+            {/* Category — hidden for income, per the design; a refund offers the expense/savings
+                lines it may reduce. NOT a <label>: the split toggle button must not become the
+                label's control (the InfoHint lesson). */}
+            {addLineDirection === TransactionType.Expense && (
               <div className="flex flex-col gap-1 text-xs font-medium text-slate-500">
                 <div className="flex items-center justify-between">
                   <span>Category</span>
-                  {expenseSplitOptions.length > 0 && (
+                  {!addIsRefund && expenseSplitOptions.length > 0 && (
                     <button
                       type="button"
                       onClick={() => {
@@ -931,8 +1037,8 @@ export function TransactionsPage() {
                     }}
                     className="w-full"
                   >
-                    <option value="">Unassigned</option>
-                    {optionGroups.map((g) => (
+                    <option value="">{addIsRefund ? 'Same category as the purchase' : 'Unassigned'}</option>
+                    {(addIsRefund ? expenseSplitOptions : optionGroups).map((g) => (
                       <optgroup key={g.category} label={g.category}>
                         {g.items.map((i) => (
                           <option key={i.id} value={i.id}>
@@ -1271,9 +1377,14 @@ export function TransactionsPage() {
                   {visible.map((t) => {
                     const isIncome = transactionTypeLabel(t.type) === 'Income'
                     const isTransfer = t.type === TransactionType.Transfer
+                    const isRefund = !!t.refundOfTransactionId
+                    const hasRefunds = (t.refundCount ?? 0) > 0
                     const editing = editingId === t.id
                     const splitting = splittingId === t.id
+                    const refunding = refundingId === t.id
                     const splitOptions = buildItemOptions(month, t.type)
+                    // A refund follows its purchase onto expense/savings lines (rule 38).
+                    const rowOptions = isRefund ? expenseSplitOptions : optionGroups
                     const totalMinor = fromAmount(t.amount)
                     const allocatedMinor = sumMinor(splitRows.map((r) => parseMinor(r.amount) ?? 0))
                     const remainderMinor = totalMinor - allocatedMinor
@@ -1310,7 +1421,17 @@ export function TransactionsPage() {
                                 value={eType}
                                 aria-label="Edit type"
                                 onChange={(e) => setEType(Number(e.target.value))}
-                                className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+                                // A refund stays money received, and a refunded purchase stays a
+                                // purchase, until the link is removed (rules 38/39).
+                                disabled={isRefund || hasRefunds}
+                                title={
+                                  isRefund
+                                    ? 'A refund is money received. Use “Not a refund” first to change its type.'
+                                    : hasRefunds
+                                      ? 'This purchase has refunds linked to it; unmark them first to change its type.'
+                                      : undefined
+                                }
+                                className="rounded-md border border-slate-300 px-2 py-1 text-sm disabled:opacity-60"
                               >
                                 <option value={TransactionType.Expense}>Expense</option>
                                 <option value={TransactionType.Income}>Income</option>
@@ -1409,6 +1530,21 @@ export function TransactionsPage() {
                                     Bill
                                   </span>
                                 )}
+                                {/* Rules 38/39: money received that is not income — it came back from a purchase. */}
+                                {isRefund && (
+                                  <Badge tone="teal" className="shrink-0" title={refundOfLabel(t) ?? 'Refund'}>
+                                    Refund
+                                  </Badge>
+                                )}
+                                {/* A purchase that has been (partly) refunded says so, so its line's net is explicable. */}
+                                {hasRefunds && (
+                                  <span
+                                    className="shrink-0 rounded-[5px] border border-teal-200 bg-teal-50 px-1.5 py-px text-[9.5px] font-semibold text-teal-700 dark:border-teal-400/30 dark:bg-teal-400/10 dark:text-teal-300"
+                                    title={`${t.refundCount} ${t.refundCount === 1 ? 'refund' : 'refunds'} linked to this purchase`}
+                                  >
+                                    {formatMoney(fromAmount(t.refundedAmount ?? 0), t.currency)} refunded
+                                  </span>
+                                )}
                                 {/* Budgeted to a line in a different month than the transaction's date. */}
                                 {!isTransfer && (() => {
                                   const label = budgetedToLabel(t)
@@ -1422,6 +1558,9 @@ export function TransactionsPage() {
                                   ) : null
                                 })()}
                               </span>
+                              {isRefund && (
+                                <span className="mt-0.5 block text-xs text-slate-500">{refundOfLabel(t)}</span>
+                              )}
                               {/* A stored jar split (rules 78/79): where this money went, or came from. */}
                               {(() => {
                                 const labels = jarSplitLabels(t)
@@ -1530,7 +1669,7 @@ export function TransactionsPage() {
                                   className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50"
                                 >
                                   <option value="">Unassigned</option>
-                                  {optionGroups.map((g) => (
+                                  {rowOptions.map((g) => (
                                     <optgroup key={g.category} label={g.category}>
                                       {g.items.map((i) => (
                                         <option key={i.id} value={i.id}>
@@ -1620,15 +1759,49 @@ export function TransactionsPage() {
                                     >
                                       ✎
                                     </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => startSplit(t)}
-                                      aria-label={`Split transaction: ${t.payee || t.date}`}
-                                      title="Split across budget lines"
-                                      className="rounded-md px-2 py-1 text-slate-500 hover:bg-violet-50 hover:text-violet-600"
-                                    >
-                                      ⑂
-                                    </button>
+                                    {/* A refund's whole amount reduces one line; it is never split (rule 38). */}
+                                    {!isRefund && (
+                                      <button
+                                        type="button"
+                                        onClick={() => startSplit(t)}
+                                        aria-label={`Split transaction: ${t.payee || t.date}`}
+                                        title="Split across budget lines"
+                                        className="rounded-md px-2 py-1 text-slate-500 hover:bg-violet-50 hover:text-violet-600"
+                                      >
+                                        ⑂
+                                      </button>
+                                    )}
+                                    {/* Rules 38/39: money received can be marked as a refund of a purchase, and back. */}
+                                    {isRefund ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => linkRefund(t.id, null)}
+                                        disabled={savingId === t.id}
+                                        aria-label={`Not a refund: ${t.payee || t.date}`}
+                                        title="Not a refund — record this as income instead"
+                                        className="rounded-md px-2 py-1 text-teal-700 hover:bg-teal-50 disabled:opacity-50 dark:text-teal-300 dark:hover:bg-teal-500/10"
+                                      >
+                                        ↩
+                                      </button>
+                                    ) : (
+                                      isIncome &&
+                                      !t.isSplit && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingId(null)
+                                            setSplittingId(null)
+                                            setRefundPick('')
+                                            setRefundingId(refunding ? null : t.id)
+                                          }}
+                                          aria-label={`Mark as refund: ${t.payee || t.date}`}
+                                          title="Mark as a refund of a purchase"
+                                          className="rounded-md px-2 py-1 text-slate-500 hover:bg-teal-50 hover:text-teal-700"
+                                        >
+                                          ↩
+                                        </button>
+                                      )
+                                    )}
                                   </>
                                 )}
                                 <button
@@ -1647,6 +1820,45 @@ export function TransactionsPage() {
                           </>
                         )}
                       </tr>
+                      {/* Marking money received as a refund: pick the purchase it came back from (rules 38/39). */}
+                      {refunding && (
+                        <tr className="bg-teal-50/40 dark:bg-teal-400/5">
+                          <td colSpan={6} className="px-4 py-3">
+                            <div className="flex flex-wrap items-center gap-2 text-sm">
+                              <span className="text-xs font-semibold text-slate-600">Refund of</span>
+                              <select
+                                value={refundPick}
+                                aria-label={`Purchase refunded by ${t.payee || t.date}`}
+                                onChange={(e) => setRefundPick(e.target.value)}
+                                className="min-w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                              >
+                                <option value="">Choose the purchase</option>
+                                {purchases.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {shortDate(p.date)} · {p.payee || 'Purchase'} · {formatMoney(fromAmount(p.amount), p.currency)}
+                                  </option>
+                                ))}
+                              </select>
+                              <span className="text-xs text-slate-500">
+                                The refund moves to the purchase’s category and is not counted as income.
+                              </span>
+                              <div className="ml-auto flex gap-1">
+                                <Button
+                                  size="sm"
+                                  onClick={() => linkRefund(t.id, refundPick)}
+                                  disabled={savingId === t.id || !refundPick}
+                                  aria-label="Save refund link"
+                                >
+                                  Save
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => setRefundingId(null)} aria-label="Cancel refund link">
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
                       {/* The jar question of the leg being confirmed (rules 78/80), under its row so
                           the fields have room: a receipt into a jar-backed account asks how it is
                           divided; a departure from one may name the jar it left. */}

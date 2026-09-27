@@ -39,6 +39,16 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
             throw new ForbiddenAccessException();
         }
 
+        // A refund's whole amount reduces the one line it lands on (rules 38/39); slicing it
+        // across lines would let a refund reduce categories the purchase never touched.
+        if (transaction.IsRefund)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["Allocations"] = new[] { "A refund follows one purchase and can't be split across lines." },
+            });
+        }
+
         // Shared slice rules (transfer rejection, sum, ownership, direction match, month
         // coherence, member ownership) — the same guard CreateTransaction uses for
         // split-at-creation.

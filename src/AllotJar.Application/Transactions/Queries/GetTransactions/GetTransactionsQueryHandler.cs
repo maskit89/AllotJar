@@ -41,6 +41,8 @@ public class GetTransactionsQueryHandler
             .Include(t => t.JarAllocations)
                 .ThenInclude(a => a.Postings)
                 .ThenInclude(p => p.Jar)
+            .Include(t => t.RefundOf)
+            .Include(t => t.Refunds)
             .Where(t => t.OwnerId == userId);
 
         if (request.Year is int year)
