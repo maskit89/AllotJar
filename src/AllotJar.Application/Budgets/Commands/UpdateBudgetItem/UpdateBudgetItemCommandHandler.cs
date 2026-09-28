@@ -41,6 +41,11 @@ public class UpdateBudgetItemCommandHandler : IRequestHandler<UpdateBudgetItemCo
         }
 
         item.PlannedAmount = request.PlannedAmount;
+        if (item.IsSkipped && request.PlannedAmount != 0m)
+        {
+            // A typed amount is a plan for the month: the skip (rule 60) is over.
+            item.IsSkipped = false;
+        }
         if (request.Name is not null)
         {
             item.Name = request.Name;

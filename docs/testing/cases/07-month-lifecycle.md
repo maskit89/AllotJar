@@ -188,17 +188,17 @@
   - The July Holiday line is re-planned from the jar's balance entering July: (1,200 − 300) over the six contribution months Jul→Dec = **150.00** (rules 12/13, exact split); an ongoing fixed-monthly jar seeds its fixed amount (rule 16). Seeding a later month projects through the saved plans of the months in between (HANDOVER P27).
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/JarsTests.cs — keeps the copied amount when the jar has no plan; CreateBudgetMonthTests — backfills the seeded amount; JarPlannerTests — later-month projection, rule 16 seeding)
 
-### BUDG-017 - Copy drops a line that funds an archived jar
+### BUDG-017 - Copy drops a line that funds an archived or completed jar
 - **Priority:** P0
 - **Type:** Regression
-- **Origin:** PR #167 (copy re-funded archived jars forever)
-- **Preconditions:** budg-owner; JUN26 has an "Old Boiler" fund line backed by an **archived** jar; viewing July 2026 (no budget).
+- **Origin:** PR #167 (copy re-funded archived jars forever); W04 adds completed goals (rule 55).
+- **Preconditions:** budg-owner; JUN26 has an "Old Boiler" fund line backed by an **archived** jar and a "Sofa" line backed by a **completed** goal; viewing July 2026 (no budget).
 - **Steps:**
   1. Copy JUN26 into July.
 - **Expected:**
-  - The July month has NO "Old Boiler" line — lines whose `SavingsId` is an archived jar id are skipped on copy (archiving stops future contributions).
-  - All non-archived-jar lines still carry.
-- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — copy skips lines funding archived jars)
+  - The July month has NO "Old Boiler" and NO "Sofa" line — lines whose `SavingsId` is an archived or completed jar id are skipped on copy (both stop future contributions; `JarSchedule.IsPlanning`).
+  - All other jar lines still carry.
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — copy skips lines funding archived or completed jars)
 
 ### BUDG-018 - Copy keeps a dangling SavingsId line (not treated as archived)
 - **Priority:** P1
@@ -356,14 +356,14 @@
   - A new category named **"Savings"** (Kind Savings) is created to hold the appended Holiday line (`SavingsLines.AppendJarLine`).
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/JarBudgetLinkTests.cs — blank creates a Savings group for existing jars)
 
-### BUDG-032 - Archived jars are excluded from the append step
+### BUDG-032 - Archived and completed jars are excluded from the append step
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** budg-owner owns active Holiday + archived Old Boiler; create a blank July.
+- **Preconditions:** budg-owner owns active Holiday + archived Old Boiler + completed Sofa; create a blank July.
 - **Steps:**
   1. Inspect the appended savings lines.
 - **Expected:**
-  - Only Holiday is appended; the archived Old Boiler gets no line (only `!IsArchived` jars are in `activeJars`).
+  - Only Holiday is appended; the archived Old Boiler and the completed Sofa get no line (only jars for which `JarSchedule.IsPlanning` holds — neither archived nor completed — are in `activeJars`, W04).
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/JarBudgetLinkTests.cs — skips archived jars)
 
 ### BUDG-033 - Another household's jars never seed this household's month
@@ -376,15 +376,17 @@
   - Only budg-owner's own active jars are appended (jar query scoped by `OwnerId`); the other household's jars are invisible.
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/JarBudgetLinkTests.cs — skips other owners' jars)
 
-### BUDG-034 - A savings line deleted in one month re-appears in the next created month
-- **Priority:** P2
-- **Type:** Edge
-- **Preconditions:** budg-owner; JUL26 exists; delete its Holiday savings line (the jar Holiday stays active — deleting a line does not archive/delete the jar); viewing August 2026 (no budget).
+### BUDG-034 - A jar's line cannot be deleted from a month: the ✕ offers skip or archive (W04, rule 60)
+- **Priority:** P0
+- **Type:** Happy / Negative
+- **Origin:** W04 replaces the old "delete the line, it re-appears next month" behaviour, which silently undid what the user did.
+- **Preconditions:** budg-owner on the current month; Holiday's savings line plans 150, two later months exist.
 - **Steps:**
-  1. Copy JUL26 into August (or start August blank).
+  1. Hover the Holiday row and click **✕** (aria "Remove Holiday this month", title "Skip this month's contribution, or archive the jar"). 2. Send `DELETE /api/budget/items/{holidayLineId}` directly.
 - **Expected:**
-  - August gets a fresh Holiday line appended (the jar has no representation in the new month, so the append step re-adds it) planned at its accrual requirement — deleting the line was per-month, not permanent.
-- **Automated:** No
+  - 1: no optimistic removal and no DELETE. A dialog "Remove Holiday from September 2026?" explains that the line is a jar's monthly contribution and can't just be deleted, loads `GET /budget/items/{id}/skip-preview` and shows the server's preview ("Skipping September 2026 spreads this month's €150.00 over the months that are left:" with each later month's amount — the same planner that will replant them, rule 61), then offers **Skip this month** (BUDG-060), **Archive the jar** (BUDG-061) and Cancel.
+  - 2: 400 "Holiday is a jar's monthly contribution. Skip this month's contribution, or archive the jar to stop future ones."; the line and the jar are untouched.
+- **Automated:** Yes (DashboardPage.skip.test.tsx — BUDG-034; CCategoriesLinesCoverageTests `DeleteSavingsLine_IsRefused_TheLineAndItsJarStay`; JarLifecycleW04Tests `Rule60_AJarsLine_CannotBeDeletedFromAMonth_TheChoiceIsSkipOrArchive`; jar-lifecycle journey)
 
 ## As-of jar seeding & back-filling earlier months
 
@@ -653,3 +655,44 @@
   1. Create the next month with **Copy from {month}**.
 - **Expected:** The new month's Pocket Money group holds **Alex 100.00** only — Sam's linked line is not copied, exactly as an archived jar's Savings line is not; every other line (incl. Sam's income line, if any, and any unlinked expense line named after Sam) is copied as before. The archive itself already cancelled Sam's lines in months that existed at the time, so the copy is the case for months created afterwards. A template month is unaffected (templates carry no pocket-money lines).
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/PocketMoneyIdentityTests.cs — `CreateMonth_Copy_DropsAnArchivedPersonsPocketLine_AndKeepsTheOthers`)
+
+## Skipping a jar's contribution for a month (W04; rules 60–61)
+
+### BUDG-059 - Skipping the last plannable month is allowed; the preview says what stays unplanned
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** budg-owner on the current month; Holiday (target 450, held 300) is due on the 1st of next month, so this month alone carries the remaining 150.
+- **Steps:**
+  1. Click Holiday's **✕** and read the preview.
+- **Expected:** "Skipping September 2026 leaves €150.00 unplanned: no month is left to spread it over before the deadline." (`unplanned: 150`, the only month listed is the current one, `skipped:true`); **Skip this month** stays enabled — the user decides (P45). After skipping, the jar's card reads "Skipped this month" and the Edit form's preview shows the unplanned remainder.
+- **Automated:** Yes (DashboardPage.skip.test.tsx — BUDG-059; JarLifecycleW04Tests — `Rule61_SkippingTheLastMonthBeforeTheDeadline_IsAllowed_AndThePreviewSaysWhatStaysUnplanned`; JarScheduleTests — `Rule61_SkippingEveryRemainingMonth_IsAllowed_AndReportsWhatStaysUnplanned`)
+
+### BUDG-060 - Skip this month keeps the line at €0 with a Skipped tag; Plan it again or a typed amount restores it
+- **Priority:** P0
+- **Type:** Happy
+- **Preconditions:** budg-owner on the current month; Holiday plans 150 here and in the next two months (450 by the 1st in three months).
+- **Steps:**
+  1. ✕ → **Skip this month** (aria "Skip Holiday this month"). 2. Click **Plan it again** (aria "Plan Holiday again this month"). 3. Skip again, then type 30 into the line's planned amount.
+- **Expected:**
+  - 1: `PUT /budget/items/{id}/skip` `{skipped:true}` returns the month: the line stays in the month at **€0.00** with `isSkipped:true`, a **Skipped** tag and the Plan it again link; it is never removed. Server-side the later months are replanted to 225 each (rule 61, whole cents, remainder last), the `/jars` shelf is re-read, and the Jars card reads "Skipped this month". Month creation never recreates the contribution (the line exists).
+  - 2: `{skipped:false}` clears the flag and replants: 150/150/150 again.
+  - 3: `PUT /budget/items/{id}` with an amount clears `isSkipped` (a typed amount is a plan) and stores 30; the later months are the user's to adjust.
+- **Automated:** Yes (DashboardPage.skip.test.tsx — BUDG-060; JarLifecycleW04Tests — `Rule61_Skipping_ThisMonth_…`, `Rule61_PlanningASkippedMonthAgain_…`; JarScheduleTests — `Rule61_ASkippedMonth_PlansZero_…`; jar-lifecycle journey)
+
+### BUDG-061 - Archive the jar from the skip dialog (two clicks; rule 26 shown verbatim)
+- **Priority:** P1
+- **Type:** Happy / Negative
+- **Preconditions:** budg-owner on the current month; Holiday holds 450.
+- **Steps:**
+  1. ✕ → **Archive the jar** (arms to "Really archive?", aria "Confirm archive Holiday") → click again. 2. Move the 450 out; repeat.
+- **Expected:** 1: the first click sends nothing; the second sends `PUT /jars/{savingsId}/archive` `{archived:true}` → 400 "Holiday still holds €450.00 …" shown in the dialog's banner, which stays open. 2: 200 — the dialog closes, the month is re-read (this month's line cut to what went in, later months' lines gone — P40) and the shelf refreshed; `EVENTS.fundArchived` fires.
+- **Automated:** Yes (DashboardPage.skip.test.tsx — BUDG-061; JarLedgerActivationTests — rule 26; JarLifecycleW04Tests — `Rule25_Archiving_…`)
+
+### BUDG-062 - A past month's jar lines offer neither ✕ nor Plan it again; the server refuses too
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** budg-owner viewing last month, whose Holiday line was skipped.
+- **Steps:**
+  1. Hover the Holiday row. 2. `PUT /budget/items/{id}/skip` for that line; the same for a Salary line; for an archived jar's line.
+- **Expected:** 1: the **Skipped** tag shows, but no ✕ (`Remove Holiday this month`), no `Delete Holiday` and no Plan it again — the month is over (P46). 2: 400 "August 2026 is over; its planned contributions are history and cannot be skipped."; "Salary is not a jar's contribution line …"; "… is archived and plans no contributions; there is nothing to skip."; another household's line → 403.
+- **Automated:** Yes (DashboardPage.skip.test.tsx — BUDG-062; JarLifecycleW04Tests — `Rule60_OnlyAJarsLine_InAMonthThatIsNotOver_ForAJarThatIsPlanning_CanBeSkipped`)

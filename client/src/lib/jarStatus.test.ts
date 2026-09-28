@@ -25,6 +25,9 @@ function jar(over: Partial<JarDto> = {}): JarDto {
     estimatedMonthsToTarget: null,
     shortfall: null,
     lastCycle: null,
+    completedOn: null,
+    canDelete: false,
+    skippedThisMonth: false,
     status: 'OnTrack',
     ...over,
   }
@@ -82,6 +85,21 @@ describe('jarMonthLabel', () => {
     expect(jarMonthLabel(jar({ status: 'FundedLate', deadline: '2026-09-01', shortfall: 0, currentBalance: 600, plannedThisMonth: 0, remainingThisMonth: 0 }), 'EUR')).toMatch(
       /^Funded after the deadline on .*Sep.*2026$/,
     )
+  })
+})
+
+describe('W04 — completed and skipped (rules 55, 60)', () => {
+  const done = jar({ kind: 1, recurMonths: null, completedOn: '2026-09-27', plannedThisMonth: 0, remainingThisMonth: 0, fundingCompletesOn: null, status: 'Completed' })
+
+  it('chips a completed goal neutrally and says what is left to move', () => {
+    expect(jarStatusChip('Completed')).toEqual({ label: 'Completed', tone: 'neutral' })
+    expect(jarMonthLabel(done, 'EUR')).toBe('Completed · €250.00 left to move')
+    expect(jarMonthLabel(jar({ ...done, currentBalance: 0 }), 'EUR')).toBe('Completed')
+    expect(jarHorizonLabel(done)).toMatch(/^Completed on .*Sep.*2026 · no more contributions planned$/)
+  })
+
+  it('reads "Skipped this month" for a jar whose contribution the user skipped', () => {
+    expect(jarMonthLabel(jar({ skippedThisMonth: true, plannedThisMonth: 0, remainingThisMonth: 0, contributedThisMonth: 0 }), 'EUR')).toBe('Skipped this month')
   })
 })
 

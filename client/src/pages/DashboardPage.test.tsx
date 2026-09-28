@@ -504,7 +504,7 @@ describe('DashboardPage jars and first-run checklist', () => {
   const JOINT: AccountDto = { id: 'acc1', name: 'Joint Current', type: 0, currency: 'EUR', openingBalance: 500, openingDate: '2026-01-01', currentBalance: 500, displayOrder: 0 }
   const HOLIDAY: JarDto = {
     id: 'jar-holiday', name: 'Holiday', kind: 1, targetAmount: 1200, targetDate: null, accrual: 1, monthlyContribution: null, includeDeadlineMonth: false, recurMonths: null,
-    fundingAccountId: 'acc1', isArchived: false, currentBalance: 100, balanceAsOf: '2026-06-15', plannedThisMonth: 100, contributedThisMonth: 0, remainingThisMonth: 100, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, shortfall: null, lastCycle: null, status: 'OnTrack',
+    fundingAccountId: 'acc1', isArchived: false, currentBalance: 100, balanceAsOf: '2026-06-15', plannedThisMonth: 100, contributedThisMonth: 0, remainingThisMonth: 100, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, shortfall: null, lastCycle: null, completedOn: null, canDelete: false, skippedThisMonth: false, status: 'OnTrack',
   }
 
   function mockLoads(opts: { month?: BudgetMonthDto | null; accounts?: AccountDto[]; jars?: JarDto[] } = {}) {

@@ -131,6 +131,11 @@ export interface JarFormModalProps {
   onSaved: (jar: JarDto, mode: 'created' | 'updated') => void
   /** Edit only: called after PUT /jars/{id}/archive succeeds. Omit to hide the Archive affordance. */
   onArchived?: (jar: JarDto) => void
+  /**
+   * Edit only: called after DELETE /jars/{id} succeeds. Shown only for a jar that has never
+   * held money (rule 27: `canDelete`); any other jar is archived instead.
+   */
+  onDeleted?: (jar: JarDto) => void
 }
 
 /**
@@ -141,14 +146,15 @@ export interface JarFormModalProps {
  * Savings lines — so what is previewed is what gets planned (W02). `role="dialog"`
  * comes from Modal; mount it conditionally so the focus trap engages.
  */
-export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArchived }: JarFormModalProps) {
+export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArchived, onDeleted }: JarFormModalProps) {
   const editing = jar !== null
   const eligible = useMemo(() => jarAccounts(accounts), [accounts])
   const [form, setForm] = useState<FormState>(() => initialForm(jar, eligible))
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  // One deliberate step between "Archive jar" and it actually happening.
+  // One deliberate step between "Archive jar" / "Delete jar" and it actually happening.
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   // The server's schedule for the definition it was asked about (`key`), so a stale answer is
   // never shown for a definition that can no longer be planned.
   const [preview, setPreview] = useState<{ key: string; schedule: JarScheduleDto | null } | null>(null)
@@ -296,6 +302,23 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
       setSaving(false)
     }
   }, [jar, onArchived])
+
+  // Rule 27: a jar that never held money can be deleted outright, with its planned lines.
+  const remove = useCallback(async () => {
+    if (!jar || !onDeleted) return
+    setSaving(true)
+    setError(null)
+    try {
+      await api.delete(`/jars/${jar.id}`)
+      track(EVENTS.fundDeleted)
+      onDeleted(jar)
+    } catch (err) {
+      // The server refuses a jar that has held money and points at Archive instead.
+      setError(serverErrors(err) ?? 'Could not delete that jar.')
+    } finally {
+      setSaving(false)
+    }
+  }, [jar, onDeleted])
 
   const noAccounts = eligible.length === 0
   const today = todayIso()
@@ -510,21 +533,42 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
         )}
         {schedule && <SchedulePreview schedule={schedule} currency={currency} recurring={form.kind === JarKind.Recurring} recurMonths={form.recurMonths} />}
         <div className="flex items-center justify-between gap-2 pt-1">
-          {jar && onArchived ? (
-            // Two clicks to archive: the first arms the button, the second acts.
-            <button
-              type="button"
-              onClick={() => (confirmArchive ? archive() : setConfirmArchive(true))}
-              disabled={saving}
-              aria-label={confirmArchive ? `Confirm archive ${jar.name}` : `Archive ${jar.name}`}
-              className={`rounded-lg px-2 py-1.5 text-sm font-semibold transition disabled:opacity-50 ${
-                confirmArchive
-                  ? 'bg-rose-50 text-rose-600 hover:bg-rose-100'
-                  : 'text-slate-500 hover:bg-rose-50 hover:text-rose-600'
-              }`}
-            >
-              {confirmArchive ? 'Really archive?' : 'Archive jar'}
-            </button>
+          {jar && (onArchived || (onDeleted && jar.canDelete)) ? (
+            <span className="flex flex-wrap gap-1">
+              {onArchived && (
+                // Two clicks to archive: the first arms the button, the second acts.
+                <button
+                  type="button"
+                  onClick={() => (confirmArchive ? archive() : setConfirmArchive(true))}
+                  disabled={saving}
+                  aria-label={confirmArchive ? `Confirm archive ${jar.name}` : `Archive ${jar.name}`}
+                  className={`rounded-lg px-2 py-1.5 text-sm font-semibold transition disabled:opacity-50 ${
+                    confirmArchive
+                      ? 'bg-rose-50 text-rose-600 hover:bg-rose-100'
+                      : 'text-slate-500 hover:bg-rose-50 hover:text-rose-600'
+                  }`}
+                >
+                  {confirmArchive ? 'Really archive?' : 'Archive jar'}
+                </button>
+              )}
+              {onDeleted && jar.canDelete && (
+                // Rule 27: only a jar that has never held money offers Delete; two clicks as well.
+                <button
+                  type="button"
+                  onClick={() => (confirmDelete ? remove() : setConfirmDelete(true))}
+                  disabled={saving}
+                  aria-label={confirmDelete ? `Confirm delete ${jar.name}` : `Delete ${jar.name}`}
+                  title="This jar has never held money, so it can be deleted with its planned lines."
+                  className={`rounded-lg px-2 py-1.5 text-sm font-semibold transition disabled:opacity-50 ${
+                    confirmDelete
+                      ? 'bg-rose-50 text-rose-600 hover:bg-rose-100'
+                      : 'text-slate-500 hover:bg-rose-50 hover:text-rose-600'
+                  }`}
+                >
+                  {confirmDelete ? 'Really delete?' : 'Delete jar'}
+                </button>
+              )}
+            </span>
           ) : (
             <span />
           )}
@@ -566,14 +610,18 @@ function SchedulePreview({
   const months = schedule.months
   const uniform = months.length > 0 && months.every((m) => m.planned === months[0].planned)
   const over = months.filter((m) => m.shortfall !== null && m.shortfall > 0)
+  const skipped = months.filter((m) => m.skipped)
 
   let summary: string
   if (!schedule.hasSchedule) {
     summary = 'Add a deadline or a monthly amount to plan contributions.'
   } else if (schedule.isOngoing) {
     summary = `Sets aside ${money(months[0]?.planned ?? 0)} every month, ongoing.`
-  } else if (months.length === 0) {
-    summary = 'Already funded — nothing more to set aside.'
+  } else if (months.length === 0 || months.every((m) => m.skipped || m.planned === 0)) {
+    summary =
+      schedule.unplanned > 0
+        ? `Nothing is planned: every remaining month is skipped, leaving ${money(schedule.unplanned)} unplanned.`
+        : 'Already funded — nothing more to set aside.'
   } else if (schedule.accrual === AccrualMethod.FixedMonthly) {
     const n = schedule.estimatedMonths ?? months.length
     summary = `Sets aside ${money(months[0].planned)} a month — about ${n} more month${n === 1 ? '' : 's'} to reach the target (an estimate, not a deadline).`
@@ -590,7 +638,7 @@ function SchedulePreview({
   }
 
   const listed = schedule.isOngoing ? [] : months.slice(0, LISTED_MONTHS)
-  const showList = listed.length > 0 && (!uniform || over.length > 0 || listed.length <= 6)
+  const showList = listed.length > 0 && (!uniform || over.length > 0 || skipped.length > 0 || listed.length <= 6)
 
   return (
     <div
@@ -604,13 +652,20 @@ function SchedulePreview({
           {listed.map((m) => (
             <li key={`${m.year}-${m.month}`} className="flex justify-between gap-2">
               <span>{monthYear(monthIso(m.year, m.month))}</span>
-              <span className={m.shortfall !== null && m.shortfall > 0 ? 'text-rose-600 dark:text-rose-400' : ''}>{money(m.planned)}</span>
+              <span className={m.shortfall !== null && m.shortfall > 0 ? 'text-rose-600 dark:text-rose-400' : m.skipped ? 'text-slate-400' : ''}>
+                {m.skipped ? 'Skipped' : money(m.planned)}
+              </span>
             </li>
           ))}
           {months.length > listed.length && (
             <li className="col-span-full text-slate-500">… and {months.length - listed.length} more months</li>
           )}
         </ul>
+      )}
+      {schedule.unplanned > 0 && months.some((m) => m.planned > 0) && (
+        <p role="status" className="mt-1.5 text-rose-600 dark:text-rose-400">
+          {money(schedule.unplanned)} stays unplanned by the deadline because of the skipped months.
+        </p>
       )}
       {over.length > 0 && (
         <p role="status" className="mt-1.5 text-rose-600 dark:text-rose-400">

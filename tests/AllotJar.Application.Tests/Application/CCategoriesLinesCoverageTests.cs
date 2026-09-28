@@ -360,10 +360,11 @@ public class CCategoriesLinesCoverageTests
         db.Transactions.Should().ContainSingle();                                // the €900 tx kept
     }
 
-    // CAT-044 — deleting a Savings line leaves its backing jar active (a line delete never
-    // archives/deletes the jar; the jar re-appears next month via month-create).
+    // CAT-044 (W04, rule 60) — a Savings line is a jar's monthly contribution: it cannot be
+    // deleted from the month. The handler refuses and points at skipping the month or archiving
+    // the jar; the line and its jar are untouched.
     [Fact]
-    public async Task DeleteSavingsLine_LeavesTheBackingJar()
+    public async Task DeleteSavingsLine_IsRefused_TheLineAndItsJarStay()
     {
         await using var db = NewContext();
         var jar = new Jar
@@ -391,9 +392,11 @@ public class CCategoriesLinesCoverageTests
         await db.SaveChangesAsync();
         var handler = new DeleteBudgetItemCommandHandler(db, new CurrentUserStub("user-1"));
 
-        await handler.Handle(new DeleteBudgetItemCommand(line.Id), CancellationToken.None);
+        var act = () => handler.Handle(new DeleteBudgetItemCommand(line.Id), CancellationToken.None);
 
-        (await db.BudgetItems.CountAsync(i => i.Id == line.Id)).Should().Be(0); // line gone
+        var ex = await act.Should().ThrowAsync<ValidationException>();
+        ex.Which.Errors.Values.SelectMany(v => v).Single().Should().Contain("Skip this month's contribution, or archive the jar");
+        (await db.BudgetItems.CountAsync(i => i.Id == line.Id)).Should().Be(1); // line stays
         db.Jars.Should().ContainSingle(j => j.Id == jar.Id && !j.IsArchived);   // jar stays active
     }
 

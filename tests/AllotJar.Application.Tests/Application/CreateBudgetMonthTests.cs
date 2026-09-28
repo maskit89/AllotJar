@@ -217,12 +217,13 @@ public class CreateBudgetMonthTests
     }
 
     [Fact]
-    public async Task Create_Copy_SkipsLinesFundingArchivedJars()
+    public async Task Create_Copy_SkipsLinesFundingArchivedOrCompletedJars()
     {
         await using var db = NewContext();
         var active = new Jar { OwnerId = "user-1", Name = "Active", TargetAmount = 0m };
         var archived = new Jar { OwnerId = "user-1", Name = "Archived", TargetAmount = 0m, IsArchived = true };
-        db.Jars.AddRange(active, archived);
+        var completed = new Jar { OwnerId = "user-1", Name = "Completed", TargetAmount = 0m, CompletedOn = new DateOnly(2026, 6, 20) };
+        db.Jars.AddRange(active, archived, completed);
         await db.SaveChangesAsync();
         db.BudgetMonths.Add(new BudgetMonth
         {
@@ -236,6 +237,7 @@ public class CreateBudgetMonthTests
                     {
                         new() { Name = "Active", PlannedAmount = 50m, SavingsId = active.Id },
                         new() { Name = "Archived", PlannedAmount = 30m, SavingsId = archived.Id },
+                        new() { Name = "Completed", PlannedAmount = 20m, SavingsId = completed.Id },
                     },
                 },
             },
@@ -246,10 +248,12 @@ public class CreateBudgetMonthTests
         var july = await handler.Handle(
             new CreateBudgetMonthCommand(2026, 7, CopyFromPrevious: true), CancellationToken.None);
 
-        // Archiving a jar must stop it being funded — its line doesn't roll forward.
+        // Archiving (rule 25) or completing (rule 55) a jar must stop it being funded — its line
+        // doesn't roll forward.
         var savings = july.Categories.Single(c => c.Kind == "Savings");
         savings.Items.Should().ContainSingle(i => i.Name == "Active");
         savings.Items.Should().NotContain(i => i.Name == "Archived");
+        savings.Items.Should().NotContain(i => i.Name == "Completed");
     }
 
     [Fact]

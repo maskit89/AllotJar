@@ -54,7 +54,19 @@ public class ArchiveJarCommandHandler
             }
         }
 
+        if (request.Archived && !jar.IsArchived)
+        {
+            // Rule 27: the remaining contribution this month and every later month's line are
+            // cancelled; past months, transactions and balances are untouched.
+            await SavingsLines.CancelPlansAsync(_db, userId, jar, today, cancellationToken);
+        }
         jar.IsArchived = request.Archived;
+        if (!request.Archived && !jar.IsCompleted)
+        {
+            // Restoring is the inverse: the jar saves again from this month on (its lines were
+            // removed when it was archived). A completed jar stays completed (rule 55).
+            await JarPlanner.ReplantAsync(_db, userId, jar, today, 0m, cancellationToken);
+        }
         await _db.SaveChangesAsync(cancellationToken);
 
         return await JarFigures.ReadOneAsync(_db, userId, jar, today, cancellationToken);

@@ -4,6 +4,7 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Dtos;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.Services;
 
 namespace AllotJar.Application.Jars.Commands.UpdateJar;
 
@@ -60,6 +61,13 @@ public class UpdateJarCommandHandler
             jar.FundingAccountId = account.Id;
         }
 
+        if (jar.IsCompleted && request.Kind == JarKind.Recurring)
+        {
+            // Rule 55: a completed goal is done; turning it into a recurring jar would restart
+            // contributions through the back door (reopening stays open — HANDOVER O3).
+            throw JarAccounts.Validation("Kind", $"{jar.Name} is completed. A completed goal cannot become a recurring jar.");
+        }
+
         var before = ScheduleInputs(jar);
         // A Recurring jar's form shows its open cycle's date: sent back unchanged it keeps the
         // anchor and the cycle; any other date is a deliberate change and restarts both (W03).
@@ -82,8 +90,9 @@ public class UpdateJarCommandHandler
         // Rule 46: a changed target, deadline or plan revises this month's and later months'
         // planned contributions — the schedule the form previewed before the user confirmed.
         // Past months, actual transactions and balances are untouched; a plain rename or a
-        // change of account leaves every plan as it is. An archived jar plans nothing.
-        if (!jar.IsArchived && ScheduleInputs(jar) != before)
+        // change of account leaves every plan as it is. An archived or completed jar plans
+        // nothing (rules 27, 55).
+        if (JarSchedule.IsPlanning(jar) && ScheduleInputs(jar) != before)
         {
             await JarPlanner.ReplantAsync(_db, userId, jar, today, 0m, cancellationToken);
         }

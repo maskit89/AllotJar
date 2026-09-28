@@ -16,6 +16,10 @@ export interface ItemVM {
   actualMinor: Minor
   /** For a fund line, the rolled-over available balance (minor units); null otherwise. */
   savingsAvailableMinor: Minor | null
+  /** The jar this line is the monthly contribution of (rule 73); null for any other line. */
+  savingsId: string | null
+  /** Rule 60: a jar line whose contribution the user skipped this month. */
+  isSkipped: boolean
   /** Day of the month (1–31) this bill is due; null when the line isn't a bill. */
   dueDay: number | null
   /** Whether this month's bill has been paid. */
@@ -67,6 +71,8 @@ export function fromDto(dto: BudgetMonthDto): MonthVM {
         plannedMinor: fromAmount(i.plannedAmount),
         actualMinor: fromAmount(i.actualAmount),
         savingsAvailableMinor: i.savingsAvailable == null ? null : fromAmount(i.savingsAvailable),
+        savingsId: i.savingsId ?? null,
+        isSkipped: i.isSkipped ?? false,
         dueDay: i.dueDay ?? null,
         isPaid: i.isPaid ?? false,
         memberId: i.memberId ?? null,

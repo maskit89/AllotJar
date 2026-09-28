@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -56,5 +57,100 @@ public static class SavingsLines
         };
         db.BudgetItems.Add(line);
         savings.Items.Add(line);
+    }
+
+    /// <summary>
+    /// The first days of the months from <paramref name="from"/>'s month onward whose line for
+    /// <paramref name="jarId"/> the user skipped (rule 60), so the planner leaves them at 0 and
+    /// carries the plan on the other months (rule 61).
+    /// </summary>
+    public static async Task<HashSet<DateOnly>> SkippedMonthsAsync(
+        IApplicationDbContext db, string ownerId, Guid jarId, DateOnly from, CancellationToken cancellationToken) =>
+        (await SkippedMonthsByJarAsync(db, ownerId, new[] { jarId }, from, cancellationToken)).GetValueOrDefault(jarId) ?? new HashSet<DateOnly>();
+
+    /// <summary>
+    /// <see cref="SkippedMonthsAsync"/> for several jars at once: each jar's skipped months from
+    /// <paramref name="from"/>'s month onward (a jar with none is absent), so month creation and
+    /// the jar list plan around every skip, not only the current month's.
+    /// </summary>
+    public static async Task<Dictionary<Guid, HashSet<DateOnly>>> SkippedMonthsByJarAsync(
+        IApplicationDbContext db, string ownerId, IReadOnlyCollection<Guid> jarIds, DateOnly from, CancellationToken cancellationToken)
+    {
+        if (jarIds.Count == 0)
+        {
+            return new Dictionary<Guid, HashSet<DateOnly>>();
+        }
+        var fromKey = (from.Year * 12) + from.Month;
+        var rows = await db.BudgetItems
+            .AsNoTracking()
+            .Where(i => i.SavingsId != null && jarIds.Contains(i.SavingsId.Value) && i.IsSkipped
+                        && i.BudgetCategory.BudgetMonth.OwnerId == ownerId
+                        && (i.BudgetCategory.BudgetMonth.Year * 12) + i.BudgetCategory.BudgetMonth.Month >= fromKey)
+            .Select(i => new { JarId = i.SavingsId!.Value, i.BudgetCategory.BudgetMonth.Year, i.BudgetCategory.BudgetMonth.Month })
+            .ToListAsync(cancellationToken);
+        return rows
+            .GroupBy(r => r.JarId)
+            .ToDictionary(g => g.Key, g => g.Select(r => new DateOnly(r.Year, r.Month, 1)).ToHashSet());
+    }
+
+    /// <summary>
+    /// Rules 27 and 55: stops the jar's planned contributions from the current month on. The
+    /// current month's line is cut to what has actually gone into the jar since the month began
+    /// (its remaining contribution is cancelled; rule 14's figures stay coherent), and each later
+    /// month's line — a plan only — is removed, unless a transaction has been assigned to it, in
+    /// which case it is kept at 0 so that history stays where it was. Past months, transactions
+    /// and balances are never touched, and no money moves. The caller saves.
+    /// </summary>
+    public static async Task CancelPlansAsync(
+        IApplicationDbContext db, string ownerId, Jar jar, DateOnly today, CancellationToken cancellationToken)
+    {
+        var current = new DateOnly(today.Year, today.Month, 1);
+        var lines = await db.BudgetItems
+            .Include(i => i.BudgetCategory).ThenInclude(c => c.BudgetMonth)
+            .Where(i => i.SavingsId == jar.Id
+                        && i.BudgetCategory.BudgetMonth.OwnerId == ownerId
+                        && (i.BudgetCategory.BudgetMonth.Year > today.Year
+                            || (i.BudgetCategory.BudgetMonth.Year == today.Year && i.BudgetCategory.BudgetMonth.Month >= today.Month)))
+            .ToListAsync(cancellationToken);
+        if (lines.Count == 0)
+        {
+            return;
+        }
+
+        var ids = lines.Select(l => l.Id).ToList();
+        var referenced = (await db.Transactions.AsNoTracking()
+                .Where(t => t.BudgetItemId != null && ids.Contains(t.BudgetItemId.Value))
+                .Select(t => t.BudgetItemId!.Value)
+                .ToListAsync(cancellationToken))
+            .Concat(await db.TransactionSplits.AsNoTracking()
+                .Where(s => s.BudgetItemId != null && ids.Contains(s.BudgetItemId.Value))
+                .Select(s => s.BudgetItemId!.Value)
+                .ToListAsync(cancellationToken))
+            .ToHashSet();
+
+        var balances = await JarPlanner.BalancesAsync(db, ownerId, jar, today, 0m, cancellationToken);
+        var contributed = Math.Max(0m, balances.Now - balances.Planning);
+        var currentSeen = false;
+        foreach (var line in lines.OrderBy(l => l.BudgetCategory.BudgetMonth.Year).ThenBy(l => l.BudgetCategory.BudgetMonth.Month))
+        {
+            var month = new DateOnly(line.BudgetCategory.BudgetMonth.Year, line.BudgetCategory.BudgetMonth.Month, 1);
+            if (month == current)
+            {
+                // One line carries what was contributed; a duplicate (a copied month that already
+                // had one) drops to 0.
+                line.PlannedAmount = currentSeen ? 0m : contributed;
+                currentSeen = true;
+                line.IsSkipped = false;
+            }
+            else if (referenced.Contains(line.Id))
+            {
+                line.PlannedAmount = 0m;
+                line.IsSkipped = false;
+            }
+            else
+            {
+                db.BudgetItems.Remove(line);
+            }
+        }
     }
 }

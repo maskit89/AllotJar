@@ -34,6 +34,16 @@ public class JarDto
     public Guid FundingAccountId { get; set; }
     public bool IsArchived { get; set; }
 
+    /// <summary>Rule 55 (W04): when the user marked this Goal's purpose completed; null while it is live. A completed jar plans nothing and keeps what it holds until it is moved (rule 56).</summary>
+    public DateOnly? CompletedOn { get; set; }
+
+    /// <summary>
+    /// Rule 84 (W04): true when the jar never held money — nothing allocated to it, nothing spent
+    /// from it — so it may be permanently deleted (removing its planned lines). Every other jar can
+    /// only be archived, keeping its history (rules 25–27).
+    /// </summary>
+    public bool CanDelete { get; set; }
+
     /// <summary>
     /// The jar's actual balance in its account as of <see cref="BalanceAsOf"/>: the allocations posted
     /// against it, never planned contributions (rule 1). Null when the account's balance is
@@ -57,6 +67,9 @@ public class JarDto
     /// <summary>What is still to contribute this month: plan − contributed, floored at zero (rule 14).</summary>
     public decimal RemainingThisMonth { get; set; }
 
+    /// <summary>Rule 60 (W04): the user skipped this month's contribution; the month's line stands at 0 and the remaining months carry the plan (rule 61).</summary>
+    public bool SkippedThisMonth { get; set; }
+
     /// <summary>The deadline being saved toward — a Recurring jar's open cycle (W03); null for fixed monthly plans.</summary>
     public DateOnly? Deadline { get; set; }
 
@@ -77,7 +90,7 @@ public class JarDto
     /// <summary>Fixed monthly plans with a target: the monthly contributions still needed (rule 58; an estimate, not a deadline).</summary>
     public int? EstimatedMonthsToTarget { get; set; }
 
-    /// <summary>Unavailable | DeadlineMissed | FundedLate | Overspent | Ongoing | Unscheduled | FullyFunded | Behind | OnTrack.</summary>
+    /// <summary>Unavailable | Completed | DeadlineMissed | FundedLate | Overspent | Ongoing | Unscheduled | FullyFunded | Behind | OnTrack.</summary>
     public string Status { get; set; } = "OnTrack";
 }
 
@@ -113,7 +126,7 @@ public static class JarMapping
     /// unavailable, rule 67) — and the month's stored savings-line plan when the month exists.
     /// </summary>
     public static JarDto ToDto(this Jar f, decimal? currentBalance, decimal? balanceAtMonthStart, decimal? storedPlanThisMonth, DateOnly asOf,
-        JarCycle? lastCycle = null)
+        JarCycle? lastCycle = null, bool skippedThisMonth = false, bool canDelete = false, IReadOnlySet<DateOnly>? skippedMonths = null)
     {
         var balance = currentBalance ?? 0m;
         var remaining = f.TargetAmount > 0m ? Math.Max(0m, f.TargetAmount - balance) : 0m;
@@ -122,7 +135,15 @@ public static class JarMapping
         // which counts at once (JarPlanner.PlanningBalance). An account that opened this month
         // had nothing before it began.
         var startBalance = currentBalance is null ? 0m : JarPlanner.PlanningBalance(balanceAtMonthStart, currentBalance);
-        var plan = JarSchedule.Plan(f, asOf, startBalance);
+        // The months the user skipped (rule 60) — this one and any later — shape the horizon the
+        // card shows, exactly as they shape the plan the Savings lines carry (rule 61).
+        var monthStart = new DateOnly(asOf.Year, asOf.Month, 1);
+        var skipped = new HashSet<DateOnly>(skippedMonths ?? (IEnumerable<DateOnly>)Array.Empty<DateOnly>());
+        if (skippedThisMonth)
+        {
+            skipped.Add(monthStart);
+        }
+        var plan = JarSchedule.Plan(f, asOf, startBalance, skipped.Count > 0 ? new JarPlanOptions(skipped, currentBalance) : null);
         var deadline = plan.Deadline ?? JarSchedule.CurrentDeadline(f);
         // Rule 20: a Recurring cycle whose deadline has arrived is settled before this read
         // (JarCycles.SettleAsync rolls a funded one forward), so an open cycle at or before the
@@ -135,6 +156,12 @@ public static class JarMapping
         if (currentBalance is null)
         {
             status = "Unavailable";
+        }
+        else if (f.IsCompleted)
+        {
+            // Rule 55: done is done — a spent or empty balance never restarts a plan, and what
+            // is left stays visible until the user moves it (rule 56).
+            status = "Completed";
         }
         else if (missed)
         {
@@ -183,11 +210,14 @@ public static class JarMapping
             RecurMonths = f.RecurMonths,
             FundingAccountId = f.FundingAccountId,
             IsArchived = f.IsArchived,
+            CompletedOn = f.CompletedOn,
+            CanDelete = canDelete,
             CurrentBalance = currentBalance,
             BalanceAsOf = asOf,
             PlannedThisMonth = planned,
             ContributedThisMonth = contributed,
             RemainingThisMonth = Math.Max(0m, planned - contributed),
+            SkippedThisMonth = skippedThisMonth && currentBalance is not null,
             Deadline = deadline,
             FundingCompletesOn = currentBalance is null ? null : plan.FundingCompletesOn,
             EstimatedMonthsToTarget = currentBalance is null ? null : plan.EstimatedMonths,

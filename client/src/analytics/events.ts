@@ -44,6 +44,9 @@ export const EVENTS = {
   fundCreated: 'fund_created',
   fundEdited: 'fund_edited',
   fundArchived: 'fund_archived',
+  fundCompleted: 'fund_completed',
+  fundDeleted: 'fund_deleted',
+  fundMonthSkipped: 'fund_month_skipped',
 
   // Members / allocation
   memberAdded: 'member_added',

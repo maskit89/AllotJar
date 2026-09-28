@@ -4,7 +4,8 @@ using AllotJar.Domain.Enums;
 namespace AllotJar.Domain.Services;
 
 /// <summary>One planned month of a jar's contribution schedule.</summary>
-public readonly record struct JarPlannedMonth(int Year, int Month, decimal Planned)
+/// <param name="Skipped">Rule 60: the user skipped this month's contribution; it plans 0 and the remaining months carry the plan.</param>
+public readonly record struct JarPlannedMonth(int Year, int Month, decimal Planned, bool Skipped = false)
 {
     public DateOnly FirstDay => new(Year, Month, 1);
     public DateOnly LastDay => new(Year, Month, DateTime.DaysInMonth(Year, Month));
@@ -21,13 +22,15 @@ public readonly record struct JarPlannedMonth(int Year, int Month, decimal Plann
 /// <param name="FundingCompletesOn">The last day of the final planned month — when planned funding is complete (rule 36 distinguishes it from the deadline). Deadline plans with something left to save only.</param>
 /// <param name="EstimatedMonths">Fixed monthly plans with a target: how many monthly contributions are still needed (rule 58, an estimate, never a deadline).</param>
 /// <param name="IsOngoing">A fixed monthly plan with no target (rule 16).</param>
+/// <param name="Unplanned">Deadline plans: the part of <paramref name="Remaining"/> no listed month carries because every eligible month before the deadline was skipped (rule 60/61); 0 otherwise.</param>
 public sealed record JarPlan(
     IReadOnlyList<JarPlannedMonth> Months,
     decimal Remaining,
     DateOnly? Deadline,
     DateOnly? FundingCompletesOn,
     int? EstimatedMonths,
-    bool IsOngoing)
+    bool IsOngoing,
+    decimal Unplanned = 0m)
 {
     public static readonly JarPlan Empty = new(Array.Empty<JarPlannedMonth>(), 0m, null, null, null, false);
 
@@ -35,6 +38,28 @@ public sealed record JarPlan(
     public decimal First => Months.Count > 0 ? Months[0].Planned : 0m;
 
     public decimal Total => Months.Sum(m => m.Planned);
+}
+
+/// <summary>
+/// What the planner is told about the months it plans over, beyond the jar's definition and the
+/// balance it starts from.
+/// </summary>
+/// <param name="SkippedMonths">First days of the months whose contribution the user skipped (rule 60): each plans 0 and the other months carry the plan (rule 61).</param>
+/// <param name="BalanceNow">
+/// The jar's balance today, when it is above the planning balance (money arrived this month):
+/// the first month is then assumed to end at <c>max(now, balance + planned)</c>, so a later
+/// month is projected from what the jar will really hold (HANDOVER P37) while this month's own
+/// plan never shrinks (rule 14). Null assumes the plan is simply kept.
+/// </param>
+/// <param name="ListThrough">Ongoing plans (rule 16): list every month up to this one instead of the single representative month, so each existing month can take its figure.</param>
+public sealed record JarPlanOptions(
+    IReadOnlySet<DateOnly>? SkippedMonths = null,
+    decimal? BalanceNow = null,
+    DateOnly? ListThrough = null)
+{
+    public static readonly JarPlanOptions None = new();
+
+    public bool IsSkipped(DateOnly month) => SkippedMonths is not null && SkippedMonths.Contains(new DateOnly(month.Year, month.Month, 1));
 }
 
 /// <summary>
@@ -50,6 +75,10 @@ public sealed record JarPlan(
 ///
 /// Fixed monthly plans (rules 16–18, 58): the chosen amount every month; with a target, the
 /// final month is capped at what remains and nothing is planned once the target is held.
+///
+/// Skipped months (rule 60, W04) plan 0 and the remaining eligible months carry the plan, exactly
+/// as rule 61's example: 300 due 1 December with September skipped plans 150 in October and 150
+/// in November. An archived or completed jar plans nothing (rules 27, 55).
 ///
 /// Dates are plain calendar dates (HANDOVER O2, 27 September 2026): no timezone applies, the
 /// planning month counts as a contribution month until it ends, and the deadline day itself is
@@ -70,6 +99,13 @@ public static class JarSchedule
         AccrualMethod.FixedMonthly => jar.MonthlyContribution is > 0m,
         _ => false,
     };
+
+    /// <summary>
+    /// Whether the jar still plans contributions at all: an archived jar's plans were cancelled
+    /// (rule 27) and a completed Goal never restarts one (rule 55). Its definition may still have
+    /// a schedule (<see cref="HasSchedule"/>), which is what an edit or a restore would plant.
+    /// </summary>
+    public static bool IsPlanning(Jar jar) => !jar.IsArchived && !jar.IsCompleted;
 
     /// <summary>An ongoing jar: a fixed monthly amount with no target (rule 16).</summary>
     public static bool IsOngoing(Jar jar) =>
@@ -126,25 +162,33 @@ public static class JarSchedule
     /// <summary>
     /// The plan from <paramref name="asOf"/>'s month onward, given the balance the jar holds
     /// entering that month (rule 13: the month start, so a contribution during the month never
-    /// changes the month's plan — rule 14).
+    /// changes the month's plan — rule 14). <paramref name="options"/> carries the skipped months
+    /// (rule 60), today's balance for the projection of later months and, for an ongoing jar,
+    /// how many months to list.
     /// </summary>
-    public static JarPlan Plan(Jar jar, DateOnly asOf, decimal balance)
+    public static JarPlan Plan(Jar jar, DateOnly asOf, decimal balance, JarPlanOptions? options = null)
     {
-        if (!HasSchedule(jar))
+        if (!HasSchedule(jar) || !IsPlanning(jar))
         {
-            return JarPlan.Empty with { Remaining = Math.Max(0m, jar.TargetAmount - balance) };
+            return JarPlan.Empty with { Remaining = jar.TargetAmount > 0m ? Math.Max(0m, jar.TargetAmount - balance) : 0m };
         }
 
         var from = new DateOnly(asOf.Year, asOf.Month, 1);
+        options ??= JarPlanOptions.None;
         return jar.Accrual == AccrualMethod.TargetByDate
-            ? PlanByDeadline(jar, from, balance)
-            : PlanFixedMonthly(jar, from, balance);
+            ? PlanByDeadline(jar, from, balance, options)
+            : PlanFixedMonthly(jar, from, balance, options);
     }
 
-    /// <summary>What <paramref name="month"/> plans, given the balance entering it; 0 when nothing is planned.</summary>
-    public static decimal PlannedFor(Jar jar, DateOnly month, decimal balance) => Plan(jar, month, balance).First;
+    /// <summary>
+    /// What <paramref name="month"/> plans, given the balance entering it and the months the user
+    /// skipped (rule 60, so a skipped later month never shrinks this one's share); 0 when nothing
+    /// is planned.
+    /// </summary>
+    public static decimal PlannedFor(Jar jar, DateOnly month, decimal balance, JarPlanOptions? options = null) =>
+        Plan(jar, month, balance, options).First;
 
-    private static JarPlan PlanByDeadline(Jar jar, DateOnly from, decimal balance)
+    private static JarPlan PlanByDeadline(Jar jar, DateOnly from, decimal balance, JarPlanOptions options)
     {
         var deadline = CurrentDeadline(jar)!.Value;
         var remaining = Math.Max(0m, jar.TargetAmount - balance);
@@ -157,23 +201,72 @@ public static class JarSchedule
         // already this month, or has passed (a Goal past its date, or a Recurring cycle in its
         // Deadline-missed state), leaves no spread: the whole remainder is due now — the
         // recalculation of rule 13 with no months left, and the overdue amount stays visible.
-        var count = MonthsBetween(from, FundingCompletionMonth(jar, deadline)) + 1;
-        if (count < 1)
+        var end = FundingCompletionMonth(jar, deadline);
+        if (end < from)
         {
-            count = 1;
+            end = from;
         }
 
-        var months = SplitExactly(remaining, count, from);
-        return new JarPlan(months, remaining, deadline, months[^1].LastDay, null, false);
+        // Rule 35 over the months that are not skipped (rule 60): equal whole-cent amounts with
+        // the remainder in the last of them, so the plan still sums exactly. When the first
+        // month is projected to end above its plan (money arrived this month, P37), the split
+        // for the months after it is recomputed from that balance.
+        var months = new List<JarPlannedMonth>();
+        var eligible = 0;
+        for (var m = from; m <= end; m = m.AddMonths(1))
+        {
+            if (!options.IsSkipped(m))
+            {
+                eligible++;
+            }
+        }
+
+        var projected = balance;
+        var split = SplitExactly(Math.Max(0m, jar.TargetAmount - projected), eligible);
+        var k = 0;
+        for (var m = from; m <= end; m = m.AddMonths(1))
+        {
+            var skipped = options.IsSkipped(m);
+            var planned = skipped ? 0m : split[k++];
+            months.Add(new JarPlannedMonth(m.Year, m.Month, planned, skipped));
+            var next = projected + planned;
+            if (m == from && options.BalanceNow is { } now && now > next)
+            {
+                next = now;
+                split = SplitExactly(Math.Max(0m, jar.TargetAmount - next), eligible - k);
+                k = 0;
+            }
+            projected = next;
+        }
+
+        var last = months.LastOrDefault(x => x.Planned > 0m);
+        return new JarPlan(
+            months, remaining, deadline,
+            last.Planned > 0m ? last.LastDay : null,
+            null, false,
+            Unplanned: Math.Max(0m, jar.TargetAmount - projected));
     }
 
-    private static JarPlan PlanFixedMonthly(Jar jar, DateOnly from, decimal balance)
+    private static JarPlan PlanFixedMonthly(Jar jar, DateOnly from, decimal balance, JarPlanOptions options)
     {
         var fixedAmount = jar.MonthlyContribution!.Value;
         if (jar.TargetAmount <= 0m)
         {
-            // Ongoing: the same amount every month, no end (rule 16). One month stands for all.
-            return new JarPlan(new[] { new JarPlannedMonth(from.Year, from.Month, fixedAmount) }, 0m, null, null, null, true);
+            // Ongoing: the same amount every month, no end (rule 16). One month stands for all,
+            // unless the caller needs a run of months (existing budgets) or this one is skipped —
+            // then the month it resumes in is listed too.
+            var through = options.ListThrough is { } t && t > from ? new DateOnly(t.Year, t.Month, 1) : from;
+            if (options.IsSkipped(through))
+            {
+                through = through.AddMonths(1);
+            }
+            var run = new List<JarPlannedMonth>();
+            for (var m = from; m <= through; m = m.AddMonths(1))
+            {
+                var skipped = options.IsSkipped(m);
+                run.Add(new JarPlannedMonth(m.Year, m.Month, skipped ? 0m : fixedAmount, skipped));
+            }
+            return new JarPlan(run, 0m, null, null, null, true);
         }
 
         var remaining = Math.Max(0m, jar.TargetAmount - balance);
@@ -182,39 +275,54 @@ public static class JarSchedule
             return new JarPlan(Array.Empty<JarPlannedMonth>(), 0m, null, null, 0, false);
         }
 
-        // Rule 18: full amounts, then the remainder; rule 58: how many months that takes.
-        var needed = (int)Math.Ceiling(remaining / fixedAmount);
-        var listed = Math.Min(needed, MaxListedMonths);
-        var months = new JarPlannedMonth[listed];
-        var left = remaining;
-        for (var i = 0; i < listed; i++)
+        // Rule 18: full amounts, then the remainder; rule 58: how many contributions that takes.
+        // A skipped month (rule 60) plans 0 and pushes the estimate out by one month. Money that
+        // arrived this month (P37) is counted whether or not this month is skipped, so a skipped
+        // first month never makes the later ones ask for what the jar already holds.
+        var months = new List<JarPlannedMonth>();
+        var projected = balance;
+        var contributions = 0;
+        for (var m = from; months.Count < MaxListedMonths && projected < jar.TargetAmount; m = m.AddMonths(1))
         {
-            var month = from.AddMonths(i);
-            var planned = i == needed - 1 ? left : fixedAmount;
-            months[i] = new JarPlannedMonth(month.Year, month.Month, planned);
-            left -= planned;
+            var skipped = options.IsSkipped(m);
+            var planned = skipped ? 0m : Math.Min(fixedAmount, jar.TargetAmount - projected);
+            months.Add(new JarPlannedMonth(m.Year, m.Month, planned, skipped));
+            if (!skipped)
+            {
+                contributions++;
+            }
+            var next = projected + planned;
+            if (m == from && options.BalanceNow is { } now && now > next)
+            {
+                next = now;
+            }
+            projected = next;
         }
+        var needed = projected < jar.TargetAmount
+            ? contributions + (int)Math.Ceiling((jar.TargetAmount - projected) / fixedAmount)
+            : contributions;
 
         return new JarPlan(months, remaining, null, null, needed, false);
     }
 
     /// <summary>
     /// Rule 35: <paramref name="count"/> equal whole-cent amounts with the rounding remainder in
-    /// the final month, so the months sum exactly to <paramref name="remaining"/> and no month is
-    /// ever negative. 100 over three months plans 33.33, 33.33, 33.34.
+    /// the final one, so they sum exactly to <paramref name="remaining"/> and none is ever
+    /// negative. 100 over three months plans 33.33, 33.33, 33.34. Empty when there is no month.
     /// </summary>
-    private static JarPlannedMonth[] SplitExactly(decimal remaining, int count, DateOnly from)
+    private static decimal[] SplitExactly(decimal remaining, int count)
     {
+        if (count <= 0)
+        {
+            return Array.Empty<decimal>();
+        }
         var each = Math.Floor(remaining / count * 100m) / 100m;
-        var months = new JarPlannedMonth[count];
+        var amounts = new decimal[count];
         for (var i = 0; i < count; i++)
         {
-            var month = from.AddMonths(i);
-            var planned = i == count - 1 ? remaining - (each * (count - 1)) : each;
-            months[i] = new JarPlannedMonth(month.Year, month.Month, planned);
+            amounts[i] = i == count - 1 ? remaining - (each * (count - 1)) : each;
         }
-
-        return months;
+        return amounts;
     }
 
     /// <summary>Whole calendar months from <paramref name="from"/> to <paramref name="to"/> (can be negative).</summary>

@@ -44,6 +44,16 @@ public class BudgetItem : BaseEntity
     public Jar? Jar { get; set; }
 
     /// <summary>
+    /// Rule 60 (W04): for a jar's line, true when the user chose to skip this month's planned
+    /// contribution instead of archiving the jar. The line stays in the month at a planned amount
+    /// of 0 — so routine month creation never recreates the contribution — while the jar stays
+    /// active and its remaining months are replanned from what it actually holds (rule 61).
+    /// Typing a planned amount into the line, or restoring it, clears the flag. Always false on
+    /// ordinary income/expense lines.
+    /// </summary>
+    public bool IsSkipped { get; set; }
+
+    /// <summary>
     /// Transient (not persisted): for a fund line, the running available balance of
     /// the fund as of this month — the sum of every contribution (planned) minus
     /// every spend (actual) across all months up to and including this one. Null for

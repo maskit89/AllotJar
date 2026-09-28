@@ -59,53 +59,14 @@ public class GetJarScheduleQueryHandler : IRequestHandler<GetJarScheduleQuery, J
             FundingAccountId = existing?.FundingAccountId ?? Guid.Empty,
         };
 
+        // An edit previews over the months the user has skipped (rule 60), exactly as saving it
+        // would replant them; a new jar has none.
         var extra = existing is null ? request.InitialAllocation : 0m;
         var balances = await JarPlanner.BalancesAsync(_db, userId, jar, today, extra, cancellationToken);
-        var plan = JarSchedule.Plan(jar, today, balances.Planning);
-        var balance = balances.Planning;
-
-        // Rule 59: where a planned month already has a budget, say how far the full contribution
-        // would push it over its income — shown, never trimmed.
-        var months = plan.Months.Select(m => new JarScheduleMonthDto { Year = m.Year, Month = m.Month, Planned = m.Planned }).ToList();
-        if (months.Count > 0)
-        {
-            var firstKey = (months[0].Year * 12) + months[0].Month;
-            var lastKey = (months[^1].Year * 12) + months[^1].Month;
-            var budgets = await _db.BudgetMonths
-                .AsNoTracking()
-                .Include(b => b.Categories).ThenInclude(c => c.Items)
-                .Where(b => b.OwnerId == userId
-                            && (b.Year * 12) + b.Month >= firstKey
-                            && (b.Year * 12) + b.Month <= lastKey)
-                .ToListAsync(cancellationToken);
-            foreach (var month in months)
-            {
-                var budget = budgets.FirstOrDefault(b => b.Year == month.Year && b.Month == month.Month);
-                if (budget is null)
-                {
-                    continue;
-                }
-                month.HasBudget = true;
-                var currentLine = budget.Categories.SelectMany(c => c.Items)
-                    .Where(i => i.SavingsId == jar.Id)
-                    .Sum(i => i.PlannedAmount);
-                var plannedWithThis = budget.TotalPlanned - currentLine + month.Planned;
-                month.Shortfall = Math.Max(0m, plannedWithThis - budget.TotalIncome);
-            }
-        }
-
-        return new JarScheduleDto
-        {
-            Accrual = jar.Accrual,
-            IsOngoing = plan.IsOngoing,
-            HasSchedule = JarSchedule.HasSchedule(jar),
-            Balance = balance,
-            Remaining = plan.Remaining,
-            Months = months,
-            Total = plan.Total,
-            Deadline = plan.Deadline ?? JarSchedule.CurrentDeadline(jar),
-            FundingCompletesOn = plan.FundingCompletesOn,
-            EstimatedMonths = plan.EstimatedMonths,
-        };
+        var skipped = existing is null
+            ? new HashSet<DateOnly>()
+            : await SavingsLines.SkippedMonthsAsync(_db, userId, jar.Id, today, cancellationToken);
+        var plan = JarSchedule.Plan(jar, today, balances.Planning, new JarPlanOptions(skipped, balances.Now));
+        return await JarScheduleDtos.BuildAsync(_db, userId, jar, plan, balances.Planning, cancellationToken);
     }
 }

@@ -22,6 +22,11 @@ export interface BudgetItemDto {
   /** Whether this month's instance of the bill has been paid. */
   isPaid: boolean
   /**
+   * Rule 60 (W04): a jar line whose contribution the user skipped this month (it stands at 0;
+   * the jar's other months carry the plan). Optional so existing fixtures stay valid.
+   */
+  isSkipped?: boolean
+  /**
    * The household member this income line is attributed to (who earns it); null =
    * whole-household. Always null on expense/savings lines. Optional so existing
    * fixtures stay valid; absent reads as null.
@@ -602,6 +607,10 @@ export interface JarDto {
   /** The account holding this jar's money (rule 2); always set. */
   fundingAccountId: string
   isArchived: boolean
+  /** Rule 55 (W04): when this Goal was marked completed (ISO date); null while it is live. */
+  completedOn: string | null
+  /** Rule 84 (W04): the jar never held money, so it may be deleted outright (else only archived). */
+  canDelete: boolean
   /**
    * The jar's actual balance in its account as of `balanceAsOf`: the allocations posted
    * against it, never planned contributions (rule 1). Null when the account's balance is
@@ -616,6 +625,8 @@ export interface JarDto {
   contributedThisMonth: number
   /** Plan − contributed, floored at zero (rule 14). */
   remainingThisMonth: number
+  /** Rule 60 (W04): this month's contribution was skipped; the line stands at 0 and later months carry the plan. */
+  skippedThisMonth: boolean
   /** The deadline saved toward — a Recurring jar's open cycle (W03); null for fixed monthly plans. */
   deadline: string | null
   /**
@@ -675,6 +686,8 @@ export interface JarScheduleMonthDto {
   year: number
   month: number
   planned: number
+  /** Rule 60 (W04): the user skipped this month; it plans 0 and the other months carry the plan. */
+  skipped: boolean
   /** Whether a budget already exists for this month. */
   hasBudget: boolean
   /** Rule 59: how far the month's plans would exceed its income with this contribution (0 fits); null with no budget. */
@@ -700,6 +713,11 @@ export interface JarScheduleDto {
   deadline: string | null
   fundingCompletesOn: string | null
   estimatedMonths: number | null
+  /**
+   * Rule 60/61 (W04): for a deadline plan, the part of `remaining` no month before the deadline
+   * carries because every eligible month was skipped; 0 otherwise.
+   */
+  unplanned: number
 }
 
 /** The body of POST /jars/schedule: the definition being previewed (jarId when editing). */

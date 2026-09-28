@@ -440,8 +440,8 @@
 - **Steps:**
   1. "Edit Home insurance"; click the footer "Archive jar" (aria "Archive Home insurance").
   2. It changes to "Really archive?" (aria "Confirm archive Home insurance"); click it.
-- **Expected:** The first click only arms the button (no request); `PUT /jars/{id}/archive` with body `{archived:true}` fires on the second click. Modal closes; the "Home insurance" card disappears from the list; `EVENTS.fundArchived` fires. "Holiday" remains.
-- **Automated:** Yes (JarsPage.test.tsx — "archives a fund from its edit modal", asserts no PUT on the first click)
+- **Expected:** The first click only arms the button (no request); `PUT /jars/{id}/archive` with body `{archived:true}` fires on the second click. Modal closes; the "Home insurance" card disappears from the list; `EVENTS.fundArchived` fires. "Holiday" remains. Server-side (W04, rule 25 / P40): the jar's current-month line is cut to what has gone in since the month began and its later months' plan lines are removed (kept at 0 where a transaction sits on one); past months, transactions and balances are untouched.
+- **Automated:** Yes (JarsPage.test.tsx — "archives a fund from its edit modal", asserts no PUT on the first click; JarLifecycleW04Tests — `Rule25_Archiving_CancelsThisMonthsAndLaterContributions_AndRestoringReplantsThem`)
 
 ### JAR-045 - Archived jar is dropped from the list and default GET
 - **Priority:** P1
@@ -449,7 +449,7 @@
 - **Preconditions:** Owner; one jar archived, one active.
 - **Steps:**
   1. Open `/jars`.
-- **Expected:** Only the active jar renders; hero "Active jars" counts active jars only. `GET /jars` (no `includeArchived`) excludes archived rows server-side. There is **no** UI to list or restore archived jars — restore is API-only (`PUT …/archive` with `{archived:false}`).
+- **Expected:** Only the active jar renders; hero "Active jars" counts active jars only — a **completed** goal (W04, rule 55) stays listed but is not counted. `GET /jars` (no `includeArchived`) excludes archived rows server-side. There is **no** UI to list or restore archived jars — restore is API-only (`PUT …/archive` with `{archived:false}`).
 - **Automated:** Yes (JarsTests.cs — get is owner-scoped and excludes archived)
 
 ### JAR-046 - Archive request failure shows the archive-error banner
@@ -468,8 +468,8 @@
 - **Preconditions:** Owner; June 2026 has a savings line backed by jar "Old car" (now archived) and one backed by a dangling SavingsId (no jar row).
 - **Steps:**
   1. From July's not-found screen (or via `POST /budget` copy), create July 2026 by copying June.
-- **Expected:** The copied July month **omits** the archived "Old car" line but **keeps** the dangling-SavingsId line. Archived jars are also excluded from the "append a line for every active jar" step. (Month-create mechanics live in `07-month-lifecycle.md`; this asserts the jar-archival interaction.)
-- **Automated:** Yes (CreateBudgetMonthTests.cs — copy skips lines funding archived jars; dangling id still copies)
+- **Expected:** The copied July month **omits** the archived "Old car" line (and, W04, a **completed** goal's line) but **keeps** the dangling-SavingsId line. Archived and completed jars are also excluded from the "append a line for every active jar" step. (Month-create mechanics live in `07-month-lifecycle.md`; this asserts the jar-archival interaction.)
+- **Automated:** Yes (CreateBudgetMonthTests.cs — copy skips lines funding archived or completed jars; dangling id still copies)
 
 ### JAR-048 - Archived jar is excluded from account reconciliation
 - **Priority:** P2
@@ -660,14 +660,14 @@
 - **Expected:** Accepted — opening balance may be negative (range is [−max, +max]); only out-of-range magnitudes give "Opening balance is out of range." (The modal's `parseAmount` rejects a negative *typed* value, so this path is API/importer-only.)
 - **Automated:** Partial (JarsTests.cs — validator amount ranges)
 
-### JAR-067 - No DELETE endpoint; unknown id 404s
+### JAR-067 - Unknown jar ids 404 on every jar route, DELETE included (W04)
 - **Priority:** P2
 - **Type:** Negative
 - **Preconditions:** Owner; a random/unknown jar id.
 - **Steps:**
-  1. Attempt `PUT /jars/{unknownId}` (or `…/archive`).
-- **Expected:** 404 with body message "Sinking fund {id} was not found." There is **no** `DELETE /api/jars/{id}` route at all — jars are only soft-archived. (Deleting a savings budget line does not delete/archive its jar; the jar re-appends on the next month create.)
-- **Automated:** Partial (JarsTests.cs — update/archive not-found + ownership throws)
+  1. Attempt `PUT /jars/{unknownId}` (or `…/archive`, `POST …/complete`, `DELETE /jars/{unknownId}`).
+- **Expected:** 404 with body message "Jar {id} was not found." `DELETE /api/jars/{id}` exists since W04 but only for a jar that has never held money (rule 27/84 — JAR-096/097); every other jar is soft-archived. A jar's savings budget line cannot be deleted from a month (rule 60 — BUDG-034); the choice is skip or archive.
+- **Automated:** Partial (JarsTests.cs — update/archive not-found + ownership throws; JarLifecycleW04Tests — delete refusals)
 
 ### JAR-068 - Editing another household's jar is forbidden
 - **Priority:** P2
@@ -709,8 +709,8 @@
   1. Confirm the baseline: `GET /jars` (no query) returns only "New tyres"; the `/jars` hero "Active jars" reads **1**.
   2. Send `PUT /jars/{OldCarId}/archive` with body `{"archived":false}`.
   3. Re-read `GET /jars` (default) and the hero; open `/accounts`; then create/copy a later month.
-- **Expected:** 200 with the jar's `JarDto`; the handler sets `IsArchived = false` (the requested value, not a toggle — a second `{archived:false}` is idempotent) and re-derives `currentBalance`/`requiredMonthlyContribution`/`status` at read time (`fund.ToDto(balance, required, asOf)`), so the response carries `isArchived:false`. "Old car" now reappears in the **default** `GET /jars` (handler `Where` = `IncludeArchived || !IsArchived`), is re-counted in the "Active jars" hero (back to **2**), re-enters account reconciliation so its earmarked cash again feeds Joint's `BackedJarsTotal`/Float (inverse of JAR-048), and its contribution line is again seeded/carried on the next month create or copy (inverse of JAR-047 — no longer keyed out as an archived jar). Ownership is still enforced (403 for another household's jar id, 404 for an unknown id — JAR-067/068 apply to this route too).
-- **Automated:** No (JarsTests.cs `Archive_HidesFromDefaultList` only calls `ArchiveJarCommand(fundId)` with the default `Archived=true`; the `archived:false` restore leg has no test; 21-feature-interactions.md CMB-026 restores a **member**, not a jar, and does not hit this endpoint)
+- **Expected:** 200 with the jar's `JarDto`; the handler sets `IsArchived = false` (the requested value, not a toggle — a second `{archived:false}` is idempotent), **replants the jar's current and later months from its schedule (W04, P40)** and re-derives `currentBalance`/`status` at read time, so the response carries `isArchived:false`. "Old car" now reappears in the **default** `GET /jars` (handler `Where` = `IncludeArchived || !IsArchived`), is re-counted in the "Active jars" hero (back to **2**), re-enters account reconciliation so its earmarked cash again feeds Joint's `BackedJarsTotal`/Float (inverse of JAR-048), and its contribution line is again seeded/carried on the next month create or copy (inverse of JAR-047 — no longer keyed out as an archived jar). Ownership is still enforced (403 for another household's jar id, 404 for an unknown id — JAR-067/068 apply to this route too).
+- **Automated:** Partial (JJarsCoverageTests — the `archived:false` leg; JarLifecycleW04Tests `Rule25_Archiving_CancelsThisMonthsAndLaterContributions_AndRestoringReplantsThem` — the replant on restore; the reconciliation/copy re-entry is not asserted end to end)
 
 ### JAR-072 - `GET /jars?includeArchived=true` returns archived jars too (API-only)
 - **Priority:** P2
@@ -914,3 +914,61 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
   1. Read the Goal and the unavailable jar as Owner. 2. Read the missed jar as the viewer. 3. Edit the advanced jar; save without changes; save with Next due 2027-03-01.
 - **Expected:** 1: no Mark paid, no Dismiss, no "Paid it?" (a Goal has no cycle; an unavailable balance cannot settle one). 2: the chip and the rose line are shown, the actions are not. 3: "Next due" is prefilled with **2027-01-01** (the open cycle, not the anchor); saving it back keeps both the anchor and the cycle (a rename never resets an advanced cycle — the preview also plans toward the open cycle); 2027-03-01 becomes the new anchor and the open cycle. Switching the jar to a Goal keeps the date the user saw as the Goal's deadline (JAR-037).
 - **Automated:** Yes (JarsPage.cycles.test.tsx — JAR-093 ×2; JarsPage.catalog.test.tsx — JAR-037; JarCycleTests — `Update_EchoingTheOpenCyclesDate_KeepsTheCycle_AndANewDateRestartsIt`, `ThePreviewOfAnEdit_PlansTowardTheOpenCycle_WhenTheDateIsEchoed`)
+
+---
+
+## Completing, deleting and skipping (W04; rules 25, 27, 55–56, 60–61, 84)
+
+### JAR-094 - Mark a Goal completed: the plan stops, the money stays, the jar stays listed
+- **Priority:** P0
+- **Type:** Happy
+- **Preconditions:** Owner; Goal "New laptop" (target 1,000, deadline in six months) holds 400, plans 100 this month; the current and two later months exist with its lines.
+- **Steps:**
+  1. On the card click **Mark completed** (aria "Mark New laptop completed"). 2. Read the dialog; click **Mark completed** (aria "Confirm complete New laptop").
+- **Expected:** The dialog says the jar holds €400.00 of its €1,000.00 target (€600.00 short), that completing stops the planned contributions from this month on and that the money stays in the jar. `POST /jars/{id}/complete` returns the jar: `status: "Completed"`, `completedOn` = today, `plannedThisMonth` = what went in this month, `canDelete: false`. The card shows the **Completed** chip, "Completed · €400.00 left to move" and "Completed on 27 Sep 2026 · no more contributions planned"; Move money and Edit remain, Mark completed does not; the hero's Active jars count drops by one. Server-side (P40): this month's line is cut to what went in since the month began, later months' lines are removed (kept at 0 where a transaction sits on one); no money moves. Month creation and copy leave the completed jar out (BUDG-017/032).
+- **Automated:** Yes (JarsPage.lifecycle.test.tsx — JAR-094, JAR-095; JarLifecycleW04Tests — `Rule55_Completing_StopsThePlan_FromThisMonthOn_AndKeepsTheMoney`, `Rule55_ACompletedGoal_IsLeftOutOfTheNextMonthsPlanning_AndStillListed`; jar-lifecycle journey)
+
+### JAR-095 - Completing is refused for a recurring jar, an overdrawn or unavailable balance, and twice
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Owner; a Recurring jar; a Goal 20 overdrawn; a Goal whose account balance is unavailable (rule 67); a completed Goal.
+- **Steps:**
+  1. Read the four cards. 2. `POST /jars/{id}/complete` for each.
+- **Expected:** 1: none of the four offers **Mark completed** (a recurring jar offers Mark paid instead). 2: 400 for each — "… is a recurring jar: mark its cycle paid …", "… is 20 overdrawn. Cover the shortfall … before completing it." (HANDOVER O3 stays open, P41), "…'s balance is not available today …", "… is already completed."; an archived jar is refused too. A completed Goal edited to Recurring is refused with "A completed goal cannot become a recurring jar." The dialog shows a refusal in the server's words and the jar is unchanged.
+- **Automated:** Yes (JarsPage.lifecycle.test.tsx — JAR-095, JAR-098; JarLifecycleW04Tests — `Rule55_Completing_IsRefused_…`, `Rule55_ACompletedGoal_CannotBecomeARecurringJar`)
+
+### JAR-096 - Delete a jar that has never held money, with its planned lines (rule 27/84)
+- **Priority:** P0
+- **Type:** Happy
+- **Preconditions:** Owner; Goal "Bike" created with no money set aside, no allocation and no transaction ever on its lines; lines in a past, the current and a future month; a cycle row.
+- **Steps:**
+  1. "Edit Bike": the footer offers **Archive jar** and **Delete jar** (aria "Delete Bike"). 2. Click Delete jar (arms to "Really delete?", aria "Confirm delete Bike"); click again.
+- **Expected:** The first click sends nothing; the second sends `DELETE /jars/{id}` → 204. The modal closes, the card disappears, `EVENTS.fundDeleted` fires. Server-side the jar, **every** line it had in any month (past included — they were plans, never money) and its cycle rows are removed; the months and their other lines stay. `JarDto.canDelete` was `true` beforehand.
+- **Automated:** Yes (JarsPage.lifecycle.test.tsx — JAR-096; JarLifecycleW04Tests — `Rule27_AJarThatNeverHeldMoney_CanBeDeleted_WithItsPlannedLinesAndCycles`; jar-lifecycle journey)
+
+### JAR-097 - A jar that has ever held money offers Archive, never Delete
+- **Priority:** P0
+- **Type:** Negative
+- **Preconditions:** Owner; jar "Holiday" that once received a 100 allocation since moved back out (balance 0); jar "Car" with an expense assigned to one of its lines.
+- **Steps:**
+  1. "Edit Holiday" and "Edit Car". 2. `DELETE /jars/{id}` for each directly.
+- **Expected:** 1: the footer shows **Archive jar** only (`canDelete:false` — eligibility is "never held money", read from the ledger, P42). 2: 400 "… has held money, so it cannot be deleted. Archive it instead to keep its history."; the jar and its lines stay. A forced attempt from the form shows the message verbatim.
+- **Automated:** Yes (JarsPage.lifecycle.test.tsx — JAR-097, JAR-098; JarLifecycleW04Tests — `Rule27_AJarThatHasHeldMoney_CannotBeDeleted_OnlyArchived`; jar-lifecycle journey)
+
+### JAR-098 - Refusals to complete or delete are shown in the server's words
+- **Priority:** P2
+- **Type:** Negative
+- **Preconditions:** Owner; `POST …/complete` and `DELETE /jars/{id}` answer 400 with a field message.
+- **Steps:**
+  1. Confirm Mark completed; confirm Delete jar.
+- **Expected:** Each dialog shows the server's message in its error banner and stays open; nothing on the page changes; a non-400 failure reads "Could not mark that jar completed." / "Could not delete that jar.".
+- **Automated:** Yes (JarsPage.lifecycle.test.tsx — JAR-098 ×2)
+
+### JAR-099 - The card and the form show a skipped month; write gating
+- **Priority:** P2
+- **Type:** Regression
+- **Preconditions:** Owner and a read-only viewer; Goal "Sofa" whose current-month line is skipped (BUDG-060).
+- **Steps:**
+  1. Read Sofa's card. 2. "Edit Sofa" and read the schedule preview. 3. Read the page as the viewer.
+- **Expected:** 1: the month line reads **Skipped this month** (`skippedThisMonth:true`, `plannedThisMonth: 0`); the deadline and funded-by month are unchanged. 2: the preview lists the current month as "Skipped" and the later months carrying the remainder (rule 61); when every month left is skipped it says what stays **unplanned** (P45). 3: no Mark completed, no Edit (so no Delete) for the viewer.
+- **Automated:** Yes (lib/jarStatus.test.ts — "Skipped this month"; JarsPage.lifecycle.test.tsx — JAR-093; JarLifecycleW04Tests — `Rule61_Skipping_ThisMonth_…` asserts `SkippedThisMonth`; jar-lifecycle journey)

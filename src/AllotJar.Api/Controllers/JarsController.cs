@@ -3,7 +3,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using AllotJar.Api.Features;
 using AllotJar.Application.Jars.Commands.ArchiveJar;
+using AllotJar.Application.Jars.Commands.CompleteJar;
 using AllotJar.Application.Jars.Commands.CreateJar;
+using AllotJar.Application.Jars.Commands.DeleteJar;
 using AllotJar.Application.Jars.Commands.DismissJarCycle;
 using AllotJar.Application.Jars.Commands.MarkJarCyclePaid;
 using AllotJar.Application.Jars.Commands.ReallocateJarMoney;
@@ -19,8 +21,9 @@ namespace AllotJar.Api.Controllers;
 
 /// <summary>
 /// The user's jars and their derived figures (actual balance, this month's plan, schedule
-/// dates, cycle state, status), each jar-backed account's ledger, same-account money moves and
-/// a Recurring jar's cycle actions (mark paid, dismiss a missed deadline).
+/// dates, cycle state, status), each jar-backed account's ledger, same-account money moves,
+/// a Recurring jar's cycle actions (mark paid, dismiss a missed deadline) and the lifecycle
+/// actions of W04: archive or restore, complete a goal, delete a jar that never held money.
 /// Every handler is owner-scoped; balances are actual money read from the ledger, never stored
 /// and never plans.
 /// </summary>
@@ -99,7 +102,10 @@ public class JarsController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Archives or restores a jar (soft). Archiving needs a zero balance. Returns it.</summary>
+    /// <summary>
+    /// Archives or restores a jar (soft, rules 25–27). Archiving needs a zero balance and cancels
+    /// the remaining planned contributions from this month on; restoring plants them again. Returns it.
+    /// </summary>
     [HttpPut("{id:guid}/archive")]
     [ProducesResponseType(typeof(JarDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -109,6 +115,36 @@ public class JarsController : ControllerBase
     {
         var result = await _mediator.Send(new ArchiveJarCommand(id, request.Archived), ct);
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Rules 55–56: marks a one-off jar's purpose completed. No more contributions are planned;
+    /// what it holds stays until moved; nothing is paid or moved. Returns the jar.
+    /// </summary>
+    [HttpPost("{id:guid}/complete")]
+    [ProducesResponseType(typeof(JarDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<JarDto>> Complete(Guid id, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new CompleteJarCommand(id), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Rule 84: permanently deletes a jar that never held money, removing its planned Savings
+    /// lines. A jar with a money history is refused (400) — archive it instead.
+    /// </summary>
+    [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        await _mediator.Send(new DeleteJarCommand(id), ct);
+        return NoContent();
     }
 
     /// <summary>

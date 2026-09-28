@@ -37,6 +37,13 @@ public class JarScheduleDto
 
     /// <summary>Fixed monthly plans with a target: monthly contributions still needed (rule 58, an estimate).</summary>
     public int? EstimatedMonths { get; set; }
+
+    /// <summary>
+    /// Rule 60/61 (W04): for a deadline plan, the part of <see cref="Remaining"/> that no month before
+    /// the deadline carries because every eligible month was skipped — the plan cannot fund the target
+    /// in time and says so. 0 otherwise.
+    /// </summary>
+    public decimal Unplanned { get; set; }
 }
 
 public class JarScheduleMonthDto
@@ -44,6 +51,9 @@ public class JarScheduleMonthDto
     public int Year { get; set; }
     public int Month { get; set; }
     public decimal Planned { get; set; }
+
+    /// <summary>Rule 60 (W04): the user skipped this month's contribution; it plans 0 and the other months carry the plan.</summary>
+    public bool Skipped { get; set; }
 
     /// <summary>Whether a budget already exists for this month.</summary>
     public bool HasBudget { get; set; }

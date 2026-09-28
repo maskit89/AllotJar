@@ -15,6 +15,13 @@ interface Props {
   onRename?: (itemId: string, name: string) => void
   /** When provided, a delete affordance is shown. */
   onDelete?: (itemId: string) => void
+  /**
+   * Savings lines only (rule 60): when provided, the ✕ opens the skip-or-archive choice instead
+   * of deleting — a jar's contribution cannot be removed from a month, only skipped.
+   */
+  onRemoveJarLine?: (itemId: string) => void
+  /** Savings lines only (rule 60): plans a skipped month's contribution again. */
+  onRestoreJarLine?: (itemId: string) => void
   /** When provided, the line can be tracked as a bill with a due day (null clears it). */
   onSetBill?: (itemId: string, dueDay: number | null) => void
   /** When provided, a bill line shows a paid checkbox. */
@@ -57,6 +64,8 @@ export function BudgetItemRow({
   onCommit,
   onRename,
   onDelete,
+  onRemoveJarLine,
+  onRestoreJarLine,
   onSetBill,
   onSetPaid,
   onMove,
@@ -235,6 +244,24 @@ export function BudgetItemRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             {nameEl}
+            {item.isSkipped && (
+              <span
+                className="rounded-full bg-slate-100 px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-slate-500"
+                title="This month’s contribution was skipped (rule 60); the rest of the plan was spread over the months that are left."
+              >
+                Skipped
+              </span>
+            )}
+            {item.isSkipped && canWrite && onRestoreJarLine && (
+              <button
+                type="button"
+                onClick={() => onRestoreJarLine(item.id)}
+                aria-label={`Plan ${item.name} again this month`}
+                className="text-[11.5px] font-semibold text-slate-500 underline transition hover:text-brand-700 dark:hover:text-brand-200"
+              >
+                Plan it again
+              </button>
+            )}
             {savingDot}
           </div>
           {/* Funding bar: spent of this month's contribution (violet marks a fund). */}
@@ -258,16 +285,29 @@ export function BudgetItemRow({
           </div>
         </div>
 
-        {canWrite && onDelete && (
+        {canWrite && onRemoveJarLine ? (
           <button
             type="button"
-            onClick={() => onDelete(item.id)}
-            aria-label={`Delete ${item.name}`}
-            title="Delete line"
+            onClick={() => onRemoveJarLine(item.id)}
+            aria-label={`Remove ${item.name} this month`}
+            title="Skip this month’s contribution, or archive the jar"
             className="absolute -right-5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-[11px] text-slate-400 opacity-0 transition hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100 focus:opacity-100"
           >
             ✕
           </button>
+        ) : (
+          canWrite &&
+          onDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(item.id)}
+              aria-label={`Delete ${item.name}`}
+              title="Delete line"
+              className="absolute -right-5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-[11px] text-slate-400 opacity-0 transition hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100 focus:opacity-100"
+            >
+              ✕
+            </button>
+          )
         )}
       </div>
     )

@@ -438,7 +438,7 @@ Also available: **"Blank July"** fixture — a freshly created blank month for a
 - **Preconditions:** Ana on July 2026; "Utilities" line (no transactions).
 - **Steps:**
   1. Hover the "Utilities" row; click **✕** (aria "Delete Utilities", title "Delete line").
-- **Expected:** Optimistic `withoutItem` (line vanishes immediately — **no** confirm dialog for lines, unlike group delete), then `DELETE /api/budget/items/{id}` and reconcile from the response. Allotted drops €150 (€1,150→€1,000), Remaining €850→€1,000. Income-line delete uses the same ✕ (title "Delete income source", `IncomeLineRow.tsx:143`).
+- **Expected:** Optimistic `withoutItem` (line vanishes immediately — **no** confirm dialog for lines, unlike group delete), then `DELETE /api/budget/items/{id}` and reconcile from the response. Allotted drops €150 (€1,150→€1,000), Remaining €850→€1,000. Income-line delete uses the same ✕ (title "Delete income source", `IncomeLineRow.tsx:143`). A **jar's** line in a Savings group is the exception: its ✕ opens the skip-or-archive dialog instead (W04, rule 60 — CAT-044, BUDG-034).
 - **Automated:** Yes (`DashboardPage.test.tsx` "deletes an income source"; `BudgetItemCrudHandlerTests.cs` `Delete_IncomeLine_LowersTotalIncomeAndRemaining`)
 
 ### CAT-043 - Delete a line that has assigned transactions unassigns them
@@ -451,15 +451,16 @@ Also available: **"Blank July"** fixture — a freshly created blank month for a
 - **Expected:** The line disappears and the month recomputes, but the €900 transaction is **kept** with `BudgetItemId` set to null (FK `OnDelete(SetNull)`, `BudgetItemConfiguration.cs:46-49`) → shows as **Unassigned**. Deleting a line never deletes spending history. (SetNull is enforced by SQL Server, not EF InMemory — verify on a real DB.)
 - **Automated:** No
 
-### CAT-044 - Deleting a savings line leaves its jar; it re-appears next month
+### CAT-044 - A savings line is a jar's contribution and cannot be deleted; skip the month or archive the jar (W04, rule 60)
 - **Priority:** P1
-- **Type:** Edge
-- **Preconditions:** Ana on July 2026; "Emergency Fund" savings line (jar-backed).
+- **Type:** Negative
+- **Origin:** W04 — the old behaviour (delete the line, it re-appears next month) silently undid the user's action.
+- **Preconditions:** Ana on the current month; "Emergency Fund" savings line (jar-backed).
 - **Steps:**
-  1. Delete the "Emergency Fund" line (✕).
-  2. Check `/jars`, then create August 2026.
-- **Expected:** The July line is removed but the **Emergency Fund jar stays active** (deleting a savings *line* never archives/deletes the jar). On the next month create, month-create re-appends a savings line for every active jar, so Emergency Fund reappears in August with its accrual-suggested planned (map §5/§7 gotcha #9). Jar detail → `13-jars.md`.
-- **Automated:** Partial (`JarBudgetLinkTests.cs` `CreateMonth_Copy_AppendsLinesForJarsTheCopiedMonthLacks`, `CreateMonth_Blank_CreatesASavingsGroupForExistingJars`)
+  1. Hover the "Emergency Fund" row and click **✕** (aria "Remove Emergency Fund this month").
+  2. Send `DELETE /api/budget/items/{id}` directly.
+- **Expected:** 1: no optimistic removal; the skip-or-archive dialog opens (BUDG-034) — **Skip this month** keeps the line at €0 with a Skipped tag and spreads the rest over the months left (BUDG-060); **Archive the jar** stops future contributions (BUDG-061). 2: 400 "Emergency Fund is a jar's monthly contribution. Skip this month's contribution, or archive the jar to stop future ones."; the line and the **Emergency Fund jar stay** exactly as they were. Jar detail → `13-jars.md` (JAR-094–099).
+- **Automated:** Yes (`CCategoriesLinesCoverageTests.cs` `DeleteSavingsLine_IsRefused_TheLineAndItsJarStay`; `DashboardPage.skip.test.tsx` BUDG-034)
 
 ### CAT-045 - Delete a line owned by another household is refused; rollback
 - **Priority:** P1

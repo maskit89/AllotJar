@@ -7,6 +7,7 @@ import { JarFormModal } from '../components/JarFormModal'
 import { MoveMoneyModal } from '../components/MoveMoneyModal'
 import { MarkCyclePaidModal } from '../components/jars/MarkCyclePaidModal'
 import { DismissCycleModal } from '../components/jars/DismissCycleModal'
+import { CompleteJarModal } from '../components/jars/CompleteJarModal'
 import { JarsIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
@@ -35,6 +36,8 @@ export function JarsPage() {
   // deadline is being dismissed.
   const [markingPaid, setMarkingPaid] = useState<{ jarId: string; deadline: string } | null>(null)
   const [dismissingId, setDismissingId] = useState<string | null>(null)
+  // W04: the Goal jar being marked completed (rule 55).
+  const [completingId, setCompletingId] = useState<string | null>(null)
   const editingJar = useMemo(
     () => (editingId ? jars.find((f) => f.id === editingId) ?? null : null),
     [editingId, jars],
@@ -50,6 +53,10 @@ export function JarsPage() {
   const dismissingJar = useMemo(
     () => (dismissingId ? jars.find((f) => f.id === dismissingId) ?? null : null),
     [dismissingId, jars],
+  )
+  const completingJar = useMemo(
+    () => (completingId ? jars.find((f) => f.id === completingId) ?? null : null),
+    [completingId, jars],
   )
 
   const loadLedgers = useCallback(() => {
@@ -115,6 +122,8 @@ export function JarsPage() {
     [closeForm, loadLedgers],
   )
 
+  // Archived or deleted (rules 25, 27): the jar leaves the list; its lines were cancelled or
+  // removed server-side, so the ledgers are re-read.
   const onArchived = useCallback(
     (archived: JarDto) => {
       setJars((prev) => prev.filter((x) => x.id !== archived.id))
@@ -122,6 +131,16 @@ export function JarsPage() {
       loadLedgers()
     },
     [closeForm, loadLedgers],
+  )
+
+  // Completed (rule 55): the jar stays listed, as the server now returns it, and keeps its money.
+  const onCompleted = useCallback(
+    (completed: JarDto) => {
+      setJars((prev) => prev.map((f) => (f.id === completed.id ? completed : f)))
+      setCompletingId(null)
+      loadLedgers()
+    },
+    [loadLedgers],
   )
 
   const onMoved = useCallback(() => {
@@ -159,6 +178,8 @@ export function JarsPage() {
     [jars],
   )
   const backedLedgers = useMemo(() => ledgers.filter((l) => l.jars.some((j) => !j.isArchived)), [ledgers])
+  // A completed goal (rule 55) is still listed but no longer active.
+  const activeCount = useMemo(() => jars.filter((f) => f.completedOn === null).length, [jars])
 
   return (
     <AppShell active="jars" title="Jars">
@@ -168,7 +189,7 @@ export function JarsPage() {
         amountLabel={`Total saved: ${formatMoney(totalSavedMinor, CURRENCY)}`}
         tiles={[
           { label: 'This month', value: `+${formatMoney(monthlyMinor, CURRENCY)}` },
-          { label: 'Active jars', value: `${jars.length}` },
+          { label: 'Active jars', value: `${activeCount}` },
         ]}
         footnote={
           unavailableCount > 0 ? (
@@ -254,6 +275,10 @@ export function JarsPage() {
                     setError(null)
                     setDismissingId(f.id)
                   }}
+                  onComplete={() => {
+                    setError(null)
+                    setCompletingId(f.id)
+                  }}
                   canManage={canWrite}
                 />
               ))}
@@ -271,6 +296,7 @@ export function JarsPage() {
           onClose={closeForm}
           onSaved={onSaved}
           onArchived={onArchived}
+          onDeleted={onArchived}
         />
       )}
 
@@ -286,6 +312,10 @@ export function JarsPage() {
           onClose={() => setMarkingPaid(null)}
           onMarked={onCycleChanged}
         />
+      )}
+
+      {completingJar && canWrite && (
+        <CompleteJarModal jar={completingJar} currency={CURRENCY} onClose={() => setCompletingId(null)} onCompleted={onCompleted} />
       )}
 
       {dismissingJar && !markingPaid && canWrite && (
@@ -313,6 +343,7 @@ function JarCard({
   onMove,
   onMarkPaid,
   onDismiss,
+  onComplete,
   canManage,
 }: {
   jar: JarDto
@@ -325,6 +356,8 @@ function JarCard({
   onMarkPaid: (deadline: string) => void
   /** W03: dismiss the Deadline-missed notice (rule 20). */
   onDismiss: () => void
+  /** W04: mark a Goal jar completed (rule 55). */
+  onComplete: () => void
   canManage: boolean
 }) {
   // Null = the account's balance is unavailable (rule 67): shown as such, never as zero.
@@ -343,6 +376,11 @@ function JarCard({
   const recurring = jar.recurMonths !== null && jar.deadline !== null && jar.status !== 'Unavailable'
   const missed = jar.status === 'DeadlineMissed' || jar.status === 'FundedLate'
   const unpaidLastCycle = jar.lastCycle && jar.lastCycle.outcome === 'Funded' ? jar.lastCycle : null
+  // W04: a Goal can be marked completed (rule 55) while its balance is known and not overdrawn
+  // (rule 56); a completed jar offers nothing more than Move money and Edit.
+  const completed = jar.completedOn !== null
+  const canComplete =
+    !completed && jar.recurMonths === null && jar.status !== 'Unavailable' && balanceMinor !== null && balanceMinor >= 0
 
   return (
     <Card className="flex gap-4 p-5">
@@ -409,6 +447,16 @@ function JarCard({
                   className="text-[12.5px] font-semibold text-slate-500 transition hover:text-brand-700 dark:hover:text-brand-200"
                 >
                   Dismiss
+                </button>
+              )}
+              {canComplete && (
+                <button
+                  type="button"
+                  onClick={onComplete}
+                  aria-label={`Mark ${jar.name} completed`}
+                  className="text-[12.5px] font-semibold text-slate-500 transition hover:text-brand-700 dark:hover:text-brand-200"
+                >
+                  Mark completed
                 </button>
               )}
               {recurring && (

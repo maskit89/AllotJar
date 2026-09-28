@@ -20,7 +20,8 @@ namespace AllotJar.Application.Jars;
 /// what the jar holds today plus what this month's plan has still to contribute, then each
 /// intervening month's plan — the stored savings line where that month exists, the schedule's
 /// own figure where it does not — because the plan assumes the plan is kept; rule 13's
-/// recalculation at each month start corrects it from what was actually saved.
+/// recalculation at each month start corrects it from what was actually saved. A month the user
+/// skipped (rule 60) plans 0 wherever it appears, and the months around it carry the plan.
 /// </summary>
 public static class JarPlanner
 {
@@ -47,12 +48,18 @@ public static class JarPlanner
 
         var target = new DateOnly(year, month, 1);
         var current = new DateOnly(today.Year, today.Month, 1);
+        // The months the user skipped (rule 60) in every existing month from the earlier of the
+        // two: a skipped later month must not shrink the share this one is asked for (rule 61).
+        var jarIds = scheduled.Select(j => j.Id).ToList();
+        var skippedByJar = await SavingsLines.SkippedMonthsByJarAsync(db, ownerId, jarIds, target < current ? target : current, cancellationToken);
+        JarPlanOptions OptionsFor(Jar jar) => skippedByJar.TryGetValue(jar.Id, out var skipped) ? new JarPlanOptions(skipped) : JarPlanOptions.None;
+
         if (target < current)
         {
             var snapshot = await JarLedgerReader.ReadAsync(db, ownerId, target.AddDays(-1), cancellationToken);
             foreach (var jar in scheduled)
             {
-                result[jar.Id] = JarSchedule.PlannedFor(jar, target, snapshot.BalanceOf(jar.Id) ?? 0m);
+                result[jar.Id] = JarSchedule.PlannedFor(jar, target, snapshot.BalanceOf(jar.Id) ?? 0m, OptionsFor(jar));
             }
             return result;
         }
@@ -63,26 +70,27 @@ public static class JarPlanner
         {
             foreach (var jar in scheduled)
             {
-                result[jar.Id] = JarSchedule.PlannedFor(jar, target, PlanningBalance(opening.BalanceOf(jar.Id), now.BalanceOf(jar.Id)));
+                result[jar.Id] = JarSchedule.PlannedFor(jar, target, PlanningBalance(opening.BalanceOf(jar.Id), now.BalanceOf(jar.Id)), OptionsFor(jar));
             }
             return result;
         }
 
-        var stored = await StoredPlansAsync(db, ownerId, scheduled.Select(j => j.Id).ToList(), current, target, cancellationToken);
+        var stored = await StoredPlansAsync(db, ownerId, jarIds, current, target, cancellationToken);
         foreach (var jar in scheduled)
         {
+            var options = OptionsFor(jar);
             var planningBalance = PlanningBalance(opening.BalanceOf(jar.Id), now.BalanceOf(jar.Id));
             var thisMonth = stored.TryGetValue((jar.Id, current.Year, current.Month), out var storedNow)
                 ? storedNow
-                : JarSchedule.PlannedFor(jar, current, planningBalance);
+                : JarSchedule.PlannedFor(jar, current, planningBalance, options);
             var balance = ProjectedMonthEnd(planningBalance, now.BalanceOf(jar.Id) ?? 0m, thisMonth);
             for (var m = current.AddMonths(1); m < target; m = m.AddMonths(1))
             {
                 balance += stored.TryGetValue((jar.Id, m.Year, m.Month), out var planned)
                     ? planned
-                    : JarSchedule.PlannedFor(jar, m, balance);
+                    : JarSchedule.PlannedFor(jar, m, balance, options);
             }
-            result[jar.Id] = JarSchedule.PlannedFor(jar, target, balance);
+            result[jar.Id] = JarSchedule.PlannedFor(jar, target, balance, options);
         }
         return result;
     }
@@ -118,27 +126,36 @@ public static class JarPlanner
     /// <summary>
     /// The jar's schedule from the current month: planned from its <see cref="PlanningBalance"/>
     /// plus <paramref name="extraBalance"/> (money set aside at creation, which the ledger cannot
-    /// see yet). The figures a new jar plants and a preview shows.
+    /// see yet), over the months the user has skipped (rule 60) plus <paramref name="alsoSkip"/>
+    /// — the month a skip is being previewed for (rule 61). The figures a new jar plants and a
+    /// preview shows; exactly what <see cref="ReplantAsync"/> writes.
     /// </summary>
     public static async Task<JarPlan> ScheduleAsync(
-        IApplicationDbContext db, string ownerId, Jar jar, DateOnly today, decimal extraBalance, CancellationToken cancellationToken)
+        IApplicationDbContext db, string ownerId, Jar jar, DateOnly today, decimal extraBalance, CancellationToken cancellationToken,
+        DateOnly? alsoSkip = null)
     {
         var balances = await BalancesAsync(db, ownerId, jar, today, extraBalance, cancellationToken);
-        return JarSchedule.Plan(jar, today, balances.Planning);
+        var skipped = await SavingsLines.SkippedMonthsAsync(db, ownerId, jar.Id, today, cancellationToken);
+        if (alsoSkip is { } skip)
+        {
+            skipped.Add(new DateOnly(skip.Year, skip.Month, 1));
+        }
+        return JarSchedule.Plan(jar, today, balances.Planning, new JarPlanOptions(skipped, balances.Now));
     }
 
     /// <summary>
     /// Writes the jar's schedule into every already-created month from the current one forward:
     /// its line's planned amount where the month has one, a new line where it does not (months
-    /// created later get theirs from month creation). Past months are history and stay untouched
-    /// (rule 46); money is never moved. Used when a jar is created (so it starts filling without a
-    /// manual Budget-page step), when its target, deadline or plan changes, and when a Recurring
-    /// cycle closes (W03).
+    /// created later get theirs from month creation). A month the user skipped (rule 60) keeps
+    /// its line at 0 and the other months carry the plan (rule 61). Past months are history and
+    /// stay untouched (rule 46); money is never moved. Used when a jar is created (so it starts
+    /// filling without a manual Budget-page step), when its target, deadline or plan changes,
+    /// when a Recurring cycle closes (W03), when a month is skipped or planned again and when an
+    /// archived jar is restored. The plan written is the one <see cref="ScheduleAsync"/> previews.
     /// </summary>
     public static async Task ReplantAsync(
         IApplicationDbContext db, string ownerId, Jar jar, DateOnly today, decimal extraBalance, CancellationToken cancellationToken)
     {
-        var current = new DateOnly(today.Year, today.Month, 1);
         var months = await db.BudgetMonths
             .Include(m => m.Categories.Where(c => c.Kind == CategoryKind.Savings))
                 .ThenInclude(c => c.Items)
@@ -152,43 +169,37 @@ public static class JarPlanner
         }
 
         var balances = await BalancesAsync(db, ownerId, jar, today, extraBalance, cancellationToken);
-        var balance = balances.Planning;
-        // Months that don't exist between two that do still take their planned amount toward the
-        // projected balance, so a gap never inflates the month after it.
-        var next = current;
+        // The skipped months are read from the loaded lines (they may be mid-change, e.g. the
+        // skip being applied), never from a second query.
+        var skipped = months
+            .Where(m => m.Categories.SelectMany(c => c.Items).Any(i => i.SavingsId == jar.Id && i.IsSkipped))
+            .Select(m => new DateOnly(m.Year, m.Month, 1))
+            .ToHashSet();
+        var last = months[^1];
+        var plan = JarSchedule.Plan(jar, today, balances.Planning,
+            new JarPlanOptions(skipped, balances.Now, new DateOnly(last.Year, last.Month, 1)));
+        var planned = plan.Months.ToDictionary(m => (m.Year, m.Month), m => m.Planned);
+
         foreach (var month in months)
         {
-            var first = new DateOnly(month.Year, month.Month, 1);
-            for (; next < first; next = next.AddMonths(1))
-            {
-                balance = Advance(next, balance, JarSchedule.PlannedFor(jar, next, balance));
-            }
-
-            var planned = JarSchedule.PlannedFor(jar, first, balance);
+            var amount = planned.GetValueOrDefault((month.Year, month.Month), 0m);
             // DistinctBy: a line already tracked through another navigation can appear twice in
             // the included collection; it is still one line.
             var lines = month.Categories.SelectMany(c => c.Items).Where(i => i.SavingsId == jar.Id).DistinctBy(i => i.Id).ToList();
             if (lines.Count == 0)
             {
-                SavingsLines.AppendJarLine(db, month, jar, planned);
+                SavingsLines.AppendJarLine(db, month, jar, amount);
             }
             else
             {
                 // One line carries the plan; any duplicate (a copied month that already had one) drops to 0.
-                lines[0].PlannedAmount = planned;
+                lines[0].PlannedAmount = amount;
                 foreach (var extra in lines.Skip(1))
                 {
                     extra.PlannedAmount = 0m;
                 }
             }
-            balance = Advance(first, balance, planned);
-            next = first.AddMonths(1);
         }
-
-        // The balance a month is assumed to end with: the current month projects from what the
-        // jar holds today (see ProjectedMonthEnd); a later month simply keeps its plan.
-        decimal Advance(DateOnly month, decimal from, decimal planned) =>
-            month == current ? ProjectedMonthEnd(balances.Planning, balances.Now, planned) : from + planned;
     }
 
     private static async Task<Dictionary<(Guid JarId, int Year, int Month), decimal>> StoredPlansAsync(
