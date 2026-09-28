@@ -34,9 +34,20 @@ public class GetJarsQueryHandler
         // close a cycle whose deadline has not actually come.
         await JarCycles.SettleAsync(_db, userId, today, cancellationToken);
 
+        // A month that is over is history (rule 46): a jar archived since still had its line and
+        // its money there, and the grid still shows that line, so the shelf shows the jar too.
+        var monthStart = request.Month is { } m ? new DateOnly(m.Year, m.Month, 1) : new DateOnly(asOf.Year, asOf.Month, 1);
+        var isOver = monthStart.AddMonths(1).AddDays(-1) < asOf;
+        var year = monthStart.Year;
+        var monthNumber = monthStart.Month;
         var jars = await _db.Jars
             .AsNoTracking()
-            .Where(f => f.OwnerId == userId && (request.IncludeArchived || !f.IsArchived))
+            .Where(f => f.OwnerId == userId
+                        && (request.IncludeArchived || !f.IsArchived
+                            || (isOver && _db.BudgetItems.Any(i => i.SavingsId == f.Id
+                                                                  && i.BudgetCategory.BudgetMonth.OwnerId == userId
+                                                                  && i.BudgetCategory.BudgetMonth.Year == year
+                                                                  && i.BudgetCategory.BudgetMonth.Month == monthNumber))))
             .OrderBy(f => f.Name)
             .ToListAsync(cancellationToken);
 

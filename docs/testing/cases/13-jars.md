@@ -992,4 +992,24 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
 - **Steps:**
   1. View August, September and October on the Budget page.
 - **Expected:** August reads Sofa at **100** ("saved as of 31 Aug 2026") and the Savings line's Available agrees; September reads 0 with nothing in; October reads 50 with 50 in. `fundingAccountId` is B on every month (the designation is current; the money is where the ledger says it was).
-- **Automated:** Yes (JarMonthViewW05Tests — `Rule80_AJarMovedToAnotherAccount_KeepsTheBalanceItHeld_InThePastMonth`)
+- **Automated:** Yes (JarMonthViewW05Tests — `Rule80_AJarMovedToAnotherAccount_KeepsTheBalanceItHeld_InThePastMonth`; `Rule80_AJarMovedToAnAccountOpenedLater_StillReadsWhatTheOldAccountHeld_ForTheEarlierMonth` — the same with B opened on 1 October: August still reads 100)
+
+### JAR-102 - A past month is judged against the recurring cycle that was open then
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Adversarial review of PR #275 (W05, P49): after a missed cycle was marked paid, the past month read today's cycle.
+- **Preconditions:** Owner; Recurring "Insurance" 300 due 15 September holding 100; on 3 October the user marked the cycle paid (next deadline 15 September 2027).
+- **Steps:**
+  1. On the Budget page view September, then October.
+- **Expected:** September's shelf reads Insurance **Deadline missed** (deadline 15 Sep 2026, shortfall 200), as it read on 30 September; October reads **On track** toward 15 Sep 2027. `GET /api/jars?year=2026&month=9` returns `status: "DeadlineMissed"`, `deadline: "2026-09-15"`, `shortfall: 200`, `lastCycle: null` (no cycle had closed by then).
+- **Automated:** Yes (JarMonthViewW05Tests — `Rule20_AMonthThatIsOver_IsJudgedAgainstTheCycleOpenThen_NotTodays`)
+
+### JAR-103 - A past month lists a jar archived since, and plans nothing for a jar it had no line for
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** Adversarial review of PR #275 (W05): the shelf omitted an archived jar the grid still showed, and invented a plan for a jar created later.
+- **Preconditions:** Owner; Goal "Sofa" holding 300 at 30 September, emptied and archived on 2 October; Goal "Bike" created in October (no September line).
+- **Steps:**
+  1. View September on the Budget page. 2. View October.
+- **Expected:** 1: the shelf shows Sofa at 300 beside its Savings line (Available 300); Bike is on the shelf with no plan ("+€0.00/mo", nothing to go). 2: Sofa is gone (archived); Bike shows its October line. The Jars page shows no Sofa.
+- **Automated:** Yes (JarMonthViewW05Tests — `Rule27_AMonthThatIsOver_StillListsAJarArchivedSince_WhoseLineItCarries`, `Rule46_AMonthThatIsOver_WithNoLineForTheJar_PlansNothingForIt`)

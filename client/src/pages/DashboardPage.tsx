@@ -101,8 +101,11 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     setError(null)
     setNotFound(false)
     // Clear the previous month before fetching, so its Hero/jars/lines can never
-    // render for a beat under the newly-selected month's label on a slow link.
+    // render for a beat under the newly-selected month's label on a slow link. The jars
+    // shelf is the month's view too (rule 48): cleared here, it cannot show the previous
+    // month's balances under the new month's grid while its own read is in flight.
     setMonth(null)
+    setJars([])
     api
       .get<BudgetMonthDto>(`/budget/${year}/${monthNum}`)
       .then(({ data }) => {

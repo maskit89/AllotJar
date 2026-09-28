@@ -127,13 +127,17 @@ public static class JarMapping
     /// month exists. <paramref name="month"/> is the budget month the figures belong to (W05, rule
     /// 48); it is the month of <paramref name="asOf"/> unless the month has not begun yet, when
     /// the balances are today's and the plan is the later month's own line.
+    /// <paramref name="cycleThen"/> is the Recurring cycle that was still open on <paramref name="asOf"/>
+    /// when that date is in the past and the cycle has since closed (P49): the month is judged
+    /// against its deadline and target, not today's cycle.
     /// </summary>
     public static JarDto ToDto(this Jar f, decimal? currentBalance, decimal? balanceAtMonthStart, decimal? storedPlanThisMonth, DateOnly asOf,
         JarCycle? lastCycle = null, bool skippedThisMonth = false, bool canDelete = false, IReadOnlySet<DateOnly>? skippedMonths = null,
-        DateOnly? month = null)
+        DateOnly? month = null, JarCycle? cycleThen = null)
     {
         var balance = currentBalance ?? 0m;
-        var remaining = f.TargetAmount > 0m ? Math.Max(0m, f.TargetAmount - balance) : 0m;
+        var target = cycleThen?.TargetAmount ?? f.TargetAmount;
+        var remaining = target > 0m ? Math.Max(0m, target - balance) : 0m;
         // The schedule is planned from the balance entering the month (rule 13), so it holds
         // still while contributions land during the month (rule 14) — unless money left the jar,
         // which counts at once (JarPlanner.PlanningBalance). An account that opened this month
@@ -147,8 +151,11 @@ public static class JarMapping
         {
             skipped.Add(monthStart);
         }
-        var plan = JarSchedule.Plan(f, asOf, startBalance, skipped.Count > 0 ? new JarPlanOptions(skipped, currentBalance) : null);
-        var deadline = plan.Deadline ?? JarSchedule.CurrentDeadline(f);
+        // A month that has not begun is planned from that month (its own share of what is left,
+        // from today's balance), never from today's month.
+        var planFrom = monthStart > asOf ? monthStart : asOf;
+        var plan = JarSchedule.Plan(f, planFrom, startBalance, skipped.Count > 0 ? new JarPlanOptions(skipped, currentBalance) : null);
+        var deadline = cycleThen?.Deadline ?? plan.Deadline ?? JarSchedule.CurrentDeadline(f);
         // Rule 20: a Recurring cycle whose deadline has arrived is settled before this read
         // (JarCycles.SettleAsync rolls a funded one forward), so an open cycle at or before the
         // date is one that was short when the money had to be there. It stays that way — and
@@ -180,7 +187,7 @@ public static class JarMapping
         {
             status = "Ongoing";
         }
-        else if (f.TargetAmount > 0m && remaining == 0m)
+        else if (target > 0m && remaining == 0m)
         {
             // Holding the target needs no plan, so funded wins over Unscheduled.
             status = "FullyFunded";

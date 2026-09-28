@@ -58,29 +58,36 @@ public class JarMonthViewW05Tests
         return jar;
     }
 
-    private static BudgetItem SeedMonth(ApplicationDbContext db, DateOnly month, Jar jar, decimal planned)
+    private static BudgetItem SeedMonth(ApplicationDbContext db, DateOnly month, Jar jar, decimal planned) =>
+        SeedMonth(db, month, (jar, planned)).Single();
+
+    /// <summary>A budget month with a Savings line per jar given (none, for a month with no jar lines).</summary>
+    private static IReadOnlyList<BudgetItem> SeedMonth(ApplicationDbContext db, DateOnly month, params (Jar Jar, decimal Planned)[] lines)
     {
-        var line = new BudgetItem { Name = jar.Name, PlannedAmount = planned, SavingsId = jar.Id };
+        var items = lines.Select(l => new BudgetItem { Name = l.Jar.Name, PlannedAmount = l.Planned, SavingsId = l.Jar.Id }).ToList();
         db.BudgetMonths.Add(new BudgetMonth
         {
             OwnerId = Owner, Year = month.Year, Month = month.Month, BaseCurrency = CurrencyCode.Eur,
             Categories = new List<BudgetCategory>
             {
                 new() { Name = "Income", Kind = CategoryKind.Income, DisplayOrder = 0, Items = new List<BudgetItem> { new() { Name = "Salary", PlannedAmount = 1000m } } },
-                new() { Name = "Savings", Kind = CategoryKind.Savings, DisplayOrder = 0, Items = new List<BudgetItem> { line } },
+                new() { Name = "Savings", Kind = CategoryKind.Savings, DisplayOrder = 0, Items = items },
             },
         });
         db.SaveChanges();
-        return line;
+        return items;
     }
 
     /// <summary>The jar's figures for <paramref name="month"/> as the Budget page's shelf asks for them (today injected).</summary>
     private static async Task<JarDto> ReadAsync(ApplicationDbContext db, DateOnly? month) =>
         (await new GetJarsQueryHandler(db, User()).Handle(new GetJarsQuery(AsOf: Today, Month: month), CancellationToken.None)).Single();
 
-    private static async Task<decimal?> GridAvailableAsync(ApplicationDbContext db, DateOnly month) =>
+    private static async Task<IReadOnlyList<JarDto>> ReadAllAsync(ApplicationDbContext db, DateOnly? month) =>
+        await new GetJarsQueryHandler(db, User()).Handle(new GetJarsQuery(AsOf: Today, Month: month), CancellationToken.None);
+
+    private static async Task<decimal?> GridAvailableAsync(ApplicationDbContext db, DateOnly month, Guid? jarId = null) =>
         (await new GetBudgetMonthQueryHandler(db, User()).Handle(new GetBudgetMonthQuery(month.Year, month.Month), CancellationToken.None))
-        .Categories.Single(c => c.Kind == "Savings").Items.Single().SavingsAvailable;
+        .Categories.Single(c => c.Kind == "Savings").Items.Single(i => jarId is null || i.SavingsId == jarId).SavingsAvailable;
 
     /// <summary>
     /// 200 in the jar since August, 100 more on 15 September, 100 more on 5 October; a line of
@@ -316,6 +323,124 @@ public class JarMonthViewW05Tests
 
         // The grid's Available reads the same ledger, so August agrees.
         (await GridAvailableAsync(db, august)).Should().Be(100m);
+    }
+
+    [Fact]
+    public async Task Rule80_AJarMovedToAnAccountOpenedLater_StillReadsWhatTheOldAccountHeld_ForTheEarlierMonth()
+    {
+        // As above, but B only opened on 1 October: August is before B existed, and the jar's
+        // money that month was in A, whose ledger was open. Only a month before any account held
+        // the jar reads unavailable (rule 67).
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, name: "A", opening: 2000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, name: "B", opening: 500m, order: 1, openingDate: October);
+        var jar = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, 100m, new DateOnly(2026, 8, 20));
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, -100m, new DateOnly(2026, 9, 10), JarAllocationKind.Reallocation);
+        jar.FundingAccountId = b.Id;
+        db.SaveChanges();
+        LedgerFixtures.Allocate(db, Owner, b.Id, jar.Id, 50m, new DateOnly(2026, 10, 5), JarAllocationKind.Reallocation);
+        var august = new DateOnly(2026, 8, 1);
+        SeedMonth(db, august, jar, 0m);
+
+        var inAugust = await ReadAsync(db, august);
+        inAugust.CurrentBalance.Should().Be(100m, "A's ledger held it then and A was open; B's opening date is irrelevant to August");
+        inAugust.Status.Should().NotBe("Unavailable");
+        (await GridAvailableAsync(db, august)).Should().Be(100m);
+        (await ReadAsync(db, October)).CurrentBalance.Should().Be(50m);
+    }
+
+    [Fact]
+    public async Task Rule46_AMonthThatIsOver_WithNoLineForTheJar_PlansNothingForIt()
+    {
+        // A jar created in October never had a September line (lines are planted from the
+        // current month on): September's shelf shows no plan for it, rather than one computed
+        // after the fact beside a grid that has no such line.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, opening: 2000m);
+        var other = new Jar
+        {
+            OwnerId = Owner, Name = "Other", Kind = JarKind.Goal, TargetAmount = 600m, TargetDate = new DateOnly(2027, 7, 1),
+            Accrual = AccrualMethod.TargetByDate, FundingAccountId = account.Id,
+        };
+        db.Jars.Add(other);
+        db.SaveChanges();
+        var jar = SeedGoal(db, account);
+        SeedMonth(db, September, (other, 10m));
+        SeedMonth(db, October, (other, 10m), (jar, 120m));
+
+        var september = (await ReadAllAsync(db, September)).Single(j => j.Id == jar.Id);
+        september.PlannedThisMonth.Should().Be(0m);
+        september.RemainingThisMonth.Should().Be(0m);
+        // The current month keeps its line, and a month that has not begun with no line yet is
+        // planned from that month: 1,200 over the eight months November–June is 150 each.
+        (await ReadAllAsync(db, October)).Single(j => j.Id == jar.Id).PlannedThisMonth.Should().Be(120m);
+        (await ReadAllAsync(db, November)).Single(j => j.Id == jar.Id).PlannedThisMonth.Should().Be(150m);
+    }
+
+    [Fact]
+    public async Task Rule27_AMonthThatIsOver_StillListsAJarArchivedSince_WhoseLineItCarries()
+    {
+        // 300 held at September's end; emptied and archived on 2 October. September's Savings
+        // line still shows 300 available, so September's shelf still shows the jar.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, opening: 2000m);
+        var jar = SeedGoal(db, account, target: 300m);
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 300m, new DateOnly(2026, 8, 20));
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, -300m, new DateOnly(2026, 10, 2), JarAllocationKind.Reallocation);
+        jar.IsArchived = true;
+        db.SaveChanges();
+        SeedMonth(db, September, jar, 0m);
+        SeedMonth(db, October);
+
+        (await GridAvailableAsync(db, September)).Should().Be(300m);
+        var september = (await ReadAllAsync(db, September)).Should().ContainSingle(j => j.Id == jar.Id).Subject;
+        september.CurrentBalance.Should().Be(300m);
+        september.IsArchived.Should().BeTrue();
+        // Today the jar is archived and out of the way, as before.
+        (await ReadAllAsync(db, October)).Should().BeEmpty();
+        (await ReadAllAsync(db, null)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Rule20_AMonthThatIsOver_IsJudgedAgainstTheCycleOpenThen_NotTodays()
+    {
+        // Recurring 300 due 15 September with only 100 held: at September's end the card read
+        // Deadline missed with a 200 shortfall. On 3 October the user marked the cycle paid
+        // (closing it; the next deadline is 15 September 2027). September still reads what it
+        // read then (P49); October reads the new cycle.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, opening: 2000m);
+        var bill = new Jar
+        {
+            OwnerId = Owner, Name = "Insurance", Kind = JarKind.Recurring, TargetAmount = 300m,
+            TargetDate = new DateOnly(2026, 9, 15), CycleDeadline = new DateOnly(2027, 9, 15), RecurMonths = 12,
+            Accrual = AccrualMethod.TargetByDate, FundingAccountId = account.Id,
+        };
+        db.Jars.Add(bill);
+        db.SaveChanges();
+        LedgerFixtures.Allocate(db, Owner, account.Id, bill.Id, 100m, new DateOnly(2026, 8, 1));
+        db.JarCycles.Add(new JarCycle
+        {
+            OwnerId = Owner, JarId = bill.Id, Deadline = new DateOnly(2026, 9, 15), TargetAmount = 300m,
+            Outcome = JarCycleOutcome.Paid, BalanceAtDeadline = 100m, PaidOn = new DateOnly(2026, 10, 3), PaidAmount = 300m,
+            ClosedOn = new DateOnly(2026, 10, 3), CreatedUtc = DateTime.UtcNow,
+        });
+        db.SaveChanges();
+        SeedMonth(db, September, bill, 0m);
+        SeedMonth(db, October, bill, 0m);
+
+        var september = await ReadAsync(db, September);
+        september.Status.Should().Be("DeadlineMissed");
+        september.Deadline.Should().Be(new DateOnly(2026, 9, 15));
+        september.Shortfall.Should().Be(200m);
+        september.LastCycle.Should().BeNull("no cycle had closed by September's end");
+
+        var october = await ReadAsync(db, October);
+        october.Status.Should().Be("OnTrack");
+        october.Deadline.Should().Be(new DateOnly(2027, 9, 15));
+        october.Shortfall.Should().BeNull();
+        october.LastCycle!.Outcome.Should().Be("Paid");
     }
 
     [Fact]

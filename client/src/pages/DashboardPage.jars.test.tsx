@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { BudgetMonthDto, JarDto } from '../types'
@@ -7,7 +7,8 @@ import type { BudgetMonthDto, JarDto } from '../types'
 // W05 — the "Your jars" shelf is the viewed month's view of the jars (rule 48): it is read for
 // that month (DASH-028), says which date a past month's balances are as of (DASH-073), reads
 // today's balances for a month that has not begun (DASH-074), and is re-read when a jar line's
-// planned amount is edited or the month is created (DASH-075, J6's staleness).
+// planned amount is edited or the month is created (DASH-075, J6's staleness), and never shows
+// one month's balances under another month's grid while its read is in flight (DASH-076).
 const { mockGet, mockPut, mockPost, mockDelete } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockPut: vi.fn(),
@@ -32,7 +33,7 @@ vi.mock('../features/HouseholdContext', async (importOriginal) => ({
 
 import { DashboardPage } from './DashboardPage'
 import { AuthProvider } from '../auth/AuthContext'
-import { MonthProvider } from '../features/MonthContext'
+import { MonthProvider, useMonth } from '../features/MonthContext'
 import { setMoneyFormat } from '../lib/money'
 import { formatDate } from '../lib/dates'
 
@@ -199,5 +200,61 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/budget', { year: YEAR, month: MONTH, copyFromPrevious: false }))
     await waitFor(() => expect(jarReads().length).toBe(2))
     expect(await screen.findByRole('heading', { name: 'Your jars' }, { timeout: 5000 })).toBeInTheDocument()
+  })
+
+  it('DASH-076: on month navigation the previous month\'s shelf never shows under the new month\'s grid', { timeout: 15000 }, async () => {
+    // The month's budget and its jars are two requests; when the budget lands first, the shelf
+    // must be empty (not the previous month's balances, unlabelled) until its own read lands.
+    const PREV = MONTH === 1 ? { year: YEAR - 1, month: 12 } : { year: YEAR, month: MONTH - 1 }
+    const prevKey = `${PREV.year}-${String(PREV.month).padStart(2, '0')}`
+    let releaseCurrentJars: () => void = () => {}
+    const currentJars = new Promise<{ data: JarDto[] }>((resolve) => {
+      releaseCurrentJars = () => resolve({ data: [jar({ currentBalance: 450, balanceAsOf: ISO(15) })] })
+    })
+    mockGet.mockImplementation((url: string, cfg?: { params?: { year: number; month: number } }) => {
+      if (url === '/budget/months' || url === '/budget/templates' || url === '/accounts') return Promise.resolve({ data: [] })
+      if (url === '/auth/me') return Promise.resolve({ data: {} })
+      if (url === '/jars') {
+        if (cfg?.params?.month === PREV.month) return Promise.resolve({ data: [jar({ currentBalance: 300, balanceAsOf: `${prevKey}-28`, plannedThisMonth: 100 })] })
+        return currentJars // the current month's jars are slow
+      }
+      if (url === `/budget/${PREV.year}/${PREV.month}`) return Promise.resolve({ data: { ...month({ planned: 100 }), id: 'm0', key: prevKey, year: PREV.year, month: PREV.month } })
+      if (url === `/budget/${YEAR}/${MONTH}`) return Promise.resolve({ data: month() })
+      return Promise.reject({ response: { status: 404 } })
+    })
+    function Nav() {
+      const { goToMonth } = useMonth()
+      return (
+        <>
+          <button onClick={() => goToMonth(PREV.year, PREV.month)}>go-prev</button>
+          <button onClick={() => goToMonth(YEAR, MONTH)}>go-current</button>
+        </>
+      )
+    }
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <MonthProvider>
+            <Nav />
+            <DashboardPage />
+          </MonthProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    // View the previous month: its shelf is dated.
+    await act(async () => { screen.getByText('go-prev').click() })
+    expect(await screen.findByText('€300.00 saved', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText(/as of/)).toBeInTheDocument()
+
+    // Back to the current month: its grid lands at once, its jars do not.
+    await act(async () => { screen.getByText('go-current').click() })
+    await waitFor(() => expect(screen.getAllByText(/€450\.00/).length).toBeGreaterThan(0))
+    expect(screen.queryByText('€300.00 saved')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Your jars' })).toBeNull()
+
+    releaseCurrentJars()
+    expect(await screen.findByText('€450.00 saved', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.queryByText(/as of/)).toBeNull()
   })
 })

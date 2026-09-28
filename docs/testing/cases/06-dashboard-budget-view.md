@@ -400,6 +400,16 @@
   - Skipping a month / Plan it again / Archive the jar from a line (BUDG-060/061) and creating a jar from a Savings group already re-read it.
 - **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-075 ×2)
 
+### DASH-076 - Navigating months never shows the previous month's shelf under the new month
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Adversarial review of PR #275 (W05): the month was cleared on navigation, the jars were not.
+- **Preconditions:** A past month with a jar at 300 (dated shelf) and the current month with the same jar at 450; a slow `/jars` response for the current month.
+- **Steps:**
+  1. View the past month. 2. Navigate to the current month.
+- **Expected:** 1: "€300.00 saved as of <last day>". 2: the current month's grid appears with the shelf absent until its own `GET /api/jars?year&month` lands, then "€450.00 saved" with no date; at no point does "€300.00 saved" show under the current month.
+- **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-076)
+
 ## Income card
 
 ### DASH-031 - Income header shows transaction-derived received of planned

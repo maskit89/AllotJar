@@ -40,16 +40,21 @@ public sealed record JarLedgerSnapshot(
     /// what they left in any account it was designated to before (rule 80 — the history stays in
     /// the old account's ledger, so a date before the change reads the balance it held there
     /// then, while today the old account's postings for it sum to zero). Null when its designated
-    /// account's balance is unavailable (rule 67); an account not yet open on the date held
-    /// nothing of it.
+    /// account has no opening date, or had not opened on the date and no other account's ledger
+    /// carries the jar on it (rule 67); an account not yet open on the date held nothing of it.
     /// </summary>
     public decimal? BalanceOf(Guid jarId)
     {
-        if (!Jars.TryGetValue(jarId, out var jar) || !Accounts.TryGetValue(jar.FundingAccountId, out var view) || !view.IsAvailable)
+        if (!Jars.TryGetValue(jarId, out var jar) || !Accounts.TryGetValue(jar.FundingAccountId, out var view) || view.OpeningDateMissing)
         {
             return null;
         }
-        return Accounts.Values.Where(a => a.IsAvailable).Sum(a => a.JarBalances.GetValueOrDefault(jarId));
+        var held = Accounts.Values.Where(a => a.IsAvailable && a.JarBalances.ContainsKey(jarId)).ToList();
+        if (held.Count == 0)
+        {
+            return null;
+        }
+        return held.Sum(a => a.JarBalances[jarId]);
     }
 
     public JarLedgerView? AccountOf(Guid jarId) =>
