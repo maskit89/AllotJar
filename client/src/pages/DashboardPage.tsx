@@ -876,7 +876,12 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                   <h2 className="text-base font-bold tracking-[-0.01em] text-slate-900">Your jars</h2>
                   <span className="text-sm tabular-nums text-slate-500">
                     {formatMoney(totalSavedMinor, month.currency)} saved
-                    {shelfAsOf && <span className="ml-1.5 text-xs font-normal text-slate-400">{shelfAsOf}</span>}
+                    {shelfAsOf && (
+                      <>
+                        {' '}
+                        <span className="ml-1 text-xs font-normal text-slate-400">{shelfAsOf}</span>
+                      </>
+                    )}
                   </span>
                 </div>
                 <div className="mt-[22px] grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(116px,1fr))]">
