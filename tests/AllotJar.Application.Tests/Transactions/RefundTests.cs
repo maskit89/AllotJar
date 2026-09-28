@@ -364,6 +364,43 @@ public class RefundTests
     }
 
     [Fact]
+    public async Task Update_ComparesARefundInAnotherCurrency_OnTheBaseCurrencyScale_LikeLinkingDoes()
+    {
+        // O5: a refund in another currency carries the converted figure through its stored rate.
+        // USD 60 at 2 is €120, so a €150 purchase may shrink to €120 but not to €80; USD 90 at
+        // 0.5 is €45, so a €100 purchase may shrink to €80 (comparing 80 with 90 would refuse it).
+        await using var db = NewContext();
+        var lines = SeedMonth(db, 2026, 9);
+        var big = SeedExpense(db, new DateOnly(2026, 9, 10), 150m, lines["Groceries"].Id);
+        var small = SeedExpense(db, new DateOnly(2026, 9, 11), 100m, lines["Groceries"].Id);
+        db.Transactions.AddRange(
+            new Transaction
+            {
+                OwnerId = "user-1", Date = new DateOnly(2026, 9, 12), Payee = "Shop refund", Amount = 60m, Currency = CurrencyCode.From("USD"),
+                ExchangeRate = 2m, Type = TransactionType.Income, RefundOfTransactionId = big.Id,
+            },
+            new Transaction
+            {
+                OwnerId = "user-1", Date = new DateOnly(2026, 9, 12), Payee = "Shop refund", Amount = 90m, Currency = CurrencyCode.From("USD"),
+                ExchangeRate = 0.5m, Type = TransactionType.Income, RefundOfTransactionId = small.Id,
+            });
+        await db.SaveChangesAsync();
+        var update = new UpdateTransactionCommandHandler(db, User);
+
+        var overRefunded = () => update.Handle(
+            new UpdateTransactionCommand(big.Id, big.Date, "Shop", 80m, TransactionType.Expense), CancellationToken.None);
+        (await overRefunded.Should().ThrowAsync<ValidationException>()).Which.Errors["Amount"].Single().Should().Contain("120");
+        (await update.Handle(new UpdateTransactionCommand(big.Id, big.Date, "Shop", 120m, TransactionType.Expense), CancellationToken.None))
+            .Amount.Should().Be(120m);
+
+        (await update.Handle(new UpdateTransactionCommand(small.Id, small.Date, "Shop", 80m, TransactionType.Expense), CancellationToken.None))
+            .Amount.Should().Be(80m);
+        var belowTheRefund = () => update.Handle(
+            new UpdateTransactionCommand(small.Id, small.Date, "Shop", 40m, TransactionType.Expense), CancellationToken.None);
+        (await belowTheRefund.Should().ThrowAsync<ValidationException>()).Which.Errors["Amount"].Single().Should().Contain("45");
+    }
+
+    [Fact]
     public async Task Delete_RefusesAPurchaseWithRefunds_ButDeletesARefund()
     {
         await using var db = NewContext();

@@ -150,18 +150,23 @@ public class ImportPreviewCommitTests
         var refs = clean.Items.Select(i => i.Reference).Distinct().ToList();
         refs.Count.Should().BeGreaterThan(2);
 
+        // A transfer row carries both bank legs on its date, as the AccountOpeningDatesAndTransferLegs
+        // migration left every row recorded before the legs existed (rule 51).
         Transaction Row(string reference, Guid? accountId, Guid? transferAccountId = null) => new()
         {
             OwnerId = "user-1", Amount = 10m, Currency = CurrencyCode.Eur, ExchangeRate = 1m,
             Type = transferAccountId is null ? TransactionType.Expense : TransactionType.Transfer,
             Date = new DateOnly(2026, 6, 15), Payee = "SEEDED", BankReference = reference,
             AccountId = accountId, TransferAccountId = transferAccountId,
+            DepartedOn = transferAccountId is null ? null : new DateOnly(2026, 6, 15),
+            ReceivedOn = transferAccountId is null ? null : new DateOnly(2026, 6, 15),
         };
 
         db.Transactions.AddRange(
             // On the statement account, as a CASE VARIANT — must hide (the commit would skip it).
             Row(refs[0].ToUpperInvariant(), statementAccount.Id),
-            // An inbound transfer: stored on the OTHER leg, statement account as destination — must hide.
+            // A legacy inbound transfer: its receipt recorded, the statement account's reference kept
+            // on the source leg, statement account as destination — must hide.
             Row(refs[1], otherAccount.Id, transferAccountId: statementAccount.Id),
             // The same reference on a DIFFERENT account entirely — genuinely distinct, must stay visible.
             Row(refs[2], otherAccount.Id));

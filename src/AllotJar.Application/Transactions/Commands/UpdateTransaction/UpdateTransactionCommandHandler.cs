@@ -29,6 +29,7 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         var transaction = await _db.Transactions
             .Include(t => t.BudgetItem)
             .Include(t => t.Account)
+            .Include(t => t.TransferAccount)
             .Include(t => t.Splits)
             .Include(t => t.Refunds)
             .FirstOrDefaultAsync(t => t.Id == request.TransactionId, cancellationToken);
@@ -58,6 +59,8 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             }
         }
         var previousAccount = transaction.Account;
+        // A transfer's other side: it loses the credit when the row stops being a transfer.
+        var previousDestination = transaction.Type == TransactionType.Transfer ? transaction.TransferAccount : null;
         // Serialise against other writers on the account that receives the edited row (rule 74).
         await using var write = account is null
             ? null
@@ -141,8 +144,12 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             {
                 errors["Type"] = new[] { "This purchase has refunds linked to it. Unmark them as refunds before changing its type." };
             }
-            var refunded = transaction.Refunds.Sum(r => r.Amount);
-            if (request.Amount < refunded)
+            // The same scale RefundRules links on: recorded amounts in one currency, otherwise
+            // base-currency values, so a refund in another currency is neither under- nor over-counted.
+            var (paid, refunded, _) = RefundRules.Totals(
+                transaction.Currency, request.Amount, transaction.ExchangeRate,
+                transaction.Refunds.Select(RefundRules.RefundLeg.Of).ToList());
+            if (paid < refunded)
             {
                 errors["Amount"] = new[] { $"This purchase has {refunded:0.##} refunded against it; its amount can't be less than that." };
             }
@@ -237,8 +244,10 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         transaction.MemberId = member?.Id;
 
         // Rule 74 on every account the edit touches: the one losing the row as much as the one
-        // receiving it (moving an income away, or shrinking it, can leave later payments uncovered).
-        var affected = new[] { previousAccount, account }.Where(a => a is not null).Select(a => a!).ToList();
+        // receiving it (moving an income away, or shrinking it, can leave later payments uncovered),
+        // and the destination of a transfer that stops being one — its receipt is what the edit
+        // takes away, so the money spent from it since must still be covered.
+        var affected = new[] { previousAccount, previousDestination, account }.Where(a => a is not null).Select(a => a!).ToList();
         if (affected.Count > 0)
         {
             await AccountBalanceGuard.EnsureNonNegativeAsync(
@@ -246,10 +255,15 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         }
 
         // The jar split of the previous leg no longer describes this row once it changes account
-        // or direction; the edited leg carries the re-answered prompt (rules 78/79).
+        // or direction; the edited leg carries the re-answered prompt (rules 78/79). The receipt
+        // leg's split goes with the receipt.
         if (previousAccount is not null && previousAccount.Id != account?.Id)
         {
             await JarMovements.ClearAsync(_db, transaction, previousAccount.Id, cancellationToken);
+        }
+        if (previousDestination is not null && previousDestination.Id != account?.Id)
+        {
+            await JarMovements.ClearAsync(_db, transaction, previousDestination.Id, cancellationToken);
         }
         if (account is not null)
         {
