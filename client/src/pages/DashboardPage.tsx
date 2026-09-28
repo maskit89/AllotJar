@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
@@ -48,6 +48,7 @@ import { JarFormModal } from '../components/JarFormModal'
 import { CheckIcon } from '../components/icons'
 import { hueForIndex } from '../lib/categoryColors'
 import { monthIso } from '../lib/jarForm'
+import { formatDate } from '../lib/dates'
 import { CategoryAccordion } from '../components/CategoryAccordion'
 import { SavingsGroup } from '../components/SavingsGroup'
 import { RemoveJarLineModal } from '../components/jars/RemoveJarLineModal'
@@ -90,6 +91,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   const [removingJarLine, setRemovingJarLine] = useState<ItemVM | null>(null)
   // A past month's contributions are history (rule 60): nothing in it can be skipped.
   const isPastMonth = year < today.getFullYear() || (year === today.getFullYear() && monthNum < today.getMonth() + 1)
+  // A month that has not begun: the jars shelf shows today's balances with nothing contributed yet.
+  const isFutureMonth = year > today.getFullYear() || (year === today.getFullYear() && monthNum > today.getMonth() + 1)
 
   // Load the viewed month whenever it changes; a 404 means "no budget yet".
   useEffect(() => {
@@ -148,14 +151,22 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       .catch(() => {})
   }, [])
 
-  // The jars for the "Your jars" shelf — load once, and again after one is created.
+  // The jars for the "Your jars" shelf, read for the viewed month (W05, rule 48): a past
+  // month's balances as of its last day and its own plan, the current or a later month as of
+  // today. Re-read whenever the month changes and after anything that moves a jar's figures.
   // Guarded so a non-array (or a failed fetch) leaves the shelf empty rather than throwing.
+  // Only the latest read lands, so a slow answer for the previous month can never overwrite the
+  // month now viewed.
+  const jarsRead = useRef(0)
   const refreshJars = useCallback(() => {
+    const read = ++jarsRead.current
     api
-      .get<JarDto[]>('/jars')
-      .then(({ data }) => setJars(Array.isArray(data) ? data : []))
+      .get<JarDto[]>('/jars', { params: { year, month: monthNum } })
+      .then(({ data }) => {
+        if (read === jarsRead.current) setJars(Array.isArray(data) ? data : [])
+      })
       .catch(() => {})
-  }, [])
+  }, [year, monthNum])
 
   useEffect(() => refreshJars(), [refreshJars])
 
@@ -204,6 +215,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         setMonth(fromDto(data))
         setNotFound(false)
         refreshMonths()
+        refreshJars() // the month's seeded contribution lines are the shelf's plan (rule 14)
         track(EVENTS.budgetMonthCreated, { source: copyFromPrevious ? 'copy' : 'blank' })
       } catch {
         setError('Could not create that budget.')
@@ -211,7 +223,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         setCreating(false)
       }
     },
-    [year, monthNum, refreshMonths],
+    [year, monthNum, refreshMonths, refreshJars],
   )
 
   // Create the viewed month from a quick-start template.
@@ -229,6 +241,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         setMonth(fromDto(data))
         setNotFound(false)
         refreshMonths()
+        refreshJars()
         track(EVENTS.budgetMonthCreated, { source: 'template' })
       } catch {
         setError('Could not create that budget.')
@@ -236,7 +249,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         setCreating(false)
       }
     },
-    [year, monthNum, refreshMonths],
+    [year, monthNum, refreshMonths, refreshJars],
   )
 
   // Optimistic commit: apply the edit locally and recompute the banner instantly
@@ -254,6 +267,9 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       try {
         await api.put(`/budget/items/${itemId}`, { plannedAmount: toAmount(plannedMinor) })
         track(EVENTS.budgetItemEdited, { context: 'planned' })
+        // A jar line's planned amount is the plan the shelf shows for the month (rule 14), and
+        // typing one un-skips the month: re-read the shelf so it never goes stale (J6).
+        if (findItem(month, itemId)?.savingsId) refreshJars()
       } catch {
         setMonth(snapshot) // roll back to the pre-edit state
         setError('Could not save that change — reverted to the previous value.')
@@ -261,7 +277,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         setSavingItemId(null)
       }
     },
-    [month],
+    [month, refreshJars],
   )
 
   // Attribute an income line to the household member who earns it (or clear with null).
@@ -767,9 +783,14 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           const over = remainingMinor < 0
           // Only jars whose balance is known count; an unavailable one reads as such (rule 67).
           const totalSavedMinor = jars.reduce((s, f) => s + (f.currentBalance === null ? 0 : fromAmount(f.currentBalance)), 0)
-          // The jars shelf shows all-time (today's) balances, which only line up with
-          // the month-scoped savings lines on the current month — so it's shown there only.
-          const isCurrentMonth = today.getFullYear() === year && today.getMonth() + 1 === monthNum
+          // W05 (rule 48): the shelf is the viewed month's view of the jars — a past month's
+          // balances as of its last day (the server dates them), a month that has not begun
+          // today's — so it always agrees with the Savings lines beside it. Say which.
+          const shelfAsOf = isPastMonth && jars[0]
+            ? `as of ${formatDate(jars[0].balanceAsOf)}`
+            : isFutureMonth
+              ? 'balances as of today'
+              : null
           return (
           <>
             <Hero
@@ -846,15 +867,16 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
               )
             })()}
 
-            {/* "Your jars" shelf — the jars drawn as jars, the signature metaphor.
-                Shown on the current month only: it's today's all-time balance, which
-                would contradict a past/future month's savings lines on the same screen. */}
-            {jars.length > 0 && isCurrentMonth && (
+            {/* "Your jars" shelf — the jars drawn as jars, the signature metaphor. It follows
+                the viewed month (rule 48): balances at a past month's end, this month's plan
+                and what went in, so it never contradicts the savings lines on the same screen. */}
+            {jars.length > 0 && (
               <Card className="p-6">
                 <div className="flex items-baseline justify-between gap-3">
                   <h2 className="text-base font-bold tracking-[-0.01em] text-slate-900">Your jars</h2>
                   <span className="text-sm tabular-nums text-slate-500">
                     {formatMoney(totalSavedMinor, month.currency)} saved
+                    {shelfAsOf && <span className="ml-1.5 text-xs font-normal text-slate-400">{shelfAsOf}</span>}
                   </span>
                 </div>
                 <div className="mt-[22px] grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(116px,1fr))]">

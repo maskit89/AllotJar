@@ -37,6 +37,8 @@ public class GetJarsQueryHandler
             .OrderBy(f => f.Name)
             .ToListAsync(cancellationToken);
 
-        return await JarFigures.ReadAsync(_db, userId, jars, asOf, cancellationToken);
+        // W05 (rule 48): the figures of the selected month — a past month as of its end, the
+        // current or a later month as of today — never today's all-time balance for history.
+        return await JarFigures.ReadAsync(_db, userId, jars, asOf, cancellationToken, month: request.Month);
     }
 }

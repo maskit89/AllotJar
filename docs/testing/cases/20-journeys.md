@@ -61,7 +61,7 @@
 - **Expected:**
   - CP1: `sign_up {sample_data:true}`; server seeds the sample month (Income "Take-home Pay" 3,000 planned, Housing/Transport/Food… groups) AND a real backing "Emergency Fund" jar via `HouseholdBootstrap` with `seedSampleBudget:true` (enforced SavingsId→Jars FK).
   - CP2-CP3: dashboard shows the seeded month with a **positive** Remaining-to-budget on purpose (BudgetSeeder leaves it under-allotted) → Hero reads "{amount} still to assign", NOT the empty prompt and NOT balanced. Checklist pre-ticks exactly **2 of 4** (month exists + income > 0) but NOT step 3 (as ONBD-029).
-  - CP4: the jars shelf renders (current month, jars.length > 0) showing the Emergency Fund.
+  - CP4: the jars shelf renders (jars.length > 0; it follows the viewed month — W05, DASH-028) showing the Emergency Fund.
   - CP5-CP7: renames/deletes are optimistic and reconcile from the server; lowering income and re-planning drives Remaining to 0 → gold **"Every euro has a job"** badge appears (income > 0 required, PR #172).
   - CP8: the jar Edit modal labels the amount field **"Opening balance"** (not "Saved so far") with the "Before tracking began…" helper; the live card balance is not double-counted.
   - CP9: reports reflect the personalised planned/received figures (tx-derived), not the seed defaults.

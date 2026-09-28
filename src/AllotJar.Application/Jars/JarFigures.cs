@@ -6,12 +6,18 @@ using AllotJar.Domain.Entities;
 namespace AllotJar.Application.Jars;
 
 /// <summary>
-/// The one read path for <see cref="JarDto"/>s: the ledger as of the date and as of the end
-/// of the previous month (rule 14's "contributed this month"), plus the month's stored
+/// The one read path for <see cref="JarDto"/>s: the ledger as of the month's balance date and as
+/// of the end of the month before it (rule 14's "contributed this month"), plus the month's stored
 /// savings lines (its plans, and whether the month was skipped — W04), each jar's last closed
 /// cycle (W03) and whether it ever held money (rule 84). Callers settle the
 /// cycles first (<see cref="JarCycles.SettleAsync"/>) where a deadline may have arrived. Every handler that returns a jar goes through here so the card
 /// never changes between the write that returned it and the next load.
+/// <para>
+/// W05 (rule 48): <c>month</c> selects the budget month the figures belong to. A past month's
+/// balances are read as of its last day, excluding everything after it; the current month and a
+/// later one read as of <c>asOf</c> (today), so a month that has not begun shows today's balance
+/// with nothing contributed yet. The plan is always that month's own line.
+/// </para>
 /// </summary>
 public static class JarFigures
 {
@@ -21,18 +27,31 @@ public static class JarFigures
         IReadOnlyList<Jar> jars,
         DateOnly asOf,
         CancellationToken cancellationToken,
-        IReadOnlyCollection<Guid>? accountIds = null)
+        IReadOnlyCollection<Guid>? accountIds = null,
+        DateOnly? month = null)
     {
         if (jars.Count == 0)
         {
             return Array.Empty<JarDto>();
         }
 
+        // The month whose figures are wanted (any day in it), and the date its balances are read
+        // as of: a past month ends on its last day (rule 48); the current month and a later one
+        // read as of today — the future is not read, so a month that has not begun contributes
+        // nothing yet and today's balance is what it holds.
+        var monthStart = month is { } m ? new DateOnly(m.Year, m.Month, 1) : new DateOnly(asOf.Year, asOf.Month, 1);
+        var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+        var balanceDate = monthEnd < asOf ? monthEnd : asOf;
+        var dayBefore = monthStart.AddDays(-1);
+        if (dayBefore > balanceDate)
+        {
+            dayBefore = balanceDate;
+        }
+
         // Actual money only (rule 1): each jar's allocations in its account as of the date, and
         // as the month began.
-        var monthStart = new DateOnly(asOf.Year, asOf.Month, 1);
-        var now = await JarLedgerReader.ReadAsync(db, ownerId, asOf, cancellationToken, accountIds);
-        var before = await JarLedgerReader.ReadAsync(db, ownerId, monthStart.AddDays(-1), cancellationToken, accountIds);
+        var now = await JarLedgerReader.ReadAsync(db, ownerId, balanceDate, cancellationToken, accountIds);
+        var before = await JarLedgerReader.ReadAsync(db, ownerId, dayBefore, cancellationToken, accountIds);
 
         var ids = jars.Select(j => j.Id).ToList();
         // This month's stored lines: the plan they carry, and whether the user skipped the month
@@ -41,8 +60,8 @@ public static class JarFigures
                 .AsNoTracking()
                 .Where(i => i.SavingsId != null && ids.Contains(i.SavingsId.Value)
                             && i.BudgetCategory.BudgetMonth.OwnerId == ownerId
-                            && i.BudgetCategory.BudgetMonth.Year == asOf.Year
-                            && i.BudgetCategory.BudgetMonth.Month == asOf.Month)
+                            && i.BudgetCategory.BudgetMonth.Year == monthStart.Year
+                            && i.BudgetCategory.BudgetMonth.Month == monthStart.Month)
                 .Select(i => new { JarId = i.SavingsId!.Value, i.PlannedAmount, i.IsSkipped })
                 .ToListAsync(cancellationToken))
             .GroupBy(i => i.JarId)
@@ -69,8 +88,9 @@ public static class JarFigures
                 now.BalanceOf(j.Id),
                 before.BalanceOf(j.Id),
                 storedLines.TryGetValue(j.Id, out var line) ? line.Planned : null,
-                asOf,
+                balanceDate,
                 lastCycles.GetValueOrDefault(j.Id),
+                month: monthStart,
                 skippedThisMonth: storedLines.TryGetValue(j.Id, out var flags) && flags.Skipped,
                 canDelete: !heldMoney.Contains(j.Id),
                 skippedMonths: skippedMonths.GetValueOrDefault(j.Id)))

@@ -122,11 +122,15 @@ public class JarCycleDto
 public static class JarMapping
 {
     /// <summary>
-    /// Maps the jar from its two balances — now and entering the month (both null when
-    /// unavailable, rule 67) — and the month's stored savings-line plan when the month exists.
+    /// Maps the jar from its two balances — as of <paramref name="asOf"/> and entering the month
+    /// (both null when unavailable, rule 67) — and the month's stored savings-line plan when the
+    /// month exists. <paramref name="month"/> is the budget month the figures belong to (W05, rule
+    /// 48); it is the month of <paramref name="asOf"/> unless the month has not begun yet, when
+    /// the balances are today's and the plan is the later month's own line.
     /// </summary>
     public static JarDto ToDto(this Jar f, decimal? currentBalance, decimal? balanceAtMonthStart, decimal? storedPlanThisMonth, DateOnly asOf,
-        JarCycle? lastCycle = null, bool skippedThisMonth = false, bool canDelete = false, IReadOnlySet<DateOnly>? skippedMonths = null)
+        JarCycle? lastCycle = null, bool skippedThisMonth = false, bool canDelete = false, IReadOnlySet<DateOnly>? skippedMonths = null,
+        DateOnly? month = null)
     {
         var balance = currentBalance ?? 0m;
         var remaining = f.TargetAmount > 0m ? Math.Max(0m, f.TargetAmount - balance) : 0m;
@@ -137,7 +141,7 @@ public static class JarMapping
         var startBalance = currentBalance is null ? 0m : JarPlanner.PlanningBalance(balanceAtMonthStart, currentBalance);
         // The months the user skipped (rule 60) — this one and any later — shape the horizon the
         // card shows, exactly as they shape the plan the Savings lines carry (rule 61).
-        var monthStart = new DateOnly(asOf.Year, asOf.Month, 1);
+        var monthStart = month is { } m ? new DateOnly(m.Year, m.Month, 1) : new DateOnly(asOf.Year, asOf.Month, 1);
         var skipped = new HashSet<DateOnly>(skippedMonths ?? (IEnumerable<DateOnly>)Array.Empty<DateOnly>());
         if (skippedThisMonth)
         {
