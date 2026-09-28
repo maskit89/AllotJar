@@ -118,15 +118,7 @@ public static class JarLedgerReader
         var postingDates = TransferLedger.PostingDates(readable);
         var byId = readable.ToDictionary(t => t.Id);
 
-        // Budget line → jar, for the derived attribution of expenses (rule 79).
-        var lineJars = (await db.BudgetItems
-                .AsNoTracking()
-                .Join(db.BudgetCategories, i => i.BudgetCategoryId, c => c.Id, (i, c) => new { i, c })
-                .Join(db.BudgetMonths, x => x.c.BudgetMonthId, m => m.Id, (x, m) => new { x.i, m })
-                .Where(x => x.m.OwnerId == ownerId && x.i.SavingsId != null)
-                .Select(x => new { x.i.Id, SavingsId = x.i.SavingsId!.Value })
-                .ToListAsync(cancellationToken))
-            .ToDictionary(x => x.Id, x => x.SavingsId);
+        var lineJars = await LineJarsAsync(db, ownerId, cancellationToken);
 
         var stored = await db.JarAllocations
             .AsNoTracking()
@@ -200,12 +192,24 @@ public static class JarLedgerReader
         return new JarLedgerSnapshot(asOf, views, jarsById);
     }
 
+    /// <summary>Budget line → jar, for the derived attribution of expenses (rule 79).</summary>
+    internal static async Task<Dictionary<Guid, Guid>> LineJarsAsync(IApplicationDbContext db, string ownerId, CancellationToken cancellationToken) =>
+        (await db.BudgetItems
+            .AsNoTracking()
+            .Join(db.BudgetCategories, i => i.BudgetCategoryId, c => c.Id, (i, c) => new { i, c })
+            .Join(db.BudgetMonths, x => x.c.BudgetMonthId, m => m.Id, (x, m) => new { x.i, m })
+            .Where(x => x.m.OwnerId == ownerId && x.i.SavingsId != null)
+            .Select(x => new { x.i.Id, SavingsId = x.i.SavingsId!.Value })
+            .ToListAsync(cancellationToken))
+        .ToDictionary(x => x.Id, x => x.SavingsId);
+
     /// <summary>
     /// Rule 79: an expense from a jar-backed account draws from the jar its budget line (or each
     /// split slice's line) names, otherwise from unallocated. Incoming money and transfer legs
     /// without a stored allocation are unallocated (rule 78 stores the user's answer).
+    /// <paramref name="movement"/> is the leg's signed amount (an expense is negative).
     /// </summary>
-    private static IReadOnlyList<JarLedgerPosting> Derive(
+    internal static IReadOnlyList<JarLedgerPosting> Derive(
         Transaction transaction, Account account, decimal movement,
         IReadOnlyDictionary<Guid, Guid> lineJars, IReadOnlyDictionary<Guid, Jar> jars)
     {

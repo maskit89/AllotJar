@@ -24,12 +24,15 @@ public class GetJarsQueryHandler
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
-        var asOf = request.AsOf ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var asOf = request.AsOf ?? today;
 
         // Rule 21: a Recurring cycle whose deadline has arrived with its target held rolls
         // forward the first time the jars are read after it (there is no scheduler); one that
-        // was short stays open as Deadline missed (rule 20).
-        await JarCycles.SettleAsync(_db, userId, asOf, cancellationToken);
+        // was short stays open as Deadline missed (rule 20). Settlement is a write to the jar's
+        // lifecycle, so it runs on the real date: an as-of read is a projection and must never
+        // close a cycle whose deadline has not actually come.
+        await JarCycles.SettleAsync(_db, userId, today, cancellationToken);
 
         var jars = await _db.Jars
             .AsNoTracking()

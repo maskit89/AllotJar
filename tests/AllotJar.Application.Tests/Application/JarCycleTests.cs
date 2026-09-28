@@ -163,6 +163,29 @@ public class JarCycleTests
         dto.LastCycle!.Deadline.Should().Be(Today);
     }
 
+    [Fact]
+    public async Task AFutureDatedRead_IsAProjection_AndClosesNoCycleBeforeItsDeadline()
+    {
+        // The jar already holds next month's target. Reading the jars as of the day after that
+        // deadline must not settle the cycle today: the lifecycle follows the real date, and what
+        // is spent before the deadline still counts.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner);
+        var jar = SeedInsurance(db, account, due: NextMonth);
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 600m, Today.AddDays(-30));
+
+        var projected = (await ListAsync(db, NextMonth.AddDays(1))).Single();
+
+        projected.Deadline.Should().Be(NextMonth);
+        projected.LastCycle.Should().BeNull();
+        (await db.JarCycles.CountAsync()).Should().Be(0);
+        (await db.Jars.SingleAsync()).CycleDeadline.Should().Be(NextMonth);
+        var now = (await ListAsync(db)).Single();
+        now.Deadline.Should().Be(NextMonth);
+        now.Status.Should().Be("FullyFunded");
+        now.LastCycle.Should().BeNull();
+    }
+
     // ---- Rule 20: a missed cycle stays until the user acts -------------------------------
 
     [Fact]

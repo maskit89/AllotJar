@@ -11,6 +11,7 @@ using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.ArchiveJar;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Jars.Commands.ReallocateJarMoney;
@@ -21,6 +22,7 @@ using AllotJar.Application.Jars.Queries.GetJars;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
+using AllotJar.Application.Transactions.Commands.UpdateTransaction;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -394,6 +396,66 @@ public class JarLedgerActivationTests
         rows[current.Id].BackedJarCount.Should().Be(1);
         rows[current.Id].BackedJarsTotal.Should().Be(0m);
         rows[current.Id].Float.Should().Be(200m);
+    }
+
+    [Fact]
+    public async Task ChangingTheAccount_KeepsThePaymentsTheJarMadeFromTheOldAccount_AttributedToIt()
+    {
+        // A opens with 100, all of it goes into the jar, and the jar's line pays the 100 out
+        // (rule 79): jar and account both read zero, so the jar may move to B (rule 80). A's
+        // history must then read exactly as before — the payment still came from the jar — not
+        // "jar 100, unallocated −100" because the reader now looks for the jar in B.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, "user-1", "Savings", opening: 100m);
+        var b = LedgerFixtures.SeedAccount(db, "user-1", "Current", opening: 200m, type: AccountType.Current, order: 1);
+        var holiday = SeedJar(db, a);
+        LedgerFixtures.Allocate(db, "user-1", a.Id, holiday.Id, 100m);
+        var lines = SeedMonthWithJarLines(db, Today.Year, Today.Month, holiday);
+        LedgerFixtures.Expense(db, "user-1", a.Id, 100m, Today, lines[holiday.Id].Id);
+        var before = (await JarLedgerReader.ReadAsync(db, "user-1", Today, CancellationToken.None)).Accounts[a.Id];
+        before.AccountBalance.Should().Be(0m);
+        before.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(0m);
+        before.Unallocated.Should().Be(0m);
+
+        var dto = await new UpdateJarCommandHandler(db, User).Handle(new UpdateJarCommand(
+            holiday.Id, "Holiday", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate, b.Id), CancellationToken.None);
+
+        dto.FundingAccountId.Should().Be(b.Id);
+        dto.CurrentBalance.Should().Be(0m);
+        var after = await JarLedgerReader.ReadAsync(db, "user-1", Today, CancellationToken.None);
+        var old = after.Accounts[a.Id];
+        old.AccountBalance.Should().Be(0m);
+        old.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(0m);
+        old.Unallocated.Should().Be(0m);
+        old.HasBackingDeficit.Should().BeFalse();
+        old.UnreconciledAllocations.Should().Be(0);
+        after.Accounts[b.Id].Unallocated.Should().Be(200m);
+        // The payment's attribution is now written down on A, once; nothing else was stored.
+        (await db.JarAllocations.CountAsync(al => al.AccountId == a.Id && al.TransactionId != null)).Should().Be(1);
+        (await db.JarAllocations.CountAsync(al => al.AccountId == b.Id)).Should().Be(0);
+        var rows = (await new GetAccountReconciliationQueryHandler(db, User)
+            .Handle(new GetAccountReconciliationQuery(), CancellationToken.None)).ToDictionary(r => r.AccountId);
+        rows[a.Id].Float.Should().Be(0m);
+
+        // Editing the payment afterwards re-answers the jar prompt, but the line still names the
+        // jar, so the kept attribution stays: a payee or date edit changes nothing, and a new
+        // amount is still drawn from the jar (jar 20 / unallocated 0, not jar 100 / unallocated −80).
+        var payment = await db.Transactions.AsNoTracking().SingleAsync(t => t.Type == TransactionType.Expense);
+        var update = new UpdateTransactionCommandHandler(db, User);
+        await update.Handle(new UpdateTransactionCommand(payment.Id, payment.Date, "Shop (renamed)", 100m, TransactionType.Expense, a.Id), CancellationToken.None);
+        var renamed = (await JarLedgerReader.ReadAsync(db, "user-1", Today, CancellationToken.None)).Accounts[a.Id];
+        renamed.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(0m);
+        renamed.Unallocated.Should().Be(0m);
+        renamed.HasBackingDeficit.Should().BeFalse();
+        (await db.JarAllocations.CountAsync(al => al.AccountId == a.Id && al.TransactionId != null)).Should().Be(1);
+
+        await update.Handle(new UpdateTransactionCommand(payment.Id, payment.Date, "Shop", 80m, TransactionType.Expense, a.Id), CancellationToken.None);
+        var shrunk = (await JarLedgerReader.ReadAsync(db, "user-1", Today, CancellationToken.None)).Accounts[a.Id];
+        shrunk.AccountBalance.Should().Be(20m);
+        shrunk.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(20m);
+        shrunk.Unallocated.Should().Be(0m);
+        shrunk.HasBackingDeficit.Should().BeFalse();
+        shrunk.UnreconciledAllocations.Should().Be(0);
     }
 
     [Fact]

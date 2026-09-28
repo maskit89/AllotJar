@@ -65,7 +65,9 @@ public static class JarMovements
     /// Stores where an expense leaving <paramref name="account"/> comes from: each slice (or the
     /// whole line) on a jar of this account draws from that jar; everything else draws from
     /// <paramref name="paidFromJarId"/>, or from unallocated when null. Reads the transaction's
-    /// current line and slices, so callers set those first.
+    /// current line and slices, so callers set those first. A line whose jar has since left this
+    /// account (rule 80) still draws from that jar when the leg's stored operation says it did:
+    /// the reader can no longer derive that on its own, so the attribution is written down again.
     /// </summary>
     /// <param name="slices">The transaction's slices when they are not yet on its collection (a split being written); null reads <c>transaction.Splits</c>.</param>
     public static async Task ApplyOutgoingAsync(
@@ -74,22 +76,45 @@ public static class JarMovements
         IReadOnlyCollection<TransactionSplit>? slices = null)
     {
         slices ??= transaction.Splits.ToList();
+        var existing = await FindAsync(db, transaction.Id, account.Id, cancellationToken);
+        // Jars this leg is recorded as drawing from although they are held elsewhere now: history
+        // kept when the jar changed account (KeepLineAttributionAsync).
+        var heldThen = existing?.Postings.Where(p => p.JarId is not null).Select(p => p.JarId!.Value).ToHashSet() ?? new HashSet<Guid>();
+        var keepsHistory = false;
+        Guid JarFor(Guid? lineId, IReadOnlyDictionary<Guid, (Guid JarId, Guid AccountId)> lineJars)
+        {
+            if (lineId is not Guid id || !lineJars.TryGetValue(id, out var line))
+            {
+                return Guid.Empty;
+            }
+            if (line.AccountId == account.Id)
+            {
+                return line.JarId;
+            }
+            if (heldThen.Contains(line.JarId))
+            {
+                keepsHistory = true;
+                return line.JarId;
+            }
+            return Guid.Empty;
+        }
+
         // Portions keyed by jar; Guid.Empty is the portion on no jar line (unallocated by default).
         var portions = new Dictionary<Guid, decimal>();
         if (slices.Count > 0)
         {
             var lineIds = slices.Where(s => s.BudgetItemId is not null).Select(s => s.BudgetItemId!.Value).Distinct().ToList();
-            var lineJars = await LineJarsAsync(db, lineIds, account.Id, cancellationToken);
+            var lineJars = await LineJarsAsync(db, lineIds, cancellationToken);
             foreach (var slice in slices)
             {
-                var jarId = slice.BudgetItemId is Guid lineId && lineJars.TryGetValue(lineId, out var j) ? j : Guid.Empty;
+                var jarId = JarFor(slice.BudgetItemId, lineJars);
                 portions[jarId] = portions.GetValueOrDefault(jarId) + slice.Amount;
             }
         }
         else if (transaction.BudgetItemId is Guid lineId)
         {
-            var lineJars = await LineJarsAsync(db, new[] { lineId }, account.Id, cancellationToken);
-            portions[lineJars.TryGetValue(lineId, out var j) ? j : Guid.Empty] = transaction.Amount;
+            var lineJars = await LineJarsAsync(db, new[] { lineId }, cancellationToken);
+            portions[JarFor(lineId, lineJars)] = transaction.Amount;
         }
         else
         {
@@ -98,7 +123,12 @@ public static class JarMovements
 
         var unlined = portions.GetValueOrDefault(Guid.Empty);
         var postings = new List<JarAllocationPosting>();
-        if (paidFromJarId is Guid fromId)
+        if (paidFromJarId is null && keepsHistory)
+        {
+            postings.AddRange(portions.Where(p => p.Value != 0m)
+                .Select(p => new JarAllocationPosting { JarId = p.Key == Guid.Empty ? null : p.Key, Amount = -p.Value }));
+        }
+        else if (paidFromJarId is Guid fromId)
         {
             if (unlined == 0m)
             {
@@ -113,7 +143,52 @@ public static class JarMovements
             portions[fromId] = portions.GetValueOrDefault(fromId) + unlined;
             postings.AddRange(portions.Select(p => new JarAllocationPosting { JarId = p.Key, Amount = -p.Value }));
         }
-        await ReplaceAsync(db, ownerId, transaction, account.Id, transaction.Date, postings, cancellationToken);
+        await ReplaceAsync(db, ownerId, transaction, account.Id, transaction.Date, postings, cancellationToken, existing);
+    }
+
+    /// <summary>
+    /// Rule 80, before <paramref name="jar"/> is re-designated to another account: every payment
+    /// its budget lines drew from its current account (rule 79) is written down as a stored
+    /// operation on that account, exactly as the reader derives it today. The derivation looks the
+    /// jar up in its current account, so once the jar names another one those payments would fall
+    /// to unallocated and the account's history would change though no money moved. Legs that
+    /// already carry a stored answer are left alone. The caller saves.
+    /// </summary>
+    public static async Task KeepLineAttributionAsync(IApplicationDbContext db, string ownerId, Jar jar, CancellationToken cancellationToken)
+    {
+        var account = await db.Accounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == jar.FundingAccountId, cancellationToken);
+        if (account is null)
+        {
+            return;
+        }
+        var payments = await db.Transactions
+            .AsNoTracking()
+            .Include(t => t.Splits)
+            .Where(t => t.OwnerId == ownerId && t.Type == TransactionType.Expense && t.AccountId == account.Id
+                        && !t.JarAllocations.Any(a => a.AccountId == account.Id)
+                        && ((t.BudgetItem != null && t.BudgetItem.SavingsId == jar.Id)
+                            || t.Splits.Any(s => s.BudgetItem != null && s.BudgetItem.SavingsId == jar.Id)))
+            .ToListAsync(cancellationToken);
+        if (payments.Count == 0)
+        {
+            return;
+        }
+        var jars = await db.Jars.AsNoTracking().Where(j => j.OwnerId == ownerId).ToDictionaryAsync(j => j.Id, cancellationToken);
+        var lineJars = await JarLedgerReader.LineJarsAsync(db, ownerId, cancellationToken);
+        foreach (var payment in payments)
+        {
+            var postings = JarLedgerReader.Derive(payment, account, -payment.Amount, lineJars, jars);
+            db.JarAllocations.Add(new JarAllocation
+            {
+                OwnerId = ownerId,
+                AccountId = account.Id,
+                Kind = JarAllocationKind.Movement,
+                Date = payment.Date,
+                TransactionId = payment.Id,
+                CreatedUtc = DateTime.UtcNow,
+                Postings = postings.Select(p => new JarAllocationPosting { JarId = p.JarId, Amount = p.Amount }).ToList(),
+            });
+        }
     }
 
     /// <summary>Drops the stored split of one leg, so the reader falls back to its derived attribution.</summary>
@@ -124,13 +199,17 @@ public static class JarMovements
     public static Task<bool> BacksJarsAsync(IApplicationDbContext db, string ownerId, Guid accountId, CancellationToken cancellationToken) =>
         db.Jars.AnyAsync(j => j.OwnerId == ownerId && j.FundingAccountId == accountId && !j.IsArchived, cancellationToken);
 
+    private static Task<JarAllocation?> FindAsync(IApplicationDbContext db, Guid transactionId, Guid accountId, CancellationToken cancellationToken) =>
+        db.JarAllocations
+            .Include(a => a.Postings)
+            .FirstOrDefaultAsync(a => a.TransactionId == transactionId && a.AccountId == accountId, cancellationToken);
+
+    /// <param name="existing">The leg's stored operation when the caller already loaded it; null loads it.</param>
     private static async Task ReplaceAsync(
         IApplicationDbContext db, string ownerId, Transaction transaction, Guid accountId, DateOnly date,
-        List<JarAllocationPosting> postings, CancellationToken cancellationToken)
+        List<JarAllocationPosting> postings, CancellationToken cancellationToken, JarAllocation? existing = null)
     {
-        var existing = await db.JarAllocations
-            .Include(a => a.Postings)
-            .FirstOrDefaultAsync(a => a.TransactionId == transaction.Id && a.AccountId == accountId, cancellationToken);
+        existing ??= await FindAsync(db, transaction.Id, accountId, cancellationToken);
         if (postings.Count == 0)
         {
             if (existing is not null)
@@ -196,19 +275,19 @@ public static class JarMovements
         return jars;
     }
 
-    /// <summary>Budget line → jar, for lines that are a jar's savings line held in this account (rule 79).</summary>
-    private static async Task<Dictionary<Guid, Guid>> LineJarsAsync(
-        IApplicationDbContext db, IReadOnlyCollection<Guid> lineIds, Guid accountId, CancellationToken cancellationToken)
+    /// <summary>Budget line → the jar whose savings line it is, and the account that holds the jar now (rule 79).</summary>
+    private static async Task<Dictionary<Guid, (Guid JarId, Guid AccountId)>> LineJarsAsync(
+        IApplicationDbContext db, IReadOnlyCollection<Guid> lineIds, CancellationToken cancellationToken)
     {
         if (lineIds.Count == 0)
         {
-            return new Dictionary<Guid, Guid>();
+            return new Dictionary<Guid, (Guid, Guid)>();
         }
         return await db.BudgetItems
             .AsNoTracking()
-            .Where(i => lineIds.Contains(i.Id) && i.SavingsId != null && i.Jar != null && i.Jar.FundingAccountId == accountId)
-            .Select(i => new { i.Id, JarId = i.SavingsId!.Value })
-            .ToDictionaryAsync(x => x.Id, x => x.JarId, cancellationToken);
+            .Where(i => lineIds.Contains(i.Id) && i.SavingsId != null && i.Jar != null)
+            .Select(i => new { i.Id, JarId = i.SavingsId!.Value, i.Jar!.FundingAccountId })
+            .ToDictionaryAsync(x => x.Id, x => (x.JarId, x.FundingAccountId), cancellationToken);
     }
 
     private static ValidationException Validation(string key, string message) =>

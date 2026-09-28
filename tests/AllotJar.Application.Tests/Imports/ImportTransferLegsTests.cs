@@ -4,6 +4,7 @@ using Xunit;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Imports;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Imports.Commands.PreviewImport;
 using AllotJar.Application.Imports.Models;
@@ -265,6 +266,71 @@ public class ImportTransferLegsTests
         resubmit.MatchedTransfers.Should().Be(0);
         (await db.Transactions.CountAsync()).Should().Be(1);
         (await AccountsAsOf(db, Later))[b.Id].CurrentBalance.Should().Be(300m);
+    }
+
+    // ── Two banks may print the same reference on their own leg of one movement (an end-to-end id).
+    [Fact]
+    public async Task ASourceReferenceSharedByTheReceiptRow_DoesNotHideTheFirstReceiptImport()
+    {
+        await using var db = NewContext();
+        var a = SeedAccount(db, "A", 1000m);
+        var b = SeedAccount(db, "B", 200m);
+        var reference = (await PreviewAsync(db, DestinationStatement, b.Id)).Items.Single().Reference;
+        // A's departure, recorded with the reference B's statement will carry too; receipt unknown.
+        var transfer = new Transaction
+        {
+            OwnerId = "user-1", Type = TransactionType.Transfer, Amount = 100m, Currency = CurrencyCode.Eur, Date = Departure,
+            Payee = "Transfer to savings", AccountId = a.Id, TransferAccountId = b.Id, DepartedOn = Departure, BankReference = reference,
+        };
+        db.Transactions.Add(transfer);
+        await db.SaveChangesAsync();
+
+        // B's statement: the receipt row is new to B and the transfer is offered as its other side.
+        var preview = await PreviewAsync(db, DestinationStatement, b.Id);
+        preview.SkippedDuplicates.Should().Be(0);
+        var row = preview.Items.Single();
+        row.TransferMatches.Should().ContainSingle(m => m.TransferId == transfer.Id);
+
+        var result = await NewCommit(db).Handle(
+            new CommitImportCommand(b.Id, new[] { AsTransfer(row, a.Id, matchTransferId: transfer.Id) }), CancellationToken.None);
+        result.MatchedTransfers.Should().Be(1);
+        result.SkippedDuplicates.Should().Be(0);
+        var stored = await db.Transactions.AsNoTracking().SingleAsync();
+        stored.ReceivedOn.Should().Be(Receipt);
+        stored.ReceiptBankReference.Should().Be(reference);
+        (await AccountsAsOf(db, Later))[b.Id].CurrentBalance.Should().Be(300m);
+
+        // Recorded on both legs, the same row is now known to B.
+        (await PreviewAsync(db, DestinationStatement, b.Id)).SkippedDuplicates.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ALegacyInboundTransfer_ReceivedWithoutAReceiptReference_IsStillKnownToTheDestination_BySourceReference()
+    {
+        // Rows recorded before receipt references existed kept B's statement reference on the
+        // source leg and were marked received on their date by the migration; only those, not a
+        // transfer still in transit, lend their source reference to the destination.
+        await using var db = NewContext();
+        var a = SeedAccount(db, "A", 1000m);
+        var b = SeedAccount(db, "B", 200m);
+        db.Transactions.AddRange(
+            new Transaction
+            {
+                OwnerId = "user-1", Type = TransactionType.Transfer, Amount = 100m, Currency = CurrencyCode.Eur, Date = Departure, Payee = "Legacy",
+                AccountId = a.Id, TransferAccountId = b.Id, DepartedOn = Departure, ReceivedOn = Departure, BankReference = "LEGACY-1",
+            },
+            new Transaction
+            {
+                OwnerId = "user-1", Type = TransactionType.Transfer, Amount = 50m, Currency = CurrencyCode.Eur, Date = Departure, Payee = "In transit",
+                AccountId = a.Id, TransferAccountId = b.Id, DepartedOn = Departure, BankReference = "OPEN-1",
+            });
+        await db.SaveChangesAsync();
+
+        var knownToA = await StatementReferences.KnownAsync(db, "user-1", a.Id, CancellationToken.None);
+        var knownToB = await StatementReferences.KnownAsync(db, "user-1", b.Id, CancellationToken.None);
+
+        knownToA.Should().BeEquivalentTo(new[] { "LEGACY-1", "OPEN-1" });
+        knownToB.Should().BeEquivalentTo(new[] { "LEGACY-1" });
     }
 
     // ── Rule 50: two recorded transfers of 100 could match one statement entry of 100.
