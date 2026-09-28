@@ -180,8 +180,13 @@ public static class JarSchedule
             : PlanFixedMonthly(jar, from, balance, options);
     }
 
-    /// <summary>What <paramref name="month"/> plans, given the balance entering it; 0 when nothing is planned.</summary>
-    public static decimal PlannedFor(Jar jar, DateOnly month, decimal balance) => Plan(jar, month, balance).First;
+    /// <summary>
+    /// What <paramref name="month"/> plans, given the balance entering it and the months the user
+    /// skipped (rule 60, so a skipped later month never shrinks this one's share); 0 when nothing
+    /// is planned.
+    /// </summary>
+    public static decimal PlannedFor(Jar jar, DateOnly month, decimal balance, JarPlanOptions? options = null) =>
+        Plan(jar, month, balance, options).First;
 
     private static JarPlan PlanByDeadline(Jar jar, DateOnly from, decimal balance, JarPlanOptions options)
     {
@@ -271,20 +276,21 @@ public static class JarSchedule
         }
 
         // Rule 18: full amounts, then the remainder; rule 58: how many contributions that takes.
-        // A skipped month (rule 60) plans 0 and pushes the estimate out by one month.
+        // A skipped month (rule 60) plans 0 and pushes the estimate out by one month. Money that
+        // arrived this month (P37) is counted whether or not this month is skipped, so a skipped
+        // first month never makes the later ones ask for what the jar already holds.
         var months = new List<JarPlannedMonth>();
         var projected = balance;
         var contributions = 0;
         for (var m = from; months.Count < MaxListedMonths && projected < jar.TargetAmount; m = m.AddMonths(1))
         {
-            if (options.IsSkipped(m))
+            var skipped = options.IsSkipped(m);
+            var planned = skipped ? 0m : Math.Min(fixedAmount, jar.TargetAmount - projected);
+            months.Add(new JarPlannedMonth(m.Year, m.Month, planned, skipped));
+            if (!skipped)
             {
-                months.Add(new JarPlannedMonth(m.Year, m.Month, 0m, true));
-                continue;
+                contributions++;
             }
-            var planned = Math.Min(fixedAmount, jar.TargetAmount - projected);
-            months.Add(new JarPlannedMonth(m.Year, m.Month, planned));
-            contributions++;
             var next = projected + planned;
             if (m == from && options.BalanceNow is { } now && now > next)
             {

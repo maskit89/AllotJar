@@ -48,12 +48,18 @@ public static class JarPlanner
 
         var target = new DateOnly(year, month, 1);
         var current = new DateOnly(today.Year, today.Month, 1);
+        // The months the user skipped (rule 60) in every existing month from the earlier of the
+        // two: a skipped later month must not shrink the share this one is asked for (rule 61).
+        var jarIds = scheduled.Select(j => j.Id).ToList();
+        var skippedByJar = await SavingsLines.SkippedMonthsByJarAsync(db, ownerId, jarIds, target < current ? target : current, cancellationToken);
+        JarPlanOptions OptionsFor(Jar jar) => skippedByJar.TryGetValue(jar.Id, out var skipped) ? new JarPlanOptions(skipped) : JarPlanOptions.None;
+
         if (target < current)
         {
             var snapshot = await JarLedgerReader.ReadAsync(db, ownerId, target.AddDays(-1), cancellationToken);
             foreach (var jar in scheduled)
             {
-                result[jar.Id] = JarSchedule.PlannedFor(jar, target, snapshot.BalanceOf(jar.Id) ?? 0m);
+                result[jar.Id] = JarSchedule.PlannedFor(jar, target, snapshot.BalanceOf(jar.Id) ?? 0m, OptionsFor(jar));
             }
             return result;
         }
@@ -64,26 +70,27 @@ public static class JarPlanner
         {
             foreach (var jar in scheduled)
             {
-                result[jar.Id] = JarSchedule.PlannedFor(jar, target, PlanningBalance(opening.BalanceOf(jar.Id), now.BalanceOf(jar.Id)));
+                result[jar.Id] = JarSchedule.PlannedFor(jar, target, PlanningBalance(opening.BalanceOf(jar.Id), now.BalanceOf(jar.Id)), OptionsFor(jar));
             }
             return result;
         }
 
-        var stored = await StoredPlansAsync(db, ownerId, scheduled.Select(j => j.Id).ToList(), current, target, cancellationToken);
+        var stored = await StoredPlansAsync(db, ownerId, jarIds, current, target, cancellationToken);
         foreach (var jar in scheduled)
         {
+            var options = OptionsFor(jar);
             var planningBalance = PlanningBalance(opening.BalanceOf(jar.Id), now.BalanceOf(jar.Id));
             var thisMonth = stored.TryGetValue((jar.Id, current.Year, current.Month), out var storedNow)
                 ? storedNow
-                : JarSchedule.PlannedFor(jar, current, planningBalance);
+                : JarSchedule.PlannedFor(jar, current, planningBalance, options);
             var balance = ProjectedMonthEnd(planningBalance, now.BalanceOf(jar.Id) ?? 0m, thisMonth);
             for (var m = current.AddMonths(1); m < target; m = m.AddMonths(1))
             {
                 balance += stored.TryGetValue((jar.Id, m.Year, m.Month), out var planned)
                     ? planned
-                    : JarSchedule.PlannedFor(jar, m, balance);
+                    : JarSchedule.PlannedFor(jar, m, balance, options);
             }
-            result[jar.Id] = JarSchedule.PlannedFor(jar, target, balance);
+            result[jar.Id] = JarSchedule.PlannedFor(jar, target, balance, options);
         }
         return result;
     }

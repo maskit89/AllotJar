@@ -48,6 +48,10 @@ public static class JarFigures
             .GroupBy(i => i.JarId)
             .ToDictionary(g => g.Key, g => (Planned: g.Sum(i => i.PlannedAmount), Skipped: g.Any(i => i.IsSkipped)));
 
+        // The months the user skipped from this one on (rule 60), so the card's horizon follows
+        // the same plan the Savings lines carry (rule 61).
+        var skippedMonths = await SavingsLines.SkippedMonthsByJarAsync(db, ownerId, ids, monthStart, cancellationToken);
+
         // Rule 84: a jar that never held money may be deleted outright; the card offers it.
         var heldMoney = await JarUsage.EverHeldMoneyAsync(db, ownerId, ids, cancellationToken);
 
@@ -68,7 +72,8 @@ public static class JarFigures
                 asOf,
                 lastCycles.GetValueOrDefault(j.Id),
                 skippedThisMonth: storedLines.TryGetValue(j.Id, out var flags) && flags.Skipped,
-                canDelete: !heldMoney.Contains(j.Id)))
+                canDelete: !heldMoney.Contains(j.Id),
+                skippedMonths: skippedMonths.GetValueOrDefault(j.Id)))
             .ToList();
     }
 

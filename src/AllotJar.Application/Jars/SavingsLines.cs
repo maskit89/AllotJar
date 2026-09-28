@@ -65,17 +65,32 @@ public static class SavingsLines
     /// carries the plan on the other months (rule 61).
     /// </summary>
     public static async Task<HashSet<DateOnly>> SkippedMonthsAsync(
-        IApplicationDbContext db, string ownerId, Guid jarId, DateOnly from, CancellationToken cancellationToken)
+        IApplicationDbContext db, string ownerId, Guid jarId, DateOnly from, CancellationToken cancellationToken) =>
+        (await SkippedMonthsByJarAsync(db, ownerId, new[] { jarId }, from, cancellationToken)).GetValueOrDefault(jarId) ?? new HashSet<DateOnly>();
+
+    /// <summary>
+    /// <see cref="SkippedMonthsAsync"/> for several jars at once: each jar's skipped months from
+    /// <paramref name="from"/>'s month onward (a jar with none is absent), so month creation and
+    /// the jar list plan around every skip, not only the current month's.
+    /// </summary>
+    public static async Task<Dictionary<Guid, HashSet<DateOnly>>> SkippedMonthsByJarAsync(
+        IApplicationDbContext db, string ownerId, IReadOnlyCollection<Guid> jarIds, DateOnly from, CancellationToken cancellationToken)
     {
+        if (jarIds.Count == 0)
+        {
+            return new Dictionary<Guid, HashSet<DateOnly>>();
+        }
         var fromKey = (from.Year * 12) + from.Month;
         var rows = await db.BudgetItems
             .AsNoTracking()
-            .Where(i => i.SavingsId == jarId && i.IsSkipped
+            .Where(i => i.SavingsId != null && jarIds.Contains(i.SavingsId.Value) && i.IsSkipped
                         && i.BudgetCategory.BudgetMonth.OwnerId == ownerId
                         && (i.BudgetCategory.BudgetMonth.Year * 12) + i.BudgetCategory.BudgetMonth.Month >= fromKey)
-            .Select(i => new { i.BudgetCategory.BudgetMonth.Year, i.BudgetCategory.BudgetMonth.Month })
+            .Select(i => new { JarId = i.SavingsId!.Value, i.BudgetCategory.BudgetMonth.Year, i.BudgetCategory.BudgetMonth.Month })
             .ToListAsync(cancellationToken);
-        return rows.Select(r => new DateOnly(r.Year, r.Month, 1)).ToHashSet();
+        return rows
+            .GroupBy(r => r.JarId)
+            .ToDictionary(g => g.Key, g => g.Select(r => new DateOnly(r.Year, r.Month, 1)).ToHashSet());
     }
 
     /// <summary>

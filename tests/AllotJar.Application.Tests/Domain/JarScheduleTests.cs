@@ -351,6 +351,29 @@ public class JarScheduleTests
     }
 
     [Fact]
+    public void Rule61_MoneyThatArrivedThisMonth_StillCounts_WhenThisMonthIsSkipped()
+    {
+        // 300 at 300 a month, planned from 0 but already holding 200 today. Skipping this month
+        // leaves 100 to plan, not 300: the balance is carried past the skipped month (review of
+        // PR #273). The same for a deadline: 300 by 1 December from September with 200 in hand
+        // and September skipped → 50/50, not 150/150.
+        var first = new DateOnly(2026, 9, 1);
+        var skippingFirst = new JarPlanOptions(new HashSet<DateOnly> { first }, BalanceNow: 200m);
+
+        var fixedMonthly = JarSchedule.Plan(FixedMonthly(300m, 300m), first, 0m, skippingFirst);
+        Planned(fixedMonthly).Should().Equal(0m, 100m);
+        fixedMonthly.EstimatedMonths.Should().Be(1);
+
+        var byDeadline = JarSchedule.Plan(ByDeadline(300m, new DateOnly(2026, 12, 1)), first, 0m, skippingFirst);
+        Planned(byDeadline).Should().Equal(0m, 50m, 50m);
+        byDeadline.Unplanned.Should().Be(0m);
+
+        // Not skipped, the money that arrived never shrinks this month's plan (rule 14): the
+        // 300 stays asked for and nothing is planned after it.
+        Planned(JarSchedule.Plan(FixedMonthly(300m, 300m), first, 0m, new JarPlanOptions(BalanceNow: 200m))).Should().Equal(300m);
+    }
+
+    [Fact]
     public void ThePreview_AndTheReplant_ReadTheSameSkips_ThroughOneOption()
     {
         // The option, not the caller, decides what a skip means: the same set gives the same plan

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
+using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Budgets.Commands.DeleteBudgetItem;
 using AllotJar.Application.Budgets.Commands.SkipJarContribution;
 using AllotJar.Application.Budgets.Commands.UpdateBudgetItem;
@@ -407,4 +408,47 @@ public class JarLifecycleW04Tests
         db.BudgetItems.Should().Contain(i => i.Id == lines[Current].Id);
         db.Jars.Should().ContainSingle(j => j.Id == jar.Id && !j.IsArchived);
     }
+
+    // ---- Rule 61: a month created after a later month was skipped (review of PR #273) --------
+
+    [Fact]
+    public async Task Rule61_CreatingAMissingMonth_PlansAroundTheMonthsSkippedAfterIt()
+    {
+        // 300 due in three months: 100/100/100. The month after next was skipped and this month
+        // replanted to 150, but next month was never created. Creating it must plan the other
+        // 150 — not 75 as if the skipped month still carried a share — and the jar's card must
+        // say the funding completes next month.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner);
+        var jar = SeedGoal(db, account);
+        SeedMonth(db, Current, jar, 150m);
+        SeedMonth(db, After, jar, 0m, skipped: true);
+
+        var created = await CreateMonthAsync(db, Next);
+
+        created.Categories.SelectMany(c => c.Items).Single(i => i.SavingsId == jar.Id).PlannedAmount.Should().Be(150m);
+        LineFor(db, jar, Next).Should().Be(150m);
+        var dto = await ReadAsync(db, jar);
+        dto.PlannedThisMonth.Should().Be(150m);
+        dto.FundingCompletesOn.Should().Be(After.AddDays(-1));
+    }
+
+    [Fact]
+    public async Task Rule61_CreatingTheCurrentMonth_PlansAroundALaterSkippedMonth_Too()
+    {
+        // Only the skipped month exists. Creating this month reads the skip from the later month
+        // and plans 150, so this month and the next carry the 300 between them.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner);
+        var jar = SeedGoal(db, account);
+        SeedMonth(db, After, jar, 0m, skipped: true);
+
+        await CreateMonthAsync(db, Current);
+
+        LineFor(db, jar, Current).Should().Be(150m);
+        (await ReadAsync(db, jar)).PlannedThisMonth.Should().Be(150m);
+    }
+
+    private static Task<Budgets.Dtos.BudgetMonthDto> CreateMonthAsync(ApplicationDbContext db, DateOnly month) =>
+        new CreateBudgetMonthCommandHandler(db, User()).Handle(new CreateBudgetMonthCommand(month.Year, month.Month, CopyFromPrevious: false), CancellationToken.None);
 }

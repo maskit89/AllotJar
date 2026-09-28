@@ -126,7 +126,7 @@ public static class JarMapping
     /// unavailable, rule 67) — and the month's stored savings-line plan when the month exists.
     /// </summary>
     public static JarDto ToDto(this Jar f, decimal? currentBalance, decimal? balanceAtMonthStart, decimal? storedPlanThisMonth, DateOnly asOf,
-        JarCycle? lastCycle = null, bool skippedThisMonth = false, bool canDelete = false)
+        JarCycle? lastCycle = null, bool skippedThisMonth = false, bool canDelete = false, IReadOnlySet<DateOnly>? skippedMonths = null)
     {
         var balance = currentBalance ?? 0m;
         var remaining = f.TargetAmount > 0m ? Math.Max(0m, f.TargetAmount - balance) : 0m;
@@ -135,9 +135,15 @@ public static class JarMapping
         // which counts at once (JarPlanner.PlanningBalance). An account that opened this month
         // had nothing before it began.
         var startBalance = currentBalance is null ? 0m : JarPlanner.PlanningBalance(balanceAtMonthStart, currentBalance);
+        // The months the user skipped (rule 60) — this one and any later — shape the horizon the
+        // card shows, exactly as they shape the plan the Savings lines carry (rule 61).
         var monthStart = new DateOnly(asOf.Year, asOf.Month, 1);
-        var plan = JarSchedule.Plan(f, asOf, startBalance,
-            skippedThisMonth ? new JarPlanOptions(new HashSet<DateOnly> { monthStart }, currentBalance) : null);
+        var skipped = new HashSet<DateOnly>(skippedMonths ?? (IEnumerable<DateOnly>)Array.Empty<DateOnly>());
+        if (skippedThisMonth)
+        {
+            skipped.Add(monthStart);
+        }
+        var plan = JarSchedule.Plan(f, asOf, startBalance, skipped.Count > 0 ? new JarPlanOptions(skipped, currentBalance) : null);
         var deadline = plan.Deadline ?? JarSchedule.CurrentDeadline(f);
         // Rule 20: a Recurring cycle whose deadline has arrived is settled before this read
         // (JarCycles.SettleAsync rolls a funded one forward), so an open cycle at or before the
