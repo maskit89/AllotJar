@@ -161,10 +161,11 @@ public static class JarMapping
         {
             status = "Unavailable";
         }
-        else if (f.IsCompleted)
+        else if (JarSchedule.IsCompletedOn(f, asOf))
         {
             // Rule 55: done is done — a spent or empty balance never restarts a plan, and what
-            // is left stays visible until the user moves it (rule 56).
+            // is left stays visible until the user moves it (rule 56). Completion is dated, so a
+            // month before it reads the status the jar had then (W05, rule 48).
             status = "Completed";
         }
         else if (missed)

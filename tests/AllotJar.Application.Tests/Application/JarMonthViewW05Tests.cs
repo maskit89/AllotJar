@@ -247,6 +247,78 @@ public class JarMonthViewW05Tests
     }
 
     [Fact]
+    public async Task Rule55_AGoalCompletedThisMonth_StillReadsAsItWas_InThePastMonth()
+    {
+        // Completion is dated (rule 55): a goal marked completed on 5 October was live at
+        // September's end, so September keeps the status, deadline and horizon it had then and
+        // only October reads Completed.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, opening: 2000m);
+        var funded = SeedGoal(db, account, target: 300m);
+        var saving = SeedGoal(db, account);
+        LedgerFixtures.Allocate(db, Owner, account.Id, funded.Id, 300m, new DateOnly(2026, 8, 20));
+        LedgerFixtures.Allocate(db, Owner, account.Id, saving.Id, 200m, new DateOnly(2026, 8, 20), JarAllocationKind.Reallocation);
+        SeedMonth(db, September, saving, 100m);
+        SeedMonth(db, October, saving, 0m);
+        funded.CompletedOn = new DateOnly(2026, 10, 5);
+        saving.CompletedOn = new DateOnly(2026, 10, 5);
+        db.SaveChanges();
+
+        var handler = new GetJarsQueryHandler(db, User());
+        var september = (await handler.Handle(new GetJarsQuery(AsOf: Today, Month: September), CancellationToken.None)).ToDictionary(j => j.Id);
+        var october = (await handler.Handle(new GetJarsQuery(AsOf: Today, Month: October), CancellationToken.None)).ToDictionary(j => j.Id);
+
+        september[funded.Id].Status.Should().Be("FullyFunded");
+        september[saving.Id].Status.Should().Be("OnTrack");
+        september[saving.Id].Deadline.Should().Be(new DateOnly(2027, 7, 1));
+        september[saving.Id].FundingCompletesOn.Should().NotBeNull("the plan it had then still frames the month");
+        september[saving.Id].PlannedThisMonth.Should().Be(100m);
+
+        october[funded.Id].Status.Should().Be("Completed");
+        october[saving.Id].Status.Should().Be("Completed");
+        october[saving.Id].FundingCompletesOn.Should().BeNull();
+        // The completion itself is a fact of the jar, dated, whichever month is viewed.
+        september[saving.Id].CompletedOn.Should().Be(new DateOnly(2026, 10, 5));
+    }
+
+    [Fact]
+    public async Task Rule80_AJarMovedToAnotherAccount_KeepsTheBalanceItHeld_InThePastMonth()
+    {
+        // 100 in the jar in account A at August's end, emptied on 10 September and moved to
+        // account B (rule 80 allows the change only at zero), 50 put in there on 5 October.
+        // August reads the 100 it held in A then; today reads the 50 in B.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, name: "A", opening: 2000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, name: "B", opening: 500m, order: 1);
+        var jar = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, 100m, new DateOnly(2026, 8, 20));
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, -100m, new DateOnly(2026, 9, 10), JarAllocationKind.Reallocation);
+        jar.FundingAccountId = b.Id;
+        db.SaveChanges();
+        LedgerFixtures.Allocate(db, Owner, b.Id, jar.Id, 50m, new DateOnly(2026, 10, 5), JarAllocationKind.Reallocation);
+        var august = new DateOnly(2026, 8, 1);
+        SeedMonth(db, august, jar, 0m);
+        SeedMonth(db, September, jar, 0m);
+        SeedMonth(db, October, jar, 0m);
+
+        var inAugust = await ReadAsync(db, august);
+        inAugust.CurrentBalance.Should().Be(100m, "the money was in A then, and A's ledger still says so");
+        inAugust.BalanceAsOf.Should().Be(new DateOnly(2026, 8, 31));
+        inAugust.FundingAccountId.Should().Be(b.Id, "the designation is the jar's current one");
+
+        var inSeptember = await ReadAsync(db, September);
+        inSeptember.CurrentBalance.Should().Be(0m);
+        inSeptember.ContributedThisMonth.Should().Be(0m);
+
+        var inOctober = await ReadAsync(db, October);
+        inOctober.CurrentBalance.Should().Be(50m);
+        inOctober.ContributedThisMonth.Should().Be(50m);
+
+        // The grid's Available reads the same ledger, so August agrees.
+        (await GridAvailableAsync(db, august)).Should().Be(100m);
+    }
+
+    [Fact]
     public async Task Rule67_APastMonthBeforeTheAccountOpened_ReadsUnavailable()
     {
         await using var db = NewContext();

@@ -35,14 +35,21 @@ public sealed record JarLedgerSnapshot(
     IReadOnlyDictionary<Guid, JarLedgerView> Accounts,
     IReadOnlyDictionary<Guid, Jar> Jars)
 {
-    /// <summary>The jar's balance in its designated account; null when that account's balance is unavailable.</summary>
+    /// <summary>
+    /// The jar's balance as of the date: what its allocations put in its designated account plus
+    /// what they left in any account it was designated to before (rule 80 — the history stays in
+    /// the old account's ledger, so a date before the change reads the balance it held there
+    /// then, while today the old account's postings for it sum to zero). Null when its designated
+    /// account's balance is unavailable (rule 67); an account not yet open on the date held
+    /// nothing of it.
+    /// </summary>
     public decimal? BalanceOf(Guid jarId)
     {
         if (!Jars.TryGetValue(jarId, out var jar) || !Accounts.TryGetValue(jar.FundingAccountId, out var view) || !view.IsAvailable)
         {
             return null;
         }
-        return view.JarBalances.TryGetValue(jarId, out var balance) ? balance : 0m;
+        return Accounts.Values.Where(a => a.IsAvailable).Sum(a => a.JarBalances.GetValueOrDefault(jarId));
     }
 
     public JarLedgerView? AccountOf(Guid jarId) =>

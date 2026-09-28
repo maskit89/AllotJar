@@ -973,3 +973,23 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
   1. Read Sofa's card. 2. "Edit Sofa" and read the schedule preview. 3. Read the page as the viewer.
 - **Expected:** 1: the month line reads **Skipped this month** (`skippedThisMonth:true`, `plannedThisMonth: 0`); the deadline and funded-by month are unchanged. 2: the preview lists the current month as "Skipped" and the later months carrying the remainder (rule 61); when every month left is skipped it says what stays **unplanned** (P45). 3: no Mark completed, no Edit (so no Delete) for the viewer.
 - **Automated:** Yes (lib/jarStatus.test.ts — "Skipped this month"; JarsPage.lifecycle.test.tsx — JAR-093; JarLifecycleW04Tests — `Rule61_Skipping_ThisMonth_…` asserts `SkippedThisMonth`; jar-lifecycle journey)
+
+### JAR-100 - A goal completed this month reads as it was on a past month
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Review of PR #275 (W05): the shelf showed **Completed** on every past month once a goal was completed.
+- **Preconditions:** Owner; Goal "Sofa" (target 300) fully funded since August; marked completed on 5 October; budgets for September and October.
+- **Steps:**
+  1. On the Budget page view September, then October.
+- **Expected:** September's shelf reads Sofa as **Funded** (the status it had at 30 September), with the deadline and funded-by month it had then; October reads **Completed**. The Jars page (today) reads Completed. `GET /api/jars?year=2026&month=9` returns `status: "FullyFunded"` and `completedOn: "2026-10-05"` (the completion is the jar's dated fact, the status is the month's).
+- **Automated:** Yes (JarMonthViewW05Tests — `Rule55_AGoalCompletedThisMonth_StillReadsAsItWas_InThePastMonth`)
+
+### JAR-101 - A jar moved to another account keeps the balance it held on a past month
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Review of PR #275 (W05): the past month's balance was looked up in the jar's current account only.
+- **Preconditions:** Owner; accounts A and B; Goal "Sofa" in A holding 100 at 31 August; emptied (reallocated to unallocated) on 10 September; its account changed to B (rule 80, at zero); 50 allocated to it in B on 5 October.
+- **Steps:**
+  1. View August, September and October on the Budget page.
+- **Expected:** August reads Sofa at **100** ("saved as of 31 Aug 2026") and the Savings line's Available agrees; September reads 0 with nothing in; October reads 50 with 50 in. `fundingAccountId` is B on every month (the designation is current; the money is where the ledger says it was).
+- **Automated:** Yes (JarMonthViewW05Tests — `Rule80_AJarMovedToAnotherAccount_KeepsTheBalanceItHeld_InThePastMonth`)

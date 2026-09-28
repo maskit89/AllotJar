@@ -107,6 +107,12 @@ public static class JarSchedule
     /// </summary>
     public static bool IsPlanning(Jar jar) => !jar.IsArchived && !jar.IsCompleted;
 
+    /// <summary>Rule 55 read on a date: a Goal is completed from the day the user marked it, so on an earlier date it was still live (W05, a past month keeps the status it had).</summary>
+    public static bool IsCompletedOn(Jar jar, DateOnly asOf) => jar.CompletedOn is { } completedOn && completedOn <= asOf;
+
+    /// <summary><see cref="IsPlanning(Jar)"/> as it stood on <paramref name="asOf"/>: a completion dated after it had not happened yet.</summary>
+    public static bool IsPlanning(Jar jar, DateOnly asOf) => !jar.IsArchived && !IsCompletedOn(jar, asOf);
+
     /// <summary>An ongoing jar: a fixed monthly amount with no target (rule 16).</summary>
     public static bool IsOngoing(Jar jar) =>
         jar.Accrual == AccrualMethod.FixedMonthly && jar.MonthlyContribution is > 0m && jar.TargetAmount <= 0m;
@@ -168,7 +174,7 @@ public static class JarSchedule
     /// </summary>
     public static JarPlan Plan(Jar jar, DateOnly asOf, decimal balance, JarPlanOptions? options = null)
     {
-        if (!HasSchedule(jar) || !IsPlanning(jar))
+        if (!HasSchedule(jar) || !IsPlanning(jar, asOf))
         {
             return JarPlan.Empty with { Remaining = jar.TargetAmount > 0m ? Math.Max(0m, jar.TargetAmount - balance) : 0m };
         }
