@@ -8,7 +8,8 @@ namespace AllotJar.Application.Jars;
 /// <summary>
 /// The one read path for <see cref="JarDto"/>s: the ledger as of the date and as of the end
 /// of the previous month (rule 14's "contributed this month"), plus the month's stored
-/// savings lines (its plans) and each jar's last closed cycle (W03). Callers settle the
+/// savings lines (its plans, and whether the month was skipped — W04), each jar's last closed
+/// cycle (W03) and whether it ever held money (rule 84). Callers settle the
 /// cycles first (<see cref="JarCycles.SettleAsync"/>) where a deadline may have arrived. Every handler that returns a jar goes through here so the card
 /// never changes between the write that returned it and the next load.
 /// </summary>
@@ -34,15 +35,21 @@ public static class JarFigures
         var before = await JarLedgerReader.ReadAsync(db, ownerId, monthStart.AddDays(-1), cancellationToken, accountIds);
 
         var ids = jars.Select(j => j.Id).ToList();
-        var storedPlans = await db.BudgetItems
-            .AsNoTracking()
-            .Where(i => i.SavingsId != null && ids.Contains(i.SavingsId.Value)
-                        && i.BudgetCategory.BudgetMonth.OwnerId == ownerId
-                        && i.BudgetCategory.BudgetMonth.Year == asOf.Year
-                        && i.BudgetCategory.BudgetMonth.Month == asOf.Month)
-            .GroupBy(i => i.SavingsId!.Value)
-            .Select(g => new { JarId = g.Key, Planned = g.Sum(i => i.PlannedAmount) })
-            .ToDictionaryAsync(x => x.JarId, x => x.Planned, cancellationToken);
+        // This month's stored lines: the plan they carry, and whether the user skipped the month
+        // (rule 60) — one flag per jar, however many lines a copied month left it.
+        var storedLines = (await db.BudgetItems
+                .AsNoTracking()
+                .Where(i => i.SavingsId != null && ids.Contains(i.SavingsId.Value)
+                            && i.BudgetCategory.BudgetMonth.OwnerId == ownerId
+                            && i.BudgetCategory.BudgetMonth.Year == asOf.Year
+                            && i.BudgetCategory.BudgetMonth.Month == asOf.Month)
+                .Select(i => new { JarId = i.SavingsId!.Value, i.PlannedAmount, i.IsSkipped })
+                .ToListAsync(cancellationToken))
+            .GroupBy(i => i.JarId)
+            .ToDictionary(g => g.Key, g => (Planned: g.Sum(i => i.PlannedAmount), Skipped: g.Any(i => i.IsSkipped)));
+
+        // Rule 84: a jar that never held money may be deleted outright; the card offers it.
+        var heldMoney = await JarUsage.EverHeldMoneyAsync(db, ownerId, ids, cancellationToken);
 
         // Each Recurring jar's most recently closed cycle (W03), for the card's history line.
         var lastCycles = (await db.JarCycles
@@ -57,9 +64,11 @@ public static class JarFigures
             .Select(j => j.ToDto(
                 now.BalanceOf(j.Id),
                 before.BalanceOf(j.Id),
-                storedPlans.TryGetValue(j.Id, out var planned) ? planned : null,
+                storedLines.TryGetValue(j.Id, out var line) ? line.Planned : null,
                 asOf,
-                lastCycles.GetValueOrDefault(j.Id)))
+                lastCycles.GetValueOrDefault(j.Id),
+                skippedThisMonth: storedLines.TryGetValue(j.Id, out var flags) && flags.Skipped,
+                canDelete: !heldMoney.Contains(j.Id)))
             .ToList();
     }
 

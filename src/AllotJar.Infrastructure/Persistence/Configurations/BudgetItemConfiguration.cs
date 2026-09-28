@@ -31,6 +31,10 @@ public class BudgetItemConfiguration : IEntityTypeConfiguration<BudgetItem>
         // IsBill is derived from DueDay; the columns themselves map by convention.
         builder.Ignore(i => i.IsBill);
 
+        // Rule 60 (W04): a jar line whose contribution the user skipped this month.
+        builder.Property(i => i.IsSkipped)
+            .HasDefaultValue(false);
+
         // Stable id linking a sinking fund's monthly instances; indexed for the
         // cross-month balance roll-up. Null for ordinary income/expense lines.
         builder.HasIndex(i => i.SavingsId);

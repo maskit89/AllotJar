@@ -54,6 +54,7 @@ public static class BudgetMonthMapping
                         RefundedAmount = i.RefundedAmount,
                         SavingsId = i.SavingsId,
                         SavingsAvailable = i.SavingsAvailable,
+                        IsSkipped = i.IsSkipped,
                         DueDay = i.DueDay,
                         IsPaid = i.IsPaid,
                         MemberId = i.MemberId

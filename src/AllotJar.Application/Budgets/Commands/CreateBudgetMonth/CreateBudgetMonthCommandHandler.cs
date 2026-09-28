@@ -69,12 +69,14 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
             .AsNoTracking()
             .Where(f => f.OwnerId == userId)
             .ToListAsync(cancellationToken);
-        var activeJars = allJars.Where(f => !f.IsArchived).ToDictionary(f => f.Id);
-        // A copy drops lines backed by an archived jar (below). Key that on the archived
-        // ids specifically: a line whose SavingsId has no jar row (dangling) is still
-        // copied — production enforces the FK, so "absent" only happens in tests and must
-        // not be treated as "archived".
-        var archivedJarIds = allJars.Where(f => f.IsArchived).Select(f => f.Id).ToHashSet();
+        // An archived jar's contributions were cancelled (rule 27) and a completed goal never
+        // restarts one (rule 55): neither is seeded, appended or copied forward.
+        var activeJars = allJars.Where(JarSchedule.IsPlanning).ToDictionary(f => f.Id);
+        // A copy drops lines backed by a stopped jar (below). Key that on the stopped ids
+        // specifically: a line whose SavingsId has no jar row (dangling) is still copied —
+        // production enforces the FK, so "absent" only happens in tests and must not be
+        // treated as "archived".
+        var stoppedJarIds = allJars.Where(f => !JarSchedule.IsPlanning(f)).Select(f => f.Id).ToHashSet();
 
         // Income attribution rolls forward, but not to archived people — their lines copy
         // as whole-household (null) rather than crediting someone who left.
@@ -174,10 +176,10 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                     // obligation total and corrupts every copied month's member split.
                     ExcludeFromAllocation = c.ExcludeFromAllocation,
                     Items = c.Items
-                        // Don't roll a line that funds an archived jar forward — archiving
-                        // must stop future contributions. (Non-savings lines have no
-                        // SavingsId and stay; a dangling SavingsId also stays.)
-                        .Where(i => i.SavingsId is not { } sid || !archivedJarIds.Contains(sid))
+                        // Don't roll a line that funds an archived or completed jar forward —
+                        // both must stop future contributions (rules 27, 55). (Non-savings
+                        // lines have no SavingsId and stay; a dangling SavingsId also stays.)
+                        .Where(i => i.SavingsId is not { } sid || !stoppedJarIds.Contains(sid))
                         // Nor an archived person's pocket-money line (an expense line linked to
                         // them, rule 53): their planned allocations stop from the next month
                         // (rule 54). Their income lines still copy, as whole-household (below).

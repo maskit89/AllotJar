@@ -262,7 +262,7 @@ describe('budgetModel selectors', () => {
 describe('bill reminders', () => {
   const item = (dueDay: number | null, isPaid = false): ItemVM => ({
     id: 'x', name: 'Rent', displayOrder: 0, plannedMinor: 0, actualMinor: 0,
-    savingsAvailableMinor: null, dueDay, isPaid,
+    savingsAvailableMinor: null, savingsId: null, isSkipped: false, dueDay, isPaid, memberId: null,
   })
   // Mid-June 2026 — the month under test is 2026-06.
   const today = new Date(2026, 5, 15)

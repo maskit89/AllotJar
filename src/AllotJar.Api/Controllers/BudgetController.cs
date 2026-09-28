@@ -12,6 +12,9 @@ using AllotJar.Application.Budgets.Commands.ReorderBudgetItems;
 using AllotJar.Application.Budgets.Commands.SetBudgetItemBill;
 using AllotJar.Application.Budgets.Commands.SetBudgetItemMember;
 using AllotJar.Application.Budgets.Commands.SetBudgetItemPaid;
+using AllotJar.Application.Budgets.Commands.SkipJarContribution;
+using AllotJar.Application.Budgets.Queries.GetJarSkipPreview;
+using AllotJar.Application.Jars.Dtos;
 using AllotJar.Application.Budgets.Commands.UpdateBudgetItem;
 using AllotJar.Application.Budgets.Dtos;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
@@ -253,7 +256,37 @@ public class BudgetController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Deletes a single budget line and returns the recomputed month.</summary>
+    /// <summary>
+    /// Rule 61: previews the jar's revised schedule if this month's contribution (the given jar
+    /// line) were skipped. Nothing changes.
+    /// </summary>
+    [HttpGet("items/{id:guid}/skip-preview")]
+    [ProducesResponseType(typeof(JarScheduleDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<JarScheduleDto>> SkipPreview(Guid id, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new GetJarSkipPreviewQuery(id), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Rule 60: skips (or plans again) this month's contribution on a jar line. The line stays at
+    /// 0, marked skipped; the jar's other months carry the plan. Returns the recomputed month.
+    /// </summary>
+    [HttpPut("items/{id:guid}/skip")]
+    [ProducesResponseType(typeof(BudgetMonthDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<BudgetMonthDto>> SkipItem(Guid id, SkipJarContributionRequest request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new SkipJarContributionCommand(id, request.Skipped), ct);
+        return Ok(result);
+    }
+
+    /// <summary>Deletes a single budget line and returns the recomputed month. A jar's line is refused (rule 60): skip it or archive the jar.</summary>
     [HttpDelete("items/{id:guid}")]
     [ProducesResponseType(typeof(BudgetMonthDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -282,6 +315,9 @@ public record SetBudgetItemMemberRequest(Guid? MemberId);
 
 /// <summary>Request body for marking a bill paid/unpaid (the id comes from the route).</summary>
 public record SetBudgetItemPaidRequest(bool IsPaid);
+
+/// <summary>Request body for skipping (true) or planning again (false) a jar line's contribution this month.</summary>
+public record SkipJarContributionRequest(bool Skipped = true);
 
 /// <summary>Request body for creating a category group (a fund group when IsSavings is true).</summary>
 public record AddBudgetCategoryRequest(Guid BudgetMonthId, string Name, bool IsSavings = false);

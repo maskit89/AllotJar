@@ -40,6 +40,20 @@ public class DeleteBudgetItemCommandHandler : IRequestHandler<DeleteBudgetItemCo
             throw new ForbiddenAccessException();
         }
 
+        // Rule 60: removing a jar's line from a month is a choice — skip this month's
+        // contribution, or archive the jar — never a bare deletion that the next month's
+        // creation would quietly undo.
+        if (item.SavingsId is { } jarId && await _db.Jars.AnyAsync(j => j.Id == jarId, cancellationToken))
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                [nameof(request.BudgetItemId)] = new[]
+                {
+                    $"{item.Name} is a jar's monthly contribution. Skip this month's contribution, or archive the jar to stop future ones.",
+                },
+            });
+        }
+
         var monthId = item.BudgetCategory.BudgetMonthId;
 
         _db.BudgetItems.Remove(item);

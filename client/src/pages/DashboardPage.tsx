@@ -36,6 +36,7 @@ import {
   withoutItem,
   withReorderedExpenseCategories,
   withReorderedItems,
+  type ItemVM,
   type MonthVM,
 } from '../budgetModel'
 import { currencyNoun, formatMoney, fromAmount, sumMinor, toAmount, type Minor } from '../lib/money'
@@ -46,8 +47,10 @@ import { Jar } from '../components/Jar'
 import { JarFormModal } from '../components/JarFormModal'
 import { CheckIcon } from '../components/icons'
 import { hueForIndex } from '../lib/categoryColors'
+import { monthIso } from '../lib/jarForm'
 import { CategoryAccordion } from '../components/CategoryAccordion'
 import { SavingsGroup } from '../components/SavingsGroup'
+import { RemoveJarLineModal } from '../components/jars/RemoveJarLineModal'
 import { IncomeGroup } from '../components/IncomeGroup'
 import { useMonth } from '../features/MonthContext'
 import { useHousehold } from '../features/HouseholdContext'
@@ -83,6 +86,10 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   const [accountsLoaded, setAccountsLoaded] = useState(false)
   // The shared jar form (rule 73), opened from a Savings group or the checklist.
   const [jarFormOpen, setJarFormOpen] = useState(false)
+  // W04 (rule 60): the jar line whose ✕ was clicked — skip this month or archive the jar.
+  const [removingJarLine, setRemovingJarLine] = useState<ItemVM | null>(null)
+  // A past month's contributions are history (rule 60): nothing in it can be skipped.
+  const isPastMonth = year < today.getFullYear() || (year === today.getFullYear() && monthNum < today.getMonth() + 1)
 
   // Load the viewed month whenever it changes; a 404 means "no budget yet".
   useEffect(() => {
@@ -369,6 +376,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           actualMinor: 0,
           memberId: null,
           savingsAvailableMinor: null,
+          savingsId: null,
+          isSkipped: false,
           dueDay: null,
           isPaid: false,
         }),
@@ -410,6 +419,40 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     },
     [month],
   )
+
+  // Rule 60: a skipped jar contribution is planned again; the server replants the later
+  // months and returns the month, and the jars shelf re-reads its figures.
+  const restoreJarLine = useCallback(
+    async (itemId: string) => {
+      setError(null)
+      setSavingItemId(itemId)
+      try {
+        const { data } = await api.put<BudgetMonthDto>(`/budget/items/${itemId}/skip`, { skipped: false })
+        setMonth(fromDto(data))
+        refreshJars()
+      } catch {
+        setError('Could not plan that contribution again.')
+      } finally {
+        setSavingItemId(null)
+      }
+    },
+    [refreshJars],
+  )
+
+  // The skip-or-archive choice ended: skipping returns the month; archiving needs a re-read.
+  const onJarLineSkipped = useCallback(
+    (data: BudgetMonthDto) => {
+      setRemovingJarLine(null)
+      setMonth(fromDto(data))
+      refreshJars()
+    },
+    [refreshJars],
+  )
+  const onJarArchivedFromLine = useCallback(() => {
+    setRemovingJarLine(null)
+    void refreshMonth()
+    refreshJars()
+  }, [refreshMonth, refreshJars])
 
   // Add an expense or fund category group. Temp group shown instantly, then reconciled.
   const addCategory = useCallback(
@@ -924,7 +967,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                   savingItemId={savingItemId}
                   onCommitItem={commitItem}
                   onRenameItem={renameItem}
-                  onDeleteItem={deleteItem}
+                  onRemoveJarLine={isPastMonth ? undefined : (item) => setRemovingJarLine(item)}
+                  onRestoreJarLine={isPastMonth ? undefined : restoreJarLine}
                   onAddJar={() => setJarFormOpen(true)}
                   onRenameCategory={renameCategory}
                   onDeleteCategory={deleteCategory}
@@ -998,6 +1042,18 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           </>
           )
         })()}
+
+        {/* Rule 60: skip this month's contribution or archive the jar. Mounted only while open. */}
+        {removingJarLine && month && canWrite && (
+          <RemoveJarLineModal
+            item={removingJarLine}
+            month={monthIso(year, monthNum)}
+            currency={month.currency}
+            onClose={() => setRemovingJarLine(null)}
+            onSkipped={onJarLineSkipped}
+            onArchived={onJarArchivedFromLine}
+          />
+        )}
 
         {/* The one jar form (rule 73), also used by the Jars page. Mounted only while open. */}
         {jarFormOpen && canWrite && (

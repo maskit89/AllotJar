@@ -197,6 +197,11 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsPaid")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("IsSkipped")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
                     b.Property<Guid?>("MemberId")
                         .HasColumnType("uniqueidentifier");
 
@@ -364,6 +369,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
                         .HasDefaultValue(1);
+
+                    b.Property<DateOnly?>("CompletedOn")
+                        .HasColumnType("date");
 
                     b.Property<DateOnly?>("CycleDeadline")
                         .HasColumnType("date");

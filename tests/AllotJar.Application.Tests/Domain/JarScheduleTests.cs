@@ -289,4 +289,100 @@ public class JarScheduleTests
         }
         JarSchedule.Plan(dateless, new DateOnly(2026, 1, 1), 200m).Remaining.Should().Be(1000m);
     }
+
+    // ---- W04: skipped months and jars that have stopped (rules 25, 55, 60–61) ------------
+
+    private static JarPlanOptions Skipping(params DateOnly[] months) => new(months.ToHashSet());
+
+    [Fact]
+    public void Rule61_ASkippedMonth_PlansZero_AndTheOthersCarryTheRest_ExactlyToTheCent()
+    {
+        // 300 by 1 December from September: 100/100/100. Skip September → 0, then 150/150.
+        var jar = ByDeadline(300m, new DateOnly(2026, 12, 1));
+        var asOf = new DateOnly(2026, 9, 15);
+
+        var plan = JarSchedule.Plan(jar, asOf, 0m, Skipping(new DateOnly(2026, 9, 1)));
+
+        Planned(plan).Should().Equal(0m, 150m, 150m);
+        plan.Months[0].Skipped.Should().BeTrue();
+        plan.Months.Skip(1).Should().OnlyContain(m => !m.Skipped);
+        plan.Total.Should().Be(300m);
+        plan.Unplanned.Should().Be(0m);
+        plan.FundingCompletesOn.Should().Be(new DateOnly(2026, 11, 30));
+
+        // Rule 35 still holds around a skip: 100 over Oct–Nov after skipping Sep → 50/50; over
+        // three months with one skipped, the cent remainder lands in the last planned month.
+        Planned(JarSchedule.Plan(ByDeadline(100m, new DateOnly(2027, 1, 1)), asOf, 0m, Skipping(new DateOnly(2026, 10, 1))))
+            .Should().Equal(33.33m, 0m, 33.33m, 33.34m);
+    }
+
+    [Fact]
+    public void Rule61_SkippingEveryRemainingMonth_IsAllowed_AndReportsWhatStaysUnplanned()
+    {
+        // 300 by 1 December from November: November alone carries the 300; skipping it leaves it
+        // unplanned — the planner never invents a month after the deadline (rule 36).
+        var jar = ByDeadline(300m, new DateOnly(2026, 12, 1));
+
+        var plan = JarSchedule.Plan(jar, new DateOnly(2026, 11, 3), 0m, Skipping(new DateOnly(2026, 11, 1)));
+
+        Planned(plan).Should().Equal(0m);
+        plan.Months[0].Skipped.Should().BeTrue();
+        plan.Unplanned.Should().Be(300m);
+        plan.Remaining.Should().Be(300m);
+        plan.FundingCompletesOn.Should().BeNull();
+    }
+
+    [Fact]
+    public void Rule61_AFixedMonthlyPlan_LeavesASkippedMonthAtZero_AndCarriesOn()
+    {
+        // 250 target at 100 a month, holding nothing: 100/100/50. Skipping the first month shifts
+        // the same figures one month on; an ongoing jar lists the skipped month at 0 and the next at 75.
+        var first = new DateOnly(2026, 9, 1);
+
+        var target = JarSchedule.Plan(FixedMonthly(100m, 250m), first, 0m, Skipping(first));
+        Planned(target).Should().Equal(0m, 100m, 100m, 50m);
+        target.Months[0].Skipped.Should().BeTrue();
+        target.EstimatedMonths.Should().Be(3);
+
+        var ongoing = JarSchedule.Plan(FixedMonthly(75m), first, 900m, Skipping(first));
+        ongoing.IsOngoing.Should().BeTrue();
+        Planned(ongoing).Should().Equal(0m, 75m);
+        ongoing.Months[0].Skipped.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ThePreview_AndTheReplant_ReadTheSameSkips_ThroughOneOption()
+    {
+        // The option, not the caller, decides what a skip means: the same set gives the same plan
+        // whichever day of the month is passed (IsSkipped normalises to the month).
+        var jar = ByDeadline(300m, new DateOnly(2026, 12, 1));
+        var opts = Skipping(new DateOnly(2026, 10, 1));
+
+        opts.IsSkipped(new DateOnly(2026, 10, 19)).Should().BeTrue();
+        opts.IsSkipped(new DateOnly(2026, 11, 1)).Should().BeFalse();
+        Planned(JarSchedule.Plan(jar, new DateOnly(2026, 9, 2), 0m, opts)).Should().Equal(150m, 0m, 150m);
+        Planned(JarSchedule.Plan(jar, new DateOnly(2026, 9, 28), 0m, opts)).Should().Equal(150m, 0m, 150m);
+    }
+
+    [Fact]
+    public void Rules25And55_AnArchivedOrCompletedJar_PlansNothing_ButStillKnowsWhatIsLeft()
+    {
+        var archived = ByDeadline(300m, new DateOnly(2026, 12, 1));
+        archived.IsArchived = true;
+        var completed = ByDeadline(300m, new DateOnly(2026, 12, 1));
+        completed.CompletedOn = new DateOnly(2026, 9, 27);
+
+        JarSchedule.IsPlanning(archived).Should().BeFalse();
+        JarSchedule.IsPlanning(completed).Should().BeFalse();
+        JarSchedule.IsPlanning(ByDeadline(300m, new DateOnly(2026, 12, 1))).Should().BeTrue();
+
+        foreach (var jar in new[] { archived, completed })
+        {
+            var plan = JarSchedule.Plan(jar, new DateOnly(2026, 9, 27), 120m);
+            plan.Months.Should().BeEmpty();
+            plan.Remaining.Should().Be(180m, "what the target still lacks is a fact about the jar, not a plan");
+            plan.Unplanned.Should().Be(0m);
+            JarSchedule.PlannedFor(jar, new DateOnly(2026, 10, 1), 120m).Should().Be(0m);
+        }
+    }
 }

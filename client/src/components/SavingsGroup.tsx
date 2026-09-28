@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { CategoryVM } from '../budgetModel'
+import type { CategoryVM, ItemVM } from '../budgetModel'
 import { categoryActual, categoryPlanned } from '../budgetModel'
 import { formatMoney, type Minor } from '../lib/money'
 import { BudgetItemRow } from './BudgetItemRow'
@@ -12,7 +12,13 @@ interface Props {
   savingItemId: string | null
   onCommitItem: (itemId: string, plannedMinor: Minor) => void
   onRenameItem: (itemId: string, name: string) => void
-  onDeleteItem: (itemId: string) => void
+  /**
+   * Rule 60: a jar's line cannot be deleted from a month. The ✕ opens the skip-or-archive
+   * choice for the line instead; omitted (a past month) it is not shown at all.
+   */
+  onRemoveJarLine?: (item: ItemVM) => void
+  /** Rule 60: plans a skipped month's contribution again (omitted for a past month). */
+  onRestoreJarLine?: (itemId: string) => void
   /**
    * Opens the shared jar form (rule 73): a savings line IS a jar's monthly contribution,
    * so it's created through POST /jars — which plants the line here — never as a bare line.
@@ -26,7 +32,8 @@ interface Props {
  * A group of jars, in the same clean card style as the Income / Everyday spending
  * panels: a header (violet dot marks it as savings) with the spent / planned total,
  * then each jar as a name + funding bar with its actual **Available** balance and an
- * inline-editable monthly contribution. New lines come from the jar form (rule 73).
+ * inline-editable monthly contribution. New lines come from the jar form (rule 73), and
+ * a line leaves a month only by being skipped or by archiving its jar (rule 60).
  */
 export function SavingsGroup({
   category,
@@ -34,7 +41,8 @@ export function SavingsGroup({
   savingItemId,
   onCommitItem,
   onRenameItem,
-  onDeleteItem,
+  onRemoveJarLine,
+  onRestoreJarLine,
   onAddJar,
   onRenameCategory,
   onDeleteCategory,
@@ -124,7 +132,8 @@ export function SavingsGroup({
           saving={savingItemId === item.id}
           onCommit={onCommitItem}
           onRename={onRenameItem}
-          onDelete={onDeleteItem}
+          onRemoveJarLine={onRemoveJarLine ? () => onRemoveJarLine(item) : undefined}
+          onRestoreJarLine={onRestoreJarLine}
           availableMinor={item.savingsAvailableMinor}
           savingsLine
         />

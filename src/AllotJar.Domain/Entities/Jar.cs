@@ -87,6 +87,23 @@ public class Jar : BaseEntity
     public Guid FundingAccountId { get; set; }
     public Account? FundingAccount { get; set; }
 
-    /// <summary>Archived funds are hidden from active budgeting but kept so past months still reconcile.</summary>
+    /// <summary>
+    /// Rule 55 (W04): the day the user marked this one-off jar's purpose completed. A completed jar
+    /// plans no further contributions — its balance being spent (or reaching zero) never restarts
+    /// a plan — and keeps whatever it still holds until the user reallocates it (rule 56).
+    /// Completion records no payment and moves no money. Null while the jar is live; never set on
+    /// a Recurring jar (its cycles end by being marked paid, rule 83). Reopening is not offered
+    /// (HANDOVER O3).
+    /// </summary>
+    public DateOnly? CompletedOn { get; set; }
+
+    /// <summary>Rule 55: a Goal whose purpose the user has marked completed.</summary>
+    public bool IsCompleted => CompletedOn is not null;
+
+    /// <summary>
+    /// Archived jars are hidden from active budgeting but kept so past months still reconcile
+    /// (rules 25–27): archiving needs a zero balance and cancels the remaining planned
+    /// contributions, current month included; restoring plants them again.
+    /// </summary>
     public bool IsArchived { get; set; }
 }

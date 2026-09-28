@@ -73,6 +73,9 @@ public class BudgetItemDto
     /// </summary>
     public decimal? SavingsAvailable { get; set; }
 
+    /// <summary>Rule 60 (W04): a jar line whose contribution the user skipped this month; it stands at 0 and the jar's other months carry the plan.</summary>
+    public bool IsSkipped { get; set; }
+
     /// <summary>The day of the month (1–31) this bill is due; null when it isn't a bill.</summary>
     public int? DueDay { get; set; }
 

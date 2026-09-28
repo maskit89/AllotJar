@@ -53,6 +53,9 @@ function jar(over: Partial<JarDto> = {}): JarDto {
     estimatedMonthsToTarget: null,
     shortfall: 150,
     lastCycle: null,
+    completedOn: null,
+    canDelete: false,
+    skippedThisMonth: false,
     status: 'DeadlineMissed',
     ...over,
   }
