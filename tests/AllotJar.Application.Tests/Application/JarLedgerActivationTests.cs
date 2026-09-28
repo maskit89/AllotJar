@@ -22,6 +22,7 @@ using AllotJar.Application.Jars.Queries.GetJars;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
+using AllotJar.Application.Transactions.Commands.UpdateTransaction;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -435,6 +436,26 @@ public class JarLedgerActivationTests
         var rows = (await new GetAccountReconciliationQueryHandler(db, User)
             .Handle(new GetAccountReconciliationQuery(), CancellationToken.None)).ToDictionary(r => r.AccountId);
         rows[a.Id].Float.Should().Be(0m);
+
+        // Editing the payment afterwards re-answers the jar prompt, but the line still names the
+        // jar, so the kept attribution stays: a payee or date edit changes nothing, and a new
+        // amount is still drawn from the jar (jar 20 / unallocated 0, not jar 100 / unallocated −80).
+        var payment = await db.Transactions.AsNoTracking().SingleAsync(t => t.Type == TransactionType.Expense);
+        var update = new UpdateTransactionCommandHandler(db, User);
+        await update.Handle(new UpdateTransactionCommand(payment.Id, payment.Date, "Shop (renamed)", 100m, TransactionType.Expense, a.Id), CancellationToken.None);
+        var renamed = (await JarLedgerReader.ReadAsync(db, "user-1", Today, CancellationToken.None)).Accounts[a.Id];
+        renamed.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(0m);
+        renamed.Unallocated.Should().Be(0m);
+        renamed.HasBackingDeficit.Should().BeFalse();
+        (await db.JarAllocations.CountAsync(al => al.AccountId == a.Id && al.TransactionId != null)).Should().Be(1);
+
+        await update.Handle(new UpdateTransactionCommand(payment.Id, payment.Date, "Shop", 80m, TransactionType.Expense, a.Id), CancellationToken.None);
+        var shrunk = (await JarLedgerReader.ReadAsync(db, "user-1", Today, CancellationToken.None)).Accounts[a.Id];
+        shrunk.AccountBalance.Should().Be(20m);
+        shrunk.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(20m);
+        shrunk.Unallocated.Should().Be(0m);
+        shrunk.HasBackingDeficit.Should().BeFalse();
+        shrunk.UnreconciledAllocations.Should().Be(0);
     }
 
     [Fact]
