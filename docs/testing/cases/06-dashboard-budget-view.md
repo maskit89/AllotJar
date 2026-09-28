@@ -410,6 +410,16 @@
 - **Expected:** 1: "€300.00 saved as of <last day>". 2: the current month's grid appears with the shelf absent until its own `GET /api/jars?year&month` lands, then "€450.00 saved" with no date; at no point does "€300.00 saved" show under the current month.
 - **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-076)
 
+### DASH-077 - Navigating months never flashes the first-run checklist while the new month's jars load
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Adversarial re-review of PR #275 (W05): clearing the shelf on navigation (DASH-076) left the checklist reading "no jar yet" until the new month's read landed.
+- **Preconditions:** An account, a past month and the current month each with a jar (300 then 450); a slow `/jars` response for the current month.
+- **Steps:**
+  1. View the past month. 2. Navigate to the current month. 3. Let the jars read land.
+- **Expected:** "Set up your budget" is never shown: not on the past month, not while the current month's grid is on screen with its shelf still loading, and not after "€450.00 saved" appears.
+- **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-077)
+
 ## Income card
 
 ### DASH-031 - Income header shows transaction-derived received of planned

@@ -81,6 +81,9 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   const [templates, setTemplates] = useState<BudgetTemplateDto[]>([])
   // The "Your jars" shelf — the household's jars, with goal progress.
   const [jars, setJars] = useState<JarDto[]>([])
+  // Whether the shelf has been read for the viewed month: the first-run checklist (rule 81)
+  // must not read "add a jar" to a household with jars while that read is in flight.
+  const [jarsLoaded, setJarsLoaded] = useState(false)
   // The household's accounts: a jar needs one (rule 73), and the first-run checklist
   // (rule 81) starts with them.
   const [accounts, setAccounts] = useState<AccountDto[]>([])
@@ -106,6 +109,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     // month's balances under the new month's grid while its own read is in flight.
     setMonth(null)
     setJars([])
+    setJarsLoaded(false)
     api
       .get<BudgetMonthDto>(`/budget/${year}/${monthNum}`)
       .then(({ data }) => {
@@ -169,6 +173,9 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         if (read === jarsRead.current) setJars(Array.isArray(data) ? data : [])
       })
       .catch(() => {})
+      .finally(() => {
+        if (read === jarsRead.current) setJarsLoaded(true)
+      })
   }, [year, monthNum])
 
   useEffect(() => refreshJars(), [refreshJars])
@@ -675,7 +682,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
 
         {/* First-run checklist (rule 81): accounts first, then the month, then a jar from an
             account. Shown until every step is done; state comes from data already loaded. */}
-        {canWrite && !loading && accountsLoaded && checklist && (
+        {canWrite && !loading && accountsLoaded && jarsLoaded && checklist && (
           <Card as="section" aria-labelledby="setup-heading" className="p-5">
             <h2 id="setup-heading" className="text-base font-bold tracking-[-0.01em] text-slate-900">Set up your budget</h2>
             <p className="mt-0.5 text-xs text-slate-500">
