@@ -223,7 +223,9 @@ public class JarLifecycleW04Tests
         SeedPlan(db, jar);
         SeedMonth(db, Current.AddMonths(-1), jar, 100m); // a past plan line too: a plan, never money
         db.JarCycles.Add(new JarCycle { OwnerId = Owner, JarId = jar.Id, Deadline = Current, TargetAmount = 300m });
+        db.JarRevisions.Add(JarRevision.Of(jar, DateOnly.MinValue)); // its definition history (an edit)
         await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
         (await ReadAsync(db, jar)).CanDelete.Should().BeTrue();
 
         await DeleteAsync(db, jar);
@@ -231,6 +233,7 @@ public class JarLifecycleW04Tests
         db.Jars.Should().BeEmpty();
         db.BudgetItems.Where(i => i.SavingsId != null).Should().BeEmpty();
         db.JarCycles.Should().BeEmpty();
+        db.JarRevisions.Should().BeEmpty();
         db.BudgetItems.Count(i => i.Name == "Salary").Should().Be(4, "the months and their other lines stay");
     }
 
@@ -273,6 +276,7 @@ public class JarLifecycleW04Tests
         var archived = await ArchiveAsync(db, jar);
 
         archived.IsArchived.Should().BeTrue();
+        jar.ArchivedOn.Should().Be(DateOnly.FromDateTime(DateTime.UtcNow), "archiving is dated, so a month that ended before it reads the jar as it was (W05)");
         archived.PlannedThisMonth.Should().Be(0m);
         LineFor(db, jar, Current).Should().Be(0m, "nothing went in this month, so nothing more is asked for");
         LinesFor(db, jar, Next).Should().BeEmpty();
@@ -283,6 +287,7 @@ public class JarLifecycleW04Tests
         var restored = await ArchiveAsync(db, jar, archived: false);
 
         restored.IsArchived.Should().BeFalse();
+        jar.ArchivedOn.Should().BeNull();
         restored.PlannedThisMonth.Should().Be(100m);
         LineFor(db, jar, Current).Should().Be(100m);
         LineFor(db, jar, Next).Should().Be(100m);

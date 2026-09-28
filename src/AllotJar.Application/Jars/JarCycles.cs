@@ -152,7 +152,7 @@ public static class JarCycles
     public static async Task<decimal?> BalanceBeforeAsync(
         IApplicationDbContext db, string ownerId, Jar jar, DateOnly deadline, CancellationToken cancellationToken)
     {
-        var snapshot = await JarLedgerReader.ReadAsync(db, ownerId, deadline.AddDays(-1), cancellationToken, new[] { jar.FundingAccountId });
+        var snapshot = await JarLedgerReader.ReadAsync(db, ownerId, deadline.AddDays(-1), cancellationToken);
         return snapshot.BalanceOf(jar.Id);
     }
 }

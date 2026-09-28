@@ -95,8 +95,8 @@
   1. On the register row pick *Travel* in the assignment dropdown → the prompt modal opens; choose Holiday → "Use this jar".
   2. Edit the row: the prompt shows Holiday pre-filled; change to Unallocated and save.
   3. Delete the row.
-- **Expected:** Step 1 PUTs `/assignment` with `paidFromJarId`; the cross-month confirmation, when needed, keeps the same answer. Step 2 PUTs the edit with `paidFromJarId: null` and the stored answer is removed (an edit that omits the answer returns the leg to its default). Step 3 removes the stored split with the row (cascade).
-- **Automated:** Backend `JarMovementsTests`; client `TransactionsPage.jars.test.tsx`.
+- **Expected:** Step 1 PUTs `/assignment` with `paidFromJarId`; the cross-month confirmation, when needed, keeps the same answer. Step 2 PUTs the edit with `paidFromJarId: null` and the stored answer is removed (an edit that omits the answer returns the leg to its default); an omitted answer keeps a draw from a jar that has since moved account (P51). Step 3 removes the stored split with the row (each leg's split is cleared first).
+- **Automated:** Backend `JarMovementsTests`, `JarDepartureTests` (`Rule80_APayeeEditOfAPaymentDrawnFromAMovedJar_KeepsTheDraw`); client `TransactionsPage.jars.test.tsx`.
 
 ## Rule 80 — cross-account Move money is a confirmed bank transfer
 

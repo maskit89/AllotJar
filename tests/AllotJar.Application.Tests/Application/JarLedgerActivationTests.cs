@@ -439,7 +439,8 @@ public class JarLedgerActivationTests
 
         // Editing the payment afterwards re-answers the jar prompt, but the line still names the
         // jar, so the kept attribution stays: a payee or date edit changes nothing, and a new
-        // amount is still drawn from the jar (jar 20 / unallocated 0, not jar 100 / unallocated −80).
+        // amount is still drawn from the jar (not jar 100 / unallocated −80). The 20 it no longer
+        // spent is settled on the day the jar left A: the jar holds nothing in A from then on.
         var payment = await db.Transactions.AsNoTracking().SingleAsync(t => t.Type == TransactionType.Expense);
         var update = new UpdateTransactionCommandHandler(db, User);
         await update.Handle(new UpdateTransactionCommand(payment.Id, payment.Date, "Shop (renamed)", 100m, TransactionType.Expense, a.Id), CancellationToken.None);
@@ -452,8 +453,8 @@ public class JarLedgerActivationTests
         await update.Handle(new UpdateTransactionCommand(payment.Id, payment.Date, "Shop", 80m, TransactionType.Expense, a.Id), CancellationToken.None);
         var shrunk = (await JarLedgerReader.ReadAsync(db, "user-1", Today, CancellationToken.None)).Accounts[a.Id];
         shrunk.AccountBalance.Should().Be(20m);
-        shrunk.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(20m);
-        shrunk.Unallocated.Should().Be(0m);
+        shrunk.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(0m);
+        shrunk.Unallocated.Should().Be(20m);
         shrunk.HasBackingDeficit.Should().BeFalse();
         shrunk.UnreconciledAllocations.Should().Be(0);
     }

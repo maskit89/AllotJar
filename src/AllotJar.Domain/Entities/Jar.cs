@@ -17,7 +17,8 @@ namespace AllotJar.Domain.Entities;
 /// designated account's recorded money and the jar allocations posted against it
 /// (see AllotJar.Domain.Services.ActualSavingsLedger and the Application JarLedgerReader).
 /// Planned contributions never count as money (rule 1). This entity holds only the
-/// jar's definition.
+/// jar's live definition; an edit that changes it is also dated as a <see cref="JarRevision"/>,
+/// so a month that is over keeps the definition it had (P49).
 /// </summary>
 public class Jar : BaseEntity
 {
@@ -106,4 +107,14 @@ public class Jar : BaseEntity
     /// contributions, current month included; restoring plants them again.
     /// </summary>
     public bool IsArchived { get; set; }
+
+    /// <summary>
+    /// The day the jar was archived (W05): a month that ended before it reads the jar as it was
+    /// then, live, so archiving does not rewrite that month's status (rule 27, P49). Cleared on
+    /// restore. Null on a jar archived before the date was recorded: archived on every date.
+    /// </summary>
+    public DateOnly? ArchivedOn { get; set; }
+
+    /// <summary>A detached shallow copy for a read-time view (P49: a month that is over is judged against the definition it had then, <see cref="JarRevision.ApplyTo"/>). Never attach it to a context.</summary>
+    public Jar Copy() => (Jar)MemberwiseClone();
 }

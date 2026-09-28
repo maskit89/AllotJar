@@ -8,7 +8,8 @@ namespace AllotJar.Domain.Entities;
 /// account leg of a recorded transaction, is attributed to that account's jars and unallocated
 /// funds. The postings are actual money (rule 1), never a plan. A transaction-linked operation
 /// (<see cref="TransactionId"/> set) sums to that leg's signed movement; the other kinds sum to
-/// zero. Read through the domain <c>ActualSavingsLedger</c>; the reader derives the attribution
+/// zero; a Departure operation is the zero-sum settlement of a jar's history in an account it
+/// has left (P51). Read through the domain <c>ActualSavingsLedger</c>; the reader derives the attribution
 /// of any movement that has no stored operation from its budget line (rule 79).
 /// </summary>
 public class JarAllocation : BaseEntity

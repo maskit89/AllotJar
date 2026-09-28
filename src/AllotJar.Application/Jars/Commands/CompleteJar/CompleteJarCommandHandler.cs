@@ -46,7 +46,7 @@ public class CompleteJarCommandHandler : IRequestHandler<CompleteJarCommand, Jar
         }
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var snapshot = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken, new[] { jar.FundingAccountId });
+        var snapshot = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken);
         var balance = snapshot.BalanceOf(jar.Id);
         if (balance is null)
         {

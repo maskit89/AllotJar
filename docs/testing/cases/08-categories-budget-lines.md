@@ -231,16 +231,17 @@ Also available: **"Blank July"** fixture — a freshly created blank month for a
 - **Expected:** **400** "Validation failed" with `errors.CategoryId = ["The Income group cannot be deleted."]` (thrown in the handler, `DeleteBudgetCategoryCommandHandler.cs:42-48`, not the validator). The Income group and its lines survive. A blank month always keeps exactly one Income group.
 - **Automated:** Yes (`BudgetCategoryCrudHandlerTests.cs` `Delete_Throws_WhenDeletingTheIncomeGroup`)
 
-### CAT-023 - Deleting a savings group does NOT delete its jars
+### CAT-023 - A Savings group that holds a jar's line cannot be deleted; an empty one can (rule 60)
 - **Priority:** P1
-- **Type:** Edge
-- **Preconditions:** Ana on July 2026; the "Savings" group holds the jar-backed "Emergency Fund" line.
+- **Type:** Negative
+- **Origin:** Re-review of PR #275 (W05, round 3, P2-14): deleting the group removed every jar line in the month and bypassed rule 60's skip-or-archive choice; on a month that is over it rewrote the jar's history there, and on a later month the shelf kept planning what the grid no longer had.
+- **Preconditions:** Ana on July 2026; the "Savings" group holds the jar-backed "Emergency Fund" line; a second Savings group "Later" holds no line.
 - **Steps:**
-  1. Delete the "Savings" group.
-  2. Open `/jars`.
-  3. Create the **next** month (August 2026).
-- **Expected:** The group + its savings line disappear from July, but the **Emergency Fund jar still exists** and is active (the `SavingsId` FK is `OnDelete(SetNull)`; deleting the budget category never removes the `Jars` row). When August is created, month-create re-appends a savings line for every active jar (into the first Savings group, creating one named "Savings" if none), so Emergency Fund reappears (map §6/§7 gotcha #9). Jar shaping details → `13-jars.md`.
-- **Automated:** Partial (`JarBudgetLinkTests.cs` `CreateMonth_*_*` covers re-appending jar lines on month create)
+  1. Hover the "Savings" card, then the "Later" card.
+  2. Via API, `DELETE /api/budget/categories/{savingsGroupId}`.
+  3. Delete the "Later" group (🗑 → Delete).
+- **Expected:** 1: "Later" offers **🗑** (aria "Delete group Later"); "Savings" offers none. 2: **400** with `errors.CategoryId = ["Savings holds a jar's monthly contribution (Emergency Fund). Skip this month's contribution or archive the jar instead; a group can be deleted once it holds no jar's line."]`; the group, its line and the **Emergency Fund jar** stay exactly as they were (the jar active). A refusal reached from the page is shown in the server's words and the group is put back. 3: "Later" is removed like any other group. To take a jar's contribution out of a month, skip that month or archive the jar (CAT-044, BUDG-060/061). Jar shaping details → `13-jars.md`.
+- **Automated:** Yes (`CCategoriesLinesCoverageTests.cs` `DeleteSavingsGroup_ThatHoldsAJarsLine_IsRefused_AndAnEmptyOneDeletes`; `DashboardPage.test.tsx` "CAT-023: a Savings group that holds a jar's line offers no delete; an empty one does (rule 60)")
 
 ### CAT-024 - Delete a group owned by another household is refused
 - **Priority:** P1

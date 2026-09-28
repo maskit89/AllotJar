@@ -34,7 +34,7 @@ public class ArchiveJarCommandHandler
         }
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var snapshot = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken, new[] { jar.FundingAccountId });
+        var snapshot = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken);
 
         if (request.Archived && !jar.IsArchived)
         {
@@ -59,6 +59,11 @@ public class ArchiveJarCommandHandler
             // Rule 27: the remaining contribution this month and every later month's line are
             // cancelled; past months, transactions and balances are untouched.
             await SavingsLines.CancelPlansAsync(_db, userId, jar, today, cancellationToken);
+        }
+        if (request.Archived != jar.IsArchived)
+        {
+            // Dated, so a month that ended before today still reads the jar as it was then (W05).
+            jar.ArchivedOn = request.Archived ? today : null;
         }
         jar.IsArchived = request.Archived;
         if (!request.Archived && !jar.IsCompleted)

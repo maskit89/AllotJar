@@ -233,10 +233,11 @@ public class CCategoriesLinesCoverageTests
         db.Transactions.Should().ContainSingle();                                // the €900 tx kept
     }
 
-    // CAT-023 — deleting a Savings group removes the group + its savings line but leaves the backing
-    // jar row (SavingsId FK is SetNull; the Jars row is never touched by a category delete).
+    // CAT-023 — a Savings group that still holds a jar's line cannot be deleted (rule 60: the line
+    // leaves the month only by skipping it or archiving the jar), so the month's jar history and
+    // plan stay as they were; once it holds no jar's line it deletes like any other group.
     [Fact]
-    public async Task DeleteSavingsGroup_LeavesTheBackingJar()
+    public async Task DeleteSavingsGroup_ThatHoldsAJarsLine_IsRefused_AndAnEmptyOneDeletes()
     {
         await using var db = NewContext();
         var jar = new Jar
@@ -250,6 +251,7 @@ public class CCategoriesLinesCoverageTests
             Name = "Savings", Kind = CategoryKind.Savings, DisplayOrder = 0,
             Items = new List<BudgetItem> { line },
         };
+        var emptySavings = new BudgetCategory { Name = "Later", Kind = CategoryKind.Savings, DisplayOrder = 1 };
         var month = new BudgetMonth
         {
             OwnerId = "user-1", Year = 2026, Month = 7,
@@ -257,6 +259,7 @@ public class CCategoriesLinesCoverageTests
             {
                 new() { Name = "Income", Kind = CategoryKind.Income, DisplayOrder = 0 },
                 savings,
+                emptySavings,
             },
         };
         db.Jars.Add(jar);
@@ -264,11 +267,16 @@ public class CCategoriesLinesCoverageTests
         await db.SaveChangesAsync();
         var handler = new DeleteBudgetCategoryCommandHandler(db, new CurrentUserStub("user-1"));
 
-        var result = await handler.Handle(
-            new DeleteBudgetCategoryCommand(savings.Id), CancellationToken.None);
+        var refused = () => handler.Handle(new DeleteBudgetCategoryCommand(savings.Id), CancellationToken.None);
 
-        result.Categories.Should().NotContain(c => c.Kind == "Savings");
+        (await refused.Should().ThrowAsync<ValidationException>())
+            .Which.Errors.Values.SelectMany(m => m).Should().ContainSingle(m => m.Contains("Emergency Fund") && m.Contains("archive the jar"));
+        (await db.BudgetItems.CountAsync(i => i.Id == line.Id)).Should().Be(1);
         db.Jars.Should().ContainSingle(j => j.Id == jar.Id && !j.IsArchived);
+
+        var result = await handler.Handle(new DeleteBudgetCategoryCommand(emptySavings.Id), CancellationToken.None);
+
+        result.Categories.Should().ContainSingle(c => c.Kind == "Savings" && c.Id == savings.Id);
     }
 
     // ---- Budget-line creation: name handling ----------------------------------

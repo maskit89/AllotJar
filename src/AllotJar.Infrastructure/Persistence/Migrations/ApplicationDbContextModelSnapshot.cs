@@ -370,6 +370,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasColumnType("int")
                         .HasDefaultValue(1);
 
+                    b.Property<DateOnly?>("ArchivedOn")
+                        .HasColumnType("date");
+
                     b.Property<DateOnly?>("CompletedOn")
                         .HasColumnType("date");
 
@@ -547,6 +550,52 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("JarCycles", (string)null);
+                });
+
+            modelBuilder.Entity("AllotJar.Domain.Entities.JarRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Accrual")
+                        .HasColumnType("int");
+
+                    b.Property<DateOnly?>("CycleDeadline")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly>("EffectiveFrom")
+                        .HasColumnType("date");
+
+                    b.Property<bool>("IncludeDeadlineMonth")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("JarId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("MonthlyContribution")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<int?>("RecurMonths")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TargetAmount")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<DateOnly?>("TargetDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JarId", "EffectiveFrom")
+                        .IsUnique();
+
+                    b.ToTable("JarRevisions", (string)null);
                 });
 
             modelBuilder.Entity("AllotJar.Domain.Entities.RefreshToken", b =>
@@ -1062,6 +1111,17 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Navigation("Jar");
 
                     b.Navigation("PaymentTransaction");
+                });
+
+            modelBuilder.Entity("AllotJar.Domain.Entities.JarRevision", b =>
+                {
+                    b.HasOne("AllotJar.Domain.Entities.Jar", "Jar")
+                        .WithMany()
+                        .HasForeignKey("JarId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Jar");
                 });
 
             modelBuilder.Entity("AllotJar.Domain.Entities.Transaction", b =>

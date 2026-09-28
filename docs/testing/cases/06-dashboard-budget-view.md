@@ -343,14 +343,14 @@
   - The Savings card's Available figure on the same month equals the shelf's balance (DASH-030).
 - **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-028/073/074 — mocked; the month switch itself is covered by the effect's dependency and the past/future cases)
 
-### DASH-029 - /jars failure leaves the shelf silently absent
+### DASH-029 - /jars failure leaves the shelf absent with a note; a non-array body leaves it absent
 - **Priority:** P2
 - **Type:** Edge
 - **Preconditions:** Block GET `/jars` (or return a non-array body); current month loaded.
 - **Steps:**
   1. Load `/`.
-- **Expected:** No shelf, no error strip, rest of the dashboard intact (the fetch is guarded; non-arrays coerce to `[]`). Note: this fetch ignores the `jars` feature flag — flag-off behaves identically to flag-on here.
-- **Automated:** No
+- **Expected:** No shelf, no error strip, rest of the dashboard intact. A blocked read shows the note "Could not load your jars for this month. Change month or reload to try again." and no first-run checklist (DASH-079); a non-array body shows no note (the fetch is guarded; non-arrays coerce to `[]`). Note: this fetch ignores the `jars` feature flag — flag-off behaves identically to flag-on here.
+- **Automated:** Partial (client/src/pages/DashboardPage.jars.test.tsx DASH-079 — a failed read after a month change)
 
 ### DASH-030 - Shelf balance and the fund line's "avail." agree on every month
 - **Priority:** P2
@@ -419,6 +419,26 @@
   1. View the past month. 2. Navigate to the current month. 3. Let the jars read land.
 - **Expected:** "Set up your budget" is never shown: not on the past month, not while the current month's grid is on screen with its shelf still loading, and not after "€450.00 saved" appears.
 - **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-077)
+
+### DASH-078 - A jar line's save that returns after a month change leaves the new month's shelf alone
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Re-review of PR #275 (W05, round 3, P2-12): the save's shelf refresh read the month it was made on after the user had moved on, and that month's jars stayed under the new month's grid.
+- **Preconditions:** The current month with Holiday at 450 (its line on the grid) and a past month with Holiday at 300; a slow `PUT /api/budget/items/{id}`.
+- **Steps:**
+  1. On the current month click Holiday's planned amount and type 200. 2. Click the previous-month arrow (the blur commits the save, the click changes month). 3. Let the save return.
+- **Expected:** 2: `PUT /api/budget/items/{id}` with `plannedAmount: 200` is sent; the past month's grid and shelf load ("€300.00 saved as of <last day>"). 3: no further `/jars` read is issued and the shelf keeps "€300.00 saved"; "€450.00 saved" never shows under the past month. The same guard covers every shelf refresh that follows a save, such as Start a blank budget or a template.
+- **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-078)
+
+### DASH-079 - A failed jars read after a month change says so instead of showing the first-run checklist
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Re-review of PR #275 (W05, round 3, P2-13): a failed read counted as loaded, so the cleared shelf read as "no jar yet" and the checklist asked to "Add a jar from an account".
+- **Preconditions:** An account and a Holiday jar; the current month loaded with its shelf ("€450.00 saved"); `GET /api/jars?year&month` for the previous month answers 500.
+- **Steps:**
+  1. Navigate to the previous month.
+- **Expected:** The month's grid loads; the shelf is absent and a note reads "Could not load your jars for this month. Change month or reload to try again."; "Set up your budget" is not shown. A later successful read (another month, or a reload) clears the note.
+- **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-079)
 
 ## Income card
 

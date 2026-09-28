@@ -18,7 +18,9 @@ namespace AllotJar.Application.Jars;
 /// later one read as of <c>asOf</c> (today), so a month that has not begun shows today's balance
 /// with nothing contributed yet. The plan is that month's own line — or nothing, for a month that
 /// is over and has no line for the jar; a month that has not begun and has no line yet is planned
-/// from that month. A month that is over is judged against the Recurring cycle open at its end.
+/// from that month. A month that is over is judged against the definition the jar had at its end
+/// (<see cref="JarHistory.DefinitionOn"/>: the latest revision on or before it, and a Recurring
+/// cycle open then and closed since).
 /// </para>
 /// </summary>
 public static class JarFigures
@@ -29,7 +31,6 @@ public static class JarFigures
         IReadOnlyList<Jar> jars,
         DateOnly asOf,
         CancellationToken cancellationToken,
-        IReadOnlyCollection<Guid>? accountIds = null,
         DateOnly? month = null)
     {
         if (jars.Count == 0)
@@ -54,8 +55,8 @@ public static class JarFigures
 
         // Actual money only (rule 1): each jar's allocations in its account as of the date, and
         // as the month began (the same snapshot when the month has not begun: nothing went in yet).
-        var now = await JarLedgerReader.ReadAsync(db, ownerId, balanceDate, cancellationToken, accountIds);
-        var before = dayBefore == balanceDate ? now : await JarLedgerReader.ReadAsync(db, ownerId, dayBefore, cancellationToken, accountIds);
+        var now = await JarLedgerReader.ReadAsync(db, ownerId, balanceDate, cancellationToken);
+        var before = dayBefore == balanceDate ? now : await JarLedgerReader.ReadAsync(db, ownerId, dayBefore, cancellationToken);
 
         var ids = jars.Select(j => j.Id).ToList();
         // This month's stored lines: the plan they carry, and whether the user skipped the month
@@ -88,32 +89,47 @@ public static class JarFigures
                 .ToListAsync(cancellationToken))
             .GroupBy(c => c.JarId)
             .ToDictionary(g => g.Key, g => g.ToList());
-        JarCycle? LastCycleOf(Guid jarId) => cycles.GetValueOrDefault(jarId)?
-            .Where(c => !isOver || c.ClosedOn <= balanceDate)
+        // The Recurring cycle still open at the balance date of a month that is over (P49; a cycle
+        // paid on time counts as closed from its payment, rule 22). A cycle after it cannot have
+        // closed by then, whatever its record says, so the history line never shows one.
+        JarCycle? CycleOpenThen(Guid jarId) => isOver ? JarHistory.CycleOpenOn(cycles.GetValueOrDefault(jarId), balanceDate) : null;
+        JarCycle? LastCycleOf(Guid jarId, JarCycle? openThen) => cycles.GetValueOrDefault(jarId)?
+            .Where(c => !isOver || (c.ClosedForHistoryOn <= balanceDate && (openThen is null || c.Deadline < openThen.Deadline)))
             .OrderByDescending(c => c.Deadline).ThenByDescending(c => c.CreatedUtc)
             .FirstOrDefault();
-        JarCycle? CycleOpenThen(Guid jarId) => isOver
-            ? cycles.GetValueOrDefault(jarId)?.Where(c => c.ClosedOn > balanceDate).OrderBy(c => c.Deadline).FirstOrDefault()
-            : null;
+
+        // A month that is over is judged against the definition the jar had at its end (P49): the
+        // latest revision dated on or before it (JarHistory). Today's row serves the current month,
+        // a later one, and a jar never edited.
+        var revisions = isOver
+            ? (await db.JarRevisions
+                    .AsNoTracking()
+                    .Where(r => ids.Contains(r.JarId) && r.EffectiveFrom <= balanceDate)
+                    .ToListAsync(cancellationToken))
+                .GroupBy(r => r.JarId)
+                .ToDictionary(g => g.Key, g => g.MaxBy(r => r.EffectiveFrom)!)
+            : new Dictionary<Guid, JarRevision>();
+        Jar DefinitionOf(Jar jar) => isOver
+            ? JarHistory.DefinitionOn(jar, revisions.GetValueOrDefault(jar.Id), cycles.GetValueOrDefault(jar.Id), balanceDate)
+            : jar;
 
         return jars
-            .Select(j => j.ToDto(
+            .Select(j => DefinitionOf(j).ToDto(
                 now.BalanceOf(j.Id),
                 before.BalanceOf(j.Id),
                 // A month that is over planned what its line says, or nothing: a jar with no line
                 // there (created later, or never planted) is not given a plan after the fact.
                 storedLines.TryGetValue(j.Id, out var line) ? line.Planned : isOver ? 0m : null,
                 balanceDate,
-                LastCycleOf(j.Id),
+                LastCycleOf(j.Id, CycleOpenThen(j.Id)),
                 month: monthStart,
                 skippedThisMonth: storedLines.TryGetValue(j.Id, out var flags) && flags.Skipped,
                 canDelete: !heldMoney.Contains(j.Id),
-                skippedMonths: skippedMonths.GetValueOrDefault(j.Id),
-                cycleThen: CycleOpenThen(j.Id)))
+                skippedMonths: skippedMonths.GetValueOrDefault(j.Id)))
             .ToList();
     }
 
     public static async Task<JarDto> ReadOneAsync(
         IApplicationDbContext db, string ownerId, Jar jar, DateOnly asOf, CancellationToken cancellationToken)
-        => (await ReadAsync(db, ownerId, new[] { jar }, asOf, cancellationToken, new[] { jar.FundingAccountId }))[0];
+        => (await ReadAsync(db, ownerId, new[] { jar }, asOf, cancellationToken))[0];
 }

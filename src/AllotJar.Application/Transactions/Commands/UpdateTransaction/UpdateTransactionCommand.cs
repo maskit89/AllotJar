@@ -14,7 +14,8 @@ namespace AllotJar.Application.Transactions.Commands.UpdateTransaction;
 /// to. The jar prompts are re-answered by the edit: <c>JarAllocations</c> restates how an
 /// income on a jar-backed account is divided (rule 78) and <c>PaidFromJarId</c> which jar an
 /// expense comes from (rule 79); omitting them returns the leg to its default (unallocated, or
-/// the budget line's jar). Returns the updated transaction.
+/// the budget line's jar), except a share of a jar that has since moved to another account,
+/// which stays as recorded (rule 80, P51). Returns the updated transaction.
 /// </summary>
 [AllowLimited]
 public record UpdateTransactionCommand(

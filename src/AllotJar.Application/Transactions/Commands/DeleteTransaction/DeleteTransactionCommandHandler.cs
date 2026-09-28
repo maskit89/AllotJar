@@ -67,6 +67,12 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
                 _db, affected, Array.Empty<Transaction>(), new[] { transaction.Id }, "TransactionId", cancellationToken);
         }
 
+        // Each leg's jar split goes first, through the one writer that keeps a departed jar's
+        // history balanced (rule 80); the cascade then has nothing left to remove.
+        foreach (var legAccount in affected)
+        {
+            await Jars.JarMovements.ClearAsync(_db, transaction, legAccount.Id, cancellationToken);
+        }
         _db.Transactions.Remove(transaction);
         await _db.SaveChangesAsync(cancellationToken);
         if (write is not null)

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Dtos;
+using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.Services;
 
@@ -45,7 +46,7 @@ public class UpdateJarCommandHandler
             // Rule 80: the account can change only while the jar holds nothing; a field change
             // never moves money. Anything else goes through "Move money" (a confirmed transfer).
             var account = await JarAccounts.LoadDesignatedAsync(_db, userId, request.FundingAccountId, "FundingAccountId", cancellationToken);
-            var current = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken, new[] { jar.FundingAccountId });
+            var current = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken);
             var balance = current.BalanceOf(jar.Id);
             if (balance is null)
             {
@@ -58,9 +59,16 @@ public class UpdateJarCommandHandler
                     $"{jar.Name} holds {balance:0.##} in {current.AccountOf(jar.Id)?.Account.Name}. " +
                     "Move that money first (a transfer to the new account, or a reallocation to another jar), then change the account.");
             }
+            if (await JarDepartures.HasUnpostedLegAsync(_db, jar.Id, jar.FundingAccountId, cancellationToken))
+            {
+                throw JarAccounts.Validation("FundingAccountId",
+                    $"{jar.Name} has a transfer in transit in {current.AccountOf(jar.Id)?.Account.Name}. Confirm it first, then change the account.");
+            }
             // The account it leaves keeps its history exactly as it reads today: the payments the
-            // jar's lines drew from it are written down there before the jar names another account.
-            await JarMovements.KeepLineAttributionAsync(_db, userId, jar, cancellationToken);
+            // jar's lines drew from it are written down there before the jar names another account,
+            // and the day it left is recorded so later corrections stay balanced there.
+            var kept = await JarMovements.KeepLineAttributionAsync(_db, userId, jar, today, cancellationToken);
+            await JarDepartures.RecordAsync(_db, userId, jar.Id, jar.FundingAccountId, today, kept > 0, cancellationToken);
             jar.FundingAccountId = account.Id;
         }
 
@@ -72,6 +80,7 @@ public class UpdateJarCommandHandler
         }
 
         var before = ScheduleInputs(jar);
+        var replaced = JarRevision.Of(jar, today);
         // A Recurring jar's form shows its open cycle's date: sent back unchanged it keeps the
         // anchor and the cycle; any other date is a deliberate change and restarts both (W03).
         var (anchor, cycleDeadline) = JarCycles.DeadlinesFor(jar, request.Kind, request.TargetDate);
@@ -95,7 +104,13 @@ public class UpdateJarCommandHandler
         // Past months, actual transactions and balances are untouched; a plain rename or a
         // change of account leaves every plan as it is. An archived or completed jar plans
         // nothing (rules 27, 55).
-        if (JarSchedule.IsPlanning(jar) && ScheduleInputs(jar) != before)
+        var redefined = ScheduleInputs(jar) != before;
+        if (redefined)
+        {
+            // P49: a month that is over keeps the definition it had at its end.
+            await JarHistory.RecordEditAsync(_db, jar, replaced, today, cancellationToken);
+        }
+        if (JarSchedule.IsPlanning(jar) && redefined)
         {
             await JarPlanner.ReplantAsync(_db, userId, jar, today, 0m, cancellationToken);
         }

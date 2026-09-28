@@ -110,8 +110,11 @@ public static class JarSchedule
     /// <summary>Rule 55 read on a date: a Goal is completed from the day the user marked it, so on an earlier date it was still live (W05, a past month keeps the status it had).</summary>
     public static bool IsCompletedOn(Jar jar, DateOnly asOf) => jar.CompletedOn is { } completedOn && completedOn <= asOf;
 
-    /// <summary><see cref="IsPlanning(Jar)"/> as it stood on <paramref name="asOf"/>: a completion dated after it had not happened yet.</summary>
-    public static bool IsPlanning(Jar jar, DateOnly asOf) => !jar.IsArchived && !IsCompletedOn(jar, asOf);
+    /// <summary>Rules 26–27 read on a date: a jar is archived from the day it was put away, so on an earlier date it was still live (W05). An archive with no recorded date counts on every date.</summary>
+    public static bool IsArchivedOn(Jar jar, DateOnly asOf) => jar.IsArchived && (jar.ArchivedOn is not { } archivedOn || archivedOn <= asOf);
+
+    /// <summary><see cref="IsPlanning(Jar)"/> as it stood on <paramref name="asOf"/>: an archive or a completion dated after it had not happened yet.</summary>
+    public static bool IsPlanning(Jar jar, DateOnly asOf) => !IsArchivedOn(jar, asOf) && !IsCompletedOn(jar, asOf);
 
     /// <summary>An ongoing jar: a fixed monthly amount with no target (rule 16).</summary>
     public static bool IsOngoing(Jar jar) =>

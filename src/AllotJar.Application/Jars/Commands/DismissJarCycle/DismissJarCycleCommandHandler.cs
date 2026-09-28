@@ -45,7 +45,7 @@ public class DismissJarCycleCommandHandler : IRequestHandler<DismissJarCycleComm
                 $"{jar.Name}'s cycle due {request.Deadline:d MMM yyyy} has not been missed; there is nothing to dismiss.");
         }
 
-        var snapshot = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken, new[] { jar.FundingAccountId });
+        var snapshot = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken);
         var outcome = snapshot.BalanceOf(jar.Id) is { } balance && balance >= jar.TargetAmount
             ? JarCycleOutcome.FundedLate
             : JarCycleOutcome.Missed;

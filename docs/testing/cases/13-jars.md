@@ -1013,3 +1013,73 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
   1. View September on the Budget page. 2. View October.
 - **Expected:** 1: the shelf shows Sofa at 300 beside its Savings line (Available 300); Bike is on the shelf with no plan ("+€0.00/mo", nothing to go). 2: Sofa is gone (archived); Bike shows its October line. The Jars page shows no Sofa.
 - **Automated:** Yes (JarMonthViewW05Tests — `Rule27_AMonthThatIsOver_StillListsAJarArchivedSince_WhoseLineItCarries`, `Rule46_AMonthThatIsOver_WithNoLineForTheJar_PlansNothingForIt`)
+
+### JAR-104 - A past month keeps the target and deadline it was judged against after the jar is edited
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Re-review of PR #275 (W05, round 3, P2-8 and P3-4): a month that was over was re-judged against today's target, deadline and kind, and returned a target its status had not used.
+- **Preconditions:** Owner; today 10 October 2026; Goal "Holiday" 300 due 1 Jul 2027, holding 300 since 20 August; Goal "Deposit" 300 due 15 Sep 2026, holding 100; budgets for September and October. On 5 October Holiday's target goes to 600 and Deposit's date moves to 1 Jul 2027.
+- **Steps:**
+  1. On the Budget page view September. 2. View October.
+- **Expected:** 1: Holiday shows **Funded** and is drawn full (`targetAmount` 300, `status` "FullyFunded"); Deposit shows **Behind** (`deadline` "2026-09-15", `targetAmount` 300). 2: Holiday is on track against 600 (half full) and Deposit is on track toward 1 Jul 2027. The same holds the other way (a target lowered after the month does not turn it Funded), for a Recurring jar whose date is moved after a missed month (it still reads **Deadline missed** there, with its shortfall) and for a goal turned Recurring later (the month reads the goal it was: Behind, never Deadline missed). An edit dated on or before a month's last day applies to that month; several edits on one day keep the last; a rename or an account change records nothing.
+- **Automated:** Yes (JarMonthViewW05Tests — `Rule46_ATargetChangedAfterAMonthEnded_LeavesThatMonthJudgedAgainstTheTargetItHad`, `Rule46_ADeadlineOrKindChangedAfterAMonthEnded_LeavesThatMonthBehind`, `Rule20_ARecurringDateChangedAfterAMissedMonth_LeavesThatMonthDeadlineMissed`, `Rule21_ACycleThatRolledForwardBeforeTheMonthEnded_IsNotReadAsMissed_WhenSettledLater`, `Rule46_ARecurringTargetRaisedAfterTheMonth_StaysThatMonthsTarget_WhenTheCycleCloses`, `Rule20_APastMonthsTargetAmount_IsTheTargetItsStatusUsed`, `Rule46_UpdateJar_RecordsTheDefinitionItReplaces_OnePerDay_AndLastMonthKeepsIt`; JarLifecycleW04Tests — `Rule27_AJarThatNeverHeldMoney_CanBeDeleted_WithItsPlannedLinesAndCycles` removes the history with the jar; integration JarLedgerSqlTests — `A_jar_edit_is_dated_so_last_month_keeps_the_target_it_had`)
+
+### JAR-105 - A Recurring jar archived since keeps Deadline missed on the month it missed
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Re-review of PR #275 (W05, round 3, P2-7): archiving had no date, so a month before the archive read the jar as archived and showed **Behind** with no shortfall.
+- **Preconditions:** Owner; today 10 October 2026; Recurring "Insurance" 300 due 15 Sep 2026 yearly, holding 100 at 30 September (Deadline missed, 200 short); on 2 October the bill is cancelled: the 100 goes back to unallocated and the jar is archived; budgets for September and October.
+- **Steps:**
+  1. On the Budget page view September. 2. Repeat with the jar archived on 30 September instead.
+- **Expected:** 1: the shelf lists Insurance with **Deadline missed** (`status` "DeadlineMissed", `deadline` "2026-09-15", `shortfall` 200), as it read on 30 September; the archive on 2 October does not rewrite it. 2: the jar was already archived at September's end, so September reads no Deadline missed and no shortfall. Archiving records the day and restoring clears it; a jar archived before the day was recorded counts as archived on every date.
+- **Automated:** Yes (JarMonthViewW05Tests — `Rule27_AJarArchivedAfterAMonthItMissed_StillReadsDeadlineMissedThere`; JarLifecycleW04Tests — `Rule25_Archiving_CancelsThisMonthsAndLaterContributions_AndRestoringReplantsThem` sets and clears the date; JarScheduleTests — `Rules25And55_AnArchivedOrCompletedJar_PlansNothing_ButStillKnowsWhatIsLeft` counts a dated archive from its day)
+
+### JAR-106 - A bill paid on time but marked paid after the month ended reads paid on time on that month (rule 22)
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Re-review of PR #275 (W05, round 3, rule 22 question, decided 28 Sep 2026): a cycle paid before its deadline but marked paid later read **Deadline missed**, the full target short, on every month up to the marking.
+- **Preconditions:** Owner; today 10 October 2026; Recurring "Insurance" 600 due 1 Sep 2026 yearly, holding 600 since July; the bill paid 600 from the jar's August line on 28 August (the jar is then at 0); on 5 October the user marks the cycle paid with that payment; budgets for August, September and October.
+- **Steps:**
+  1. On the Budget page view August, then September.
+- **Expected:** August reads Insurance on track toward 1 Sep 2027 (`deadline` "2027-09-01", balance 0) with its last cycle paid on time (`lastCycle.paidOnTime` true); September reads on track with no shortfall. Neither month reads **Deadline missed**: the cycle counts as met from the day it was paid, not the day it was marked.
+- **Automated:** Yes (JarMonthViewW05Tests — `Rule22_ABillPaidBeforeItsDeadline_ButMarkedPaidLater_ReadsPaidOnTimeOnThePastMonths`)
+
+### JAR-107 - Correcting or deleting a payment a moved jar made in its old account is settled on the day it moved
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Re-review of PR #275 (W05, round 3, P2-10; P51): the correction left a residue in the old account that showed on the jar while the archive and move checks read 0.
+- **Preconditions:** Owner; today 28 September 2026; accounts A and B, each opened with 1,000; Goal "Holiday" in A gets 100 on 1 August; its August line pays 100 from A on 20 August; on 1 September Holiday (now at 0) moves to B.
+- **Steps:**
+  1. On the Transactions page change the 20 August payment's amount to 80. 2. View August and September on the Budget page, and A's figures on 31 August and 1 September. 3. Archive Holiday. 4. From the same start, delete the payment instead, or move it to the Groceries line. 5. From the same start with the move on 25 August, re-date the payment to 22 August, then to 28 August.
+- **Expected:** 1–2: the edit is accepted. Holiday reads 100 on 19 August and 20 at August's end (the corrected history: it held 100 and spent 80, rule 49), then 0 from 1 September. A reads balance 920, Holiday 20, unallocated 900 on 31 August, and 920, 0, 920 from 1 September: the 20 goes back to A's unallocated money on the day Holiday left (a Departure operation dated 1 September, Holiday −20 and unallocated +20), never to B. 3: archiving is allowed; the card and `GET /api/jars?includeArchived=true` show 0. 4: deleted, A reads 1,000 / 100 / 900 on 31 August and 1,000 / 0 / 1,000 from 1 September; moved to Groceries, 900 / 100 / 800 and then 900 / 0 / 900. 5: 22 August is accepted (Holiday 100 on 21 August, 0 on 22 August; nothing to settle); 28 August is refused on `Date` with "This entry moved money in Holiday while Holiday was held in this account, and Holiday left it on 25 Aug 2026. It can't be dated after that." and the payment keeps 22 August. A payment on Holiday's September line from A dated after the move (10 September) is not kept on the jar: A's unallocated money pays it. A move made before the day was recorded is settled on the last day A's ledger touched the jar.
+- **Automated:** Yes (JarDepartureTests — `Rule80_CorrectingAKeptPayment_SettlesTheDifference_OnTheDayTheJarLeft`, `Rule80_DeletingAKeptPayment_SettlesIt_OnTheDayTheJarLeft`, `Rule80_MovingAKeptPaymentOffTheJarsLine_SettlesIt`, `Rule80_AKeptPayment_CanMoveWithinTheStretch_ButNotPastTheDayTheJarLeft`, `Rule80_APaymentDatedAfterTheMove_IsNotKeptOnTheJar`, `Rule80_ALegacyMove_WithNoDepartureRecorded_IsSettledOnTheLastDayTheOldLedgerTouchedTheJar`, `UpdateJar_RecordsTheDayTheJarLeft_OnlyWhereItLeavesHistory`; JarLedgerActivationTests — `ChangingTheAccount_KeepsThePaymentsTheJarMadeFromTheOldAccount_AttributedToIt`; integration JarLedgerSqlTests — `A_correction_to_a_kept_payment_is_settled_on_the_day_the_jar_left`)
+
+### JAR-108 - A payee edit of an income from before the move keeps its jar share
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Re-review of PR #275 (W05, round 3, P2-11; P51): the old account backs no jar after the move, so the edit sent no jar answer and the server cleared the income's split, taking its share off the jar.
+- **Preconditions:** Owner; today 28 September 2026; accounts A and B, each opened with 1,000; Goal "Holiday" in A; a 300 income into A on 10 August put wholly into Holiday; Holiday's line pays 300 from A on 20 August; on 1 September Holiday moves to B; on 5 September 300 of B's money goes into Holiday.
+- **Steps:**
+  1. On the Transactions page change the 10 August income's payee and save. 2. Change its amount to 400, then to 250. 3. From the same start, move the income to another account C.
+- **Expected:** 1: Holiday still reads 300 today and 300 on 15 August; A on 31 August still reads balance 1,000, Holiday 0, unallocated 1,000; nothing is settled. When A backs another jar the form echoes Holiday's 300 share, and the save is accepted with the same result. 2: at 400 the share stays 300 (A's unallocated on 15 August is 1,100); at 250 it is cut to 250, and A reads 950 / Holiday −50 / unallocated 1,000 on 31 August (the corrected history overdrew it) and 950 / 0 / 950 from 1 September. Holiday still reads 300 today: B's money is untouched. 3: A reads 700 / −300 / 1,000 on 31 August and 700 / 0 / 700 from 1 September. A payment drawn from Holiday through "which jar?" before the move keeps its draw the same way (MM-021).
+- **Automated:** Yes (JarDepartureTests — `Rule80_APayeeEditOfAKeptIncome_KeepsItsJarShare`, `Rule80_AnEditEchoingAKeptIncomeShare_IsAccepted_WhileTheOldAccountBacksAnotherJar`, `Rule80_CorrectingAKeptIncomesAmount_KeepsTheShareWhileItFits_AndSettlesWhatNoLongerFits`, `Rule80_MovingAKeptIncomeToAnotherAccount_SettlesItsShare`, `Rule80_APayeeEditOfAPaymentDrawnFromAMovedJar_KeepsTheDraw`)
+
+### JAR-109 - A jar's account can't change while a transfer into it is still in transit
+- **Priority:** P2
+- **Type:** Negative
+- **Origin:** Re-review of PR #275 (W05, round 3, P51): a transfer leg that posts after the move would land in the account the jar had left.
+- **Preconditions:** Owner; accounts A and B; Goal "Holiday" in A at 0; a 50 transfer from B to A on 10 August with its 50 put into Holiday, receipt not yet confirmed.
+- **Steps:**
+  1. Edit Holiday → Held in "B" → Save.
+- **Expected:** 400 on `FundingAccountId`: "Holiday has a transfer in transit in A. Confirm it first, then change the account."; Holiday stays in A. The same applies to a transfer out of the jar that has not left yet. Once the receipt is confirmed, the zero rule applies as usual (JAR-080).
+- **Automated:** Yes (JarDepartureTests — `UpdateJar_IsRefused_WhileATransferIntoTheJarHasNotArrived`)
+
+### JAR-110 - After a mid-month move, the card a save returns, the list and the month's plan agree
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Re-review of PR #275 (W05, round 3, P2-9; P51): after a move the card a save returned read the new account only while the list read every account, so the card changed on reload (the €50 reproduction: the card said 50 in, the list 0, and the month's plan differed from the jar form's preview).
+- **Preconditions:** Owner; accounts A (2,000) and B (1,000); Goal "Holiday" 1,200 due 1 July next year, held in A, entering this month with 300; on the 1st the 300 goes back to A's unallocated money; Holiday (now at 0) moves to B; then 50 of B's money goes into it.
+- **Steps:**
+  1. Edit Holiday and save it (a rename, or no change). 2. Reload the Jars page. 3. Compare the plan the month is seeded with to the first month of the jar form's preview.
+- **Expected:** 1: the returned card reads balance 50 with 0 **in** (it entered the month holding 300 in A). 2: the reloaded card is identical to the one the save returned. 3: both are the same amount. With 300 of B's money put in instead of 50, the card and the list likewise agree and read 0 in.
+- **Automated:** Yes (JarDepartureTests — `P2_9_AJarEmptiedInA_MovedToB_AndGiven50_ReadsTheSame_OnTheCard_TheList_AndThePlan`, `P2_9_TheCardAWriteReturns_EqualsTheNextRead_AfterAMidMonthMove`)

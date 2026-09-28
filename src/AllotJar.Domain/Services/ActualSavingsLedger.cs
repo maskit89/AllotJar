@@ -49,7 +49,8 @@ public static class ActualSavingsLedger
         var jarBalances = jars.Where(j => j.OwnerId == account.OwnerId && j.FundingAccountId == account.Id)
             .ToDictionary(j => j.Id, _ => 0m);
         // A jar re-designated to another account (rule 80, only at a zero balance) keeps its
-        // history here: its postings in this ledger still sum to zero and stay reconcilable.
+        // history here; from the day it left, a Departure operation makes its postings here sum
+        // to zero, so they stay reconcilable.
         var ownedJars = jars.Where(j => j.OwnerId == account.OwnerId).Select(j => j.Id).ToHashSet();
         var operationIds = new HashSet<Guid>();
         var allocatedTransactions = new HashSet<Guid>();

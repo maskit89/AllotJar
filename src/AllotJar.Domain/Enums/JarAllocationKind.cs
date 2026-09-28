@@ -11,4 +11,11 @@ public enum JarAllocationKind
 
     /// <summary>The jar split of one account leg of a recorded transaction (rules 3/4/78/79). Sums to the movement.</summary>
     Movement = 2,
+
+    /// <summary>
+    /// Rule 80: the jar left this account on <see cref="Entities.JarAllocation.Date"/>. Zero-sum, always two postings:
+    /// the jar −S and unallocated +S, where S is what the account's other operations still leave in the jar
+    /// on that date (0 when written; a later correction of a kept pre-move leg moves it here).
+    /// </summary>
+    Departure = 3,
 }

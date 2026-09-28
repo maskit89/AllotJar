@@ -51,6 +51,9 @@ export function SavingsGroup({
   const { canWrite } = useAuth()
   const [name, setName] = useState(category.name)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  // Rule 60: a jar's line leaves a month only by skipping it or archiving the jar, so a group
+  // that still holds one cannot be deleted either (the server refuses it too).
+  const holdsJarLines = category.items.some((i) => i.savingsId)
 
   useEffect(() => setName(category.name), [category.name])
 
@@ -86,6 +89,7 @@ export function SavingsGroup({
           )}
 
           {canWrite &&
+            !holdsJarLines &&
             (confirmingDelete ? (
               <span className="flex items-center gap-1 text-[11px]">
                 <button

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
+import { serverErrors } from '../lib/serverErrors'
 import { EVENTS, track } from '../analytics'
 import { useAuth } from '../auth/AuthContext'
 import { AppShell } from '../components/AppShell'
@@ -82,8 +83,10 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // The "Your jars" shelf — the household's jars, with goal progress.
   const [jars, setJars] = useState<JarDto[]>([])
   // Whether the shelf has been read for the viewed month: the first-run checklist (rule 81)
-  // must not read "add a jar" to a household with jars while that read is in flight.
+  // must not read "add a jar" to a household with jars while that read is in flight, nor
+  // after it failed (the shelf then says it could not be read instead).
   const [jarsLoaded, setJarsLoaded] = useState(false)
+  const [jarsFailed, setJarsFailed] = useState(false)
   // The household's accounts: a jar needs one (rule 73), and the first-run checklist
   // (rule 81) starts with them.
   const [accounts, setAccounts] = useState<AccountDto[]>([])
@@ -110,6 +113,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     setMonth(null)
     setJars([])
     setJarsLoaded(false)
+    setJarsFailed(false)
     api
       .get<BudgetMonthDto>(`/budget/${year}/${monthNum}`)
       .then(({ data }) => {
@@ -161,20 +165,29 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // The jars for the "Your jars" shelf, read for the viewed month (W05, rule 48): a past
   // month's balances as of its last day and its own plan, the current or a later month as of
   // today. Re-read whenever the month changes and after anything that moves a jar's figures.
-  // Guarded so a non-array (or a failed fetch) leaves the shelf empty rather than throwing.
-  // Only the latest read lands, so a slow answer for the previous month can never overwrite the
-  // month now viewed.
+  // Guarded so a non-array leaves the shelf empty rather than throwing; a failed read says so
+  // rather than passing for "no jars". Only the latest read lands, so a slow answer for the
+  // previous month can never overwrite the month now viewed. A refresh asked for by a handler
+  // whose month is no longer viewed (a save that returns after the user changed month) reads
+  // nothing: the viewed month's own read is already on its way.
+  const viewedMonth = useRef(`${year}-${monthNum}`)
+  useLayoutEffect(() => {
+    viewedMonth.current = `${year}-${monthNum}`
+  }, [year, monthNum])
   const jarsRead = useRef(0)
   const refreshJars = useCallback(() => {
+    if (viewedMonth.current !== `${year}-${monthNum}`) return
     const read = ++jarsRead.current
     api
       .get<JarDto[]>('/jars', { params: { year, month: monthNum } })
       .then(({ data }) => {
-        if (read === jarsRead.current) setJars(Array.isArray(data) ? data : [])
+        if (read !== jarsRead.current) return
+        setJars(Array.isArray(data) ? data : [])
+        setJarsFailed(false)
+        setJarsLoaded(true)
       })
-      .catch(() => {})
-      .finally(() => {
-        if (read === jarsRead.current) setJarsLoaded(true)
+      .catch(() => {
+        if (read === jarsRead.current) setJarsFailed(true)
       })
   }, [year, monthNum])
 
@@ -543,9 +556,9 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       try {
         const { data } = await api.delete<BudgetMonthDto>(`/budget/categories/${categoryId}`)
         setMonth(fromDto(data))
-      } catch {
+      } catch (err) {
         setMonth(snapshot)
-        setError('Could not delete that group — reverted.')
+        setError(serverErrors(err) ?? 'Could not delete that group — reverted.')
       }
     },
     [month],
@@ -880,6 +893,11 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
             {/* "Your jars" shelf — the jars drawn as jars, the signature metaphor. It follows
                 the viewed month (rule 48): balances at a past month's end, this month's plan
                 and what went in, so it never contradicts the savings lines on the same screen. */}
+            {jarsFailed && (
+              <p role="status" className="text-sm text-slate-500">
+                Could not load your jars for this month. Change month or reload to try again.
+              </p>
+            )}
             {jars.length > 0 && (
               <Card className="p-6">
                 <div className="flex items-baseline justify-between gap-3">
