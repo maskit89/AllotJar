@@ -116,6 +116,51 @@ public static class JarMovements
         await ReplaceAsync(db, ownerId, transaction, account.Id, transaction.Date, postings, cancellationToken);
     }
 
+    /// <summary>
+    /// Rule 80, before <paramref name="jar"/> is re-designated to another account: every payment
+    /// its budget lines drew from its current account (rule 79) is written down as a stored
+    /// operation on that account, exactly as the reader derives it today. The derivation looks the
+    /// jar up in its current account, so once the jar names another one those payments would fall
+    /// to unallocated and the account's history would change though no money moved. Legs that
+    /// already carry a stored answer are left alone. The caller saves.
+    /// </summary>
+    public static async Task KeepLineAttributionAsync(IApplicationDbContext db, string ownerId, Jar jar, CancellationToken cancellationToken)
+    {
+        var account = await db.Accounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == jar.FundingAccountId, cancellationToken);
+        if (account is null)
+        {
+            return;
+        }
+        var payments = await db.Transactions
+            .AsNoTracking()
+            .Include(t => t.Splits)
+            .Where(t => t.OwnerId == ownerId && t.Type == TransactionType.Expense && t.AccountId == account.Id
+                        && !t.JarAllocations.Any(a => a.AccountId == account.Id)
+                        && ((t.BudgetItem != null && t.BudgetItem.SavingsId == jar.Id)
+                            || t.Splits.Any(s => s.BudgetItem != null && s.BudgetItem.SavingsId == jar.Id)))
+            .ToListAsync(cancellationToken);
+        if (payments.Count == 0)
+        {
+            return;
+        }
+        var jars = await db.Jars.AsNoTracking().Where(j => j.OwnerId == ownerId).ToDictionaryAsync(j => j.Id, cancellationToken);
+        var lineJars = await JarLedgerReader.LineJarsAsync(db, ownerId, cancellationToken);
+        foreach (var payment in payments)
+        {
+            var postings = JarLedgerReader.Derive(payment, account, -payment.Amount, lineJars, jars);
+            db.JarAllocations.Add(new JarAllocation
+            {
+                OwnerId = ownerId,
+                AccountId = account.Id,
+                Kind = JarAllocationKind.Movement,
+                Date = payment.Date,
+                TransactionId = payment.Id,
+                CreatedUtc = DateTime.UtcNow,
+                Postings = postings.Select(p => new JarAllocationPosting { JarId = p.JarId, Amount = p.Amount }).ToList(),
+            });
+        }
+    }
+
     /// <summary>Drops the stored split of one leg, so the reader falls back to its derived attribution.</summary>
     public static Task ClearAsync(IApplicationDbContext db, Transaction transaction, Guid accountId, CancellationToken cancellationToken) =>
         ReplaceAsync(db, transaction.OwnerId, transaction, accountId, transaction.Date, new List<JarAllocationPosting>(), cancellationToken);

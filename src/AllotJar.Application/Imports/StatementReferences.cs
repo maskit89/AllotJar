@@ -13,7 +13,11 @@ namespace AllotJar.Application.Imports;
 /// on <see cref="Transaction.AccountId"/>; a transfer's destination leg keeps it in
 /// <see cref="Transaction.ReceiptBankReference"/> on <see cref="Transaction.TransferAccountId"/>
 /// (rule 51). Rows recorded before receipt references existed stored an inbound transfer's
-/// reference on the source leg, so those are still honoured on the destination side.
+/// reference on the source leg (the migration marked them received on their date), so a
+/// transfer whose receipt is recorded without a reference of its own is still honoured on the
+/// destination side by its source reference. A transfer whose receipt is still unknown carries
+/// nothing for the destination: its source reference is the other bank's, and the receipt row
+/// that shares it is the very row the destination statement has yet to confirm.
 /// Case-insensitive to agree with the unique indexes' CI collation.
 /// </summary>
 public static class StatementReferences
@@ -26,7 +30,8 @@ public static class StatementReferences
                         && ((t.AccountId == accountId && t.BankReference != null)
                             || (accountId != null && t.Type == TransactionType.Transfer
                                 && t.TransferAccountId == accountId
-                                && (t.ReceiptBankReference != null || t.BankReference != null))))
+                                && (t.ReceiptBankReference != null
+                                    || (t.ReceivedOn != null && t.BankReference != null)))))
             .Select(t => t.AccountId == accountId
                 ? t.BankReference!
                 : (t.ReceiptBankReference ?? t.BankReference!))

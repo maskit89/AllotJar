@@ -180,6 +180,51 @@ public class UpdateTransactionTests
         reloaded.TransferAccountId.Should().BeNull();
     }
 
+    [Fact]
+    public async Task Update_ReTypingATransfer_KeepsTheDestinationCovered()
+    {
+        // A opens with 100 and B with nothing; A's 100 reaches B and B spends it. Turning the
+        // transfer into an expense on A takes B's receipt away: A alone still passes rule 74
+        // (it lost the same 100 either way), so B is the account the guard must look at.
+        await using var db = NewContext();
+        var opening = new DateOnly(2026, 6, 1);
+        var from = new Account { OwnerId = "user-1", Name = "Current", Type = AccountType.Current, Currency = CurrencyCode.Eur, OpeningBalance = 100m, OpeningDate = opening };
+        var to = new Account { OwnerId = "user-1", Name = "Savings", Type = AccountType.Savings, Currency = CurrencyCode.Eur, OpeningBalance = 0m, OpeningDate = opening };
+        db.Accounts.AddRange(from, to);
+        var transfer = new Transaction
+        {
+            OwnerId = "user-1", Date = new DateOnly(2026, 6, 2), Payee = "Transfer", Amount = 100m, Type = TransactionType.Transfer,
+            AccountId = from.Id, TransferAccountId = to.Id, DepartedOn = new DateOnly(2026, 6, 2), ReceivedOn = new DateOnly(2026, 6, 2),
+        };
+        var spent = new Transaction
+        {
+            OwnerId = "user-1", Date = new DateOnly(2026, 6, 3), Payee = "Shop", Amount = 100m, Type = TransactionType.Expense, AccountId = to.Id,
+        };
+        db.Transactions.AddRange(transfer, spent);
+        await db.SaveChangesAsync();
+        var handler = new UpdateTransactionCommandHandler(db, new CurrentUserStub("user-1"));
+
+        var act = () => handler.Handle(
+            new UpdateTransactionCommand(transfer.Id, new DateOnly(2026, 6, 2), "Shop", 100m, TransactionType.Expense, from.Id),
+            CancellationToken.None);
+
+        var ex = await act.Should().ThrowAsync<ValidationException>();
+        ex.Which.Errors["Amount"].Single().Should().Contain("Savings").And.Contain("-100.00").And.Contain("2026-06-03");
+        var reloaded = await db.Transactions.AsNoTracking().SingleAsync(t => t.Id == transfer.Id);
+        reloaded.Type.Should().Be(TransactionType.Transfer);
+        reloaded.TransferAccountId.Should().Be(to.Id);
+        reloaded.ReceivedOn.Should().Be(new DateOnly(2026, 6, 2));
+
+        // Without B's later spending the edit goes through, and B's leg is gone with the receipt.
+        db.Transactions.Remove(spent);
+        await db.SaveChangesAsync();
+        var dto = await handler.Handle(
+            new UpdateTransactionCommand(transfer.Id, new DateOnly(2026, 6, 2), "Shop", 100m, TransactionType.Expense, from.Id),
+            CancellationToken.None);
+        dto.Type.Should().Be(TransactionType.Expense);
+        dto.TransferAccountId.Should().BeNull();
+    }
+
     // --- Retained-assignment revalidation: an edit must never leave the transaction on a
     // line it could not be assigned to (expense line carrying income, or a silently
     // cross-month date). ------------------------------------------------------------------

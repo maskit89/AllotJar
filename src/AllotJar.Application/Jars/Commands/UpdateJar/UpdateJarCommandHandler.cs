@@ -58,6 +58,9 @@ public class UpdateJarCommandHandler
                     $"{jar.Name} holds {balance:0.##} in {current.AccountOf(jar.Id)?.Account.Name}. " +
                     "Move that money first (a transfer to the new account, or a reallocation to another jar), then change the account.");
             }
+            // The account it leaves keeps its history exactly as it reads today: the payments the
+            // jar's lines drew from it are written down there before the jar names another account.
+            await JarMovements.KeepLineAttributionAsync(_db, userId, jar, cancellationToken);
             jar.FundingAccountId = account.Id;
         }
 

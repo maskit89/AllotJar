@@ -69,14 +69,10 @@ public static class RefundRules
             throw Refuse($"A refund can't be dated before the purchase it refunds ({original.Date:d MMM yyyy}).");
         }
 
-        // Refunds of one purchase never exceed it. Same currency compares the amounts as recorded;
-        // across currencies the base-currency values are compared.
+        // Refunds of one purchase never exceed it.
         var others = original.Refunds.Where(r => r.Id != refundId).ToList();
-        var sameCurrency = others.All(r => r.Currency == original.Currency) && refundCurrency == original.Currency;
-        var paid = sameCurrency ? original.Amount : original.BaseAmount;
-        var refunded = sameCurrency
-            ? others.Sum(r => r.Amount) + refundAmount
-            : others.Sum(r => r.BaseAmount) + refundAmount * refundExchangeRate;
+        var legs = others.Select(RefundLeg.Of).Append(new RefundLeg(refundAmount, refundCurrency, refundExchangeRate)).ToList();
+        var (paid, refunded, sameCurrency) = Totals(original.Currency, original.Amount, original.ExchangeRate, legs);
         if (refunded > paid)
         {
             var already = sameCurrency ? others.Sum(r => r.Amount) : others.Sum(r => r.BaseAmount);
@@ -86,6 +82,30 @@ public static class RefundRules
         }
 
         return original;
+    }
+
+    /// <summary>One refund's money as recorded: its amount, currency and the rate that converts it to the base currency.</summary>
+    public readonly record struct RefundLeg(decimal Amount, Domain.ValueObjects.CurrencyCode Currency, decimal ExchangeRate)
+    {
+        public static RefundLeg Of(Transaction refund) => new(refund.Amount, refund.Currency, refund.ExchangeRate);
+    }
+
+    /// <summary>
+    /// What a purchase of <paramref name="purchaseAmount"/> in <paramref name="purchaseCurrency"/>
+    /// paid and what <paramref name="refunds"/> gave back, on one scale (rule 39): when every
+    /// refund is in the purchase's currency the amounts as recorded are compared, otherwise the
+    /// base-currency values (each amount × its own rate; O5: the user's converted figure). The
+    /// one comparison behind linking a refund and editing the purchase it refunds.
+    /// <c>SameCurrency</c> says which scale the two figures are on.
+    /// </summary>
+    public static (decimal Paid, decimal Refunded, bool SameCurrency) Totals(
+        Domain.ValueObjects.CurrencyCode purchaseCurrency, decimal purchaseAmount, decimal purchaseExchangeRate,
+        IReadOnlyCollection<RefundLeg> refunds)
+    {
+        var sameCurrency = refunds.All(r => r.Currency == purchaseCurrency);
+        return sameCurrency
+            ? (purchaseAmount, refunds.Sum(r => r.Amount), true)
+            : (purchaseAmount * purchaseExchangeRate, refunds.Sum(r => r.Amount * r.ExchangeRate), false);
     }
 
     /// <summary>
