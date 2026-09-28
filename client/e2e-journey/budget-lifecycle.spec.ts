@@ -9,7 +9,7 @@ import { addAccount, createGoalJar as createJarHeldIn, register, suppressOnboard
  * the PR #172 hero states (empty month prompts for income and never celebrates; a
  * jar-owning household's blank month is born over-budgeted), the friendly
  * duplicate-create recovery, TopBar month navigation moving every month-scoped screen
- * together, the current-month-only jars shelf, and optimistic rename/delete/bill
+ * together, the month-scoped jars shelf (W05), and optimistic rename/delete/bill
  * round-trips that must survive a full reload (i.e. really persisted server-side).
  *
  * Each test registers its own fresh user so the specs stay isolated.
@@ -389,7 +389,7 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await expect(page.getByText(/Bills:/)).toHaveCount(0)
 })
 
-test('month navigation moves every screen together; the jars shelf is current-month-only; year boundaries roll', async ({
+test('month navigation moves every screen together; the jars shelf follows the month; year boundaries roll', async ({
   page,
 }) => {
   const current = monthAt(0)
@@ -417,8 +417,10 @@ test('month navigation moves every screen together; the jars shelf is current-mo
   await setPlanned(page, 'Salary', '3000')
   await setPlanned(page, 'Rent / Mortgage', '1950')
 
-  // JAR-060 / DASH-028: on the current calendar month the "Your jars" shelf renders.
+  // JAR-060 / DASH-028: on the current calendar month the "Your jars" shelf renders with
+  // today's figures and no "as of" caption.
   await expect(page.getByRole('heading', { name: 'Your jars' })).toBeVisible()
+  await expect(page.getByText(/balances as of today|saved as of/)).toHaveCount(0)
 
   // BUDG-038: ‹ moves to the previous month — no budget there for this fresh user,
   // and no Copy button either (no month exists strictly before it).
@@ -451,9 +453,12 @@ test('month navigation moves every screen together; the jars shelf is current-mo
   ).toHaveText('€250.00')
   await expect(page.getByText('€800.00 still to assign')).toBeVisible()
 
-  // DASH-028 / JAR-061: a loaded NON-current month hides the shelf even though the
-  // household owns a jar — today's all-time balances would contradict month-scoped lines.
-  await expect(page.getByRole('heading', { name: 'Your jars' })).toHaveCount(0)
+  // DASH-028 / DASH-074 / JAR-061 (W05, rule 48): a loaded month that has not begun keeps the
+  // shelf, read for that month — today's balances, labelled so, with the month's own plan
+  // (the re-planned 250.00, not this month's 300.00 hand edit).
+  await expect(page.getByRole('heading', { name: 'Your jars' })).toBeVisible()
+  await expect(page.getByText('balances as of today')).toBeVisible()
+  await expect(page.getByText('+€250.00/mo')).toBeVisible()
 
   // BUDG-039: December → January rolls the year forward; ‹ rolls it back.
   for (let m = next.month; m < 12; m += 1) {

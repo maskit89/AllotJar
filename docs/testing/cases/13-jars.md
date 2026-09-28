@@ -527,7 +527,7 @@
 - **Preconditions:** Owner; jar "Gifts" opening 50.00, one savings line planned 30.00 in July 2026, none earlier, none spent; viewing July.
 - **Steps:**
   1. Compare the "Gifts" balance on `/jars` with the "avail." shown on the July budget-grid savings line.
-- **Expected:** `/jars` `currentBalance` = 50 + 30 = **€80.00** (includes opening + all months). The grid `SavingsAvailable` = **€30.00** (planned−spent over months ≤ viewed, **excluding** OpeningBalance). The two legitimately differ by the €50 opening — a known two-flavour design, and exactly why the dashboard shelf is current-month-only.
+- **Expected:** `/jars` `currentBalance` = 50 + 30 = **€80.00** (includes opening + all months). The grid `SavingsAvailable` = **€30.00** (planned−spent over months ≤ viewed, **excluding** OpeningBalance). The two legitimately differed by the €50 opening while jars had an opening balance of their own; since the jar allocation slice both read the ledger, and since W05 (rule 48) at one date per month, so they agree on every month (DASH-030).
 - **Automated:** Partial (SavingsTests.cs — grid balance counts months ≤ viewed and excludes opening; the cross-check is design-level)
 
 ### JAR-054 - Deadline schedule: exact split over the contribution months, remainder last; whole remainder when due now or passed; nothing when funded
@@ -591,24 +591,25 @@
 
 ## Jars shelf on the dashboard
 
-### JAR-060 - Shelf shows on the current month only
+### JAR-060 - Shelf shows the current month's figures with no date caption
 - **Priority:** P1
 - **Type:** Regression
-- **Origin:** PR #168 — the shelf shows today's all-time balances, so it renders only when the viewed month is the current calendar month.
+- **Origin:** PR #168 (the shelf rendered on the current month only); W05 (rule 48) reads it for the viewed month.
 - **Preconditions:** Owner; viewed month = July 2026 (current); ≥1 jar with a balance.
 - **Steps:**
   1. Open `/` on July 2026.
-- **Expected:** A "Your jars" card renders with "{total} saved" and one jar graphic each (`label` "{name}: {pct}% of goal"), name, balance, then a status chip **or** "+€X/mo" (chip wins). No edit affordances on the shelf.
-- **Automated:** Partial (a11y.spec.ts scans the shelf; DashboardPage.test.tsx does not assert the shelf specifically)
+- **Expected:** A "Your jars" card renders (from `GET /api/jars?year=2026&month=7`) with "{total} saved" and no "as of" caption, one jar graphic each (`label` "{name}: {pct}% of goal"), name, balance, then a status chip **or** "+€X/mo" (chip wins). No edit affordances on the shelf.
+- **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-028; client/e2e-journey/budget-lifecycle.spec.ts month-navigation journey; a11y.spec.ts scans the shelf)
 
-### JAR-061 - Shelf is hidden on past/future months
+### JAR-061 - Shelf follows past and future months
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** Owner; ≥1 jar; navigate to June 2026 (past) and August 2026 (future).
+- **Origin:** W05 (rule 48; REVIEW J6) — the shelf used to be hidden off the current month.
+- **Preconditions:** Owner; ≥1 jar; budgets for June 2026 (past) and August 2026 (future).
 - **Steps:**
   1. Use the month navigator to view June, then August.
-- **Expected:** No "Your jars" shelf on either — it would contradict a non-current month's month-scoped savings lines with all-time balances. The hero, bills strip and groups still render.
-- **Automated:** No
+- **Expected:** The "Your jars" shelf renders on both, each from a fresh `GET /api/jars?year&month`. June shows each jar's balance at 30 June with "… saved as of 30 Jun 2026" and June's own "+€X/mo"; August shows today's balances with "… saved balances as of today" and August's own plan. Each equals the Savings card's Available on that month (DASH-030). The hero, bills strip and groups still render.
+- **Automated:** Yes (client/e2e-journey/budget-lifecycle.spec.ts — the copied next month keeps the shelf with "balances as of today" and the re-planned 250.00; client/src/pages/DashboardPage.jars.test.tsx DASH-073/074)
 
 ### JAR-062 - Shelf chip beats the monthly pace line
 - **Priority:** P2
