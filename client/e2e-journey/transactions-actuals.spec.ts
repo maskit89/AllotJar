@@ -215,12 +215,12 @@ test('expense transactions drive real line actuals: explicit assign, payee inher
   await addTransaction(page, { payee: 'Cinema', amount: '5', date: iso(previous.year, previous.month, 15) })
   await expect(rows.first().getByRole('button', { name: 'Assign Cinema', exact: true })).toBeVisible()
 
-  // Hero totals span every month too: 40+22+8+30+100+5 out.
+  // The hero counts the viewed month only: 40+22+8+30+100 out (Cinema is last month's).
   await expect(page.getByText('6 transactions')).toBeVisible()
   const moneyOut = page.locator('div', { has: page.getByText('Money out', { exact: true }) }).last()
-  await expect(moneyOut).toContainText('205.00')
+  await expect(moneyOut).toContainText('200.00')
 
-  // --- TX-011: switching the viewed month only relabels the hero eyebrow; the list
+  // --- TX-011: switching the viewed month moves the hero to that month's money; the list
   // is NOT refiltered and /transactions is NOT refetched.
   await expect(page.getByText(`Money in · ${current.label}`)).toBeVisible()
   const fetchesBeforeSwitch = registerFetches
@@ -229,7 +229,7 @@ test('expense transactions drive real line actuals: explicit assign, payee inher
   await expect(page.getByText('6 transactions')).toBeVisible()
   await expect(rows.filter({ hasText: 'Costco' })).toBeVisible() // current-month row still listed
   await expect(rows.filter({ hasText: 'Cinema' })).toBeVisible() // previous-month row still listed
-  await expect(moneyOut).toContainText('205.00') // totals unchanged
+  await expect(moneyOut).toContainText(/(?<![\d,])5\.00/) // the previous month's money out: Cinema
   await page.waitForTimeout(300) // give any (buggy) refetch a beat to show up
   expect(registerFetches).toBe(fetchesBeforeSwitch)
   await page.getByRole('button', { name: 'Next month' }).click()

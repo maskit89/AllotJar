@@ -657,3 +657,59 @@ Migration `JarArchivePeriodsAndArrival` (09:49:38) is older than `ForeignAmounts
 **Tests.** New `JarMoveAcceptAndSettleTests` (12): a late payment from the old account (created, on the move day, and imported), its deletion, the refusals after the move and from other accounts, R3-P3-4, K3, no opening date, before the opening date, a stretch's start, and review round 1's P2-1 (a same-month re-date before the jar arrived) and P3-1 (no account named for a stretch whose start isn't recorded). With the merge of #279, four more (16), and round 2's R2-N2 (17): a return dated before the move and recorded after it, a return in an earlier stretch of a jar that came back, a kept return re-dated to while the jar was away, and a transfer and its fee dated by the statement after the jar left; then kept payments (on the jar's line, a late one, and one paid from the jar) re-dated before the old account opened. `P51_AfterTheJarMovesAwayAndBack_ItsEarlierPaymentsThereCanStillBeRedatedAndResplit` now expects the late payment accepted (it was the refusal R2-D1 overturns). New SQL test `A_late_payment_from_the_jars_old_account_is_kept_on_the_jar_and_resettles_its_move`. Removed: `TransactionInvariants.KeptDrawJarsAsync` and `EnsureJarArrived` (folded into `EnsureJarAccount`), and the `keptJarIds` parameters.
 
 **Validation (this machine: .NET SDK 10.0, SQL Server 2022 in Docker).** `dotnet build AllotJar.slnx`: no errors; the one warning is W08's CS8620 in `TransactionConfiguration.cs`. On the first head the unit suite had **1247 passed** (1237 on `main` and 10 new). Reverting each piece fails a test: the stretch branch in `ApplyOutgoingAsync` (5 tests), its opening-date bound, the no-opening-date refusal, the stretch's start (either comparison), the import's and the create's call to `ApplyOutgoingAsync`, the payments list's clause, and the refusal that names the account. After review round 1 and the merge of #279 the unit suite had **1293 passed** (1277 on `main` and 16 new) and the SQL integration suite **96 passed** (95 on `main` and 1 new). After round 2: unit **1294 passed**; the R2-N2 test fails with either of its two guards removed. Each round-1 and merge change fails a test when reverted: the stretch-start refusal (P2-1), naming only a recorded stretch start and the unnamed message (P3-1, two tests each), a return's share in an earlier stretch (two), the kept return's arrival check, and the date following for the departure and for the fee.
+
+## Final review: the app's screens (client) — 29 September 2026
+
+Christopher asked for a full review and clean-up once the HANDOVER work was done (27 September). The review was split three ways: server, screens and tests. This section is the screens part. Each screen was read against AGREED-RULES, the HANDOVER decisions, and the server code that decides the same thing. Only client code changed here. Server-side findings went to the server thread. The test-suite thread (#281) owns removing and consolidating tests; this PR changes tests only where the behaviour changed.
+
+**Logged follow-ups closed.**
+- **#279 P3-7:** a departure the bank confirmed fixes only amount plus fee. The edit form now lets the amount move and fills the fee with the rest of the bank's total. It refuses an amount above that total. The amount is still locked once a statement confirms the receipt or the return, as the server keeps it.
+- **#279 P3-8:** a fee left on the line and date it already had re-saves without the cross-month question.
+- **#279 P3-10:** an edit whose stored jar answer names an archived jar is no longer sent. It says: "This entry moved money in or out of Holiday, which is archived. Restore Holiday on the Jars page to change this entry." Sending would have been refused, or, once every jar in the account was archived, the answer would have been left out and the money returned to unallocated. This covers transactions, splits and transfers.
+- **#277 P3-5 (client half):** People shows "—", not "Private account", for a savings id when the accounts could not be read. A deleted account's dangling id needs the server to clear it; that went to the server thread.
+- **R2-P3-1 (client half):** the transfer form requires a budget line for a fee (rule 91), as the import already did.
+
+**Money shown wrong.**
+- The Transactions hero counted every month under the viewed month's label. It now counts the month the top bar shows. The register still lists every month and doesn't refetch; TX-011 is updated.
+- A jar in an account whose balance is unavailable read €0.00 in the jar prompts and in Move money. It now reads "balance not available" (rule 67). `readLedgers` nulls these balances where the ledger is read.
+- Reports: money labels use the budget currency while the month breakdown loads. "Saved this month" takes the latest month up to today, not a budget already made for next month. A month with no budget shows its Variance, which the year's total already counted (rule 41).
+- Allocation's projected balance no longer drops for a share of zero or less (nothing moves for it).
+- A purchase's refunded total is re-read after a refund is added, linked, unlinked, deleted or its converted amount confirmed.
+- The jar form's schedule no longer reads €0.00 a month when the current month is skipped. It shows no schedule for a completed goal (rule 55). The skip dialog says a fixed-monthly jar keeps its amount and finishes a month later, and no longer claims €0.00 is left unplanned.
+- The new-month note counts only jars still planning.
+
+**Money entered wrong.**
+- Editing an in-transit transfer dropped the destination's jar answer: the €100 moved into Holiday landed unallocated on arrival. The answer is now kept and editable while in transit, and new transfers can give it too.
+- "Confirm receipt" and "Add departure date" start from the stored jar answers instead of showing "stays unallocated".
+- An edit saved before the jar ledgers loaded dropped the stored answer. It is now sent back unchanged, as the transfer edit already did.
+- Jar amounts that don't parse, or that add up to more than the amount, are refused instead of left out silently.
+- A transfer whose two statements put the receipt before the departure can be edited. Only a changed date is checked, as on the server.
+- Category pickers offer only the lines the server accepts for the direction (income on income lines; an expense or a refund on expense or savings lines).
+- A past month's jar line is read-only. Typing an amount there cleared its skip and rewrote a finished month's plan (rule 46). Past and current months are decided in UTC, as on the server.
+- The jar form offers only accounts in the budget currency (rules 63/85); a jar's existing account stays listed.
+- An empty date is refused with a message instead of the server's conversion error.
+- Allocation and People show the server's reason when a save is refused.
+
+**Dead code and lint.** Removed: the unused household switcher and its test, five unused icons, the allocation-rule and split-method label maps, a never-called amount helper and its test, and the Vite starter assets. `useJarLedgers` now has one fetch path. `eslint` had 34 errors; it is clean now (one warning in `AuthContext`), and CI's frontend job runs `npm run lint`. The React Compiler rule `set-state-in-effect` is off because the app doesn't use the compiler. `only-export-components` is off for the context files, which keep a provider and its hook together.
+
+**Sent to the server thread.**
+- #277 P3-5: clear `PersonalSavingsAccountId` and the allocation source when an account is deleted.
+- #277 P3-6: a prior in-transit transfer to an account that has since gone private hits the 403 guard during Allocate.
+- Rules 52/64: `MemberIncome` splits unattributed income at 4 dp with the remainder to the last member.
+- `UpdateBudgetItem` un-skips a jar line without re-planning.
+- The jar ledger sends 0 for an unavailable balance.
+- Import results count skipped and awaiting rows.
+- Accepting an unchanged archived-jar answer.
+- New jar lines always land in the first Savings group.
+
+**Follow-ups (not in this PR).**
+- A Savings line on the Budget page shows spending from the jar as "€X of €planned" progress. Rule 14 wants contributed and still-to-go, which the Jars page reads from `/jars`.
+- Budget lines don't show the server's `RefundedAmount`.
+- A split purchase can't be picked as a refund's purchase, though the server allows it.
+- The import's "done" totals include skipped rows (needs the server change above).
+- The import asks the cross-month question for a fee on its own month's line.
+- Move money's destination list offers accounts in another currency (the server refuses them clearly).
+- Account detail rows dated before the opening date look like movements.
+- Reports don't show how many rows are waiting for a converted amount.
+- The Accounts "Owed" tile can't be non-zero under rule 74.
+- Duplicate split-row helpers in TransactionsPage and ImportPage.
