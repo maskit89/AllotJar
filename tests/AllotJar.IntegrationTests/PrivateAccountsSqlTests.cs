@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
+using AllotJar.Application.Budgets.Commands.DeleteBudgetItem;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Reports.Queries.GetMonthReport;
@@ -101,6 +102,13 @@ public class PrivateAccountsSqlTests
             stranger.Amount = 1m;
             var act = () => db.SaveChangesAsync();
             await act.Should().ThrowAsync<ForbiddenAccessException>();
+        }
+
+        // Nor delete the line its on-budget entry sits on, which would take it off the budget (#277 P3-3).
+        await using (var db = new ApplicationDbContext(_fixture.Options, chris))
+        {
+            var delete = () => new DeleteBudgetItemCommandHandler(db, chris).Handle(new DeleteBudgetItemCommand(lineId), CancellationToken.None);
+            await delete.Should().ThrowAsync<ValidationException>();
         }
     }
 
