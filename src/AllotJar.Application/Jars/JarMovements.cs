@@ -410,10 +410,6 @@ public static class JarMovements
     public static Task ClearAsync(IApplicationDbContext db, Transaction transaction, Guid accountId, CancellationToken cancellationToken) =>
         ReplaceAsync(db, transaction.OwnerId, transaction, accountId, transaction.Date, new List<JarAllocationPosting>(), cancellationToken);
 
-    /// <summary>True when the account backs at least one jar (the prompts only apply there).</summary>
-    public static Task<bool> BacksJarsAsync(IApplicationDbContext db, string ownerId, Guid accountId, CancellationToken cancellationToken) =>
-        db.Jars.AnyAsync(j => j.OwnerId == ownerId && j.FundingAccountId == accountId && !j.IsArchived, cancellationToken);
-
     private static Task<JarAllocation?> FindAsync(IApplicationDbContext db, Guid transactionId, Guid accountId, CancellationToken cancellationToken) =>
         db.JarAllocations
             .Include(a => a.Postings)
