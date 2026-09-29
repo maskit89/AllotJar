@@ -226,13 +226,17 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
 
         // A date edit within the month skips those checks, but a payment on a jar's line from the
         // jar's account still can't move to before the day the jar arrived there (P2-20): the
-        // ledger would take it off the jar without a word.
+        // ledger would take it off the jar without a word. A draw kept from an earlier stretch
+        // the jar spent in this account (it moved away and back) is its departure's (P51).
         if (request.Date != transaction.Date)
         {
             var lineIds = transaction.Splits.Count > 0
                 ? transaction.Splits.Where(s => s.BudgetItemId is not null).Select(s => s.BudgetItemId!.Value).Distinct().ToList()
                 : transaction.BudgetItemId is Guid lineId ? new List<Guid> { lineId } : new List<Guid>();
-            await TransactionInvariants.EnsureJarLinesArrivedAsync(_db, lineIds, request.AccountId, request.Date, "Date", cancellationToken);
+            var kept = accountChanged
+                ? new List<Guid>()
+                : await TransactionInvariants.KeptDrawJarsAsync(_db, transaction.Id, request.AccountId, request.Date, cancellationToken);
+            await TransactionInvariants.EnsureJarLinesArrivedAsync(_db, lineIds, request.AccountId, request.Date, "Date", cancellationToken, kept);
         }
 
         // A pending-FX row counts at face value (placeholder rate 1). If the user edits the

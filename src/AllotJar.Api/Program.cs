@@ -244,8 +244,11 @@ static async Task BackfillOwnerMembersAsync(WebApplication app)
 }
 
 // Records the departure a jar move made before #275 lacks, so a residue left in the old account
-// no longer blocks the jar's archive (P3-8). Idempotent and non-fatal: a move with a departure is
-// untouched, and the ledger records a missing one lazily on the next edit of a kept entry anyway.
+// no longer blocks the jar's archive (P3-8), and writes down the old account's line payments such
+// a move left unrecorded (P2-B). Idempotent and non-fatal: a move with a departure is untouched.
+// If the run fails, a legacy move is still settled on the next edit of a kept entry, but without
+// that write-down. The counts are logged at Warning (see LogEmailProvider) so the deploy's check of
+// the Event Log sees them.
 static async Task BackfillJarDeparturesAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
@@ -253,15 +256,14 @@ static async Task BackfillJarDeparturesAsync(WebApplication app)
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     try
     {
-        var recorded = await AllotJar.Application.Jars.JarDepartures.BackfillAsync(db, CancellationToken.None);
-        if (recorded > 0)
-        {
-            logger.LogInformation("Recorded {Count} jar departure(s) for moves made before departures were kept.", recorded);
-        }
+        var result = await AllotJar.Application.Jars.JarDepartures.BackfillAsync(db, CancellationToken.None);
+        logger.LogWarning(
+            "Jar-departure backfill: recorded {Departures} departure(s) and wrote down {Payments} line payment(s).",
+            result.Departures, result.PaymentsWrittenDown);
     }
     catch (Exception ex)
     {
-        logger.LogWarning(ex, "Jar-departure backfill failed; continuing startup.");
+        logger.LogError(ex, "Jar-departure backfill failed; nothing was saved. Continuing startup.");
     }
 }
 

@@ -157,8 +157,11 @@ public static class JarMovements
             {
                 // A payment of this account written down on its unallocated money before the jar
                 // arrived here (KeepArrivalAttributionAsync) stays there while it is dated on the
-                // day the jar arrived: the reader would now derive it onto the jar (P2-20).
-                if (existing is not null && !heldThen.Contains(line.JarId) && line.Since is { } since && transaction.Date <= since)
+                // day the jar arrived: the reader would now derive it onto the jar (P2-20). Only
+                // that write-down (or this branch) stores a leg that draws from no jar; a leg with
+                // any stored draw ("paid from" another jar, or one kept from a jar that left) was
+                // answered here, so on the jar's line it draws from the jar like any other payment.
+                if (existing is not null && heldThen.Count == 0 && line.Since is { } since && transaction.Date <= since)
                 {
                     keepsHistory = true;
                     return Guid.Empty;

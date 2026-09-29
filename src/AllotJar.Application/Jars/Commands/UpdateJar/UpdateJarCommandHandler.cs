@@ -80,8 +80,8 @@ public class UpdateJarCommandHandler
             await JarAccounts.EnsureVisibleForJarAsync(_db, account, request.ShareAccount, cancellationToken);
             var kept = await JarMovements.KeepLineAttributionAsync(_db, userId, jar, today, cancellationToken);
             await JarDepartures.RecordAsync(_db, userId, jar.Id, jar.FundingAccountId, today, kept > 0, cancellationToken);
-            // The account it joins keeps its history too: its payments on the jar's lines recorded
-            // so far were made while the jar was held elsewhere, so they stay on its unallocated
+            // The account it joins keeps its history too: its payments on the jar's lines dated up
+            // to today were made while the jar was held elsewhere, so they stay on its unallocated
             // money. From today, a payment on the jar's line from the new account draws from the
             // jar, and one dated before today is refused (P2-20).
             await JarMovements.KeepArrivalAttributionAsync(_db, userId, jar, account, today, cancellationToken);
