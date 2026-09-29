@@ -57,16 +57,17 @@ public class GetJarPaymentsQueryHandler : IRequestHandler<GetJarPaymentsQuery, I
                     : t.AccountId != null ? TransactionMapping.PrivateAccountName : null,
                 InPrivateAccount = t.AccountId != null && t.Account == null,
                 LineName = t.BudgetItem != null ? t.BudgetItem.Name : null,
-                // Rule 79, as the ledger reads it: a payment from the jar's own account draws
-                // from the jar through its stored answer when it has one, otherwise through its
-                // Savings line (whole or a slice) when dated on or after the day the jar arrived
-                // in that account (JarLedgerReader.HeldOn, P2-20).
-                FromJar = t.AccountId == accountId
-                          && (t.JarAllocations.Any(a => a.AccountId == accountId && a.Postings.Any(p => p.JarId == jarId && p.Amount < 0m))
-                              || (!t.JarAllocations.Any(a => a.AccountId == accountId)
-                                  && (since == null || t.Date >= since)
-                                  && ((t.BudgetItem != null && t.BudgetItem.SavingsId == jarId)
-                                      || t.Splits.Any(s => s.BudgetItem != null && s.BudgetItem.SavingsId == jarId)))),
+                // Rule 79, as the ledger reads it: a payment draws from the jar through its
+                // stored answer when it has one, in whichever account paid it (a draw kept in an
+                // account the jar has since left counts, P51 and R2-D1); otherwise a payment from
+                // the jar's own account draws from it through its Savings line (whole or a slice)
+                // when dated on or after the day the jar arrived there (JarLedgerReader.HeldOn, P2-20).
+                FromJar = t.JarAllocations.Any(a => a.AccountId == t.AccountId && a.Postings.Any(p => p.JarId == jarId && p.Amount < 0m))
+                          || (t.AccountId == accountId
+                              && !t.JarAllocations.Any(a => a.AccountId == accountId)
+                              && (since == null || t.Date >= since)
+                              && ((t.BudgetItem != null && t.BudgetItem.SavingsId == jarId)
+                                  || t.Splits.Any(s => s.BudgetItem != null && s.BudgetItem.SavingsId == jarId))),
             });
         if (!request.IncludeOtherPayments)
         {

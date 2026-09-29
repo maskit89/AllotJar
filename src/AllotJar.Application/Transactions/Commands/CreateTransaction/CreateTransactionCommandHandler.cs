@@ -177,7 +177,10 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
             {
                 await AccountBalanceGuard.EnsureNonNegativeAsync(
                     _db, new[] { account }, new[] { transaction }, Array.Empty<Guid>(), "Amount", cancellationToken);
-                if (request.PaidFromJarId is not null)
+                // A payment on a jar's line from an account the jar has since left, dated while
+                // that account held it, is stored as a draw on the jar there (R2-D1): the reader
+                // can't derive it, as it can a payment from the jar's own account.
+                if (request.PaidFromJarId is not null || transaction.BudgetItemId is not null || hasSplits)
                 {
                     await JarMovements.ApplyOutgoingAsync(
                         _db, userId, transaction, account, request.PaidFromJarId, "PaidFromJarId", cancellationToken);

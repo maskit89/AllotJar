@@ -130,9 +130,13 @@ public static class JarMovements
     /// current line and slices, so callers set those first. A line whose jar has since left this
     /// account (rule 80) still draws from that jar when the leg's stored operation says it did:
     /// the reader can no longer derive that on its own, so the attribution is written down again.
-    /// With <paramref name="keepDepartedDraw"/> (an edit that gave no jar answer) a draw from the
+    /// So does a line whose jar this account held on the payment's date in a stretch that has
+    /// since ended (a late entry, or one re-lined onto the jar, R2-D1): the account made it while
+    /// it held the jar. The departure closing that stretch is re-settled either way (P51). The
+    /// account's ledger must read the date: before its opening date nothing is counted, so nothing
+    /// is kept. With <paramref name="keepDepartedDraw"/> (an edit that gave no jar answer) a draw from the
     /// named jar that has since left the account is kept too. A leg drawing from a departed jar
-    /// can't be dated after the day the jar left.
+    /// can't be dated after the day the jar left, nor re-dated before its recorded stretch there began.
     /// </summary>
     /// <param name="slices">The transaction's slices when they are not yet on its collection (a split being written); null reads <c>transaction.Splits</c>.</param>
     public static async Task ApplyOutgoingAsync(
@@ -147,6 +151,10 @@ public static class JarMovements
         var heldThen = existing?.Postings.Where(p => p.JarId is not null).Select(p => p.JarId!.Value).ToHashSet() ?? new HashSet<Guid>();
         var keepsHistory = false;
         var keptJars = new HashSet<Guid>();
+        var stretches = JarStretches.None;
+        // The account's ledger reads nothing before its opening date, while a departure's share of
+        // a kept draw would still count there: a share dated before it is not kept (R2-N2).
+        var beforeOpening = account.OpeningDate is { } opened && transaction.Date < opened;
         Guid JarFor(Guid? lineId, IReadOnlyDictionary<Guid, (Guid JarId, Guid AccountId, DateOnly? Since)> lineJars)
         {
             if (lineId is not Guid id || !lineJars.TryGetValue(id, out var line))
@@ -168,7 +176,9 @@ public static class JarMovements
                 }
                 return line.JarId;
             }
-            if (heldThen.Contains(line.JarId))
+            if (!beforeOpening
+                && (heldThen.Contains(line.JarId)
+                    || (account.OpeningDate is not null && stretches.LeftOn(line.JarId, account.Id, transaction.Date) is not null)))
             {
                 keepsHistory = true;
                 keptJars.Add(line.JarId);
@@ -183,6 +193,7 @@ public static class JarMovements
         {
             var lineIds = slices.Where(s => s.BudgetItemId is not null).Select(s => s.BudgetItemId!.Value).Distinct().ToList();
             var lineJars = await LineJarsAsync(db, lineIds, cancellationToken);
+            stretches = await StretchesAsync(db, lineJars.Values, account.Id, transaction.Date, cancellationToken);
             foreach (var slice in slices)
             {
                 var jarId = JarFor(slice.BudgetItemId, lineJars);
@@ -192,6 +203,7 @@ public static class JarMovements
         else if (transaction.BudgetItemId is Guid lineId)
         {
             var lineJars = await LineJarsAsync(db, new[] { lineId }, cancellationToken);
+            stretches = await StretchesAsync(db, lineJars.Values, account.Id, transaction.Date, cancellationToken);
             portions[JarFor(lineId, lineJars)] = transaction.Amount;
         }
         else
@@ -205,19 +217,27 @@ public static class JarMovements
         var departedHeld = heldThen.Count == 0 ? new List<Guid>() : await db.Jars.AsNoTracking()
             .Where(j => heldThen.Contains(j.Id) && j.FundingAccountId != account.Id).Select(j => j.Id).ToListAsync(cancellationToken);
         var keptFrom = departedHeld.Where(j => !portions.ContainsKey(j)).Select(j => (Guid?)j).FirstOrDefault();
-        var keepsFrom = keepDepartedDraw && keptFrom is Guid k && unlined != 0m && (paidFromJarId is null || paidFromJarId == k);
+        var keepsFrom = keepDepartedDraw && keptFrom is Guid k && unlined != 0m && !beforeOpening && (paidFromJarId is null || paidFromJarId == k);
         if (keepsFrom)
         {
             keptJars.Add(keptFrom!.Value);
         }
 
-        // A kept share is history from the stretch the jar was held here: the leg can't move past the day it left.
+        // A kept share is history from the stretch the jar was held here: the leg can't move past
+        // the day it left, nor (re-dated) before the stretch began, while another account held it.
+        var redated = existing is not null && existing.Date != transaction.Date;
+        var keptStretches = redated ? await JarStretches.LoadAsync(db, keptJars, cancellationToken) : JarStretches.None;
         foreach (var keptJar in keptJars)
         {
             if (await JarDepartures.CoveringAsync(db, ownerId, keptJar, account.Id, transaction.Date, cancellationToken) is null)
             {
                 var name = await db.Jars.AsNoTracking().Where(j => j.Id == keptJar).Select(j => j.Name).FirstAsync(cancellationToken);
                 throw JarDepartures.DatedAfterDeparture(name, await JarDepartures.LastAsync(db, keptJar, account.Id, cancellationToken));
+            }
+            if (keptStretches.HeldElsewhereUntil(keptJar, account.Id, transaction.Date) is { } arrived)
+            {
+                var name = await db.Jars.AsNoTracking().Where(j => j.Id == keptJar).Select(j => j.Name).FirstAsync(cancellationToken);
+                throw JarDepartures.DatedBeforeArrival(name, arrived);
             }
         }
 
@@ -249,6 +269,15 @@ public static class JarMovements
             postings.AddRange(portions.Select(p => new JarAllocationPosting { JarId = p.Key, Amount = -p.Value }));
         }
         await ReplaceAsync(db, ownerId, transaction, account.Id, transaction.Date, postings, cancellationToken, existing);
+    }
+
+    /// <summary>The departures of the line jars <paramref name="accountId"/> did not hold on <paramref name="date"/>; none (and no query) when it held them all.</summary>
+    private static Task<JarStretches> StretchesAsync(
+        IApplicationDbContext db, IEnumerable<(Guid JarId, Guid AccountId, DateOnly? Since)> lineJars, Guid accountId, DateOnly date,
+        CancellationToken cancellationToken)
+    {
+        var elsewhere = lineJars.Where(l => !JarLedgerReader.HeldOn(l.AccountId, l.Since, accountId, date)).Select(l => l.JarId).ToList();
+        return elsewhere.Count == 0 ? Task.FromResult(JarStretches.None) : JarStretches.LoadAsync(db, elsewhere, cancellationToken);
     }
 
     /// <summary>
@@ -330,6 +359,43 @@ public static class JarMovements
             added.Add(operation);
         }
         return added;
+    }
+
+    /// <summary>
+    /// One leg's date moved by a bank statement, its jar answer unchanged (a transfer's departure
+    /// or its fee, rule 69). Each jar the leg draws from keeps the draw when the account held the
+    /// jar on <paramref name="date"/>: in its current stretch there, or in a recorded one it has
+    /// since left (R2-D1), when the account's ledger reads that date. Any other share draws from
+    /// unallocated money instead, as a return decided on a bank's date does: the date is the
+    /// bank's, so it is not refused. The departures are re-settled (P51).
+    /// </summary>
+    public static async Task FollowDateAsync(
+        IApplicationDbContext db, string ownerId, Transaction transaction, Guid accountId, DateOnly date, CancellationToken cancellationToken)
+    {
+        var existing = await FindAsync(db, transaction.Id, accountId, cancellationToken);
+        if (existing is null || existing.Date == date)
+        {
+            return;
+        }
+        var jarIds = existing.Postings.Where(p => p.JarId is not null && p.Amount != 0m).Select(p => p.JarId!.Value).Distinct().ToList();
+        var jars = await db.Jars.AsNoTracking()
+            .Where(j => jarIds.Contains(j.Id))
+            .Select(j => new { j.Id, j.FundingAccountId, j.FundingAccountSince })
+            .ToListAsync(cancellationToken);
+        var elsewhere = jars.Where(j => !JarLedgerReader.HeldOn(j.FundingAccountId, j.FundingAccountSince, accountId, date)).Select(j => j.Id).ToList();
+        var stretches = elsewhere.Count == 0 ? JarStretches.None : await JarStretches.LoadAsync(db, elsewhere, cancellationToken);
+        var read = stretches.OpeningDateOf(accountId) is { } opened && date >= opened;
+        var dropped = elsewhere.Where(id => !read || stretches.LeftOn(id, accountId, date) is null).ToHashSet();
+        var unallocated = existing.Postings.Where(p => p.JarId is null || dropped.Contains(p.JarId.Value)).Sum(p => p.Amount);
+        var postings = existing.Postings
+            .Where(p => p.JarId is Guid jarId && !dropped.Contains(jarId))
+            .Select(p => new JarAllocationPosting { JarId = p.JarId, Amount = p.Amount })
+            .ToList();
+        if (unallocated != 0m || postings.Count == 0)
+        {
+            postings.Add(new JarAllocationPosting { JarId = null, Amount = unallocated });
+        }
+        await ReplaceAsync(db, ownerId, transaction, accountId, date, postings, cancellationToken, existing);
     }
 
     /// <summary>Drops the stored split of one leg, so the reader falls back to its derived attribution.</summary>

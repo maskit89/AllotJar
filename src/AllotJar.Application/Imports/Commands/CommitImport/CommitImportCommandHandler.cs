@@ -88,6 +88,27 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 .ThenInclude(j => j!.FundingAccount)
             .Where(i => wholeLineIds.Contains(i.Id))
             .ToDictionaryAsync(i => i.Id, cancellationToken);
+        // The departures of those lines' jars that the statement account may not hold on a row's
+        // date: a row from an account the jar has left, dated while it held it there, goes on
+        // the jar's line (R2-D1).
+        var stretches = await JarStretches.LoadAsync(_db,
+            wholeLines.Values.Where(i => i.Jar is not null && (i.Jar.FundingAccountId != request.AccountId || i.Jar.FundingAccountSince is not null))
+                .Select(i => i.Jar!.Id),
+            cancellationToken);
+        // Every line a row names (whole or a slice) that is a jar's savings line: the jar's account
+        // and the day it moved there. A payment on one the statement account didn't hold on its
+        // date is written through JarMovements, which keeps it on the jar when that account held it
+        // then; the reader derives only the jar's own account's payments (rule 79).
+        var allLineIds = request.Items.SelectMany(BudgetItemIds).Where(id => id is not null).Select(id => id!.Value).Distinct().ToList();
+        var jarHomes = await _db.BudgetItems
+            .AsNoTracking()
+            .Where(i => allLineIds.Contains(i.Id) && i.SavingsId != null && i.Jar != null)
+            .Select(i => new { i.Id, i.Jar!.FundingAccountId, i.Jar.FundingAccountSince })
+            .ToDictionaryAsync(i => i.Id, i => (i.FundingAccountId, i.FundingAccountSince), cancellationToken);
+        bool DrawsFromLeftJar(CommitImportItem row) =>
+            importAccount is not null
+            && BudgetItemIds(row).Any(id => id is Guid lineId && jarHomes.TryGetValue(lineId, out var home)
+                                            && !JarLedgerReader.HeldOn(home.FundingAccountId, home.FundingAccountSince, importAccount.Id, row.Date));
 
         // Idempotency: never re-create a row this STATEMENT ACCOUNT already knows (double-submit,
         // overlap, retry). The shared definition covers the leg this account's statement carries:
@@ -347,7 +368,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     }
                     else
                     {
-                        TransferFees.FollowDeparture(target);
+                        await TransferFees.FollowDepartureAsync(_db, userId, target, cancellationToken);
                     }
 
                     if (item.IsCredit)
@@ -365,6 +386,13 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     else if (item.PaidFromJarId is not null)
                     {
                         await JarMovements.ApplyOutgoingAsync(_db, userId, target, importAccount, item.PaidFromJarId, "Items", cancellationToken);
+                    }
+                    // Otherwise the departure keeps its jar answer, and its draws follow a date
+                    // the statement moved, as the fee's do.
+                    if (target.DepartedOn is DateOnly departed && departed != before.DepartedOn && target.AccountId is Guid departedFrom
+                        && !(item.IsCredit ? target.Amount != before.Amount : item.PaidFromJarId is not null))
+                    {
+                        await JarMovements.FollowDateAsync(_db, userId, target, departedFrom, departed, cancellationToken);
                     }
                     // A returned transfer's jars follow a departure now drawn from other jars (rule 90).
                     if (target.ReturnedOn is not null && target.AccountId is Guid returnSource)
@@ -456,7 +484,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             if (!isSplit && item.BudgetItemId is Guid lineId)
             {
                 TransactionInvariants.EnsureWholeLineAssignable(
-                    wholeLines[lineId], userId, type, item.Date, item.AcknowledgeCrossMonth, "Items", request.AccountId);
+                    wholeLines[lineId], userId, type, item.Date, item.AcknowledgeCrossMonth, "Items", request.AccountId, stretches);
             }
 
             var transaction = new Transaction
@@ -515,7 +543,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     await JarMovements.ApplyIncomingAsync(
                         _db, userId, transaction, importAccount, item.Date, item.Amount, item.JarAllocations, "Items", cancellationToken);
                 }
-                else if (!item.IsCredit && item.PaidFromJarId is not null)
+                else if (!item.IsCredit && (item.PaidFromJarId is not null || DrawsFromLeftJar(item)))
                 {
                     await JarMovements.ApplyOutgoingAsync(_db, userId, transaction, importAccount, item.PaidFromJarId, "Items", cancellationToken);
                 }

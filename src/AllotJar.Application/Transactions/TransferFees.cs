@@ -101,12 +101,19 @@ public static class TransferFees
         return row;
     }
 
-    /// <summary>The fee row follows its transfer's departure date (a statement supplied the bank's date).</summary>
-    public static void FollowDeparture(Transaction transfer)
+    /// <summary>
+    /// The fee row follows its transfer's departure date (a statement supplied the bank's date),
+    /// and so does its jar draw (<see cref="JarMovements.FollowDateAsync"/>).
+    /// </summary>
+    public static async Task FollowDepartureAsync(IApplicationDbContext db, string ownerId, Transaction transfer, CancellationToken cancellationToken)
     {
         if (transfer.Fee is Transaction row && transfer.DepartedOn is DateOnly departedOn)
         {
             row.Date = departedOn;
+            if (row.AccountId is Guid accountId)
+            {
+                await JarMovements.FollowDateAsync(db, ownerId, row, accountId, departedOn, cancellationToken);
+            }
         }
     }
 

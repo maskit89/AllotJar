@@ -22,7 +22,9 @@ public static class JarDepartures
     /// Records that <paramref name="jarId"/> leaves <paramref name="fromAccountId"/> on
     /// <paramref name="movedOn"/>. Written only when that account's ledger carries a posting of
     /// the jar (stored, or <paramref name="keptAdded"/> by the caller in this unit of work): with
-    /// none, no kept leg can ever exist there. The caller saves.
+    /// none, the move records no stretch there (<see cref="JarStretches"/>), so no kept leg can
+    /// ever exist there and a late payment on the jar's line from that account stays refused
+    /// (R2-D1). The caller saves.
     /// </summary>
     public static async Task RecordAsync(
         IApplicationDbContext db, string ownerId, Guid jarId, Guid fromAccountId, DateOnly movedOn, bool keptAdded,
@@ -340,6 +342,16 @@ public static class JarDepartures
             new() { JarId = null, Amount = held },
         },
     };
+
+    internal static ValidationException DatedBeforeArrival(string jarName, DateOnly arrived) =>
+        new(new Dictionary<string, string[]>
+        {
+            ["Date"] = new[]
+            {
+                $"This entry moved money in {jarName} while {jarName} was held in this account, and another account held {jarName} " +
+                $"until {arrived:d MMM yyyy}. It can't be dated before that.",
+            },
+        });
 
     internal static ValidationException DatedAfterDeparture(string jarName, DateOnly left) =>
         new(new Dictionary<string, string[]>

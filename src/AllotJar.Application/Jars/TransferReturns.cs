@@ -10,8 +10,9 @@ namespace AllotJar.Application.Jars;
 /// Where a returned transfer's money goes in the source account's jars (O1 answer 4, P72). The
 /// return leg posts to unallocated; a stored zero-sum <see cref="JarAllocationKind.Return"/>
 /// operation then puts back each jar's share of the departure, decided when the return is
-/// recorded: a jar still on the account and not archived, and held there on the return date,
-/// gets its share back; any other share stays unallocated. Stored like every other jar movement,
+/// recorded: a jar not archived and held in the account on the return date gets its share back,
+/// whether it is still there or has since left (R2-D1: settled on the departure closing that
+/// stretch, as a late payment is); any other share stays unallocated. Stored like every other jar movement,
 /// so a later archive, move or restore never rewrites what the account read (rules 26, 80), and
 /// every change to it is settled on the departure of a jar that has since left the account
 /// (<see cref="JarDepartures.SettleAsync"/>), as every other jar share is.
@@ -48,10 +49,11 @@ public static class TransferReturns
     /// same source, for the amount it credits), keeps the jar decision it was recorded with and
     /// only follows its date (a statement confirming a return marked by hand, a corrected date),
     /// so a jar archived or moved since never gets it re-decided. Otherwise the jars are decided
-    /// now (<see cref="RecordAsync"/>). A kept share can't move past the day its jar left the
-    /// account (rule 80): with <paramref name="refuseKey"/> (a date the user typed) that date is
-    /// refused, as for any entry of the jar's stretch there; without it (a bank's date) the return
-    /// is decided again as of its date, when the jar was no longer there. Every write that can
+    /// now (<see cref="RecordAsync"/>). A kept share can't move out of a stretch the jar was held
+    /// in the account: past the day it left (rule 80), or before it arrived (P2-20). With
+    /// <paramref name="refuseKey"/> (a date the user typed) that date is refused, as for any entry
+    /// of the jar's stretch there; without it (a bank's date) the return is decided again as of
+    /// its date, when the jar was not there. Every write that can
     /// change a returned transfer's departure split calls this.
     /// </summary>
     public static async Task SyncAsync(
@@ -63,7 +65,7 @@ public static class TransferReturns
         {
             var kept = await OperationsAsync(db, transfer.Id, cancellationToken);
             if (kept.All(op => AgreesWith(op, sourceId, after.Departure))
-                && await StaysBeforeDeparturesAsync(db, kept, returnedOn, refuseKey, cancellationToken))
+                && await StaysInItsStretchesAsync(db, kept, returnedOn, refuseKey, cancellationToken))
             {
                 foreach (var op in kept.Where(op => op.Date != returnedOn))
                 {
@@ -79,31 +81,58 @@ public static class TransferReturns
 
     /// <summary>
     /// Whether every jar share the <paramref name="kept"/> operations give back can move to
-    /// <paramref name="returnedOn"/>: a jar that has left the account needs a departure on or
-    /// after that date to settle it on. False (or refused, with <paramref name="refuseKey"/>) when
-    /// the date falls after the jar left.
+    /// <paramref name="returnedOn"/>: the jar must have been held in the account that day, in its
+    /// current stretch there or in one it has since left (and a departure on or after the date
+    /// settles it). False (or refused, with <paramref name="refuseKey"/>) when the date falls
+    /// after the jar left, or before it arrived.
     /// </summary>
-    private static async Task<bool> StaysBeforeDeparturesAsync(
+    private static async Task<bool> StaysInItsStretchesAsync(
         IApplicationDbContext db, IReadOnlyList<JarAllocation> kept, DateOnly returnedOn, string? refuseKey,
         CancellationToken cancellationToken)
     {
         foreach (var op in kept.Where(op => op.Date != returnedOn))
         {
             var jarIds = op.Postings.Where(p => p.JarId is not null && p.Amount != 0m).Select(p => p.JarId!.Value).ToList();
-            var departed = await db.Jars.AsNoTracking()
-                .Where(j => jarIds.Contains(j.Id) && j.FundingAccountId != op.AccountId)
-                .ToListAsync(cancellationToken);
-            foreach (var jar in departed)
+            var jars = await db.Jars.AsNoTracking().Where(j => jarIds.Contains(j.Id)).ToListAsync(cancellationToken);
+            var stretches = await JarStretches.LoadAsync(db, jarIds, cancellationToken);
+            // A share settled on a departure is kept only where the account's ledger reads it: before
+            // its opening date the return counts nowhere while the settlement would (R2-N2). The
+            // return is decided again then, and gives that jar nothing.
+            var beforeOpening = stretches.OpeningDateOf(op.AccountId) is { } opened && returnedOn < opened;
+            foreach (var jar in jars)
             {
-                if (await JarDepartures.CoveringAsync(db, op.OwnerId, jar.Id, op.AccountId, returnedOn, cancellationToken) is not null)
+                if (jar.FundingAccountId == op.AccountId)
                 {
-                    continue;
+                    if (JarLedgerReader.HeldOn(jar.FundingAccountId, jar.FundingAccountSince, op.AccountId, returnedOn))
+                    {
+                        continue;
+                    }
+                    if (stretches.LeftOn(jar.Id, op.AccountId, returnedOn) is not null)
+                    {
+                        if (beforeOpening)
+                        {
+                            return false;
+                        }
+                        continue;
+                    }
+                    // Dated before the jar arrived: HeldOn fails only when it has an arrival day.
+                    var arrived = stretches.HeldElsewhereUntil(jar.Id, op.AccountId, returnedOn) ?? jar.FundingAccountSince!.Value;
+                    return refuseKey is null ? false : throw DatedBeforeArrival(refuseKey, jar.Name, arrived);
                 }
-                if (refuseKey is null)
+                if (await JarDepartures.CoveringAsync(db, op.OwnerId, jar.Id, op.AccountId, returnedOn, cancellationToken) is null)
+                {
+                    return refuseKey is null
+                        ? false
+                        : throw Refusal(refuseKey, jar.Name, await JarDepartures.LastAsync(db, jar.Id, op.AccountId, cancellationToken));
+                }
+                if (stretches.HeldElsewhereUntil(jar.Id, op.AccountId, returnedOn) is { } since)
+                {
+                    return refuseKey is null ? false : throw DatedBeforeArrival(refuseKey, jar.Name, since);
+                }
+                if (beforeOpening)
                 {
                     return false;
                 }
-                throw Refusal(refuseKey, jar.Name, await JarDepartures.LastAsync(db, jar.Id, op.AccountId, cancellationToken));
             }
         }
         return true;
@@ -116,6 +145,16 @@ public static class TransferReturns
             {
                 $"This return gave money back to {jarName} while {jarName} was held in this account, and {jarName} left it on {left:d MMM yyyy}. " +
                 "It can't be dated after that.",
+            },
+        });
+
+    private static ValidationException DatedBeforeArrival(string key, string jarName, DateOnly arrived) =>
+        new(new Dictionary<string, string[]>
+        {
+            [key] = new[]
+            {
+                $"This return gave money back to {jarName} while {jarName} was held in this account, and another account held {jarName} " +
+                $"until {arrived:d MMM yyyy}. It can't be dated before that.",
             },
         });
 
@@ -135,8 +174,9 @@ public static class TransferReturns
     /// <summary>
     /// Writes (or removes) <paramref name="transfer"/>'s return operation for its current
     /// <see cref="Transaction.ReturnedOn"/>, from the departure's stored jar split on
-    /// <paramref name="sourceId"/> and the jars as they are now: a jar gets its share back only
-    /// while it is on the account, not archived, and was held there on the return date.
+    /// <paramref name="sourceId"/> and the jars as they are now: a jar not archived gets its share
+    /// back when it was held in the account on the return date, in its current stretch there, or
+    /// (R2-D1) in a recorded stretch it has since left, when the account's ledger reads that date.
     /// </summary>
     public static async Task RecordAsync(
         IApplicationDbContext db, Transaction transfer, Guid sourceId, CancellationToken cancellationToken)
@@ -155,11 +195,16 @@ public static class TransferReturns
         {
             return;
         }
-        var held = (await db.Jars
-                .Where(j => drawn.Keys.Contains(j.Id) && j.FundingAccountId == sourceId && !j.IsArchived)
-                .Select(j => new { j.Id, j.FundingAccountId, j.FundingAccountSince })
-                .ToListAsync(cancellationToken))
-            .Where(j => JarLedgerReader.HeldOn(j.FundingAccountId, j.FundingAccountSince, sourceId, returnedOn))
+        var jars = await db.Jars
+            .Where(j => drawn.Keys.Contains(j.Id) && !j.IsArchived)
+            .Select(j => new { j.Id, j.FundingAccountId, j.FundingAccountSince })
+            .ToListAsync(cancellationToken);
+        var elsewhere = jars.Where(j => !JarLedgerReader.HeldOn(j.FundingAccountId, j.FundingAccountSince, sourceId, returnedOn)).Select(j => j.Id).ToList();
+        var stretches = elsewhere.Count == 0 ? JarStretches.None : await JarStretches.LoadAsync(db, elsewhere, cancellationToken);
+        // Before the account's opening date its ledger reads nothing, while the departure's share would count.
+        var read = stretches.OpeningDateOf(sourceId) is { } opened && returnedOn >= opened;
+        var held = jars
+            .Where(j => !elsewhere.Contains(j.Id) || (read && stretches.LeftOn(j.Id, sourceId, returnedOn) is not null))
             .Select(j => j.Id)
             .ToList();
         var postings = drawn.Where(d => held.Contains(d.Key))
@@ -171,8 +216,8 @@ public static class TransferReturns
             return;
         }
         postings.Add(new JarAllocationPosting { JarId = null, Amount = -total });
-        // A jar that has been away from this account and came back is settled on the departure
-        // that closed its earlier stretch here, when the return falls in it.
+        // A jar held here in a stretch it has since left (moved away, or away and back) is settled
+        // on the departure that closed that stretch.
         await JarDepartures.SettleAsync(db, transfer.OwnerId, sourceId, returnedOn, new List<(Guid?, decimal)>(),
             returnedOn, postings.Select(p => (p.JarId, p.Amount)).ToList(), cancellationToken);
         db.JarAllocations.Add(new JarAllocation

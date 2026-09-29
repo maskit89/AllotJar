@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -71,8 +72,7 @@ public static class TransactionInvariants
         bool acknowledgeCrossMonth,
         string errorKey,
         CancellationToken cancellationToken,
-        Guid? accountId = null,
-        IReadOnlyCollection<Guid>? keptJarIds = null)
+        Guid? accountId = null)
     {
         // A transfer moves money between accounts and never carries budget attribution —
         // splitting one across lines would corrupt both the budget and the balances.
@@ -98,6 +98,7 @@ public static class TransactionInvariants
                 .ThenInclude(j => j!.FundingAccount)
             .Where(i => itemIds.Contains(i.Id))
             .ToDictionaryAsync(i => i.Id, cancellationToken);
+        var stretches = await StretchesAsync(db, items.Values, accountId, transactionDate, cancellationToken);
 
         foreach (var id in itemIds)
         {
@@ -106,7 +107,7 @@ public static class TransactionInvariants
                 throw new NotFoundException($"Budget item {id} was not found.");
             }
             EnsureOwned(item, userId);
-            EnsureJarAccount(item, accountId, transactionDate, errorKey, keptJarIds);
+            EnsureJarAccount(item, accountId, transactionDate, errorKey, stretches);
 
             // Keep the roll-up coherent: split an expense across expense lines,
             // income across income lines.
@@ -160,8 +161,7 @@ public static class TransactionInvariants
         bool acknowledgeCrossMonth,
         string errorKey,
         CancellationToken cancellationToken,
-        Guid? accountId = null,
-        IReadOnlyCollection<Guid>? keptJarIds = null)
+        Guid? accountId = null)
     {
         var item = await db.BudgetItems
             .Include(i => i.BudgetCategory)
@@ -175,7 +175,8 @@ public static class TransactionInvariants
             throw new NotFoundException($"Budget item {budgetItemId} was not found.");
         }
 
-        EnsureWholeLineAssignable(item, userId, type, transactionDate, acknowledgeCrossMonth, errorKey, accountId, keptJarIds);
+        var stretches = await StretchesAsync(db, new[] { item }, accountId, transactionDate, cancellationToken);
+        EnsureWholeLineAssignable(item, userId, type, transactionDate, acknowledgeCrossMonth, errorKey, accountId, stretches);
         return item;
     }
 
@@ -183,7 +184,9 @@ public static class TransactionInvariants
     /// The pure half of <see cref="ValidateWholeLineAsync"/>, for callers that batch-load their
     /// lines (CommitImport validates a whole statement in one query instead of one per row).
     /// The <paramref name="item"/> must be loaded with its category and month, and — for a jar
-    /// line — its jar and that jar's account.
+    /// line — its jar and that jar's account. <paramref name="stretches"/> must hold the jar's
+    /// departures when the payment's account is not the one holding it on that date
+    /// (<see cref="StretchesAsync"/>); null reads none.
     /// </summary>
     public static void EnsureWholeLineAssignable(
         BudgetItem item,
@@ -193,7 +196,7 @@ public static class TransactionInvariants
         bool acknowledgeCrossMonth,
         string errorKey,
         Guid? accountId = null,
-        IReadOnlyCollection<Guid>? keptJarIds = null)
+        JarStretches? stretches = null)
     {
         if (type == TransactionType.Transfer)
         {
@@ -201,7 +204,7 @@ public static class TransactionInvariants
         }
 
         EnsureOwned(item, userId);
-        EnsureJarAccount(item, accountId, transactionDate, errorKey, keptJarIds);
+        EnsureJarAccount(item, accountId, transactionDate, errorKey, stretches);
 
         if (!LineKindMatches(item.BudgetCategory.Kind, type))
         {
@@ -253,12 +256,16 @@ public static class TransactionInvariants
     /// A payment from nowhere, or from another account, cannot reduce the jar and is refused
     /// rather than silently counted as a plan. Nor can one dated before the day the jar moved into
     /// that account (P2-20): the ledger reads the jar as held there only from that day, so it would
-    /// keep the payment on the account's unallocated money. <paramref name="keptJarIds"/> are the
-    /// jars the leg already draws from (a stored draw from an earlier stretch the jar spent in that
-    /// account, before it moved away and back): its departure governs those instead (P51).
+    /// keep the payment on the account's unallocated money (Christopher chose to refuse it, 29
+    /// September 2026). The exception is a payment from an account the jar has left, dated in a
+    /// stretch the jar spent there (<paramref name="stretches"/>): that account made it while it
+    /// held the jar, so it draws from the jar there and its departure is re-settled (P51; R2-D1,
+    /// "Accept and settle", decided by Christopher on 29 September 2026). That covers a late entry,
+    /// an existing entry re-split or re-dated within the stretch, and one moved there from another
+    /// account alike.
     /// </summary>
     private static void EnsureJarAccount(
-        BudgetItem item, Guid? accountId, DateOnly transactionDate, string errorKey, IReadOnlyCollection<Guid>? keptJarIds = null)
+        BudgetItem item, Guid? accountId, DateOnly transactionDate, string errorKey, JarStretches? stretches)
     {
         if (item.SavingsId is null)
         {
@@ -271,83 +278,90 @@ public static class TransactionInvariants
             // unreachable on SQL Server and it only occurs in tests that mint bare ids.
             return;
         }
-        if (accountId != jar.FundingAccountId)
-        {
-            var held = jar.FundingAccount?.Name ?? "its account";
-            if (jar.FundingAccountSince is { } since && transactionDate < since)
-            {
-                // The jar's own account refuses this date too, so don't send the user there.
-                throw Validation(errorKey,
-                    $"'{item.Name}' is the jar {jar.Name}, which moved to {held} on {since:d MMM yyyy}. " +
-                    "A payment dated before then can't be added to its line from any account. Record it on another line.");
-            }
-            throw Validation(errorKey,
-                $"'{item.Name}' is the jar {jar.Name}, whose money is held in {held}. " +
-                $"Record this payment from {held} so it comes out of the jar.");
-        }
-        if (keptJarIds is not null && keptJarIds.Contains(jar.Id))
+        if (accountId is Guid paying && JarLedgerReader.HeldOn(jar.FundingAccountId, jar.FundingAccountSince, paying, transactionDate))
         {
             return;
         }
-        EnsureJarArrived(item, jar, transactionDate, errorKey);
-    }
-
-    private static void EnsureJarArrived(BudgetItem item, Jar jar, DateOnly transactionDate, string errorKey)
-    {
+        if (accountId is Guid left && stretches?.LeftOn(jar.Id, left, transactionDate) is not null)
+        {
+            EnsureOpened(item, jar, left, stretches, errorKey);
+            return;
+        }
+        var held = jar.FundingAccount?.Name ?? "its account";
+        if (accountId is not null && stretches?.HeldIn(jar.Id, transactionDate) is { } then)
+        {
+            throw Validation(errorKey,
+                $"'{item.Name}' is the jar {jar.Name}, which was held in {then} on {transactionDate:d MMM yyyy}. " +
+                $"Record this payment from {then} so it comes out of the jar, or put it on another line.");
+        }
         if (jar.FundingAccountSince is { } since && transactionDate < since)
         {
-            var held = jar.FundingAccount?.Name ?? "its account";
+            throw Validation(errorKey, accountId == jar.FundingAccountId
+                ? $"'{item.Name}' is the jar {jar.Name}, which moved to {held} on {since:d MMM yyyy}. " +
+                  $"A payment on its line from {held} can't be dated before then. Record it on another line."
+                // A recorded stretch ends after the date, but where it began isn't: the account that
+                // closed it may have held the jar only from later, so don't send the user to it.
+                : accountId is not null && stretches?.Covers(jar.Id, transactionDate) == true
+                    ? $"'{item.Name}' is the jar {jar.Name}, which moved to {held} on {since:d MMM yyyy}. " +
+                      "A payment dated before then goes on its line only from the account that held the jar that day. " +
+                      "Record it from that account, or on another line."
+                    // No account the app knows of held the jar then, so don't send the user to one.
+                    : $"'{item.Name}' is the jar {jar.Name}, which moved to {held} on {since:d MMM yyyy}. " +
+                      "A payment dated before then can't be added to its line from any account. Record it on another line.");
+        }
+        throw Validation(errorKey,
+            $"'{item.Name}' is the jar {jar.Name}, whose money is held in {held}. " +
+            $"Record this payment from {held} so it comes out of the jar.");
+    }
+
+    /// <summary>
+    /// A payment kept on a jar in an account it left is settled against that account's ledger,
+    /// which reads nothing without an opening date: stored there, it would count once a date is
+    /// set, but not if that date is later than the payment, while its departure's share would.
+    /// </summary>
+    private static void EnsureOpened(BudgetItem item, Jar jar, Guid accountId, JarStretches stretches, string errorKey)
+    {
+        if (stretches.OpeningDateOf(accountId) is null)
+        {
+            var name = stretches.NameOf(accountId) ?? "that account";
             throw Validation(errorKey,
-                $"'{item.Name}' is the jar {jar.Name}, which moved to {held} on {since:d MMM yyyy}. " +
-                $"A payment on its line from {held} can't be dated before then. Record it on another line.");
+                $"'{item.Name}' is the jar {jar.Name}, which was held in {name} then, but {name} has no opening date yet. " +
+                $"Set {name}'s opening date first, or record this payment on another line.");
         }
     }
 
     /// <summary>
-    /// The jars the leg of <paramref name="transactionId"/> in <paramref name="accountId"/> is
-    /// stored as drawing from and that left that account on or after <paramref name="date"/>: a
-    /// draw kept from an earlier stretch the jar spent there (P51). Its departure governs such a
-    /// leg, so the arrival check leaves it alone. A stored draw with no departure covering the
-    /// date stays under the arrival check.
+    /// The departures of the jars of <paramref name="items"/> that <paramref name="accountId"/>
+    /// did not hold on <paramref name="date"/> (<see cref="JarLedgerReader.HeldOn"/>), for
+    /// <see cref="EnsureWholeLineAssignable"/>; <see cref="JarStretches.None"/> when every jar
+    /// line is held there (the common write costs no query) or there is no account.
     /// </summary>
-    public static async Task<List<Guid>> KeptDrawJarsAsync(
-        IApplicationDbContext db, Guid transactionId, Guid? accountId, DateOnly date, CancellationToken cancellationToken)
+    public static Task<JarStretches> StretchesAsync(
+        IApplicationDbContext db, IEnumerable<BudgetItem> items, Guid? accountId, DateOnly date, CancellationToken cancellationToken)
     {
-        if (accountId is null)
+        if (accountId is not Guid paying)
         {
-            return new List<Guid>();
+            return Task.FromResult(JarStretches.None);
         }
-        var drawn = await db.JarAllocationPostings
-            .Where(p => p.JarAllocation.TransactionId == transactionId && p.JarAllocation.AccountId == accountId
-                        && p.JarId != null && p.Amount != 0m)
-            .Select(p => p.JarId!.Value)
-            .Distinct()
-            .ToListAsync(cancellationToken);
-        if (drawn.Count == 0)
-        {
-            return drawn;
-        }
-        return await db.JarAllocationPostings
-            .Where(p => p.JarId != null && drawn.Contains(p.JarId.Value)
-                        && p.JarAllocation.AccountId == accountId
-                        && p.JarAllocation.Kind == JarAllocationKind.Departure
-                        && p.JarAllocation.Date >= date)
-            .Select(p => p.JarId!.Value)
-            .Distinct()
-            .ToListAsync(cancellationToken);
+        var jarIds = items
+            .Where(i => i.Jar is not null && !JarLedgerReader.HeldOn(i.Jar.FundingAccountId, i.Jar.FundingAccountSince, paying, date))
+            .Select(i => i.Jar!.Id)
+            .ToList();
+        return jarIds.Count == 0 ? Task.FromResult(JarStretches.None) : JarStretches.LoadAsync(db, jarIds, cancellationToken);
     }
 
     /// <summary>
     /// A date edit that keeps the month, account and direction skips the full re-validation, but
     /// a payment from a jar's account still can't move on the jar's line to before the day the jar
-    /// arrived there (P2-20, the same refusal as <see cref="EnsureWholeLineAssignable"/>). A kept
-    /// payment is governed by its departure instead (P51): one from an account the jar has left,
-    /// or one of <paramref name="keptJarIds"/>, drawn in an earlier stretch the jar spent in this
-    /// account before it moved away and back.
+    /// arrived there (P2-20, the same refusal as <see cref="EnsureWholeLineAssignable"/>), unless
+    /// the new date falls in an earlier stretch the jar spent in this account (it moved away and
+    /// back), whose departure governs the payment (P51). A payment from an account the jar has
+    /// left is checked by <see cref="JarMovements.ApplyOutgoingAsync"/>, which refuses a date
+    /// after the jar left.
     /// </summary>
     public static async Task EnsureJarLinesArrivedAsync(
         IApplicationDbContext db, IReadOnlyCollection<Guid> lineIds, Guid? accountId, DateOnly transactionDate, string errorKey,
-        CancellationToken cancellationToken, IReadOnlyCollection<Guid>? keptJarIds = null)
+        CancellationToken cancellationToken)
     {
         if (lineIds.Count == 0 || accountId is null)
         {
@@ -356,11 +370,17 @@ public static class TransactionInvariants
         var lines = await db.BudgetItems
             .Include(i => i.Jar)
                 .ThenInclude(j => j!.FundingAccount)
-            .Where(i => lineIds.Contains(i.Id) && i.Jar != null && i.Jar.FundingAccountId == accountId && i.Jar.FundingAccountSince != null)
+            .Where(i => lineIds.Contains(i.Id) && i.Jar != null && i.Jar.FundingAccountId == accountId
+                        && i.Jar.FundingAccountSince != null && transactionDate < i.Jar.FundingAccountSince)
             .ToListAsync(cancellationToken);
-        foreach (var line in lines.Where(l => keptJarIds is null || !keptJarIds.Contains(l.Jar!.Id)))
+        if (lines.Count == 0)
         {
-            EnsureJarArrived(line, line.Jar!, transactionDate, errorKey);
+            return;
+        }
+        var stretches = await JarStretches.LoadAsync(db, lines.Select(l => l.Jar!.Id), cancellationToken);
+        foreach (var line in lines)
+        {
+            EnsureJarAccount(line, accountId, transactionDate, errorKey, stretches);
         }
     }
 
