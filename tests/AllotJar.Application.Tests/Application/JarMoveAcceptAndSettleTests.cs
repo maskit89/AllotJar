@@ -6,6 +6,7 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Jars;
+using AllotJar.Application.Jars.Commands.ReallocateJarMoney;
 using AllotJar.Application.Jars.Commands.UpdateJar;
 using AllotJar.Application.Jars.Queries.GetJarPayments;
 using AllotJar.Application.Tests.TestDoubles;
@@ -555,4 +556,55 @@ public class JarMoveAcceptAndSettleTests
         (await db.Accounts.AsNoTracking().SingleAsync(a => a.Id == w.A.Id)).OpeningDate.Should().Be(new DateOnly(2026, 7, 15));
         (await BalanceAsync(db, w.Jar.Id, Today)).Should().Be(0m);
     }
+
+    [Fact]
+    public async Task R2_P2_4_MoneyDatedBeforeTheJarArrived_CantGoIntoOrComeOutOfItInItsNewAccount()
+    {
+        // Holiday arrived in B today, with 400 put in there today.
+        var w = await MovedAsync();
+        await using var db = w.Db;
+        await new ReallocateJarMoneyCommandHandler(db, User).Handle(new ReallocateJarMoneyCommand(w.B.Id, null, w.Jar.Id, 400m, Today), Ct);
+        var create = new CreateTransactionCommandHandler(db, User);
+        var aug10 = new DateOnly(2026, 8, 10);
+        const string arrived = "Holiday moved to B on";
+
+        (await RefusalAsync(() => create.Handle(new CreateTransactionCommand(
+                aug10, "Dinner", 50m, TransactionType.Expense, w.EatingOut.Id, AccountId: w.B.Id, PaidFromJarId: w.Jar.Id), Ct)))
+            .Should().ContainSingle().Which.Should().StartWith(arrived);
+        (await RefusalAsync(() => create.Handle(new CreateTransactionCommand(
+                aug10, "Salary", 100m, TransactionType.Income, null, AccountId: w.B.Id,
+                JarAllocations: new[] { new JarAllocationInput(w.Jar.Id, 100m) }), Ct)))
+            .Should().ContainSingle().Which.Should().StartWith(arrived);
+        (await RefusalAsync(() => new ReallocateJarMoneyCommandHandler(db, User).Handle(
+                new ReallocateJarMoneyCommand(w.B.Id, w.Jar.Id, null, 100m, aug10), Ct)))
+            .Should().ContainSingle().Which.Should().StartWith(arrived);
+
+        await create.Handle(new CreateTransactionCommand(
+            Today, "Dinner", 50m, TransactionType.Expense, null, AccountId: w.B.Id, PaidFromJarId: w.Jar.Id), Ct);
+        (await BalanceAsync(db, w.Jar.Id, Today)).Should().Be(350m);
+    }
+
+    [Fact]
+    public async Task R2_P2_4_AnEditEchoingAStoredPaidFromAnswer_IsAccepted_AfterTheJarMovesAwayAndBack()
+    {
+        // Holiday paid for a 12 Aug dinner in A, went to B today and came back; A holds it again
+        // from today. Renaming the dinner sends its stored "paid from" answer back unchanged.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, a);
+        var (_, eatingOut) = SeedMonth(db, August, jar);
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, 50m, August);
+        var dinner = await new CreateTransactionCommandHandler(db, User).Handle(new CreateTransactionCommand(
+            new DateOnly(2026, 8, 12), "Dinner", 50m, TransactionType.Expense, eatingOut.Id, AccountId: a.Id, PaidFromJarId: jar.Id), Ct);
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, b.Id), Ct);
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, a.Id), Ct);
+
+        await new UpdateTransactionCommandHandler(db, User).Handle(new UpdateTransactionCommand(
+            dinner.Id, new DateOnly(2026, 8, 12), "Dinner out", 50m, TransactionType.Expense, a.Id, PaidFromJarId: jar.Id), Ct);
+
+        (await db.Transactions.AsNoTracking().SingleAsync(t => t.Id == dinner.Id)).Payee.Should().Be("Dinner out");
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 12))).Should().Be(0m);
+    }
 }
+
