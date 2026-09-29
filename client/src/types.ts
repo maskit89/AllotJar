@@ -878,7 +878,8 @@ export interface JarScheduleRequest {
 export interface JarLedgerLineDto {
   jarId: string
   name: string
-  balance: number
+  /** Null when the account's balance is unavailable (rule 67); see readLedgers. */
+  balance: number | null
   isArchived: boolean
 }
 

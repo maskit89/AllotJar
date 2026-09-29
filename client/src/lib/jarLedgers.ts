@@ -12,41 +12,47 @@ export function useJarLedgers(enabled = true) {
   // True once a read has succeeded (and false again after one fails): until then an empty list
   // means "not known", not "no jar-backed accounts", so a form must not clear stored jar answers.
   const [loaded, setLoaded] = useState(false)
-  const reload = useCallback(() => {
-    if (!enabled) return Promise.resolve()
-    return api
-      .get<JarAccountLedgerDto[]>('/jars/ledger')
-      .then(({ data }) => {
-        setLedgers(Array.isArray(data) ? data : [])
-        setLoaded(true)
-      })
-      // A failed read only hides the prompts; the server still applies its defaults.
-      .catch(() => {
-        setLedgers([])
-        setLoaded(false)
-      })
-  }, [enabled])
+  const read = useCallback(
+    (isCurrent: () => boolean = () => true) => {
+      if (!enabled) return Promise.resolve()
+      return api
+        .get<JarAccountLedgerDto[]>('/jars/ledger')
+        .then(({ data }) => {
+          if (!isCurrent()) return
+          setLedgers(readLedgers(data))
+          setLoaded(true)
+        })
+        // A failed read only hides the prompts; the server still applies its defaults.
+        .catch(() => {
+          if (!isCurrent()) return
+          setLedgers([])
+          setLoaded(false)
+        })
+    },
+    [enabled],
+  )
+  const reload = useCallback(() => read(), [read])
   useEffect(() => {
     let cancelled = false
-    if (!enabled) return
-    api
-      .get<JarAccountLedgerDto[]>('/jars/ledger')
-      .then(({ data }) => {
-        if (cancelled) return
-        setLedgers(Array.isArray(data) ? data : [])
-        setLoaded(true)
-      })
-      .catch(() => {
-        if (cancelled) return
-        setLedgers([])
-        setLoaded(false)
-      })
+    read(() => !cancelled)
     return () => {
       cancelled = true
     }
-  }, [enabled])
+  }, [read])
   const byAccount = new Map(ledgers.map((l) => [l.accountId, l]))
   return { ledgers, byAccount, reload, loaded }
+}
+
+/**
+ * The well-formed ledgers of a GET /jars/ledger answer. A jar in an account whose balance is
+ * unavailable (before its opening date) has no balance either: the server sends 0 for it, and
+ * rule 67 says an unavailable balance never reads as zero.
+ */
+export function readLedgers(data: unknown): JarAccountLedgerDto[] {
+  if (!Array.isArray(data)) return []
+  return (data as JarAccountLedgerDto[])
+    .filter((l) => l && typeof l.accountId === 'string' && Array.isArray(l.jars))
+    .map((l) => (l.accountBalance === null ? { ...l, jars: l.jars.map((j) => ({ ...j, balance: null })) } : l))
 }
 
 /** The active jars of one account's ledger, in display order. */

@@ -5,9 +5,12 @@
 
 import { AccountType, type AccountDto } from '../types'
 
-/** The accounts a jar may be held in: any type but a credit card (rule 75). */
-export function jarAccounts(accounts: AccountDto[]): AccountDto[] {
-  return accounts.filter((a) => a.type !== AccountType.CreditCard)
+/**
+ * The accounts a jar may be held in: any type but a credit card (rule 75), in the budget
+ * currency (rules 63/85). The account a jar already has stays on offer so its form reads true.
+ */
+export function jarAccounts(accounts: AccountDto[], budgetCurrency: string, keepId?: string | null): AccountDto[] {
+  return accounts.filter((a) => a.id === keepId || (a.type !== AccountType.CreditCard && a.currency === budgetCurrency))
 }
 
 /** The first day of a schedule month as an ISO date, for the date formatters. */

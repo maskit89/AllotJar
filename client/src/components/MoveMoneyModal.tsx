@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Badge, Button, ErrorBanner, Input, Select } from './ui'
 import { Modal } from './Modal'
 import { api } from '../lib/api'
+import { readLedgers } from '../lib/jarLedgers'
 import type { AccountDto, CreateTransferRequest, JarAccountLedgerDto, JarDto, TransactionDto } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
@@ -75,7 +76,7 @@ export function MoveMoneyModal({ jar, currency, accounts = [], onClose, onMoved 
       .get<JarAccountLedgerDto[]>('/jars/ledger')
       .then(({ data }) => {
         if (cancelled) return
-        const list = Array.isArray(data) ? data.filter((l) => l && typeof l.accountId === 'string' && Array.isArray(l.jars)) : []
+        const list = readLedgers(data)
         setLedgers(list)
         if (!list.some((l) => l.accountId === jar.fundingAccountId)) setError('Could not load the account’s jars.')
       })

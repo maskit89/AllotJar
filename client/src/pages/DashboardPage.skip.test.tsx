@@ -216,7 +216,9 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
     // "Today" is a month after the viewed one, so the viewed month is over.
     renderPage(new Date(MONTH === 12 ? YEAR + 1 : YEAR, MONTH === 12 ? 0 : MONTH, 15))
 
-    expect(await screen.findByLabelText('Planned amount for Holiday', {}, { timeout: 5000 })).toHaveTextContent('€0.00')
+    expect(await screen.findByTestId('planned-Holiday', {}, { timeout: 5000 })).toHaveTextContent('€0.00')
+    // Its plan is read-only too: typing an amount would un-skip a finished month (rule 46).
+    expect(screen.queryByLabelText('Planned amount for Holiday')).not.toBeInTheDocument()
     expect(screen.getByText('Skipped')).toBeInTheDocument()
     expect(screen.queryByLabelText('Remove Holiday this month')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Plan Holiday again this month')).not.toBeInTheDocument()

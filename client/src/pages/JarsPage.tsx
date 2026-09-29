@@ -11,6 +11,7 @@ import { CompleteJarModal } from '../components/jars/CompleteJarModal'
 import { JarsIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
+import { readLedgers } from '../lib/jarLedgers'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import type { AccountDto, JarAccountLedgerDto, JarDto } from '../types'
 import { formatMoney, fromAmount } from '../lib/money'
@@ -62,7 +63,7 @@ export function JarsPage() {
   const loadLedgers = useCallback(() => {
     api
       .get<JarAccountLedgerDto[]>('/jars/ledger')
-      .then(({ data }) => setLedgers(Array.isArray(data) ? data.filter((l) => l && typeof l.accountId === 'string' && Array.isArray(l.jars)) : []))
+      .then(({ data }) => setLedgers(readLedgers(data)))
       .catch(() => setLedgers([]))
   }, [])
 

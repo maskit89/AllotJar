@@ -47,7 +47,9 @@ export function JarAllocationFields({
             <label key={jar.jarId} htmlFor={id} className="flex items-center justify-between gap-3 text-sm">
               <span className="min-w-0 truncate text-slate-800">
                 {jar.name}
-                <span className="ml-1 text-xs text-slate-500">({formatMoney(fromAmount(jar.balance), currency)})</span>
+                <span className="ml-1 text-xs text-slate-500">
+                  ({jar.balance === null ? 'balance not available' : formatMoney(fromAmount(jar.balance), currency)})
+                </span>
               </span>
               <Input
                 id={id}
