@@ -148,13 +148,13 @@
 - **Expected:** `EnsureAccountOwnedAsync` looks up Joint at the top of the handler, finds it gone → `NotFoundException` → 404 **before any row is written**; nothing imports (the commit's FK pre-checks run before the insert loop). Alex sees the import error; re-selecting a live account and re-committing works. No partial import.
 - **Automated:** No
 
-### CONC-014 - Raced one-shot import (`/import/hsbc-csv`, `/import/camt053`) has no recovery loop → loser 500s (no duplicate)
-- **Priority:** P2
+### CONC-014 - Retired (W07: endpoint removed) - Raced one-shot import has no recovery loop
+- **Priority:** P3 (retired)
 - **Type:** Edge
-- **Preconditions:** Real SQL Server; two overlapping one-shot imports of the same file to the same household via the legacy fixed-format endpoints (`POST /api/import/hsbc-csv` / `POST /api/import/camt053`), not `/import/commit`.
+- **Preconditions:** None.
 - **Steps:**
-  1. Fire both one-shot imports so they interleave at `SaveChanges`.
-- **Expected:** `ImportStatementCommandHandler` keeps **only** per-request dedup and a single `SaveChangesAsync` — no `DbUpdateException` recovery loop. The unique index still prevents duplicate rows, so the loser **500s** (generic error) rather than double-inserting; each reference persists at most once. The recoverable path is exclusive to `/import/commit` (CONC-011). Documents the deliberate asymmetry between the two import surfaces.
+  1. None: `POST /api/import/hsbc-csv` and `POST /api/import/camt053` no longer exist.
+- **Expected:** Retired (W07: endpoint removed, together with `ImportStatementCommandHandler`). Every import goes through preview then commit, so the only raced-import path is `/import/commit` with its recovery loop (CONC-011); there is no longer an asymmetry between import surfaces.
 - **Automated:** No
 
 ---

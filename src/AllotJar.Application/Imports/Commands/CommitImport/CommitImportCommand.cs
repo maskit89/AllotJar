@@ -1,5 +1,5 @@
 using MediatR;
-using AllotJar.Application.Imports.Commands.ImportStatement;
+using AllotJar.Application.Imports.Models;
 using AllotJar.Application.Jars;
 
 namespace AllotJar.Application.Imports.Commands.CommitImport;
@@ -36,6 +36,16 @@ public record CommitImportSplit(Guid BudgetItemId, decimal Amount, Guid? MemberI
 /// For a debit from a jar-backed statement account on a line that is not a jar (or a transfer
 /// out of it): the jar the money comes from; unallocated when null (rule 79).
 /// </param>
+/// <param name="Fee">
+/// A transfer's explicit fee (O1 answer 5): on a debit recorded as a new transfer, the part of
+/// the row that is a fee (the transfer is the rest); with <paramref name="MatchTransferId"/>, the
+/// candidate's fee, which the user accepts. Recorded as an expense on
+/// <paramref name="FeeBudgetItemId"/>, or uncategorised.
+/// </param>
+/// <param name="ReturnOfTransferId">
+/// For a credit on a transfer's source account: the recorded transfer the bank sent back (O1
+/// answer 4). The row confirms the return; nothing else is recorded.
+/// </param>
 /// <param name="AcknowledgeCrossMonth">
 /// Set only after the user confirms budgeting this row (or its slices) to a line in a
 /// different month than the row's date (see TransactionInvariants.CrossMonthKey).
@@ -54,7 +64,10 @@ public record CommitImportItem(
     bool AcknowledgeCrossMonth = false,
     Guid? MatchTransferId = null,
     IReadOnlyList<JarAllocationInput>? JarAllocations = null,
-    Guid? PaidFromJarId = null);
+    Guid? PaidFromJarId = null,
+    decimal? Fee = null,
+    Guid? FeeBudgetItemId = null,
+    Guid? ReturnOfTransferId = null);
 
 /// <summary>
 /// Persists the rows the user kept after reviewing an import. Idempotent: any row whose

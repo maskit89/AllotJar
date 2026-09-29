@@ -36,4 +36,10 @@ public interface IApplicationDbContext
     /// Read the account's position only after this returns; commit after SaveChanges.
     /// </summary>
     Task<ILedgerWrite?> BeginLedgerWriteAsync(Guid accountId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One serialised write on several accounts' ledgers, locked in a fixed order (by id) so two
+    /// writers touching the same accounts can't deadlock.
+    /// </summary>
+    Task<ILedgerWrite?> BeginLedgerWriteAsync(IEnumerable<Guid> accountIds, CancellationToken cancellationToken = default);
 }

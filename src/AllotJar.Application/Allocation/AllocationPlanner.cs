@@ -115,7 +115,7 @@ public static class AllocationPlanner
     /// <summary>
     /// Actual balance today of each member's personal-savings account, read through the shared
     /// dated account ledger and used to tilt a balance-aware savings split. Excludes
-    /// <em>this month's</em> allocation transfers (BankReference prefix
+    /// <em>this month's</em> allocation transfers (allocation key prefix
     /// <c>alloc:{year}-{month}:</c>) so preview and a re-run commit both see the pre-allocation
     /// balance — keeping the tilt stable and the commit idempotent. A null value means the
     /// balance is unavailable (no opening date); the tilt treats it as zero, but it is reported
@@ -143,7 +143,7 @@ public static class AllocationPlanner
         var asOf = DateOnly.FromDateTime(DateTime.UtcNow);
         var views = await Accounts.AccountLedgerReader.ReadAsync(
             db, ownerId, accounts, asOf, ct,
-            exclude: t => t.BankReference is not null && t.BankReference.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+            exclude: t => t.AllocationKey is not null && t.AllocationKey.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
 
         return accounts.ToDictionary(a => a.Id, a => views[a.Id].Balance);
     }

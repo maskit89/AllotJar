@@ -135,7 +135,7 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
   1. Import a January statement containing two identical "NETFLIX 9.99" rows on the 3rd; commit (both import with distinct references via the occurrence suffix — IMP-057).
   2. Import a February statement that again contains a "NETFLIX 9.99" on the 3rd; commit.
 - **Expected:** February's charge imports (1 imported), because its reference carries the month/occurrence context and does not collide with January's — the dedup index suppresses true re-submissions of the same statement, not legitimately recurring monthly charges. Over four months you get four Netflix rows, not one.
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Imports/ImportStatementHandlerTests.cs covers occurrence-suffix references)
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Imports/GenericCsvImporterTests.cs and HsbcCsvStatementParserTests.cs cover occurrence-suffix references)
 
 ### CMB-006 - A mixed-currency file is refused into one EUR account; imported with no account, the other-currency rows wait
 - **Priority:** P1
@@ -164,7 +164,7 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 ### CMB-008 - Re-running allocation replaces its own transfers so balances never double
 - **Priority:** P0
 - **Type:** Regression
-- **Origin:** `AllocateIncomeCommandHandler` removes prior rows whose `BankReference` starts with `alloc:{year}-{month}:` before recreating (ALLOC-052).
+- **Origin:** `AllocateIncomeCommandHandler` removes prior rows whose `AllocationKey` starts with `alloc:{year}-{month}:` before recreating (ALLOC-052).
 - **Preconditions:** CMB-007 already committed once.
 - **Steps:**
   1. Change Sam's net income on `/people`, return to `/allocation`, press **Allocate** again.

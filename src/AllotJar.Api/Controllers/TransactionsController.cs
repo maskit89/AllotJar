@@ -11,6 +11,7 @@ using AllotJar.Application.Transactions.Commands.LinkRefund;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Application.Transactions.Commands.UpdateTransaction;
+using AllotJar.Application.Transactions.Commands.UpdateTransfer;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Application.Transactions.Queries.GetConversionSuggestion;
 using AllotJar.Application.Transactions.Queries.GetTransactions;
@@ -117,9 +118,32 @@ public class TransactionsController : ControllerBase
             new CreateTransferCommand(
                 request.DepartedOn, request.Amount, request.FromAccountId, request.ToAccountId,
                 request.Payee, request.ReceivedOn, request.FromJarId,
-                request.JarAllocations?.Select(a => new JarAllocationInput(a.JarId, a.Amount)).ToList()),
+                request.JarAllocations?.Select(a => new JarAllocationInput(a.JarId, a.Amount)).ToList(),
+                request.Fee, request.FeeBudgetItemId, request.AcknowledgeCrossMonth),
             ct);
         return CreatedAtAction(nameof(List), new { }, result);
+    }
+
+    /// <summary>
+    /// Corrects a recorded transfer in place: accounts, amount, bank dates (including a return
+    /// to the source), note, fee and jar answers. Legs a bank statement confirmed keep the bank's
+    /// account, date and amount.
+    /// </summary>
+    [HttpPut("{id:guid}/transfer")]
+    [ProducesResponseType(typeof(TransactionDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<TransactionDto>> UpdateTransfer(
+        Guid id, UpdateTransferRequest request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(
+            new UpdateTransferCommand(
+                id, request.FromAccountId, request.ToAccountId, request.Amount, request.DepartedOn, request.ReceivedOn,
+                request.ReturnedOn, request.Payee, request.Fee, request.FeeBudgetItemId, request.AcknowledgeCrossMonth,
+                request.FromJarId, request.JarAllocations?.Select(a => new JarAllocationInput(a.JarId, a.Amount)).ToList()),
+            ct);
+        return Ok(result);
     }
 
     /// <summary>
@@ -280,6 +304,27 @@ public record CreateTransferRequest(
     Guid ToAccountId,
     string? Payee = null,
     DateOnly? ReceivedOn = null,
+    Guid? FromJarId = null,
+    IReadOnlyList<JarAllocationRequest>? JarAllocations = null,
+    decimal? Fee = null,
+    Guid? FeeBudgetItemId = null,
+    bool AcknowledgeCrossMonth = false);
+
+/// <summary>
+/// Request body for editing a transfer (the id comes from the route). Every field replaces what
+/// was stored; a jar answer left out returns that leg to its default.
+/// </summary>
+public record UpdateTransferRequest(
+    Guid FromAccountId,
+    Guid ToAccountId,
+    decimal Amount,
+    DateOnly? DepartedOn = null,
+    DateOnly? ReceivedOn = null,
+    DateOnly? ReturnedOn = null,
+    string? Payee = null,
+    decimal? Fee = null,
+    Guid? FeeBudgetItemId = null,
+    bool AcknowledgeCrossMonth = false,
     Guid? FromJarId = null,
     IReadOnlyList<JarAllocationRequest>? JarAllocations = null);
 

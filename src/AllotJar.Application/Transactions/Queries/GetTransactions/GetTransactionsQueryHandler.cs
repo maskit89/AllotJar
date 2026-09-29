@@ -43,6 +43,8 @@ public class GetTransactionsQueryHandler
                 .ThenInclude(p => p.Jar)
             .Include(t => t.RefundOf)
             .Include(t => t.Refunds)
+            .Include(t => t.Fee)
+                .ThenInclude(f => f!.BudgetItem)
             .Where(t => t.OwnerId == userId);
 
         if (request.Year is int year)

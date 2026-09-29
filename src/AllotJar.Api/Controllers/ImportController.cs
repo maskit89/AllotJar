@@ -4,7 +4,6 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using AllotJar.Application.Imports.Commands.CommitImport;
-using AllotJar.Application.Imports.Commands.ImportStatement;
 using AllotJar.Application.Imports.Commands.PreviewImport;
 using AllotJar.Application.Imports.Models;
 using AllotJar.Api.Features;
@@ -29,54 +28,6 @@ public class ImportController : ControllerBase
     public ImportController(ISender mediator)
     {
         _mediator = mediator;
-    }
-
-    /// <summary>Upload a CAMT.053 XML statement; entries are de-duplicated on re-import.</summary>
-    [HttpPost("camt053")]
-    [RequestSizeLimit(10 * 1024 * 1024)] // 10 MB cap
-    [ProducesResponseType(typeof(ImportStatementResult), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
-    public async Task<ActionResult<ImportStatementResult>> ImportCamt053(
-        IFormFile file,
-        [FromForm] Guid? accountId,
-        CancellationToken ct)
-    {
-        if (file is null || file.Length == 0)
-        {
-            return BadRequest(new { error = "No file was uploaded." });
-        }
-
-        using var reader = new StreamReader(file.OpenReadStream());
-        var content = await reader.ReadToEndAsync(ct);
-
-        var result = await _mediator.Send(new ImportStatementCommand(content, accountId), ct);
-        return Ok(result);
-    }
-
-    /// <summary>Upload an HSBC personal-banking transaction-history CSV; entries are de-duplicated on re-import.</summary>
-    [HttpPost("hsbc-csv")]
-    [RequestSizeLimit(10 * 1024 * 1024)] // 10 MB cap
-    [ProducesResponseType(typeof(ImportStatementResult), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
-    public async Task<ActionResult<ImportStatementResult>> ImportHsbcCsv(
-        IFormFile file,
-        [FromForm] Guid? accountId,
-        CancellationToken ct)
-    {
-        if (file is null || file.Length == 0)
-        {
-            return BadRequest(new { error = "No file was uploaded." });
-        }
-
-        // Read as UTF-8 so the masked-card bullets (• = U+2022) survive intact.
-        using var reader = new StreamReader(file.OpenReadStream(), Encoding.UTF8);
-        var content = await reader.ReadToEndAsync(ct);
-
-        var result = await _mediator.Send(
-            new ImportStatementCommand(content, accountId, StatementFormat.HsbcCsv), ct);
-        return Ok(result);
     }
 
     /// <summary>

@@ -101,9 +101,10 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
         // evidence, not a plan line.
         var prefix = $"alloc:{request.Year}-{request.Month}:";
         var prior = (await _db.Transactions
-                .Where(t => t.OwnerId == userId && t.BankReference != null && t.BankReference.StartsWith(prefix))
+                .Include(t => t.Fee)
+                .Where(t => t.OwnerId == userId && t.AllocationKey != null && t.AllocationKey.StartsWith(prefix))
                 .ToListAsync(cancellationToken))
-            .ToDictionary(t => t.BankReference!, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(t => t.AllocationKey!, StringComparer.OrdinalIgnoreCase);
 
         // P53: a share bound for a savings account private to another login can't be recorded by
         // this caller, and neither can the removal of an earlier run's transfer into it. Refuse
@@ -196,7 +197,8 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                     continue;
                 }
                 // A changed movement can only replace an in-transit transfer. Once its receipt is
-                // confirmed it is bank history; the user removes it explicitly on the register.
+                // confirmed, or a bank statement has confirmed its departure, it is bank history;
+                // the user corrects or removes it explicitly on the register.
                 if (existing.ReceivedOn is not null)
                 {
                     throw new ValidationException(new Dictionary<string, string[]>
@@ -207,6 +209,10 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                             $"({existing.Amount:0.####} on {existing.ReceivedOn:yyyy-MM-dd}). Delete it on the Transactions page before re-running.",
                         },
                     });
+                }
+                if (existing.BankReference is not null || existing.ReturnBankReference is not null)
+                {
+                    throw ConfirmedByStatement(existing);
                 }
             }
 
@@ -223,7 +229,7 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                 Type = TransactionType.Transfer,
                 AccountId = sourceId,
                 TransferAccountId = savingsId,
-                BankReference = reference,
+                AllocationKey = reference,
             };
             _db.Transactions.Add(transfer);
             added.Add(transfer);
@@ -251,6 +257,16 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                     },
                 });
             }
+            if (stale.BankReference is not null || stale.ReturnBankReference is not null)
+            {
+                throw ConfirmedByStatement(stale);
+            }
+            if (stale.Fee is not null)
+            {
+                _db.Transactions.Remove(stale.Fee);
+                removed.Add(stale.Fee.Id);
+            }
+            await TransferReturns.ClearAsync(_db, stale.Id, cancellationToken);
             _db.Transactions.Remove(stale);
             removed.Add(stale.Id);
         }
@@ -288,4 +304,14 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
             unattributedIncome: plan.UnattributedIncome, incomeFromBudget: plan.IncomeFromBudget,
             transfersRetained: retained.Count, privateSavings: plan.PrivateSavings);
     }
+
+    private static ValidationException ConfirmedByStatement(Transaction transfer) =>
+        new(new Dictionary<string, string[]>
+        {
+            ["Allocation"] = new[]
+            {
+                $"The allocation transfer '{transfer.Payee}' for this month is already confirmed by the bank statement " +
+                $"({transfer.Amount:0.####} on {transfer.DepartedOn:yyyy-MM-dd}). Edit or delete it on the Transactions page before re-running.",
+            },
+        });
 }

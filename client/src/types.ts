@@ -133,8 +133,26 @@ export interface TransactionDto {
   receivedOn?: string | null
   /** For a transfer: the destination statement's reference for the credit leg. */
   receiptBankReference?: string | null
-  /** For a transfer: 'Completed' | 'InTransit' | 'PendingReview', derived from the two bank legs. */
+  /** For a transfer: 'Completed' | 'InTransit' | 'PendingReview' | 'Returned', derived from the bank legs. */
   transferStatus?: TransferStatus | null
+  /** For a transfer the bank sent back to its source account: the date it came back (yyyy-MM-dd). */
+  returnedOn?: string | null
+  /** For a returned transfer: the source statement's reference for the money coming back. */
+  returnBankReference?: string | null
+  /** For a transfer: the fee that left the source on top of `amount` (null when none). */
+  fee?: number | null
+  /** For a transfer with a fee: the fee row's budget line (null = uncategorised). */
+  feeBudgetItemId?: string | null
+  feeBudgetItemName?: string | null
+  /**
+   * On a fee row: the transfer it belongs to. A fee row is edited through its transfer; it cannot be
+   * edited, split or deleted on its own, only (re)assigned to a line.
+   */
+  feeForTransferId?: string | null
+  /** For a transfer: the leg carries a bank statement's reference, so its date and amount are the bank's. */
+  departureConfirmedByStatement?: boolean
+  receiptConfirmedByStatement?: boolean
+  returnConfirmedByStatement?: boolean
   /**
    * For a refund (rules 38/39): the purchase this money came back from. A refund is money received
    * (type Income) but never income; it reduces net spending on the expense/savings line it sits on.
@@ -205,6 +223,32 @@ export interface CreateTransferRequest {
   fromJarId?: string | null
   /** How the receipt is divided among the destination's jars (rule 78). */
   jarAllocations?: JarAllocationRequest[] | null
+  /** Extra money leaving the source on the departure date, recorded as its own fee row. */
+  fee?: number | null
+  /** The fee row's budget line; uncategorised when null. */
+  feeBudgetItemId?: string | null
+  /** Set after the user confirms budgeting the fee to a line in a different month than its date. */
+  acknowledgeCrossMonth?: boolean
+}
+
+/**
+ * Request body for PUT /transactions/{id}/transfer: edits a transfer in place. Every field is sent
+ * (it replaces the transfer); a null jar answer returns that leg to its default.
+ */
+export interface UpdateTransferRequest {
+  fromAccountId: string
+  toAccountId: string
+  amount: number
+  departedOn: string | null
+  receivedOn: string | null
+  /** The date the bank sent the money back to the source; only for a departed, never-received transfer. */
+  returnedOn: string | null
+  payee: string | null
+  fee: number | null
+  feeBudgetItemId: string | null
+  acknowledgeCrossMonth: boolean
+  fromJarId: string | null
+  jarAllocations: JarAllocationRequest[] | null
 }
 
 /** Request body for PUT /transactions/{id}/transfer-legs. */
@@ -220,7 +264,7 @@ export interface ConfirmTransferLegsRequest {
 }
 
 /** Matches Domain.Enums.TransferStatus, serialized by name. */
-export type TransferStatus = 'Completed' | 'InTransit' | 'PendingReview'
+export type TransferStatus = 'Completed' | 'InTransit' | 'PendingReview' | 'Returned'
 
 // Matches Domain.Enums.AccountType (serialized as a number).
 export const AccountType = {
@@ -332,18 +376,47 @@ export interface ImportCandidate {
    * matched from the amount alone. Present only when the statement account was chosen.
    */
   transferMatches?: TransferMatchCandidate[]
+  /**
+   * The row's bank reference was already imported for an entry with these (different) details.
+   * The row's `reference` is already a derived unique one: echo it back unchanged. Unticked by default.
+   */
+  reusedReference?: ImportReusedReference | null
 }
+
+/** The already-imported entry that shares a row's bank reference; see ImportCandidate.reusedReference. */
+export interface ImportReusedReference {
+  date: string
+  amount: number
+  isCredit: boolean
+}
+
+/** 'Match' confirms the transfer's open leg; 'Return' is a credit row bringing the money back to its source. */
+export type TransferMatchKind = 'Match' | 'Return'
 
 /** A recorded transfer a statement row could be the other side of; see ImportCandidate.transferMatches. */
 export interface TransferMatchCandidate {
   transferId: string
-  counterpartyAccountId: string
+  /**
+   * The other side's account; null when it is private to another login (its name then reads
+   * "Private account"), and a match is committed with `matchTransferId` alone.
+   */
+  counterpartyAccountId: string | null
   counterpartyAccountName: string
   amount: number
   currency: string
   departedOn: string | null
   receivedOn: string | null
   payee: string
+  /** Optional so older fixtures stay valid; absent reads as 'Match'. */
+  kind?: TransferMatchKind
+  /** The fee confirming this match records (what left minus what arrived); null when none. */
+  fee?: number | null
+  /** The budget line the transfer's current fee is on (pre-fills the fee line); null when none. */
+  feeBudgetItemId?: string | null
+  /** The leg was recorded in the app on this date (no bank reference yet); the statement's date replaces it. */
+  recordedDate?: string | null
+  /** The other bank printed the same reference. */
+  sameReference?: boolean
 }
 
 /** How the amount column writes decimals. Matches the server CsvDecimalStyle enum. */
@@ -415,7 +488,8 @@ export interface CommitImportItem {
   /**
    * The recorded transfer this row confirms the other side of, chosen by the user from the
    * preview's candidates. The row's date/reference attach to that transfer's open leg and no new
-   * transaction is created. Requires `transferAccountId` to name the same counterparty.
+   * transaction is created. `transferAccountId` names the same counterparty, or is null when the
+   * candidate's counterparty is private to another login (the server derives it from the transfer).
    */
   matchTransferId?: string | null
   /**
@@ -425,6 +499,18 @@ export interface CommitImportItem {
   jarAllocations?: JarAllocationRequest[] | null
   /** For a debit on a line that is not a jar (or a transfer out): the jar it comes from (rule 79). */
   paidFromJarId?: string | null
+  /**
+   * The transfer fee: with `matchTransferId`, the chosen candidate's `fee` echoed back; with
+   * `transferAccountId` on an unmatched debit, the part of the row that is a fee (the transfer is the rest).
+   */
+  fee?: number | null
+  /** The fee row's budget line; required whenever `fee` is sent. */
+  feeBudgetItemId?: string | null
+  /**
+   * For a credit row whose chosen candidate has kind 'Return': the transfer this row brings back.
+   * Sent instead of `transferAccountId`/`matchTransferId`; no line, member, split or jar answer.
+   */
+  returnOfTransferId?: string | null
 }
 
 /** A statement row the commit held back because posting it would take the account below zero (rule 74). */
@@ -448,6 +534,8 @@ export interface ImportStatementResult {
   matchedTransfers?: number
   /** Credit rows held for review because only the receipt is known. */
   pendingReviewTransfers?: number
+  /** Rows that confirmed a transfer coming back to its source account. */
+  returned?: number
   /** Rows not imported because they would take the account below zero on some date (rule 74); re-commit after fixing. */
   held?: ImportHeldRow[]
   heldCount?: number

@@ -9,7 +9,9 @@ using AllotJar.Application.Jars.Commands.MarkJarCyclePaid;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
-using AllotJar.Application.Imports.Commands.ImportStatement;
+using AllotJar.Application.Imports.Commands.CommitImport;
+using AllotJar.Application.Imports.Commands.PreviewImport;
+using AllotJar.Application.Imports.Models;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Tests.Imports;
 using AllotJar.Application.Tests.TestDoubles;
@@ -60,6 +62,25 @@ public class ForeignAmountsTests
     {
         db.BudgetMonths.Add(new BudgetMonth { OwnerId = Owner, Year = 2026, Month = month, BaseCurrency = CurrencyCode.From(currency) });
         db.SaveChanges();
+    }
+
+    // A statement through the one import path: preview, then commit every new row as it is.
+    private static async Task<(ImportStatementResult Result, IReadOnlyList<CommitImportItem> Items)> ImportAsync(
+        ApplicationDbContext db, string content, Guid? accountId = null, IIdentityService? identity = null,
+        IReadOnlyList<CommitImportItem>? items = null)
+    {
+        if (items is null)
+        {
+            var preview = await new PreviewImportCommandHandler(db, User,
+                    new IStatementParser[] { new Camt053StatementParser() }, new GenericCsvImporter())
+                .Handle(new PreviewImportCommand(content, StatementFormat.Camt053, AccountId: accountId), CancellationToken.None);
+            items = preview.Items
+                .Select(i => new CommitImportItem(i.Reference, i.Date, i.Payee, i.Amount, i.Currency, i.IsCredit, null, null))
+                .ToList();
+        }
+        var result = await new CommitImportCommandHandler(db, User, identity)
+            .Handle(new CommitImportCommand(accountId, items), CancellationToken.None);
+        return (result, items);
     }
 
     private static Transaction Waiting(decimal amount = 45.50m, string currency = "GBP") => new()
@@ -131,10 +152,8 @@ public class ForeignAmountsTests
     {
         await using var db = NewContext();
         SeedMonth(db);
-        var handler = new ImportStatementCommandHandler(db, User, new[] { new Camt053StatementParser() });
-
         // Two EUR entries and one GBP (London Cab, 45.50).
-        var result = await handler.Handle(new ImportStatementCommand(Camt053Samples.ThreeEntries), CancellationToken.None);
+        var (result, items) = await ImportAsync(db, Camt053Samples.ThreeEntries);
         result.AwaitingAmount.Should().Be(1);
 
         var gbp = await db.Transactions.SingleAsync(t => t.Currency == CurrencyCode.From("GBP"));
@@ -143,8 +162,8 @@ public class ForeignAmountsTests
         (await db.Transactions.Where(t => t.Currency == CurrencyCode.Eur).ToListAsync())
             .Should().OnlyContain(t => !t.FxPending);
 
-        // Re-importing the same statement is not a retry of anything: the row still waits.
-        await handler.Handle(new ImportStatementCommand(Camt053Samples.ThreeEntries), CancellationToken.None);
+        // Committing the same rows again is not a retry of anything: the row still waits.
+        await ImportAsync(db, Camt053Samples.ThreeEntries, items: items);
         db.ChangeTracker.Clear();
         (await db.Transactions.SingleAsync(t => t.Currency == CurrencyCode.From("GBP"))).FxPending.Should().BeTrue();
     }
@@ -153,9 +172,7 @@ public class ForeignAmountsTests
     public async Task Without_a_budget_month_the_owners_currency_decides_what_waits_not_EUR()
     {
         await using var db = NewContext();
-        var handler = new ImportStatementCommandHandler(db, User, new[] { new Camt053StatementParser() }, Prefers("GBP"));
-
-        await handler.Handle(new ImportStatementCommand(Camt053Samples.ThreeEntries), CancellationToken.None);
+        await ImportAsync(db, Camt053Samples.ThreeEntries, identity: Prefers("GBP"));
 
         (await db.Transactions.SingleAsync(t => t.Currency == CurrencyCode.From("GBP"))).FxPending.Should().BeFalse();
         (await db.Transactions.Where(t => t.Currency == CurrencyCode.Eur).ToListAsync())
@@ -328,8 +345,7 @@ public class ForeignAmountsTests
         var gbp = LedgerFixtures.SeedAccount(db, Owner, "UK card", opening: 500m, currency: "GBP");
         var statement = Camt053Samples.TwoEurEntries.Replace("\"EUR\"", "\"GBP\"").Replace(">EUR<", ">GBP<");
 
-        var result = await new ImportStatementCommandHandler(db, User, new[] { new Camt053StatementParser() })
-            .Handle(new ImportStatementCommand(statement, gbp.Id), CancellationToken.None);
+        var (result, _) = await ImportAsync(db, statement, gbp.Id);
 
         result.AwaitingAmount.Should().Be(result.Imported).And.BePositive();
         var first = await db.Transactions.FirstAsync(t => t.AccountId == gbp.Id);
@@ -622,5 +638,50 @@ public class ForeignAmountsTests
                 OriginalAmount: amount, OriginalCurrency: currency));
 
         result.IsValid.Should().BeFalse();
+    }
+
+    // A transfer's fee is spending: between accounts kept in another currency it waits for its
+    // budget-currency amount like any new entry there, and a confirmed figure stands until the
+    // fee itself changes (W07 fee rows, rule 91).
+    [Fact]
+    public async Task A_transfer_fee_on_accounts_kept_in_another_currency_waits_for_its_amount()
+    {
+        await using var db = NewContext();
+        SeedMonth(db);
+        var gbp = LedgerFixtures.SeedAccount(db, Owner, "UK card", opening: 500m, currency: "GBP");
+        var gbpSavings = LedgerFixtures.SeedAccount(db, Owner, "UK savings", opening: 0m, currency: "GBP", order: 1);
+        var eur = LedgerFixtures.SeedAccount(db, Owner, "Joint", opening: 500m, order: 2);
+        var eurSavings = LedgerFixtures.SeedAccount(db, Owner, "Savings", opening: 0m, order: 3);
+
+        var foreign = await new AllotJar.Application.Transactions.Commands.CreateTransfer.CreateTransferCommandHandler(db, User)
+            .Handle(new AllotJar.Application.Transactions.Commands.CreateTransfer.CreateTransferCommand(June3, 100m, gbp.Id, gbpSavings.Id, Fee: 2m), CancellationToken.None);
+        var home = await new AllotJar.Application.Transactions.Commands.CreateTransfer.CreateTransferCommandHandler(db, User)
+            .Handle(new AllotJar.Application.Transactions.Commands.CreateTransfer.CreateTransferCommand(June3, 100m, eur.Id, eurSavings.Id, Fee: 2m), CancellationToken.None);
+
+        (await db.Transactions.SingleAsync(t => t.FeeForTransferId == foreign.Id)).FxPending.Should().BeTrue();
+        (await db.Transactions.SingleAsync(t => t.FeeForTransferId == home.Id)).FxPending.Should().BeFalse();
+        (await db.Transactions.SingleAsync(t => t.Id == foreign.Id)).FxPending.Should().BeFalse("a transfer never waits");
+    }
+
+    // Review M-P2-1: before the household's first budget month the budget currency is the one the
+    // user chose at sign-up, so a GBP household's fee on its own GBP account counts at once.
+    [Fact]
+    public async Task A_transfer_fee_before_the_first_month_counts_in_the_currency_chosen_at_sign_up()
+    {
+        await using var db = NewContext();
+        var gbp = Prefers("GBP");
+        var card = LedgerFixtures.SeedAccount(db, Owner, "Card", opening: 500m, currency: "GBP");
+        var savings = LedgerFixtures.SeedAccount(db, Owner, "Savings", opening: 0m, currency: "GBP", order: 1);
+
+        var transfer = await new AllotJar.Application.Transactions.Commands.CreateTransfer.CreateTransferCommandHandler(db, User, gbp)
+            .Handle(new AllotJar.Application.Transactions.Commands.CreateTransfer.CreateTransferCommand(June3, 100m, card.Id, savings.Id, Fee: 2m), CancellationToken.None);
+        (await db.Transactions.SingleAsync(t => t.FeeForTransferId == transfer.Id)).FxPending.Should().BeFalse();
+
+        await new AllotJar.Application.Transactions.Commands.UpdateTransfer.UpdateTransferCommandHandler(db, User, gbp)
+            .Handle(new AllotJar.Application.Transactions.Commands.UpdateTransfer.UpdateTransferCommand(
+                transfer.Id, card.Id, savings.Id, 100m, June3, null, Fee: 3m), CancellationToken.None);
+        var fee = await db.Transactions.SingleAsync(t => t.FeeForTransferId == transfer.Id);
+        fee.FxPending.Should().BeFalse();
+        fee.Amount.Should().Be(3m);
     }
 }

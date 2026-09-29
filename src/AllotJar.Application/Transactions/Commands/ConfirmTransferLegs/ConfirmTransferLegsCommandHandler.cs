@@ -40,6 +40,10 @@ public class ConfirmTransferLegsCommandHandler : IRequestHandler<ConfirmTransfer
         {
             throw Validation("TransactionId", "Only a transfer has bank legs to confirm.");
         }
+        if (transfer.ReturnedOn is not null && request.ReceivedOn.HasValue)
+        {
+            throw Validation(nameof(request.ReceivedOn), "This transfer was sent back to its source account, so it has no receipt to confirm.");
+        }
 
         // Resolve every leg into locals first: nothing is written to the tracked row until the
         // whole request is known to be acceptable, so a refused confirmation changes nothing.
@@ -144,7 +148,7 @@ public class ConfirmTransferLegsCommandHandler : IRequestHandler<ConfirmTransfer
     }
 
     private static string AlreadyConfirmed(string label, string value) =>
-        $"The {label} is already confirmed as {value}. Correcting a confirmed bank leg is not supported here; delete and re-record the transfer instead.";
+        $"The {label} is already confirmed as {value}. To correct it, edit the transfer.";
 
     private static ValidationException Validation(string key, string message) =>
         new(new Dictionary<string, string[]> { [key] = new[] { message } });

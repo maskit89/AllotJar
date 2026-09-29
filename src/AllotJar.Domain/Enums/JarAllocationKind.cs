@@ -18,4 +18,12 @@ public enum JarAllocationKind
     /// on that date (0 when written; a later correction of a kept pre-move leg moves it here).
     /// </summary>
     Departure = 3,
+
+    /// <summary>
+    /// A returned transfer's money going back to the jars it left from (O1 answer 4): jar +S,
+    /// unallocated −S, dated the return, linked by <see cref="Entities.JarAllocation.ReturnOfTransferId"/>.
+    /// Decided when the return is recorded, from the jars as they are then, so a later archive,
+    /// move or restore never rewrites it. The return leg itself posts to unallocated.
+    /// </summary>
+    Return = 4,
 }

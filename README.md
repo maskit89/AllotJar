@@ -215,6 +215,11 @@ savings pot, cash, or credit card — `AccountType`).
   edit and remove it (each carrying an optional `AccountId`).
 - `PUT /api/transactions/{id}/assignment` sets/clears a line (ownership checked
   on both the transaction and the target line).
+- `PUT /api/transactions/{id}/transfer` edits a transfer in place (accounts, amount,
+  departure/receipt/return dates, payee, fee and its budget line, jar answers). A leg
+  confirmed by a bank statement keeps the bank's account, date and amount. A transfer
+  can be marked returned (`returnedOn`) and can carry a fee, recorded as a separate
+  expense row on the source account.
 - `PUT /api/transactions/{id}/splits` **splits a transaction across two or more
   lines** (`TransactionSplit`). A transaction is whole-assigned **xor** split (its
   `BudgetItemId` is cleared and the slices carry the attribution, summing exactly to
@@ -241,8 +246,8 @@ transactions, with a review step so nothing is saved blindly.
   auto-detects columns on first upload and lets the user confirm.
 - **Preview → commit flow:** `POST /api/import/preview` parses the file and returns the
   not-yet-imported rows for review (nothing persisted); the user categorises/attributes
-  them and posts the kept rows to `POST /api/import/commit`. Direct
-  `POST /api/import/camt053` and `POST /api/import/hsbc-csv` endpoints also exist.
+  them and posts the kept rows to `POST /api/import/commit`. These two are the only
+  import endpoints.
 - **Idempotent:** rows are de-duplicated per user on the bank reference
   (`AcctSvcrRef`, falling back to `EndToEndId`), so re-importing the same statement
   imports nothing new.
