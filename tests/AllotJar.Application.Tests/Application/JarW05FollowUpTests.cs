@@ -2,6 +2,7 @@ using System.Reflection;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
+using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars;
@@ -152,6 +153,26 @@ public class JarW05FollowUpTests
         JarHistory.ArchiveOn(jar, periods, new DateOnly(2026, 7, 19)).IsArchived.Should().BeFalse();
         // The restore day is live again.
         JarHistory.ArchiveOn(jar, periods, new DateOnly(2026, 9, 29)).IsArchived.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task P2_D_APastMonthCreatedAfterARestore_PlantsNoLineForAJarArchivedAllThroughIt()
+    {
+        // Holiday was archived on the 1st three months ago and restored today. Creating the month
+        // two months ago plants nothing for it; creating one before the archive still does.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, opening: 2000m);
+        var jar = SeedGoal(db, account);
+        var thisMonth = new DateOnly(Today.Year, Today.Month, 1);
+        db.JarArchivePeriods.Add(new JarArchivePeriod { JarId = jar.Id, ArchivedOn = thisMonth.AddMonths(-3), RestoredOn = Today });
+        db.SaveChanges();
+        var create = new CreateBudgetMonthCommandHandler(db, User);
+
+        var archived = await create.Handle(new CreateBudgetMonthCommand(thisMonth.AddMonths(-2).Year, thisMonth.AddMonths(-2).Month, CopyFromPrevious: false), Ct);
+        var before = await create.Handle(new CreateBudgetMonthCommand(thisMonth.AddMonths(-4).Year, thisMonth.AddMonths(-4).Month, CopyFromPrevious: false), Ct);
+
+        archived.Categories.SelectMany(c => c.Items).Should().NotContain(i => i.SavingsId == jar.Id);
+        before.Categories.SelectMany(c => c.Items).Should().ContainSingle(i => i.SavingsId == jar.Id);
     }
 
     // ---- P2-20 -------------------------------------------------------------------------------
