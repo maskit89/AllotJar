@@ -104,12 +104,12 @@ There is **no DELETE** for jars. 404 body message: `Sinking fund {id} was not fo
 | `GET /api/allocation/profile` | `GetAllocationProfileQuery` | any role | 200 with `AllocationProfileDto` or JSON `null` (first profile ordered by Name). |
 | `PUT /api/allocation/profile` | `UpsertAllocationProfileCommand` | Admin+ | Create (Id null) or replace (Id set; rules replaced wholesale). 200/400/403/404. |
 | `GET /api/allocation/preview/{year}/{month}?profileId=` | `PreviewIncomeAllocationQuery` | any role | Dry run, no writes; works with **no profile** (empty steps; members with residual = full net income). |
-| `POST /api/allocation/commit/{year}/{month}?profileId=` | `AllocateIncomeCommand` | **Limited+** (`[AllowLimited]`, AllocateIncomeCommand.cs:31) | Idempotent: deletes all transactions whose `BankReference` starts `alloc:{year}-{month}:` then recreates. 200/400/403/404. |
+| `POST /api/allocation/commit/{year}/{month}?profileId=` | `AllocateIncomeCommand` | **Limited+** (`[AllowLimited]`, AllocateIncomeCommand.cs:31) | Idempotent: deletes all transactions whose `AllocationKey` starts `alloc:{year}-{month}:` then recreates. 200/400/403/404. |
 
 Commit failure modes: no profile → 404 `There is no allocation profile to run.`; no source account → 400 ValidationException key `SourceAccountId`: `Set a source account on the allocation profile before committing.`; source account missing → 404 `Source account {id} was not found.`; source owned by someone else → 403.
 
 Commit writes one `Transaction` per member with `Residual > 0` **and** a valid `SavingsAccountId`:
-`Type=Transfer, Date = 1st of month, Payee = "Income allocation — {name}", Amount = residual, Currency = EUR (hardcoded), ExchangeRate = 1, AccountId = source, TransferAccountId = member savings, BankReference = "alloc:{year}-{month}:{memberId}"` (`AllocateIncomeCommandHandler.cs:56-79`). `TransfersCreated` in the response = number created (0 for preview).
+`Type=Transfer, Date = 1st of month, Payee = "Income allocation — {name}", Amount = residual, Currency = EUR (hardcoded), ExchangeRate = 1, AccountId = source, TransferAccountId = member savings, AllocationKey = "alloc:{year}-{month}:{memberId}"` (W07: the key lives in the `AllocationKey` column, not `BankReference`; `AllocateIncomeCommandHandler.cs`). `TransfersCreated` in the response = number created (0 for preview).
 
 ### Related endpoints feeding this subsystem
 - `POST /api/budget/{...}` month creation (`CreateBudgetMonthCommandHandler`) — seeds/append jar lines (§6).
@@ -210,7 +210,7 @@ All jar planning in `src/AllotJar.Domain/Services/JarSchedule.cs` (pure) and `sr
 - BalanceTiltSplit: share = Round2((1−α)·even + α·waterFill), α = clamp(lean,0,100)/100; **rounding drift pushed onto the LARGEST share** (different member than Equal's last-member rule — assert invariants, not exact cents). WaterFill levels the k lowest savings balances to a common level; top tier levelled directly via `FillToLevel` (overflow fix).
 - Terminal step SETS balances = shares; `Members[].Residual` reads them back. Hero reconciliation is by construction: terminal total = pool − (envelopes+jars+pocket), so "Shared spending" + "To savings" always = pool (even with negative To savings).
 
-**Member savings balance for tilt** (`AllocationPlanner.SavingsBalancesAsync`): account opening + income − expense + transfers in − transfers out, EXCLUDING transfers whose BankReference starts `alloc:{year}-{month}:` for the viewed month (idempotent re-runs; preview == commit view). Only owned, existing accounts.
+**Member savings balance for tilt** (`AllocationPlanner.SavingsBalancesAsync`): account opening + income − expense + transfers in − transfers out, EXCLUDING transfers whose AllocationKey starts `alloc:{year}-{month}:` for the viewed month (idempotent re-runs; preview == commit view). Only owned, existing accounts.
 
 **Defaults**: AllocationProfile.BalanceLeanPercent = 25; controller default request BalanceLeanPercent = 25; client profile form defaults: split Equal, savings split BalanceTilt, lean "25", name "Household allocation". The client always writes the fixed 4-rule standard waterfall (`standardRules`: envelopes, jars, pocket, remainder — orders 0-3; cost split applied to both envelope and jar rules).
 
@@ -230,7 +230,7 @@ All jar planning in `src/AllotJar.Domain/Services/JarSchedule.cs` (pure) and `sr
 10. **Cancel-reverts (PR #163)**: settings modal Cancel/backdrop resync form from saved profile; committed banner cleared on profile save; commit idempotency wording "replaces them, never doubles up".
 11. **InfoHint placement**: the InfoHint `<button>` must NOT sit inside a `<label>` (it becomes the label's control); AllocationPage uses `div` + control `aria-label` (comment at AllocationPage.tsx:374-376), JarsPage uses `<label htmlFor>` sibling pattern.
 12. **Allocation commit currency hardcoded EUR** (`AllocateIncomeCommandHandler.cs:71`) — known systemic display-label limitation, deferred.
-13. **Idempotency key**: `BankReference = "alloc:{year}-{month}:{memberId}"` — note month is NOT zero-padded; the prefix filter and the unique (Owner, BankReference) index depend on this exact composition.
+13. **Idempotency key**: `AllocationKey = "alloc:{year}-{month}:{memberId}"` (W07: moved out of `BankReference` by migration `TransferReturnsFeesAndAllocationKeys`) — note month is NOT zero-padded; the prefix filter depends on this exact composition.
 14. **Empty month ≠ balanced (PR #172)**: `IsBalanced` requires `TotalIncome > 0` (domain + client selector); empty-month hero prompts income planning; blank months for jar-owning households land over-budgeted via appended accrual-planned savings lines. Don't regress to bare `remaining == 0`.
 15. **PR #170**: sample budget (with its Emergency Fund jar) is OPT-IN at sign-up; default account is empty — jar/allocation tests must not assume a starter jar exists.
 16. **Archive**: two-click confirm in the modal (was none pre-#150); archive stops future month lines but keeps history; no restore UI.

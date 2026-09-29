@@ -1,8 +1,8 @@
 # Bank import
 
-**ID prefix:** IMP | **Scope:** The Import screen at `/import` (`client/src/pages/ImportPage.tsx`) end to end, plus the server pipeline behind it: the upload form (File format / Statement file / Add to account); server-side format **sniffing** (`PreviewImportCommandHandler` routes a "Bank CSV (auto-detect)" upload to the `Camt053`/`HsbcCsv` adapter when their `CanParse` matches, else the `GenericCsvImporter`); the generic-CSV **column-mapping** panel (date/amount/description/currency columns, single signed-amount column, date-format + number-format + delimiter + header, sample-rows preview); **date-format pinning** + per-file lock; **mapping dirty-state** blocking a stale-parse import; **dedup** (the `csv:`/`hsbc:`/CAMT `BankReference` invariant, unique filtered index `IX_Transactions_OwnerId_BankReference`, `#occurrence` suffix for same-signature repeats, the `possibleDuplicate` content hint on re-import); **re-scan carry-over**; import into a chosen **account**; the review grid (include/exclude, categorise, bulk apply, split, transfer) as it gates the import; the **commit** + "Import complete" summary with real money sums; **all-caught-up**; parser robustness (BOM, bare CR, trailing/paren sign, 2-digit years, thousands separators, HSBC packed Details, quoted thousands, 0.00 skip); malformed/empty/oversized files; and the concurrent-commit race recovery. Covers `POST /import/preview`, `POST /import/commit`, and the direct one-shot `POST /import/hsbc-csv` + `POST /import/camt053` endpoints, all under `ImportController` (feature-gated by `FeatureFlags.CamtImport`). | **Out of scope:** Viewing/editing imported rows in the register, manual add, filter/search → `10-transactions.md`; the generic transfer entry form and transfers as ledger rows → `11-transfers.md`; account CRUD, per-account currency, derived balance and reconciliation the import feeds → `12-accounts-reconciliation.md`; budget-line/category creation that populates the category selects, and the learned payee→line auto-categoriser rules → `08-categories-budget-lines.md`; member add/archive, roles and the full `canWrite` matrix (only import-page gating appears here) → the households/people sibling; FX-rate resolution to base currency → `12-accounts-reconciliation.md`; responsive / dark-mode / a11y sweeps of the mapping + review panels (`client/e2e/mocks.ts` + `a11y.spec.ts` + `mobile-layout.spec.ts`) → the a11y/responsive sibling; session/refresh and cross-tab logout → the auth sibling (referenced only where behaviour is import-specific).
+**ID prefix:** IMP | **Scope:** The Import screen at `/import` (`client/src/pages/ImportPage.tsx`) end to end, plus the server pipeline behind it: the upload form (File format / Statement file / Add to account); server-side format **sniffing** (`PreviewImportCommandHandler` routes a "Bank CSV (auto-detect)" upload to the `Camt053`/`HsbcCsv` adapter when their `CanParse` matches, else the `GenericCsvImporter`); the generic-CSV **column-mapping** panel (date/amount/description/currency columns, single signed-amount column, date-format + number-format + delimiter + header, sample-rows preview); **date-format pinning** + per-file lock; **mapping dirty-state** blocking a stale-parse import; **dedup** (the `csv:`/`hsbc:`/CAMT `BankReference` invariant, unique filtered index `IX_Transactions_OwnerId_BankReference`, `#occurrence` suffix for same-signature repeats, the `possibleDuplicate` content hint on re-import); **re-scan carry-over**; import into a chosen **account**; the review grid (include/exclude, categorise, bulk apply, split, transfer) as it gates the import; the **commit** + "Import complete" summary with real money sums; **all-caught-up**; parser robustness (BOM, bare CR, trailing/paren sign, 2-digit years, thousands separators, HSBC packed Details, quoted thousands, 0.00 skip); malformed/empty/oversized files; and the concurrent-commit race recovery. Covers `POST /import/preview` and `POST /import/commit`, both under `ImportController` (feature-gated by `FeatureFlags.CamtImport`); these are the only import endpoints since W07 removed the direct one-shot `POST /import/hsbc-csv` + `POST /import/camt053` (IMP-084..087 retired). Also covers the W07 identity rules on the review grid: reused bank references listed and flagged, recorded transfers offered as match/return candidates (with implied fees), and same-day rows judged on the day's closing balance, credits first (IMP-091..095). | **Out of scope:** Viewing/editing imported rows in the register, manual add, filter/search → `10-transactions.md`; the generic transfer entry form and transfers as ledger rows → `11-transfers.md`; account CRUD, per-account currency, derived balance and reconciliation the import feeds → `12-accounts-reconciliation.md`; budget-line/category creation that populates the category selects, and the learned payee→line auto-categoriser rules → `08-categories-budget-lines.md`; member add/archive, roles and the full `canWrite` matrix (only import-page gating appears here) → the households/people sibling; FX-rate resolution to base currency → `12-accounts-reconciliation.md`; responsive / dark-mode / a11y sweeps of the mapping + review panels (`client/e2e/mocks.ts` + `a11y.spec.ts` + `mobile-layout.spec.ts`) → the a11y/responsive sibling; session/refresh and cross-tab logout → the auth sibling (referenced only where behaviour is import-specific).
 
-**Test data setup:** Unless a case says otherwise, assume an authenticated **Owner** (`canWrite = true`) of a **shared EUR household "Home"** with **2 active members** — *Alex* and *Robin*. `preferredCurrency = "EUR"`, browser locale **en-GB**, today **2026-07-15**, so `GET /budget/current` returns **July 2026** with expense lines *Groceries* + *Soap* (category *Food*) and *Fuel* (category *Transport*), plus an income line *Salary*. Two EUR accounts exist: **"Joint"** and **"Savings"**. `Features:CamtImport = true`. The SPA always imports through **preview → commit** (`previewImport` → `POST /import/preview` multipart `file,format,mapping?,defaultCurrency?`; `commitImport` → `POST /import/commit` JSON `{accountId, items}`). Money is `decimal(18,4)` server-side, integer minor units client-side; imported actuals are always transaction-derived. Idempotency keys (never change composition): generic `csv:{32-hex SHA-256 head}#{occurrence}` over `date|signed:0.####|UPPER(rawDesc)`; HSBC `hsbc:{32-hex}#{occurrence}` over `postingDate|purchaseDate|last4|signed:0.00|UPPER(desc)`; CAMT = the raw `AcctSvcrRef`/`EndToEndId` (≤140 chars, `#occurrence` on repeats). Unique filtered index `IX_Transactions_OwnerId_BankReference WHERE BankReference IS NOT NULL`; manual (reference-less) rows are exempt. Reference fixture **3-row generic CSV** (`Date,Description,Amount,Currency`): TESCO STORES −42.50, ACME SALARY 2500.00, COFFEE HOUSE −3.80 (all EUR) → Money in €2,500.00 / Money out €46.30 — the exact file the journey test drives. Exception→HTTP mapping (`ExceptionHandlingMiddleware`): `ValidationException`→400 `{title:"Validation failed", errors}`, `NotFoundException`→404, `ForbiddenAccessException`→403, `StatementParseException`→422 (title = message), controller `BadRequest({error})`→400; the client `ErrorBanner` shows `data.title ?? data.error`. Client wiring: `client/src/pages/ImportPage.test.tsx`; full-stack round-trip: `client/e2e-journey/import.spec.ts`; parsers: `tests/AllotJar.Application.Tests/Imports/{GenericCsvImporterTests,HsbcCsvStatementParserTests,Camt053StatementParserTests}.cs`; preview/commit: `ImportPreviewCommitTests.cs`; one-shot handler: `ImportStatementHandlerTests.cs` + `ImportStatementHandlerIsolationTests.cs`; DB race/index: `tests/AllotJar.IntegrationTests/UniqueBankReferenceTests.cs`.
+**Test data setup:** Unless a case says otherwise, assume an authenticated **Owner** (`canWrite = true`) of a **shared EUR household "Home"** with **2 active members** — *Alex* and *Robin*. `preferredCurrency = "EUR"`, browser locale **en-GB**, today **2026-07-15**, so `GET /budget/current` returns **July 2026** with expense lines *Groceries* + *Soap* (category *Food*) and *Fuel* (category *Transport*), plus an income line *Salary*. Two EUR accounts exist: **"Joint"** and **"Savings"**. `Features:CamtImport = true`. The SPA always imports through **preview → commit** (`previewImport` → `POST /import/preview` multipart `file,format,mapping?,defaultCurrency?`; `commitImport` → `POST /import/commit` JSON `{accountId, items}`). Money is `decimal(18,4)` server-side, integer minor units client-side; imported actuals are always transaction-derived. Idempotency keys (never change composition): generic `csv:{32-hex SHA-256 head}#{occurrence}` over `date|signed:0.####|UPPER(rawDesc)`; HSBC `hsbc:{32-hex}#{occurrence}` over `postingDate|purchaseDate|last4|signed:0.00|UPPER(desc)`; CAMT = the raw `AcctSvcrRef`/`EndToEndId` (≤140 chars, `#occurrence` on repeats). Unique filtered index `IX_Transactions_OwnerId_BankReference WHERE BankReference IS NOT NULL`; manual (reference-less) rows are exempt. Reference fixture **3-row generic CSV** (`Date,Description,Amount,Currency`): TESCO STORES −42.50, ACME SALARY 2500.00, COFFEE HOUSE −3.80 (all EUR) → Money in €2,500.00 / Money out €46.30 — the exact file the journey test drives. Exception→HTTP mapping (`ExceptionHandlingMiddleware`): `ValidationException`→400 `{title:"Validation failed", errors}`, `NotFoundException`→404, `ForbiddenAccessException`→403, `StatementParseException`→422 (title = message), controller `BadRequest({error})`→400; the client `ErrorBanner` shows `data.title ?? data.error`. Client wiring: `client/src/pages/ImportPage.test.tsx`; full-stack round-trip: `client/e2e-journey/import.spec.ts`; parsers: `tests/AllotJar.Application.Tests/Imports/{GenericCsvImporterTests,HsbcCsvStatementParserTests,Camt053StatementParserTests}.cs`; preview/commit: `ImportPreviewCommitTests.cs`; holds and transfer legs: `ImportHoldsTests.cs`, `ImportTransferLegsTests.cs`, `TransferIdentityW07Tests.cs`; DB race/index: `tests/AllotJar.IntegrationTests/UniqueBankReferenceTests.cs`.
 
 ---
 
@@ -61,7 +61,7 @@
 - **Type:** Negative
 - **Preconditions:** `Features:CamtImport = false`.
 - **Steps:**
-  1. `POST /import/preview` (or `/commit`, `/hsbc-csv`, `/camt053`).
+  1. `POST /import/preview` (or `/commit`).
 - **Expected:** Every `ImportController` endpoint returns **404** — the whole controller carries `[FeatureGate(nameof(FeatureFlags.CamtImport))]`, so the flag disables *all* import (generic and HSBC included, not just CAMT). Any UI import attempt surfaces the resulting error.
 - **Automated:** No
 
@@ -72,7 +72,7 @@
 - **Steps:**
   1. `POST /import/preview` without an access token.
 - **Expected:** **401 Unauthorized** (controller `[Authorize]`). With a token but no resolvable `OwnerId`, the handler throws `ForbiddenAccessException` → 403 and never parses the file.
-- **Automated:** Yes (ImportStatementHandlerIsolationTests.cs — "Handle_WithoutAuthenticatedUser_Throws_AndNeverParses")
+- **Automated:** No
 
 ## Upload form & file selection
 
@@ -676,7 +676,7 @@
 - **Steps:**
   1. Import.
 - **Expected:** Each created `Transaction` has `AccountId = Joint`, so the account's derived balance reflects the import; `commit` receives `accountId = Joint` (not null).
-- **Automated:** Yes (ImportPreviewCommitTests.cs — "Commit_StampsTheChosenAccount"; ImportStatementHandlerTests.cs — "Handle_StampsImportedTransactions_WithTheChosenAccount")
+- **Automated:** Yes (ImportPreviewCommitTests.cs — "Commit_StampsTheChosenAccount")
 
 ### IMP-070 - Commit persists category and member and tracks the line
 - **Priority:** P0
@@ -743,7 +743,7 @@
 - **Preconditions:** Real SQL Server; two overlapping commits (double-click / two devices / two household logins) carrying the same references.
 - **Steps:**
   1. A rival commit inserts the references between this commit's dedup snapshot and its `SaveChanges`.
-- **Expected:** `SaveChanges` throws `DbUpdateException` matching the index name; the handler re-reads the taken references (case-insensitive, matching the DB collation), drops the collided Added rows (adjusting `imported`/`skipped`/`credits`/`debits`/`transfers`), and saves the rest — up to 3 attempts. Net effect: each reference persists exactly once, no duplicates, no 500. The one-shot `/import/hsbc-csv` + `/import/camt053` endpoints keep only per-request dedup (a race there 500s rather than double-inserting). InMemory tests can't exercise this (no unique enforcement).
+- **Expected:** `SaveChanges` throws `DbUpdateException` matching the index name; the handler re-reads the taken references (case-insensitive, matching the DB collation), drops the collided Added rows (adjusting `imported`/`skipped`/`credits`/`debits`/`transfers`), and saves the rest — up to 3 attempts. Net effect: each reference persists exactly once, no duplicates, no 500. InMemory tests can't exercise this (no unique enforcement).
 - **Automated:** Yes (UniqueBankReferenceTests.cs — "Commit_recovers_when_a_concurrent_commit_wins_the_race")
 
 ## All-caught-up, empty & malformed inputs
@@ -780,8 +780,8 @@
 - **Type:** Boundary
 - **Preconditions:** A statement file larger than 10 MB.
 - **Steps:**
-  1. `POST /import/preview` (or `/hsbc-csv`, `/camt053`) with the large file.
-- **Expected:** **413 Payload Too Large** — every parse endpoint carries `[RequestSizeLimit(10 * 1024 * 1024)]`. (`/commit` has no explicit override; a pathologically huge JSON body falls back to the default limit.) HSBC `CanParse` samples only the first 50 data rows, so sniffing a large-but-in-limit file is cheap.
+  1. `POST /import/preview` with the large file.
+- **Expected:** **413 Payload Too Large** — the preview endpoint carries `[RequestSizeLimit(10 * 1024 * 1024)]`. (`/commit` has no explicit override; a pathologically huge JSON body falls back to the default limit.) HSBC `CanParse` samples only the first 50 data rows, so sniffing a large-but-in-limit file is cheap.
 - **Automated:** No
 
 ### IMP-081 - Invalid column-mapping JSON is rejected
@@ -811,42 +811,44 @@
 - **Expected:** `reset()` clears file, preview, rows, layout, mapping, scannedMapping, result, error, and bulk selections and returns to `upload`. Any prior categorisation is discarded; the format select retains its value but the file input is empty.
 - **Automated:** Partial (import.spec.ts clicks "Import another file" between imports)
 
-## Direct one-shot endpoints
+## Direct one-shot endpoints (retired)
 
-### IMP-084 - Direct HSBC CSV endpoint imports and dedups in one shot
-- **Priority:** P1
-- **Type:** Happy
-- **Preconditions:** Authenticated owner; an HSBC transaction-history CSV.
+W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `ImportStatementCommand`/Handler/Validator. Imports go only through preview then commit. IDs are kept so references stay stable; parser behaviour formerly reached through these cases is covered by IMP-014/015/035/036/037/088 and the parser tests.
+
+### IMP-084 - Retired (W07: endpoint removed) - Direct HSBC CSV endpoint imports and dedups in one shot
+- **Priority:** P3 (retired)
+- **Type:** Negative
+- **Preconditions:** Authenticated owner.
 - **Steps:**
-  1. `POST /import/hsbc-csv` with the file (and optional `accountId`).
-- **Expected:** All bookable rows import in one call, credits/debits split correctly, and a re-post of the same file skips everything (per-request dedup). Genuinely repeated identical charges are kept via `#occurrence`. Returns an `ImportStatementResult` with `AutoCategorized` populated by learned rules. (The SPA does not use this path — it previews then commits — but the endpoint is public API.)
-- **Automated:** Yes (ImportStatementHandlerTests.cs — "Handle_HsbcCsv_ImportsAllRows_AndSplitsCreditsFromDebits", "…ReImportingSameFile_IsIdempotent", "…KeepsGenuinelyRepeatedIdenticalCharges")
+  1. `POST /import/hsbc-csv` with an HSBC file.
+- **Expected:** Retired (W07: endpoint removed). The route no longer exists (404/405); nothing is imported. HSBC files import via preview then commit (IMP-014, IMP-056, IMP-057).
+- **Automated:** No
 
-### IMP-085 - Direct CAMT endpoint maps entries and stays idempotent
-- **Priority:** P1
-- **Type:** Happy
-- **Preconditions:** Authenticated owner; a CAMT.053 XML statement.
+### IMP-085 - Retired (W07: endpoint removed) - Direct CAMT endpoint maps entries and stays idempotent
+- **Priority:** P3 (retired)
+- **Type:** Negative
+- **Preconditions:** Authenticated owner.
 - **Steps:**
-  1. `POST /import/camt053` with the file.
-- **Expected:** Entries map to transactions (debit → creditor payee, credit → debtor payee, IBAN captured, foreign currency preserved via the `EndToEndId` fallback reference); re-importing is idempotent. Undateable, zero-amount, or missing-currency/direction entries are dropped rather than fabricated. Repeated references get an `#occurrence` suffix (first stays raw).
-- **Automated:** Yes (Camt053StatementParserTests.cs — "Parse_ReadsAccountAndAllEntries", "…MapsDebitEntry", "…MapsCreditEntry_UsesDebtorAsPayee", "…FallsBackToEndToEndId_AndKeepsForeignCurrency"; ImportStatementHandlerTests.cs — reimport idempotency)
+  1. `POST /import/camt053` with a CAMT.053 file.
+- **Expected:** Retired (W07: endpoint removed). CAMT entry mapping (debit → creditor payee, credit → debtor payee, `EndToEndId` fallback, foreign currency kept) is still covered at parser level and through preview.
+- **Automated:** Yes (Camt053StatementParserTests.cs — "Parse_ReadsAccountAndAllEntries", "…MapsDebitEntry", "…MapsCreditEntry_UsesDebtorAsPayee", "…FallsBackToEndToEndId_AndKeepsForeignCurrency")
 
-### IMP-086 - Direct endpoint rejects an account owned by another household
-- **Priority:** P1
+### IMP-086 - Retired (W07: endpoint removed) - Direct endpoint rejects an account owned by another household
+- **Priority:** P3 (retired)
 - **Type:** Negative
 - **Preconditions:** `accountId` belongs to a different owner.
 - **Steps:**
   1. `POST /import/hsbc-csv` (or `/camt053`) with that `accountId`.
-- **Expected:** **403 Forbidden** — the handler validates the target account's `OwnerId` before parsing/writing; a missing account → **404**. Import is scoped to the current user throughout.
-- **Automated:** Yes (ImportStatementHandlerTests.cs — "Handle_RejectsAnAccountOwnedByAnotherUser", "Handle_ScopesImportToTheCurrentUser")
+- **Expected:** Retired (W07: endpoint removed). Account ownership is still enforced on preview (unknown or foreign `accountId` → 404) and commit (IMP-072).
+- **Automated:** No
 
-### IMP-087 - No-file guard on the direct endpoints
-- **Priority:** P2
+### IMP-087 - Retired (W07: endpoint removed) - No-file guard on the direct endpoints
+- **Priority:** P3 (retired)
 - **Type:** Negative
 - **Preconditions:** Authenticated owner.
 - **Steps:**
-  1. `POST /import/hsbc-csv` (or `/camt053`) with no file / a 0-byte file.
-- **Expected:** **400** `{ "error": "No file was uploaded." }` for both endpoints, before any parsing.
+  1. `POST /import/hsbc-csv` (or `/camt053`) with no file.
+- **Expected:** Retired (W07: endpoint removed). The no-file guard now applies to preview only (IMP-012).
 - **Automated:** No
 
 ## Reference edge cases & graceful degradation
@@ -878,5 +880,63 @@
 - **Steps:**
   1. `POST /import/preview` multipart with a valid non-empty `file` and `format=99` — a numeric value outside `StatementFormat` (`Camt053 = 0`, `HsbcCsv = 1`, `GenericCsv = 2`).
   2. Repeat with `format=-1` (a negative out-of-range value).
-- **Expected:** The form value model-binds to `(StatementFormat)99` / `(StatementFormat)-1` — enum binding converts a numeric form value even when it names no member, and **neither** `PreviewImportCommandValidator` **nor** `ImportStatementCommandValidator` applies `IsInEnum` (both only assert `Content` `NotEmpty`). This is asymmetric with `CreateJarCommandValidator` (`Kind`/`Accrual` `.IsInEnum()`) and `CreateAccountCommandValidator` (`Type` `.IsInEnum()`), which reject an out-of-range enum with **400** "Validation failed". Because `99 != GenericCsv`, `PreviewImportCommandHandler` takes the non-generic branch and `_parsers.FirstOrDefault(p => p.Format == request.Format)` matches no registered parser (only `Camt053` + `HsbcCsv` are registered as `IStatementParser`), so it throws `NotFoundException` (`PreviewImportCommandHandler.cs:77-78`) → **404** via `ExceptionHandlingMiddleware` with `title` = "No statement parser is registered for format '99'." (`'-1'` for the negative case); the client `ErrorBanner` would show that title. The negative and positive out-of-range values take the identical path. The point of the case: this unknown-format lookup must stay a **404** and never regress to a **500**. (Contrast: a non-numeric, non-name string such as `format=banana` fails model binding → automatic **400** ModelState. The one-shot `/import/hsbc-csv` and `/import/camt053` endpoints hard-code their format — `StatementFormat.HsbcCsv` and the default `Camt053` — so they cannot receive an out-of-range value from the wire, and `/import/commit`'s `CommitImportCommand` carries no format at all, rebuilding rows from the already-parsed preview items.)
+- **Expected:** The form value model-binds to `(StatementFormat)99` / `(StatementFormat)-1` — enum binding converts a numeric form value even when it names no member, and `PreviewImportCommandValidator` does not apply `IsInEnum` (it only asserts `Content` `NotEmpty`). This is asymmetric with `CreateJarCommandValidator` (`Kind`/`Accrual` `.IsInEnum()`) and `CreateAccountCommandValidator` (`Type` `.IsInEnum()`), which reject an out-of-range enum with **400** "Validation failed". Because `99 != GenericCsv`, `PreviewImportCommandHandler` takes the non-generic branch and `_parsers.FirstOrDefault(p => p.Format == request.Format)` matches no registered parser (only `Camt053` + `HsbcCsv` are registered as `IStatementParser`), so it throws `NotFoundException` (`PreviewImportCommandHandler.cs:77-78`) → **404** via `ExceptionHandlingMiddleware` with `title` = "No statement parser is registered for format '99'." (`'-1'` for the negative case); the client `ErrorBanner` would show that title. The negative and positive out-of-range values take the identical path. The point of the case: this unknown-format lookup must stay a **404** and never regress to a **500**. (Contrast: a non-numeric, non-name string such as `format=banana` fails model binding → automatic **400** ModelState.  `/import/commit`'s `CommitImportCommand` carries no format at all, rebuilding rows from the already-parsed preview items.)
 - **Automated:** No
+
+## W07: reused references, transfer candidates, fees and same-day order
+
+### IMP-091 - A known reference with different details is listed, flagged and unticked
+- **Priority:** P0
+- **Type:** Regression
+- **Origin:** W07 / reused bank references (O1 answer 2)
+- **Preconditions:** Import account "Joint" has an entry with reference `REF-1` (10 Jul, 40.00, debit). Upload a CAMT statement to "Joint" containing `REF-1` again as 20 Jul, 55.00, debit, plus an unchanged copy of the 10 Jul entry.
+- **Steps:**
+  1. Preview the file with "Joint" as the account.
+  2. Tick the reused row and import; then preview and import the same file again.
+- **Expected:** The unchanged copy is skipped as a duplicate, but the 20 Jul row is **listed** (not skipped) with `reusedReference` = the earlier entry's date, amount and direction, and is **unticked** by default. When imported it is stored under a derived reference `REF-1~{8 hex}`, not `REF-1`. The second run skips it (the derived reference is now known), so re-imports stay idempotent and the unique index is never hit.
+- **Automated:** Partial (TransferIdentityW07Tests.cs; ImportPreviewCommitTests.cs)
+
+### IMP-092 - A transfer recorded in the app is offered as a match and the bank's date wins
+- **Priority:** P0
+- **Type:** Happy
+- **Origin:** W07 / candidates regardless of date and reference
+- **Preconditions:** A transfer Savings → Joint of 100.00 recorded in the app (manual, or from allocation) dated 3 Jul with no bank reference, its Joint leg still open. Statement for "Joint" has a 100.00 credit on 9 Jul.
+- **Steps:**
+  1. Preview with "Joint" as the account.
+  2. On the credit row, pick the Savings → Joint transfer as the match and import.
+- **Expected:** The row carries `transferMatches` with `kind = "match"`, `recordedDate = 3 Jul`, no `fee`, even though the dates differ by six days (every open leg is offered, nearest date first). A single candidate is never auto-selected. On commit no new transaction is created: the transfer's Joint leg takes the bank's reference and the receipt date becomes **9 Jul** (the bank's date replaces the recorded one). `matchedTransfers = 1`.
+- **Automated:** Partial (ImportTransferLegsTests.cs; TransferIdentityW07Tests.cs)
+
+### IMP-093 - A credit on the source account can confirm a transfer came back (return candidate)
+- **Priority:** P0
+- **Type:** Happy
+- **Origin:** W07 / returned transfers (O1 answer 4)
+- **Preconditions:** A transfer Joint → Savings of 100.00 recorded and departed 3 Jul. Statement for "Joint" has a 100.00 credit on 12 Jul.
+- **Steps:**
+  1. Preview with "Joint" as the account.
+  2. On the credit row, choose the transfer as **returned** (`returnOfTransferId`) and import.
+- **Expected:** The credit row lists the transfer with `kind = "return"`. On commit the row confirms the return only: the transfer becomes status `Returned`, nothing stays in transit, no new income or transfer row is created. The result shows `returned = 1`.
+- **Automated:** Partial (TransferIdentityW07Tests.cs)
+
+### IMP-094 - A match that implies a fee requires the fee to be accepted with a line
+- **Priority:** P1
+- **Type:** Boundary
+- **Origin:** W07 / transfer fees (O1 answer 5)
+- **Preconditions:** Transfer Joint → Savings of 100.00 recorded. Statement for "Joint" has (a) a debit of 102.50; and, as a second run, a Savings statement with (b) a credit of 98.00 for the same transfer.
+- **Steps:**
+  1. Preview the Joint statement; pick the transfer as the match on the 102.50 debit.
+  2. Try to import without accepting the fee, then accept it, pick a budget line for the fee and import.
+  3. Repeat with the Savings credit of 98.00.
+- **Expected:** (a) The candidate carries `fee = 2.50` (the debit is larger than the transfer). (b) The candidate carries `fee = 2.00` (the credit is smaller). In both cases the user must accept the fee explicitly and pick its budget line in the review grid (echoed on commit as `fee`, `feeBudgetItemId`); a match is never confirmed with a fee the user has not accepted. Once accepted, the transfer is confirmed and a separate fee expense row is created on the **source** account, dated the departure, on the chosen line.
+- **Automated:** Partial (TransferIdentityW07Tests.cs)
+
+### IMP-095 - Same-day rows are judged on the day's closing balance, credits first
+- **Priority:** P0
+- **Type:** Regression
+- **Origin:** W07 / rule 74
+- **Preconditions:** "Joint" balance 10.00 before 15 Jul. Statement has, on 15 Jul, a debit of 50.00 listed **before** a credit of 100.00.
+- **Steps:**
+  1. Import both rows.
+  2. Repeat with a debit of 50.00 on 15 Jul and a credit of 30.00 on 15 Jul (closing balance −10.00).
+- **Expected:** First run: both import — the day's credits are applied first, so the balance never goes below zero on 15 Jul regardless of row order. Second run: the day closes below zero, so the debit is **held** (`held` lists the reference with the reason; nothing is posted "anyway"). Holds are judged per day on the closing balance, not per row.
+- **Automated:** Partial (ImportHoldsTests.cs)

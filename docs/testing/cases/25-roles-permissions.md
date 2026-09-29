@@ -30,12 +30,12 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
   | Set/clear a line's bill due-day (`PUT /budget/items/{id}/bill`) | Y | Y | 403 | 403 | Command (Admin+) |
   | Mark a bill paid/unpaid (`PUT /budget/items/{id}/paid`) | Y | Y | **Y** | 403 | `[AllowLimited]` |
   | Transaction add/edit/delete/split/assign (`POST /transactions`, `PUT/DELETE …/{id}`, `PUT …/splits`, `PUT …/assignment`) | Y | Y | **Y** | 403 | `[AllowLimited]` |
-  | Transfer between accounts (`POST /transactions/transfer`) | Y | Y | **Y** | 403 | `[AllowLimited]` |
+  | Transfer between accounts / edit a transfer in place (`POST /transactions/transfer`, `PUT /transactions/{id}/transfer`) | Y | Y | **Y** | 403 | `[AllowLimited]` |
   | Account create/update/delete (`POST/PUT/DELETE /accounts…`) | Y | Y | 403 | 403 | Command (Admin+) |
   | Jar create/update/archive (`POST/PUT /jars…`, `PUT …/archive`) | Y | Y | 403 | 403 | Command (Admin+) |
   | Allocation profile upsert (`PUT /allocation/profile`) | Y | Y | 403 | 403 | Command (Admin+) |
   | Allocation commit / run (`POST /allocation/commit/{y}/{m}`) | Y | Y | **Y** | 403 | `[AllowLimited]` |
-  | Import preview / commit / direct (`POST /import/preview|commit|camt053|hsbc-csv`) | Y | Y | 403 | 403 | Command (Admin+) |
+  | Import preview / commit (`POST /import/preview|commit`) | Y | Y | 403 | 403 | Command (Admin+) |
   | Member create/update/archive (`POST /members`, `PUT /members/{id}`, `PUT …/archive`) | Y | Y | 403 | 403 | Command (Admin+) |
   | Household access: invite/role-change/link/revoke (`POST /access/invite`, `PUT …/role`, `PUT …/link`, `DELETE /access/members/{id}`) | Y | **403** | 403 | 403 | `[OwnerOnly]` |
   | Accept an invite while signed-in (`POST /auth/accept-invite`, `AcceptInviteCommand`) | Y | Y | **403** | **403** | Command (Admin+) — defect, see ROLE-037 |
@@ -232,8 +232,8 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
 - **Preconditions:** Lena (Limited) with a valid CSV/CAMT file and an H1 account.
 - **Steps:**
   1. As Lena, direct-call `POST /import/preview` (multipart).
-  2. As Lena, direct-call `POST /import/commit`, `POST /import/camt053`, `POST /import/hsbc-csv`.
-- **Expected:** All four return **403**. Although preview only reads/parses and persists nothing, `PreviewImportCommand` is named `…Command` and carries no `[AllowLimited]`, so the pipeline treats it as an Admin+ write — Limited (and Read-only) cannot even preview a statement. Import is Admin+ end to end.
+  2. As Lena, direct-call `POST /import/commit`. (The former `POST /import/camt053` and `POST /import/hsbc-csv` were removed in W07 and no longer exist.)
+- **Expected:** Both return **403**. Although preview only reads/parses and persists nothing, `PreviewImportCommand` is named `…Command` and carries no `[AllowLimited]`, so the pipeline treats it as an Admin+ write — Limited (and Read-only) cannot even preview a statement. Import is Admin+ end to end.
 - **Automated:** No
 
 ---
