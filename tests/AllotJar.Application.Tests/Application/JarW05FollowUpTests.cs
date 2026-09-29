@@ -14,6 +14,7 @@ using AllotJar.Application.Jars.Queries.GetJarPayments;
 using AllotJar.Application.Jars.Queries.GetJars;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Application.Transactions.Commands.AssignTransaction;
+using AllotJar.Application.Transactions.Commands.ConfirmTransferLegs;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Application.Transactions.Commands.UpdateTransaction;
@@ -444,6 +445,43 @@ public class JarW05FollowUpTests
             .And.Contain("A payment on its line from A can't be dated before then").And.NotContain("held elsewhere");
     }
 
+    [Fact]
+    public async Task P51_AfterTheJarMovesAwayAndBack_ItsEarlierPaymentsThereCanBeRedatedIntoTheNextMonth()
+    {
+        // Review of #276 round 3, R3-P3-1: Holiday held 350 in A from 1 Aug; from its line it paid
+        // 100 of a 150 payment on 28 Aug (the rest on Eating out) and 250 on 30 Aug. Today it moved to B
+        // and back to A. Re-dating either into September (acknowledged, as the form asks) re-runs
+        // the whole line's checks, which must leave these draws to their departure as a date
+        // edit within the month does.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, a);
+        var august = new DateOnly(2026, 8, 1);
+        var line = SeedMonth(db, august, (jar, 100m)).Single();
+        var eatingOut = SeedExpenseLine(db, august, "Eating out");
+        await new ReallocateJarMoneyCommandHandler(db, User).Handle(new ReallocateJarMoneyCommand(a.Id, null, jar.Id, 350m, august), Ct);
+        var create = new CreateTransactionCommandHandler(db, User);
+        var flights = await create.Handle(new CreateTransactionCommand(
+            new DateOnly(2026, 8, 28), "Flights", 150m, TransactionType.Expense, null, AccountId: a.Id,
+            Splits: new[] { new SplitAllocationInput(line.Id, 100m), new SplitAllocationInput(eatingOut.Id, 50m) }), Ct);
+        var hotel = await create.Handle(
+            new CreateTransactionCommand(new DateOnly(2026, 8, 30), "Hotel", 250m, TransactionType.Expense, line.Id, AccountId: a.Id), Ct);
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, b.Id), Ct);
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, a.Id), Ct);
+
+        var update = new UpdateTransactionCommandHandler(db, User);
+        await update.Handle(new UpdateTransactionCommand(
+            flights.Id, new DateOnly(2026, 9, 1), "Flights", 150m, TransactionType.Expense, a.Id, AcknowledgeCrossMonth: true), Ct);
+        await update.Handle(new UpdateTransactionCommand(
+            hotel.Id, new DateOnly(2026, 9, 2), "Hotel", 250m, TransactionType.Expense, a.Id, AcknowledgeCrossMonth: true), Ct);
+
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 31))).Should().Be(350m);
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 9, 1))).Should().Be(250m);
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 9, 2))).Should().Be(0m);
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+    }
+
     // ---- P3-5 --------------------------------------------------------------------------------
 
     [Theory]
@@ -633,36 +671,48 @@ public class JarW05FollowUpTests
     }
 
     [Fact]
-    public async Task P3_8_TheBackfill_SettlesWhatTheLedgerReads_NotAStoredSplitOnAnUnpostedTransferLeg()
+    public async Task P3_8_TheBackfill_SettlesJarSharesOnTransferLegsStillInTransit_SoNothingIsLeftOnceTheyPost()
     {
-        // Review of #276 round 2, R2-P3-4: 200 sent from C to A with Holiday's split stored on A's
-        // leg, but the transfer hasn't left C, so the ledger doesn't count it. Settling the stored
-        // postings would read Holiday at -200 in A.
+        // Review of #276 round 2 (R2-P3-4) and round 3 (R3-P2-1): two transfers from C into A put
+        // 200 and 100 into Holiday, stored on A's legs, but neither has posted in A: C's statement
+        // hasn't confirmed the first left (the receipt came first), and the second's receipt isn't
+        // confirmed. Holiday then moved to B before #274. The departure settles both shares, so
+        // Holiday reads -300 in A while they are in transit and 0 once they post, for good.
         await using var db = NewContext();
         var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
         var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
         var c = LedgerFixtures.SeedAccount(db, Owner, "C", opening: 1000m, order: 2);
         var jar = SeedGoal(db, a);
-        var transfer = new Transaction
+        Transaction TransferIntoHoliday(decimal amount, DateOnly date, DateOnly? departed, DateOnly? received)
         {
-            OwnerId = Owner, AccountId = c.Id, TransferAccountId = a.Id, Amount = 200m, Currency = CurrencyCode.Eur,
-            Type = TransactionType.Transfer, Date = new DateOnly(2026, 9, 25), DepartedOn = null,
-            ReceivedOn = new DateOnly(2026, 9, 25), Payee = "Transfer",
-        };
-        db.JarAllocations.Add(new JarAllocation
-        {
-            OwnerId = Owner, AccountId = a.Id, Kind = JarAllocationKind.Movement, Date = new DateOnly(2026, 9, 25),
-            Transaction = transfer, CreatedUtc = DateTime.UtcNow,
-            Postings = new List<JarAllocationPosting> { new() { JarId = jar.Id, Amount = 200m } },
-        });
-        db.SaveChanges();
+            var transfer = new Transaction
+            {
+                OwnerId = Owner, AccountId = c.Id, TransferAccountId = a.Id, Amount = amount, Currency = CurrencyCode.Eur,
+                Type = TransactionType.Transfer, Date = date, DepartedOn = departed, ReceivedOn = received, Payee = "Transfer",
+            };
+            db.JarAllocations.Add(new JarAllocation
+            {
+                OwnerId = Owner, AccountId = a.Id, Kind = JarAllocationKind.Movement, Date = date,
+                Transaction = transfer, CreatedUtc = DateTime.UtcNow,
+                Postings = new List<JarAllocationPosting> { new() { JarId = jar.Id, Amount = amount } },
+            });
+            db.SaveChanges();
+            return transfer;
+        }
+        var receiptFirst = TransferIntoHoliday(200m, new DateOnly(2026, 9, 25), departed: null, received: new DateOnly(2026, 9, 25));
+        var notReceived = TransferIntoHoliday(100m, new DateOnly(2026, 9, 24), departed: new DateOnly(2026, 9, 24), received: null);
         (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
         jar.FundingAccountId = b.Id;
         await db.SaveChangesAsync(Ct);
 
         await JarDepartures.BackfillAsync(db, Ct);
 
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(-300m);
+        var confirm = new ConfirmTransferLegsCommandHandler(db, User);
+        await confirm.Handle(new ConfirmTransferLegsCommand(receiptFirst.Id, DepartedOn: new DateOnly(2026, 9, 24)), Ct);
+        await confirm.Handle(new ConfirmTransferLegsCommand(notReceived.Id, ReceivedOn: new DateOnly(2026, 9, 26)), Ct);
         (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+        (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[a.Id].JarBalances.GetValueOrDefault(jar.Id).Should().Be(0m);
     }
 
     [Fact]

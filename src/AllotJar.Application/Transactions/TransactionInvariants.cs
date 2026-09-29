@@ -160,7 +160,8 @@ public static class TransactionInvariants
         bool acknowledgeCrossMonth,
         string errorKey,
         CancellationToken cancellationToken,
-        Guid? accountId = null)
+        Guid? accountId = null,
+        IReadOnlyCollection<Guid>? keptJarIds = null)
     {
         var item = await db.BudgetItems
             .Include(i => i.BudgetCategory)
@@ -174,7 +175,7 @@ public static class TransactionInvariants
             throw new NotFoundException($"Budget item {budgetItemId} was not found.");
         }
 
-        EnsureWholeLineAssignable(item, userId, type, transactionDate, acknowledgeCrossMonth, errorKey, accountId);
+        EnsureWholeLineAssignable(item, userId, type, transactionDate, acknowledgeCrossMonth, errorKey, accountId, keptJarIds);
         return item;
     }
 
@@ -191,7 +192,8 @@ public static class TransactionInvariants
         DateOnly transactionDate,
         bool acknowledgeCrossMonth,
         string errorKey,
-        Guid? accountId = null)
+        Guid? accountId = null,
+        IReadOnlyCollection<Guid>? keptJarIds = null)
     {
         if (type == TransactionType.Transfer)
         {
@@ -199,7 +201,7 @@ public static class TransactionInvariants
         }
 
         EnsureOwned(item, userId);
-        EnsureJarAccount(item, accountId, transactionDate, errorKey);
+        EnsureJarAccount(item, accountId, transactionDate, errorKey, keptJarIds);
 
         if (!LineKindMatches(item.BudgetCategory.Kind, type))
         {

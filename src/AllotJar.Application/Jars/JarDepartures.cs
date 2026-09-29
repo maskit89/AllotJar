@@ -179,7 +179,8 @@ public static class JarDepartures
     /// payments the account's ledger counts are written: dated on or after its opening date and
     /// no later than <see cref="DeparturesRecordedFrom"/> (or <paramref name="today"/>, if
     /// earlier). An account with no opening date has none written. The departure then settles
-    /// what the ledger reads the jar holding there (its postings plus those payments), dated on
+    /// what the ledger reads the jar holding there (its postings plus those payments, and the
+    /// shares stored on transfer legs it will post later), dated on
     /// the last day the account's ledger touched the jar: its last posting, on the day the
     /// ledger posts it, or its last such payment. The history before that date reads as it did
     /// before the move. Idempotent: a jar and account with a departure are left alone. Saves
@@ -243,16 +244,23 @@ public static class JarDepartures
             if (account.OpeningDate is not DateOnly opened)
             {
                 // The ledger can't read this account yet: settle the postings as stored, so the
-                // jar holds nothing here once an opening date is set.
+                // jar holds nothing here once an opening date on or before its first entry is set.
                 held = here.ToDictionary(g => g.Key.JarId, g => g.Sum(p => p.Amount));
             }
             else
             {
-                // What the ledger reads the jar holding here, which leaves out what it can't count
-                // (an entry dated before the opening date, a transfer leg not yet posted).
+                // What the ledger reads the jar holding here, which leaves out an entry dated
+                // before the opening date. A transfer leg the ledger hasn't posted yet posts later
+                // with its stored share, so that share is settled too: left out, the jar would hold
+                // it here for good once the leg posts (it reads below zero here until then).
                 var source = await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken, new[] { accountId });
                 var view = source.At(last.Values.Max()).Accounts.GetValueOrDefault(accountId);
-                held = jarIds.ToDictionary(j => j, j => view?.JarBalances.GetValueOrDefault(j) ?? 0m);
+                var unposted = here.SelectMany(g => g)
+                    .Where(p => p.TransactionId is Guid id && legs.TryGetValue(id, out var leg) && leg.Type == TransactionType.Transfer
+                                && (leg.DepartedOn == null || (leg.AccountId != accountId && leg.ReceivedOn == null)))
+                    .GroupBy(p => p.JarId)
+                    .ToDictionary(g => g.Key, g => g.Sum(p => p.Amount));
+                held = jarIds.ToDictionary(j => j, j => (view?.JarBalances.GetValueOrDefault(j) ?? 0m) + unposted.GetValueOrDefault(j));
 
                 var payments = (await JarMovements.UnstoredLinePaymentsAsync(db, ownerId, jarIds, accountId, upTo, cancellationToken))
                     .Where(t => t.Date >= opened)
