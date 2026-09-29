@@ -455,6 +455,29 @@ public class JointAccountsW13Tests
     }
 
     [Fact]
+    public async Task DeletingAnAccount_ClearsItAsAPersonsSavingsAccountAndTheAllocationsSource_P3_5()
+    {
+        var savings = await CreateAccountAsync(Chris, "Kid's savings", new[] { _kid });
+        using (var db = Seed())
+        {
+            db.HouseholdMembers.Single(m => m.Id == _kid).PersonalSavingsAccountId = savings;
+            db.AllocationProfiles.Add(new AllocationProfile { OwnerId = Household, Name = "Default", SourceAccountId = savings });
+            db.SaveChanges();
+        }
+
+        await using (var db = As(Chris))
+        {
+            await new DeleteAccountCommandHandler(db, Chris).Handle(new DeleteAccountCommand(savings), CancellationToken.None);
+        }
+
+        using (var db = Seed())
+        {
+            db.HouseholdMembers.Single(m => m.Id == _kid).PersonalSavingsAccountId.Should().BeNull();
+            db.AllocationProfiles.Single().SourceAccountId.Should().BeNull();
+        }
+    }
+
+    [Fact]
     public async Task OthersCannotReSplitAPrivateAccountsEntry_OnlyItsSlicesWouldChange()
     {
         var groceries = SeedLine();
