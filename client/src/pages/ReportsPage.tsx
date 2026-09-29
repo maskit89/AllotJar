@@ -9,6 +9,8 @@ import { EVENTS, track } from '../analytics'
 import type { AnnualMonthDto, AnnualSummaryDto, BudgetTrendsDto, MonthReportDto } from '../types'
 import { formatMoney, fromAmount, type Minor } from '../lib/money'
 import { hueColor, hueForIndex, hueTint } from '../lib/categoryColors'
+import { todayIso } from '../lib/dates'
+import { useAuth } from '../auth/AuthContext'
 
 const SHORT_MONTHS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -104,7 +106,8 @@ export function ReportsPage() {
     }
   }, [annualYear])
 
-  const currency = breakdown?.baseCurrency ?? 'EUR'
+  const { budgetCurrency } = useAuth()
+  const currency = breakdown?.baseCurrency ?? budgetCurrency
 
   // Scale the income-vs-spending bars to the largest value in the window.
   const trendMaxMinor = useMemo(() => {
@@ -150,7 +153,9 @@ export function ReportsPage() {
 
   // Hero figures — the most recent month's saving, the window's average spend,
   // and this month's savings rate (saved ÷ received).
-  const latest = trends?.points.at(-1)
+  // The latest month up to this one: a budget already created for next month has nothing in it yet.
+  const thisMonthKey = todayIso().slice(0, 7)
+  const latest = trends?.points.filter((p) => p.key <= thisMonthKey).at(-1)
   const savedThisMonthMinor = latest ? fromAmount(latest.incomeReceived) - fromAmount(latest.spent) : 0
   const avgSpendMinor = trends && trends.points.length > 0 ? Math.round(totalSpentMinor / trends.points.length) : 0
   const latestReceivedMinor = latest ? fromAmount(latest.incomeReceived) : 0
@@ -303,8 +308,9 @@ export function ReportsPage() {
                           <td className="py-1.5 text-right tabular-nums">
                             {blank ? '—' : formatMoney(receivedMinor, currency)}
                           </td>
-                          <td className={`py-1.5 text-right tabular-nums ${m.hasBudget ? signClass(varianceMinor) : ''}`}>
-                            {m.hasBudget ? signedMoney(varianceMinor, currency) : '—'}
+                          {/* Rule 41: actual minus projected, which is nothing without a budget; the total adds every row. */}
+                          <td className={`py-1.5 text-right tabular-nums ${blank ? '' : signClass(varianceMinor)}`}>
+                            {blank ? '—' : signedMoney(varianceMinor, currency)}
                           </td>
                           <td className="py-1.5 text-right tabular-nums">
                             {blank ? '—' : formatMoney(spentMinor, currency)}

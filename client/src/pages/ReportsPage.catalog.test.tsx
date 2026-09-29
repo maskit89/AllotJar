@@ -730,7 +730,8 @@ describe('ReportsPage — catalog (RPT)', () => {
 
   // RPT-040 — rule 41 in the annual table: Received next to Budgeted with a signed Variance
   // (plus above plan, minus below, plain at zero), and a month with no budget still shows what
-  // its transactions say while its Budgeted and Variance cells stay dashed.
+  // its transactions say: its Budgeted cell is dashed and its Variance is all it received, as
+  // the year's total counts it.
   it('shows budgeted vs received income with a signed variance per month (RPT-040)', T, async () => {
     const annual = annual2026()
     annual.months = annual.months.map((m) => {
@@ -753,7 +754,7 @@ describe('ReportsPage — catalog (RPT)', () => {
     const aug = rowFor(table, 'Aug').querySelectorAll('td')
     expect(aug[1]).toHaveTextContent('—')
     expect(aug[2]).toHaveTextContent('€80.00')
-    expect(aug[3]).toHaveTextContent('—')
+    expect(aug[3]).toHaveTextContent('+€80.00')
     expect(aug[4]).toHaveTextContent('€120.00')
     expect(aug[5]).toHaveTextContent('-€40.00')
   })

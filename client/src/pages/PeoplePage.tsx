@@ -106,6 +106,8 @@ export function PeoplePage() {
   const [members, setMembers] = useState<HouseholdMemberDto[]>([])
   const [memberships, setMemberships] = useState<MembershipDto[]>([])
   const [accounts, setAccounts] = useState<AccountDto[]>([])
+  // False when the accounts couldn't be read: an id not in the list then says nothing about privacy.
+  const [accountsLoaded, setAccountsLoaded] = useState(false)
   const [spending, setSpending] = useState<MemberSpendingDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -148,7 +150,7 @@ export function PeoplePage() {
   const reloadAll = useCallback(async () => {
     const [m, acc, spend, mem, inc] = await Promise.all([
       api.get<HouseholdMemberDto[]>(`/members?year=${year}&month=${month}`),
-      api.get<AccountDto[]>('/accounts').catch(() => ({ data: [] as AccountDto[] })),
+      api.get<AccountDto[]>('/accounts').catch(() => ({ data: null })),
       api
         .get<MemberSpendingDto[]>(`/members/spending/${year}/${month}`)
         .catch(() => ({ data: [] as MemberSpendingDto[] })),
@@ -160,6 +162,7 @@ export function PeoplePage() {
     ])
     setMembers(Array.isArray(m?.data) ? m.data : [])
     setAccounts(Array.isArray(acc?.data) ? acc.data : [])
+    setAccountsLoaded(Array.isArray(acc?.data))
     setSpending(Array.isArray(spend?.data) ? spend.data : [])
     setMemberships(Array.isArray(mem?.data) ? mem.data : [])
     // Accept only a well-shaped payload — a failed/foreign response falls back to null (the
@@ -223,8 +226,9 @@ export function PeoplePage() {
 
   function accountName(id: string | null): string {
     if (!id) return '—'
-    // An id the viewer can't see is the person's own private account (W13, P53).
-    return accounts.find((a) => a.id === id)?.name ?? PRIVATE_ACCOUNT
+    // An id the viewer can't see is the person's own private account (W13, P53), once the
+    // accounts have loaded (P3-5).
+    return accounts.find((a) => a.id === id)?.name ?? (accountsLoaded ? PRIVATE_ACCOUNT : '—')
   }
 
   function memberSpending(id: string): MemberSpendingDto | undefined {
@@ -256,8 +260,8 @@ export function PeoplePage() {
       setIncome('')
       setSavings('')
       setShowAdd(false)
-    } catch {
-      setError('Could not add that person.')
+    } catch (err) {
+      setError(serverErrors(err) ?? 'Could not add that person.')
     } finally {
       setAdding(false)
     }
@@ -292,8 +296,8 @@ export function PeoplePage() {
         track(EVENTS.memberEdited)
         await reloadAll()
         setEditingId(null)
-      } catch {
-        setError('Could not save that person.')
+      } catch (err) {
+        setError(serverErrors(err) ?? 'Could not save that person.')
       } finally {
         setSavingId(null)
       }

@@ -278,7 +278,7 @@ describe('AccountsPage', () => {
 
     expect(await screen.findByText('Not available', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Set an opening date to calculate the balance.')).toBeInTheDocument()
-    expect(screen.getByText(/1 account without an opening date is not counted/)).toBeInTheDocument()
+    expect(screen.getByText(/1 account with no balance before its opening date is not counted/)).toBeInTheDocument()
     // Only Visa (−75) is counted in the hero.
     expect(screen.getByLabelText(/^Total balance:/)).toHaveTextContent('75.00')
 

@@ -307,7 +307,7 @@ export function AccountsPage() {
               )}
               {unavailableCount > 0 && (
                 <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13px] font-medium">
-                  {unavailableCount} account{unavailableCount === 1 ? '' : 's'} without an opening date {unavailableCount === 1 ? 'is' : 'are'} not counted.
+                  {unavailableCount} account{unavailableCount === 1 ? '' : 's'} with no balance before {unavailableCount === 1 ? 'its' : 'their'} opening date {unavailableCount === 1 ? 'is' : 'are'} not counted.
                 </span>
               )}
               {pendingReviewCount > 0 && (
