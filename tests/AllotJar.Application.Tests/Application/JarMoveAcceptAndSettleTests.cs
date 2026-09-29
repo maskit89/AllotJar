@@ -185,20 +185,19 @@ public class JarMoveAcceptAndSettleTests
     }
 
     [Fact]
-    public async Task APaymentDatedBeforeTheMove_FromAnotherAccount_IsRefused_NamingTheAccountThatHeldTheJar()
+    public async Task APaymentDatedBeforeTheMove_FromAnotherAccount_IsRefused()
     {
-        // From B it stays refused (Christopher's "Refuse", P2-20), and so from C; both now say
-        // where the jar was held that day.
+        // From B it stays refused (Christopher's "Refuse", P2-20), and so from C. A's stretch is
+        // the jar's first recorded one, so where it began isn't known: A isn't named.
         var w = await MovedAsync();
         await using var db = w.Db;
         var c = LedgerFixtures.SeedAccount(db, Owner, "C", opening: 1000m, order: 2);
+        var create = new CreateTransactionCommandHandler(db, User);
 
-        foreach (var account in new[] { w.B.Id, c.Id })
-        {
-            var messages = await RefusalAsync(() => new CreateTransactionCommandHandler(db, User).Handle(LatePayment(w, account), Ct));
-            messages.Should().ContainSingle().Which.Should().Contain("which was held in A on 10 Aug 2026")
-                .And.Contain("Record this payment from A");
-        }
+        (await RefusalAsync(() => create.Handle(LatePayment(w, w.B.Id), Ct))).Should().ContainSingle()
+            .Which.Should().Contain("A payment on its line from B can't be dated before then");
+        (await RefusalAsync(() => create.Handle(LatePayment(w, c.Id), Ct))).Should().ContainSingle()
+            .Which.Should().Contain("goes on its line only from the account that held the jar that day").And.NotContain("from A");
         (await BalanceAsync(db, w.Jar.Id, Today)).Should().Be(0m);
     }
 
@@ -281,29 +280,40 @@ public class JarMoveAcceptAndSettleTests
         (await UnallocatedAsync(db, w.A.Id, Today)).Should().Be(700m);
     }
 
-    [Fact]
-    public async Task AStretchBeginsOnThePreviousMove_SoAPaymentDatedBeforeTheJarArrived_IsRefused_NamingWhereItWas()
+    /// <summary>
+    /// Records that <paramref name="jar"/> left each account on the given day, in that order, and
+    /// designates it in <paramref name="now"/> from today.
+    /// </summary>
+    private static async Task DepartedAsync(ApplicationDbContext db, Jar jar, Account now, params (Account From, DateOnly On)[] departures)
     {
-        // Recorded departures: Holiday left X on 1 Aug (into A) and A today (into B). A payment from
-        // A dated 20 Jul was made while X held the jar; one dated 1 Aug, the day it arrived, or later
-        // was A's.
-        await using var db = NewContext();
-        var x = LedgerFixtures.SeedAccount(db, Owner, "X", opening: 1000m, order: 2);
-        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
-        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
-        var jar = SeedGoal(db, b);
+        jar.FundingAccountId = now.Id;
         jar.FundingAccountSince = Today;
-        var (july, _) = SeedMonth(db, new DateOnly(2026, 7, 1), jar);
-        var (line, _) = SeedMonth(db, August, jar);
-        foreach (var (account, on) in new[] { (x.Id, August), (a.Id, Today) })
+        foreach (var (from, on) in departures)
         {
             db.JarAllocations.Add(new JarAllocation
             {
-                OwnerId = Owner, AccountId = account, Kind = JarAllocationKind.Departure, Date = on, CreatedUtc = DateTime.UtcNow,
+                OwnerId = Owner, AccountId = from.Id, Kind = JarAllocationKind.Departure, Date = on, CreatedUtc = DateTime.UtcNow,
                 Postings = new List<JarAllocationPosting> { new() { JarId = jar.Id, Amount = 0m }, new() { JarId = null, Amount = 0m } },
             });
         }
         await db.SaveChangesAsync(Ct);
+    }
+
+    [Fact]
+    public async Task AStretchBeginsOnThePreviousMove_SoAPaymentDatedBeforeTheJarArrived_IsRefused_NamingWhereItWas()
+    {
+        // Recorded departures: Holiday left Y on 1 Jul (into X), X on 1 Aug (into A) and A today
+        // (into B). A payment from A dated 20 Jul was made while X held the jar; one dated 1 Aug,
+        // the day it arrived, or later was A's.
+        await using var db = NewContext();
+        var y = LedgerFixtures.SeedAccount(db, Owner, "Y", opening: 1000m, order: 3);
+        var x = LedgerFixtures.SeedAccount(db, Owner, "X", opening: 1000m, order: 2);
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, b);
+        var (july, _) = SeedMonth(db, new DateOnly(2026, 7, 1), jar);
+        var (line, _) = SeedMonth(db, August, jar);
+        await DepartedAsync(db, jar, b, (y, new DateOnly(2026, 7, 1)), (x, August), (a, Today));
         var create = new CreateTransactionCommandHandler(db, User);
 
         var messages = await RefusalAsync(() => create.Handle(
@@ -314,5 +324,53 @@ public class JarMoveAcceptAndSettleTests
         (await BalanceAsync(db, jar.Id, August)).Should().Be(-50m);
         (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
         (await UnallocatedAsync(db, a.Id, Today)).Should().Be(950m);
+    }
+
+    [Fact]
+    public async Task P2_1_AKeptPayment_RedatedWithinItsMonth_ToBeforeTheJarArrived_IsRefused()
+    {
+        // Holiday left X on 10 Aug (into A) and A today (into B). A's 20 Aug payment on its line is
+        // kept on the jar; re-dated to 5 Aug, while X held the jar, it is refused as it would be
+        // entered, and it can still move to 10 Aug, the day the jar arrived.
+        await using var db = NewContext();
+        var x = LedgerFixtures.SeedAccount(db, Owner, "X", opening: 1000m, order: 2);
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, b);
+        var (line, _) = SeedMonth(db, August, jar);
+        await DepartedAsync(db, jar, b, (x, new DateOnly(2026, 8, 10)), (a, Today));
+        var late = await new CreateTransactionCommandHandler(db, User).Handle(
+            new CreateTransactionCommand(new DateOnly(2026, 8, 20), "Travel agent", 50m, TransactionType.Expense, line.Id, AccountId: a.Id), Ct);
+        UpdateTransactionCommand Redate(int day) => new(late.Id, new DateOnly(2026, 8, day), "Travel agent", 50m, TransactionType.Expense, a.Id);
+
+        var messages = await RefusalAsync(() => new UpdateTransactionCommandHandler(db, User).Handle(Redate(5), Ct));
+
+        messages.Should().ContainSingle().Which.Should().Contain("another account held Holiday until 10 Aug 2026");
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 7))).Should().Be(0m);
+        await new UpdateTransactionCommandHandler(db, User).Handle(Redate(10), Ct);
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 10))).Should().Be(-50m);
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+        (await UnallocatedAsync(db, a.Id, Today)).Should().Be(950m);
+    }
+
+    [Fact]
+    public async Task P3_1_TheRefusalDoesNotNameAnAccount_WhoseStretchMayHaveBegunLater()
+    {
+        // Holiday was in A with nothing in it until 10 Aug and moved to B (no departure: A carried
+        // nothing), then left B today (into C). B's stretch has no recorded start, so a payment
+        // from A dated 5 Aug isn't sent to B.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var c = LedgerFixtures.SeedAccount(db, Owner, "C", opening: 1000m, order: 2);
+        var jar = SeedGoal(db, c);
+        var (line, _) = SeedMonth(db, August, jar);
+        await DepartedAsync(db, jar, c, (b, Today));
+
+        var messages = await RefusalAsync(() => new CreateTransactionCommandHandler(db, User).Handle(
+            new CreateTransactionCommand(new DateOnly(2026, 8, 5), "Travel agent", 50m, TransactionType.Expense, line.Id, AccountId: a.Id), Ct));
+
+        messages.Should().ContainSingle().Which.Should().Contain("goes on its line only from the account that held the jar that day")
+            .And.NotContain("held in B");
     }
 }

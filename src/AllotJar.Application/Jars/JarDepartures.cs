@@ -343,6 +343,16 @@ public static class JarDepartures
         },
     };
 
+    internal static ValidationException DatedBeforeArrival(string jarName, DateOnly arrived) =>
+        new(new Dictionary<string, string[]>
+        {
+            ["Date"] = new[]
+            {
+                $"This entry moved money in {jarName} while {jarName} was held in this account, and another account held {jarName} " +
+                $"until {arrived:d MMM yyyy}. It can't be dated before that.",
+            },
+        });
+
     internal static ValidationException DatedAfterDeparture(string jarName, DateOnly left) =>
         new(new Dictionary<string, string[]>
         {

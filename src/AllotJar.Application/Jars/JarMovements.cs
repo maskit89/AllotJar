@@ -136,7 +136,7 @@ public static class JarMovements
     /// account's ledger must read the date: before its opening date nothing is counted, so nothing
     /// is kept. With <paramref name="keepDepartedDraw"/> (an edit that gave no jar answer) a draw from the
     /// named jar that has since left the account is kept too. A leg drawing from a departed jar
-    /// can't be dated after the day the jar left.
+    /// can't be dated after the day the jar left, nor re-dated before its recorded stretch there began.
     /// </summary>
     /// <param name="slices">The transaction's slices when they are not yet on its collection (a split being written); null reads <c>transaction.Splits</c>.</param>
     public static async Task ApplyOutgoingAsync(
@@ -220,13 +220,21 @@ public static class JarMovements
             keptJars.Add(keptFrom!.Value);
         }
 
-        // A kept share is history from the stretch the jar was held here: the leg can't move past the day it left.
+        // A kept share is history from the stretch the jar was held here: the leg can't move past
+        // the day it left, nor (re-dated) before the stretch began, while another account held it.
+        var redated = existing is not null && existing.Date != transaction.Date;
+        var keptStretches = redated ? await JarStretches.LoadAsync(db, keptJars, cancellationToken) : JarStretches.None;
         foreach (var keptJar in keptJars)
         {
             if (await JarDepartures.CoveringAsync(db, ownerId, keptJar, account.Id, transaction.Date, cancellationToken) is null)
             {
                 var name = await db.Jars.AsNoTracking().Where(j => j.Id == keptJar).Select(j => j.Name).FirstAsync(cancellationToken);
                 throw JarDepartures.DatedAfterDeparture(name, await JarDepartures.LastAsync(db, keptJar, account.Id, cancellationToken));
+            }
+            if (keptStretches.HeldElsewhereUntil(keptJar, account.Id, transaction.Date) is { } arrived)
+            {
+                var name = await db.Jars.AsNoTracking().Where(j => j.Id == keptJar).Select(j => j.Name).FirstAsync(cancellationToken);
+                throw JarDepartures.DatedBeforeArrival(name, arrived);
             }
         }
 

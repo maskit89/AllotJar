@@ -299,9 +299,15 @@ public static class TransactionInvariants
             throw Validation(errorKey, accountId == jar.FundingAccountId
                 ? $"'{item.Name}' is the jar {jar.Name}, which moved to {held} on {since:d MMM yyyy}. " +
                   $"A payment on its line from {held} can't be dated before then. Record it on another line."
-                // No account the app knows of held the jar then, so don't send the user to one.
-                : $"'{item.Name}' is the jar {jar.Name}, which moved to {held} on {since:d MMM yyyy}. " +
-                  "A payment dated before then can't be added to its line from any account. Record it on another line.");
+                // A recorded stretch ends after the date, but where it began isn't: the account that
+                // closed it may have held the jar only from later, so don't send the user to it.
+                : accountId is not null && stretches?.Covers(jar.Id, transactionDate) == true
+                    ? $"'{item.Name}' is the jar {jar.Name}, which moved to {held} on {since:d MMM yyyy}. " +
+                      "A payment dated before then goes on its line only from the account that held the jar that day. " +
+                      "Record it from that account, or on another line."
+                    // No account the app knows of held the jar then, so don't send the user to one.
+                    : $"'{item.Name}' is the jar {jar.Name}, which moved to {held} on {since:d MMM yyyy}. " +
+                      "A payment dated before then can't be added to its line from any account. Record it on another line.");
         }
         throw Validation(errorKey,
             $"'{item.Name}' is the jar {jar.Name}, whose money is held in {held}. " +

@@ -10,7 +10,9 @@ namespace AllotJar.Application.Jars;
 /// date; that stretch began on the day of the jar's previous departure from any account (the day
 /// it moved in, which belongs to both accounts), or has no recorded start when there is none.
 /// Only a stretch whose account carried the jar's postings or payments has a departure, so a jar
-/// that left an account with nothing in it has no recorded stretch there. Read by the write
+/// that left an account with nothing in it has no recorded stretch there, and the stretch after
+/// it reads as beginning too early (so does one after a move made before departures were
+/// recorded, whose departure is dated on the old account's last entry). Read by the write
 /// paths that accept a payment on a jar's line from an account the jar has left (R2-D1): it is
 /// the old account's entry, dated while the jar was held there, and its move is re-settled.
 /// </summary>
@@ -78,7 +80,28 @@ public sealed class JarStretches
         return departures[closing].Date;
     }
 
-    /// <summary>The name of the account a recorded stretch held <paramref name="jarId"/> in on <paramref name="date"/>; null when none did (or the reader can't see it).</summary>
+    /// <summary>
+    /// The day a recorded stretch of <paramref name="jarId"/> in <paramref name="accountId"/>
+    /// began, when that stretch ends on or after <paramref name="date"/> but began after it (the
+    /// jar was held in another account on that date); null otherwise.
+    /// </summary>
+    public DateOnly? HeldElsewhereUntil(Guid jarId, Guid accountId, DateOnly date)
+    {
+        if (!_departures.TryGetValue(jarId, out var departures))
+        {
+            return null;
+        }
+        var closing = departures.FindIndex(d => d.AccountId == accountId && d.Date >= date);
+        return closing > 0 && departures[closing - 1].Date > date ? departures[closing - 1].Date : null;
+    }
+
+    /// <summary>
+    /// The name of the account a recorded stretch held <paramref name="jarId"/> in on
+    /// <paramref name="date"/>, when that stretch's start is recorded too (the jar's previous
+    /// departure, on or before the date); null otherwise, or when the reader can't see it. The
+    /// jar's first recorded stretch may have begun after the date, in an account it carried
+    /// nothing in, so its account is not named.
+    /// </summary>
     public string? HeldIn(Guid jarId, DateOnly date)
     {
         if (!_departures.TryGetValue(jarId, out var departures))
@@ -86,8 +109,13 @@ public sealed class JarStretches
             return null;
         }
         var closing = departures.FindIndex(d => d.Date >= date);
-        return closing >= 0 && _accounts.TryGetValue(departures[closing].AccountId, out var account) ? account.Name : null;
+        // Every departure before the closing one is dated before the date.
+        return closing > 0 && _accounts.TryGetValue(departures[closing].AccountId, out var account) ? account.Name : null;
     }
+
+    /// <summary>Whether a recorded stretch of <paramref name="jarId"/> in any account ends on or after <paramref name="date"/>.</summary>
+    public bool Covers(Guid jarId, DateOnly date) =>
+        _departures.TryGetValue(jarId, out var departures) && departures.Exists(d => d.Date >= date);
 
     /// <summary>The account's opening date, when the account has one and the reader can see it.</summary>
     public DateOnly? OpeningDateOf(Guid accountId) =>
