@@ -25,7 +25,7 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 | Allocation × balance-tilt × prior transfers | tilt reads account balance minus this month's own alloc transfers | **CH** CMB-009 |
 | Allocation × account deletion | dangling personal-savings account id | **CH** CMB-013 (builds on ALLOC-054/057) |
 | Jars × month copy × archived jars | archived jar's line dropped; dangling SavingsId kept | **CH** CMB-015 (builds on JAR-047) |
-| Jar-linked savings line × category deletion | delete Savings group/line vs the surviving jar | **CH** CMB-016, CMB-017 |
+| Jar-linked savings line × category deletion | deleting a Savings group or line that holds a jar's line is refused (rule 60); skip the month or archive the jar instead | **CH** CMB-016, CMB-017 |
 | Jars × month create × append | jar with no line gets one appended next month | **CH** CMB-014 (builds on JAR-050) |
 | Savings line (planned) × account (actual) × Float | planned contribution without moving cash | **CH** CMB-018 |
 | Jars × backfill month × as-of balance | earlier month seeds from as-of balance | area JAR-059 (+ CMB-019) |
@@ -244,26 +244,29 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 - **Expected:** 2026-07 carries jar A's line and the dangling-SavingsId line, but NOT jar B's — archiving stops future contributions. Jar B also disappears from the `/accounts` reconciliation (ACCT-055) and the jars list (JAR-045). The dangling line is preserved because "absent jar" is treated as data drift, not as "archived", so it is never silently pruned.
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs)
 
-### CMB-016 - Deleting a Savings group orphans its jars but they re-seed lines into the next month
+### CMB-016 - A Savings group that holds jar lines can't be deleted, so the jars keep their month; an empty Savings group deletes
 - **Priority:** P1
-- **Type:** Edge
-- **Preconditions:** shared household; a "Savings" group with two lines backing jars X and Y in month 2026-06.
+- **Type:** Negative
+- **Preconditions:** shared household; a "Savings" group with two lines backing jars X and Y in month 2026-06; a second Savings group "Later" with no line in the same month.
 - **Steps:**
-  1. Delete the whole "Savings" group on the 2026-06 budget grid (CAT-017: lines removed, jars left orphaned/active).
-  2. Create month 2026-07 with copy-from-previous.
-  3. Open 2026-07 and `/jars`.
-- **Expected:** jars X and Y still exist and are still active (delete never archives them), so `CreateBudgetMonth`'s append step re-creates a Savings group with a line for each in 2026-07 — the jars "come back" in the budget. To truly stop a jar you must ARCHIVE it (CMB-015), not delete its category. This is the key divergence between deleting a savings line/group (cosmetic, one month) and archiving the jar (permanent).
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/JarBudgetLinkTests.cs covers append; CAT-017 covers the delete)
+  1. On the 2026-06 budget grid look for the delete control on "Savings" and on "Later".
+  2. Send `DELETE /api/budget/categories/{savingsId}` directly.
+  3. Delete "Later".
+  4. Create month 2026-07 with copy-from-previous.
+- **Expected:** 1: "Later" offers its delete control; "Savings" offers none. 2: 400 on `CategoryId`: "Savings holds jars' monthly contributions (X, Y). Skip this month's contribution or archive the jar instead; a group can be deleted once it holds no jar's line."; the group, both lines and both jars stay, so 2026-06's jar history and plan are unchanged (rule 46) and the shelf never plans a line the grid no longer has. 3: "Later" is removed. 4: 2026-07 carries the Savings group with a line for X and Y. To pause a jar for one month, skip its contribution (BUDG-060); to stop it, archive it (CMB-015). Deleting the budget category is never a jar lifecycle action (CAT-023).
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/CCategoriesLinesCoverageTests.cs `DeleteSavingsGroup_ThatHoldsAJarsLine_IsRefused_AndAnEmptyOneDeletes`; client/src/pages/DashboardPage.test.tsx CAT-023; CreateBudgetMonthTests.cs covers the copy)
 
-### CMB-017 - Deleting one month's savings line does not stop the jar; the next month re-appends it
+### CMB-017 - One month's jar line can't be deleted; skipping it leaves the jar planning the next month
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** shared household; active jar Z with a line in 2026-06.
+- **Preconditions:** shared household; active jar Z with a deadline plan and a line in 2026-06, the current month.
 - **Steps:**
-  1. Delete jar Z's savings LINE in 2026-06 (CAT-034 — jar left intact).
-  2. Create 2026-07 with copy-from-previous.
-- **Expected:** 2026-07 has NO Z line copied from 2026-06 (it was deleted there), but the append step re-adds it because jar Z is active and unrepresented — so Z reappears with a freshly seeded contribution. The jar's rolled-up balance still spans every month that DID carry a Z line (JarBalances is cross-month). Deleting a line is a per-month edit, never a jar lifecycle action.
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs)
+  1. Click **✕** on jar Z's savings line in 2026-06.
+  2. Send `DELETE /api/budget/items/{id}` for that line directly.
+  3. Choose **Skip this month** in the dialog.
+  4. Create 2026-07 with copy-from-previous.
+- **Expected:** 1: no removal; the skip-or-archive dialog opens (CAT-044). 2: 400 "Z is a jar's monthly contribution. Skip this month's contribution, or archive the jar to stop future ones."; the line and jar Z stay. 3: the line stays in 2026-06 at €0.00 with a **Skipped** tag (BUDG-060). 4: 2026-07 carries Z's line seeded at 2026-07's own planned contribution, not skipped. The jar's rolled-up balance still spans every month that carried a Z line. Skipping a month is a per-month edit, never a jar lifecycle action; archiving stops the jar (CMB-015).
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/CCategoriesLinesCoverageTests.cs `DeleteSavingsLine_IsRefused_TheLineAndItsJarStay`; JarLifecycleW04Tests.cs `Rule61_Skipping_ThisMonth_…`; CreateBudgetMonthTests.cs)
 
 ### CMB-018 - Planned savings contributions without moving cash push the reconciliation Float negative
 - **Priority:** P1

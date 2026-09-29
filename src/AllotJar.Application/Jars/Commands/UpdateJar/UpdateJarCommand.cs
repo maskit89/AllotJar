@@ -8,7 +8,9 @@ namespace AllotJar.Application.Jars.Commands.UpdateJar;
 /// Edits a jar's definition. A change to its target, deadline or plan revises the planned
 /// contributions in the current and later months (rule 46; past months are history). The
 /// designated account may only change while the jar's actual balance is zero (rule 80); money
-/// is never moved by an edit. Returns the jar with refreshed figures.
+/// is never moved by an edit. A change to the definition is dated (<see cref="Domain.Entities.JarRevision"/>),
+/// so a month that is over keeps being judged against the definition it had (P49). Returns the
+/// jar with refreshed figures.
 /// </summary>
 public record UpdateJarCommand(
     Guid Id,

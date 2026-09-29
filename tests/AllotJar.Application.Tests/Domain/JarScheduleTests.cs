@@ -399,6 +399,15 @@ public class JarScheduleTests
         JarSchedule.IsPlanning(completed).Should().BeFalse();
         JarSchedule.IsPlanning(ByDeadline(300m, new DateOnly(2026, 12, 1))).Should().BeTrue();
 
+        // Read on a date (W05): an archive with no recorded date counts on every date; a dated
+        // one from its day on, so the day before it the jar was still planning.
+        JarSchedule.IsArchivedOn(archived, new DateOnly(2020, 1, 1)).Should().BeTrue();
+        var datedArchive = ByDeadline(300m, new DateOnly(2026, 12, 1));
+        datedArchive.IsArchived = true;
+        datedArchive.ArchivedOn = new DateOnly(2026, 10, 2);
+        JarSchedule.IsPlanning(datedArchive, new DateOnly(2026, 10, 1)).Should().BeTrue();
+        JarSchedule.IsPlanning(datedArchive, new DateOnly(2026, 10, 2)).Should().BeFalse();
+
         foreach (var jar in new[] { archived, completed })
         {
             var plan = JarSchedule.Plan(jar, new DateOnly(2026, 9, 27), 120m);

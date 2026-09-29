@@ -116,8 +116,8 @@ public static class JarPlanner
         IApplicationDbContext db, string ownerId, Jar jar, DateOnly today, decimal extraBalance, CancellationToken cancellationToken)
     {
         var current = new DateOnly(today.Year, today.Month, 1);
-        var opening = await JarLedgerReader.ReadAsync(db, ownerId, current.AddDays(-1), cancellationToken, new[] { jar.FundingAccountId });
-        var now = await JarLedgerReader.ReadAsync(db, ownerId, today, cancellationToken, new[] { jar.FundingAccountId });
+        var opening = await JarLedgerReader.ReadAsync(db, ownerId, current.AddDays(-1), cancellationToken);
+        var now = await JarLedgerReader.ReadAsync(db, ownerId, today, cancellationToken);
         var openingBalance = opening.BalanceOf(jar.Id);
         var nowBalance = now.BalanceOf(jar.Id);
         return ((openingBalance ?? 0m) + extraBalance, (nowBalance ?? 0m) + extraBalance, PlanningBalance(openingBalance, nowBalance) + extraBalance);

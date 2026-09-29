@@ -22,18 +22,28 @@ public static class JarMovements
     /// <summary>
     /// Stores how <paramref name="amount"/> reaching <paramref name="account"/> is divided among its
     /// jars. An empty or null <paramref name="inputs"/> leaves it all unallocated (the prompt was
-    /// dismissed) and clears any earlier answer.
+    /// dismissed) and clears any earlier answer, except the shares of jars that have since left
+    /// the account (rule 80), which stay as recorded and are reduced only when the amount can no
+    /// longer hold them.
     /// </summary>
     public static async Task ApplyIncomingAsync(
         IApplicationDbContext db, string ownerId, Transaction transaction, Account account, DateOnly date,
         decimal amount, IReadOnlyList<JarAllocationInput>? inputs, string errorKey, CancellationToken cancellationToken)
     {
-        var postings = new List<JarAllocationPosting>();
-        if (inputs is { Count: > 0 })
+        var existing = await FindAsync(db, transaction.Id, account.Id, cancellationToken);
+        // Shares this leg put into jars that have since left the account (rule 80): history kept
+        // there, which the prompt can no longer answer for, so they stay as recorded — reduced
+        // only when the corrected amount can no longer hold them.
+        var kept = await KeptIncomingAsync(db, ownerId, existing, account.Id, date, cancellationToken);
+        kept = ScaleToFit(kept, amount);
+        var postings = kept.Where(k => k.Value != 0m).Select(k => new JarAllocationPosting { JarId = k.Key, Amount = k.Value }).ToList();
+        var named = kept.Values.Sum();
+        // An answer naming a kept jar is the stored share echoed back by the edit form.
+        var answers = inputs?.Where(i => !kept.ContainsKey(i.JarId)).ToList();
+        if (answers is { Count: > 0 })
         {
-            var jars = await OwnJarsAsync(db, ownerId, account, inputs.Select(i => i.JarId), errorKey, cancellationToken);
-            var named = 0m;
-            foreach (var group in inputs.Where(i => i.Amount != 0m).GroupBy(i => i.JarId))
+            var jars = await OwnJarsAsync(db, ownerId, account, answers.Select(i => i.JarId), errorKey, cancellationToken);
+            foreach (var group in answers.Where(i => i.Amount != 0m).GroupBy(i => i.JarId))
             {
                 var jar = jars[group.Key];
                 var jarAmount = group.Sum(i => i.Amount);
@@ -48,17 +58,69 @@ public static class JarMovements
                 named += jarAmount;
                 postings.Add(new JarAllocationPosting { JarId = jar.Id, Amount = jarAmount });
             }
-            if (named > amount)
-            {
-                throw Validation(errorKey,
-                    $"The jar amounts total {named:0.##} but only {amount:0.##} {account.Currency.Value} reached {account.Name}.");
-            }
-            if (postings.Count > 0 && amount - named > 0m)
-            {
-                postings.Add(new JarAllocationPosting { JarId = null, Amount = amount - named });
-            }
         }
-        await ReplaceAsync(db, ownerId, transaction, account.Id, date, postings, cancellationToken);
+        if (named > amount)
+        {
+            var keptNote = kept.Values.Sum() is var k and > 0m
+                ? $" ({k:0.##} of it stays in jars that have since moved to another account)"
+                : string.Empty;
+            throw Validation(errorKey,
+                $"The jar amounts total {named:0.##} but only {amount:0.##} {account.Currency.Value} reached {account.Name}{keptNote}.");
+        }
+        if (postings.Count > 0 && amount - named > 0m)
+        {
+            postings.Add(new JarAllocationPosting { JarId = null, Amount = amount - named });
+        }
+        await ReplaceAsync(db, ownerId, transaction, account.Id, date, postings, cancellationToken, existing);
+    }
+
+    /// <summary>The incoming shares <paramref name="existing"/> gave jars designated elsewhere now; refused when the leg would be dated after such a jar left.</summary>
+    private static async Task<Dictionary<Guid, decimal>> KeptIncomingAsync(
+        IApplicationDbContext db, string ownerId, JarAllocation? existing, Guid accountId, DateOnly date, CancellationToken cancellationToken)
+    {
+        var shares = existing?.Postings.Where(p => p.JarId is not null && p.Amount > 0m)
+            .GroupBy(p => p.JarId!.Value).ToDictionary(g => g.Key, g => g.Sum(p => p.Amount)) ?? new Dictionary<Guid, decimal>();
+        if (shares.Count == 0)
+        {
+            return shares;
+        }
+        var ids = shares.Keys.ToList();
+        var departed = await db.Jars.AsNoTracking().Where(j => ids.Contains(j.Id) && j.FundingAccountId != accountId).ToListAsync(cancellationToken);
+        var kept = new Dictionary<Guid, decimal>();
+        foreach (var jar in departed)
+        {
+            if (await JarDepartures.CoveringAsync(db, ownerId, jar.Id, accountId, date, cancellationToken) is null)
+            {
+                var left = await JarDepartures.LastAsync(db, jar.Id, accountId, cancellationToken);
+                throw JarDepartures.DatedAfterDeparture(jar.Name, left);
+            }
+            kept[jar.Id] = shares[jar.Id];
+        }
+        return kept;
+    }
+
+    /// <summary>
+    /// Kept shares unchanged when they fit in <paramref name="amount"/>; otherwise each is reduced
+    /// in proportion so they total exactly <paramref name="amount"/> (cents by largest remainder,
+    /// ties by jar id), never below zero.
+    /// </summary>
+    internal static Dictionary<Guid, decimal> ScaleToFit(Dictionary<Guid, decimal> shares, decimal amount)
+    {
+        var total = shares.Values.Sum();
+        if (total <= amount || total == 0m)
+        {
+            return shares;
+        }
+        var cents = (long)decimal.Round(amount * 100m, 0, MidpointRounding.ToZero);
+        var exact = shares.OrderBy(s => s.Key).Select(s => (s.Key, Raw: s.Value * 100m * amount / total)).ToList();
+        var floors = exact.Select(e => (e.Key, Cents: (long)decimal.Floor(e.Raw), Rem: e.Raw - decimal.Floor(e.Raw))).ToList();
+        var left = cents - floors.Sum(f => f.Cents);
+        var result = floors.ToDictionary(f => f.Key, f => f.Cents);
+        foreach (var f in floors.OrderByDescending(f => f.Rem).ThenBy(f => f.Key).Take((int)left))
+        {
+            result[f.Key]++;
+        }
+        return result.ToDictionary(r => r.Key, r => r.Value / 100m);
     }
 
     /// <summary>
@@ -68,12 +130,15 @@ public static class JarMovements
     /// current line and slices, so callers set those first. A line whose jar has since left this
     /// account (rule 80) still draws from that jar when the leg's stored operation says it did:
     /// the reader can no longer derive that on its own, so the attribution is written down again.
+    /// With <paramref name="keepDepartedDraw"/> (an edit that gave no jar answer) a draw from the
+    /// named jar that has since left the account is kept too. A leg drawing from a departed jar
+    /// can't be dated after the day the jar left.
     /// </summary>
     /// <param name="slices">The transaction's slices when they are not yet on its collection (a split being written); null reads <c>transaction.Splits</c>.</param>
     public static async Task ApplyOutgoingAsync(
         IApplicationDbContext db, string ownerId, Transaction transaction, Account account,
         Guid? paidFromJarId, string errorKey, CancellationToken cancellationToken,
-        IReadOnlyCollection<TransactionSplit>? slices = null)
+        IReadOnlyCollection<TransactionSplit>? slices = null, bool keepDepartedDraw = false)
     {
         slices ??= transaction.Splits.ToList();
         var existing = await FindAsync(db, transaction.Id, account.Id, cancellationToken);
@@ -81,6 +146,7 @@ public static class JarMovements
         // kept when the jar changed account (KeepLineAttributionAsync).
         var heldThen = existing?.Postings.Where(p => p.JarId is not null).Select(p => p.JarId!.Value).ToHashSet() ?? new HashSet<Guid>();
         var keepsHistory = false;
+        var keptJars = new HashSet<Guid>();
         Guid JarFor(Guid? lineId, IReadOnlyDictionary<Guid, (Guid JarId, Guid AccountId)> lineJars)
         {
             if (lineId is not Guid id || !lineJars.TryGetValue(id, out var line))
@@ -94,6 +160,7 @@ public static class JarMovements
             if (heldThen.Contains(line.JarId))
             {
                 keepsHistory = true;
+                keptJars.Add(line.JarId);
                 return line.JarId;
             }
             return Guid.Empty;
@@ -122,8 +189,35 @@ public static class JarMovements
         }
 
         var unlined = portions.GetValueOrDefault(Guid.Empty);
+        // The jar the rest of the payment was drawn from ("which jar?", rule 79) when that jar has
+        // since left this account: kept while the edit names it again or leaves the answer out.
+        var departedHeld = heldThen.Count == 0 ? new List<Guid>() : await db.Jars.AsNoTracking()
+            .Where(j => heldThen.Contains(j.Id) && j.FundingAccountId != account.Id).Select(j => j.Id).ToListAsync(cancellationToken);
+        var keptFrom = departedHeld.Where(j => !portions.ContainsKey(j)).Select(j => (Guid?)j).FirstOrDefault();
+        var keepsFrom = keepDepartedDraw && keptFrom is Guid k && unlined != 0m && (paidFromJarId is null || paidFromJarId == k);
+        if (keepsFrom)
+        {
+            keptJars.Add(keptFrom!.Value);
+        }
+
+        // A kept share is history from the stretch the jar was held here: the leg can't move past the day it left.
+        foreach (var keptJar in keptJars)
+        {
+            if (await JarDepartures.CoveringAsync(db, ownerId, keptJar, account.Id, transaction.Date, cancellationToken) is null)
+            {
+                var name = await db.Jars.AsNoTracking().Where(j => j.Id == keptJar).Select(j => j.Name).FirstAsync(cancellationToken);
+                throw JarDepartures.DatedAfterDeparture(name, await JarDepartures.LastAsync(db, keptJar, account.Id, cancellationToken));
+            }
+        }
+
         var postings = new List<JarAllocationPosting>();
-        if (paidFromJarId is null && keepsHistory)
+        if (keepsFrom)
+        {
+            portions.Remove(Guid.Empty);
+            portions[keptFrom!.Value] = portions.GetValueOrDefault(keptFrom.Value) + unlined;
+            postings.AddRange(portions.Where(p => p.Value != 0m).Select(p => new JarAllocationPosting { JarId = p.Key, Amount = -p.Value }));
+        }
+        else if (paidFromJarId is null && keepsHistory)
         {
             postings.AddRange(portions.Where(p => p.Value != 0m)
                 .Select(p => new JarAllocationPosting { JarId = p.Key == Guid.Empty ? null : p.Key, Amount = -p.Value }));
@@ -152,26 +246,29 @@ public static class JarMovements
     /// operation on that account, exactly as the reader derives it today. The derivation looks the
     /// jar up in its current account, so once the jar names another one those payments would fall
     /// to unallocated and the account's history would change though no money moved. Legs that
-    /// already carry a stored answer are left alone. The caller saves.
+    /// already carry a stored answer are left alone. Only payments dated on or before
+    /// <paramref name="movedOn"/> are kept: a later one was paid while the jar was held elsewhere.
+    /// Returns how many were written down. The caller saves.
     /// </summary>
-    public static async Task KeepLineAttributionAsync(IApplicationDbContext db, string ownerId, Jar jar, CancellationToken cancellationToken)
+    public static async Task<int> KeepLineAttributionAsync(IApplicationDbContext db, string ownerId, Jar jar, DateOnly movedOn, CancellationToken cancellationToken)
     {
         var account = await db.Accounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == jar.FundingAccountId, cancellationToken);
         if (account is null)
         {
-            return;
+            return 0;
         }
         var payments = await db.Transactions
             .AsNoTracking()
             .Include(t => t.Splits)
             .Where(t => t.OwnerId == ownerId && t.Type == TransactionType.Expense && t.AccountId == account.Id
+                        && t.Date <= movedOn
                         && !t.JarAllocations.Any(a => a.AccountId == account.Id)
                         && ((t.BudgetItem != null && t.BudgetItem.SavingsId == jar.Id)
                             || t.Splits.Any(s => s.BudgetItem != null && s.BudgetItem.SavingsId == jar.Id)))
             .ToListAsync(cancellationToken);
         if (payments.Count == 0)
         {
-            return;
+            return 0;
         }
         var jars = await db.Jars.AsNoTracking().Where(j => j.OwnerId == ownerId).ToDictionaryAsync(j => j.Id, cancellationToken);
         var lineJars = await JarLedgerReader.LineJarsAsync(db, ownerId, cancellationToken);
@@ -189,6 +286,7 @@ public static class JarMovements
                 Postings = postings.Select(p => new JarAllocationPosting { JarId = p.JarId, Amount = p.Amount }).ToList(),
             });
         }
+        return payments.Count;
     }
 
     /// <summary>Drops the stored split of one leg, so the reader falls back to its derived attribution.</summary>
@@ -210,6 +308,11 @@ public static class JarMovements
         List<JarAllocationPosting> postings, CancellationToken cancellationToken, JarAllocation? existing = null)
     {
         existing ??= await FindAsync(db, transaction.Id, accountId, cancellationToken);
+        // Rule 80: a change in the share of a jar that has left this account is settled on the
+        // departure, so the account still holds nothing of the jar from the day it left.
+        await JarDepartures.SettleAsync(db, ownerId, accountId,
+            existing?.Date ?? date, existing?.Postings.Select(p => (p.JarId, p.Amount)).ToList() ?? new List<(Guid?, decimal)>(),
+            date, postings.Select(p => (p.JarId, p.Amount)).ToList(), cancellationToken);
         if (postings.Count == 0)
         {
             if (existing is not null)

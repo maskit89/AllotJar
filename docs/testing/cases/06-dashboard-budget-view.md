@@ -1,6 +1,6 @@
 # Dashboard budget view (month view, hero, groups, lines, bills strip, jars shelf)
 
-**ID prefix:** DASH | **Scope:** The authenticated dashboard at `/` (`client/src/pages/DashboardPage.tsx` inside `AppShell active="budget"`): render states (loading / error / not-found / month loaded), the first-run empty state with its Copy / blank / template create cards, the Hero remaining-to-budget banner and its four footnote states per PR #172 (a month with TotalIncome = 0 shows the plan-your-income prompt and NEVER the gold balanced badge; `IsBalanced` requires income > 0 AND remaining == 0), the bills strip, the current-month "Your jars" shelf, the Income card (`IncomeGroup`/`IncomeLineRow`), the "Everyday spending" panel (`CategoryAccordion`/`BudgetItemRow` expense layout) with group/line CRUD + reorder, planned-amount inline editing (optimistic with rollback, `parseMinor` semantics), bill tag/due-day/paid controls, Savings group cards (`SavingsGroup` + fund-line layout with rolled-over Available), the "+ Add group" flow, and dashboard-specific role gating. All totals are integer-minor-unit sums mirroring the domain (`client/src/budgetModel.ts`); actuals are always transaction-derived at read time. | **Out of scope:** month create/copy/rollover SEMANTICS (what a copy carries, jar re-seeding/accrual maths, duplicate-month race, backfill as-of seeding, month navigation via the TopBar ‹ › and its unbounded-year dead-end) → file 07 (budget-months lifecycle); recording/editing the transactions that produce actuals → transactions & transfers file; the Jars page, jar accrual/recurrence rules and allocation → jars & allocation file; the Getting-started checklist, welcome dialog and tour (incl. the checklist's own balanced rule) → 05-onboarding.md; deep role matrix across all pages and session/auth expiry → 03-session-auth-lifecycle.md and the households/roles file; GA event delivery (`budgetMonthCreated`, `budgetItemEdited`, `monthNavigated` payloads) → analytics file; dark-mode/responsive/a11y sweeps → cross-cutting file (`client/e2e/a11y.spec.ts` + `mobile-layout.spec.ts` already scan `/` in both themes and at 375px). **Do not test for:** a `RemainingBanner.tsx` component (deleted in PR #168 — the tour anchor `data-tour="remaining-banner"` now sits on the Hero); a rename affordance on the Income group header (API-only, no UI); a client-side maximum on planned amounts (none exists — the server 400s); server error text surfacing in the dashboard error strip (optimistic failures are swallowed into fixed strings).
+**ID prefix:** DASH | **Scope:** The authenticated dashboard at `/` (`client/src/pages/DashboardPage.tsx` inside `AppShell active="budget"`): render states (loading / error / not-found / month loaded), the first-run empty state with its Copy / blank / template create cards, the Hero remaining-to-budget banner and its four footnote states per PR #172 (a month with TotalIncome = 0 shows the plan-your-income prompt and NEVER the gold balanced badge; `IsBalanced` requires income > 0 AND remaining == 0), the bills strip, the month-scoped "Your jars" shelf (W05: it follows the viewed month), the Income card (`IncomeGroup`/`IncomeLineRow`), the "Everyday spending" panel (`CategoryAccordion`/`BudgetItemRow` expense layout) with group/line CRUD + reorder, planned-amount inline editing (optimistic with rollback, `parseMinor` semantics), bill tag/due-day/paid controls, Savings group cards (`SavingsGroup` + fund-line layout with rolled-over Available), the "+ Add group" flow, and dashboard-specific role gating. All totals are integer-minor-unit sums mirroring the domain (`client/src/budgetModel.ts`); actuals are always transaction-derived at read time. | **Out of scope:** month create/copy/rollover SEMANTICS (what a copy carries, jar re-seeding/accrual maths, duplicate-month race, backfill as-of seeding, month navigation via the TopBar ‹ › and its unbounded-year dead-end) → file 07 (budget-months lifecycle); recording/editing the transactions that produce actuals → transactions & transfers file; the Jars page, jar accrual/recurrence rules and allocation → jars & allocation file; the Getting-started checklist, welcome dialog and tour (incl. the checklist's own balanced rule) → 05-onboarding.md; deep role matrix across all pages and session/auth expiry → 03-session-auth-lifecycle.md and the households/roles file; GA event delivery (`budgetMonthCreated`, `budgetItemEdited`, `monthNavigated` payloads) → analytics file; dark-mode/responsive/a11y sweeps → cross-cutting file (`client/e2e/a11y.spec.ts` + `mobile-layout.spec.ts` already scan `/` in both themes and at 375px). **Do not test for:** a `RemainingBanner.tsx` component (deleted in PR #168 — the tour anchor `data-tour="remaining-banner"` now sits on the Hero); a rename affordance on the Income group header (API-only, no UI); a client-side maximum on planned amounts (none exists — the server 400s); server error text surfacing in the dashboard error strip (optimistic failures are swallowed into fixed strings).
 
 **Test data setup:** Local stack (API :5099, `ASPNETCORE_ENVIRONMENT=Development`) or staging (staging.allotjar.com). Assumed date: **2026-07-15** (cases that score bill urgency say so). Locale/format left at default **en-GB comma-dot** (money renders `€1,234.56`), currency **EUR** (noun "euro") unless stated. Logins: (a) **dash-owner@example.test** — Owner of a solo household; (b) **dash-limited@example.test** (role Limited) and **dash-readonly@example.test** (role ReadOnly), both members of dash-owner's household; passwords random `Aa1-<uuid>` (HIBP rejects fixed common ones). Canonical month fixture "**JUL26**" (July 2026, owned by dash-owner) unless a case builds its own: Income group "Income" with lines **Take-home Pay** planned 2,600.00 (one assigned income transaction of 2,600.00 → received 2,600.00) and **Freelance** planned 400.00 (received 0) → TotalIncome 3,000.00; expense group **Housing** (Rent 1,100.00, bill dueDay 1, unpaid; Utilities 180.00, bill dueDay 20, unpaid), expense group **Food** (Groceries 400.00 with 250.00 spent; Restaurants 90.00 with 120.00 spent → overspent); savings group **Savings** with fund line **Holiday** planned 150.00, spent 0, savingsAvailable 450.00, backed by jar "Holiday" (target 1,200.00, currentBalance 450.00, requiredMonthlyContribution 150.00). Jar #2 "**Emergency Fund**" (target 500.00, balance 500.00, status FullyFunded) exists for shelf cases. Derived: month planned (non-income) = 1,920.00, **Remaining to budget = 1,080.00**. Automation hint (from PR #172 live verification): committing an inline edit in DOM automation needs a `focusout` event — React maps onBlur→focusout; a dispatched `blur` won't commit.
 
@@ -321,42 +321,124 @@
 - **Steps:**
   1. Load `/`; inspect the "Your jars" card.
 - **Expected:**
-  - Header "Your jars" + "€950.00 saved" (sum of `currentBalance`).
+  - The shelf's request is `GET /api/jars?year=2026&month=7` (W05: the viewed month's figures).
+  - Header "Your jars" + "€950.00 saved" (sum of `currentBalance`) with no "as of" suffix on the current month.
   - Holiday: jar graphic with accessible label "Holiday: 38% of goal" (450/1200 rounded), name, "€450.00", and "+€150.00/mo".
   - Emergency Fund: its status chip (funded celebration) replaces the monthly figure — chip and "+…/mo" are mutually exclusive.
   - Boundary: a jar with target 0 labels "0% of goal"; an overfunded jar's label clamps at 100%.
-- **Automated:** Partial (client/src/lib/jarStatus.test.ts — chip selection; shelf rendering itself only axe-scanned in client/e2e/a11y.spec.ts)
+- **Automated:** Partial (client/src/lib/jarStatus.test.ts — chip selection; client/src/pages/DashboardPage.jars.test.tsx DASH-028 — the request, the total and the monthly figure; shelf rendering itself also axe-scanned in client/e2e/a11y.spec.ts)
 
-### DASH-028 - Shelf is current-month-only
+### DASH-028 - Shelf follows the viewed month
 - **Priority:** P1
 - **Type:** Regression
-- **Origin:** PR #168 (shelf shows today's all-time balances — contradicts month-scoped lines elsewhere)
-- **Preconditions:** Jars exist; budgets exist for June, July (current) and August 2026.
+- **Origin:** PR #168 (shelf showed today's all-time balances on the current month only); W05 (rule 48, REVIEW J6) makes it the viewed month's view.
+- **Preconditions:** Jars exist; budgets exist for June, July (current) and August 2026; Holiday held 300.00 at June's end and 450.00 today.
 - **Steps:**
   1. View July 2026 → shelf visible.
   2. Navigate to June 2026, then August 2026.
-- **Expected:** The "Your jars" card renders ONLY on July (today's month); June and August show Hero → bills strip → Income directly.
-- **Automated:** No
+- **Expected:**
+  - The "Your jars" card renders on every month that has a budget; each navigation issues a fresh `GET /api/jars?year=…&month=…` and the shelf re-renders from it (never the previous month's figures).
+  - June: Holiday reads €300.00 and the header "€… saved as of 30 Jun 2026"; the "+€…/mo" figure is June's own line.
+  - August: the header reads "€… saved balances as of today", Holiday reads today's €450.00, "+€…/mo" is August's line.
+  - The Savings card's Available figure on the same month equals the shelf's balance (DASH-030).
+- **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-028/073/074 — mocked; the month switch itself is covered by the effect's dependency and the past/future cases)
 
-### DASH-029 - /jars failure leaves the shelf silently absent
+### DASH-029 - /jars failure leaves the shelf absent with a note; a non-array body leaves it absent
 - **Priority:** P2
 - **Type:** Edge
 - **Preconditions:** Block GET `/jars` (or return a non-array body); current month loaded.
 - **Steps:**
   1. Load `/`.
-- **Expected:** No shelf, no error strip, rest of the dashboard intact (the fetch is guarded; non-arrays coerce to `[]`). Note: this fetch ignores the `jars` feature flag — flag-off behaves identically to flag-on here.
-- **Automated:** No
+- **Expected:** No shelf, no error strip, rest of the dashboard intact. A blocked read shows the note "Could not load your jars for this month. Change month or reload to try again." and no first-run checklist (DASH-079); a non-array body shows no note (the fetch is guarded; non-arrays coerce to `[]`). Note: this fetch ignores the `jars` feature flag — flag-off behaves identically to flag-on here.
+- **Automated:** Partial (client/src/pages/DashboardPage.jars.test.tsx DASH-079 — a failed read after a month change)
 
-### DASH-030 - Shelf balance vs fund-line "avail." may differ by the jar's opening balance
+### DASH-030 - Shelf balance and the fund line's "avail." agree on every month
 - **Priority:** P2
-- **Type:** Edge
-- **Preconditions:** Jar "Holiday" edited to carry OpeningBalance 100.00; contributions across months total 350.00, no spend.
+- **Type:** Regression
+- **Origin:** Jar allocation slice (both read the ledger); W05 (rule 48) reads them at one date per month.
+- **Preconditions:** Jar "Holiday" with 300.00 allocated by June's end and 150.00 more in July; budgets for June, July (current) and August.
 - **Steps:**
-  1. On the current month, compare the shelf's Holiday balance with the Savings card's "avail." figure on the Holiday line.
+  1. On June, July and August in turn, compare the shelf's Holiday balance with the Savings card's "avail." figure on the Holiday line.
 - **Expected:**
-  - Shelf (JarDto.currentBalance) shows €450.00 (opening + contributions); the fund line's "avail." shows €350.00 (`SavingsAvailable` excludes OpeningBalance by design).
-  - Both figures are internally consistent — this is documented behavior, not a defect; file a bug only if the delta ≠ the opening balance.
-- **Automated:** No
+  - June: both €300.00 (as of 30 June); July and August: both €450.00 (today). Neither figure includes planned contributions.
+  - A difference on any month is a defect (there is no longer a jar opening balance to explain one).
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/JarMonthViewW05Tests.cs `Rules48And49_TheBudgetGridsAvailable_AgreesWithTheShelf_OnEveryMonth`)
+
+### DASH-073 - A past month's shelf is dated at the month's end
+- **Priority:** P1
+- **Type:** Happy
+- **Origin:** W05 (rule 48)
+- **Preconditions:** Today is in the month after the viewed one; the server answers `/jars?year&month` with `balanceAsOf` = the month's last day, `currentBalance` 300.00, `plannedThisMonth` 100.00.
+- **Steps:**
+  1. View the past month.
+- **Expected:** The shelf renders; the header reads "€300.00 saved as of 30 Jun 2026" (the server's `balanceAsOf`, browser-locale formatted); Holiday reads €300.00 and "+€100.00/mo" (that month's line). No ✕ / skip affordances on the lines (BUDG-062).
+- **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx)
+
+### DASH-074 - A month that has not begun shows today's balances and says so
+- **Priority:** P2
+- **Type:** Happy
+- **Origin:** W05 (P47)
+- **Preconditions:** Today is in the month before the viewed one; the server answers with today's `currentBalance` and the viewed month's `plannedThisMonth` 130.00, `contributedThisMonth` 0.
+- **Steps:**
+  1. View the later month (it has a budget).
+- **Expected:** The shelf renders with the header "€… saved balances as of today" and "+€130.00/mo" — the month's own plan, nothing contributed yet. The server never reads a future date.
+- **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx; the server side in JarMonthViewW05Tests `Rule48_AMonthThatHasNotBegun_…` and `…DoesNotSettleACycle_…`)
+
+### DASH-075 - The shelf is re-read after changes that move a jar's figures
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** REVIEW J6 (the shelf went stale after edits); W05 (P50)
+- **Preconditions:** JUL26 loaded with the Holiday jar line; the shelf has loaded once.
+- **Steps:**
+  1. Edit Holiday's planned amount to 200.00 and commit (focusout).
+  2. Edit Rent's planned amount and commit.
+  3. On a month with no budget, click "Start a blank budget".
+- **Expected:**
+  - Step 1: after `PUT /api/budget/items/{id}` succeeds, `GET /api/jars?year&month` is issued again and the shelf's "+€/mo" follows the new plan.
+  - Step 2: no `/jars` re-read (an expense line moves no jar figure).
+  - Step 3: after `POST /api/budget` returns the month, `/jars` is re-read and the shelf appears with the seeded lines as its plan.
+  - Skipping a month / Plan it again / Archive the jar from a line (BUDG-060/061) and creating a jar from a Savings group already re-read it.
+- **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-075 ×2)
+
+### DASH-076 - Navigating months never shows the previous month's shelf under the new month
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Adversarial review of PR #275 (W05): the month was cleared on navigation, the jars were not.
+- **Preconditions:** A past month with a jar at 300 (dated shelf) and the current month with the same jar at 450; a slow `/jars` response for the current month.
+- **Steps:**
+  1. View the past month. 2. Navigate to the current month.
+- **Expected:** 1: "€300.00 saved as of <last day>". 2: the current month's grid appears with the shelf absent until its own `GET /api/jars?year&month` lands, then "€450.00 saved" with no date; at no point does "€300.00 saved" show under the current month.
+- **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-076)
+
+### DASH-077 - Navigating months never flashes the first-run checklist while the new month's jars load
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Adversarial re-review of PR #275 (W05): clearing the shelf on navigation (DASH-076) left the checklist reading "no jar yet" until the new month's read landed.
+- **Preconditions:** An account, a past month and the current month each with a jar (300 then 450); a slow `/jars` response for the current month.
+- **Steps:**
+  1. View the past month. 2. Navigate to the current month. 3. Let the jars read land.
+- **Expected:** "Set up your budget" is never shown: not on the past month, not while the current month's grid is on screen with its shelf still loading, and not after "€450.00 saved" appears.
+- **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-077)
+
+### DASH-078 - A jar line's save that returns after a month change leaves the new month's shelf alone
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Re-review of PR #275 (W05, round 3, P2-12): the save's shelf refresh read the month it was made on after the user had moved on, and that month's jars stayed under the new month's grid.
+- **Preconditions:** The current month with Holiday at 450 (its line on the grid) and a past month with Holiday at 300; a slow `PUT /api/budget/items/{id}`.
+- **Steps:**
+  1. On the current month click Holiday's planned amount and type 200. 2. Click the previous-month arrow (the blur commits the save, the click changes month). 3. Let the save return.
+- **Expected:** 2: `PUT /api/budget/items/{id}` with `plannedAmount: 200` is sent; the past month's grid and shelf load ("€300.00 saved as of <last day>"). 3: no further `/jars` read is issued and the shelf keeps "€300.00 saved"; "€450.00 saved" never shows under the past month. The same guard covers every shelf refresh that follows a save, such as Start a blank budget or a template.
+- **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-078)
+
+### DASH-079 - A failed jars read after a month change says so instead of showing the first-run checklist
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Re-review of PR #275 (W05, round 3, P2-13): a failed read counted as loaded, so the cleared shelf read as "no jar yet" and the checklist asked to "Add a jar from an account".
+- **Preconditions:** An account and a Holiday jar; the current month loaded with its shelf ("€450.00 saved"); `GET /api/jars?year&month` for the previous month answers 500.
+- **Steps:**
+  1. Navigate to the previous month.
+- **Expected:** The month's grid loads; the shelf is absent and a note reads "Could not load your jars for this month. Change month or reload to try again."; "Set up your budget" is not shown. A later successful read (another month, or a reload) clears the note.
+- **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-079)
 
 ## Income card
 

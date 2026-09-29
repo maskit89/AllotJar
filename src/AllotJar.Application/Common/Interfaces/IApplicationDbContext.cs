@@ -20,6 +20,7 @@ public interface IApplicationDbContext
     DbSet<JarAllocation> JarAllocations { get; }
     DbSet<JarAllocationPosting> JarAllocationPostings { get; }
     DbSet<JarCycle> JarCycles { get; }
+    DbSet<JarRevision> JarRevisions { get; }
     DbSet<HouseholdMember> HouseholdMembers { get; }
     DbSet<HouseholdMembership> HouseholdMemberships { get; }
     DbSet<AllocationProfile> AllocationProfiles { get; }

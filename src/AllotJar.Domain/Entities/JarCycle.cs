@@ -20,7 +20,7 @@ public class JarCycle : BaseEntity
     /// <summary>The deadline this cycle worked toward (a plain calendar date, rule 82).</summary>
     public DateOnly Deadline { get; set; }
 
-    /// <summary>The jar's target while this cycle was open (rule 24: the next cycle keeps it unless edited).</summary>
+    /// <summary>The jar's target when the cycle closed, which its outcome was judged against (rule 24: the next cycle keeps it unless edited).</summary>
     public decimal TargetAmount { get; set; }
 
     public JarCycleOutcome Outcome { get; set; }
@@ -47,4 +47,12 @@ public class JarCycle : BaseEntity
 
     /// <summary>A paid cycle whose payment landed before the deadline (rule 22).</summary>
     public bool PaidOnTime => Outcome == JarCycleOutcome.Paid && PaidOn is { } paid && paid < Deadline;
+
+    /// <summary>
+    /// The day the cycle counts as closed when a past month is read (W05, P49): a cycle paid on
+    /// time was complete from its payment (rule 22) even when the user marked it paid later
+    /// (rule 83), so no month after the payment reads it Deadline missed; otherwise
+    /// <see cref="ClosedOn"/>.
+    /// </summary>
+    public DateOnly ClosedForHistoryOn => PaidOnTime && PaidOn is { } paid && paid < ClosedOn ? paid : ClosedOn;
 }

@@ -33,16 +33,35 @@ public sealed record JarLedgerView(
 public sealed record JarLedgerSnapshot(
     DateOnly AsOf,
     IReadOnlyDictionary<Guid, JarLedgerView> Accounts,
-    IReadOnlyDictionary<Guid, Jar> Jars)
+    IReadOnlyDictionary<Guid, Jar> Jars,
+    bool IsComplete = true)
 {
-    /// <summary>The jar's balance in its designated account; null when that account's balance is unavailable.</summary>
+    /// <summary>
+    /// The jar's balance as of the date: what its allocations put in its designated account plus
+    /// what they left in any account it was designated to before (rule 80 — the history stays in
+    /// the old account's ledger, so a date before the change reads the balance it held there
+    /// then, and from the day it left the account's Departure operation makes its postings there
+    /// sum to zero, <see cref="JarDepartures"/>). Every reader and zero check reads this one
+    /// figure, so a snapshot restricted to some accounts throws rather than answer. Null when its designated
+    /// account has no opening date, or had not opened on the date and no other account's ledger
+    /// carries the jar on it (rule 67); an account not yet open on the date held nothing of it.
+    /// </summary>
     public decimal? BalanceOf(Guid jarId)
     {
-        if (!Jars.TryGetValue(jarId, out var jar) || !Accounts.TryGetValue(jar.FundingAccountId, out var view) || !view.IsAvailable)
+        if (!IsComplete)
+        {
+            throw new InvalidOperationException("A jar's balance is read from every account that may carry it: read the ledger without accountIds.");
+        }
+        if (!Jars.TryGetValue(jarId, out var jar) || !Accounts.TryGetValue(jar.FundingAccountId, out var view) || view.OpeningDateMissing)
         {
             return null;
         }
-        return view.JarBalances.TryGetValue(jarId, out var balance) ? balance : 0m;
+        var held = Accounts.Values.Where(a => a.IsAvailable && a.JarBalances.ContainsKey(jarId)).ToList();
+        if (held.Count == 0)
+        {
+            return null;
+        }
+        return held.Sum(a => a.JarBalances[jarId]);
     }
 
     public JarLedgerView? AccountOf(Guid jarId) =>
@@ -86,7 +105,7 @@ public static class JarLedgerReader
         var views = new Dictionary<Guid, JarLedgerView>();
         if (backedIds.Count == 0)
         {
-            return new JarLedgerSnapshot(asOf, views, jarsById);
+            return new JarLedgerSnapshot(asOf, views, jarsById, accountIds is null);
         }
 
         var accounts = await db.Accounts
@@ -182,7 +201,7 @@ public static class JarLedgerReader
             views[account.Id] = new JarLedgerView(asOf, account, ledger, false, unreconciled);
         }
 
-        return new JarLedgerSnapshot(asOf, views, jarsById);
+        return new JarLedgerSnapshot(asOf, views, jarsById, accountIds is null);
     }
 
     /// <summary>Budget line → jar, for the derived attribution of expenses (rule 79).</summary>

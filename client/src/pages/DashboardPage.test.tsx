@@ -409,6 +409,25 @@ describe('DashboardPage optimistic editing', () => {
     expect(screen.getByText('€170.00')).toBeInTheDocument()
   })
 
+  it('CAT-023: a Savings group that holds a jar\'s line offers no delete; an empty one does (rule 60)', { timeout: 15000 }, async () => {
+    const b = budget()
+    b.categories.push(
+      {
+        id: 'jars', name: 'Sinking Funds', kind: 'Savings', displayOrder: 0, totalPlanned: 100, totalActual: 0,
+        items: [{ id: 'i-car', name: 'Car', displayOrder: 0, plannedAmount: 100, actualAmount: 0, remaining: 100, savingsId: 'fund-car', savingsAvailable: 100 }],
+      },
+      { id: 'later', name: 'Later', kind: 'Savings', displayOrder: 1, totalPlanned: 0, totalActual: 0, items: [] },
+    )
+    mockGet.mockImplementation((url: string) =>
+      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: b }),
+    )
+
+    renderPage()
+
+    expect(await screen.findByLabelText('Delete group Later', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Delete group Sinking Funds')).toBeNull()
+  })
+
   it('creates a fund group when the kind is set to Fund', { timeout: 15000 }, async () => {
     mockGet.mockImplementation((url: string) =>
       url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: budget() }),

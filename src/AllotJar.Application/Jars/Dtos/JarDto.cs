@@ -8,12 +8,16 @@ namespace AllotJar.Application.Jars.Dtos;
 /// A jar with its read-time-derived figures: the actual balance, this month's plan against
 /// what has actually been contributed (rule 14), the dates that frame its schedule and a
 /// status. Enum fields are serialised as their numeric value, mirroring <see cref="AccountType"/>.
+/// For a month that is over, the definition fields (kind, target, dates and plan settings) are the
+/// ones the jar had at that month's end, which its status was judged against (P49).
 /// </summary>
 public class JarDto
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public JarKind Kind { get; set; }
+
+    /// <summary>The target the status was judged against: today's, or for a month that is over the one the jar had at its end (P49).</summary>
     public decimal TargetAmount { get; set; }
 
     /// <summary>The stored deadline (anchor) — never the rolled date, so an edit round-trips faithfully. See <see cref="Deadline"/>.</summary>
@@ -122,14 +126,22 @@ public class JarCycleDto
 public static class JarMapping
 {
     /// <summary>
-    /// Maps the jar from its two balances — now and entering the month (both null when
-    /// unavailable, rule 67) — and the month's stored savings-line plan when the month exists.
+    /// Maps the jar from its two balances — as of <paramref name="asOf"/> and entering the month
+    /// (both null when unavailable, rule 67) — and the month's stored savings-line plan when the
+    /// month exists. <paramref name="month"/> is the budget month the figures belong to (W05, rule
+    /// 48); it is the month of <paramref name="asOf"/> unless the month has not begun yet, when
+    /// the balances are today's and the plan is the later month's own line.
+    /// <paramref name="f"/> is the definition the month is judged against: the jar as it is today, or
+    /// for a month that is over the jar as it was defined at its end, with the Recurring cycle open
+    /// then (<see cref="JarHistory.DefinitionOn"/>, P49).
     /// </summary>
     public static JarDto ToDto(this Jar f, decimal? currentBalance, decimal? balanceAtMonthStart, decimal? storedPlanThisMonth, DateOnly asOf,
-        JarCycle? lastCycle = null, bool skippedThisMonth = false, bool canDelete = false, IReadOnlySet<DateOnly>? skippedMonths = null)
+        JarCycle? lastCycle = null, bool skippedThisMonth = false, bool canDelete = false, IReadOnlySet<DateOnly>? skippedMonths = null,
+        DateOnly? month = null)
     {
         var balance = currentBalance ?? 0m;
-        var remaining = f.TargetAmount > 0m ? Math.Max(0m, f.TargetAmount - balance) : 0m;
+        var target = f.TargetAmount;
+        var remaining = target > 0m ? Math.Max(0m, target - balance) : 0m;
         // The schedule is planned from the balance entering the month (rule 13), so it holds
         // still while contributions land during the month (rule 14) — unless money left the jar,
         // which counts at once (JarPlanner.PlanningBalance). An account that opened this month
@@ -137,19 +149,23 @@ public static class JarMapping
         var startBalance = currentBalance is null ? 0m : JarPlanner.PlanningBalance(balanceAtMonthStart, currentBalance);
         // The months the user skipped (rule 60) — this one and any later — shape the horizon the
         // card shows, exactly as they shape the plan the Savings lines carry (rule 61).
-        var monthStart = new DateOnly(asOf.Year, asOf.Month, 1);
+        var monthStart = month is { } m ? new DateOnly(m.Year, m.Month, 1) : new DateOnly(asOf.Year, asOf.Month, 1);
         var skipped = new HashSet<DateOnly>(skippedMonths ?? (IEnumerable<DateOnly>)Array.Empty<DateOnly>());
         if (skippedThisMonth)
         {
             skipped.Add(monthStart);
         }
-        var plan = JarSchedule.Plan(f, asOf, startBalance, skipped.Count > 0 ? new JarPlanOptions(skipped, currentBalance) : null);
+        // A month that has not begun is planned from that month (its own share of what is left,
+        // from today's balance), never from today's month.
+        var planFrom = monthStart > asOf ? monthStart : asOf;
+        var plan = JarSchedule.Plan(f, planFrom, startBalance, skipped.Count > 0 ? new JarPlanOptions(skipped, currentBalance) : null);
         var deadline = plan.Deadline ?? JarSchedule.CurrentDeadline(f);
         // Rule 20: a Recurring cycle whose deadline has arrived is settled before this read
         // (JarCycles.SettleAsync rolls a funded one forward), so an open cycle at or before the
         // date is one that was short when the money had to be there. It stays that way — and
-        // reads Funded late once the target is reached (rule 57) — until the user acts.
-        var missed = currentBalance is not null && f.Kind == JarKind.Recurring && !f.IsArchived
+        // reads Funded late once the target is reached (rule 57) — until the user acts. A jar
+        // archived since that date was still live on it (W05), so its month keeps that state.
+        var missed = currentBalance is not null && f.Kind == JarKind.Recurring && !JarSchedule.IsArchivedOn(f, asOf)
                      && JarSchedule.HasSchedule(f) && deadline is { } due0 && due0 <= asOf;
 
         string status;
@@ -157,10 +173,11 @@ public static class JarMapping
         {
             status = "Unavailable";
         }
-        else if (f.IsCompleted)
+        else if (JarSchedule.IsCompletedOn(f, asOf))
         {
             // Rule 55: done is done — a spent or empty balance never restarts a plan, and what
-            // is left stays visible until the user moves it (rule 56).
+            // is left stays visible until the user moves it (rule 56). Completion is dated, so a
+            // month before it reads the status the jar had then (W05, rule 48).
             status = "Completed";
         }
         else if (missed)
@@ -175,7 +192,7 @@ public static class JarMapping
         {
             status = "Ongoing";
         }
-        else if (f.TargetAmount > 0m && remaining == 0m)
+        else if (target > 0m && remaining == 0m)
         {
             // Holding the target needs no plan, so funded wins over Unscheduled.
             status = "FullyFunded";

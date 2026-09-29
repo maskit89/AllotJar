@@ -40,13 +40,30 @@ public class JarsController : ControllerBase
         _mediator = mediator;
     }
 
-    /// <summary>Lists the user's jars with their derived figures.</summary>
+    /// <summary>
+    /// Lists the user's jars with their derived figures. <c>year</c> and <c>month</c> (given
+    /// together) select the budget month the figures belong to (rule 48): a past month reads its
+    /// balances as of its last day and its plan from that month's lines; the current month and a
+    /// later one read as of today. Without them the figures are today's.
+    /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<JarDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IReadOnlyList<JarDto>>> List(
-        [FromQuery] bool includeArchived, [FromQuery] DateOnly? asOf, CancellationToken ct)
+        [FromQuery] bool includeArchived, [FromQuery] DateOnly? asOf, [FromQuery] int? year, [FromQuery] int? month,
+        CancellationToken ct)
     {
-        var result = await _mediator.Send(new GetJarsQuery(includeArchived, asOf), ct);
+        DateOnly? selected = null;
+        if (year is not null || month is not null)
+        {
+            if (year is null || month is null || month is < 1 or > 12 || year is < 1 or > 9999)
+            {
+                return BadRequest(new { error = "Give both year and month (1–12) to read a month's jar figures." });
+            }
+            selected = new DateOnly(year.Value, month.Value, 1);
+        }
+
+        var result = await _mediator.Send(new GetJarsQuery(includeArchived, asOf, selected), ct);
         return Ok(result);
     }
 

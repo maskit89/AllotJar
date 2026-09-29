@@ -3,7 +3,10 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Commands.ReallocateJarMoney;
+using AllotJar.Application.Jars.Commands.UpdateJar;
+using AllotJar.Application.Jars.Queries.GetJars;
 using AllotJar.Application.Jars.Queries.GetJarLedger;
+using AllotJar.Application.Transactions.Commands.UpdateTransaction;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -264,5 +267,98 @@ public class JarLedgerSqlTests
         ledger.Jars.Single(j => j.JarId == repairs.Id).Balance.Should().Be(80m);
         ledger.Unallocated.Should().Be(400m);
         ledger.HasBackingDeficit.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_jar_edit_is_dated_so_last_month_keeps_the_target_it_had()
+    {
+        // P49 on SQL Server: the first edit stores the definition it replaces from 0001-01-01
+        // (the date column's minimum) and the new one from today; a second edit today updates
+        // today's row under the unique (JarId, EffectiveFrom) index. Last month still reads 1000.
+        var owner = NewOwner();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var current = new DateOnly(today.Year, today.Month, 1);
+        Account account;
+        Jar jar;
+        await using (var seed = _fixture.CreateContext())
+        {
+            account = await SeedAccountAsync(seed, owner);
+            jar = await SeedJarAsync(seed, account);
+            seed.JarAllocations.Add(Allocation(owner, account.Id, jar.Id, 600m));
+            await seed.SaveChangesAsync();
+        }
+
+        foreach (var target in new[] { 600m, 700m })
+        {
+            await using var db = _fixture.CreateContext();
+            await new UpdateJarCommandHandler(db, new CurrentUserStub(owner)).Handle(
+                new UpdateJarCommand(jar.Id, "Holiday", JarKind.Goal, target, current.AddMonths(10), AccrualMethod.TargetByDate, account.Id),
+                CancellationToken.None);
+        }
+
+        await using var verify = _fixture.CreateContext();
+        (await verify.JarRevisions.Where(r => r.JarId == jar.Id).OrderBy(r => r.EffectiveFrom)
+                .Select(r => new { r.EffectiveFrom, r.TargetAmount }).ToListAsync())
+            .Should().Equal(new { EffectiveFrom = DateOnly.MinValue, TargetAmount = 1000m }, new { EffectiveFrom = today, TargetAmount = 700m });
+        var reads = new GetJarsQueryHandler(verify, new CurrentUserStub(owner));
+        (await reads.Handle(new GetJarsQuery(Month: current.AddMonths(-1)), CancellationToken.None)).Single().TargetAmount.Should().Be(1000m);
+        (await reads.Handle(new GetJarsQuery(Month: current), CancellationToken.None)).Single().TargetAmount.Should().Be(700m);
+    }
+
+    [Fact]
+    public async Task A_correction_to_a_kept_payment_is_settled_on_the_day_the_jar_left()
+    {
+        // P51 on SQL Server: Holiday held 100 in A and its June line paid 100 from A; it moves to B
+        // today. Correcting that payment to 80 leaves 20 in A's history, which the Departure
+        // operation dated today returns to A's unallocated money, so A holds nothing of the jar.
+        var owner = NewOwner();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var june20 = new DateOnly(2026, 6, 20);
+        Account a, b;
+        Jar jar;
+        Transaction payment;
+        await using (var seed = _fixture.CreateContext())
+        {
+            a = await SeedAccountAsync(seed, owner);
+            b = await SeedAccountAsync(seed, owner);
+            jar = await SeedJarAsync(seed, a);
+            seed.JarAllocations.Add(Allocation(owner, a.Id, jar.Id, 100m));
+            var line = new BudgetItem { Name = "Holiday", SavingsId = jar.Id, PlannedAmount = 100m };
+            seed.BudgetMonths.Add(new BudgetMonth
+            {
+                OwnerId = owner, Year = 2026, Month = 6, BaseCurrency = CurrencyCode.Eur,
+                Categories = new List<BudgetCategory> { new() { Name = "Savings", Kind = CategoryKind.Savings, Items = new List<BudgetItem> { line } } },
+            });
+            await seed.SaveChangesAsync();
+            payment = new Transaction
+            {
+                OwnerId = owner, AccountId = a.Id, BudgetItemId = line.Id, Amount = 100m, Currency = CurrencyCode.Eur,
+                Type = TransactionType.Expense, Date = june20, Payee = "Travel agent",
+            };
+            seed.Transactions.Add(payment);
+            await seed.SaveChangesAsync();
+        }
+
+        await using (var move = _fixture.CreateContext())
+        {
+            await new UpdateJarCommandHandler(move, new CurrentUserStub(owner)).Handle(
+                new UpdateJarCommand(jar.Id, "Holiday", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate, b.Id), CancellationToken.None);
+        }
+        await using (var correct = _fixture.CreateContext())
+        {
+            await new UpdateTransactionCommandHandler(correct, new CurrentUserStub(owner)).Handle(
+                new UpdateTransactionCommand(payment.Id, june20, "Travel agent", 80m, TransactionType.Expense, a.Id), CancellationToken.None);
+        }
+
+        await using var verify = _fixture.CreateContext();
+        var departure = await verify.JarAllocations.AsNoTracking().Include(al => al.Postings)
+            .SingleAsync(al => al.AccountId == a.Id && al.Kind == JarAllocationKind.Departure);
+        departure.Date.Should().Be(today);
+        departure.Postings.Select(p => (p.JarId, p.Amount)).Should().BeEquivalentTo(new (Guid?, decimal)[] { (jar.Id, -20m), (null, 20m) });
+        var ledger = (await new GetJarLedgerQueryHandler(verify, new CurrentUserStub(owner)).Handle(new GetJarLedgerQuery(null, a.Id), CancellationToken.None)).Single();
+        (ledger.Jars.SingleOrDefault(j => j.JarId == jar.Id)?.Balance ?? 0m).Should().Be(0m);
+        ledger.Unallocated.Should().Be(920m);
+        (await new GetJarsQueryHandler(verify, new CurrentUserStub(owner)).Handle(new GetJarsQuery(), CancellationToken.None))
+            .Single().CurrentBalance.Should().Be(0m);
     }
 }

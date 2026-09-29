@@ -47,6 +47,31 @@ public class DeleteBudgetCategoryCommandHandler : IRequestHandler<DeleteBudgetCa
             });
         }
 
+        // Rule 60: a jar's line leaves a month only by skipping that month's contribution or
+        // archiving the jar (DeleteBudgetItem refuses it alone), so a group that still holds one
+        // cannot take it with it. On a month that is over it would also rewrite the month's jar
+        // history (rule 46), and on a later one leave the jars planning what the grid does not.
+        var jarLineIds = category.Items.Where(i => i.SavingsId is not null).Select(i => i.SavingsId!.Value).ToList();
+        if (jarLineIds.Count > 0)
+        {
+            var jarNames = await _db.Jars
+                .Where(j => jarLineIds.Contains(j.Id))
+                .OrderBy(j => j.Name)
+                .Select(j => j.Name)
+                .ToListAsync(cancellationToken);
+            if (jarNames.Count > 0)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    [nameof(request.CategoryId)] = new[]
+                    {
+                        $"{category.Name} holds {(jarNames.Count == 1 ? "a jar's monthly contribution" : "jars' monthly contributions")} ({string.Join(", ", jarNames)}). "
+                        + "Skip this month's contribution or archive the jar instead; a group can be deleted once it holds no jar's line.",
+                    },
+                });
+            }
+        }
+
         var monthId = category.BudgetMonthId;
 
         // Remove the lines explicitly (the relational cascade also covers this,

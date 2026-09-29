@@ -22,8 +22,9 @@ public class JarAllocationConfiguration : IEntityTypeConfiguration<JarAllocation
             .HasForeignKey(a => a.AccountId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // Deleting a transaction removes the attribution of its leg with it; the reader then has
-        // nothing to attribute, which is exactly right.
+        // DeleteTransaction clears each leg's split first (JarMovements.ClearAsync), so a share
+        // of a jar that has since left the account is settled on its departure; the cascade is
+        // the backstop that removes the attribution with its leg.
         builder.HasOne(a => a.Transaction)
             .WithMany(t => t.JarAllocations)
             .HasForeignKey(a => a.TransactionId)

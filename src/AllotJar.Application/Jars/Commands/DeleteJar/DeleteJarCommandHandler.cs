@@ -49,6 +49,10 @@ public class DeleteJarCommandHandler : IRequestHandler<DeleteJarCommand>
             .Where(c => c.JarId == jar.Id)
             .ToListAsync(cancellationToken);
         _db.JarCycles.RemoveRange(cycles);
+        var revisions = await _db.JarRevisions
+            .Where(r => r.JarId == jar.Id)
+            .ToListAsync(cancellationToken);
+        _db.JarRevisions.RemoveRange(revisions);
         _db.Jars.Remove(jar);
 
         await _db.SaveChangesAsync(cancellationToken);

@@ -270,7 +270,8 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             if (request.Type == TransactionType.Expense)
             {
                 await JarMovements.ApplyOutgoingAsync(
-                    _db, userId, transaction, account, request.PaidFromJarId, "PaidFromJarId", cancellationToken);
+                    _db, userId, transaction, account, request.PaidFromJarId, "PaidFromJarId", cancellationToken,
+                    keepDepartedDraw: true);
             }
             else
             {
