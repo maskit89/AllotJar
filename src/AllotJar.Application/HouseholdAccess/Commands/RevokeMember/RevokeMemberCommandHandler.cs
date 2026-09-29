@@ -1,6 +1,5 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using AllotJar.Application.Accounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Enums;
@@ -34,8 +33,5 @@ public class RevokeMemberCommandHandler : IRequestHandler<RevokeMemberCommand>
 
         _db.HouseholdMemberships.Remove(membership);
         await _db.SaveChangesAsync(cancellationToken);
-
-        // P59: the accounts private to the removed login pass to their holder's login, if they have one.
-        await AccountSharing.HandOverOrphanedPrivacyAsync(_db, ownerId, cancellationToken);
     }
 }

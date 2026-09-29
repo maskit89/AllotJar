@@ -303,18 +303,13 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
 
         foreach (var privacy in entries.Where(e => e.Entity is AccountPrivacy))
         {
-            // Only the login a privacy row names may create, change or remove it — except the P59
-            // hand-over to the holder's own login once the login that chose it has left the household.
-            var row = (AccountPrivacy)privacy.Entity;
+            // Only the login a privacy row names may create, change or remove it (P59: no one can
+            // hand it to another login, whoever is linked to the account's holder).
             var owner = privacy.State == EntityState.Added
-                ? row.UserId
+                ? ((AccountPrivacy)privacy.Entity).UserId
                 : (string?)privacy.OriginalValues[nameof(AccountPrivacy.UserId)];
-            if (privacy.State == EntityState.Modified && owner is not null && row.UserId != owner
-                && await AccountSharing.HeirAsync(this, row.AccountId, owner, cancellationToken) == row.UserId)
-            {
-                continue;
-            }
-            if (owner != viewer || (privacy.State == EntityState.Modified && row.UserId != viewer))
+            var now = ((AccountPrivacy)privacy.Entity).UserId;
+            if (owner != viewer || (privacy.State == EntityState.Modified && now != viewer))
             {
                 throw PrivateAccountWrite();
             }

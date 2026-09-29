@@ -339,7 +339,7 @@ When you want someone else to log in and use the budget with you, **invite** the
 
 ### Reviewing who sees your accounts
 
-When your sign-in is linked to a person who already holds accounts — or someone else adds an account for you — a **Review sharing** banner asks you, once, which of those accounts the household sees. Each starts as it is now, and nothing changes until you save your choices. An account a jar uses stays shared and says why. Privacy belongs to your sign-in: if your person is linked to another sign-in, your private accounts stay with yours. If your sign-in is removed from the household, your private accounts stay hidden from everyone until your person has a sign-in again; that sign-in then gets them, still private, and the **Review sharing** banner.
+When your sign-in is linked to a person who already holds accounts — or someone else adds an account for you — a **Review sharing** banner asks you, once, which of those accounts the household sees. Each starts as it is now, and nothing changes until you save your choices. An account a jar uses stays shared and says why. Privacy belongs to your sign-in: if your person is linked to another sign-in, or your sign-in is removed from the household, your private accounts stay with your sign-in and hidden from everyone else, the budget owner included. If your own sign-in is given access again, you see them again.
 
 ### Roles and access
 

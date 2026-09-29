@@ -1,6 +1,5 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using AllotJar.Application.Accounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.HouseholdAccess.Dtos;
@@ -95,11 +94,6 @@ public class InviteMemberCommandHandler : IRequestHandler<InviteMemberCommand, I
 
         _db.HouseholdMemberships.Add(membership);
         await _db.SaveChangesAsync(cancellationToken);
-        if (membership.Status == MembershipStatus.Active)
-        {
-            // P59: a new login for a person whose earlier login was removed takes over their private accounts.
-            await AccountSharing.HandOverOrphanedPrivacyAsync(_db, membership.OwnerId, cancellationToken);
-        }
 
         return new InviteResultDto(membership.ToDto(_currentUser.UserId), rawToken);
     }

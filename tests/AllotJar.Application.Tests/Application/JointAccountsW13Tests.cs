@@ -265,7 +265,7 @@ public class JointAccountsW13Tests
     }
 
     [Fact]
-    public async Task PrivacyStaysWithTheLoginThatChoseIt_WhileItIsInTheHousehold_ARelinkNeverRevealsIt_P59()
+    public async Task PrivacyStaysWithTheLoginThatChoseIt_ARelinkNeverRevealsIt_P59()
     {
         await CreateAccountAsync(Sam, "Sam's current", new[] { _sam });
         Guid samMembership;
@@ -286,7 +286,7 @@ public class JointAccountsW13Tests
         (await AccountNamesAsync(new Viewer(Household, _sam))).Should().NotContain("Sam's current");
         (await AccountNamesAsync(new Viewer(SamLogin, null))).Should().Contain("Sam's current");
 
-        // Nor can anyone take the privacy over by hand while Sam's login is still in the household.
+        // Nor can anyone take the privacy over by hand.
         await using (var db = As(Chris))
         {
             (await db.AccountPrivacies.SingleAsync()).UserId = Household;
@@ -296,45 +296,37 @@ public class JointAccountsW13Tests
     }
 
     [Fact]
-    public async Task ARemovedLoginsPrivateAccount_PassesToThePersonsNextLogin_WithAReview_P59()
+    public async Task ARemovedLoginsPrivateAccount_PassesToNoOtherLogin_ButThatLoginSeesItAgain_P59()
     {
         await CreateAccountAsync(Sam, "Sam's current", new[] { _sam });
         await RemoveSamsLoginAsync();
         (await AccountNamesAsync(Chris)).Should().NotContain("Sam's current", "removing a login never reveals its account");
 
-        var newLogin = await AddLoginAsync("sam-new-login");
-        await using (var db = As(Chris))
-        {
-            await new LinkMembershipMemberCommandHandler(db, Chris)
-                .Handle(new LinkMembershipMemberCommand(newLogin, _sam), CancellationToken.None);
-        }
-
-        (await AccountNamesAsync(new Viewer("sam-new-login", _sam))).Should().Contain("Sam's current");
-        (await AccountNamesAsync(Chris)).Should().NotContain("Sam's current");
-        using (var db = Seed())
-        {
-            db.HouseholdMemberships.Single(m => m.Id == newLogin).SharingReviewPending.Should().BeTrue();
-        }
-    }
-
-    [Fact]
-    public async Task APrivateAccount_PassesToThePersonsLinkedLogin_WhenTheLoginThatChoseItIsRemoved_P59()
-    {
-        await CreateAccountAsync(Sam, "Sam's current", new[] { _sam });
-        var newLogin = await AddLoginAsync("sam-new-login");
+        // Whoever the owner links to Sam's person next — their own login, another login already in
+        // the household, or a fresh one — the account stays hidden (round 2 review, R2-P1-1).
+        var admin = await AddLoginAsync("admin-login");
+        var fresh = await AddLoginAsync("fresh-login");
         await using (var db = As(Chris))
         {
             var handler = new LinkMembershipMemberCommandHandler(db, Chris);
-            var samMembership = await db.HouseholdMemberships.SingleAsync(m => m.UserId == SamLogin);
-            await handler.Handle(new LinkMembershipMemberCommand(samMembership.Id, null), CancellationToken.None);
-            await handler.Handle(new LinkMembershipMemberCommand(newLogin, _sam), CancellationToken.None);
+            var own = await db.HouseholdMemberships.SingleAsync(m => m.UserId == Household);
+            foreach (var (membership, login) in new[] { (own.Id, Household), (admin, "admin-login"), (fresh, "fresh-login") })
+            {
+                await handler.Handle(new LinkMembershipMemberCommand(membership, _sam), CancellationToken.None);
+                (await AccountNamesAsync(new Viewer(login, _sam))).Should().NotContain("Sam's current", login);
+                await handler.Handle(new LinkMembershipMemberCommand(membership, null), CancellationToken.None);
+            }
         }
-        (await AccountNamesAsync(new Viewer("sam-new-login", _sam))).Should().NotContain(
-            "Sam's current", "the login that chose privacy is still in the household");
 
-        await RemoveSamsLoginAsync();
-
-        (await AccountNamesAsync(new Viewer("sam-new-login", _sam))).Should().Contain("Sam's current");
+        // Sam's own login, given access again, sees it.
+        var back = await AddLoginAsync(SamLogin);
+        await using (var db = As(Chris))
+        {
+            await new LinkMembershipMemberCommandHandler(db, Chris)
+                .Handle(new LinkMembershipMemberCommand(back, _sam), CancellationToken.None);
+        }
+        (await AccountNamesAsync(Sam)).Should().Contain("Sam's current");
+        (await AccountNamesAsync(Chris)).Should().NotContain("Sam's current");
     }
 
     private async Task RemoveSamsLoginAsync()

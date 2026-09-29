@@ -1,6 +1,5 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using AllotJar.Application.Accounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.HouseholdAccess.Dtos;
@@ -54,15 +53,14 @@ public class LinkMembershipMemberCommandHandler
 
         // Rule 32 (P58): a login newly linked to a person reviews who sees the accounts that person
         // already holds; their visibility stays as it is until then. Privacy stays with the login
-        // that chose it while that login is in the household (P59), so re-linking never reveals or
-        // hands over its private accounts; only those of a removed login pass to the person's new login.
+        // that chose it (P59), so linking another login to the person — the owner's own included —
+        // never reveals or hands over a private account.
         if (request.MemberId is not null && request.MemberId != membership.MemberId && membership.UserId is not null)
         {
             membership.SharingReviewPending = true;
         }
         membership.MemberId = request.MemberId;
         await _db.SaveChangesAsync(cancellationToken);
-        await AccountSharing.HandOverOrphanedPrivacyAsync(_db, ownerId, cancellationToken);
 
         return membership.ToDto(_currentUser.UserId);
     }

@@ -703,14 +703,15 @@ Fixture W13: one household. Chris (budget owner, login), Sam (Admin login, linke
 - **Expected:** 2: every account Kid holds, as it is now (shared); the jar's account is disabled with its reason. Until step 3 nothing changes. 3: the piggy bank is private to Kid; the banner goes and does not return (rule 32, P58).
 - **Automated:** Yes (JointAccountsW13Tests — `LinkingALoginToAPersonWhoHoldsAccounts_AsksForAReview_WithoutChangingAnything_Rule32`; SharingReviewBanner tests)
 
-### ACCT-073 - Privacy stays with the login that chose it until that login leaves; then the person's next login takes it over
-- **Priority:** P1
-- **Type:** Negative / Happy
-- **Preconditions:** Fixture W13; "Sam's current" private to Sam's login.
+### ACCT-073 - Privacy stays with the login that chose it; no other login ever gets the account
+- **Priority:** P0
+- **Type:** Negative
+- **Origin:** W13 (P59); second review of PR #277 (R2-P1-1): a hand-over to the person's next login let the owner read the account by removing the person's login and linking their own.
+- **Preconditions:** Fixture W13; "Sam's current" private to Sam's login; an Admin login "Alex" in the household.
 - **Steps:**
-  1. On People, unlink Sam's login and link the person Sam to Chris's login. 2. As Chris and as Sam's login, list Accounts. 3. Remove Sam's login from the household (**Revoke**). 4. As Chris, list Accounts. 5. Invite a new login for the person Sam (or link an existing login to Sam), sign in as it.
-- **Expected:** 2: Chris does not see it; Sam's login still does, wherever it is linked. 4: still hidden from everyone. 5: the new login sees "Sam's current" as private to it and gets the **Review sharing** prompt; Chris still doesn't see it. Removing Sam's login after another login was linked to Sam hands it over the same way (P59).
-- **Automated:** Yes (JointAccountsW13Tests — `PrivacyStaysWithTheLoginThatChoseIt_WhileItIsInTheHousehold_ARelinkNeverRevealsIt_P59`, `ARemovedLoginsPrivateAccount_PassesToThePersonsNextLogin_WithAReview_P59`, `APrivateAccount_PassesToThePersonsLinkedLogin_WhenTheLoginThatChoseItIsRemoved_P59`)
+  1. On People, unlink Sam's login and link the person Sam to Chris's login. 2. As Chris and as Sam's login, list Accounts. 3. Remove Sam's login from the household (**Revoke**). 4. Link the person Sam in turn to Chris's login, to Alex's, and to a newly invited login; each time list Accounts as that login. 5. Invite Sam's own email again, accept it signed in as Sam, list Accounts.
+- **Expected:** 2: Chris does not see it; Sam's login still does, wherever it is linked. 3–4: it stays hidden from every login, the owner included. 5: Sam's login sees "Sam's current" again, still private (P59).
+- **Automated:** Yes (JointAccountsW13Tests — `PrivacyStaysWithTheLoginThatChoseIt_ARelinkNeverRevealsIt_P59`, `ARemovedLoginsPrivateAccount_PassesToNoOtherLogin_ButThatLoginSeesItAgain_P59`)
 
 ### ACCT-074 - A private account's holders can't change until it is shared
 - **Priority:** P2

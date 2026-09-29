@@ -7,10 +7,11 @@ namespace AllotJar.Domain.Entities;
 /// line (P56) or it is one side of a transfer with a shared account (P57); there it is named
 /// "Private account". No row means the account is shared with the whole household.
 /// <para>
-/// Privacy belongs to the login that chose it, not to the budget person: re-linking a login never
-/// hands the account to someone else. Only once that login has left the household does the account
-/// pass to its holder's login there, if any (P59). Kept in its own table so the read filters on
-/// accounts and transactions can consult it without being filtered themselves.
+/// Privacy belongs to the login that chose it, not to the budget person: linking, re-linking or
+/// removing logins never hands the account to another login, the owner's included (P59). An email
+/// belongs to one login and the app neither deletes logins nor changes their email, so "the same
+/// verified email" is this same login id. Kept in its own table so the read filters on accounts and
+/// transactions can consult it without being filtered themselves.
 /// </para>
 /// </summary>
 public class AccountPrivacy
