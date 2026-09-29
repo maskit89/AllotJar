@@ -23,11 +23,6 @@ public class CreateTransactionSplitsTests
 
     public CreateTransactionSplitsTests(SqlServerFixture fixture) => _fixture = fixture;
 
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static string NewOwner() => $"user-{Guid.NewGuid():N}";
 
     private sealed record Seeded(BudgetItem Groceries, BudgetItem Household, HouseholdMember Alex);

@@ -23,11 +23,6 @@ public class AllocationRerunTests
 
     public AllocationRerunTests(SqlServerFixture fixture) => _fixture = fixture;
 
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static void SeedBudget(ApplicationDbContext db, string owner)
     {
         db.BudgetMonths.Add(new BudgetMonth

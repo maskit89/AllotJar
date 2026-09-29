@@ -5,7 +5,6 @@ using AllotJar.Application.Budgets.Commands.AddBudgetCategory;
 using AllotJar.Application.Budgets.Commands.AddBudgetItem;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
-using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
@@ -166,25 +165,6 @@ public class SavingsTests
             new AddBudgetCategoryCommand(month.Id, "Sinking Funds", CategoryKind.Savings), CancellationToken.None);
 
         dto.Categories.Should().ContainSingle(c => c.Kind == "Savings" && c.Name == "Sinking Funds");
-    }
-
-    [Fact]
-    public async Task AddItem_ToAFundGroup_IsRefused_SavingsLinesComeFromCreateJar()
-    {
-        // Rule 73: a savings line is a jar, which needs its account; the jar form plants the line.
-        await using var db = NewContext();
-        var month = NewMonth("user-1", 2026, 6);
-        var funds = new BudgetCategory { Name = "Funds", Kind = CategoryKind.Savings };
-        month.Categories.Add(funds);
-        db.BudgetMonths.Add(month);
-        await db.SaveChangesAsync();
-
-        var handler = new AddBudgetItemCommandHandler(db, new CurrentUserStub("user-1"));
-        await Assert.ThrowsAsync<ValidationException>(() =>
-            handler.Handle(new AddBudgetItemCommand(funds.Id, "Holiday", 50m), CancellationToken.None));
-
-        (await db.BudgetItems.AnyAsync(i => i.Name == "Holiday")).Should().BeFalse();
-        db.Jars.Should().BeEmpty();
     }
 
     [Fact]

@@ -21,11 +21,6 @@ public class BudgetItemMemberForeignKeyTests
 
     public BudgetItemMemberForeignKeyTests(SqlServerFixture fixture) => _fixture = fixture;
 
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static string NewOwner() => $"user-{Guid.NewGuid():N}";
 
     private sealed record Seeded(Guid IncomeLineId, HouseholdMember Alex);

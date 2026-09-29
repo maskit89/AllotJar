@@ -1,6 +1,6 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
-import { register, uniqueEmail } from './helpers'
+import { register, uniqueEmail, waitForEmailLink } from './helpers'
 
 /**
  * Email verification + safe reclaim as whole-stack journeys. The verification/reclaim emails go to
@@ -9,25 +9,6 @@ import { register, uniqueEmail } from './helpers'
  * the REAL emailed link (token survives URL-encoding + transport), and the reclaim of a squatted
  * unverified account through the register->claim-link->reset chain over a live API.
  */
-
-async function waitForLink(page: Page, email: string, pathMarker: string): Promise<string> {
-  let link: string | undefined
-  await expect
-    .poll(
-      async () => {
-        const res = await page.request.get(`/api/dev/emails?to=${encodeURIComponent(email)}`)
-        const messages: Array<{ textBody: string }> = await res.json()
-        link = messages
-          .flatMap((m) => m.textBody.split('\n'))
-          .map((l) => l.trim())
-          .find((l) => l.startsWith('http') && l.includes(pathMarker))
-        return link ?? ''
-      },
-      { message: `email containing ${pathMarker}`, timeout: 10_000 },
-    )
-    .not.toBe('')
-  return link!
-}
 
 test('a new registration is unverified with a banner, and the emailed link confirms it', async ({ page }) => {
   const email = uniqueEmail('verify')
@@ -41,7 +22,7 @@ test('a new registration is unverified with a banner, and the emailed link confi
   await expect(page.getByText(/please confirm your email/i)).toBeVisible()
 
   // Follow the REAL confirmation link from the mailbox.
-  const link = await waitForLink(page, email, '/confirm-email?')
+  const link = await waitForEmailLink(page, email, '/confirm-email?')
   await page.goto(link)
   await expect(page.getByText('Email confirmed')).toBeVisible()
 
@@ -72,7 +53,7 @@ test('registering an unverified email emails a claim link that takes the account
   await expect(page.getByText('Check your inbox')).toBeVisible()
 
   // Redeem the emailed claim (reset) link → set the owner's password → signed in + confirmed.
-  const link = await waitForLink(page, email, '/reset-password?')
+  const link = await waitForEmailLink(page, email, '/reset-password?')
   await page.goto(link)
   await page.getByLabel('New password', { exact: true }).fill(ownerPassword)
   await page.getByLabel('Confirm new password').fill(ownerPassword)

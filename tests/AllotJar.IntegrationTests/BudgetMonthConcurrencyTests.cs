@@ -21,11 +21,6 @@ public class BudgetMonthConcurrencyTests
 
     public BudgetMonthConcurrencyTests(SqlServerFixture fixture) => _fixture = fixture;
 
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static string NewOwner() => $"user-{Guid.NewGuid():N}";
 
     [Fact]
