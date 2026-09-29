@@ -54,6 +54,8 @@ public class DeleteBudgetItemCommandHandler : IRequestHandler<DeleteBudgetItemCo
             });
         }
 
+        await PrivateLineEntries.EnsureNoneAsync(_db, _currentUser, new[] { item.Id }, item.Name, nameof(request.BudgetItemId), cancellationToken);
+
         var monthId = item.BudgetCategory.BudgetMonthId;
 
         _db.BudgetItems.Remove(item);

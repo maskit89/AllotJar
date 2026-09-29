@@ -72,6 +72,9 @@ public class DeleteBudgetCategoryCommandHandler : IRequestHandler<DeleteBudgetCa
             }
         }
 
+        await PrivateLineEntries.EnsureNoneAsync(
+            _db, _currentUser, category.Items.Select(i => i.Id).ToList(), category.Name, nameof(request.CategoryId), cancellationToken);
+
         var monthId = category.BudgetMonthId;
 
         // Remove the lines explicitly (the relational cascade also covers this,

@@ -11,6 +11,8 @@ using AllotJar.Application.Accounts.Queries.GetSharingReview;
 using AllotJar.Application.Allocation.Commands.AllocateIncome;
 using AllotJar.Application.Allocation.Commands.UpsertAllocationProfile;
 using AllotJar.Application.Allocation.Queries.PreviewIncomeAllocation;
+using AllotJar.Application.Budgets.Commands.DeleteBudgetCategory;
+using AllotJar.Application.Budgets.Commands.DeleteBudgetItem;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Household.Commands.UpdateHouseholdMember;
@@ -421,6 +423,34 @@ public class JointAccountsW13Tests
         using (var db = Seed())
         {
             db.Transactions.Single(t => t.Id == txId).Amount.Should().Be(60m);
+        }
+    }
+
+    [Fact]
+    public async Task OthersCannotDeleteALineOrGroup_HoldingAPrivateAccountsEntry_ButItsHolderCan_P3_3()
+    {
+        var line = SeedLine();
+        var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam });
+        using (var db = Seed())
+        {
+            LedgerFixtures.Expense(db, Household, mine, 60m, June10, line);
+        }
+
+        await using (var db = As(Chris))
+        {
+            var groupId = db.BudgetItems.Where(i => i.Id == line).Select(i => i.BudgetCategoryId).Single();
+            var deleteLine = () => new DeleteBudgetItemCommandHandler(db, Chris).Handle(new DeleteBudgetItemCommand(line), CancellationToken.None);
+            (await deleteLine.Should().ThrowAsync<ValidationException>()).Which.Errors.Should().ContainKey("BudgetItemId");
+            var deleteGroup = () => new DeleteBudgetCategoryCommandHandler(db, Chris).Handle(new DeleteBudgetCategoryCommand(groupId), CancellationToken.None);
+            (await deleteGroup.Should().ThrowAsync<ValidationException>()).Which.Errors.Should().ContainKey("CategoryId");
+        }
+        await using (var db = As(Sam))
+        {
+            await new DeleteBudgetItemCommandHandler(db, Sam).Handle(new DeleteBudgetItemCommand(line), CancellationToken.None);
+        }
+        using (var db = Seed())
+        {
+            db.BudgetItems.Any(i => i.Id == line).Should().BeFalse();
         }
     }
 
