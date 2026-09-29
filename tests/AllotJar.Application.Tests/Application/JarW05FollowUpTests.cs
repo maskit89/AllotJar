@@ -175,6 +175,34 @@ public class JarW05FollowUpTests
         before.Categories.SelectMany(c => c.Items).Should().ContainSingle(i => i.SavingsId == jar.Id);
     }
 
+    [Fact]
+    public async Task W07_P3_10_AnEditSendingBackAnArchivedJarsStoredShareUnchanged_IsAccepted()
+    {
+        // 50 of a 12 Aug salary went into Holiday and a 20 Aug dinner was paid from it; Holiday was
+        // then archived. Renaming either entry sends its stored answer back unchanged.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, opening: 1000m);
+        var jar = SeedGoal(db, account);
+        var create = new CreateTransactionCommandHandler(db, User);
+        var salary = await create.Handle(new CreateTransactionCommand(new DateOnly(2026, 8, 12), "Salary", 200m, TransactionType.Income, null,
+            AccountId: account.Id, JarAllocations: new[] { new JarAllocationInput(jar.Id, 50m) }), Ct);
+        var dinner = await create.Handle(new CreateTransactionCommand(new DateOnly(2026, 8, 20), "Dinner", 50m, TransactionType.Expense, null,
+            AccountId: account.Id, PaidFromJarId: jar.Id), Ct);
+        await new ArchiveJarCommandHandler(db, User).Handle(new ArchiveJarCommand(jar.Id, Archived: true), Ct);
+        var update = new UpdateTransactionCommandHandler(db, User);
+
+        await update.Handle(new UpdateTransactionCommand(salary.Id, new DateOnly(2026, 8, 12), "Pay", 200m, TransactionType.Income, account.Id,
+            JarAllocations: new[] { new JarAllocationInput(jar.Id, 50m) }), Ct);
+        await update.Handle(new UpdateTransactionCommand(dinner.Id, new DateOnly(2026, 8, 20), "Dinner out", 50m, TransactionType.Expense, account.Id,
+            PaidFromJarId: jar.Id), Ct);
+
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 15))).Should().Be(50m);
+        // Putting more in is still refused.
+        await FluentActions.Awaiting(() => update.Handle(new UpdateTransactionCommand(salary.Id, new DateOnly(2026, 8, 12), "Pay", 200m,
+                TransactionType.Income, account.Id, JarAllocations: new[] { new JarAllocationInput(jar.Id, 60m) }), Ct))
+            .Should().ThrowAsync<ValidationException>();
+    }
+
     // ---- P2-20 -------------------------------------------------------------------------------
 
     [Fact]

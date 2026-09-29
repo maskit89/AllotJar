@@ -56,7 +56,9 @@ public static class JarMovements
                 {
                     throw Validation(errorKey, $"The amount for {jar.Name} must be zero or more.");
                 }
-                if (jar.IsArchived)
+                // An archived jar holds nothing (rule 26); its stored share sent back unchanged is
+                // history, not money put in now (W07 P3-10).
+                if (jar.IsArchived && !(echoed.Contains(jar.Id) && StoredShare(existing, jar.Id) == jarAmount))
                 {
                     throw Validation(errorKey, $"{jar.Name} is archived. Restore it before putting money into it.");
                 }
@@ -266,12 +268,12 @@ public static class JarMovements
             }
             var echoed = existing is not null && existing.Date == transaction.Date ? heldThen : new HashSet<Guid>();
             var jar = (await OwnJarsAsync(db, ownerId, account, new[] { fromId }, transaction.Date, echoed, errorKey, cancellationToken))[fromId];
-            if (jar.IsArchived)
+            portions.Remove(Guid.Empty);
+            portions[fromId] = portions.GetValueOrDefault(fromId) + unlined;
+            if (jar.IsArchived && !(echoed.Contains(fromId) && StoredShare(existing, fromId) == -portions[fromId]))
             {
                 throw Validation(errorKey, $"{jar.Name} is archived and holds nothing.");
             }
-            portions.Remove(Guid.Empty);
-            portions[fromId] = portions.GetValueOrDefault(fromId) + unlined;
             postings.AddRange(portions.Select(p => new JarAllocationPosting { JarId = p.Key, Amount = -p.Value }));
         }
         await ReplaceAsync(db, ownerId, transaction, account.Id, transaction.Date, postings, cancellationToken, existing);
@@ -516,6 +518,10 @@ public static class JarMovements
             .Select(i => new { i.Id, JarId = i.SavingsId!.Value, i.Jar!.FundingAccountId, i.Jar.FundingAccountSince })
             .ToDictionaryAsync(x => x.Id, x => (x.JarId, x.FundingAccountId, x.FundingAccountSince), cancellationToken);
     }
+
+    /// <summary>What <paramref name="existing"/> stored for the jar (a draw is negative).</summary>
+    private static decimal StoredShare(JarAllocation? existing, Guid jarId) =>
+        existing?.Postings.Where(p => p.JarId == jarId).Sum(p => p.Amount) ?? 0m;
 
     /// <summary>The refusal for money dated before a jar arrived in the account.</summary>
     internal static string ArrivedLater(Jar jar, Account account) =>
