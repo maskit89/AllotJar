@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using AllotJar.Api.Contracts.Auth;
+using AllotJar.Application.Accounts;
 using AllotJar.Application.Auth.Commands.Login;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.HouseholdAccess.Commands.AcceptInvite;
@@ -793,7 +794,9 @@ public class AuthController : ControllerBase
             HasGoogle: await HasGoogleLinkAsync(user),
             // Drives the persistent "confirm your email" banner. Google-created accounts are
             // confirmed on creation; password/invite accounts confirm via the emailed link.
-            EmailConfirmed: user.EmailConfirmed));
+            EmailConfirmed: user.EmailConfirmed,
+            // Rule 32: the app asks this login to review who sees the personal accounts it holds.
+            SharingReviewPending: await SharingReview.IsDueAsync(_db, _currentUser, HttpContext.RequestAborted)));
     }
 
     private async Task<bool> HasGoogleLinkAsync(ApplicationUser user) =>

@@ -28,6 +28,7 @@ public class CreateJarCommandHandler
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
         var account = await JarAccounts.LoadDesignatedAsync(_db, userId, request.FundingAccountId, "FundingAccountId", cancellationToken);
+        await JarAccounts.EnsureVisibleForJarAsync(_db, account, request.ShareAccount, cancellationToken);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         var jar = new Jar

@@ -61,6 +61,12 @@ interface AuthState {
   ownsHousehold: boolean
   /** True for invite-created logins that haven't accepted the terms yet (blocks the app until they do). */
   needsConsent: boolean
+  /** The budget person this login is linked to in the active household (null when none). */
+  memberId: string | null
+  /** Rule 32: this login should review who sees the personal accounts it holds. */
+  sharingReviewPending: boolean
+  /** Clears the sharing-review prompt once the login has answered it. */
+  clearSharingReview: () => void
   /** Records the login's own terms acceptance and unblocks the app. */
   confirmConsent: () => Promise<void>
   /** Switch the active household and re-bootstrap the app into it. */
@@ -134,6 +140,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [households, setHouseholds] = useState<HouseholdSummary[]>([])
   const [activeOwnerId, setActiveOwnerId] = useState<string | null>(null)
   const [needsConsent, setNeedsConsent] = useState(false)
+  const [memberId, setMemberId] = useState<string | null>(null)
+  const [sharingReviewPending, setSharingReviewPending] = useState(false)
   // Default TRUE so the change-password card doesn't flicker away for ordinary password logins
   // before /auth/me answers; Google-only accounts flip it to false from the /me payload.
   const [hasPassword, setHasPassword] = useState(true)
@@ -277,6 +285,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setHouseholds(Array.isArray(data.households) ? data.households : [])
         setActiveOwnerId(typeof data.ownerId === 'string' ? data.ownerId : null)
         setNeedsConsent(data.needsConsent === true)
+        setMemberId(typeof data.memberId === 'string' ? data.memberId : null)
+        setSharingReviewPending(data.sharingReviewPending === true)
         setHasPassword(data.hasPassword !== false)
         setHasGoogle(data.hasGoogle === true)
         // Respect a local confirm (see emailConfirmedLatch): never downgrade true→false from a
@@ -466,6 +476,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       activeOwnerId,
       ownsHousehold: households.some((h) => h.isOwn),
       needsConsent,
+      memberId,
+      sharingReviewPending,
+      clearSharingReview: () => setSharingReviewPending(false),
       hasPassword,
       hasGoogle,
       unlinkGoogle,
@@ -486,7 +499,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updatePreferences,
       logout,
     }),
-    [token, email, displayName, firstName, lastName, preferredCurrency, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, hasPassword, hasGoogle, emailConfirmed],
+    [token, email, displayName, firstName, lastName, preferredCurrency, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, memberId, sharingReviewPending, hasPassword, hasGoogle, emailConfirmed],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

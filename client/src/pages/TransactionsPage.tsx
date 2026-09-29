@@ -32,6 +32,7 @@ import { PAID_FROM_UNALLOCATED, PaidFromJarSelect } from '../components/jars/Pai
 import { activeJars, incomingAllocationsOf, paidFromJarOf, useJarLedgers } from '../lib/jarLedgers'
 import { fromJarAllocations, toJarAllocations } from '../lib/jarAllocationFields'
 import { serverErrors } from '../lib/serverErrors'
+import { PRIVATE_ACCOUNT } from '../lib/accountHolders'
 
 function today(): string {
   return new Date().toISOString().slice(0, 10)
@@ -1388,6 +1389,16 @@ export function TransactionsPage() {
                     const totalMinor = fromAmount(t.amount)
                     const allocatedMinor = sumMinor(splitRows.map((r) => parseMinor(r.amount) ?? 0))
                     const remainderMinor = totalMinor - allocatedMinor
+                    // W13 (P56/P57): an entry in someone else's private account is theirs to change.
+                    // The others may only confirm a transfer's receipt into the shared account they see.
+                    const rowEditable = canEnterData && !t.inPrivateAccount
+                    // P57: the others may confirm the leg on the shared side of a transfer with a
+                    // private account, the receipt into it or the departure out of it.
+                    const canConfirmVisibleLeg =
+                      canEnterData &&
+                      !!t.inPrivateAccount &&
+                      ((t.transferStatus === 'InTransit' && t.accountName === PRIVATE_ACCOUNT) ||
+                        (t.transferStatus === 'PendingReview' && t.transferAccountName === PRIVATE_ACCOUNT))
                     return (
                       <Fragment key={t.id}>
                       <tr className="group hover:bg-slate-50">
@@ -1595,7 +1606,7 @@ export function TransactionsPage() {
                                       Pending review
                                     </span>
                                   )}
-                                  {canEnterData && t.transferStatus && t.transferStatus !== 'Completed' && legId !== t.id && (
+                                  {(rowEditable || canConfirmVisibleLeg) && t.transferStatus && t.transferStatus !== 'Completed' && legId !== t.id && (
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -1642,7 +1653,7 @@ export function TransactionsPage() {
                                       .join(' · ')}
                                   </span>
                                 </div>
-                              ) : assigningId === t.id && canEnterData ? (
+                              ) : assigningId === t.id && rowEditable ? (
                                 <select
                                   autoFocus
                                   value={t.budgetItemId ?? ''}
@@ -1693,7 +1704,7 @@ export function TransactionsPage() {
                                       <span className="truncate">{t.budgetItemName}</span>
                                     </>
                                   )
-                                  return canEnterData ? (
+                                  return rowEditable ? (
                                     <button
                                       type="button"
                                       onClick={() => setAssigningId(t.id)}
@@ -1712,7 +1723,7 @@ export function TransactionsPage() {
                                     </span>
                                   )
                                 })()
-                              ) : canEnterData ? (
+                              ) : rowEditable ? (
                                 <button
                                   type="button"
                                   onClick={() => setAssigningId(t.id)}
@@ -1744,7 +1755,7 @@ export function TransactionsPage() {
                               {formatMoney(fromAmount(t.amount), t.currency)}
                             </td>
                             <td className="px-4 py-3.5 text-right">
-                              {canEnterData && (
+                              {rowEditable && (
                               // Always visible (not hover-revealed): the tester never found the
                               // split action, and touch devices have no hover at all.
                               <div className="flex justify-end gap-1">

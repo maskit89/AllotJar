@@ -167,6 +167,25 @@ describe('AllocationPage', () => {
     expect(screen.getAllByText(/750\.28/).length).toBeGreaterThan(0)
   })
 
+  // W13 (P53): a savings account private to someone else isn't "no savings account": the page says
+  // only its holder can record that transfer, and offers no link to fix what isn't missing.
+  it('names a private savings account instead of calling it missing', { timeout: 15000 }, async () => {
+    profileData = profile()
+    const withPrivate = preview()
+    withPrivate.members[1] = { ...withPrivate.members[1], savingsAccountId: null, savingsBalance: null, savingsPrivate: true }
+    const answer = mockGet.getMockImplementation()!
+    mockGet.mockImplementation((url: string) =>
+      url.startsWith('/allocation/preview/') ? Promise.resolve({ data: withPrivate }) : answer(url),
+    )
+
+    renderPage()
+
+    expect(await screen.findByText(/^Private savings account/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText(/Sam’s savings account is private, so only Sam can record this transfer/)).toBeInTheDocument()
+    expect(screen.queryByText(/^No savings account/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/has no savings account/)).not.toBeInTheDocument()
+  })
+
   it('disables Allocate and explains when no source account is set', { timeout: 15000 }, async () => {
     profileData = { ...profile(), sourceAccountId: null }
 

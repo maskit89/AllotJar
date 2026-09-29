@@ -110,6 +110,11 @@ export interface TransactionDto {
   /** For a transfer, the destination account the money moved into. */
   transferAccountId: string | null
   transferAccountName: string | null
+  /**
+   * W13 (P56/P57): an account this money moved in is private to someone else — it reads
+   * "Private account" and only its holder can change the entry. Optional; absent reads as false.
+   */
+  inPrivateAccount?: boolean
   /** For a transfer: the source bank's posting date, or null while the departure is unknown (held for review). */
   departedOn?: string | null
   /** For a transfer: the destination bank's posting date, or null while the money is in transit. */
@@ -251,6 +256,28 @@ export interface AccountDto {
   bic?: string | null
   sortCode?: string | null
   accountNumber?: string | null
+  /**
+   * W13 (rule 30): who holds the account — one person is a personal account, several a joint
+   * one, none the household's own. Optional so existing fixtures stay valid; absent reads as none.
+   */
+  holders?: AccountHolderDto[]
+  /** True when only the caller's login sees this account (rules 31–33). */
+  isPrivate?: boolean
+  /** True when the caller chooses who sees it: their own person is its only holder (P54). */
+  canChangeSharing?: boolean
+  /** Why it can't be made private now (a jar uses it, P55); null otherwise. */
+  sharingBlockedReason?: string | null
+}
+
+export interface AccountHolderDto {
+  memberId: string
+  name: string
+}
+
+/** GET /accounts/sharing-review — the login's personal accounts and whether rule 32's review is due. */
+export interface SharingReviewDto {
+  pending: boolean
+  accounts: AccountDto[]
 }
 
 /** A not-yet-imported transaction returned by the import preview, for review before commit. */
@@ -880,6 +907,8 @@ export interface MemberAllocationDto {
   /** Actual savings-account balance today, before this month's allocation; null when unavailable (no opening date). */
   savingsBalance: number | null
   savingsAccountId: string | null
+  /** W13 (P53): the person's savings account is private to their own login; only they can record the transfer. */
+  savingsPrivate?: boolean
 }
 
 export interface AllocationResultDto {
@@ -1007,6 +1036,8 @@ export interface MeResponse {
   households?: HouseholdSummary[]
   /** True for invite-created logins that haven't accepted the terms yet (blocking consent prompt). */
   needsConsent?: boolean
+  /** Rule 32: review who sees the personal accounts this login holds. */
+  sharingReviewPending?: boolean
   /** False for Google-created accounts with no password — the account page adapts change-password. */
   hasPassword?: boolean
   /** True when a Google identity is linked — the account page shows Disconnect. */

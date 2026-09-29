@@ -26,7 +26,6 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
         var transaction = await _db.Transactions
             .Include(t => t.Account)
             .Include(t => t.TransferAccount)
-            .Include(t => t.Refunds)
             .FirstOrDefaultAsync(t => t.Id == request.TransactionId, cancellationToken);
 
         if (transaction is null)
@@ -41,16 +40,20 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
         // Rule 38: a refund and its purchase both stay in history. Deleting the purchase would
         // leave its refunds pointing nowhere — and, unlinked, they would silently become income —
         // so the user unlinks or deletes the refunds first.
-        if (transaction.Refunds.Count > 0)
+        // A refund in another login's private account counts too (W13): its holder unlinks it.
+        var refunds = await RefundRules.AllRefundsAsync(_db, transaction.Id, cancellationToken);
+        if (refunds.Count > 0)
         {
-            var count = transaction.Refunds.Count;
+            var count = refunds.Count;
             throw new ValidationException(new Dictionary<string, string[]>
             {
                 ["TransactionId"] = new[]
                 {
-                    count == 1
-                        ? "This purchase has a refund linked to it. Unlink or delete the refund first."
-                        : $"This purchase has {count} refunds linked to it. Unlink or delete them first.",
+                    refunds.Any(r => r.Hidden)
+                        ? "This purchase has a refund linked to it in a private account. Its holder must unlink or delete it first."
+                        : count == 1
+                            ? "This purchase has a refund linked to it. Unlink or delete the refund first."
+                            : $"This purchase has {count} refunds linked to it. Unlink or delete them first.",
                 },
             });
         }

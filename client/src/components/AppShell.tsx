@@ -6,6 +6,7 @@ import { StagingBanner } from './StagingBanner'
 import { JarLogo } from './Jar'
 import { TopBar } from './TopBar'
 import { VerifyEmailBanner } from './VerifyEmailBanner'
+import { SharingReviewBanner } from './SharingReviewBanner'
 import { LogoutIcon, SettingsIcon } from './icons'
 import { EVENTS, track } from '../analytics'
 
@@ -235,6 +236,7 @@ export function AppShell({
           {title && <h1 className="sr-only">{title}</h1>}
           <TopBar />
           <VerifyEmailBanner />
+          <SharingReviewBanner />
 
           {greeting && (
             <div

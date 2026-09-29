@@ -1,12 +1,15 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AllotJar.Application.Accounts.Commands.CompleteSharingReview;
 using AllotJar.Application.Accounts.Commands.CreateAccount;
 using AllotJar.Application.Accounts.Commands.DeleteAccount;
+using AllotJar.Application.Accounts.Commands.SetAccountSharing;
 using AllotJar.Application.Accounts.Commands.UpdateAccount;
 using AllotJar.Application.Accounts.Dtos;
 using AllotJar.Application.Accounts.Queries.GetAccountReconciliation;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
+using AllotJar.Application.Accounts.Queries.GetSharingReview;
 using AllotJar.Api.Features;
 using AllotJar.Domain.Enums;
 
@@ -56,7 +59,7 @@ public class AccountsController : ControllerBase
         var result = await _mediator.Send(
             new CreateAccountCommand(
                 request.Name, request.Type, request.Currency, request.OpeningBalance, request.OpeningDate,
-                request.Iban, request.Bic, request.SortCode, request.AccountNumber),
+                request.Iban, request.Bic, request.SortCode, request.AccountNumber, request.HolderIds, request.IsPrivate),
             ct);
         return CreatedAtAction(nameof(List), new { }, result);
     }
@@ -71,7 +74,42 @@ public class AccountsController : ControllerBase
     {
         var result = await _mediator.Send(
             new UpdateAccountCommand(id, request.Name, request.Type, request.OpeningBalance, request.OpeningDate,
-                request.Iban, request.Bic, request.SortCode, request.AccountNumber), ct);
+                request.Iban, request.Bic, request.SortCode, request.AccountNumber, request.HolderIds), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// The holder's choice for a personal account (rules 31/33): private to their login, or shared
+    /// with the household. Refused for anyone else, for joint or household accounts and for an
+    /// account a jar uses.
+    /// </summary>
+    [HttpPut("{id:guid}/sharing")]
+    [ProducesResponseType(typeof(AccountDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<AccountDto>> SetSharing(Guid id, SetAccountSharingRequest request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new SetAccountSharingCommand(id, request.IsPrivate), ct);
+        return Ok(result);
+    }
+
+    /// <summary>The caller's personal accounts and whether their sharing review is due (rule 32).</summary>
+    [HttpGet("sharing-review")]
+    [ProducesResponseType(typeof(SharingReviewDto), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SharingReviewDto>> SharingReview(CancellationToken ct)
+    {
+        var result = await _mediator.Send(new GetSharingReviewQuery(), ct);
+        return Ok(result);
+    }
+
+    /// <summary>Answers the sharing review: the listed personal accounts become private, the rest shared.</summary>
+    [HttpPost("sharing-review")]
+    [ProducesResponseType(typeof(SharingReviewDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<SharingReviewDto>> CompleteSharingReview(CompleteSharingReviewRequest request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new CompleteSharingReviewCommand(request.PrivateAccountIds ?? Array.Empty<Guid>()), ct);
         return Ok(result);
     }
 
@@ -94,9 +132,17 @@ public class AccountsController : ControllerBase
 /// <summary>Request body for creating an account. The opening balance applies from the start of <c>OpeningDate</c>.</summary>
 public record CreateAccountRequest(
     string Name, AccountType Type, string Currency, decimal OpeningBalance, DateOnly? OpeningDate = null,
-    string? Iban = null, string? Bic = null, string? SortCode = null, string? AccountNumber = null);
+    string? Iban = null, string? Bic = null, string? SortCode = null, string? AccountNumber = null,
+    IReadOnlyList<Guid>? HolderIds = null, bool? IsPrivate = null);
 
 /// <summary>Request body for editing an account (the id comes from the route; currency is immutable).</summary>
 public record UpdateAccountRequest(
     string Name, AccountType Type, decimal OpeningBalance, DateOnly? OpeningDate = null,
-    string? Iban = null, string? Bic = null, string? SortCode = null, string? AccountNumber = null);
+    string? Iban = null, string? Bic = null, string? SortCode = null, string? AccountNumber = null,
+    IReadOnlyList<Guid>? HolderIds = null);
+
+/// <summary>Request body for the holder's sharing choice.</summary>
+public record SetAccountSharingRequest(bool IsPrivate);
+
+/// <summary>Request body answering the sharing review: the accounts to keep private.</summary>
+public record CompleteSharingReviewRequest(IReadOnlyList<Guid>? PrivateAccountIds);

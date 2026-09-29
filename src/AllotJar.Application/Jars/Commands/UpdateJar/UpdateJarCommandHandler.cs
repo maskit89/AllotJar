@@ -77,6 +77,7 @@ public class UpdateJarCommandHandler
             // The account it leaves keeps its history exactly as it reads today: the payments the
             // jar's lines drew from it are written down there before the jar names another account,
             // and the day it left is recorded so later corrections stay balanced there.
+            await JarAccounts.EnsureVisibleForJarAsync(_db, account, request.ShareAccount, cancellationToken);
             var kept = await JarMovements.KeepLineAttributionAsync(_db, userId, jar, today, cancellationToken);
             await JarDepartures.RecordAsync(_db, userId, jar.Id, jar.FundingAccountId, today, kept > 0, cancellationToken);
             // The account it joins keeps its history too: its payments on the jar's lines recorded

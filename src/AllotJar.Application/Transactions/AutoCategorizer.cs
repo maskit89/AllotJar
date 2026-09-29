@@ -25,7 +25,8 @@ namespace AllotJar.Application.Transactions;
 ///     matching line, the payee is left unassigned. Transfers are never candidates.
 ///
 /// Zero-configuration — there are no user-managed rules. Used by manual create, statement
-/// import, and the import preview.
+/// import, and the import preview. An entry in a private account is never assigned (W13): only
+/// its holder puts it on the household budget.
 /// </summary>
 public static partial class AutoCategorizer
 {
@@ -45,6 +46,23 @@ public static partial class AutoCategorizer
         if (candidates.Count == 0)
         {
             return 0;
+        }
+
+        // W13 (rule 31, P56): a private account's entry joins the household budget, and so becomes
+        // visible to everyone, only when its holder puts it on a line. Never guess one for them.
+        var accountIds = candidates.Where(t => t.AccountId is not null).Select(t => t.AccountId!.Value).Distinct().ToList();
+        if (accountIds.Count > 0)
+        {
+            var privateIds = (await db.AccountPrivacies
+                    .Where(p => accountIds.Contains(p.AccountId))
+                    .Select(p => p.AccountId)
+                    .ToListAsync(cancellationToken))
+                .ToHashSet();
+            candidates = candidates.Where(t => t.AccountId is not Guid a || !privateIds.Contains(a)).ToList();
+            if (candidates.Count == 0)
+            {
+                return 0;
+            }
         }
 
         // Never let a candidate match against itself (the batch may already be tracked).

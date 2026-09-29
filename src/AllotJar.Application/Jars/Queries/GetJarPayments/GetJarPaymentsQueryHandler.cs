@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Dtos;
+using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Domain.Enums;
 
 namespace AllotJar.Application.Jars.Queries.GetJarPayments;
@@ -50,7 +51,11 @@ public class GetJarPaymentsQueryHandler : IRequestHandler<GetJarPaymentsQuery, I
             .Select(t => new
             {
                 Transaction = t,
-                AccountName = t.Account != null ? t.Account.Name : null,
+                // A payment on the jar's line from an account private to another login shows
+                // under that name only (P56).
+                AccountName = t.Account != null ? t.Account.Name
+                    : t.AccountId != null ? TransactionMapping.PrivateAccountName : null,
+                InPrivateAccount = t.AccountId != null && t.Account == null,
                 LineName = t.BudgetItem != null ? t.BudgetItem.Name : null,
                 // Rule 79, as the ledger reads it: a payment from the jar's own account draws
                 // from the jar through its stored answer when it has one, otherwise through its
@@ -83,7 +88,7 @@ public class GetJarPaymentsQueryHandler : IRequestHandler<GetJarPaymentsQuery, I
             Currency = x.Transaction.Currency.Value,
             BaseAmount = x.Transaction.BaseAmount,
             FxPending = x.Transaction.FxPending,
-            AccountId = x.Transaction.AccountId,
+            AccountId = x.InPrivateAccount ? null : x.Transaction.AccountId,
             AccountName = x.AccountName,
             BudgetItemName = x.LineName,
             FromJar = x.FromJar,

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Accounts;
 using AllotJar.Application.Budgets;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Reports.Dtos;
@@ -68,6 +69,7 @@ public static class ReportFigures
         else
         {
             dto.FxPendingCount = await db.Transactions
+                .Where(HouseholdMoney.Counts(db))
                 .CountAsync(t => t.OwnerId == userId && t.FxPending && t.Date.Year == year && t.Date.Month == month,
                     cancellationToken);
         }
@@ -82,7 +84,9 @@ public static class ReportFigures
                         && t.Date.Year == year
                         && t.Date.Month == month
                         && t.BudgetItemId == null
-                        && !t.Splits.Any())
+                        && !t.Splits.Any()
+                        // P56: a private account's money off the budget is nobody's household total.
+                        && !db.AccountPrivacies.Any(p => p.AccountId == t.AccountId))
             .Select(t => new { t.Type, IsRefund = t.RefundOfTransactionId != null, Base = t.Amount * t.ExchangeRate })
             .ToListAsync(cancellationToken);
 
@@ -96,6 +100,7 @@ public static class ReportFigures
                   && s.BudgetItemId == null
                   && t.Date.Year == year
                   && t.Date.Month == month
+                  && !db.AccountPrivacies.Any(p => p.AccountId == t.AccountId)
             select new { t.Type, Base = s.Amount * t.ExchangeRate })
             .ToListAsync(cancellationToken);
 

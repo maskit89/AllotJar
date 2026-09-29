@@ -33,6 +33,8 @@ public class GetAccountsQueryHandler : IRequestHandler<GetAccountsQuery, IReadOn
         var asOf = request.AsOf ?? DateOnly.FromDateTime(DateTime.UtcNow);
         var views = await AccountLedgerReader.ReadAsync(_db, userId, accounts, asOf, cancellationToken);
 
-        return accounts.Select(a => a.ToDto(views[a.Id])).ToList();
+        var rows = accounts.Select(a => (a, a.ToDto(views[a.Id]))).ToList();
+        await AccountSharing.DecorateAsync(_db, _currentUser, rows, cancellationToken);
+        return rows.Select(r => r.Item2).ToList();
     }
 }
