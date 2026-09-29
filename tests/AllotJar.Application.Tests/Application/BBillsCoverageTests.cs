@@ -1,8 +1,6 @@
 using FluentAssertions;
-using FluentValidation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Budgets.Commands.SetBudgetItemBill;
 using AllotJar.Application.Budgets.Commands.SetBudgetItemPaid;
@@ -34,11 +32,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class BBillsCoverageTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private sealed class RoleStub(HouseholdRole? role) : ICurrentUser
     {
         public string? UserId => "user-1";
@@ -130,22 +123,6 @@ public class BBillsCoverageTests
         var line = dto.Categories.SelectMany(c => c.Items).Single(i => i.Name == "Groceries");
         line.IsPaid.Should().BeTrue(); // set despite DueDay == null — no server-side bill check
         line.DueDay.Should().BeNull();
-    }
-
-    // BILL-012 (API-direct out-of-range due day rejected): the existing [Theory] asserts only
-    // IsValid; this pins the exact documented error text the endpoint returns.
-    [Theory]
-    [InlineData(0)]
-    [InlineData(40)]
-    public void Validator_RejectsOutOfRangeDueDay_WithTheDocumentedMessage(int dueDay)
-    {
-        var validator = new SetBudgetItemBillCommandValidator();
-
-        var result = validator.Validate(new SetBudgetItemBillCommand(Guid.NewGuid(), dueDay));
-
-        result.IsValid.Should().BeFalse();
-        result.Errors.Should().ContainSingle()
-            .Which.ErrorMessage.Should().Be("A due day must be between 1 and 31.");
     }
 
     // BILL-032 (companion to the existing carry+reset test): a line that is NOT a bill

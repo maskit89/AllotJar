@@ -1,8 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Commands.ReallocateJarMoney;
 using AllotJar.Application.Jars.Dtos;
 using AllotJar.Application.Jars.Queries.GetJarLedger;
@@ -23,11 +21,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class JarReallocationTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static readonly CurrentUserStub User = new("user-1");
     private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
 

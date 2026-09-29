@@ -1,11 +1,9 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Commands.AddBudgetCategory;
 using AllotJar.Application.Budgets.Commands.AddBudgetItem;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -22,11 +20,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class SavingsTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static BudgetMonth NewMonth(string ownerId, int year, int month) => new()
     {
         OwnerId = ownerId,

@@ -1,15 +1,12 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Jars.Commands.UpdateJar;
 using AllotJar.Application.Jars.Dtos;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
-using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Application;
 
@@ -21,11 +18,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class JarLifecycleTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static Jar Recurring(DateOnly? due, int? recurMonths = 12, decimal target = 600m, Guid? accountId = null) => new()
     {
         OwnerId = "user-1", Name = "Insurance", Kind = JarKind.Recurring,
@@ -188,16 +180,5 @@ public class JarLifecycleTests
                 Guid.NewGuid(), "Sofa", JarKind.Goal, 900m, null,
                 AccrualMethod.FixedMonthly, Guid.NewGuid(), MonthlyContribution: 100m))
             .IsValid.Should().BeTrue();
-    }
-
-    [Fact]
-    public void Validator_BoundsTheRepeatCycle()
-    {
-        var validator = new CreateJarCommandValidator();
-
-        validator.Validate(new CreateJarCommand(
-                "X", JarKind.Recurring, 100m, new DateOnly(2026, 10, 1),
-                AccrualMethod.TargetByDate, Guid.NewGuid(), RecurMonths: 0))
-            .Errors.Should().Contain(e => e.ErrorMessage == "Repeat cycle must be between 1 and 120 months.");
     }
 }

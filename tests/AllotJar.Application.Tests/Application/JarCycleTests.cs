@@ -1,8 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.DismissJarCycle;
 using AllotJar.Application.Jars.Commands.MarkJarCyclePaid;
@@ -30,11 +28,6 @@ namespace AllotJar.Application.Tests.Application;
 public class JarCycleTests
 {
     private const string Owner = "user-1";
-
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
 
     private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
     private static readonly DateOnly MonthStart = new(Today.Year, Today.Month, 1);

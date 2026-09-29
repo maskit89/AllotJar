@@ -1,8 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Commands.UpdateBudgetItem;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Persistence;
@@ -16,12 +14,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class UpdateBudgetItemHandlerTests
 {
-    private sealed class CurrentUserStub : ICurrentUser
-    {
-        public CurrentUserStub(string? userId) => UserId = userId;
-        public string? UserId { get; }
-    }
-
     private static (Guid monthId, Guid itemId) Seed(ApplicationDbContext db, string ownerId)
     {
         var item = new BudgetItem { Name = "Rent", PlannedAmount = 1000m };

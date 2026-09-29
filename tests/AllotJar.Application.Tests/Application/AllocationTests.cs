@@ -1,12 +1,10 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Allocation.Commands.AllocateIncome;
 using AllotJar.Application.Allocation.Commands.SyncPocketMoneyLines;
 using AllotJar.Application.Allocation.Commands.UpsertAllocationProfile;
 using AllotJar.Application.Allocation.Queries.GetAllocationProfile;
 using AllotJar.Application.Allocation.Queries.PreviewIncomeAllocation;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -21,11 +19,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class AllocationTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static Account SeedAccount(ApplicationDbContext db, string owner, string name, decimal opening = 0m)
     {
         var a = new Account { OwnerId = owner, Name = name, Type = AccountType.Current, Currency = CurrencyCode.Eur, OpeningBalance = opening, OpeningDate = new DateOnly(2026, 1, 1) };

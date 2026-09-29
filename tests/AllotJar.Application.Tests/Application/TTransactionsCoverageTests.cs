@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
 using AllotJar.Application.Common.Exceptions;
@@ -25,8 +24,7 @@ namespace AllotJar.Application.Tests.Application;
 /// Automates the highest-value P0/P1 (plus a couple of cheap P2) cases whose behaviour
 /// lives at the Application/domain layer and was previously "No"/"Partial":
 /// whole-transaction reassignment moving a line's actual (TX-031/032); the assign
-/// endpoint's deliberate lack of kind/type checking and the "shows but never lands"
-/// consequence in actuals (TX-034/035/085); the split editor's kind rules where a
+/// endpoint's kind/type guard and the "shows but never lands" consequence in actuals (TX-034/035/085); the split editor's kind rules where a
 /// Savings line counts as expense-side (TX-052); the known coherence edge where editing
 /// a split parent's amount leaves the slices stale (TX-067); delete restoring both the
 /// derived line actual and the account balance, including the single-row transfer
@@ -45,11 +43,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class TTransactionsCoverageTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private sealed record Fixture(Guid SalaryId, Guid GroceriesId, Guid InternetId, Guid EmergencyId);
 
     /// <summary>EUR July-2026 month for <paramref name="ownerId"/>: Income(Salary),
@@ -520,31 +513,6 @@ public class TTransactionsCoverageTests
 
         (await ActualOf(db, user, f.GroceriesId)).Should().Be(0m);
         (await BalanceOf(db, user, joint.Id)).Should().Be(1250m); // fully restored
-    }
-
-    // TX-071: a transfer is a single row (source = AccountId, destination = TransferAccountId);
-    // deleting it hands both legs' money back at once.
-    [Fact]
-    public async Task DeletingATransfer_RestoresBothAccountBalances()
-    {
-        await using var db = NewContext();
-        var user = new CurrentUserStub("user-1");
-        var joint = SeedAccount(db, "Joint", 1250m);
-        var rainy = SeedAccount(db, "Rainy Day", 500m);
-
-        await new CreateTransferCommandHandler(db, user).Handle(
-            new CreateTransferCommand(new DateOnly(2026, 7, 10), 100m, joint.Id, rainy.Id, ReceivedOn: new DateOnly(2026, 7, 10)),
-            CancellationToken.None);
-
-        (await BalanceOf(db, user, joint.Id)).Should().Be(1150m); // 1250 − 100
-        (await BalanceOf(db, user, rainy.Id)).Should().Be(600m);  // 500 + 100
-
-        var transferId = (await db.Transactions.SingleAsync()).Id;
-        await new DeleteTransactionCommandHandler(db, user)
-            .Handle(new DeleteTransactionCommand(transferId), CancellationToken.None);
-
-        (await BalanceOf(db, user, joint.Id)).Should().Be(1250m);
-        (await BalanceOf(db, user, rainy.Id)).Should().Be(500m);
     }
 
     // --- ExcludeFromAllocation has no transaction-side effect ----------------

@@ -1,5 +1,4 @@
 using FluentAssertions;
-using Xunit;
 using AllotJar.Infrastructure.Identity;
 
 namespace AllotJar.Application.Tests.Application;
@@ -11,30 +10,13 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class SecurityStampValidationTests
 {
-    [Fact]
-    public void Legacy_token_without_a_stamp_is_allowed()
-    {
-        SecurityStampValidation.IsValid(tokenStamp: null, currentStamp: "abc").Should().BeTrue();
-        SecurityStampValidation.IsValid(tokenStamp: "", currentStamp: "abc").Should().BeTrue();
-    }
-
-    [Fact]
-    public void Matching_stamp_is_allowed()
-    {
-        SecurityStampValidation.IsValid("abc123", "abc123").Should().BeTrue();
-    }
-
-    [Fact]
-    public void Rotated_stamp_revokes_the_token()
-    {
-        // Password change / sign-out-everywhere rotated the stamp -> old token no longer matches.
-        SecurityStampValidation.IsValid("old-stamp", "new-stamp").Should().BeFalse();
-    }
-
-    [Fact]
-    public void A_stamped_token_against_a_missing_current_stamp_is_rejected()
-    {
-        SecurityStampValidation.IsValid("abc123", null).Should().BeFalse();
-        SecurityStampValidation.IsValid("abc123", "").Should().BeFalse();
-    }
+    [Theory]
+    [InlineData(null, "abc", true)]         // legacy token without a stamp: grandfathered
+    [InlineData("", "abc", true)]
+    [InlineData("abc123", "abc123", true)]  // matching stamp
+    [InlineData("old-stamp", "new-stamp", false)] // password change / sign-out-everywhere rotated it
+    [InlineData("abc123", null, false)]     // a stamped token against a missing current stamp
+    [InlineData("abc123", "", false)]
+    public void A_token_is_valid_only_while_its_stamp_matches(string? tokenStamp, string? currentStamp, bool valid) =>
+        SecurityStampValidation.IsValid(tokenStamp, currentStamp).Should().Be(valid);
 }

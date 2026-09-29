@@ -1,7 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
-using Xunit;
 using AllotJar.Application.Accounts.Commands.CreateAccount;
 using AllotJar.Application.Budgets;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
@@ -38,11 +37,6 @@ public class ForeignAmountsTests
 {
     private const string Owner = "user-1";
     private static readonly DateOnly June3 = new(2026, 6, 3);
-
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
 
     private static readonly ICurrentUser User = new CurrentUserStub(Owner);
 

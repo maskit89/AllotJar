@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
@@ -32,11 +31,6 @@ namespace AllotJar.Application.Tests.Imports;
 /// </summary>
 public class TransferIdentityW07Tests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private const string Owner = "user-1";
     private static readonly CurrentUserStub User = new(Owner);
     private static readonly DateOnly Opening = new(2026, 9, 1);

@@ -1,9 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Household.Commands.ArchiveHouseholdMember;
 using AllotJar.Application.Household.Commands.CreateHouseholdMember;
 using AllotJar.Application.Household.Commands.UpdateHouseholdMember;
@@ -35,11 +33,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class PPeopleHouseholdsCoverageTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static async Task<HouseholdMember> SeedMember(
         ApplicationDbContext db, string ownerId, string name, decimal net,
         bool archived = false, int order = 0)

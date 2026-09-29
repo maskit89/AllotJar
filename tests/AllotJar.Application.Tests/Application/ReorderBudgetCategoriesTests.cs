@@ -1,9 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Commands.ReorderBudgetCategories;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Persistence;
@@ -12,11 +10,6 @@ namespace AllotJar.Application.Tests.Application;
 
 public class ReorderBudgetCategoriesTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private sealed record Seeded(Guid MonthId, Guid Housing, Guid Food, Guid Savings);
 
     // Expense groups Housing(0), Food(1), Savings(2) under one month.

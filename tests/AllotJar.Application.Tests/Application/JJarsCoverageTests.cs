@@ -1,10 +1,8 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Commands.ArchiveJar;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Jars.Commands.UpdateJar;
@@ -29,11 +27,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class JJarsCoverageTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     /// <summary>A jar in <paramref name="account"/>; <paramref name="allocated"/> is an initial allocation of the account's money (rule 77).</summary>
     private static Jar SeedJar(
         ApplicationDbContext db, string ownerId, Guid id, decimal target, Account account,
@@ -162,9 +155,7 @@ public class JJarsCoverageTests
     [Fact]
     public async Task ArchiveRoute_Throws_WhenJarIdIsUnknown()
     {
-        // JAR-071 / JAR-067 — an unknown id on the archive/restore route 404s ("Sinking
-        // fund {id} was not found."); there is no DELETE route — jars are only ever
-        // soft-archived/restored.
+        // JAR-071 / JAR-067 — an unknown id on the archive/restore route 404s.
         await using var db = NewContext();
 
         var ex = await Assert.ThrowsAsync<NotFoundException>(() =>
@@ -336,22 +327,19 @@ public class JJarsCoverageTests
             .IsValid.Should().BeFalse();
     }
 
-    [Fact]
-    public void Validator_RecurMonths_Accepts120_Rejects121()
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    [InlineData(120, true)]
+    [InlineData(121, false)]
+    public void Validator_RecurMonths_IsInclusiveOneTo120(int months, bool valid)
     {
-        // JAR-065 — the repeat cycle is inclusive [1,120]: 120 is accepted, 121 rejected
-        // with "Repeat cycle must be between 1 and 120 months." (0 is already covered in
-        // JarLifecycleTests; this pins the upper boundary.)
-        var validator = new CreateJarCommandValidator();
+        // JAR-065 — the repeat cycle is inclusive [1,120].
+        var result = new CreateJarCommandValidator().Validate(new CreateJarCommand(
+            "X", JarKind.Recurring, 100m, new DateOnly(2026, 10, 1),
+            AccrualMethod.TargetByDate, Guid.NewGuid(), RecurMonths: months));
 
-        validator.Validate(new CreateJarCommand(
-                "X", JarKind.Recurring, 100m, new DateOnly(2026, 10, 1),
-                AccrualMethod.TargetByDate, Guid.NewGuid(), RecurMonths: 120))
-            .IsValid.Should().BeTrue();
-
-        validator.Validate(new CreateJarCommand(
-                "X", JarKind.Recurring, 100m, new DateOnly(2026, 10, 1),
-                AccrualMethod.TargetByDate, Guid.NewGuid(), RecurMonths: 121))
-            .Errors.Should().Contain(e => e.ErrorMessage == "Repeat cycle must be between 1 and 120 months.");
+        if (valid) result.IsValid.Should().BeTrue();
+        else result.Errors.Should().Contain(e => e.ErrorMessage == "Repeat cycle must be between 1 and 120 months.");
     }
 }

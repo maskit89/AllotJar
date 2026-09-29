@@ -1,23 +1,19 @@
 using FluentAssertions;
-using Xunit;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Allocation.Commands.UpsertAllocationProfile;
-using AllotJar.Application.Allocation.Dtos;
 using AllotJar.Application.Allocation.Queries.PreviewIncomeAllocation;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
-using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Application;
 
 /// <summary>
 /// Residual-gap coverage for <see cref="BudgetCategory.ExcludeFromAllocation"/>
 /// (docs/testing/cases: TX-095 in 10-transactions.md, ALLOC-036 in 14-allocation.md).
-/// The flag has NO UI control and NO API writer — only the data migration and the Excel
-/// importer ever set it — so it cannot be journey-tested; here it is seeded directly on the
+/// The flag has NO UI control; only the data migration, the Excel importer and the pocket-money
+/// line sync set it, so it cannot be journey-tested; here it is seeded directly on the
 /// entity and asserted through the REAL read paths on both sides of the contract:
 /// <list type="bullet">
 ///   <item>TX-095 — GetBudgetMonth (BudgetActuals): transactions assigned to a line inside an
@@ -31,11 +27,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class ExcludeFromAllocationCoverageTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private const string Owner = "user-1";
 
     // TX-095 — an expense assigned to a line inside an ExcludeFromAllocation category counts

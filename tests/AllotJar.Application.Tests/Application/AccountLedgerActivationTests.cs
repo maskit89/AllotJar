@@ -1,11 +1,9 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Accounts.Commands.CreateAccount;
 using AllotJar.Application.Accounts.Queries.GetAccountReconciliation;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Application.Transactions;
 using AllotJar.Application.Transactions.Commands.ConfirmTransferLegs;
@@ -28,11 +26,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class AccountLedgerActivationTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static readonly CurrentUserStub User = new("user-1");
     private static readonly DateOnly Opening = new(2026, 9, 1);
 

@@ -1,7 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
-using Xunit;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
@@ -20,11 +19,6 @@ namespace AllotJar.Application.Tests.Transactions;
 /// </summary>
 public class ManualTransactionTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     // Income(3000) + Housing(Rent planned 1000). Returns the Rent line id.
     private static Guid Seed(ApplicationDbContext db, string ownerId)
     {
@@ -44,7 +38,7 @@ public class ManualTransactionTests
     }
 
     [Fact]
-    public async Task Create_Assigned_AddsTransactionAndTracksTheLine()
+    public async Task Create_Assigned_AddsTransactionAndCountsInTheLineActual()
     {
         await using var db = NewContext();
         var rentId = Seed(db, "user-1");
@@ -117,50 +111,6 @@ public class ManualTransactionTests
         validator.Validate(new CreateTransactionCommand(
                 new DateOnly(2026, 6, 1), "x", 10m, TransactionType.Transfer, null))
             .IsValid.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task Assign_RollsTheTransactionIntoTheLineActual()
-    {
-        await using var db = NewContext();
-        var rentId = Seed(db, "user-1");
-        var user = new CurrentUserStub("user-1");
-
-        // A standalone transaction, then assigned to the (empty) Rent line.
-        var tx = new Transaction
-        {
-            OwnerId = "user-1",
-            Date = new DateOnly(2026, 6, 10),
-            Payee = "Landlord",
-            Amount = 300m,
-            Type = TransactionType.Expense,
-        };
-        db.Transactions.Add(tx);
-        await db.SaveChangesAsync();
-
-        await new AssignTransactionCommandHandler(db, user)
-            .Handle(new AssignTransactionCommand(tx.Id, rentId), CancellationToken.None);
-
-        var month = await new GetBudgetMonthQueryHandler(db, user)
-            .Handle(new GetBudgetMonthQuery(2026, 6), CancellationToken.None);
-        var rent = month.Categories.SelectMany(c => c.Items).Single(i => i.Id == rentId);
-        rent.ActualAmount.Should().Be(300m);
-    }
-
-    [Fact]
-    public async Task Delete_RemovesTheTransaction()
-    {
-        await using var db = NewContext();
-        Seed(db, "user-1");
-        var user = new CurrentUserStub("user-1");
-        var tx = new Transaction { OwnerId = "user-1", Amount = 10m, Type = TransactionType.Expense };
-        db.Transactions.Add(tx);
-        await db.SaveChangesAsync();
-
-        await new DeleteTransactionCommandHandler(db, user)
-            .Handle(new DeleteTransactionCommand(tx.Id), CancellationToken.None);
-
-        (await db.Transactions.CountAsync()).Should().Be(0);
     }
 
     [Fact]

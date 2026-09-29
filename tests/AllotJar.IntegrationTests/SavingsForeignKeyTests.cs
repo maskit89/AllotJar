@@ -1,7 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;

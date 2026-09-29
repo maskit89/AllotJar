@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Accounts;
 using AllotJar.Application.Accounts.Commands.CreateAccount;
 using AllotJar.Application.Accounts.Commands.DeleteAccount;
@@ -10,7 +9,6 @@ using AllotJar.Application.Budgets.Commands.AddBudgetItem;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.ArchiveJar;
 using AllotJar.Application.Jars.Commands.CreateJar;
@@ -39,11 +37,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class JarLedgerActivationTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static readonly CurrentUserStub User = new("user-1");
     private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
 

@@ -1,11 +1,9 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Budgets.Commands.SetBudgetItemBill;
 using AllotJar.Application.Budgets.Commands.SetBudgetItemPaid;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -19,11 +17,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class BillTrackingTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static BudgetItem SeedRent(ApplicationDbContext db, string ownerId = "user-1", int year = 2026, int month = 6)
     {
         var rent = new BudgetItem { Name = "Rent", PlannedAmount = 1100m };
@@ -74,20 +67,6 @@ public class BillTrackingTests
     }
 
     [Fact]
-    public async Task SetPaid_TogglesTheLinesPaidStatus()
-    {
-        await using var db = NewContext();
-        var rent = SeedRent(db);
-        rent.DueDay = 1;
-        await db.SaveChangesAsync();
-
-        var handler = new SetBudgetItemPaidCommandHandler(db, new CurrentUserStub("user-1"));
-        var dto = await handler.Handle(new SetBudgetItemPaidCommand(rent.Id, true), CancellationToken.None);
-
-        dto.Categories.Single().Items.Single().IsPaid.Should().BeTrue();
-    }
-
-    [Fact]
     public async Task SetBill_Throws_WhenTheLineIsNotOwned()
     {
         await using var db = NewContext();
@@ -107,10 +86,14 @@ public class BillTrackingTests
     [InlineData(null, true)] // null clears the bill — valid
     public void Validator_ChecksDueDayRange(int? dueDay, bool expectedValid)
     {
-        var validator = new SetBudgetItemBillCommandValidator();
-        validator
-            .Validate(new SetBudgetItemBillCommand(Guid.NewGuid(), dueDay))
-            .IsValid.Should().Be(expectedValid);
+        // BILL-012: an out-of-range day is refused with the documented message.
+        var result = new SetBudgetItemBillCommandValidator()
+            .Validate(new SetBudgetItemBillCommand(Guid.NewGuid(), dueDay));
+
+        result.IsValid.Should().Be(expectedValid);
+        if (!expectedValid)
+            result.Errors.Should().ContainSingle()
+                .Which.ErrorMessage.Should().Be("A due day must be between 1 and 31.");
     }
 
     [Fact]

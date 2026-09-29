@@ -1,9 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Transactions.Commands.AssignTransaction;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Domain.Entities;
@@ -15,11 +13,6 @@ namespace AllotJar.Application.Tests.Transactions;
 
 public class SplitTransactionTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private sealed record Seeded(
         BudgetMonth Month, BudgetItem Groceries, BudgetItem Household, BudgetItem Salary);
 
@@ -62,7 +55,7 @@ public class SplitTransactionTests
     }
 
     [Fact]
-    public async Task Split_AllocatesAcrossLines_ClearsWholeAssignment_AndTracksLines()
+    public async Task Split_AllocatesAcrossLines_AndClearsTheWholeAssignment()
     {
         await using var db = NewContext();
         var s = Seed(db);
@@ -140,8 +133,7 @@ public class SplitTransactionTests
     {
         await using var db = NewContext();
         var s = Seed(db);
-        // Lines must be Tracked for the roll-up to show — the split sets this, but
-        // assert end-to-end through the budget query.
+        // Asserted end-to-end through the budget query.
         var tx = SeedExpense(db, 100m);
 
         var splitHandler = new SplitTransactionCommandHandler(db, new CurrentUserStub("user-1"));

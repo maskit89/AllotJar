@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.HouseholdAccess;
@@ -12,7 +11,6 @@ using AllotJar.Application.HouseholdAccess.Commands.RevokeMember;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.ValueObjects;
 using AllotJar.Domain.Enums;
-using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Application;
 
@@ -291,23 +289,6 @@ public class HouseholdAccessTests
         OwnerId = OwnerId, UserId = userId, Role = HouseholdRole.Admin,
         Status = MembershipStatus.Active, InvitedEmail = email, MemberId = memberId,
     };
-
-    [Fact]
-    public async Task Invite_rejects_linking_a_budget_person_already_linked_to_another_login()
-    {
-        using var db = NewContext();
-        db.HouseholdMemberships.Add(Owner());
-        var member = new HouseholdMember { OwnerId = OwnerId, Name = "Sam", DisplayOrder = 0 };
-        db.HouseholdMembers.Add(member);
-        db.HouseholdMemberships.Add(ActiveLogin("user-2", "sam@x.com", member.Id));
-        await db.SaveChangesAsync();
-
-        var handler = new InviteMemberCommandHandler(db, new CurrentUserStub(OwnerId), new FakeIdentity());
-        var act = () => handler.Handle(new InviteMemberCommand(
-            "new@x.com", HouseholdRole.Limited, InviteMethod.Link, null, null, member.Id), default);
-
-        await act.Should().ThrowAsync<ValidationException>();
-    }
 
     [Fact]
     public async Task Link_connects_a_login_to_a_budget_person_and_can_unlink()

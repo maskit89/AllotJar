@@ -1,10 +1,8 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Commands.UpdateBudgetItem;
 using AllotJar.Application.Budgets.Dtos;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -18,7 +16,7 @@ namespace AllotJar.Application.Tests.Application;
 /// dashboard that live at the Application/domain layer rather than in the client:
 /// transaction-derived actuals computed at read time (kind-aware; income lines sum
 /// Income transactions, expense/savings lines sum Expense transactions; split slices
-/// roll up at the parent's exchange rate; transfers never roll up), the
+/// roll up with their parent; transfers never roll up), the
 /// TotalIncome / TotalPlanned / RemainingToBudget hero math, the PR #172
 /// empty-vs-balanced rule, and planned-amount edit persistence through the
 /// UpdateBudgetItem command. Pure client-render/optimistic-UI cases are deferred
@@ -32,11 +30,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class DDashboardActualsCoverageTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private sealed record Jul26(
         Guid MonthId,
         Guid TakeHomePayId,

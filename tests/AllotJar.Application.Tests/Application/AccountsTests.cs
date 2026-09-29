@@ -1,10 +1,8 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Accounts.Commands.CreateAccount;
 using AllotJar.Application.Accounts.Commands.DeleteAccount;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -19,11 +17,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class AccountsTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static Account SeedAccount(ApplicationDbContext db, string ownerId, decimal opening, int order = 0)
     {
         var account = new Account

@@ -1,11 +1,8 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Household.Queries.GetMemberSpending;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
-using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Application;
 
@@ -15,11 +12,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class MemberSpendingTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     [Fact]
     public async Task Spending_SumsWholeTransactionsAndSlicesPerMember()
     {

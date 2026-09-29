@@ -1,7 +1,6 @@
 using FluentAssertions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Accounts.Commands.DeleteAccount;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
@@ -30,11 +29,6 @@ namespace AllotJar.Application.Tests.Transactions;
 /// </summary>
 public class TTransfersCoverageTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private sealed class RoleStub(HouseholdRole? role) : ICurrentUser
     {
         public string? UserId => "u1";
@@ -64,7 +58,7 @@ public class TTransfersCoverageTests
             .Handle(new GetAccountsQuery(), CancellationToken.None);
 
     // ── TRF-005 / TRF-023: the handler records ONE signed Type=Transfer row (not two legs)
-    // and returns a DTO stamped source=AccountId, dest=TransferAccountId, ExchangeRate 1,
+    // and returns a DTO stamped source=AccountId, dest=TransferAccountId,
     // currency from the source, with the from→to account names — the data behind the
     // register's "{from} → {to}" cell. (TransfersTests only asserts the derived balances.)
     [Fact]
@@ -91,29 +85,14 @@ public class TTransfersCoverageTests
         (await db.Transactions.CountAsync()).Should().Be(1);
     }
 
-    // ── TRF-006: a custom Note becomes the payee, trimmed by the handler.
-    [Fact]
-    public async Task Transfer_TrimsACustomNoteIntoThePayee()
-    {
-        await using var db = NewContext();
-        var from = SeedAccount(db, "user-1", "Current", 2000m);
-        var to = SeedAccount(db, "user-1", "Pot", 500m);
-
-        var dto = await new CreateTransferCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(
-                new CreateTransferCommand(new DateOnly(2026, 7, 16), 50m, from.Id, to.Id, "  Rent buffer  "),
-                CancellationToken.None);
-
-        dto.Payee.Should().Be("Rent buffer");
-    }
-
-    // ── TRF-007: a null/blank/whitespace-only Note falls back to "Transfer"
-    // (handler's string.IsNullOrWhiteSpace guard, not the raw spaces).
+    // ── TRF-006 / TRF-007: a custom Note becomes the payee, trimmed by the handler; a
+    // null/blank/whitespace-only Note falls back to "Transfer" (not the raw spaces).
     [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    public async Task Transfer_DefaultsPayeeToTransfer_WhenNoteBlankOrWhitespace(string? note)
+    [InlineData("  Rent buffer  ", "Rent buffer")]
+    [InlineData(null, "Transfer")]
+    [InlineData("", "Transfer")]
+    [InlineData("   ", "Transfer")]
+    public async Task Transfer_PayeeIsTheTrimmedNote_OrTransfer(string? note, string expectedPayee)
     {
         await using var db = NewContext();
         var from = SeedAccount(db, "user-1", "Current", 2000m);
@@ -121,10 +100,10 @@ public class TTransfersCoverageTests
 
         var dto = await new CreateTransferCommandHandler(db, new CurrentUserStub("user-1"))
             .Handle(
-                new CreateTransferCommand(new DateOnly(2026, 7, 16), 40m, from.Id, to.Id, note),
+                new CreateTransferCommand(new DateOnly(2026, 7, 16), 50m, from.Id, to.Id, note),
                 CancellationToken.None);
 
-        dto.Payee.Should().Be("Transfer");
+        dto.Payee.Should().Be(expectedPayee);
     }
 
     // ── TRF-028 (+ TRF-027 expense side): a transfer moves both balances by the raw amount,

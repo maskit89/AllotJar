@@ -1,10 +1,8 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Allocation.Commands.SyncPocketMoneyLines;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Household.Commands.ArchiveHouseholdMember;
 using AllotJar.Application.Household.Commands.UpdateHouseholdMember;
 using AllotJar.Application.Household.Queries.GetMemberArchivePreview;
@@ -23,11 +21,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class PocketMoneyIdentityTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private const string Owner = "user-1";
 
     /// <summary>The real current month shifted by <paramref name="months"/> — the handlers read UTC "now".</summary>

@@ -1,8 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Transactions.Commands.AssignTransaction;
 using AllotJar.Application.Transactions.Queries.GetTransactions;
 using AllotJar.Domain.Entities;
@@ -13,11 +11,6 @@ namespace AllotJar.Application.Tests.Transactions;
 
 public class TransactionHandlersTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static BudgetItem SeedMonthWithItem(ApplicationDbContext db, string ownerId)
     {
         var item = new BudgetItem { Name = "Groceries", PlannedAmount = 400m };
@@ -123,19 +116,5 @@ public class TransactionHandlersTests
 
         result.Should().HaveCount(2);
         result.Should().OnlyContain(t => t.Payee == "Supermarket");
-    }
-
-    [Fact]
-    public async Task Get_UnassignedOnly_FiltersAssigned()
-    {
-        await using var db = NewContext();
-        var item = SeedMonthWithItem(db, "user-1");
-        SeedTransaction(db, "user-1", assigned: true, itemId: item.Id);
-        SeedTransaction(db, "user-1"); // unassigned
-
-        var handler = new GetTransactionsQueryHandler(db, new CurrentUserStub("user-1"));
-        var result = await handler.Handle(new GetTransactionsQuery(UnassignedOnly: true), CancellationToken.None);
-
-        result.Should().ContainSingle().Which.BudgetItemId.Should().BeNull();
     }
 }

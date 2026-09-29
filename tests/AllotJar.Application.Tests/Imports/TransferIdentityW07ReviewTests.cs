@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using Xunit.Abstractions;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;

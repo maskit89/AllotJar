@@ -1,8 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.UpdateJar;
@@ -33,11 +31,6 @@ namespace AllotJar.Application.Tests.Application;
 public class JarMoveAcceptAndSettleTests
 {
     private const string Owner = "user-1";
-
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
 
     private static readonly CurrentUserStub User = new(Owner);
     private static readonly CancellationToken Ct = CancellationToken.None;

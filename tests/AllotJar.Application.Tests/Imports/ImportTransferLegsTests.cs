@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
@@ -8,7 +7,6 @@ using AllotJar.Application.Imports;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Imports.Commands.PreviewImport;
 using AllotJar.Application.Imports.Models;
-using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Application.Transactions.Commands.CreateTransfer;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -27,11 +25,6 @@ namespace AllotJar.Application.Tests.Imports;
 /// </summary>
 public class ImportTransferLegsTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static readonly CurrentUserStub User = new("user-1");
     private static readonly DateOnly Opening = new(2026, 9, 1);
     private static readonly DateOnly Departure = new(2026, 9, 30);

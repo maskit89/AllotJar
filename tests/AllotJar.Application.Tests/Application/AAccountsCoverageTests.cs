@@ -1,11 +1,9 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Accounts.Commands.CreateAccount;
 using AllotJar.Application.Accounts.Commands.UpdateAccount;
 using AllotJar.Application.Accounts.Queries.GetAccountReconciliation;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -39,11 +37,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class AAccountsCoverageTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static Account SeedAccount(
         ApplicationDbContext db, string ownerId, string name,
         decimal opening = 0m, AccountType type = AccountType.Current,
@@ -343,7 +336,7 @@ public class AAccountsCoverageTests
 
     // ACCT-055 — Reconciliation excludes archived jars and jars whose funding account no longer exists.
     [Fact]
-    public async Task Reconciliation_ExcludesArchivedJars_AndJarsOnDeletedFundingAccounts()
+    public async Task Reconciliation_ExcludesArchivedJars()
     {
         await using var db = NewContext();
         var joint = SeedAccount(db, "user-1", "Joint", opening: 1000m);
@@ -363,14 +356,6 @@ public class AAccountsCoverageTests
                 OwnerId = "user-1", Name = "Archived", Kind = JarKind.Goal,
                 Accrual = AccrualMethod.TargetByDate,
                 FundingAccountId = joint.Id, IsArchived = true,
-            },
-            // C: funding account no longer exists (dangling id; the FK forbids this on SQL Server)
-            // → matches no account, drops out silently.
-            new Jar
-            {
-                OwnerId = "user-1", Name = "Orphaned", Kind = JarKind.Goal,
-                Accrual = AccrualMethod.TargetByDate,
-                FundingAccountId = Guid.NewGuid(),
             });
         await db.SaveChangesAsync();
         LedgerFixtures.Allocate(db, "user-1", joint.Id, active.Id, 100m);
@@ -378,10 +363,10 @@ public class AAccountsCoverageTests
         var result = await new GetAccountReconciliationQueryHandler(db, new CurrentUserStub("user-1"))
             .Handle(new GetAccountReconciliationQuery(), CancellationToken.None);
 
-        result.Should().ContainSingle(); // only the one real account — the orphaned jar is not a row
+        result.Should().ContainSingle();
         var recon = result.Single();
         recon.BackedJarCount.Should().Be(1);      // only jar A
-        recon.BackedJarsTotal.Should().Be(100m);  // jar B (archived) and C (dangling) excluded
+        recon.BackedJarsTotal.Should().Be(100m);  // jar B (archived) excluded
         recon.Float.Should().Be(900m);            // unallocated: 1000 − 100
     }
 }

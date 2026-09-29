@@ -1,7 +1,6 @@
 using FluentAssertions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Commands.AddBudgetCategory;
 using AllotJar.Application.Budgets.Commands.AddBudgetItem;
 using AllotJar.Application.Budgets.Commands.DeleteBudgetCategory;
@@ -35,7 +34,7 @@ namespace AllotJar.Application.Tests.Application;
 ///  - CAT-009  duplicate group names are allowed (no uniqueness) and get the next per-kind order
 ///  - CAT-015  the Income group is renamable via the API and stays Kind=Income, still first
 ///  - CAT-021  deleting a group keeps its lines' assigned transactions (history is not destroyed)
-///  - CAT-023  deleting a Savings group leaves the backing jar row intact
+///  - CAT-023  a Savings group that still holds a jar's line cannot be deleted (rule 60)
 ///  - CAT-033  add-line stores unicode verbatim and allows duplicate line names within a group
 ///  - CAT-039  the line-rename (update) endpoint has NO empty-name guard and does NOT trim;
 ///             a null name is a planned-only edit that keeps the existing name
@@ -50,18 +49,13 @@ namespace AllotJar.Application.Tests.Application;
 /// BudgetItemId becoming null) is a database-enforced FK behaviour that EF InMemory
 /// cannot reproduce — it lives in the SQL integration layer alongside the SavingsId
 /// FK (CAT-035, already covered by tests/AllotJar.IntegrationTests/SavingsForeignKeyTests.cs
-/// and, at this layer, JarBudgetLinkTests.AddItem_ToSavingsGroup_CreatesTheBackingJar).
+/// and, at this layer, JarBudgetLinkTests).
 /// All optimistic-UI rollback, inline-confirm, Escape/blur and error-strip cases
 /// (CAT-003/004/011/014/016/019/025/037/041/045-UI) are client-only and stay in the
 /// Vitest DashboardPage suite.
 /// </summary>
 public class CCategoriesLinesCoverageTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private sealed class RoleStub(HouseholdRole? role) : ICurrentUser
     {
         public string? UserId => "user-1";
@@ -361,46 +355,6 @@ public class CCategoriesLinesCoverageTests
 
         (await db.BudgetItems.CountAsync(i => i.Id == s.RentId)).Should().Be(0); // line gone
         db.Transactions.Should().ContainSingle();                                // the €900 tx kept
-    }
-
-    // CAT-044 (W04, rule 60) — a Savings line is a jar's monthly contribution: it cannot be
-    // deleted from the month. The handler refuses and points at skipping the month or archiving
-    // the jar; the line and its jar are untouched.
-    [Fact]
-    public async Task DeleteSavingsLine_IsRefused_TheLineAndItsJarStay()
-    {
-        await using var db = NewContext();
-        var jar = new Jar
-        {
-            OwnerId = "user-1", Name = "Emergency Fund",
-            Kind = JarKind.Goal, Accrual = AccrualMethod.TargetByDate,
-        };
-        var line = new BudgetItem { Name = "Emergency Fund", PlannedAmount = 100m, SavingsId = jar.Id, DisplayOrder = 0 };
-        var savings = new BudgetCategory
-        {
-            Name = "Savings", Kind = CategoryKind.Savings, DisplayOrder = 0,
-            Items = new List<BudgetItem> { line },
-        };
-        var month = new BudgetMonth
-        {
-            OwnerId = "user-1", Year = 2026, Month = 7,
-            Categories = new List<BudgetCategory>
-            {
-                new() { Name = "Income", Kind = CategoryKind.Income, DisplayOrder = 0 },
-                savings,
-            },
-        };
-        db.Jars.Add(jar);
-        db.BudgetMonths.Add(month);
-        await db.SaveChangesAsync();
-        var handler = new DeleteBudgetItemCommandHandler(db, new CurrentUserStub("user-1"));
-
-        var act = () => handler.Handle(new DeleteBudgetItemCommand(line.Id), CancellationToken.None);
-
-        var ex = await act.Should().ThrowAsync<ValidationException>();
-        ex.Which.Errors.Values.SelectMany(v => v).Single().Should().Contain("Skip this month's contribution, or archive the jar");
-        (await db.BudgetItems.CountAsync(i => i.Id == line.Id)).Should().Be(1); // line stays
-        db.Jars.Should().ContainSingle(j => j.Id == jar.Id && !j.IsArchived);   // jar stays active
     }
 
     // ---- Reorder persistence round-trip ---------------------------------------

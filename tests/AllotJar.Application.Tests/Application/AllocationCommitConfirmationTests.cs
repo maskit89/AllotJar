@@ -1,10 +1,8 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Allocation.Commands.AllocateIncome;
 using AllotJar.Application.Allocation.Commands.UpsertAllocationProfile;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Transactions.Commands.ConfirmTransferLegs;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -22,11 +20,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class AllocationCommitConfirmationTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static readonly CurrentUserStub User = new("user-1");
     private static readonly DateOnly Departure = new(2026, 6, 3);
 

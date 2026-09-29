@@ -1,9 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Commands.ReorderBudgetItems;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Infrastructure.Persistence;
 
@@ -11,11 +9,6 @@ namespace AllotJar.Application.Tests.Application;
 
 public class ReorderBudgetItemsTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private sealed record Seeded(Guid CategoryId, Guid Rent, Guid Utilities, Guid Internet);
 
     // Housing with Rent(0), Utilities(1), Internet(2).

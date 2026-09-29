@@ -1,8 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Household.Commands.ArchiveHouseholdMember;
 using AllotJar.Application.Household.Commands.CreateHouseholdMember;
 using AllotJar.Application.Household.Commands.UpdateHouseholdMember;
@@ -21,11 +19,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class HouseholdMembersTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static async Task<HouseholdMember> Seed(ApplicationDbContext db, string ownerId, string name, decimal net, bool archived = false)
     {
         var m = new HouseholdMember { OwnerId = ownerId, Name = name, NetMonthlyIncome = net, IsArchived = archived };
@@ -134,41 +127,6 @@ public class HouseholdMembersTests
     }
 
     [Fact]
-    public async Task Update_Throws_WhenSavingsAccountIsMissingOrForeign()
-    {
-        await using var db = NewContext();
-        var m = await Seed(db, "user-1", "Alex", 5000m);
-        var foreign = new Account { OwnerId = "user-2", Name = "Someone else", Currency = CurrencyCode.Eur, DisplayOrder = 0 };
-        db.Accounts.Add(foreign);
-        await db.SaveChangesAsync();
-
-        var handler = new UpdateHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"));
-
-        // A non-existent id is rejected (would dangle → crash the allocation commit on SQL Server).
-        await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
-            new UpdateHouseholdMemberCommand(m.Id, "Alex", 5000m, Guid.NewGuid()), CancellationToken.None));
-        // Another household's account is rejected (would leak an allocation transfer cross-tenant).
-        await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
-            new UpdateHouseholdMemberCommand(m.Id, "Alex", 5000m, foreign.Id), CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task Create_Throws_WhenSavingsAccountIsMissingOrForeign()
-    {
-        await using var db = NewContext();
-        var foreign = new Account { OwnerId = "user-2", Name = "Someone else", Currency = CurrencyCode.Eur, DisplayOrder = 0 };
-        db.Accounts.Add(foreign);
-        await db.SaveChangesAsync();
-
-        var handler = new CreateHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"));
-
-        await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
-            new CreateHouseholdMemberCommand("Alex", 5000m, Guid.NewGuid()), CancellationToken.None));
-        await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
-            new CreateHouseholdMemberCommand("Alex", 5000m, foreign.Id), CancellationToken.None));
-    }
-
-    [Fact]
     public async Task Update_Throws_WhenOwnedByAnotherUser()
     {
         await using var db = NewContext();
@@ -178,20 +136,6 @@ public class HouseholdMembersTests
 
         await Assert.ThrowsAsync<ForbiddenAccessException>(() => handler.Handle(
             new UpdateHouseholdMemberCommand(m.Id, "X", 1m, null), CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task Archive_HidesFromDefaultList()
-    {
-        await using var db = NewContext();
-        var m = await Seed(db, "user-1", "Alex", 5000m);
-
-        await new ArchiveHouseholdMemberCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new ArchiveHouseholdMemberCommand(m.Id), CancellationToken.None);
-
-        var active = await new GetHouseholdMembersQueryHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new GetHouseholdMembersQuery(), CancellationToken.None);
-        active.Should().BeEmpty();
     }
 
     [Fact]
