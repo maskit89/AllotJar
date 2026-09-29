@@ -1,7 +1,6 @@
 // Catalog-driven Reports tests (docs/testing/cases/18-reports.md, prefix RPT).
 //
-// These are NEW cases, complementary to ReportsPage.test.tsx — they assert the
-// COMPUTED money and copy the existing file only smoke-checks: hero figures
+// They assert the computed money and copy: hero figures
 // (saved / avg / rate), the received-vs-budgeted income split, share %,
 // annual rows + totals + sign colours, the (Name,Kind) keying, the swallowed
 // partial-failure paths, the currency-follows-breakdown behaviour, and the
