@@ -122,7 +122,7 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
         // The return's jars (P72): recorded again only when the return, the account it left, the
         // amount or the departure's jars changed; otherwise it keeps what was decided when it was
         // recorded, whatever has happened to the jars since.
-        await TransferReturns.SyncAsync(_db, transfer, from.Id, previousReturn, cancellationToken);
+        await TransferReturns.SyncAsync(_db, transfer, from.Id, previousReturn, cancellationToken, nameof(request.ReturnedOn));
 
         var removed = new List<Guid>();
         var fee = await TransferFees.ApplyAsync(

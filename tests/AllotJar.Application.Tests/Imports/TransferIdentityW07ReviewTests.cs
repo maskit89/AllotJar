@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 using Xunit.Abstractions;
+using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Imports.Commands.PreviewImport;
@@ -11,6 +12,7 @@ using AllotJar.Application.Jars.Commands.ArchiveJar;
 using AllotJar.Application.Jars.Commands.UpdateJar;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Application.Transactions.Commands.CreateTransfer;
+using AllotJar.Application.Transactions.Commands.DeleteTransaction;
 using AllotJar.Application.Transactions.Commands.UpdateTransaction;
 using AllotJar.Application.Transactions.Commands.UpdateTransfer;
 using AllotJar.Domain.Entities;
@@ -730,5 +732,139 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
         departure.Date.Should().Be(Sep12);
         departure.Postings.Should().ContainSingle(p => p.JarId == holiday.Id && p.Amount == -100m);
         (await JarDepartures.BackfillAsync(db, Ct)).Departures.Should().Be(0);
+    }
+
+    // Second merge pass on #279 (M2-P2-1): a Return operation's jar share is settled on the jar's
+    // departure (#276, rule 80) whenever the return changes after the jar left the account, like
+    // every other jar share. Holiday 400 on A pays a 100 transfer on 10 Sep; the bounce is marked
+    // by hand on 12 Sep; the user empties Holiday on 15 Sep and moves it to C today.
+    private static async Task<(Account A, Account B, Jar Holiday, Guid TransferId)> SeedMovedAfterAReturnAsync(ApplicationDbContext db)
+    {
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 200m, Sep1, AccountType.Current, order: 1);
+        var c = LedgerFixtures.SeedAccount(db, Owner, "C", 0m, Sep1, AccountType.Savings, order: 2);
+        var holiday = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, holiday.Id, 400m, Sep1);
+        var t = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Sep10, 100m, a.Id, b.Id, FromJarId: holiday.Id), Ct);
+        await new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(t.Id, a.Id, b.Id, 100m, Sep10, null, Sep12, FromJarId: holiday.Id), Ct);
+        LedgerFixtures.Allocate(db, Owner, a.Id, holiday.Id, -400m, Sep15, JarAllocationKind.Reallocation);
+        await new UpdateJarCommandHandler(db, User).Handle(new UpdateJarCommand(
+            holiday.Id, "Holiday", JarKind.Goal, 1200m, holiday.TargetDate, AccrualMethod.TargetByDate, c.Id), Ct);
+        (await db.JarAllocations.CountAsync(x => x.Kind == JarAllocationKind.Departure)).Should().Be(1);
+        (await HolidayAsync(db, a, holiday, Today)).InA.Should().Be(0m);
+        return (a, b, holiday, t.Id);
+    }
+
+    private static async Task<(decimal InA, decimal? Total)> HolidayAsync(ApplicationDbContext db, Account a, Jar holiday, DateOnly on)
+    {
+        var snapshot = await JarLedgerReader.ReadAsync(db, Owner, on, Ct);
+        return (snapshot.Accounts[a.Id].JarBalances.GetValueOrDefault(holiday.Id), snapshot.BalanceOf(holiday.Id));
+    }
+
+    // Moves are dated today in the app; these tests date the move 13 Sep so a return can fall after it.
+    private static async Task DateTheMoveAsync(ApplicationDbContext db, DateOnly on)
+    {
+        foreach (var op in await db.JarAllocations.Where(x => x.Kind == JarAllocationKind.Departure || x.Kind == JarAllocationKind.Reallocation).ToListAsync())
+        {
+            op.Date = on;
+        }
+        await db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task UndoingAReturn_AfterTheJarMoved_LeavesNothingInTheOldAccount()
+    {
+        await using var db = NewContext();
+        var (a, b, holiday, id) = await SeedMovedAfterAReturnAsync(db);
+
+        await new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(id, a.Id, b.Id, 100m, Sep10, null, null, FromJarId: holiday.Id), Ct);
+
+        (await HolidayAsync(db, a, holiday, Today)).Should().Be((0m, 0m));
+    }
+
+    [Fact]
+    public async Task DeletingAReturnedTransfer_AfterTheJarMoved_LeavesNothingInTheOldAccount()
+    {
+        await using var db = NewContext();
+        var (a, _, holiday, id) = await SeedMovedAfterAReturnAsync(db);
+
+        await new DeleteTransactionCommandHandler(db, User).Handle(new DeleteTransactionCommand(id), Ct);
+
+        (await HolidayAsync(db, a, holiday, Today)).Should().Be((0m, 0m));
+    }
+
+    [Fact]
+    public async Task ChangingAReturnedTransfersAmount_AfterTheJarMoved_LeavesNothingInTheOldAccount()
+    {
+        await using var db = NewContext();
+        var (a, b, holiday, id) = await SeedMovedAfterAReturnAsync(db);
+
+        await new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(id, a.Id, b.Id, 80m, Sep10, null, Sep12, FromJarId: holiday.Id), Ct);
+
+        (await HolidayAsync(db, a, holiday, Today)).Should().Be((0m, 0m));
+    }
+
+    [Fact]
+    public async Task RetypingAReturnedTransfer_AfterTheJarMoved_LeavesNothingInTheOldAccount()
+    {
+        await using var db = NewContext();
+        var (a, _, holiday, id) = await SeedMovedAfterAReturnAsync(db);
+
+        await new UpdateTransactionCommandHandler(db, User).Handle(
+            new UpdateTransactionCommand(id, Sep10, "Card", 100m, TransactionType.Expense, a.Id), Ct);
+
+        (await HolidayAsync(db, a, holiday, Today)).Should().Be((0m, 0m));
+    }
+
+    // A date the user types can't move the jar's share past the day the jar left (rule 80), as for
+    // any entry of the jar's stretch in that account.
+    [Fact]
+    public async Task RedatingAReturnByHand_PastTheDayItsJarLeft_IsRefused()
+    {
+        await using var db = NewContext();
+        var (a, b, holiday, id) = await SeedMovedAfterAReturnAsync(db);
+        await DateTheMoveAsync(db, new DateOnly(2026, 9, 13));
+
+        var act = () => new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(id, a.Id, b.Id, 100m, Sep10, null, Sep15, FromJarId: holiday.Id), Ct);
+
+        (await act.Should().ThrowAsync<ValidationException>()).Which.Errors.Should().ContainKey("ReturnedOn");
+        (await db.JarAllocations.SingleAsync(x => x.Kind == JarAllocationKind.Return)).Date.Should().Be(Sep12);
+        foreach (var day in new[] { new DateOnly(2026, 9, 13), new DateOnly(2026, 9, 14), Sep15 })
+        {
+            (await HolidayAsync(db, a, holiday, day)).InA.Should().Be(0m, $"Holiday left A on 13 Sep ({day})");
+        }
+    }
+
+    // The bank's date is a fact, not a choice: a statement dating the return after the jar left
+    // decides the return again as of that date, when the jar wasn't there, so the money comes back
+    // unallocated and what the hand-marked return gave the jar is settled on its departure.
+    [Fact]
+    public async Task AStatementDatingAReturnAfterItsJarLeft_DecidesItAgain_Unallocated()
+    {
+        await using var db = NewContext();
+        var (a, _, holiday, id) = await SeedMovedAfterAReturnAsync(db);
+        await DateTheMoveAsync(db, new DateOnly(2026, 9, 13));
+        var unallocated = (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[a.Id].Unallocated;
+
+        var back = (await PreviewAsync(db, User, Camt("RET-20", Sep15, 100m, true, "Returned"), a.Id)).Items.Single();
+        back.TransferMatches.Should().Contain(m => m.TransferId == id && m.Kind == TransferMatchKinds.Return);
+        await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
+        {
+            new CommitImportItem(back.Reference, back.Date, back.Payee, back.Amount, back.Currency, true, null, null, ReturnOfTransferId: id),
+        }), Ct);
+
+        (await db.Transactions.SingleAsync(t => t.Id == id)).ReturnedOn.Should().Be(Sep15);
+        (await db.JarAllocations.Include(x => x.Postings).Where(x => x.Kind == JarAllocationKind.Return).ToListAsync())
+            .SelectMany(x => x.Postings).Should().NotContain(p => p.JarId == holiday.Id);
+        foreach (var day in new[] { new DateOnly(2026, 9, 13), new DateOnly(2026, 9, 14), Sep15, Today })
+        {
+            (await HolidayAsync(db, a, holiday, day)).InA.Should().Be(0m, $"Holiday left A on 13 Sep ({day})");
+        }
+        (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[a.Id].Unallocated.Should().Be(unallocated);
     }
 }
