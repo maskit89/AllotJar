@@ -51,7 +51,8 @@ public class JarDto
     /// <summary>
     /// The jar's actual balance as of <see cref="BalanceAsOf"/>: the allocations posted against it
     /// in whichever account held it then (rule 80), never planned contributions (rule 1). Null when
-    /// no open account held it on that date (rule 67), never zero.
+    /// its current account has no opening date, or had not opened on that date and no other open
+    /// account's ledger carries the jar (rule 67), never zero.
     /// </summary>
     public decimal? CurrentBalance { get; set; }
 

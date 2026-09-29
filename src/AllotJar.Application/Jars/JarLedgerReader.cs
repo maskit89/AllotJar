@@ -171,8 +171,8 @@ public static class JarLedgerReader
     /// Rule 79: an expense from a jar-backed account draws from the jar its budget line (or each
     /// split slice's line) names, otherwise from unallocated. Incoming money and transfer legs
     /// without a stored allocation are unallocated (rule 78 stores the user's answer). A line's
-    /// jar is drawn from only while the account held it: a payment dated on or before the day the
-    /// jar moved into the account drew from unallocated (<see cref="HeldOn"/>, P2-20).
+    /// jar is drawn from only while the account held it: a payment dated before the day the jar
+    /// moved into the account drew from unallocated (<see cref="HeldOn"/>, P2-20).
     /// <paramref name="movement"/> is the leg's signed amount (an expense is negative).
     /// </summary>
     internal static IReadOnlyList<JarLedgerPosting> Derive(
@@ -215,11 +215,13 @@ public static class JarLedgerReader
     /// Whether a jar designated to <paramref name="designated"/> since <paramref name="since"/>
     /// (null: since it was created) was held in <paramref name="accountId"/> on
     /// <paramref name="date"/>, for a payment on its line (rule 79). The move day belongs to the
-    /// account the jar left (its payments that day stay there, P51), so the new account's
-    /// payments draw from the jar from the day after (P2-20).
+    /// new account, the only one a payment on the jar's line can be recorded from from then on
+    /// (TransactionInvariants): its payments that day draw from the jar. The old account's
+    /// payments up to that day were written down there at the move, and so were the new
+    /// account's, which drew from its unallocated money (P2-20).
     /// </summary>
     internal static bool HeldOn(Guid designated, DateOnly? since, Guid accountId, DateOnly date) =>
-        designated == accountId && (since is not { } from || date > from);
+        designated == accountId && (since is not { } from || date >= from);
 
     /// <summary>The candidate ledger after applying zero-sum <paramref name="postings"/> to <paramref name="view"/>, for rule 68/70 checks before persisting.</summary>
     public static SavingsLedgerBalance Apply(JarLedgerView view, IReadOnlyList<JarLedgerPosting> postings)

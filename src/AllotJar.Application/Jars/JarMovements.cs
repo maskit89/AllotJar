@@ -155,6 +155,14 @@ public static class JarMovements
             }
             if (JarLedgerReader.HeldOn(line.AccountId, line.Since, account.Id, transaction.Date))
             {
+                // A payment of this account written down on its unallocated money before the jar
+                // arrived here (KeepArrivalAttributionAsync) stays there while it is dated on the
+                // day the jar arrived: the reader would now derive it onto the jar (P2-20).
+                if (existing is not null && !heldThen.Contains(line.JarId) && line.Since is { } since && transaction.Date <= since)
+                {
+                    keepsHistory = true;
+                    return Guid.Empty;
+                }
                 return line.JarId;
             }
             if (heldThen.Contains(line.JarId))
@@ -253,29 +261,59 @@ public static class JarMovements
     public static async Task<int> KeepLineAttributionAsync(IApplicationDbContext db, string ownerId, Jar jar, DateOnly movedOn, CancellationToken cancellationToken)
     {
         var account = await db.Accounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == jar.FundingAccountId, cancellationToken);
-        if (account is null)
-        {
-            return 0;
-        }
-        var payments = await db.Transactions
-            .AsNoTracking()
-            .Include(t => t.Splits)
-            .Where(t => t.OwnerId == ownerId && t.Type == TransactionType.Expense && t.AccountId == account.Id
-                        && t.Date <= movedOn
-                        && !t.JarAllocations.Any(a => a.AccountId == account.Id)
-                        && ((t.BudgetItem != null && t.BudgetItem.SavingsId == jar.Id)
-                            || t.Splits.Any(s => s.BudgetItem != null && s.BudgetItem.SavingsId == jar.Id)))
-            .ToListAsync(cancellationToken);
+        return account is null ? 0 : await KeepAsIsAsync(db, ownerId, jar.Id, account, movedOn, cancellationToken);
+    }
+
+    /// <summary>
+    /// The mirror of <see cref="KeepLineAttributionAsync"/> for the account <paramref name="jar"/>
+    /// is about to join (P2-20): its payments on the jar's lines dated on or before
+    /// <paramref name="movedOn"/> were made while the jar was held elsewhere, so they drew from its
+    /// unallocated money. They are written down as the reader derives them today, before the jar
+    /// names the account, so neither the reader nor a later edit moves them onto the jar. Returns
+    /// how many were written down. The caller saves.
+    /// </summary>
+    public static Task<int> KeepArrivalAttributionAsync(
+        IApplicationDbContext db, string ownerId, Jar jar, Account joining, DateOnly movedOn, CancellationToken cancellationToken) =>
+        KeepAsIsAsync(db, ownerId, jar.Id, joining, movedOn, cancellationToken);
+
+    private static async Task<int> KeepAsIsAsync(
+        IApplicationDbContext db, string ownerId, Guid jarId, Account account, DateOnly upTo, CancellationToken cancellationToken)
+    {
+        var payments = await UnstoredLinePaymentsAsync(db, ownerId, new[] { jarId }, account.Id, upTo, cancellationToken);
         if (payments.Count == 0)
         {
             return 0;
         }
         var jars = await db.Jars.AsNoTracking().Where(j => j.OwnerId == ownerId).ToDictionaryAsync(j => j.Id, cancellationToken);
         var lineJars = await JarLedgerReader.LineJarsAsync(db, ownerId, cancellationToken);
+        WriteDown(db, ownerId, payments, account, lineJars, jars);
+        return payments.Count;
+    }
+
+    /// <summary>The expenses from <paramref name="accountId"/> on a line of any of <paramref name="jarIds"/> (whole or a slice), dated on or before <paramref name="upTo"/>, that carry no stored answer there.</summary>
+    internal static Task<List<Transaction>> UnstoredLinePaymentsAsync(
+        IApplicationDbContext db, string ownerId, IReadOnlyCollection<Guid> jarIds, Guid accountId, DateOnly upTo,
+        CancellationToken cancellationToken) =>
+        db.Transactions
+            .AsNoTracking()
+            .Include(t => t.Splits)
+            .Where(t => t.OwnerId == ownerId && t.Type == TransactionType.Expense && t.AccountId == accountId
+                        && t.Date <= upTo
+                        && !t.JarAllocations.Any(a => a.AccountId == accountId)
+                        && ((t.BudgetItem != null && t.BudgetItem.SavingsId != null && jarIds.Contains(t.BudgetItem.SavingsId.Value))
+                            || t.Splits.Any(s => s.BudgetItem != null && s.BudgetItem.SavingsId != null && jarIds.Contains(s.BudgetItem.SavingsId.Value))))
+            .ToListAsync(cancellationToken);
+
+    /// <summary>Stores each payment's leg on <paramref name="account"/> exactly as the reader derives it with <paramref name="jars"/>. Returns the operations added; the caller saves.</summary>
+    internal static List<JarAllocation> WriteDown(
+        IApplicationDbContext db, string ownerId, IEnumerable<Transaction> payments, Account account,
+        IReadOnlyDictionary<Guid, Guid> lineJars, IReadOnlyDictionary<Guid, Jar> jars)
+    {
+        var added = new List<JarAllocation>();
         foreach (var payment in payments)
         {
             var postings = JarLedgerReader.Derive(payment, account, -payment.Amount, lineJars, jars);
-            db.JarAllocations.Add(new JarAllocation
+            var operation = new JarAllocation
             {
                 OwnerId = ownerId,
                 AccountId = account.Id,
@@ -284,9 +322,11 @@ public static class JarMovements
                 TransactionId = payment.Id,
                 CreatedUtc = DateTime.UtcNow,
                 Postings = postings.Select(p => new JarAllocationPosting { JarId = p.JarId, Amount = p.Amount }).ToList(),
-            });
+            };
+            db.JarAllocations.Add(operation);
+            added.Add(operation);
         }
-        return payments.Count;
+        return added;
     }
 
     /// <summary>Drops the stored split of one leg, so the reader falls back to its derived attribution.</summary>

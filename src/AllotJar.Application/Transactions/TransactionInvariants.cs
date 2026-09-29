@@ -105,7 +105,7 @@ public static class TransactionInvariants
                 throw new NotFoundException($"Budget item {id} was not found.");
             }
             EnsureOwned(item, userId);
-            EnsureJarAccount(item, accountId, errorKey);
+            EnsureJarAccount(item, accountId, transactionDate, errorKey);
 
             // Keep the roll-up coherent: split an expense across expense lines,
             // income across income lines.
@@ -198,7 +198,7 @@ public static class TransactionInvariants
         }
 
         EnsureOwned(item, userId);
-        EnsureJarAccount(item, accountId, errorKey);
+        EnsureJarAccount(item, accountId, transactionDate, errorKey);
 
         if (!LineKindMatches(item.BudgetCategory.Kind, type))
         {
@@ -248,9 +248,11 @@ public static class TransactionInvariants
     /// Rules 2/4/79: a jar's money lives in its designated account, so a payment attributed to a
     /// jar's line must leave that account — that attribution is what draws the money from the jar.
     /// A payment from nowhere, or from another account, cannot reduce the jar and is refused
-    /// rather than silently counted as a plan.
+    /// rather than silently counted as a plan. Nor can one dated before the day the jar moved into
+    /// that account: it was paid while the jar's money was held elsewhere (P2-20), so the ledger
+    /// would keep it on the account's unallocated money.
     /// </summary>
-    private static void EnsureJarAccount(BudgetItem item, Guid? accountId, string errorKey)
+    private static void EnsureJarAccount(BudgetItem item, Guid? accountId, DateOnly transactionDate, string errorKey)
     {
         if (item.SavingsId is null)
         {
@@ -269,6 +271,44 @@ public static class TransactionInvariants
             throw Validation(errorKey,
                 $"'{item.Name}' is the jar {jar.Name}, whose money is held in {held}. " +
                 $"Record this payment from {held} so it comes out of the jar.");
+        }
+        EnsureJarArrived(item, jar, transactionDate, errorKey);
+    }
+
+    private static void EnsureJarArrived(BudgetItem item, Jar jar, DateOnly transactionDate, string errorKey)
+    {
+        if (jar.FundingAccountSince is { } since && transactionDate < since)
+        {
+            var held = jar.FundingAccount?.Name ?? "its account";
+            throw Validation(errorKey,
+                $"'{item.Name}' is the jar {jar.Name}, which moved to {held} on {since:d MMM yyyy}. " +
+                $"A payment dated before then was made while its money was held elsewhere, so it can't come out of {jar.Name}. " +
+                "Record it on another line.");
+        }
+    }
+
+    /// <summary>
+    /// A date edit that keeps the month, account and direction skips the full re-validation, but
+    /// a payment from a jar's account still can't move on the jar's line to before the day the jar
+    /// arrived there (P2-20, the same refusal as <see cref="EnsureWholeLineAssignable"/>). A kept
+    /// payment from an account the jar has left is governed by its departure instead (P51).
+    /// </summary>
+    public static async Task EnsureJarLinesArrivedAsync(
+        IApplicationDbContext db, IReadOnlyCollection<Guid> lineIds, Guid? accountId, DateOnly transactionDate, string errorKey,
+        CancellationToken cancellationToken)
+    {
+        if (lineIds.Count == 0 || accountId is null)
+        {
+            return;
+        }
+        var lines = await db.BudgetItems
+            .Include(i => i.Jar)
+                .ThenInclude(j => j!.FundingAccount)
+            .Where(i => lineIds.Contains(i.Id) && i.Jar != null && i.Jar.FundingAccountId == accountId && i.Jar.FundingAccountSince != null)
+            .ToListAsync(cancellationToken);
+        foreach (var line in lines)
+        {
+            EnsureJarArrived(line, line.Jar!, transactionDate, errorKey);
         }
     }
 

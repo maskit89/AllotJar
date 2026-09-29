@@ -404,6 +404,66 @@ public class JarLedgerSqlTests
     }
 
     [Fact]
+    public async Task A_move_made_before_274_has_its_old_line_payments_written_down_before_its_departure()
+    {
+        // Review of #276, P2-B, on SQL Server: 100 of a 1 Jun income went into Holiday in A and
+        // was paid out on its June line on 20 Jun; Holiday was re-designated to B with nothing
+        // written down, so the payment lost the jar. The backfill writes it down as drawing from
+        // Holiday and dates the departure (of nothing) on it.
+        var owner = NewOwner();
+        Account a;
+        Jar jar;
+        Transaction payment;
+        await using (var seed = _fixture.CreateContext())
+        {
+            a = await SeedAccountAsync(seed, owner);
+            var b = await SeedAccountAsync(seed, owner);
+            jar = await SeedJarAsync(seed, a);
+            var income = new Transaction
+            {
+                OwnerId = owner, AccountId = a.Id, Amount = 100m, Currency = CurrencyCode.Eur,
+                Type = TransactionType.Income, Date = new DateOnly(2026, 6, 1), Payee = "Salary",
+            };
+            seed.Transactions.Add(income);
+            var line = new BudgetItem { Name = "Holiday", SavingsId = jar.Id, PlannedAmount = 100m };
+            seed.BudgetMonths.Add(new BudgetMonth
+            {
+                OwnerId = owner, Year = 2026, Month = 6, BaseCurrency = CurrencyCode.Eur,
+                Categories = new List<BudgetCategory> { new() { Name = "Savings", Kind = CategoryKind.Savings, Items = new List<BudgetItem> { line } } },
+            });
+            await seed.SaveChangesAsync();
+            seed.JarAllocations.Add(Allocation(owner, a.Id, jar.Id, 100m, income.Id, JarAllocationKind.Movement));
+            payment = new Transaction
+            {
+                OwnerId = owner, AccountId = a.Id, BudgetItemId = line.Id, Amount = 100m, Currency = CurrencyCode.Eur,
+                Type = TransactionType.Expense, Date = new DateOnly(2026, 6, 20), Payee = "Travel agent",
+            };
+            seed.Transactions.Add(payment);
+            await seed.SaveChangesAsync();
+            jar.FundingAccountId = b.Id;
+            await seed.SaveChangesAsync();
+        }
+
+        await using (var backfill = _fixture.CreateContext())
+        {
+            await AllotJar.Application.Jars.JarDepartures.BackfillAsync(backfill, CancellationToken.None);
+        }
+
+        await using var verify = _fixture.CreateContext();
+        var kept = await verify.JarAllocations.AsNoTracking().Include(al => al.Postings)
+            .SingleAsync(al => al.TransactionId == payment.Id && al.AccountId == a.Id);
+        kept.Postings.Select(p => (p.JarId, p.Amount)).Should().BeEquivalentTo(new (Guid?, decimal)[] { (jar.Id, -100m) });
+        var departure = await verify.JarAllocations.AsNoTracking().Include(al => al.Postings)
+            .SingleAsync(al => al.AccountId == a.Id && al.Kind == JarAllocationKind.Departure);
+        departure.Date.Should().Be(new DateOnly(2026, 6, 20));
+        departure.Postings.Should().OnlyContain(p => p.Amount == 0m);
+        (await new GetJarsQueryHandler(verify, new CurrentUserStub(owner)).Handle(new GetJarsQuery(), CancellationToken.None))
+            .Single().CurrentBalance.Should().Be(0m);
+        (await AllotJar.Application.Jars.JarLedgerReader.ReadAsync(verify, owner, new DateOnly(2026, 6, 19), CancellationToken.None))
+            .BalanceOf(jar.Id).Should().Be(100m);
+    }
+
+    [Fact]
     public async Task Two_writers_shifting_the_same_departure_the_second_is_refused_not_lost()
     {
         // P3-9 on SQL Server: the posting's amount is the concurrency token, so a writer that read

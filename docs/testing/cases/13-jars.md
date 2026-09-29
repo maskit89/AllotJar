@@ -1107,12 +1107,12 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
 ### JAR-113 - Moving a jar into an account leaves that account's earlier payments on its line where they were
 - **Priority:** P1
 - **Type:** Regression
-- **Origin:** Re-review of PR #275 (W05, round 4, P2-20; pre-existing on `main`): the reader looked a line's jar up by today's account, so after the move an old payment from the new account on the jar's line was read as a draw from the jar (−50), and the jar could not be archived ("50 overdrawn").
-- **Preconditions:** Owner; accounts A and B with 1,000 each; Goal "Holiday" in A holding 0; a 50 payment from B on Holiday's August line dated 20 August.
+- **Origin:** Re-review of PR #275 (W05, round 4, P2-20; pre-existing on `main`): the reader looked a line's jar up by today's account, so after the move an old payment from the new account on the jar's line was read as a draw from the jar (−50), and the jar could not be archived ("50 overdrawn"). Review of PR #276 (P2-A): the first fix treated the move day as the old account's, so a payment from B on Holiday's line dated the move day, the only account it can be recorded from, never came out of Holiday (Holiday stayed at 300 and B's unallocated dropped by 600).
+- **Preconditions:** Owner; accounts A and B with 1,000 each; Goal "Holiday" in A holding 0; a 50 payment from B on Holiday's August line dated 20 August (the payee auto-categoriser can put it there).
 - **Steps:**
-  1. Edit Holiday → Held in "B" → Save. 2. Look at Holiday's balance and B's unallocated money today and on 25 August. 3. Edit the old payment's payee. 4. Record a payment from B on Holiday's line dated today, and one dated tomorrow. 5. Archive Holiday (after emptying it).
-- **Expected:** 2: Holiday 0 on both dates; B's unallocated 950. 3: unchanged. 4: the payment dated the move day stays on B's unallocated money (the move day belongs to A, as its departure does); the one dated tomorrow draws from Holiday. 5: allowed once Holiday holds 0.
-- **Automated:** Yes (JarW05FollowUpTests — `P2_20_MovingAJarIntoAnAccount_LeavesThatAccountsEarlierLinePaymentsWhereTheyWere`, `P2_20_APaymentOnTheJarsLineFromItsNewAccount_DrawsFromTheJarFromTheDayAfterTheMove`)
+  1. Edit Holiday → Held in "B" → Save. 2. Look at Holiday's balance and B's unallocated money today and on 25 August. 3. Edit the old payment's payee. 4. Move 300 of B's money into Holiday and record the 300 deposit from B on Holiday's line dated today. 5. Try to record a payment on Holiday's line dated yesterday, from A and from B, and to re-date the deposit to yesterday. 6. Archive Holiday (after emptying it).
+- **Expected:** 2: Holiday 0 on both dates; B's unallocated 950. 3: unchanged. 4: the deposit comes out of Holiday (0 today and tomorrow, B's unallocated 650) and the jar's payments list shows it as from the jar. 5: all three are refused; from B and the re-date with "Holiday, which moved to B on <today>". 6: allowed once Holiday holds 0. Moving a jar and moving it back the same day leaves payments from its account that day drawing from it; a Recurring bill paid the move day and marked paid holds nothing afterwards.
+- **Automated:** Yes (JarW05FollowUpTests — `P2_20_MovingAJarIntoAnAccount_LeavesThatAccountsEarlierLinePaymentsWhereTheyWere`, `P2_20_APaymentOnTheJarsLineFromItsNewAccount_DrawsFromTheJarFromTheMoveDay`, `P2_20_ABillPaidOnTheMoveDay_MarkedPaid_LeavesNothingHeld`, `P2_20_APaymentOnTheJarsLineDatedBeforeTheMove_IsRefused_FromEitherAccount`, `P2_20_ThatAccountsPaymentRecordedBeforeTheMove_DatedOnTheMoveDay_StaysOnItsUnallocatedMoney`, `P2_20_ARoundTripTheSameDay_PaymentsFromTheJarsAccountDrawFromIt`)
 
 ### JAR-114 - A month before a moved jar's first entry in its old account reads 0, not Unavailable
 - **Priority:** P2
@@ -1127,12 +1127,12 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
 ### JAR-115 - A jar move made before departures were recorded no longer blocks the archive
 - **Priority:** P2
 - **Type:** Regression
-- **Origin:** Re-review of PR #275 (W05, round 4, P3-8): a move made on the old code, whose kept payment was then corrected (100 → 80), left 20 of the jar in the old account; the card read 20, archive was refused and the 20 could not be moved from either account until a kept entry happened to be edited.
-- **Preconditions:** Such a jar (data from before PR #275).
+- **Origin:** Re-review of PR #275 (W05, round 4, P3-8): a move made on the old code, whose kept payment was then corrected (100 → 80), left 20 of the jar in the old account; the card read 20, archive was refused and the 20 could not be moved from either account until a kept entry happened to be edited. Review of PR #276 (P2-B): a move made before PR #274 (26 to 28 September) wrote nothing down, so the old account's payments on the jar's lines lost the jar; the first backfill dated the departure on the last stored posting, before those payments, and July read 0 where Holiday held 500.
+- **Preconditions:** Such jars (data from before PR #275): one moved after PR #274 with a corrected kept payment; one moved before PR #274 after 500 went in on 15 July and was paid out from its August line on 20 August.
 - **Steps:**
-  1. Start the API (deploy). 2. Open the Jars page and archive the jar.
-- **Expected:** 1: the startup log records one departure for it, dated on the last day the old account's ledger touched the jar; a second start records nothing. 2: the jar reads 0 and archives. The old account's months before that day read as before.
-- **Automated:** Yes (JarW05FollowUpTests — `P3_8_AMoveMadeBeforeDeparturesWereRecorded_IsSettledByTheBackfill_Once`)
+  1. Start the API (deploy). 2. Open the Jars page and archive the jars. 3. View July and August for the second jar.
+- **Expected:** 1: the startup log records one departure per jar; the second jar's 20 August payment is written down as drawing from it, and its departure (of nothing) is dated 20 August; a second start records nothing. 2: the jars read 0 and archive. 3: July reads 500 and 19 August 500; the old account's unallocated money is unchanged. A transfer into the jar is dated on the day it reached the old account.
+- **Automated:** Yes (JarW05FollowUpTests — `P3_8_AMoveMadeBeforeDeparturesWereRecorded_IsSettledByTheBackfill_Once`, `P3_8_AMoveMadeBefore274_WritesDownTheOldAccountsLinePaymentsBeforeDatingTheDeparture`, `P3_8_TheBackfill_DatesATransferLegOnTheDayItPosts`; JarLedgerSqlTests — `A_move_made_before_departures_were_recorded_is_backfilled_once`, `A_move_made_before_274_has_its_old_line_payments_written_down_before_its_departure`)
 
 ### JAR-116 - A jars read for a month outside 2000–2100 is a validation error
 - **Priority:** P3

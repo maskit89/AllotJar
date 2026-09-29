@@ -6,10 +6,14 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.ArchiveJar;
+using AllotJar.Application.Jars.Commands.MarkJarCyclePaid;
+using AllotJar.Application.Jars.Commands.ReallocateJarMoney;
 using AllotJar.Application.Jars.Commands.UpdateJar;
 using AllotJar.Application.Jars.Dtos;
+using AllotJar.Application.Jars.Queries.GetJarPayments;
 using AllotJar.Application.Jars.Queries.GetJars;
 using AllotJar.Application.Tests.TestDoubles;
+using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.UpdateTransaction;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -162,11 +166,10 @@ public class JarW05FollowUpTests
     }
 
     [Fact]
-    public async Task P2_20_APaymentOnTheJarsLineFromItsNewAccount_DrawsFromTheJarFromTheDayAfterTheMove()
+    public async Task P2_20_APaymentOnTheJarsLineFromItsNewAccount_DrawsFromTheJarFromTheMoveDay()
     {
-        // The move day belongs to the account the jar left, as its departure does: a payment from
-        // the new account dated that day stays on its unallocated money, one dated later draws
-        // from the jar, and a later edit re-derives it the same way.
+        // Review of #276, P2-A: from the move on, the new account is the only one a payment on the
+        // jar's line can be recorded from, so one dated on the move day comes out of the jar.
         await using var db = NewContext();
         var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
         var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
@@ -174,16 +177,142 @@ public class JarW05FollowUpTests
         var line = SeedMonth(db, new DateOnly(Today.Year, Today.Month, 1), (jar, 100m)).Single();
 
         await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, b.Id), Ct);
-        LedgerFixtures.Allocate(db, Owner, b.Id, jar.Id, 100m, Today);
-        LedgerFixtures.Expense(db, Owner, b.Id, 30m, Today, line.Id);
-        var later = LedgerFixtures.Expense(db, Owner, b.Id, 20m, Today.AddDays(1), line.Id);
+        await new ReallocateJarMoneyCommandHandler(db, User).Handle(new ReallocateJarMoneyCommand(b.Id, null, jar.Id, 300m, Today), Ct);
+        var deposit = await new CreateTransactionCommandHandler(db, User).Handle(
+            new CreateTransactionCommand(Today, "Travel agent", 300m, TransactionType.Expense, line.Id, AccountId: b.Id), Ct);
 
-        (await BalanceAsync(db, jar.Id, Today)).Should().Be(100m);
-        (await BalanceAsync(db, jar.Id, Today.AddDays(1))).Should().Be(80m);
         (await db.Jars.SingleAsync(j => j.Id == jar.Id)).FundingAccountSince.Should().Be(Today);
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+        (await BalanceAsync(db, jar.Id, Today.AddDays(1))).Should().Be(0m);
+        (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[b.Id].Unallocated.Should().Be(700m);
+        (await new GetJarPaymentsQueryHandler(db, User).Handle(new GetJarPaymentsQuery(jar.Id), Ct))
+            .Should().ContainSingle(p => p.Id == deposit.Id && p.FromJar);
+    }
+
+    [Fact]
+    public async Task P2_20_ABillPaidOnTheMoveDay_MarkedPaid_LeavesNothingHeld()
+    {
+        // Review of #276, P2-A (H2): the payment the cycle is marked paid with came out of the jar,
+        // so nothing is carried into the next cycle.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var due = Today.AddDays(20);
+        var bill = new Jar
+        {
+            OwnerId = Owner, Name = "Insurance", Kind = JarKind.Recurring, TargetAmount = 300m, TargetDate = due,
+            CycleDeadline = due, RecurMonths = 12, Accrual = AccrualMethod.TargetByDate, FundingAccountId = a.Id,
+        };
+        db.Jars.Add(bill);
+        db.SaveChanges();
+        var line = SeedMonth(db, new DateOnly(Today.Year, Today.Month, 1), (bill, 300m)).Single();
+
+        await new UpdateJarCommandHandler(db, User).Handle(
+            new UpdateJarCommand(bill.Id, "Insurance", JarKind.Recurring, 300m, due, AccrualMethod.TargetByDate, b.Id, RecurMonths: 12), Ct);
+        await new ReallocateJarMoneyCommandHandler(db, User).Handle(new ReallocateJarMoneyCommand(b.Id, null, bill.Id, 300m, Today), Ct);
+        var paid = await new CreateTransactionCommandHandler(db, User).Handle(
+            new CreateTransactionCommand(Today, "Insurer", 300m, TransactionType.Expense, line.Id, AccountId: b.Id), Ct);
+        var marked = await new MarkJarCyclePaidCommandHandler(db, User).Handle(new MarkJarCyclePaidCommand(bill.Id, due, paid.Id), Ct);
+
+        marked.CurrentBalance.Should().Be(0m);
+        marked.Status.Should().NotBe("FullyFunded");
+    }
+
+    [Fact]
+    public async Task P2_20_APaymentOnTheJarsLineDatedBeforeTheMove_IsRefused_FromEitherAccount()
+    {
+        // Review of #276, P2-A (Lead2): a payment dated before the move was made while the jar's
+        // money was in A. From A it is refused (the jar is held in B now); from B it would stay
+        // on B's unallocated money, so it is refused too, with the day the jar arrived, and a
+        // date edit can't move a payment there either.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, a);
+        var line = SeedMonth(db, new DateOnly(Today.Year, Today.Month, 1), (jar, 100m)).Single();
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, b.Id), Ct);
+        var arrived = Today;
+        var before = arrived.AddDays(-1);
+
+        var fromA = () => new CreateTransactionCommandHandler(db, User).Handle(
+            new CreateTransactionCommand(before, "Travel agent", 30m, TransactionType.Expense, line.Id, AccountId: a.Id), Ct);
+        var fromB = () => new CreateTransactionCommandHandler(db, User).Handle(
+            new CreateTransactionCommand(before, "Travel agent", 30m, TransactionType.Expense, line.Id, AccountId: b.Id), Ct);
+
+        await fromA.Should().ThrowAsync<ValidationException>();
+        (await fromB.Should().ThrowAsync<ValidationException>()).Which.Errors.SelectMany(e => e.Value)
+            .Should().ContainSingle(m => m.Contains($"moved to B on {arrived:d MMM yyyy}"));
+        var onTheDay = await new CreateTransactionCommandHandler(db, User).Handle(
+            new CreateTransactionCommand(arrived, "Travel agent", 30m, TransactionType.Expense, line.Id, AccountId: b.Id), Ct);
+        var redate = () => new UpdateTransactionCommandHandler(db, User).Handle(
+            new UpdateTransactionCommand(onTheDay.Id, before, "Travel agent", 30m, TransactionType.Expense, b.Id), Ct);
+        await redate.Should().ThrowAsync<ValidationException>();
+    }
+
+    [Fact]
+    public async Task P2_20_APaymentTheJarMadeInItsOldAccount_CanStillBeRedatedBeforeTheMove()
+    {
+        // The refusal is for the account the jar joined: a payment it made in A before the move
+        // keeps P51's rule, a date edit within the stretch before the move.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, 100m, new DateOnly(2026, 8, 1));
+        var line = SeedMonth(db, new DateOnly(2026, 8, 1), (jar, 100m)).Single();
+        var payment = LedgerFixtures.Expense(db, Owner, a.Id, 100m, new DateOnly(2026, 8, 20), line.Id);
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, b.Id), Ct);
+
         await new UpdateTransactionCommandHandler(db, User).Handle(
-            new UpdateTransactionCommand(later.Id, Today, "Shop", 20m, TransactionType.Expense, b.Id), Ct);
-        (await BalanceAsync(db, jar.Id, Today.AddDays(1))).Should().Be(100m);
+            new UpdateTransactionCommand(payment.Id, new DateOnly(2026, 8, 21), "Travel agent", 100m, TransactionType.Expense, a.Id), Ct);
+
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 20))).Should().Be(100m);
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 21))).Should().Be(0m);
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task P2_20_ThatAccountsPaymentRecordedBeforeTheMove_DatedOnTheMoveDay_StaysOnItsUnallocatedMoney()
+    {
+        // Review of #276, P2-A: a payment from B on Holiday's line made before Holiday moved to B
+        // (the payee auto-categoriser skips the account check) is written down at the move as it
+        // read then, so the move day's rule doesn't pull it onto the jar, and an edit keeps it there.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, a);
+        var line = SeedMonth(db, new DateOnly(Today.Year, Today.Month, 1), (jar, 100m)).Single();
+        var early = LedgerFixtures.Expense(db, Owner, b.Id, 50m, Today, line.Id);
+
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, b.Id), Ct);
+
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+        (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[b.Id].Unallocated.Should().Be(950m);
+        (await new GetJarPaymentsQueryHandler(db, User).Handle(new GetJarPaymentsQuery(jar.Id), Ct)).Should().BeEmpty();
+        await new UpdateTransactionCommandHandler(db, User).Handle(
+            new UpdateTransactionCommand(early.Id, Today, "Shop", 50m, TransactionType.Expense, b.Id), Ct);
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+        await new ArchiveJarCommandHandler(db, User).Handle(new ArchiveJarCommand(jar.Id), Ct);
+    }
+
+    [Fact]
+    public async Task P2_20_ARoundTripTheSameDay_PaymentsFromTheJarsAccountDrawFromIt()
+    {
+        // Review of #276, P2-A (H5): moved to B and back to A the same day (an undo); a payment
+        // from A on the line that day comes out of the jar.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, a);
+        var line = SeedMonth(db, new DateOnly(Today.Year, Today.Month, 1), (jar, 100m)).Single();
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, b.Id), Ct);
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, a.Id), Ct);
+
+        await new ReallocateJarMoneyCommandHandler(db, User).Handle(new ReallocateJarMoneyCommand(a.Id, null, jar.Id, 300m, Today), Ct);
+        await new CreateTransactionCommandHandler(db, User).Handle(
+            new CreateTransactionCommand(Today, "Travel agent", 100m, TransactionType.Expense, line.Id, AccountId: a.Id), Ct);
+
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(200m);
     }
 
     // ---- P3-5 --------------------------------------------------------------------------------
@@ -303,6 +432,75 @@ public class JarW05FollowUpTests
         (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 20))).Should().Be(0m);
         (await JarDepartures.BackfillAsync(db, Ct)).Should().Be(0);
         await new ArchiveJarCommandHandler(db, User).Handle(new ArchiveJarCommand(jar.Id), Ct);
+    }
+
+    [Fact]
+    public async Task P3_8_AMoveMadeBefore274_WritesDownTheOldAccountsLinePaymentsBeforeDatingTheDeparture()
+    {
+        // Review of #276, P2-B: a move on the code before #274 wrote nothing down, so the 20 Aug
+        // payment from A on Holiday's line lost the jar and A's postings (500 in on 15 Jul) read
+        // 500 left over. The backfill writes the payment down as it read then and dates the
+        // departure on it: July still reads the 500 Holiday held, and A's money is unchanged.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, 500m, new DateOnly(2026, 7, 15));
+        var line = SeedMonth(db, new DateOnly(2026, 8, 1), (jar, 500m)).Single();
+        var payment = LedgerFixtures.Expense(db, Owner, a.Id, 500m, new DateOnly(2026, 8, 20), line.Id);
+        var unallocated = (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[a.Id].Unallocated;
+        jar.FundingAccountId = b.Id;
+        await db.SaveChangesAsync(Ct);
+
+        (await JarDepartures.BackfillAsync(db, Ct)).Should().Be(1);
+
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 7, 31))).Should().Be(500m);
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 19))).Should().Be(500m);
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 20))).Should().Be(0m);
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+        (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[a.Id].Unallocated.Should().Be(unallocated);
+        var kept = await db.JarAllocations.Include(x => x.Postings).SingleAsync(x => x.TransactionId == payment.Id);
+        kept.Postings.Should().ContainSingle(p => p.JarId == jar.Id && p.Amount == -500m);
+        var departure = await db.JarAllocations.Include(x => x.Postings).SingleAsync(x => x.Kind == JarAllocationKind.Departure);
+        departure.Date.Should().Be(new DateOnly(2026, 8, 20));
+        departure.Postings.Should().OnlyContain(p => p.Amount == 0m);
+        (await JarDepartures.BackfillAsync(db, Ct)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task P3_8_TheBackfill_DatesATransferLegOnTheDayItPosts()
+    {
+        // Review of #276 (H6b): 200 left C on 10 Aug and reached A on 14 Aug, all of it into
+        // Holiday (the stored split is dated on the day it left), and Holiday later changed
+        // account with nothing written down. A departure dated 10 Aug would read Holiday at -200
+        // until the money arrived.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var c = LedgerFixtures.SeedAccount(db, Owner, "C", opening: 1000m, order: 2);
+        var jar = SeedGoal(db, a);
+        var transfer = new Transaction
+        {
+            OwnerId = Owner, AccountId = c.Id, TransferAccountId = a.Id, Amount = 200m, Currency = CurrencyCode.Eur,
+            Type = TransactionType.Transfer, Date = new DateOnly(2026, 8, 10), DepartedOn = new DateOnly(2026, 8, 10),
+            ReceivedOn = new DateOnly(2026, 8, 14), Payee = "Transfer",
+        };
+        db.Transactions.Add(transfer);
+        db.JarAllocations.Add(new JarAllocation
+        {
+            OwnerId = Owner, AccountId = a.Id, Kind = JarAllocationKind.Movement, Date = new DateOnly(2026, 8, 10),
+            Transaction = transfer, CreatedUtc = DateTime.UtcNow,
+            Postings = new List<JarAllocationPosting> { new() { JarId = jar.Id, Amount = 200m } },
+        });
+        db.SaveChanges();
+        jar.FundingAccountId = b.Id;
+        await db.SaveChangesAsync(Ct);
+
+        await JarDepartures.BackfillAsync(db, Ct);
+
+        (await db.JarAllocations.SingleAsync(x => x.Kind == JarAllocationKind.Departure)).Date.Should().Be(new DateOnly(2026, 8, 14));
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 12))).Should().Be(0m);
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 20))).Should().Be(0m);
     }
 
     // ---- P3-9 --------------------------------------------------------------------------------
