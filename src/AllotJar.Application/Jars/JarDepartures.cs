@@ -52,6 +52,23 @@ public static class JarDepartures
             cancellationToken);
 
     /// <summary>
+    /// Rule 80's zero balance, on every date after the move: the earliest date after
+    /// <paramref name="movedOn"/> on which a stored operation of <paramref name="accountId"/>
+    /// moves money in or out of the jar (an income split into it ahead of payday, a payment drawn
+    /// from it or a reallocation dated later). Today's balance does not see such an entry, and no
+    /// departure could settle it, so the account would hold the jar's money again from that date
+    /// (P51). Null when there is none.
+    /// </summary>
+    public static Task<DateOnly?> EntryDatedAfterAsync(
+        IApplicationDbContext db, Guid jarId, Guid accountId, DateOnly movedOn, CancellationToken cancellationToken) =>
+        db.JarAllocations
+            .Where(a => a.AccountId == accountId
+                        && a.Kind != JarAllocationKind.Departure
+                        && a.Date > movedOn
+                        && a.Postings.Any(p => p.JarId == jarId && p.Amount != 0m))
+            .MinAsync(a => (DateOnly?)a.Date, cancellationToken);
+
+    /// <summary>
     /// The departure that closes the stretch a leg of <paramref name="accountId"/> dated
     /// <paramref name="date"/> belongs to: the jar's earliest departure from that account dated on
     /// or after it. Null when the jar has departures there but all are earlier (the leg is dated

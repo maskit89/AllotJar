@@ -1083,3 +1083,13 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
   1. Edit Holiday and save it (a rename, or no change). 2. Reload the Jars page. 3. Compare the plan the month is seeded with to the first month of the jar form's preview.
 - **Expected:** 1: the returned card reads balance 50 with 0 **in** (it entered the month holding 300 in A). 2: the reloaded card is identical to the one the save returned. 3: both are the same amount. With 300 of B's money put in instead of 50, the card and the list likewise agree and read 0 in.
 - **Automated:** Yes (JarDepartureTests — `P2_9_AJarEmptiedInA_MovedToB_AndGiven50_ReadsTheSame_OnTheCard_TheList_AndThePlan`, `P2_9_TheCardAWriteReturns_EqualsTheNextRead_AfterAMidMonthMove`)
+
+### JAR-111 - A jar's account can't change while its old account has an entry for it dated after today
+- **Priority:** P1
+- **Type:** Negative
+- **Origin:** Re-review of PR #275 (W05, round 4, P2-18; P51): the zero rule read today only, so an income entered ahead of payday and put into the jar let the jar move, and from payday the old account held the jar's money again. The entry then couldn't be edited ("It can't be dated after that") and the jar couldn't be archived or emptied.
+- **Preconditions:** Owner; accounts A and B; Goal "Holiday" in A at 0; an income of 200 into A dated three days from today, all of it put into Holiday.
+- **Steps:**
+  1. Edit Holiday → Held in "B" → Save. 2. Edit the income's payee, keeping the 200 in Holiday, and try again. 3. Edit the income so none of it goes into Holiday, and try again.
+- **Expected:** 1 and 2: 400 on `FundingAccountId`: "Holiday has an entry dated <payday> in A. Change or remove it first, then change the account."; Holiday stays in A. 3: Holiday moves to B; on payday A's 200 is unallocated and Holiday holds nothing in A. The same applies to any entry in A dated after today that moves money in or out of Holiday (a payment drawn from it, a reallocation).
+- **Automated:** Yes (JarDepartureTests — `UpdateJar_IsRefused_WhileTheOldAccountHasAJarEntryDatedAfterToday`)

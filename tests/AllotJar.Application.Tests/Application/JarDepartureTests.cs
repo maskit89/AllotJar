@@ -349,6 +349,44 @@ public class JarDepartureTests
     }
 
     [Fact]
+    public async Task UpdateJar_IsRefused_WhileTheOldAccountHasAJarEntryDatedAfterToday()
+    {
+        // Round 4 P2-18: a 200 income dated three days ahead is split into Holiday in A. Holiday
+        // holds 0 today, but moving it would leave A holding the 200 for it from payday, with no
+        // departure to settle it. The move waits until that entry no longer names the jar.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, a);
+        var payday = Today.AddDays(3);
+        var income = await new CreateTransactionCommandHandler(db, User).Handle(new CreateTransactionCommand(
+            payday, "Employer", 200m, TransactionType.Income, null, a.Id, JarAllocations: new[] { new JarAllocationInput(jar.Id, 200m) }), Ct);
+        Task<Jars.Dtos.JarDto> Move() => new UpdateJarCommandHandler(db, User).Handle(new UpdateJarCommand(
+            jar.Id, "Holiday", JarKind.Goal, 1200m, Deadline, AccrualMethod.TargetByDate, b.Id), Ct);
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+
+        var refused = (await FluentActions.Awaiting(Move).Should().ThrowAsync<ValidationException>()).Which;
+        refused.Errors["FundingAccountId"].Single().Should().Be(
+            $"Holiday has an entry dated {payday:d MMM yyyy} in A. Change or remove it first, then change the account.");
+        (await db.Jars.AsNoTracking().SingleAsync()).FundingAccountId.Should().Be(a.Id);
+
+        // A payee edit keeps the split, so the move still waits; an edit that leaves the income
+        // unallocated lets it go, and the jar holds nothing on payday.
+        await new UpdateTransactionCommandHandler(db, User).Handle(new UpdateTransactionCommand(
+            income.Id, payday, "Employer Ltd", 200m, TransactionType.Income, a.Id, JarAllocations: new[] { new JarAllocationInput(jar.Id, 200m) }), Ct);
+        await FluentActions.Awaiting(Move).Should().ThrowAsync<ValidationException>();
+        await new UpdateTransactionCommandHandler(db, User).Handle(new UpdateTransactionCommand(
+            income.Id, payday, "Employer Ltd", 200m, TransactionType.Income, a.Id), Ct);
+        await Move();
+
+        (await db.Jars.AsNoTracking().SingleAsync()).FundingAccountId.Should().Be(b.Id);
+        (await BalanceAsync(db, jar.Id, payday)).Should().Be(0m);
+        (await db.JarAllocations.AnyAsync(al => al.AccountId == a.Id && al.Postings.Any(p => p.JarId == jar.Id)))
+            .Should().BeFalse("the income's 200 stays in A's unallocated money");
+        await AssertDepartedJarsHoldNothingAsync(db);
+    }
+
+    [Fact]
     public async Task Rule80_ALegacyMove_WithNoDepartureRecorded_IsSettledOnTheLastDayTheOldLedgerTouchedTheJar()
     {
         await using var db = NewContext();

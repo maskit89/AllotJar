@@ -43,8 +43,9 @@ public class UpdateJarCommandHandler
 
         if (request.FundingAccountId != jar.FundingAccountId)
         {
-            // Rule 80: the account can change only while the jar holds nothing; a field change
-            // never moves money. Anything else goes through "Move money" (a confirmed transfer).
+            // Rule 80: the account can change only while the jar holds nothing, today and on every
+            // later date its old account has an entry for; a field change never moves money.
+            // Anything else goes through "Move money" (a confirmed transfer).
             var account = await JarAccounts.LoadDesignatedAsync(_db, userId, request.FundingAccountId, "FundingAccountId", cancellationToken);
             var current = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken);
             var balance = current.BalanceOf(jar.Id);
@@ -63,6 +64,12 @@ public class UpdateJarCommandHandler
             {
                 throw JarAccounts.Validation("FundingAccountId",
                     $"{jar.Name} has a transfer in transit in {current.AccountOf(jar.Id)?.Account.Name}. Confirm it first, then change the account.");
+            }
+            if (await JarDepartures.EntryDatedAfterAsync(_db, jar.Id, jar.FundingAccountId, today, cancellationToken) is { } later)
+            {
+                throw JarAccounts.Validation("FundingAccountId",
+                    $"{jar.Name} has an entry dated {later:d MMM yyyy} in {current.AccountOf(jar.Id)?.Account.Name}. " +
+                    "Change or remove it first, then change the account.");
             }
             // The account it leaves keeps its history exactly as it reads today: the payments the
             // jar's lines drew from it are written down there before the jar names another account,
