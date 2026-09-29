@@ -79,12 +79,15 @@ function tx(over: Partial<TransactionDto> = {}): TransactionDto {
   }
 }
 
-function mockLoad(transactions: TransactionDto[], ledgerData: JarAccountLedgerDto[] = ledgers()) {
+/** `ledgerData` null makes the jar ledger read fail (the hook then knows no ledgers). */
+function mockLoad(transactions: TransactionDto[], ledgerData: JarAccountLedgerDto[] | null = ledgers()) {
   mockGet.mockImplementation((url: string) => {
     if (url === '/transactions') return Promise.resolve({ data: transactions })
     if (url === '/accounts') return Promise.resolve({ data: accountsFixture() })
     if (url === '/members') return Promise.resolve({ data: [] })
-    if (url.startsWith('/jars/ledger')) return Promise.resolve({ data: ledgerData })
+    if (url.startsWith('/jars/ledger')) {
+      return ledgerData ? Promise.resolve({ data: ledgerData }) : Promise.reject(new Error('ledger read failed'))
+    }
     return Promise.resolve({ data: budget() })
   })
 }
@@ -369,6 +372,87 @@ describe('TransactionsPage jar prompts', () => {
       ),
     )
     expect(mockPost.mock.calls[0][1]).not.toHaveProperty('jarAllocations')
+  })
+
+  // W07: editing a transfer re-answers its jar questions, pre-filled from the stored split.
+  it('pre-fills a transfer edit with its stored jar answers and sends them back', { timeout: 15000 }, async () => {
+    const back = tx({
+      id: 't-back', payee: 'Back to savings', type: 2, amount: 80, accountId: 'a1', accountName: 'Everyday',
+      transferAccountId: 'a2', transferAccountName: 'Savings', transferStatus: 'Completed',
+      departedOn: '2026-09-10', receivedOn: '2026-09-11',
+      jarAllocations: [{ accountId: 'a2', jarId: 'j-car', jarName: 'Car', amount: 30 }],
+    })
+    const out = tx({
+      id: 't-out', payee: 'Out of savings', type: 2, amount: 40, accountId: 'a2', accountName: 'Savings',
+      transferAccountId: 'a1', transferAccountName: 'Everyday', transferStatus: 'InTransit',
+      departedOn: '2026-09-12', receivedOn: null,
+      jarAllocations: [{ accountId: 'a2', jarId: 'j-hol', jarName: 'Holiday', amount: -40 }],
+    })
+    mockLoad([back, out])
+    mockPut.mockImplementation((url: string) => Promise.resolve({ data: url.includes('t-back') ? back : out }))
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit transfer: Back to savings', {}, { timeout: 5000 }))
+    expect(await screen.findByLabelText('Amount for Car')).toHaveValue('30')
+    await user.click(screen.getByRole('button', { name: 'Save transfer' }))
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith(
+        '/transactions/t-back/transfer',
+        expect.objectContaining({ fromJarId: null, jarAllocations: [{ jarId: 'j-car', amount: 30 }] }),
+      ),
+    )
+
+    await user.click(await screen.findByLabelText('Edit transfer: Out of savings', {}, { timeout: 5000 }))
+    expect(await screen.findByLabelText('From jar')).toHaveValue('j-hol')
+    await user.click(screen.getByRole('button', { name: 'Save transfer' }))
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith(
+        '/transactions/t-out/transfer',
+        expect.objectContaining({ fromJarId: 'j-hol', jarAllocations: null }),
+      ),
+    )
+  })
+
+  // W07 P2-7: until the ledgers are known (loading, or the read failed) the form can't show the
+  // jar questions, so an edit sends the stored answers back rather than resetting them.
+  it('a transfer edit keeps its stored jar answers when the jar ledgers could not be read', { timeout: 15000 }, async () => {
+    const out = tx({
+      id: 't-out', payee: 'Out of savings', type: 2, amount: 100, accountId: 'a2', accountName: 'Savings',
+      transferAccountId: 'a1', transferAccountName: 'Everyday', transferStatus: 'InTransit',
+      departedOn: '2026-09-12', receivedOn: null, fee: 2, feeBudgetItemId: 'i-rent', feeBudgetItemName: 'Rent',
+      jarAllocations: [{ accountId: 'a2', jarId: 'j-hol', jarName: 'Holiday', amount: -100 }],
+    })
+    const back = tx({
+      id: 't-back', payee: 'Back to savings', type: 2, amount: 80, accountId: 'a1', accountName: 'Everyday',
+      transferAccountId: 'a2', transferAccountName: 'Savings', transferStatus: 'Completed',
+      departedOn: '2026-09-10', receivedOn: '2026-09-11',
+      jarAllocations: [{ accountId: 'a2', jarId: 'j-car', jarName: 'Car', amount: 30 }],
+    })
+    mockLoad([out, back], null)
+    mockPut.mockImplementation((url: string) => Promise.resolve({ data: url.includes('t-back') ? back : out }))
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit transfer: Out of savings', {}, { timeout: 5000 }))
+    expect(screen.queryByLabelText('From jar')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save transfer' }))
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith(
+        '/transactions/t-out/transfer',
+        expect.objectContaining({ fromJarId: 'j-hol', jarAllocations: null, fee: 2, feeBudgetItemId: 'i-rent', payee: 'Out of savings' }),
+      ),
+    )
+
+    await user.click(await screen.findByLabelText('Edit transfer: Back to savings', {}, { timeout: 5000 }))
+    expect(screen.queryByLabelText('Amount for Car')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save transfer' }))
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith(
+        '/transactions/t-back/transfer',
+        expect.objectContaining({ fromJarId: null, jarAllocations: [{ jarId: 'j-car', amount: 30 }] }),
+      ),
+    )
   })
 
   it('labels a stored jar split on the register row', { timeout: 15000 }, async () => {

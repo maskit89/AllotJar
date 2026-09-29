@@ -1,6 +1,6 @@
 # Transfers (dedicated transfer flow, signed rows, balance-only effect, injection guard)
 
-**ID prefix:** TRF | **Scope:** Everything about moving money between two of the household's own accounts through the ONLY supported path — the TransactionsPage add-modal "Transfer" mode (`/transactions`) that posts `POST /api/transactions/transfer` and records a SINGLE `Type=Transfer` row (`AccountId` = source, `TransferAccountId` = destination, `Currency` stamped from the source account; never `FxPending` — there is no exchange rate since W08). Covers: reaching the transfer form (the "Entry type" segmented control only exists with ≥2 accounts), the Date / Amount / From / To / Note fields and their exact aria-labels, client pre-submit validation (non-positive amount, missing source/destination, same account) and its exact strings, amount parsing/boundaries, the server `CreateTransferCommandValidator`/handler rules incl. the **cross-currency guard** (since W08 only reachable with legacy data — the app refuses to create an account in another currency than the budget's), how a transfer renders in the main register (unsigned grey, brand **Transfer** badge, `{from} → {to}` account cell, NO edit/split affordance, delete present) and in the single-account detail register (**signed by direction**, `(removed account)` fallback), the money-integrity invariant that a transfer moves BOTH account balances by the raw amount but contributes **0** to budget actuals / the hero money-in/out / allocation, deleting a transfer (immediate, un-confirmed; account-delete is refused while a transfer points at the account), and the **regression guards** that block a bare `Type=Transfer` on `POST/PUT /api/transactions` and clear a dangling counterparty when a real transfer is re-typed. | **Out of scope:** manual income/expense create, inline edit, split, assign, auto-categorization, the register All/Unassigned filter and the hero money-in/out totals themselves → **transactions file** (this file only asserts transfers are excluded from them); account CRUD, the accounts hero/`Available`/`Owed` tiles, per-account currency display rules, jar reconciliation and the account-detail page's non-transfer behavior → **accounts file**; jar accrual and the allocation engine that a transfer must NOT feed → **jars & allocation file**; marking an imported statement row as a transfer during commit (`CreateTransfer`-adjacent but a different flow) → **import file**; silent-refresh / cross-tab-logout races on a long-lived transactions tab (#169/#171) → **03-session-auth-lifecycle.md**; the full Owner/Admin/Limited/ReadOnly matrix across every page → **households & roles file** (this file covers only the transfer-action gating); dark-mode / responsive / a11y sweeps of the modal and registers → **cross-cutting file**. **Do not test for:** an edit affordance on a transfer row (there is none), a delete-confirmation dialog on the register (delete is immediate — only account delete got a modal), a two-row transfer model (it is one row carrying two bank legs — `departedOn`/`receivedOn` — and a statement reference per side), a Transfer option in the transaction **Type** select (Expense/Income only), or a Member field on the transfer form (transfers carry no member attribution).
+**ID prefix:** TRF | **Scope:** Everything about moving money between two of the household's own accounts through the ONLY supported path — the TransactionsPage add-modal "Transfer" mode (`/transactions`) that posts `POST /api/transactions/transfer` and records a SINGLE `Type=Transfer` row (`AccountId` = source, `TransferAccountId` = destination, `Currency` stamped from the source account; never `FxPending` — there is no exchange rate since W08). Covers: reaching the transfer form (the "Entry type" segmented control only exists with ≥2 accounts), the Date / Amount / From / To / Note fields and their exact aria-labels, client pre-submit validation (non-positive amount, missing source/destination, same account) and its exact strings, amount parsing/boundaries, the server `CreateTransferCommandValidator`/handler rules incl. the **cross-currency guard** (since W08 only reachable with legacy data — the app refuses to create an account in another currency than the budget's), how a transfer renders in the main register (unsigned grey, brand **Transfer** badge, `{from} → {to}` account cell, NO edit/split affordance, delete present) and in the single-account detail register (**signed by direction**, `(removed account)` fallback), the money-integrity invariant that a transfer moves BOTH account balances by the raw amount but contributes **0** to budget actuals / the hero money-in/out / allocation, deleting a transfer (immediate, un-confirmed; account-delete is refused while a transfer points at the account), and the **regression guards** that block a bare `Type=Transfer` on `POST/PUT /api/transactions` and clear a dangling counterparty when a real transfer is re-typed, plus (W07, TRF-041..045) editing a transfer in place via `PUT /api/transactions/{id}/transfer` (statement-confirmed legs keep the bank's values), marking a transfer returned, and transfer fees (a separate expense row on the source, changed only through its transfer). | **Out of scope:** manual income/expense create, inline edit, split, assign, auto-categorization, the register All/Unassigned filter and the hero money-in/out totals themselves → **transactions file** (this file only asserts transfers are excluded from them); account CRUD, the accounts hero/`Available`/`Owed` tiles, per-account currency display rules, jar reconciliation and the account-detail page's non-transfer behavior → **accounts file**; jar accrual and the allocation engine that a transfer must NOT feed → **jars & allocation file**; marking an imported statement row as a transfer during commit (`CreateTransfer`-adjacent but a different flow) → **import file**; silent-refresh / cross-tab-logout races on a long-lived transactions tab (#169/#171) → **03-session-auth-lifecycle.md**; the full Owner/Admin/Limited/ReadOnly matrix across every page → **households & roles file** (this file covers only the transfer-action gating); dark-mode / responsive / a11y sweeps of the modal and registers → **cross-cutting file**. **Do not test for:** an edit affordance on a transfer row (there is none), a delete-confirmation dialog on the register (delete is immediate — only account delete got a modal), a two-row transfer model (it is one row carrying two bank legs — `departedOn`/`receivedOn` — and a statement reference per side), a Transfer option in the transaction **Type** select (Expense/Income only), or a Member field on the transfer form (transfers carry no member attribution).
 
 **Test data setup:** Local stack (API :5099, `ASPNETCORE_ENVIRONMENT=Development`) or staging (staging.allotjar.com). Assumed **today = 2026-07-16** (July 2026 = current month). Locale **en-GB comma-dot** so money renders `€1,234.56`; default currency **EUR**. Feature flags default **ON** (`accounts`, `multiCurrency`). Passwords random `Aa1-<uuid>` (HIBP rejects fixed common ones). Money is integer minor units scale 4 client-side, `decimal(18,4)` server-side; max amount **99,999,999,999,999.9999**. Logins in household **"Move-It"** (owner **trf-owner@example.test**): two EUR accounts **"Current"** (type Current, opening **2,000.00**) and **"Pot"** (type Savings, opening **500.00**); one GBP account **"UK Card"** (type Credit card, currency **GBP**, opening 0.00) for cross-currency cases — **legacy data only**: since W08 `POST /api/accounts` refuses any currency but the household's budget currency (EUR here), so seed it directly in the database or use a household that held it before the `ForeignAmounts` migration. Members of the same household: **trf-limited@example.test** (role Limited) and **trf-readonly@example.test** (role ReadOnly) — note account CRUD is Admin+, so these two rely on the pre-existing accounts. **trf-solo@example.test** owns a household with **one** account ("Only") for the 1-account case and can be emptied to **zero** accounts. A second household (owner **trf-other@example.test**) owns account **"Foreign"** for cross-household ownership checks. Automation hint: the transfer POST returns **201** + the full `TransactionDto` (single row, `type: 2`); the client never surfaces server field errors — every API failure on this form maps to the fixed string **"Could not record that transfer."**
 
@@ -284,15 +284,15 @@
   - Amount cell: **no sign**, muted grey (`text-slate-500`), formatted `€300.00` in the row's own `t.currency`. (Contrast: income `+`, expense `−`.)
 - **Automated:** No
 
-### TRF-024 - Main register: no edit or split affordance on a transfer row; delete is present
+### TRF-024 - Main register: no transaction edit or split affordance on a transfer row; delete is present
 - **Priority:** P1
 - **Type:** Edge
 - **Preconditions:** trf-owner; a transfer row exists; hover/focus the row.
 - **Steps:**
   1. Reveal the row hover actions.
 - **Expected:**
-  - The **✎** "Edit transaction: …" and **⑂** "Split transaction: …" buttons are NOT rendered (gated `!isTransfer`).
-  - The **✕** "Delete transaction: {note or date}" button IS rendered (delete applies to all rows). There is no inline-edit or split editor path for a transfer in the UI.
+  - The **✎** "Edit transaction: …" and **⑂** "Split transaction: …" buttons are NOT rendered (gated `!isTransfer`). Since W07 a transfer row instead has its own **✎** "Edit transfer: {note or date}" button (see TRF-041); there is still no inline-edit or split editor path.
+  - The **✕** "Delete transaction: {note or date}" button IS rendered (delete applies to all rows).
 - **Automated:** No
 
 ### TRF-025 - Account detail register: a transfer is signed by direction in each account
@@ -488,3 +488,63 @@
   - Both requests fail `CreateTransferCommandValidator` `RuleFor(x => x.FromAccountId).NotEmpty()` (and symmetrically `.ToAccountId).NotEmpty()` for an empty destination) → **400** with the default FluentValidation message (field shown as **"From Account Id"** / **"To Account Id"** — validator carries no custom `.WithMessage` here). The client would surface only the generic **"Could not record that transfer."**
   - Validation runs in `ValidationBehaviour` **before** the handler, so the account lookups at `CreateTransferCommandHandler` never execute: an empty Guid never reaches the `NotFoundException` path that a random *non-empty* unknown id hits in TRF-037. Nothing is created; no balance moves.
 - **Automated:** No
+
+## Editing, returns and fees (W07)
+
+### TRF-041 - Edit a transfer in place through "Edit transfer"
+- **Priority:** P0
+- **Type:** Happy
+- **Origin:** W07 / `PUT /api/transactions/{id}/transfer`
+- **Preconditions:** trf-owner; a manual 300.00 transfer Current → Pot dated 2026-07-16, no bank statement involved.
+- **Steps:**
+  1. Click **✎** "Edit transfer: Transfer" on the row; the modal is titled **Edit transfer**.
+  2. Change the amount to 250.00, the note to "Holiday pot" and the receipt date to 2026-07-17; save.
+- **Expected:** `PUT /api/transactions/{id}/transfer` (all fields replace what was stored) → **200**. The same row (same id, no second row) now shows 250.00, payee "Holiday pot", status Completed. Current is 2,000.00 − 250.00 and Pot 500.00 + 250.00 (was 300.00). Changing From/To account works too (both must share a currency; the old accounts' balances revert). A non-transfer id sent to the endpoint → **400** "Only a transfer can be edited here." Limited can edit; Read-only → **403**.
+- **Automated:** Partial (TransferIdentityW07Tests.cs; TransactionsPage.catalog.test.tsx)
+
+### TRF-042 - A leg confirmed by a bank statement keeps the bank's account, date and amount
+- **Priority:** P0
+- **Type:** Negative
+- **Origin:** W07 / O1 answer 3
+- **Preconditions:** A transfer Current → Pot whose departure was confirmed by an imported Current statement row (it carries that bank's reference), receipt not yet confirmed.
+- **Steps:**
+  1. Open **Edit transfer**; the departure account, departure date and amount are disabled with a statement-lock hint.
+  2. Via the API, `PUT …/transfer` with a different `fromAccountId`, `departedOn` or `amount`.
+  3. Edit only the receipt date and the note; save.
+- **Expected:** Step 2 → **400** with "The departure is confirmed by a bank statement, so it keeps the bank's account it left / date (…) / amount (… including any fee)." per changed field. The same rule applies to the receipt (destination account, receipt date, amount) once a statement confirmed it, and to a statement-confirmed return date. Step 3 succeeds: only unconfirmed fields change.
+- **Automated:** Partial (TransferIdentityW07Tests.cs)
+
+### TRF-043 - Mark a transfer as returned: money comes back to the source, nothing stays in transit
+- **Priority:** P0
+- **Type:** Happy
+- **Origin:** W07 / O1 answer 4
+- **Preconditions:** A 300.00 transfer Current → Pot departed 2026-07-16, never received (in transit).
+- **Steps:**
+  1. **Edit transfer**, set **Returned on (optional)** to 2026-07-20; save.
+  2. Repeat with a return date before the departure (2026-07-10).
+  3. Repeat with a receipt date also filled in.
+- **Expected:** Step 1: the row shows a **Returned** badge (tooltip "Sent back to Current on 20 Jul 2026"), status `Returned`; Current is back to 2,000.00, Pot unchanged at 500.00, and nothing is counted in transit. Step 2 → **400** "A transfer can only come back on or after the day it left." Step 3 → **400** "A transfer that was received can't also have been sent back. Clear the receipt date first." Clearing `returnedOn` puts the transfer back in transit.
+- **Automated:** Partial (TransferLedgerTests.cs; TransferIdentityW07Tests.cs)
+
+### TRF-044 - A transfer fee is a separate expense row on the source, on a budget line the user picks
+- **Priority:** P0
+- **Type:** Happy
+- **Origin:** W07 / O1 answer 5
+- **Preconditions:** July 2026 budget with an expense line "Bank fees". Current 2,000.00.
+- **Steps:**
+  1. Record a 300.00 transfer Current → Pot dated 2026-07-16 with **Transfer fee** 2.50 and **Transfer fee category** "Bank fees" (the category select appears only once a fee is entered).
+  2. Edit the transfer: change the fee to 4.00; then clear the fee.
+- **Expected:** `POST /api/transactions/transfer` with `fee` and `feeBudgetItemId` → 201. Two rows: the transfer (300.00, shows "+ fee 2.50" under the amount) and a separate expense row on Current, dated 2026-07-16 (the departure), payee "Fee: Transfer", tagged **Fee for transfer**, on "Bank fees". Current is debited 302.50; Pot receives 300.00; "Bank fees" actual shows 2.50 (the transfer itself still adds 0 to actuals). Step 2: the same fee row updates to 4.00, then is removed when the fee is cleared. Fee without a departure date → 400 "Add the departure date before recording a fee: the fee leaves the account when the money does." Negative fee → 400 "A fee can't be negative."; a fee line with no fee → 400 "Choose a line for the fee only when there is a fee."
+- **Automated:** Partial (TransferIdentityW07Tests.cs; TransactionsPage.catalog.test.tsx)
+
+### TRF-045 - A fee row can only be changed through its transfer
+- **Priority:** P1
+- **Type:** Negative
+- **Origin:** W07
+- **Preconditions:** The transfer with a fee from TRF-044.
+- **Steps:**
+  1. Look at the fee row's actions in the register.
+  2. Via the API, `PUT /api/transactions/{feeId}`, `PUT /api/transactions/{feeId}/splits` and `DELETE /api/transactions/{feeId}`.
+  3. Delete the transfer itself.
+- **Expected:** Step 1: the fee row has no edit, split or delete buttons. Step 2: all three → **400** "This is a transfer's fee. Edit the transfer to change or remove it." and nothing changes. Step 3: deleting the transfer removes its fee row too and both balances revert (rule 74 is checked on the result).
+- **Automated:** Partial (TransferIdentityW07Tests.cs)

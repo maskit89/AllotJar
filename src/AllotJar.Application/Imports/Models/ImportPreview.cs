@@ -1,21 +1,47 @@
 namespace AllotJar.Application.Imports.Models;
 
+/// <summary>The ways a statement row can confirm a recorded transfer.</summary>
+public static class TransferMatchKinds
+{
+    /// <summary>The row is the other side of the transfer: its departure (a debit) or its receipt (a credit).</summary>
+    public const string Match = "Match";
+
+    /// <summary>A credit on the source account: the bank sent the money back (O1 answer 4).</summary>
+    public const string Return = "Return";
+}
+
 /// <summary>
-/// An already recorded transfer that this statement row could be the other side of. Only a
-/// suggestion (rule 50): the row and the transfer share the statement account on the
-/// complementary leg, the same amount and currency, and that leg is still unknown. The user
-/// must select it explicitly on commit; nothing is matched from the amount alone, and a single
-/// candidate is never auto-selected.
+/// An already recorded transfer that this statement row could confirm a leg of. Only a
+/// suggestion (rule 50): the row sits on the transfer's leg in the statement account, in the
+/// same currency, and that leg is unknown or was recorded in the app without that bank's
+/// reference. The user must select it explicitly on commit; nothing is matched from the amount
+/// alone, and a single candidate is never auto-selected. <see cref="Fee"/>, when set, is the
+/// transfer's fee after this match (what left beyond what arrived): the user accepts it
+/// explicitly and picks its line. <see cref="RecordedDate"/> is the date recorded in the app for
+/// that leg, which the statement's date replaces. <see cref="SameReference"/> marks a transfer
+/// whose other bank printed this row's reference. <see cref="CounterpartyAccountId"/> is null and
+/// the name "Private account" when the other side is private to another login (P57);
+/// <see cref="FeeBudgetItemId"/> is the line the transfer's current fee is on, to pre-fill.
 /// </summary>
 public record TransferMatchCandidate(
     Guid TransferId,
-    Guid CounterpartyAccountId,
+    Guid? CounterpartyAccountId,
     string CounterpartyAccountName,
     decimal Amount,
     string Currency,
     DateOnly? DepartedOn,
     DateOnly? ReceivedOn,
-    string Payee);
+    string Payee)
+{
+    public string Kind { get; init; } = TransferMatchKinds.Match;
+    public decimal? Fee { get; init; }
+    public Guid? FeeBudgetItemId { get; init; }
+    public DateOnly? RecordedDate { get; init; }
+    public bool SameReference { get; init; }
+}
+
+/// <summary>The entry an earlier import recorded under this row's bank reference, with different details.</summary>
+public record ReusedReference(DateOnly Date, decimal Amount, bool IsCredit);
 
 /// <summary>
 /// A single not-yet-imported transaction the user can review, categorise and attribute
@@ -25,7 +51,9 @@ public record TransferMatchCandidate(
 /// an existing transaction) for rows whose reference did NOT match — e.g. the same statement
 /// previously imported through a different format/mapping; the UI unticks these by default.
 /// <see cref="TransferMatches"/> lists recorded transfers this row could confirm the other
-/// side of (populated only when the statement account is known).
+/// side of (populated only when the statement account is known). <see cref="ReusedReference"/>
+/// is set when the bank reference was already imported for an entry with different details (O1
+/// answer 2): the row is offered, unticked, under a derived <see cref="Reference"/>.
 /// </summary>
 public record ImportCandidate(
     string Reference,
@@ -38,7 +66,8 @@ public record ImportCandidate(
     string? SuggestedBudgetItemName,
     bool LikelyTransfer,
     bool PossibleDuplicate = false,
-    IReadOnlyList<TransferMatchCandidate>? TransferMatches = null)
+    IReadOnlyList<TransferMatchCandidate>? TransferMatches = null,
+    ReusedReference? ReusedReference = null)
 {
     public IReadOnlyList<TransferMatchCandidate> TransferMatches { get; init; } = TransferMatches ?? [];
 }

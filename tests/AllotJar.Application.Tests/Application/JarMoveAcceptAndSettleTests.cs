@@ -10,9 +10,11 @@ using AllotJar.Application.Jars.Queries.GetJarPayments;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Application.Transactions.Commands.AssignTransaction;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
+using AllotJar.Application.Transactions.Commands.CreateTransfer;
 using AllotJar.Application.Transactions.Commands.DeleteTransaction;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Application.Transactions.Commands.UpdateTransaction;
+using AllotJar.Application.Transactions.Commands.UpdateTransfer;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -372,5 +374,129 @@ public class JarMoveAcceptAndSettleTests
 
         messages.Should().ContainSingle().Which.Should().Contain("goes on its line only from the account that held the jar that day")
             .And.NotContain("held in B");
+    }
+
+    private static readonly DateOnly Sep1 = new(2026, 9, 1);
+    private static readonly DateOnly Sep10 = new(2026, 9, 10);
+    private static readonly DateOnly Sep12 = new(2026, 9, 12);
+
+    private static async Task<(decimal InA, decimal? Unallocated)> ReadAAsync(ApplicationDbContext db, Account a, Jar jar, DateOnly asOf)
+    {
+        var read = (await JarLedgerReader.ReadAsync(db, Owner, asOf, Ct)).Accounts[a.Id];
+        return (read.JarBalances!.GetValueOrDefault(jar.Id), read.Unallocated);
+    }
+
+    [Fact]
+    public async Task AReturnDatedBeforeTheMove_RecordedAfterIt_GoesBackToTheJar_AndTheMoveIsResettled()
+    {
+        // Holiday 400 in A paid a 100 transfer to B on 10 Sep; Holiday was emptied on 15 Sep and
+        // moved to C today. The transfer bounced on 12 Sep, marked after the move: the money went
+        // back to Holiday while A held it, and leaves A's Holiday on the move day (W07 returns follow R2-D1).
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 200m, Sep1, AccountType.Current, order: 1);
+        var c = LedgerFixtures.SeedAccount(db, Owner, "C", 0m, Sep1, order: 2);
+        var jar = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, 400m, Sep1);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Sep10, 100m, a.Id, b.Id, FromJarId: jar.Id), Ct);
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, -300m, new DateOnly(2026, 9, 15), JarAllocationKind.Reallocation);
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, c.Id), Ct);
+
+        await new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(transfer.Id, a.Id, b.Id, 100m, Sep10, null, Sep12), Ct);
+
+        (await ReadAAsync(db, a, jar, Sep12)).Should().Be((400m, (decimal?)600m));
+        (await ReadAAsync(db, a, jar, new DateOnly(2026, 9, 15))).Should().Be((100m, (decimal?)900m));
+        (await ReadAAsync(db, a, jar, Today)).Should().Be((0m, (decimal?)1000m));
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task AReturnInAnEarlierStretch_OfAJarThatCameBack_GoesBackToTheJar()
+    {
+        // Holiday 100 in A paid a 100 transfer to B on 10 Sep, then moved to C and back to A today.
+        // The bounce of 12 Sep, marked now, falls in its first stretch in A (the reviewer's probe
+        // M3_AReturnInAnEarlierStretch_OfAJarThatCameBack on #279, which gave the jar nothing).
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 200m, Sep1, AccountType.Current, order: 1);
+        var c = LedgerFixtures.SeedAccount(db, Owner, "C", 0m, Sep1, order: 2);
+        var jar = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, 100m, Sep1);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Sep10, 100m, a.Id, b.Id, FromJarId: jar.Id), Ct);
+        foreach (var to in new[] { c.Id, a.Id })
+        {
+            await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, to), Ct);
+        }
+
+        await new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(transfer.Id, a.Id, b.Id, 100m, Sep10, null, Sep12, FromJarId: jar.Id), Ct);
+
+        (await ReadAAsync(db, a, jar, Sep12)).Should().Be((100m, (decimal?)900m));
+        (await ReadAAsync(db, a, jar, Today)).Should().Be((0m, (decimal?)1000m));
+    }
+
+    [Fact]
+    public async Task AKeptReturn_RedatedToWhileTheJarWasAway_IsRefused()
+    {
+        // Holiday 100 in A paid a 100 transfer to B on 10 Sep. Holiday left A on 13 Sep and came
+        // back on 20 Sep. The transfer bounced: marked returned on 21 Sep, the money goes back to
+        // Holiday; re-dated to 15 Sep, while C held Holiday, it is refused.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 200m, Sep1, AccountType.Current, order: 1);
+        var c = LedgerFixtures.SeedAccount(db, Owner, "C", 0m, Sep1, order: 2);
+        var jar = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, 100m, Sep1);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Sep10, 100m, a.Id, b.Id, FromJarId: jar.Id), Ct);
+        foreach (var to in new[] { c.Id, a.Id })
+        {
+            await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, to), Ct);
+        }
+        (await db.JarAllocations.SingleAsync(x => x.Kind == JarAllocationKind.Departure)).Date = new DateOnly(2026, 9, 13);
+        jar.FundingAccountSince = new DateOnly(2026, 9, 20);
+        await db.SaveChangesAsync(Ct);
+        UpdateTransferCommand ReturnedOn(int day) => new(transfer.Id, a.Id, b.Id, 100m, Sep10, null, new DateOnly(2026, 9, day), FromJarId: jar.Id);
+
+        await new UpdateTransferCommandHandler(db, User).Handle(ReturnedOn(21), Ct);
+        (await ReadAAsync(db, a, jar, new DateOnly(2026, 9, 21))).Should().Be((100m, (decimal?)900m));
+
+        var messages = await RefusalAsync(() => new UpdateTransferCommandHandler(db, User).Handle(ReturnedOn(15), Ct));
+        messages.Should().ContainSingle().Which.Should().Contain("another account held Holiday until 20 Sep 2026");
+    }
+
+    [Fact]
+    public async Task ATransferAndItsFee_DatedByTheStatementAfterTheJarLeft_NoLongerDrawFromItThere()
+    {
+        // Holiday 400 in A paid a 100 transfer to B and its 2 fee (on Holiday's line) on 10 Sep,
+        // was emptied on 12 Sep and left A on 13 Sep. A's statement says the money left on 15 Sep:
+        // both now draw from A's unallocated money, and Holiday held the 102 until it left.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 200m, Sep1, AccountType.Current, order: 1);
+        var c = LedgerFixtures.SeedAccount(db, Owner, "C", 0m, Sep1, order: 2);
+        var jar = SeedGoal(db, a);
+        var (line, _) = SeedMonth(db, Sep1, jar);
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, 400m, Sep1);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Sep10, 100m, a.Id, b.Id, FromJarId: jar.Id, Fee: 2m, FeeBudgetItemId: line.Id), Ct);
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, -298m, Sep12, JarAllocationKind.Reallocation);
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, c.Id), Ct);
+        (await db.JarAllocations.SingleAsync(x => x.Kind == JarAllocationKind.Departure)).Date = new DateOnly(2026, 9, 13);
+        await db.SaveChangesAsync(Ct);
+
+        await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
+        {
+            new CommitImportItem("TRF-1", new DateOnly(2026, 9, 15), "To B", 102m, "EUR", false, null, null,
+                TransferAccountId: b.Id, MatchTransferId: transfer.Id),
+        }), Ct);
+
+        (await ReadAAsync(db, a, jar, Sep12)).Should().Be((102m, (decimal?)898m));
+        (await ReadAAsync(db, a, jar, new DateOnly(2026, 9, 14))).Should().Be((0m, (decimal?)1000m));
+        (await ReadAAsync(db, a, jar, Today)).Should().Be((0m, (decimal?)898m));
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
     }
 }

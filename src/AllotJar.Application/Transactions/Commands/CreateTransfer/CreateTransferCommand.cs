@@ -17,8 +17,10 @@ namespace AllotJar.Application.Transactions.Commands.CreateTransfer;
 /// excluded from budget actuals. On jar-backed accounts, <paramref name="FromJarId"/> names
 /// the jar the money leaves (unallocated when null; a cross-account "Move money" sets it, rule
 /// 80) and <paramref name="JarAllocations"/> divides the receipt among the destination's jars
-/// (rule 78); a receipt still in transit lands in those jars once it is confirmed. Returns the
-/// created transaction.
+/// (rule 78); a receipt still in transit lands in those jars once it is confirmed.
+/// <paramref name="Amount"/> is what arrives; an explicit <paramref name="Fee"/> also leaves the
+/// source on the departure date, as an expense on <paramref name="FeeBudgetItemId"/> (see
+/// <see cref="TransferFees"/>). Returns the created transaction.
 /// </summary>
 [AllowLimited]
 public record CreateTransferCommand(
@@ -29,4 +31,7 @@ public record CreateTransferCommand(
     string? Payee = null,
     DateOnly? ReceivedOn = null,
     Guid? FromJarId = null,
-    IReadOnlyList<JarAllocationInput>? JarAllocations = null) : IRequest<TransactionDto>;
+    IReadOnlyList<JarAllocationInput>? JarAllocations = null,
+    decimal? Fee = null,
+    Guid? FeeBudgetItemId = null,
+    bool AcknowledgeCrossMonth = false) : IRequest<TransactionDto>;

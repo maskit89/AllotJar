@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Imports;
 using AllotJar.Application.Accounts;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Dtos;
@@ -14,11 +15,14 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly IIdentityService? _identity;
 
-    public UpdateTransactionCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public UpdateTransactionCommandHandler(
+        IApplicationDbContext db, ICurrentUser currentUser, IIdentityService? identity = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _identity = identity;
     }
 
     public async Task<TransactionDto> Handle(UpdateTransactionCommand request, CancellationToken cancellationToken)
@@ -31,6 +35,7 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             .Include(t => t.Account)
             .Include(t => t.TransferAccount)
             .Include(t => t.Splits)
+            .Include(t => t.Fee)
             .FirstOrDefaultAsync(t => t.Id == request.TransactionId, cancellationToken);
 
         if (transaction is null)
@@ -40,6 +45,10 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         if (transaction.OwnerId != userId)
         {
             throw new ForbiddenAccessException();
+        }
+        if (transaction.FeeForTransferId is not null)
+        {
+            throw TransferFees.ChangedDirectly("TransactionId");
         }
 
         Account? account = null;
@@ -249,6 +258,17 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             await TransactionInvariants.EnsureJarLinesArrivedAsync(_db, lineIds, request.AccountId, request.Date, "Date", cancellationToken);
         }
 
+        // An imported row keeps what its bank printed the first time it is changed, so importing
+        // that statement again recognises the entry instead of offering it anew (rule 88).
+        if (transaction.BankReference is not null && transaction.BankEntry is null
+            && (request.Date != transaction.Date || request.Amount != transaction.Amount || request.Type != transaction.Type))
+        {
+            transaction.BankEntry = StatementReferences.Entry(
+                transaction.Type == TransactionType.Transfer ? transaction.DepartedOn ?? transaction.Date : transaction.Date,
+                transaction.Type == TransactionType.Transfer ? transaction.Amount + (transaction.Fee?.Amount ?? 0m) : transaction.Amount,
+                transaction.Type == TransactionType.Income);
+        }
+
         transaction.Date = request.Date;
         transaction.Payee = request.Payee.Trim();
         // The amount stays in the row's own currency: editing a row that waits for its
@@ -274,6 +294,10 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             transaction.DepartedOn = null;
             transaction.ReceivedOn = null;
             transaction.ReceiptBankReference = null;
+            transaction.ReturnedOn = null;
+            transaction.ReturnBankReference = null;
+            await TransferReturns.ClearAsync(_db, transaction.Id, cancellationToken);
+            transaction.AllocationKey = null;
         }
         transaction.Account = account;
         transaction.AccountId = account?.Id;
@@ -284,11 +308,18 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         // receiving it (moving an income away, or shrinking it, can leave later payments uncovered),
         // and the destination of a transfer that stops being one — its receipt is what the edit
         // takes away, so the money spent from it since must still be covered.
+        // A transfer's fee goes with the transfer.
+        var removed = new List<Guid>();
+        if (request.Type != TransactionType.Transfer && transaction.Fee is Transaction fee && previousAccount is not null)
+        {
+            await TransferFees.ApplyAsync(
+                _db, _identity, userId, transaction, previousAccount, null, null, false, null, "Amount", removed, cancellationToken);
+        }
         var affected = new[] { previousAccount, previousDestination, account }.Where(a => a is not null).Select(a => a!).ToList();
         if (affected.Count > 0)
         {
             await AccountBalanceGuard.EnsureNonNegativeAsync(
-                _db, affected, new[] { transaction }, Array.Empty<Guid>(), "Amount", cancellationToken);
+                _db, affected, new[] { transaction }, removed, "Amount", cancellationToken);
         }
 
         // The jar split of the previous leg no longer describes this row once it changes account

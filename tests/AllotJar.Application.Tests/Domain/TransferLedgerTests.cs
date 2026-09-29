@@ -405,4 +405,44 @@ public class TransferLedgerTests
         position.Should().Throw<InvalidOperationException>().WithMessage("*at least one confirmed bank posting date*");
         account.Should().Throw<InvalidOperationException>().WithMessage("*at least one confirmed bank posting date*");
     }
+    [Fact]
+    public void ReturnedTransferComesBackToTheSourceOnItsReturnDate_AndLeavesNothingInTransit()
+    {
+        var transfer = Transfer();
+        var back = new DateOnly(2026, 10, 3);
+        var dates = new TransferPostingDates(Departure, null, back);
+
+        ActualAccountLedger.Calculate(_source, Opening, back.AddDays(-1), [transfer], Dates(transfer, dates))
+            .Balance.Should().Be(900m);
+        TransferLedger.Calculate(transfer, dates, back.AddDays(-1)).UnsettledAmount.Should().Be(100m);
+
+        ActualAccountLedger.Calculate(_source, Opening, back, [transfer], Dates(transfer, dates))
+            .Balance.Should().Be(1000m);
+        ActualAccountLedger.Entries(_source, Opening, back, [transfer], Dates(transfer, dates)).Movements.Keys.Should().BeEquivalentTo(new[] { transfer.Id, TransferLedger.ReturnLegId(transfer.Id) });
+        TransferLedger.Calculate(transfer, dates, back).UnsettledAmount.Should().Be(0m);
+        ActualAccountLedger.Calculate(_destination, Opening, back, [transfer], Dates(transfer, dates))
+            .Balance.Should().Be(200m);
+    }
+
+    [Fact]
+    public void ReturnLegIdentityIsStableAndDistinctFromTheTransfer()
+    {
+        var id = Guid.NewGuid();
+        TransferLedger.ReturnLegId(id).Should().Be(TransferLedger.ReturnLegId(id)).And.NotBe(id);
+    }
+
+    public static TheoryData<DateOnly?, DateOnly?, DateOnly> InvalidReturns => new()
+    {
+        { null, null, new DateOnly(2026, 9, 30) },                                   // never departed
+        { new DateOnly(2026, 9, 30), new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 2) }, // also received
+        { new DateOnly(2026, 9, 30), null, new DateOnly(2026, 9, 29) },              // back before it left
+    };
+
+    [Theory]
+    [MemberData(nameof(InvalidReturns))]
+    public void AReturnNeedsADepartureOnOrBeforeIt_AndNoReceipt(DateOnly? departed, DateOnly? received, DateOnly returned)
+    {
+        var calculate = () => TransferLedger.Calculate(Transfer(), new(departed, received, returned), Receipt);
+        calculate.Should().Throw<InvalidOperationException>();
+    }
 }

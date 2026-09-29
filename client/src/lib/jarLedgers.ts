@@ -9,27 +9,44 @@ import type { JarAccountLedgerDto, JarAllocationRequest, JarLedgerLineDto, Trans
  */
 export function useJarLedgers(enabled = true) {
   const [ledgers, setLedgers] = useState<JarAccountLedgerDto[]>([])
+  // True once a read has succeeded (and false again after one fails): until then an empty list
+  // means "not known", not "no jar-backed accounts", so a form must not clear stored jar answers.
+  const [loaded, setLoaded] = useState(false)
   const reload = useCallback(() => {
     if (!enabled) return Promise.resolve()
     return api
       .get<JarAccountLedgerDto[]>('/jars/ledger')
-      .then(({ data }) => setLedgers(Array.isArray(data) ? data : []))
+      .then(({ data }) => {
+        setLedgers(Array.isArray(data) ? data : [])
+        setLoaded(true)
+      })
       // A failed read only hides the prompts; the server still applies its defaults.
-      .catch(() => setLedgers([]))
+      .catch(() => {
+        setLedgers([])
+        setLoaded(false)
+      })
   }, [enabled])
   useEffect(() => {
     let cancelled = false
     if (!enabled) return
     api
       .get<JarAccountLedgerDto[]>('/jars/ledger')
-      .then(({ data }) => !cancelled && setLedgers(Array.isArray(data) ? data : []))
-      .catch(() => !cancelled && setLedgers([]))
+      .then(({ data }) => {
+        if (cancelled) return
+        setLedgers(Array.isArray(data) ? data : [])
+        setLoaded(true)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setLedgers([])
+        setLoaded(false)
+      })
     return () => {
       cancelled = true
     }
   }, [enabled])
   const byAccount = new Map(ledgers.map((l) => [l.accountId, l]))
-  return { ledgers, byAccount, reload }
+  return { ledgers, byAccount, reload, loaded }
 }
 
 /** The active jars of one account's ledger, in display order. */

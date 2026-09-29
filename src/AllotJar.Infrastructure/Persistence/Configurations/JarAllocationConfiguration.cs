@@ -30,6 +30,17 @@ public class JarAllocationConfiguration : IEntityTypeConfiguration<JarAllocation
             .HasForeignKey(a => a.TransactionId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // A returned transfer's jar attribution (Kind Return). The handlers that clear or delete a
+        // return remove it (TransferReturns.ClearAsync); the database refuses to orphan it rather
+        // than add a second cascade path from Transactions.
+        builder.HasOne<Transaction>()
+            .WithMany()
+            .HasForeignKey(a => a.ReturnOfTransferId)
+            .OnDelete(DeleteBehavior.NoAction);
+        builder.HasIndex(a => a.ReturnOfTransferId)
+            .IsUnique()
+            .HasFilter("[ReturnOfTransferId] IS NOT NULL");
+
         builder.HasMany(a => a.Postings)
             .WithOne(p => p.JarAllocation)
             .HasForeignKey(p => p.JarAllocationId)

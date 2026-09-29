@@ -27,6 +27,14 @@ public class CreateTransferCommandValidator : AbstractValidator<CreateTransferCo
             .When(x => x.ReceivedOn.HasValue)
             .WithMessage("The receipt date can't be before the departure date.");
 
+        RuleFor(x => x.Fee)
+            .GreaterThanOrEqualTo(0m).WithMessage("A fee can't be negative.")
+            .LessThanOrEqualTo(MaxAmount).WithMessage("Fee is out of range.")
+            .When(x => x.Fee.HasValue);
+        RuleFor(x => x.FeeBudgetItemId)
+            .Null().When(x => x.Fee is not > 0m)
+            .WithMessage("Choose a line for the fee only when there is a fee.");
+
         RuleFor(x => x.Payee).MaximumLength(200);
         RuleFor(x => x.JarAllocations).JarAllocationsWellFormed();
     }

@@ -24,8 +24,8 @@ namespace AllotJar.Application.Transactions;
 ///     cross-month identity is looked up in the candidate's month; if that month has no
 ///     matching line, the payee is left unassigned. Transfers are never candidates.
 ///
-/// Zero-configuration — there are no user-managed rules. Used by manual create, statement
-/// import, and the import preview. An entry in a private account is never assigned (W13): only
+/// Zero-configuration — there are no user-managed rules. Used by manual create and the import
+/// preview. An entry in a private account is never assigned (W13): only
 /// its holder puts it on the household budget.
 /// </summary>
 public static partial class AutoCategorizer

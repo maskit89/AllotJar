@@ -265,6 +265,7 @@ public sealed class JarLedgerSource
     private readonly List<Transaction> _readable;
     private readonly IReadOnlyDictionary<Guid, TransferPostingDates> _postingDates;
     private readonly Dictionary<Guid, Transaction> _byId;
+    private readonly Dictionary<Guid, Guid> _returnLegs;
     private readonly IReadOnlyDictionary<Guid, Guid> _lineJars;
     private readonly List<JarAllocation> _stored;
     private readonly Dictionary<Guid, HashSet<Guid>> _carried;
@@ -284,6 +285,9 @@ public sealed class JarLedgerSource
             .ToList();
         _postingDates = TransferLedger.PostingDates(_readable);
         _byId = _readable.ToDictionary(t => t.Id);
+        _returnLegs = _readable
+            .Where(t => t.Type == TransactionType.Transfer && t.ReturnedOn is not null)
+            .ToDictionary(t => TransferLedger.ReturnLegId(t.Id), t => t.Id);
         _lineJars = lineJars;
         _stored = stored;
         _carried = stored
@@ -347,13 +351,25 @@ public sealed class JarLedgerSource
 
             foreach (var (transactionId, movement) in entries.Movements)
             {
-                if (attributed.Contains(transactionId))
+                if (attributed.Contains(transactionId) || _returnLegs.ContainsKey(transactionId))
                 {
                     continue;
                 }
                 operations.Add(new JarLedgerOperation(
                     Guid.NewGuid(), _ownerId, account.Id, movement.Date, transactionId,
                     JarLedgerReader.Derive(_byId[transactionId], account, movement.Amount, _lineJars, _jarsById)));
+            }
+
+            // A returned transfer's money comes back as unallocated money; its stored Return
+            // operation (TransferReturns) puts each jar's share back, as decided when the return
+            // was recorded.
+            foreach (var (legId, movement) in entries.Movements)
+            {
+                if (_returnLegs.ContainsKey(legId))
+                {
+                    operations.Add(new JarLedgerOperation(Guid.NewGuid(), _ownerId, account.Id, movement.Date, legId,
+                        new[] { new JarLedgerPosting(null, movement.Amount) }));
+                }
             }
 
             var ledger = ActualSavingsLedger.Calculate(account, openingDate, asOf, _jars, _readable, operations, _postingDates);

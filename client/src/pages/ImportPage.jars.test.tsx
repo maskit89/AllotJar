@@ -170,6 +170,39 @@ describe('ImportPage — jars (rules 78/79) and held rows (rule 74)', () => {
     expect(await screen.findByText('Import complete')).toBeInTheDocument()
   })
 
+  // W07: money coming back from a returned transfer goes back to the jars it left from, so a
+  // return row asks no jar question and sends no jar answer.
+  it('asks no jar question for a credit that returns a transfer', { timeout: 15000 }, async () => {
+    const data = preview()
+    data.items[0] = {
+      ...data.items[0],
+      transferMatches: [
+        {
+          transferId: 'tr-back', counterpartyAccountId: 'acc2', counterpartyAccountName: 'Joint Savings', amount: 2500,
+          currency: 'EUR', departedOn: '2026-05-28', receivedOn: null, payee: 'Transfer', kind: 'Return', fee: null,
+          recordedDate: null, sameReference: false,
+        },
+      ],
+    }
+    mockPreview.mockResolvedValue(data)
+    const user = userEvent.setup()
+    renderPage()
+    await goToReview(user)
+
+    expect(screen.getByRole('group', { name: 'Put into jars in HSBC Current' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Mark SALARY on 2026-06-01 as a transfer' }))
+    await user.selectOptions(screen.getByLabelText('Match recorded transfer for SALARY on 2026-06-01'), 'tr-back')
+    expect(screen.queryByRole('group', { name: 'Put into jars in HSBC Current' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Import 4 transactions' }))
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
+    const [, items] = mockCommit.mock.calls[0] as [string | null, SentItem[]]
+    const back = items.find((i) => i.payee === 'SALARY')!
+    expect(back).toEqual(expect.objectContaining({ returnOfTransferId: 'tr-back', transferAccountId: null }))
+    expect(back).not.toHaveProperty('jarAllocations')
+    expect(back).not.toHaveProperty('paidFromJarId')
+  })
+
   it('shows no jar select on a jar line, one for a split with a non-jar slice, and one for a transfer out', { timeout: 15000 }, async () => {
     const user = userEvent.setup()
     renderPage()

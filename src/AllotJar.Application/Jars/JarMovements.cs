@@ -358,6 +358,43 @@ public static class JarMovements
         return added;
     }
 
+    /// <summary>
+    /// One leg's date moved by a bank statement, its jar answer unchanged (a transfer's departure
+    /// or its fee, rule 69). Each jar the leg draws from keeps the draw when the account held the
+    /// jar on <paramref name="date"/>: in its current stretch there, or in a recorded one it has
+    /// since left (R2-D1), when the account's ledger reads that date. Any other share draws from
+    /// unallocated money instead, as a return decided on a bank's date does: the date is the
+    /// bank's, so it is not refused. The departures are re-settled (P51).
+    /// </summary>
+    public static async Task FollowDateAsync(
+        IApplicationDbContext db, string ownerId, Transaction transaction, Guid accountId, DateOnly date, CancellationToken cancellationToken)
+    {
+        var existing = await FindAsync(db, transaction.Id, accountId, cancellationToken);
+        if (existing is null || existing.Date == date)
+        {
+            return;
+        }
+        var jarIds = existing.Postings.Where(p => p.JarId is not null && p.Amount != 0m).Select(p => p.JarId!.Value).Distinct().ToList();
+        var jars = await db.Jars.AsNoTracking()
+            .Where(j => jarIds.Contains(j.Id))
+            .Select(j => new { j.Id, j.FundingAccountId, j.FundingAccountSince })
+            .ToListAsync(cancellationToken);
+        var elsewhere = jars.Where(j => !JarLedgerReader.HeldOn(j.FundingAccountId, j.FundingAccountSince, accountId, date)).Select(j => j.Id).ToList();
+        var stretches = elsewhere.Count == 0 ? JarStretches.None : await JarStretches.LoadAsync(db, elsewhere, cancellationToken);
+        var read = stretches.OpeningDateOf(accountId) is { } opened && date >= opened;
+        var dropped = elsewhere.Where(id => !read || stretches.LeftOn(id, accountId, date) is null).ToHashSet();
+        var unallocated = existing.Postings.Where(p => p.JarId is null || dropped.Contains(p.JarId.Value)).Sum(p => p.Amount);
+        var postings = existing.Postings
+            .Where(p => p.JarId is Guid jarId && !dropped.Contains(jarId))
+            .Select(p => new JarAllocationPosting { JarId = p.JarId, Amount = p.Amount })
+            .ToList();
+        if (unallocated != 0m || postings.Count == 0)
+        {
+            postings.Add(new JarAllocationPosting { JarId = null, Amount = unallocated });
+        }
+        await ReplaceAsync(db, ownerId, transaction, accountId, date, postings, cancellationToken, existing);
+    }
+
     /// <summary>Drops the stored split of one leg, so the reader falls back to its derived attribution.</summary>
     public static Task ClearAsync(IApplicationDbContext db, Transaction transaction, Guid accountId, CancellationToken cancellationToken) =>
         ReplaceAsync(db, transaction.OwnerId, transaction, accountId, transaction.Date, new List<JarAllocationPosting>(), cancellationToken);

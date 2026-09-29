@@ -32,6 +32,9 @@ public class JarAllocation : BaseEntity
     public Guid? TransactionId { get; set; }
     public Transaction? Transaction { get; set; }
 
+    /// <summary>For a <see cref="JarAllocationKind.Return"/> operation: the returned transfer whose money it puts back.</summary>
+    public Guid? ReturnOfTransferId { get; set; }
+
     /// <summary>An optional user note (e.g. why money was moved).</summary>
     public string? Note { get; set; }
 

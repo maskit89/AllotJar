@@ -17,7 +17,6 @@ using AllotJar.Application.Household.Commands.UpdateHouseholdMember;
 using AllotJar.Application.Household.Queries.GetMemberSpending;
 using AllotJar.Application.HouseholdAccess.Commands.LinkMembershipMember;
 using AllotJar.Application.HouseholdAccess.Commands.RevokeMember;
-using AllotJar.Application.Imports.Commands.ImportStatement;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Jars.Commands.UpdateJar;
@@ -678,29 +677,6 @@ public class JointAccountsW13Tests
             dto.BudgetItemId.Should().BeNull("only its holder puts private money on the budget");
         }
         (await TransactionsAsync(Chris)).Should().NotContain(t => t.Amount == 85m);
-    }
-
-    [Fact]
-    public async Task AStatementImportedIntoAPrivateAccount_IsNeverAutoCategorised_P56()
-    {
-        var rent = SeedLine("Rent");
-        var joint = await CreateAccountAsync(Chris, "Joint", holders: null);
-        var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam }, opening: 5000m);
-        using (var db = Seed())
-        {
-            LedgerFixtures.Expense(db, Household, joint, 1100m, new DateOnly(2026, 5, 1), rent).Payee = "Landlord GmbH";
-            db.SaveChanges();
-        }
-
-        await using (var db = As(Sam))
-        {
-            var result = await new ImportStatementCommandHandler(
-                    db, Sam, new[] { new Camt053StatementParser() })
-                .Handle(new ImportStatementCommand(Camt053Samples.TwoEurEntries, mine), CancellationToken.None);
-            result.Imported.Should().Be(2);
-            result.AutoCategorized.Should().Be(0);
-        }
-        (await TransactionsAsync(Chris)).Should().NotContain(t => t.BankReference == "REF-RENT-001");
     }
 
     [Fact]

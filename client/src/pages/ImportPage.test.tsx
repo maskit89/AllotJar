@@ -29,6 +29,7 @@ vi.mock('../lib/api', async (importOriginal) => ({
 
 import { ImportPage } from './ImportPage'
 import { AuthProvider } from '../auth/AuthContext'
+import { formatDate } from '../lib/dates'
 
 const accounts: AccountDto[] = [
   { id: 'acc1', name: 'HSBC Current', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0 },
@@ -556,5 +557,298 @@ describe('ImportPage', () => {
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No transactions were found')
+  })
+})
+
+// W07 — returns, transfer fees and reused bank references on the review grid.
+describe('ImportPage transfer returns, fees and reused references', () => {
+  beforeEach(() => {
+    mockGet.mockReset()
+    mockPreview.mockReset()
+    mockCommit.mockReset()
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/accounts') return Promise.resolve({ data: accounts })
+      if (url === '/budget/current') return Promise.resolve({ data: month })
+      if (url === '/members') return Promise.resolve({ data: members })
+      return Promise.resolve({ data: [] })
+    })
+    mockCommit.mockResolvedValue(committed())
+  })
+
+  async function reviewIntoAccount(user: ReturnType<typeof userEvent.setup>, payee: string) {
+    await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
+    await user.upload(screen.getByLabelText('Statement file'), csv())
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+    await screen.findByText(payee)
+  }
+
+  const candidate = {
+    counterpartyAccountId: 'acc2', counterpartyAccountName: 'Pot', currency: 'EUR', payee: 'Transfer',
+    receivedOn: null, recordedDate: null, sameReference: false, fee: null,
+  }
+
+  it('a Return candidate on a credit row sends returnOfTransferId only', { timeout: 15000 }, async () => {
+    const data = previewWithTransfer()
+    data.items[0] = {
+      ...data.items[0],
+      likelyTransfer: false,
+      transferMatches: [{ ...candidate, transferId: 'tr-back', amount: 234.24, departedOn: '2026-06-10', kind: 'Return' }],
+    }
+    mockPreview.mockResolvedValue(data)
+    mockCommit.mockResolvedValue({ ...committed(), imported: 1, transfers: 0, returned: 1 })
+    const user = userEvent.setup()
+    renderPage()
+    await reviewIntoAccount(user, 'E-BANKING PAYMENT')
+
+    expect(screen.getByText('Looks like a transfer coming back')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer' }))
+    const match = screen.getByLabelText('Match recorded transfer for E-BANKING PAYMENT on 2026-06-16')
+    expect(match).toHaveTextContent(`Returned: transfer to Pot on ${formatDate('2026-06-10')}`)
+    await user.selectOptions(match, 'tr-back')
+    // A return names no counterparty.
+    expect(screen.queryByLabelText('Transfer account for E-BANKING PAYMENT on 2026-06-16')).not.toBeInTheDocument()
+    expect(screen.getByText(/Records the transfer to Pot as returned/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
+    const [, items] = mockCommit.mock.calls[0]
+    const returned = items.find((i: { payee: string }) => i.payee === 'E-BANKING PAYMENT')
+    expect(returned).toEqual(
+      expect.objectContaining({ returnOfTransferId: 'tr-back', transferAccountId: null, matchTransferId: null, budgetItemId: null, memberId: null }),
+    )
+    expect(returned).not.toHaveProperty('jarAllocations')
+    expect(returned).not.toHaveProperty('splits')
+    // The result reports the return.
+    const tile = (await screen.findByText('Returned')).closest('div')!
+    expect(tile).toHaveTextContent('1')
+  })
+
+  it('a fee candidate asks for the fee line and echoes the fee on commit', { timeout: 15000 }, async () => {
+    const data = previewWithTransfer()
+    data.items[1] = {
+      ...data.items[1],
+      transferMatches: [
+        { ...candidate, transferId: 'tr-same', amount: 35, departedOn: '2026-06-17', kind: 'Match', sameReference: true },
+        { ...candidate, transferId: 'tr-fee', amount: 33, departedOn: '2026-06-15', kind: 'Match', fee: 2, recordedDate: '2026-06-15' },
+      ],
+    }
+    mockPreview.mockResolvedValue(data)
+    const user = userEvent.setup()
+    renderPage()
+    await reviewIntoAccount(user, 'AUTOMARKET')
+
+    await user.click(screen.getByRole('button', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' }))
+    const match = screen.getByLabelText('Match recorded transfer for AUTOMARKET on 2026-06-17')
+    // The server's order is kept.
+    const options = Array.from(match.querySelectorAll('option')).map((o) => o.textContent)
+    expect(options[1]).toMatch(/To Pot .* same bank reference/)
+    expect(options[2]).toMatch(/with a fee of €2\.00/)
+
+    await user.selectOptions(match, 'tr-same')
+    expect(screen.getByText('Same bank reference')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Fee category for AUTOMARKET on 2026-06-17')).not.toBeInTheDocument()
+
+    await user.selectOptions(match, 'tr-fee')
+    expect(screen.getByText(/Recorded in the app on .*; the bank.s date will be used/)).toBeInTheDocument()
+    // The candidate names no current fee line, so the fee needs one before the import (rule 91).
+    expect(screen.getByLabelText('Fee category for AUTOMARKET on 2026-06-17')).toHaveValue('')
+    expect(screen.getByText('Choose the fee’s category.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeDisabled()
+    await user.selectOptions(screen.getByLabelText('Fee category for AUTOMARKET on 2026-06-17'), 'bi2')
+    expect(screen.queryByText('Choose the fee’s category.')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
+    const [, items] = mockCommit.mock.calls[0]
+    expect(items.find((i: { payee: string }) => i.payee === 'AUTOMARKET')).toEqual(
+      expect.objectContaining({ transferAccountId: 'acc2', matchTransferId: 'tr-fee', fee: 2, feeBudgetItemId: 'bi2' }),
+    )
+  })
+
+  it('an unmatched debit transfer can carry a typed fee', { timeout: 15000 }, async () => {
+    mockPreview.mockResolvedValue(previewWithTransfer())
+    const user = userEvent.setup()
+    renderPage()
+    await reviewIntoAccount(user, 'AUTOMARKET')
+
+    await user.click(screen.getByRole('button', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' }))
+    await user.selectOptions(screen.getByLabelText('Transfer account for AUTOMARKET on 2026-06-17'), 'acc2')
+    const fee = screen.getByLabelText('Fee for AUTOMARKET on 2026-06-17')
+
+    // A fee as large as the row is refused.
+    await user.type(fee, '35')
+    expect(screen.getByText(/The fee must be more than zero and less than/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Import \d transaction/ })).toBeDisabled()
+
+    await user.clear(fee)
+    await user.type(fee, '2')
+    expect(screen.getByText(/A transfer of €33\.00 plus a fee of €2\.00/)).toBeInTheDocument()
+    // A typed fee also needs its line before the import.
+    expect(screen.getByText('Choose the fee’s category.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeDisabled()
+    await user.selectOptions(screen.getByLabelText('Fee category for AUTOMARKET on 2026-06-17'), 'bi1')
+
+    await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
+    const [, items] = mockCommit.mock.calls[0]
+    expect(items.find((i: { payee: string }) => i.payee === 'AUTOMARKET')).toEqual(
+      expect.objectContaining({ amount: 35, transferAccountId: 'acc2', matchTransferId: null, fee: 2, feeBudgetItemId: 'bi1' }),
+    )
+  })
+
+  it('a row reusing a known bank reference is flagged, counted and starts unticked', { timeout: 15000 }, async () => {
+    const data = preview()
+    data.items[1] = { ...data.items[1], reference: 'hsbc:b#0~2', reusedReference: { date: '2026-05-15', amount: 12, isCredit: false } }
+    mockPreview.mockResolvedValue(data)
+    const user = userEvent.setup()
+    renderPage()
+    await goToReview(user)
+
+    expect(screen.getByText(/An entry with this bank reference was already imported: .*€12\.00\. Tick it only if this is a/)).toBeInTheDocument()
+    expect(screen.getByText(/1 reusing a known bank reference unticked/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Include WOLT on 2026-06-15')).not.toBeChecked()
+
+    // Ticked back in, the derived reference goes back unchanged.
+    await user.click(screen.getByLabelText('Include WOLT on 2026-06-15'))
+    await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
+    const [, items] = mockCommit.mock.calls[0]
+    expect(items.map((i: { reference: string }) => i.reference)).toContain('hsbc:b#0~2')
+  })
+
+  it('a fee candidate pre-fills the line its current fee is on', { timeout: 15000 }, async () => {
+    const data = previewWithTransfer()
+    data.items[1] = {
+      ...data.items[1],
+      transferMatches: [
+        { ...candidate, transferId: 'tr-fee', amount: 33, departedOn: '2026-06-15', kind: 'Match', fee: 2, feeBudgetItemId: 'bi2' },
+      ],
+    }
+    mockPreview.mockResolvedValue(data)
+    const user = userEvent.setup()
+    renderPage()
+    await reviewIntoAccount(user, 'AUTOMARKET')
+
+    await user.click(screen.getByRole('button', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' }))
+    const match = screen.getByLabelText('Match recorded transfer for AUTOMARKET on 2026-06-17') as HTMLSelectElement
+    // Nothing is chosen for the user, even with a single candidate (rule 50).
+    expect(match.value).toBe('')
+    await user.selectOptions(match, 'tr-fee')
+    expect(screen.getByLabelText('Fee category for AUTOMARKET on 2026-06-17')).toHaveValue('bi2')
+    expect(screen.queryByText('Choose the fee’s category.')).not.toBeInTheDocument()
+
+    // Going back to "record it as a new transfer" drops the candidate's line with its fee.
+    await user.selectOptions(match, '')
+    await user.type(screen.getByLabelText('Fee for AUTOMARKET on 2026-06-17'), '1')
+    expect(screen.getByLabelText('Fee category for AUTOMARKET on 2026-06-17')).toHaveValue('')
+    await user.selectOptions(match, 'tr-fee')
+    expect(screen.getByLabelText('Fee category for AUTOMARKET on 2026-06-17')).toHaveValue('bi2')
+
+    await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
+    const [, items] = mockCommit.mock.calls[0]
+    expect(items.find((i: { payee: string }) => i.payee === 'AUTOMARKET')).toEqual(
+      expect.objectContaining({ matchTransferId: 'tr-fee', fee: 2, feeBudgetItemId: 'bi2' }),
+    )
+  })
+
+  it('a fee line from another month stays chosen', { timeout: 15000 }, async () => {
+    const data = previewWithTransfer()
+    data.items[1] = {
+      ...data.items[1],
+      transferMatches: [
+        { ...candidate, transferId: 'tr-fee', amount: 33, departedOn: '2026-06-15', kind: 'Match', fee: 2, feeBudgetItemId: 'bi-may' },
+      ],
+    }
+    mockPreview.mockResolvedValue(data)
+    const user = userEvent.setup()
+    renderPage()
+    await reviewIntoAccount(user, 'AUTOMARKET')
+
+    await user.click(screen.getByRole('button', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' }))
+    await user.selectOptions(screen.getByLabelText('Match recorded transfer for AUTOMARKET on 2026-06-17'), 'tr-fee')
+    const line = screen.getByLabelText('Fee category for AUTOMARKET on 2026-06-17') as HTMLSelectElement
+    expect(line.value).toBe('bi-may')
+    expect(line.selectedOptions[0]).toHaveTextContent('The fee’s current line')
+    expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeEnabled()
+  })
+
+  it('a match whose counterparty is private to another login commits without an account', { timeout: 15000 }, async () => {
+    const data = previewWithTransfer()
+    data.items[1] = {
+      ...data.items[1],
+      transferMatches: [
+        { ...candidate, counterpartyAccountId: null, counterpartyAccountName: 'Private account', transferId: 'tr-priv', amount: 35, departedOn: null, receivedOn: '2026-06-18', kind: 'Match' },
+      ],
+    }
+    mockPreview.mockResolvedValue(data)
+    const user = userEvent.setup()
+    renderPage()
+    await reviewIntoAccount(user, 'AUTOMARKET')
+
+    await user.click(screen.getByRole('button', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' }))
+    const match = screen.getByLabelText('Match recorded transfer for AUTOMARKET on 2026-06-17')
+    expect(match).toHaveTextContent('To Private account')
+    await user.selectOptions(match, 'tr-priv')
+    // The counterparty is named, not chosen, and the row is complete without an account.
+    expect(screen.queryByLabelText('Transfer account for AUTOMARKET on 2026-06-17')).not.toBeInTheDocument()
+    expect(screen.getByText('Private account')).toBeInTheDocument()
+    expect(screen.queryByText(/Finish the highlighted rows first/)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
+    const [, items] = mockCommit.mock.calls[0]
+    expect(items.find((i: { payee: string }) => i.payee === 'AUTOMARKET')).toEqual(
+      expect.objectContaining({ transferAccountId: null, matchTransferId: 'tr-priv', budgetItemId: null }),
+    )
+
+  })
+
+  it('the summary reads naturally with reused references alone or beside possible duplicates', { timeout: 15000 }, async () => {
+    const data = preview()
+    data.items[1] = { ...data.items[1], reference: 'hsbc:b#0~2', reusedReference: { date: '2026-05-15', amount: 12, isCredit: false } }
+    mockPreview.mockResolvedValue(data)
+    const user = userEvent.setup()
+    const first = renderPage()
+    await goToReview(user)
+    const summary = screen.getByText(/new transactions? to review/)
+    expect(summary.textContent).not.toMatch(/;/)
+    expect(summary).toHaveTextContent(
+      /1 already imported \(skipped\) — 1 reusing a known bank reference unticked \(tick to include\)\. Categorise/,
+    )
+    first.unmount()
+
+    const both = preview()
+    both.items[0] = { ...both.items[0], possibleDuplicate: true }
+    both.items[1] = { ...both.items[1], reference: 'hsbc:b#0~2', reusedReference: { date: '2026-05-15', amount: 12, isCredit: false } }
+    mockPreview.mockResolvedValue(both)
+    renderPage()
+    await goToReview(user)
+    expect(screen.getByText(/new transactions? to review/)).toHaveTextContent(
+      /— 1 possible duplicate unticked and 1 reusing a known bank reference unticked \(tick to include\)\./,
+    )
+  })
+
+  it('"Include all rows" leaves rows reusing a known bank reference unticked', { timeout: 15000 }, async () => {
+    const data = preview()
+    data.items[0] = { ...data.items[0], possibleDuplicate: true }
+    data.items[1] = { ...data.items[1], reference: 'hsbc:b#0~2', reusedReference: { date: '2026-05-15', amount: 12, isCredit: false } }
+    mockPreview.mockResolvedValue(data)
+    const user = userEvent.setup()
+    renderPage()
+    await goToReview(user)
+
+    const all = screen.getByLabelText('Include all rows')
+    await user.click(all)
+    // A possible duplicate is ticked with the rest; a reused reference is opted in on its own (rule 88).
+    expect(screen.getByLabelText('Include AUTOMARKET on 2026-06-17')).toBeChecked()
+    expect(screen.getByLabelText('Include WOLT on 2026-06-15')).not.toBeChecked()
+    expect(all).toBeChecked()
+
+    // Ticked by hand it stays ticked; unticking all clears every row.
+    await user.click(screen.getByLabelText('Include WOLT on 2026-06-15'))
+    await user.click(all)
+    expect(screen.getByLabelText('Include AUTOMARKET on 2026-06-17')).not.toBeChecked()
+    expect(screen.getByLabelText('Include WOLT on 2026-06-15')).not.toBeChecked()
   })
 })
