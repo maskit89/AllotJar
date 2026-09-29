@@ -40,6 +40,9 @@ export default defineConfig({
   // Journeys drive real HTTP + migrations on first boot; be generous. The 15s expect covers a
   // cold-runner first register (EF warmup + the fail-open HIBP breached-password network call).
   timeout: 60_000,
+  // Stop the run (and still write the html report) before the CI job's 15-minute timeout kills
+  // it, so a hang leaves a report to debug from. A healthy run takes about 5.5 minutes.
+  globalTimeout: 11 * 60_000,
   expect: { timeout: 15_000 },
   use: {
     baseURL: APP_URL,

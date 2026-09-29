@@ -14,48 +14,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Decides whether the heavy jobs are needed. A pull request that changes only
-  # documentation (docs/ or *.md) skips them; a skipped job reads as passed to branch
-  # protection. Pushes to main always run everything. Done with a job-level condition
-  # rather than a workflow-level paths-ignore, because paths-ignore would leave a
-  # required check "pending" forever instead of skipped.
-  changes:
-    name: changes
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      code: ${{ steps.filter.outputs.code }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Detect code changes
-        id: filter
-        env:
-          EVENT: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          if [ "$EVENT" != "pull_request" ]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          # Fail safe: if the diff can't be computed, run everything.
-          if ! files=$(git diff --name-only "$BASE_SHA...$HEAD_SHA"); then
-            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          echo "$files"
-          if [ -z "$files" ] || echo "$files" | grep -qvE '^docs/|\.md$'; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Documentation-only change: skipping the heavy jobs."
-            echo "code=false" >> "$GITHUB_OUTPUT"
-          fi
-
   backend:
     name: backend
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -84,8 +44,6 @@ jobs:
   # deliberately outside AllotJar.slnx so the `backend` job (no database) never runs it.
   integration:
     name: integration
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -128,8 +86,6 @@ jobs:
   # webServer (playwright.journey.config.ts).
   journey:
     name: journey
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -204,8 +160,6 @@ jobs:
 
   frontend:
     name: frontend
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -234,8 +188,6 @@ jobs:
 
   a11y:
     name: a11y
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -267,8 +219,6 @@ jobs:
   # work), but it shows red so it gets noticed; Dependabot opens the actual fix PRs.
   security-scan:
     name: security-scan
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -309,8 +259,6 @@ jobs:
   # or downgrade the off-host backup task.
   deploy-scripts:
     name: deploy-scripts
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
