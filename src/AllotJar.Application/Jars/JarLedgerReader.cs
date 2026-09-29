@@ -218,7 +218,8 @@ public static class JarLedgerReader
     /// new account, the only one a payment on the jar's line can be recorded from from then on
     /// (TransactionInvariants): its payments that day draw from the jar. The old account's
     /// payments up to that day were written down there at the move, and so were the new
-    /// account's, which drew from its unallocated money (P2-20).
+    /// account's, which drew from its unallocated money (P2-20); one the old account made then
+    /// and entered later is written down on the jar there when it is recorded (R2-D1).
     /// </summary>
     internal static bool HeldOn(Guid designated, DateOnly? since, Guid accountId, DateOnly date) =>
         designated == accountId && (since is not { } from || date >= from);

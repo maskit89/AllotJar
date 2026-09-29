@@ -6,6 +6,8 @@ using AllotJar.Application.Jars.Commands.ReallocateJarMoney;
 using AllotJar.Application.Jars.Commands.UpdateJar;
 using AllotJar.Application.Jars.Queries.GetJars;
 using AllotJar.Application.Jars.Queries.GetJarLedger;
+using AllotJar.Application.Jars.Queries.GetJarPayments;
+using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.UpdateTransaction;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -461,6 +463,58 @@ public class JarLedgerSqlTests
             .Single().CurrentBalance.Should().Be(0m);
         (await AllotJar.Application.Jars.JarLedgerReader.ReadAsync(verify, owner, new DateOnly(2026, 6, 19), CancellationToken.None))
             .BalanceOf(jar.Id).Should().Be(100m);
+    }
+
+    [Fact]
+    public async Task A_late_payment_from_the_jars_old_account_is_kept_on_the_jar_and_resettles_its_move()
+    {
+        // R2-D1 ("Accept and settle") on SQL Server: the stretch lookup and the payments list's
+        // kept-draw clause translate. Holiday held 300 in A from 1 Aug and paid it on 20 Aug; it
+        // moved to B today; A's late 50 payment of 10 Aug goes on its line.
+        var owner = NewOwner();
+        var user = new CurrentUserStub(owner);
+        Account a;
+        Jar jar;
+        BudgetItem line;
+        await using (var seed = _fixture.CreateContext())
+        {
+            a = await SeedAccountAsync(seed, owner);
+            var b = await SeedAccountAsync(seed, owner);
+            jar = await SeedJarAsync(seed, a);
+            line = new BudgetItem { Name = "Holiday", SavingsId = jar.Id, PlannedAmount = 100m };
+            seed.BudgetMonths.Add(new BudgetMonth
+            {
+                OwnerId = owner, Year = 2026, Month = 8, BaseCurrency = CurrencyCode.Eur,
+                Categories = new List<BudgetCategory> { new() { Name = "Savings", Kind = CategoryKind.Savings, Items = new List<BudgetItem> { line } } },
+            });
+            var funded = Allocation(owner, a.Id, jar.Id, 300m);
+            funded.Date = new DateOnly(2026, 8, 1);
+            seed.JarAllocations.Add(funded);
+            seed.Transactions.Add(new Transaction
+            {
+                OwnerId = owner, AccountId = a.Id, BudgetItemId = line.Id, Amount = 300m, Currency = CurrencyCode.Eur,
+                Type = TransactionType.Expense, Date = new DateOnly(2026, 8, 20), Payee = "Travel agent",
+            });
+            await seed.SaveChangesAsync();
+            await new UpdateJarCommandHandler(seed, user).Handle(
+                new UpdateJarCommand(jar.Id, "Holiday", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate, b.Id), CancellationToken.None);
+        }
+
+        Guid lateId;
+        await using (var write = _fixture.CreateContext())
+        {
+            lateId = (await new CreateTransactionCommandHandler(write, user).Handle(new CreateTransactionCommand(
+                new DateOnly(2026, 8, 10), "Travel insurance", 50m, TransactionType.Expense, line.Id, AccountId: a.Id), CancellationToken.None)).Id;
+        }
+
+        await using var verify = _fixture.CreateContext();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var ledger = await AllotJar.Application.Jars.JarLedgerReader.LoadAsync(verify, owner, CancellationToken.None);
+        ledger.At(new DateOnly(2026, 8, 10)).BalanceOf(jar.Id).Should().Be(250m);
+        ledger.At(today).BalanceOf(jar.Id).Should().Be(0m);
+        ledger.At(today).Accounts[a.Id].Unallocated.Should().Be(650m);
+        (await new GetJarPaymentsQueryHandler(verify, user).Handle(new GetJarPaymentsQuery(jar.Id), CancellationToken.None))
+            .Should().Contain(p => p.Id == lateId && p.FromJar);
     }
 
     [Fact]

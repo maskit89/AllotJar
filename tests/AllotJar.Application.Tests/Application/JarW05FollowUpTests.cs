@@ -239,8 +239,9 @@ public class JarW05FollowUpTests
     {
         // Review of #276, P2-A (Lead2): from B a payment dated before the move would stay on B's
         // unallocated money, so it is refused, with the day the jar arrived, and a date edit
-        // can't move a payment there either. From A it is refused too, with the same day and no
-        // advice to record it from B (round 2, R2-P3-1).
+        // can't move a payment there either. Holiday had nothing in A, so the move recorded no
+        // stretch there (R2-D1 accepts A's payments only in a recorded stretch): from A it is
+        // refused too, with the same day and no advice to record it from B (round 2, R2-P3-1).
         await using var db = NewContext();
         var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
         var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
@@ -409,8 +410,8 @@ public class JarW05FollowUpTests
         // Review of #276 round 2, R2-P2-2: Holiday held 400 in A from 1 Aug and paid 150 on 3 Aug
         // and 250 on 4 Aug from its line. Today it moved to B and back to A (an undo). Those two
         // payments are still its draws there, so a date edit or a re-split within that stretch is
-        // accepted and reads as P51 says. A new payment on its line dated before today is refused,
-        // and the message says why truthfully.
+        // accepted and reads as P51 says. So is a new payment A made in that stretch and entered
+        // late (R2-D1, "Accept and settle"): it draws from the jar there and the move is re-settled.
         await using var db = NewContext();
         var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
         var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
@@ -438,11 +439,11 @@ public class JarW05FollowUpTests
         (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 5))).Should().Be(50m);
         (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
         (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[a.Id].Unallocated.Should().Be(600m);
-        var late = () => create.Handle(
-            new CreateTransactionCommand(new DateOnly(2026, 8, 6), "Insurance", 60m, TransactionType.Expense, line.Id, AccountId: a.Id), Ct);
-        (await late.Should().ThrowAsync<ValidationException>()).Which.Errors.SelectMany(e => e.Value)
-            .Should().ContainSingle().Which.Should().Contain($"moved to A on {Today:d MMM yyyy}")
-            .And.Contain("A payment on its line from A can't be dated before then").And.NotContain("held elsewhere");
+        await create.Handle(
+            new CreateTransactionCommand(new DateOnly(2026, 8, 6), "Insurance", 50m, TransactionType.Expense, line.Id, AccountId: a.Id), Ct);
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 6))).Should().Be(0m);
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+        (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[a.Id].Unallocated.Should().Be(550m);
     }
 
     [Fact]

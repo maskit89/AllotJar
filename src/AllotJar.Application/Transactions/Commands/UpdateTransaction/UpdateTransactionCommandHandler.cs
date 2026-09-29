@@ -198,12 +198,9 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         // isn't re-prompted every time an unrelated field is touched.
         // Moving the payment to another account also re-runs it: a jar line's payment must keep
         // leaving the jar's account (rule 79).
+        // A payment on a jar's line dated in a stretch the jar spent in the paying account before
+        // it moved away is that account's, and its departure's (P51, R2-D1), whichever check runs.
         var accountChanged = request.AccountId != transaction.AccountId;
-        // A draw kept from an earlier stretch the jar spent in this account (it moved away and
-        // back) is its departure's (P51), whichever check the date edit runs.
-        var kept = accountChanged || request.Date == transaction.Date
-            ? new List<Guid>()
-            : await TransactionInvariants.KeptDrawJarsAsync(_db, transaction.Id, request.AccountId, request.Date, cancellationToken);
         if (transaction.BudgetItemId is Guid retainedLineId
             && (request.Type != transaction.Type || monthChanged || accountChanged))
         {
@@ -211,7 +208,7 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
                 _db, userId, TransactionInvariants.LineDirection(request.Type, transaction.IsRefund), retainedLineId,
                 request.Date, request.AcknowledgeCrossMonth,
                 accountChanged && !monthChanged && request.Type == transaction.Type ? "AccountId" : "Type",
-                cancellationToken, request.AccountId, kept);
+                cancellationToken, request.AccountId);
         }
 
         // Same rule for a split: moving the transaction to another month moves every slice's
@@ -231,24 +228,25 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
                     .ThenInclude(j => j!.FundingAccount)
                 .Where(i => sliceItemIds.Contains(i.Id))
                 .ToListAsync(cancellationToken);
+            var stretches = await TransactionInvariants.StretchesAsync(_db, sliceItems, request.AccountId, request.Date, cancellationToken);
             foreach (var line in sliceItems)
             {
                 TransactionInvariants.EnsureWholeLineAssignable(
                     line, userId, transaction.Type, request.Date, request.AcknowledgeCrossMonth,
-                    monthChanged ? "Date" : "AccountId", request.AccountId, kept);
+                    monthChanged ? "Date" : "AccountId", request.AccountId, stretches);
             }
         }
 
         // A date edit within the month skips those checks, but a payment on a jar's line from the
         // jar's account still can't move to before the day the jar arrived there (P2-20): the
-        // ledger would take it off the jar without a word. A draw kept from an earlier stretch
-        // the jar spent in this account (it moved away and back) is its departure's (P51).
+        // ledger would take it off the jar without a word. A date in an earlier stretch the jar
+        // spent in this account (it moved away and back) is its departure's (P51).
         if (request.Date != transaction.Date)
         {
             var lineIds = transaction.Splits.Count > 0
                 ? transaction.Splits.Where(s => s.BudgetItemId is not null).Select(s => s.BudgetItemId!.Value).Distinct().ToList()
                 : transaction.BudgetItemId is Guid lineId ? new List<Guid> { lineId } : new List<Guid>();
-            await TransactionInvariants.EnsureJarLinesArrivedAsync(_db, lineIds, request.AccountId, request.Date, "Date", cancellationToken, kept);
+            await TransactionInvariants.EnsureJarLinesArrivedAsync(_db, lineIds, request.AccountId, request.Date, "Date", cancellationToken);
         }
 
         transaction.Date = request.Date;

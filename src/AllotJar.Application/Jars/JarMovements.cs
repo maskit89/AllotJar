@@ -130,7 +130,11 @@ public static class JarMovements
     /// current line and slices, so callers set those first. A line whose jar has since left this
     /// account (rule 80) still draws from that jar when the leg's stored operation says it did:
     /// the reader can no longer derive that on its own, so the attribution is written down again.
-    /// With <paramref name="keepDepartedDraw"/> (an edit that gave no jar answer) a draw from the
+    /// So does a line whose jar this account held on the payment's date in a stretch that has
+    /// since ended (a late entry, or one re-lined onto the jar, R2-D1): the account made it while
+    /// it held the jar. The departure closing that stretch is re-settled either way (P51). The
+    /// account's ledger must read the date: before its opening date nothing is counted, so nothing
+    /// is kept. With <paramref name="keepDepartedDraw"/> (an edit that gave no jar answer) a draw from the
     /// named jar that has since left the account is kept too. A leg drawing from a departed jar
     /// can't be dated after the day the jar left.
     /// </summary>
@@ -147,6 +151,7 @@ public static class JarMovements
         var heldThen = existing?.Postings.Where(p => p.JarId is not null).Select(p => p.JarId!.Value).ToHashSet() ?? new HashSet<Guid>();
         var keepsHistory = false;
         var keptJars = new HashSet<Guid>();
+        var stretches = JarStretches.None;
         Guid JarFor(Guid? lineId, IReadOnlyDictionary<Guid, (Guid JarId, Guid AccountId, DateOnly? Since)> lineJars)
         {
             if (lineId is not Guid id || !lineJars.TryGetValue(id, out var line))
@@ -168,7 +173,9 @@ public static class JarMovements
                 }
                 return line.JarId;
             }
-            if (heldThen.Contains(line.JarId))
+            if (heldThen.Contains(line.JarId)
+                || (account.OpeningDate is { } opened && transaction.Date >= opened
+                    && stretches.LeftOn(line.JarId, account.Id, transaction.Date) is not null))
             {
                 keepsHistory = true;
                 keptJars.Add(line.JarId);
@@ -183,6 +190,7 @@ public static class JarMovements
         {
             var lineIds = slices.Where(s => s.BudgetItemId is not null).Select(s => s.BudgetItemId!.Value).Distinct().ToList();
             var lineJars = await LineJarsAsync(db, lineIds, cancellationToken);
+            stretches = await StretchesAsync(db, lineJars.Values, account.Id, transaction.Date, cancellationToken);
             foreach (var slice in slices)
             {
                 var jarId = JarFor(slice.BudgetItemId, lineJars);
@@ -192,6 +200,7 @@ public static class JarMovements
         else if (transaction.BudgetItemId is Guid lineId)
         {
             var lineJars = await LineJarsAsync(db, new[] { lineId }, cancellationToken);
+            stretches = await StretchesAsync(db, lineJars.Values, account.Id, transaction.Date, cancellationToken);
             portions[JarFor(lineId, lineJars)] = transaction.Amount;
         }
         else
@@ -249,6 +258,15 @@ public static class JarMovements
             postings.AddRange(portions.Select(p => new JarAllocationPosting { JarId = p.Key, Amount = -p.Value }));
         }
         await ReplaceAsync(db, ownerId, transaction, account.Id, transaction.Date, postings, cancellationToken, existing);
+    }
+
+    /// <summary>The departures of the line jars <paramref name="accountId"/> did not hold on <paramref name="date"/>; none (and no query) when it held them all.</summary>
+    private static Task<JarStretches> StretchesAsync(
+        IApplicationDbContext db, IEnumerable<(Guid JarId, Guid AccountId, DateOnly? Since)> lineJars, Guid accountId, DateOnly date,
+        CancellationToken cancellationToken)
+    {
+        var elsewhere = lineJars.Where(l => !JarLedgerReader.HeldOn(l.AccountId, l.Since, accountId, date)).Select(l => l.JarId).ToList();
+        return elsewhere.Count == 0 ? Task.FromResult(JarStretches.None) : JarStretches.LoadAsync(db, elsewhere, cancellationToken);
     }
 
     /// <summary>
