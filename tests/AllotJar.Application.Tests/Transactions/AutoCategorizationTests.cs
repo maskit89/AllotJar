@@ -2,6 +2,8 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Imports.Commands.PreviewImport;
+using AllotJar.Application.Imports.Models;
 using AllotJar.Application.Transactions;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Domain.Entities;
@@ -339,5 +341,70 @@ public class AutoCategorizationTests
 
         count.Should().Be(0);
         transfer.BudgetItemId.Should().BeNull();
+    }
+
+    // --- A jar's line (#276 review P2-E, R2-P3-9) ---------------------------------
+
+    /// <summary>Holiday is held in A since 10 Jun; "TRAVEL CO" was paid from A on its line on 12 Jun.</summary>
+    private static (ApplicationDbContext Db, Account A, Account B, BudgetItem Line) SeedJarLine()
+    {
+        var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, "user-1", "A");
+        var b = LedgerFixtures.SeedAccount(db, "user-1", "B", order: 1);
+        var jar = new Jar
+        {
+            OwnerId = "user-1", Name = "Holiday", Kind = JarKind.Goal, TargetAmount = 1200m,
+            TargetDate = new DateOnly(2027, 7, 1), Accrual = AccrualMethod.TargetByDate,
+            FundingAccountId = a.Id, FundingAccountSince = new DateOnly(2026, 6, 10),
+        };
+        db.Jars.Add(jar);
+        var line = new BudgetItem { Name = "Holiday", PlannedAmount = 100m, SavingsId = jar.Id };
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = "user-1", Year = 2026, Month = 6,
+            Categories = new List<BudgetCategory> { new() { Name = "Savings", Kind = CategoryKind.Savings, Items = new List<BudgetItem> { line } } },
+        });
+        db.SaveChanges();
+        LedgerFixtures.Expense(db, "user-1", a.Id, 100m, new DateOnly(2026, 6, 12), line.Id).Payee = "TRAVEL CO";
+        db.SaveChanges();
+        return (db, a, b, line);
+    }
+
+    [Fact]
+    public async Task Apply_PutsAPaymentOnAJarsLine_OnlyFromTheAccountHoldingTheJarThatDay()
+    {
+        var (db, a, b, line) = SeedJarLine();
+        await using var _ = db;
+        Transaction Payment(Guid account, int day) => new()
+        {
+            OwnerId = "user-1", Payee = "TRAVEL CO", AccountId = account, Date = new DateOnly(2026, 6, day), Type = TransactionType.Expense,
+        };
+        var fromA = Payment(a.Id, 20);
+        var fromB = Payment(b.Id, 20);
+        var beforeItArrived = Payment(a.Id, 5);
+        var noAccount = new Transaction { OwnerId = "user-1", Payee = "TRAVEL CO", Date = new DateOnly(2026, 6, 20), Type = TransactionType.Expense };
+
+        await AutoCategorizer.ApplyAsync(db, "user-1", new[] { fromA, fromB, beforeItArrived, noAccount }, CancellationToken.None);
+
+        fromA.BudgetItemId.Should().Be(line.Id);
+        fromB.BudgetItemId.Should().BeNull("B never held Holiday, so the payment can't draw from it");
+        beforeItArrived.BudgetItemId.Should().BeNull("Holiday arrived in A on 10 Jun");
+        noAccount.BudgetItemId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ImportPreview_SuggestsAJarsLine_OnlyForTheAccountHoldingTheJar()
+    {
+        var (db, a, b, line) = SeedJarLine();
+        await using var _ = db;
+        var csv = "20/06/2026,TRAVEL CO,-50.00\n";
+        async Task<Guid?> SuggestedFor(Account account) =>
+            (await new PreviewImportCommandHandler(db, new CurrentUserStub("user-1"),
+                    new IStatementParser[] { new HsbcCsvStatementParser() }, new GenericCsvImporter())
+                .Handle(new PreviewImportCommand(csv, StatementFormat.HsbcCsv, AccountId: account.Id), CancellationToken.None))
+            .Items.Single().SuggestedBudgetItemId;
+
+        (await SuggestedFor(a)).Should().Be(line.Id);
+        (await SuggestedFor(b)).Should().BeNull();
     }
 }
