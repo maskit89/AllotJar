@@ -43,7 +43,6 @@ public static class RefundRules
         }
 
         var original = await db.Transactions
-            .Include(t => t.Refunds)
             .FirstOrDefaultAsync(t => t.Id == originalId, cancellationToken);
         if (original is null)
         {
@@ -69,13 +68,18 @@ public static class RefundRules
             throw Refuse($"A refund can't be dated before the purchase it refunds ({original.Date:d MMM yyyy}).");
         }
 
-        // Refunds of one purchase never exceed it.
-        var others = original.Refunds.Where(r => r.Id != refundId).ToList();
-        var legs = others.Select(RefundLeg.Of).Append(new RefundLeg(refundAmount, refundCurrency, refundExchangeRate)).ToList();
+        // Refunds of one purchase never exceed it — counting the ones the caller can't see (W13).
+        var others = (await AllRefundsAsync(db, originalId, cancellationToken)).Where(r => r.Id != refundId).ToList();
+        var legs = others.Select(r => r.Leg).Append(new RefundLeg(refundAmount, refundCurrency, refundExchangeRate)).ToList();
         var (paid, refunded, sameCurrency) = Totals(original.Currency, original.Amount, original.ExchangeRate, legs);
         if (refunded > paid)
         {
-            var already = sameCurrency ? others.Sum(r => r.Amount) : others.Sum(r => r.BaseAmount);
+            if (others.Any(r => r.Hidden))
+            {
+                // Say no more than that it doesn't fit: the other refunds' amounts are private.
+                throw Refuse($"This refund doesn't fit: refunds of this purchase can't add up to more than the {paid:0.##} paid.");
+            }
+            var already = sameCurrency ? others.Sum(r => r.Amount) : others.Sum(r => r.Amount * r.ExchangeRate);
             throw Refuse(already > 0m
                 ? $"Refunds of this purchase would total {refunded:0.##}, more than the {paid:0.##} paid ({already:0.##} already refunded)."
                 : $"A refund of {refunded:0.##} is more than the {paid:0.##} paid for this purchase.");
@@ -84,11 +88,34 @@ public static class RefundRules
         return original;
     }
 
-    /// <summary>One refund's money as recorded: its amount, currency and the rate that converts it to the base currency.</summary>
-    public readonly record struct RefundLeg(decimal Amount, Domain.ValueObjects.CurrencyCode Currency, decimal ExchangeRate)
+    /// <summary>
+    /// Every refund linked to <paramref name="originalId"/>, whoever can see it. A refund in another
+    /// login's private account still counts against the purchase (W13), so this reads past the
+    /// query filters; only amounts, dates and whether the caller can see each one leave here.
+    /// </summary>
+    public static async Task<List<RefundRecord>> AllRefundsAsync(
+        IApplicationDbContext db, Guid originalId, CancellationToken cancellationToken)
     {
-        public static RefundLeg Of(Transaction refund) => new(refund.Amount, refund.Currency, refund.ExchangeRate);
+        var all = await db.Transactions.IgnoreQueryFilters()
+            .Where(r => r.RefundOfTransactionId == originalId)
+            .Select(r => new { r.Id, r.Amount, r.Currency, r.ExchangeRate, r.Date })
+            .ToListAsync(cancellationToken);
+        var ids = all.Select(r => r.Id).ToList();
+        var visible = (await db.Transactions.Where(r => ids.Contains(r.Id)).Select(r => r.Id).ToListAsync(cancellationToken))
+            .ToHashSet();
+        return all.Select(r => new RefundRecord(r.Id, r.Amount, r.Currency, r.ExchangeRate, r.Date, !visible.Contains(r.Id)))
+            .ToList();
     }
+
+    /// <summary>A refund of a purchase as the refund checks need it; <c>Hidden</c> when the caller can't see it.</summary>
+    public readonly record struct RefundRecord(
+        Guid Id, decimal Amount, Domain.ValueObjects.CurrencyCode Currency, decimal ExchangeRate, DateOnly Date, bool Hidden)
+    {
+        public RefundLeg Leg => new(Amount, Currency, ExchangeRate);
+    }
+
+    /// <summary>One refund's money as recorded: its amount, currency and the rate that converts it to the base currency.</summary>
+    public readonly record struct RefundLeg(decimal Amount, Domain.ValueObjects.CurrencyCode Currency, decimal ExchangeRate);
 
     /// <summary>
     /// What a purchase of <paramref name="purchaseAmount"/> in <paramref name="purchaseCurrency"/>

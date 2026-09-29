@@ -265,6 +265,41 @@ describe('TransactionsPage manual sheet', () => {
     await waitFor(() => expect(screen.queryByText('Tesco')).not.toBeInTheDocument())
   })
 
+  // W13 (P56): money from someone else's private account shows on the budget line it was put on,
+  // named "Private account", and only its holder can change it.
+  it('shows another login\'s private-account entry read-only', { timeout: 15000 }, async () => {
+    mockLoad([
+      { ...tx(), id: 't2', payee: 'Lidl', accountId: 'p9', accountName: 'Private account', budgetItemId: 'i-food', budgetItemName: 'Groceries', inPrivateAccount: true },
+      tx(),
+    ])
+
+    renderPage()
+
+    expect(await screen.findByText('Lidl', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText('Private account')).toBeInTheDocument()
+    expect(screen.getByLabelText('Delete transaction: Tesco')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Delete transaction: Lidl')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Edit transaction: Lidl')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Reassign Lidl')).not.toBeInTheDocument()
+  })
+
+  // W13 (P57): on a transfer between a shared and a private account, the others may confirm the
+  // shared side's leg only: the receipt into the shared account, or the departure out of it.
+  it('offers only the shared side\'s leg on a transfer with someone else\'s private account', { timeout: 15000 }, async () => {
+    const transfer = { ...tx(), type: 2, amount: 50, inPrivateAccount: true }
+    mockLoad([
+      { ...transfer, id: 't3', payee: 'To Sam', accountId: 'a1', accountName: 'Everyday', transferAccountName: 'Private account', transferStatus: 'PendingReview', departedOn: null, receivedOn: '2026-06-11' },
+      { ...transfer, id: 't4', payee: 'From Sam', accountName: 'Private account', transferAccountId: 'a1', transferAccountName: 'Everyday', transferStatus: 'InTransit', departedOn: '2026-06-10', receivedOn: null },
+      { ...transfer, id: 't5', payee: 'Sam top-up', accountName: 'Private account', transferAccountId: 'a1', transferAccountName: 'Everyday', transferStatus: 'PendingReview', departedOn: null, receivedOn: '2026-06-12' },
+    ], accountsFixture())
+
+    renderPage()
+
+    expect(await screen.findByRole('button', { name: 'Add departure date: To Sam' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm receipt: From Sam' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add departure date: Sam top-up' })).not.toBeInTheDocument()
+  })
+
   it('edits a transaction inline', { timeout: 15000 }, async () => {
     mockLoad([tx()])
     mockPut.mockResolvedValue({ data: { ...tx(), payee: 'Aldi', amount: 31.5 } })

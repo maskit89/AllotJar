@@ -9,6 +9,8 @@ namespace AllotJar.Application.Jars.Commands.CreateJar;
 /// in the current and later existing months. <paramref name="InitialAllocation"/> divides money
 /// already in that account into the jar (rules 9/77) on <paramref name="InitialAllocationDate"/>
 /// (today when omitted); it never deposits money. Returns the jar with its derived figures.
+/// <paramref name="ShareAccount"/> is the user's answer to the rule 34 warning when the account is
+/// their private one (see <see cref="JarAccounts.EnsureVisibleForJarAsync"/>).
 /// </summary>
 public record CreateJarCommand(
     string Name,
@@ -21,4 +23,5 @@ public record CreateJarCommand(
     DateOnly? InitialAllocationDate = null,
     int? RecurMonths = null,
     decimal? MonthlyContribution = null,
-    bool IncludeDeadlineMonth = false) : IRequest<JarDto>, IJarDefinition;
+    bool IncludeDeadlineMonth = false,
+    bool ShareAccount = false) : IRequest<JarDto>, IJarDefinition;

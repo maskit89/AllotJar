@@ -316,7 +316,7 @@ export function AllocationPage() {
   // What will actually transfer on commit vs. what's stranded because a member has no savings
   // account (a positive share with nowhere to go stays in the source account).
   const members = preview?.members ?? []
-  const strandedMembers = members.filter((m) => !m.savingsAccountId && m.residual > 0)
+  const strandedMembers = members.filter((m) => !m.savingsAccountId && !m.savingsPrivate && m.residual > 0)
   const strandedMinor = fromAmount(strandedMembers.reduce((sum, m) => sum + m.residual, 0))
   const strandedNames = formatNames(strandedMembers.map((m) => m.name))
   const strandedHasHave = strandedMembers.length === 1 ? 'has' : 'have'
@@ -618,7 +618,9 @@ export function AllocationPage() {
               <div key={m.memberId} className="rounded-xl border border-slate-200/70 p-4">
                 <p className="text-sm font-semibold text-slate-800">{m.name}</p>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  {!m.savingsAccountId
+                  {m.savingsPrivate
+                    ? 'Private savings account'
+                    : !m.savingsAccountId
                     ? 'No savings account'
                     : m.savingsBalance === null
                       ? 'Savings not available'
@@ -637,7 +639,13 @@ export function AllocationPage() {
                     Projected balance {formatMoney(fromAmount(m.savingsBalance + m.residual), CURRENCY)}
                   </p>
                 )}
-                {!m.savingsAccountId && (
+                {m.savingsPrivate && m.residual > 0 && (
+                  <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                    {m.name}’s savings account is private, so only {m.name} can record this transfer. Allocating is
+                    refused until {m.name} shares it or picks a shared savings account on the People page.
+                  </p>
+                )}
+                {!m.savingsAccountId && !m.savingsPrivate && (
                   <div className="mt-2 space-y-1.5">
                     <p className="text-xs text-amber-700 dark:text-amber-400">
                       {canWrite

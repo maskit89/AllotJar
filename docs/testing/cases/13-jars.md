@@ -1093,3 +1093,13 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
   1. Edit Holiday → Held in "B" → Save. 2. Edit the income's payee, keeping the 200 in Holiday, and try again. 3. Edit the income so none of it goes into Holiday, and try again.
 - **Expected:** 1 and 2: 400 on `FundingAccountId`: "Holiday has an entry dated <payday> in A. Change or remove it first, then change the account."; Holiday stays in A. 3: Holiday moves to B; on payday A's 200 is unallocated and Holiday holds nothing in A. The same applies to any entry in A dated after today that moves money in or out of Holiday (a payment drawn from it, a reallocation).
 - **Automated:** Yes (JarDepartureTests — `UpdateJar_IsRefused_WhileTheOldAccountHasAJarEntryDatedAfterToday`)
+
+### JAR-112 - A jar on a private account warns before sharing it (rule 34)
+- **Priority:** P0
+- **Type:** Happy / Negative
+- **Origin:** W13 (rules 33–34, HANDOVER P55).
+- **Preconditions:** Sam's login; "Sam's current" private to Sam.
+- **Steps:**
+  1. As Sam, **New jar** "Bike", Held in "Sam's current", Save. 2. **Pick another account**. 3. Save again with "Sam's current"; **Share the account and continue**. 4. Move an existing jar to a private account from its Edit form. 5. With the warning showing for one private account, switch **Held in** to another account.
+- **Expected:** 1: nothing is saved; a warning: "'Sam's current' is private. A jar is part of the household budget, so the account it lives in is visible to everyone: sharing this jar shows the household 'Sam's current', its balance and all its transactions. Share the account, or pick another account for the jar." The form notes the account is private beforehand. 2: the warning closes, the form stays. 3: the account becomes shared and the jar is created in it; no money moves. 4: the same warning and choices. 5: the warning goes, so it can never share an account it didn't name; saving with another private account warns about that one.
+- **Automated:** Yes (JointAccountsW13Tests — `AJarOnAPrivateAccount_WarnsFirst_ThenSharesTheAccount_Rule34`; JarsPage tests, including `drops the rule 34 warning when the account changes, so it never shares another account`)

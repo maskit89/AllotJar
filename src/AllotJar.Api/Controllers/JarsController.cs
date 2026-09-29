@@ -86,7 +86,7 @@ public class JarsController : ControllerBase
         var result = await _mediator.Send(new CreateJarCommand(
             request.Name, request.Kind, request.TargetAmount, request.TargetDate, request.Accrual,
             request.FundingAccountId, request.InitialAllocation, request.InitialAllocationDate,
-            request.RecurMonths, request.MonthlyContribution, request.IncludeDeadlineMonth), ct);
+            request.RecurMonths, request.MonthlyContribution, request.IncludeDeadlineMonth, request.ShareAccount), ct);
         return CreatedAtAction(nameof(List), new { }, result);
     }
 
@@ -115,7 +115,8 @@ public class JarsController : ControllerBase
     {
         var result = await _mediator.Send(new UpdateJarCommand(
             id, request.Name, request.Kind, request.TargetAmount, request.TargetDate, request.Accrual,
-            request.FundingAccountId, request.RecurMonths, request.MonthlyContribution, request.IncludeDeadlineMonth), ct);
+            request.FundingAccountId, request.RecurMonths, request.MonthlyContribution, request.IncludeDeadlineMonth,
+            request.ShareAccount), ct);
         return Ok(result);
     }
 
@@ -234,7 +235,8 @@ public record CreateJarRequest(
     DateOnly? InitialAllocationDate = null,
     int? RecurMonths = null,
     decimal? MonthlyContribution = null,
-    bool IncludeDeadlineMonth = false);
+    bool IncludeDeadlineMonth = false,
+    bool ShareAccount = false);
 
 /// <summary>Request body for editing a jar (the id comes from the route).</summary>
 public record UpdateJarRequest(
@@ -246,7 +248,8 @@ public record UpdateJarRequest(
     Guid FundingAccountId,
     int? RecurMonths = null,
     decimal? MonthlyContribution = null,
-    bool IncludeDeadlineMonth = false);
+    bool IncludeDeadlineMonth = false,
+    bool ShareAccount = false);
 
 /// <summary>Request body for previewing a jar definition's schedule; JarId is set when editing an existing jar.</summary>
 public record JarScheduleRequest(

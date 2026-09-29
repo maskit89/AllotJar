@@ -7,7 +7,9 @@ namespace AllotJar.Application.Accounts.Commands.UpdateAccount;
 /// <summary>
 /// Edits an account's name, type, opening balance and opening date. Currency is immutable
 /// (changing it would silently reinterpret the transaction history). Returns the updated
-/// account with its recalculated balance as of today.
+/// account with its recalculated balance as of today. <paramref name="HolderIds"/> replaces who
+/// holds it (rule 30); null leaves the holders as they are. Who sees it is changed only by its
+/// holder (<see cref="SetAccountSharing.SetAccountSharingCommand"/>).
 /// </summary>
 public record UpdateAccountCommand(
     Guid Id,
@@ -18,4 +20,5 @@ public record UpdateAccountCommand(
     string? Iban = null,
     string? Bic = null,
     string? SortCode = null,
-    string? AccountNumber = null) : IRequest<AccountDto>;
+    string? AccountNumber = null,
+    IReadOnlyList<Guid>? HolderIds = null) : IRequest<AccountDto>;

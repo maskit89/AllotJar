@@ -63,6 +63,13 @@ public class MemberAllocationDto
     public decimal? SavingsBalance { get; set; }
 
     public Guid? SavingsAccountId { get; set; }
+
+    /// <summary>
+    /// P53: the person's savings account is private to their own login, so nobody else can record
+    /// the transfer into it (<see cref="SavingsAccountId"/> is null for the caller). The run is
+    /// refused while such a person has a share to move.
+    /// </summary>
+    public bool SavingsPrivate { get; set; }
 }
 
 public static class AllocationResultMapping
@@ -74,7 +81,8 @@ public static class AllocationResultMapping
         int transfersCreated = 0,
         decimal unattributedIncome = 0m,
         bool incomeFromBudget = false,
-        int transfersRetained = 0) => new()
+        int transfersRetained = 0,
+        IReadOnlySet<Guid>? privateSavings = null) => new()
     {
         Pool = r.Pool,
         EnvelopesTotal = envelopesTotal,
@@ -102,6 +110,7 @@ public static class AllocationResultMapping
                 Residual = m.Residual,
                 SavingsBalance = m.SavingsBalanceAvailable ? m.SavingsBalance : null,
                 SavingsAccountId = m.SavingsAccountId,
+                SavingsPrivate = privateSavings?.Contains(m.MemberId) == true,
             })
             .ToList(),
     };

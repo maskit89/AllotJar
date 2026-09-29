@@ -54,6 +54,31 @@ public class AccountDto
     public string? Bic { get; set; }
     public string? SortCode { get; set; }
     public string? AccountNumber { get; set; }
+
+    /// <summary>
+    /// Who holds the account (rule 30): one person is a personal account, several a joint one,
+    /// none the household's own.
+    /// </summary>
+    public IReadOnlyList<AccountHolderDto> Holders { get; set; } = Array.Empty<AccountHolderDto>();
+
+    /// <summary>True when only the caller's login sees this account (rules 31–33).</summary>
+    public bool IsPrivate { get; set; }
+
+    /// <summary>True when the caller's own person is the only holder, so the caller chooses who sees it (P54).</summary>
+    public bool CanChangeSharing { get; set; }
+
+    /// <summary>
+    /// When the caller could choose but the account can't be private (a jar uses it, P55): why.
+    /// Null otherwise.
+    /// </summary>
+    public string? SharingBlockedReason { get; set; }
+}
+
+/// <summary>A person who holds an account.</summary>
+public class AccountHolderDto
+{
+    public Guid MemberId { get; set; }
+    public string Name { get; set; } = string.Empty;
 }
 
 public static class AccountMapping

@@ -7,6 +7,9 @@ namespace AllotJar.Application.Accounts.Commands.CreateAccount;
 /// <summary>
 /// Creates a new account for the user. The opening balance is the money held at the start of
 /// <paramref name="OpeningDate"/> (rule 40); the returned balance is that amount as of today.
+/// <paramref name="HolderIds"/> are the people who hold it (rule 30; none = the household's own).
+/// <paramref name="IsPrivate"/> null follows rule 31: an account whose only holder is the caller's
+/// own person starts private, any other starts shared.
 /// </summary>
 public record CreateAccountCommand(
     string Name,
@@ -17,4 +20,6 @@ public record CreateAccountCommand(
     string? Iban = null,
     string? Bic = null,
     string? SortCode = null,
-    string? AccountNumber = null) : IRequest<AccountDto>;
+    string? AccountNumber = null,
+    IReadOnlyList<Guid>? HolderIds = null,
+    bool? IsPrivate = null) : IRequest<AccountDto>;

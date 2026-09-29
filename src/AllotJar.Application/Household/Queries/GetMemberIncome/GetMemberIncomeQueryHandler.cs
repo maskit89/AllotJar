@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Accounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Allocation;
@@ -51,6 +52,7 @@ public class GetMemberIncomeQueryHandler : IRequestHandler<GetMemberIncomeQuery,
         var incomes = await _db.Transactions
             .AsNoTracking()
             .Include(t => t.Splits)
+            .Where(HouseholdMoney.Counts(_db))
             .Where(t => t.OwnerId == userId && t.Type == TransactionType.Income
                         && t.RefundOfTransactionId == null
                         && t.Date >= from && t.Date < to)
@@ -59,6 +61,7 @@ public class GetMemberIncomeQueryHandler : IRequestHandler<GetMemberIncomeQuery,
         // Base-currency amounts, like the budget grid; a row whose rate is still pending is
         // counted separately rather than at face value (rules 41–44).
         var memberIdSet = memberIds.ToHashSet();
+        var privateAccounts = await HouseholdMoney.PrivateAccountIdsAsync(_db, incomes, cancellationToken);
         var receivedByMember = new Dictionary<Guid, decimal>();
         var fxPending = 0;
         foreach (var t in incomes)
@@ -70,7 +73,7 @@ public class GetMemberIncomeQueryHandler : IRequestHandler<GetMemberIncomeQuery,
             }
             if (t.Splits.Count > 0)
             {
-                foreach (var slice in t.Splits)
+                foreach (var slice in t.Splits.Where(slice => HouseholdMoney.SliceCounts(t, slice, privateAccounts)))
                 {
                     if (slice.MemberId is Guid sliceMember && memberIdSet.Contains(sliceMember))
                     {

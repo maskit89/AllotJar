@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Accounts;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -37,6 +38,7 @@ public static class BudgetActuals
         // present face-value amounts as base-currency money. The count marks the aggregates as
         // incomplete instead of silently wrong (computed even when the month has no lines yet).
         month.FxPendingCount = await db.Transactions
+            .Where(HouseholdMoney.Counts(db))
             .CountAsync(t => t.OwnerId == ownerId
                              && t.FxPending
                              && t.Date.Year == month.Year

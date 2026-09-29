@@ -32,6 +32,7 @@ import {
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
 import { serverErrors } from '../lib/serverErrors'
 import { accountOptionLabel, savingsFirst } from '../lib/accountOptions'
+import { PRIVATE_ACCOUNT } from '../lib/accountHolders'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 
 /** Roles the owner can grant (everything except Owner itself). */
@@ -219,7 +220,8 @@ export function PeoplePage() {
 
   function accountName(id: string | null): string {
     if (!id) return '—'
-    return accounts.find((a) => a.id === id)?.name ?? '—'
+    // An id the viewer can't see is the person's own private account (W13, P53).
+    return accounts.find((a) => a.id === id)?.name ?? PRIVATE_ACCOUNT
   }
 
   function memberSpending(id: string): MemberSpendingDto | undefined {
@@ -588,6 +590,9 @@ export function PeoplePage() {
                             className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-600"
                           >
                             <option value="">None</option>
+                            {eSavings && !accounts.some((a) => a.id === eSavings) && (
+                              <option value={eSavings}>{PRIVATE_ACCOUNT}</option>
+                            )}
                             {savingsFirst(accounts).map((a) => (
                               <option key={a.id} value={a.id}>
                                 {accountOptionLabel(a)}

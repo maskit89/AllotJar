@@ -238,6 +238,14 @@ The **Accounts** page tracks *where your money sits* — current account, saving
 
 **How it works:** like budget actuals, balances are derived from the register at read time — there's no stored balance to drift out of sync. A split transaction still moved in or out of one account, so its *full* amount counts toward that account regardless of how it's split across budget lines.
 
+### Joint and private accounts
+
+- **Who holds it.** Tick the people from *People* who hold an account under **Held by**. Nobody ticked is the household's own account; one person is a personal account; two or more is a **joint** account — still one account with one balance and one history, whoever holds it. Holding an account doesn't change whose income or spending a transaction counts as.
+- **Private accounts.** If you have your own sign-in, an account only you hold can be **private**: nobody else in the household sees it, its balance or its transactions — not even the budget owner — and nobody else can change it. An account you add for yourself starts private (untick **Keep it private** to share it); switch it any time with **Share with household** or **Make private** on its card. Joint accounts, the household's own accounts and the accounts of people without a sign-in are always shared. A private account's holders can't change until it is shared.
+- **Private money on the budget.** Put a private transaction on a budget line and it counts in the household budget like any other: the others see it on that line with the account shown as **Private account**, and can't change it. Private transactions you leave off the budget stay out of the household's reports and totals, for everyone, and the app never puts them on a line for you, even when their payee has a usual line. A transfer between your private account and a shared one shows on the shared account, the other side named **Private account**; the others can confirm the shared side's bank date (the receipt into it, or the departure from it).
+- **Jars keep their account visible.** Every jar is part of the shared budget, so an account a jar uses can't be private, and the card says so. If you pick a private account for a jar, you're warned what the household would see and choose **Share the account and continue** or **Pick another account**.
+- A private account that still has transactions off the budget can't be deleted — kept without their account they would show to everyone. Delete those transactions first, or share the account.
+
 ## 6. Jars (savings goals)
 
 The **Jars** page is where you set savings targets and watch them fill up. A jar is a share of the money in one of your accounts, with a target: several jars can share one account, and whatever isn't in a jar is that account's **unallocated** money.
@@ -328,6 +336,10 @@ A person's **Default income** is only a starting figure you keep on file: when y
 ### Inviting someone to sign in
 
 When you want someone else to log in and use the budget with you, **invite** them from their person entry. They get their own sign-in and join your household. People you've added but not invited simply exist as budget members until you're ready.
+
+### Reviewing who sees your accounts
+
+When your sign-in is linked to a person who already holds accounts — or someone else adds an account for you — a **Review sharing** banner asks you, once, which of those accounts the household sees. Each starts as it is now, and nothing changes until you save your choices. An account a jar uses stays shared and says why. Privacy belongs to your sign-in: if your person is linked to another sign-in, or your sign-in is removed from the household, your private accounts stay with your sign-in and hidden from everyone else, the budget owner included. If your own sign-in is given access again, you see them again.
 
 ### Roles and access
 

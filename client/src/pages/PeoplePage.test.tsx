@@ -153,4 +153,26 @@ describe('PeoplePage', () => {
 
     expect(await screen.findByText(/Budgeting on your own\?/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
+  // W13 (P53): the savings account a person chose may be their own private account, which the
+  // login looking at them can't see. It reads "Private account" and an edit keeps it.
+  it('shows a savings account private to someone else as "Private account" and keeps it on edit', { timeout: 15000 }, async () => {
+    membersData = [member({ personalSavingsAccountId: 'hidden-1' })]
+    mockPut.mockResolvedValue({ data: member({ personalSavingsAccountId: 'hidden-1' }) })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
+    expect(table.getByText('Private account')).toBeInTheDocument()
+
+    await user.click(table.getByRole('button', { name: 'Edit Alex' }))
+    const select = table.getByLabelText('Savings account for Alex') as HTMLSelectElement
+    expect(select.value).toBe('hidden-1')
+    expect(within(select).getByRole('option', { name: 'Private account' })).toBeInTheDocument()
+    await user.click(table.getByRole('button', { name: 'Save Alex' }))
+
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith('/members/m1', expect.objectContaining({ personalSavingsAccountId: 'hidden-1' })),
+    )
+  })
 })

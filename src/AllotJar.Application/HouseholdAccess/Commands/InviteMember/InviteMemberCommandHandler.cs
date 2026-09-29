@@ -81,6 +81,8 @@ public class InviteMemberCommandHandler : IRequestHandler<InviteMemberCommand, I
 
             membership.UserId = created.UserId;
             membership.Status = MembershipStatus.Active;
+            // Rule 32: a person who gains a login reviews who sees the accounts they already hold.
+            membership.SharingReviewPending = request.MemberId is not null;
         }
         else
         {

@@ -888,3 +888,13 @@
   2. Send `PUT /api/members/{otherHouseholdPersonId}/archive {archived:true, pocketMoneyThisMonth:1}` as Alex.
 - **Expected:** Step 1: **400** `{ errors: { PocketMoneyThisMonth: ["Sam still has 40.00 of pocket money planned for {Month Year}. Choose whether to keep or cancel it before archiving."] } }`; the People page shows that sentence in its error banner (not "Could not archive that person.") and Sam stays. Step 2: **403** before any line is read or changed — the other household's lines are untouched; an unknown id → **404**. Another person's lines and every income line in the same household are never touched by an archive.
 - **Automated:** Full (client PPL-087; backend `Archive_IsOwnerScoped_BeforeItTouchesAnyLine`, `Archive_LeavesIncomeLines_AndOtherPeoplesLinesAlone`)
+
+### PPL-088 - A savings account private to the person reads "Private account" and an edit keeps it
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** W13 (P53): the People page named a savings account the viewer can't see "—", and its select showed "None".
+- **Preconditions:** Sam's savings account is "Sam's current", private to Sam.
+- **Steps:**
+  1. As Chris, open People. 2. Edit Sam's income only and save.
+- **Expected:** 1: Sam's savings account reads "Private account". 2: the select shows "Private account"; the save keeps the same account id and the server does not re-validate an unchanged choice.
+- **Automated:** Yes (PeoplePage tests)

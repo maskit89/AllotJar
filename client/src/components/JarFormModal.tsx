@@ -152,6 +152,11 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
   const [form, setForm] = useState<FormState>(() => initialForm(jar, eligible))
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // Rule 34: the server's warning when the chosen account is the user's private one, kept with the
+  // account it names. Nothing is shared until they pick "Share the account and continue", and
+  // that answer only ever goes with the account the warning named.
+  const [privateWarning, setPrivateWarning] = useState<{ accountId: string; text: string } | null>(null)
+  const warningShown = privateWarning && privateWarning.accountId === form.fundingAccountId ? privateWarning : null
   // One deliberate step between "Archive jar" / "Delete jar" and it actually happening.
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -205,7 +210,7 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
   // it is dropped the moment the definition can't be planned at all.
   const schedule = requestKey && preview ? preview.schedule : null
 
-  const submit = useCallback(async () => {
+  const submit = useCallback(async (shareAccount = false) => {
     if (form.name.trim() === '') {
       setError('Give the jar a name.')
       return
@@ -260,10 +265,13 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
       includeDeadlineMonth: byDeadline && form.includeDeadlineMonth && deadlineMonthEligible(form.targetDate),
       fundingAccountId: form.fundingAccountId,
       recurMonths: form.kind === JarKind.Recurring ? form.recurMonths : null,
+      // Sent only as the user's answer to the rule 34 warning.
+      ...(shareAccount ? { shareAccount: true } : {}),
     }
 
     setSaving(true)
     setError(null)
+    setPrivateWarning(null)
     try {
       if (jar) {
         const { data } = await api.put<JarDto>(`/jars/${jar.id}`, common)
@@ -279,6 +287,11 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
         onSaved(data, 'created')
       }
     } catch (err) {
+      const warning = privateAccountWarning(err)
+      if (warning) {
+        setPrivateWarning({ accountId: form.fundingAccountId, text: warning })
+        return
+      }
       // A 400 carries the server's field messages (e.g. a FundingAccountId change refused
       // while the jar holds money, rule 80; an allocation above the unallocated funds).
       setError(serverErrors(err) ?? (editing ? 'Could not save that jar.' : 'Could not add that jar.'))
@@ -329,6 +342,22 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
       {error && (
         <div className="mb-3">
           <ErrorBanner>{error}</ErrorBanner>
+        </div>
+      )}
+      {warningShown && (
+        <div
+          role="alert"
+          className="mb-3 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-100"
+        >
+          <p>{warningShown.text}</p>
+          <div className="mt-2 flex flex-wrap justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setPrivateWarning(null)}>
+              Pick another account
+            </Button>
+            <Button size="sm" onClick={() => submit(true)} disabled={saving}>
+              Share the account and continue
+            </Button>
+          </div>
         </div>
       )}
       {noAccounts && (
@@ -463,7 +492,11 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
             <Select
               value={form.fundingAccountId}
               aria-label="Funding account"
-              onChange={(e) => set('fundingAccountId', e.target.value)}
+              onChange={(e) => {
+                // A warning names one account; another account gets its own.
+                setPrivateWarning(null)
+                set('fundingAccountId', e.target.value)
+              }}
               disabled={noAccounts}
               className="w-full"
             >
@@ -476,6 +509,11 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
             {editing && (
               <span className="text-[11px] font-normal text-slate-500">
                 The account can change only while the jar holds nothing.
+              </span>
+            )}
+            {heldIn?.isPrivate && (
+              <span className="text-[11px] font-normal text-slate-500">
+                This account is private. A jar is part of the household budget, so saving it here asks you to share the account.
               </span>
             )}
           </label>
@@ -576,7 +614,7 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
             <Button variant="ghost" onClick={onClose} aria-label="Cancel edit">
               Cancel
             </Button>
-            <Button onClick={submit} disabled={saving || (!editing && noAccounts)} aria-label={editing ? 'Save jar' : 'Add jar'}>
+            <Button onClick={() => submit()} disabled={saving || (!editing && noAccounts)} aria-label={editing ? 'Save jar' : 'Add jar'}>
               {editing ? 'Save' : 'Add jar'}
             </Button>
           </div>
@@ -675,4 +713,11 @@ function SchedulePreview({
       )}
     </div>
   )
+}
+
+/** Rule 34: the server refuses a jar in the user's private account with this key until they choose to share it. */
+function privateAccountWarning(err: unknown): string | null {
+  const e = err as { response?: { status?: number; data?: { errors?: Record<string, string[]> } } }
+  if (e?.response?.status !== 400) return null
+  return e.response.data?.errors?.accountPrivate?.[0] ?? null
 }

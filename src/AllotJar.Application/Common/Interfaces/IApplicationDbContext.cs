@@ -16,6 +16,8 @@ public interface IApplicationDbContext
     DbSet<Transaction> Transactions { get; }
     DbSet<TransactionSplit> TransactionSplits { get; }
     DbSet<Account> Accounts { get; }
+    DbSet<AccountHolder> AccountHolders { get; }
+    DbSet<AccountPrivacy> AccountPrivacies { get; }
     DbSet<Jar> Jars { get; }
     DbSet<JarAllocation> JarAllocations { get; }
     DbSet<JarAllocationPosting> JarAllocationPostings { get; }

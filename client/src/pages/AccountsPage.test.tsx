@@ -22,6 +22,7 @@ vi.mock('../lib/api', async (importOriginal) => ({
 
 import { AccountsPage } from './AccountsPage'
 import { AuthProvider } from '../auth/AuthContext'
+import { HouseholdProvider } from '../features/HouseholdContext'
 import { setMoneyFormat } from '../lib/money'
 
 function accounts(): AccountDto[] {
@@ -89,6 +90,87 @@ describe('AccountsPage', () => {
     )
     // The new account appears as a card.
     expect(await screen.findByText('Wallet', {}, { timeout: 5000 })).toBeInTheDocument()
+  })
+
+  // W13 (rules 30–33): a joint account names its holders; the holder of a private account sees
+  // it marked and can share it with the household.
+  it('shows who holds each account and lets the holder share a private one', { timeout: 15000 }, async () => {
+    const joint: AccountDto = {
+      ...accounts()[0], id: 'j1', name: 'Joint',
+      holders: [{ memberId: 'm1', name: 'Chris' }, { memberId: 'm2', name: 'Sam' }],
+    }
+    const mine: AccountDto = {
+      ...accounts()[0], id: 'p1', name: 'Pocket', isPrivate: true, canChangeSharing: true,
+      holders: [{ memberId: 'm1', name: 'Chris' }],
+    }
+    const savings: AccountDto = {
+      ...accounts()[0], id: 's1', name: 'Savings', isPrivate: false, canChangeSharing: true,
+      holders: [{ memberId: 'm1', name: 'Chris' }], sharingBlockedReason: "'Savings' holds the jar 'Holiday'.",
+    }
+    mockGet.mockImplementation((url: string) => Promise.resolve({ data: url === '/accounts' ? [joint, mine, savings] : [] }))
+    mockPut.mockResolvedValue({ data: { ...mine, isPrivate: false } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    expect(await screen.findByText('Held by Chris and Sam', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText('Joint', { selector: 'span' })).toBeInTheDocument()
+    expect(screen.getByText('Private')).toBeInTheDocument()
+    expect(screen.getByText('Only you can see this account.')).toBeInTheDocument()
+    // P55: an account a jar uses stays visible and says why, with no Make private button.
+    expect(screen.getByTitle("'Savings' holds the jar 'Holiday'.")).toHaveTextContent('Visible to the household: a jar uses it.')
+    expect(screen.queryByRole('button', { name: 'Make Savings private' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Share Pocket with the household' }))
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/p1/sharing', { isPrivate: false }))
+    expect(await screen.findByRole('button', { name: 'Make Pocket private' })).toBeInTheDocument()
+  })
+
+  // Rule 31: an account you add that only you hold starts private unless you untick it.
+  it('adds an account you hold alone as private, and a joint one as shared', { timeout: 15000 }, async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/auth/me') return Promise.resolve({ data: { role: 0, memberId: 'm1', email: 'chris@example.com' } })
+      if (url === '/members') return Promise.resolve({ data: [
+        { id: 'm1', name: 'Chris', netMonthlyIncome: 0, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 0 },
+        { id: 'm2', name: 'Sam', netMonthlyIncome: 0, personalSavingsAccountId: null, displayOrder: 1, isArchived: false, incomeSharePct: 0 },
+      ] })
+      return Promise.resolve({ data: [] })
+    })
+    mockPost.mockResolvedValue({ data: { id: 'a9', name: 'Pocket', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0 } })
+    const user = userEvent.setup()
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <HouseholdProvider>
+            <AccountsPage />
+          </HouseholdProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'Add account' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(dialog.getByLabelText('Account name'), 'Pocket')
+    await user.click(await dialog.findByLabelText('Held by Chris'))
+    expect(dialog.getByLabelText('Keep this account private')).toBeChecked()
+    await user.click(dialog.getByRole('button', { name: 'Add account' }))
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/accounts', expect.objectContaining({ holderIds: ['m1'], isPrivate: true })),
+    )
+
+    mockPost.mockClear()
+    await user.click(await screen.findByRole('button', { name: 'Add account' }))
+    const again = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(again.getByLabelText('Account name'), 'Joint')
+    await user.click(again.getByLabelText('Held by Chris'))
+    await user.click(again.getByLabelText('Held by Sam'))
+    expect(again.queryByLabelText('Keep this account private')).not.toBeInTheDocument()
+    await user.click(again.getByRole('button', { name: 'Add account' }))
+    await waitFor(() => expect(mockPost).toHaveBeenCalled())
+    const body = mockPost.mock.calls[0][1] as Record<string, unknown>
+    expect(body.holderIds).toEqual(['m1', 'm2'])
+    expect(body).not.toHaveProperty('isPrivate')
   })
 
   it('deletes an account after confirming', { timeout: 15000 }, async () => {

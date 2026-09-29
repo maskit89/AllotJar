@@ -733,3 +733,13 @@
   3. Set pocket money to 120.00 and sync again.
 - **Expected:** Step 1: the linked lines named "Sam" now read **"Samantha"** in every month (100.00 each, category and month totals unchanged); the customised "Sam — treats" line keeps its name. Step 2: the sync finds Samantha's line by its link — the category still has exactly two lines, no "Samantha" duplicate next to a stale "Sam"; the response reports nothing created. Step 3: the same two lines move to 120.00. A pre-W11 month whose "Sam" line has no link: the first sync after the rename finds no linked line and no unlinked "Samantha" line, so it adds one — the only case a rename can leave two lines, and it needs a month never synced since the change.
 - **Automated:** Full (backend `PocketMoneyIdentityTests.Sync_LinksEachLineToItsPerson_AndARenameReusesTheLine`, `Rename_FollowsEveryMonthsLinkedLine_ButKeepsACustomisedName`, `Sync_AdoptsALegacyLineByName_AndLinksIt`)
+
+### ALLOC-076 - A share bound for a private savings account is refused up front; its holder runs the allocation
+- **Priority:** P0
+- **Type:** Negative / Happy
+- **Origin:** Adversarial review of PR #277 (P1-2): the owner's run skipped a person whose savings account was private to them, reported success, and the person's own re-run then failed with 403.
+- **Preconditions:** Shared household; Chris and Sam each have June income lines; the allocation profile's source is "Joint"; Chris's savings account is shared; Sam's savings account (chosen on People) is private to Sam's login.
+- **Steps:**
+  1. As Chris, open `/allocation` for June. 2. As Chris, **Allocate**. 3. As Sam, **Allocate** June.
+- **Expected:** 1: Sam's row reads "Private savings account" with a note that only Sam can record this transfer and Allocating is refused until Sam shares it or picks a shared savings account on People; Sam is not listed as having no savings account. 2: 400 "Sam's savings account is private, so only Sam can record a transfer into it…"; nothing moves for anyone. 3: the run records both transfers, Sam's into his private account. A profile whose source account is private to another login is refused the same way, naming the source (P53).
+- **Automated:** Yes (JointAccountsW13Tests — `IncomeAllocation_IntoAPrivateSavingsAccount_IsRefusedUpFront_ThenItsHolderRunsIt_P53`)

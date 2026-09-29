@@ -36,4 +36,12 @@ public class HouseholdMembership : BaseEntity
     public Guid? MemberId { get; set; }
 
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Rule 32 (P58): this login has personal accounts whose sharing it has not reviewed yet — set
+    /// when the login is linked to a person who already holds accounts, or when someone else adds a
+    /// personal account for that person. Cleared when the login reviews its sharing; nothing about
+    /// the accounts' visibility changes until then.
+    /// </summary>
+    public bool SharingReviewPending { get; set; }
 }

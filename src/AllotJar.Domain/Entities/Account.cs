@@ -49,6 +49,18 @@ public class Account : BaseEntity
     public string? SortCode { get; set; }
     public string? AccountNumber { get; set; }
 
+    /// <summary>
+    /// The people who hold the account (rule 30): one is a personal account, several a joint one,
+    /// none the household's own. One balance and one history whoever holds it.
+    /// </summary>
+    public ICollection<AccountHolder> Holders { get; set; } = new List<AccountHolder>();
+
+    /// <summary>
+    /// Present when the account is private to one login (rules 31–33); null when the household
+    /// shares it. Loaded only for the login allowed to see a private account.
+    /// </summary>
+    public AccountPrivacy? Privacy { get; set; }
+
     /// <summary>The transactions that have moved money in or out of this account.</summary>
     public ICollection<Transaction> Transactions { get; set; } = new List<Transaction>();
 }

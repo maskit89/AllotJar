@@ -66,6 +66,25 @@ public class CreateAccountCommandHandler : IRequestHandler<CreateAccountCommand,
             AccountNumber = BankIdentifiers.NormalizeAccountNumber(request.AccountNumber),
         };
 
+        // Rule 30: who holds it. Rule 31 (P54): a personal account the caller adds for their own
+        // person starts private until they share it; one added for someone else starts shared and
+        // goes into that person's sharing review (rule 32).
+        var holders = await AccountSharing.ResolveHoldersAsync(_db, userId, request.HolderIds ?? Array.Empty<Guid>(), cancellationToken);
+        foreach (var holder in holders)
+        {
+            account.Holders.Add(new AccountHolder { AccountId = account.Id, MemberId = holder.Id });
+        }
+        var ownPersonal = holders.Count == 1 && holders[0].Id == _currentUser.MemberId && _currentUser.UserId is not null;
+        if (request.IsPrivate ?? ownPersonal)
+        {
+            await AccountSharing.EnsureCanBePrivateAsync(_db, _currentUser, account, holders, "IsPrivate", cancellationToken);
+            await AccountSharing.SetPrivateAsync(_db, account, _currentUser.UserId, cancellationToken);
+        }
+        else if (holders.Count == 1)
+        {
+            await AccountSharing.FlagReviewForHolderAsync(_db, _currentUser, userId, holders[0].Id, cancellationToken);
+        }
+
         _db.Accounts.Add(account);
         await _db.SaveChangesAsync(cancellationToken);
 
@@ -73,6 +92,8 @@ public class CreateAccountCommandHandler : IRequestHandler<CreateAccountCommand,
         // rather than pretending the money is already there.
         var asOf = DateOnly.FromDateTime(DateTime.UtcNow);
         var views = await AccountLedgerReader.ReadAsync(_db, userId, new[] { account }, asOf, cancellationToken);
-        return account.ToDto(views[account.Id]);
+        var dto = account.ToDto(views[account.Id]);
+        await AccountSharing.DecorateAsync(_db, _currentUser, new[] { (account, dto) }, cancellationToken);
+        return dto;
     }
 }

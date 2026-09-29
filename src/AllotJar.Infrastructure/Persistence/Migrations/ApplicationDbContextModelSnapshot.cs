@@ -81,6 +81,39 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.ToTable("Accounts", (string)null);
                 });
 
+            modelBuilder.Entity("AllotJar.Domain.Entities.AccountHolder", b =>
+                {
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("MemberId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("AccountId", "MemberId");
+
+                    b.HasIndex("MemberId");
+
+                    b.ToTable("AccountHolders", (string)null);
+                });
+
+            modelBuilder.Entity("AllotJar.Domain.Entities.AccountPrivacy", b =>
+                {
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("SinceUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("AccountId");
+
+                    b.ToTable("AccountPrivacy", (string)null);
+                });
+
             modelBuilder.Entity("AllotJar.Domain.Entities.AllocationProfile", b =>
                 {
                     b.Property<Guid>("Id")
@@ -331,6 +364,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("Role")
                         .HasColumnType("int");
+
+                    b.Property<bool>("SharingReviewPending")
+                        .HasColumnType("bit");
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
@@ -1003,6 +1039,34 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("AllotJar.Domain.Entities.AccountHolder", b =>
+                {
+                    b.HasOne("AllotJar.Domain.Entities.Account", "Account")
+                        .WithMany("Holders")
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AllotJar.Domain.Entities.HouseholdMember", "Member")
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Account");
+
+                    b.Navigation("Member");
+                });
+
+            modelBuilder.Entity("AllotJar.Domain.Entities.AccountPrivacy", b =>
+                {
+                    b.HasOne("AllotJar.Domain.Entities.Account", null)
+                        .WithOne("Privacy")
+                        .HasForeignKey("AllotJar.Domain.Entities.AccountPrivacy", "AccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("AllotJar.Domain.Entities.AllocationRule", b =>
                 {
                     b.HasOne("AllotJar.Domain.Entities.AllocationProfile", "AllocationProfile")
@@ -1240,6 +1304,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("AllotJar.Domain.Entities.Account", b =>
                 {
+                    b.Navigation("Holders");
+
+                    b.Navigation("Privacy");
+
                     b.Navigation("Transactions");
                 });
 
