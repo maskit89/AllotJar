@@ -40,10 +40,13 @@ public static class TransferReturns
     /// <summary>
     /// Brings <paramref name="transfer"/>'s return operation in line with the write, given the
     /// <paramref name="before"/> taken ahead of it. A return that is no longer one is removed. A
-    /// return whose amount, source and departure split are unchanged keeps the jar decision it was
-    /// recorded with and only follows its date (a statement confirming a return marked by hand,
-    /// a corrected date), so a jar archived or moved since never gets it re-decided. Otherwise the
-    /// jars are decided now (<see cref="RecordAsync"/>).
+    /// return whose amount, source and departure split this write left unchanged, and whose stored
+    /// operation still agrees with that split (every jar it credits drawn by the departure on the
+    /// same source, for the amount it credits), keeps the jar decision it was recorded with and
+    /// only follows its date (a statement confirming a return marked by hand, a corrected date),
+    /// so a jar archived or moved since never gets it re-decided. Otherwise the jars are decided
+    /// now (<see cref="RecordAsync"/>). Every write that can change a returned transfer's departure
+    /// split calls this.
     /// </summary>
     public static async Task SyncAsync(
         IApplicationDbContext db, Transaction transfer, Guid sourceId, Basis before, CancellationToken cancellationToken)
@@ -51,14 +54,28 @@ public static class TransferReturns
         var after = await BasisAsync(db, transfer, cancellationToken);
         if (after.ReturnedOn is DateOnly returnedOn && after.SameDecisionAs(before))
         {
-            foreach (var kept in await OperationsAsync(db, transfer.Id, cancellationToken))
+            var kept = await OperationsAsync(db, transfer.Id, cancellationToken);
+            if (kept.All(op => AgreesWith(op, sourceId, after.Departure)))
             {
-                kept.Date = returnedOn;
+                foreach (var op in kept)
+                {
+                    op.Date = returnedOn;
+                }
+                return;
             }
-            return;
         }
         await RecordAsync(db, transfer, sourceId, cancellationToken);
     }
+
+    /// <summary>
+    /// Whether a stored return operation was decided from <paramref name="departure"/> as it is
+    /// now: it is on <paramref name="sourceId"/> and gives each jar back exactly what the
+    /// departure draws from it there (a jar it gives nothing was decided unallocated).
+    /// </summary>
+    private static bool AgreesWith(JarAllocation op, Guid sourceId, IReadOnlyList<(Guid? JarId, decimal Amount)> departure) =>
+        op.AccountId == sourceId
+        && op.Postings.Where(p => p.JarId is not null).All(p =>
+            -departure.Where(d => d.JarId == p.JarId && d.Amount < 0m).Sum(d => d.Amount) == p.Amount);
 
     /// <summary>
     /// Writes (or removes) <paramref name="transfer"/>'s return operation for its current

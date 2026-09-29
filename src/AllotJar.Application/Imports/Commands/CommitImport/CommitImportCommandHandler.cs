@@ -99,7 +99,9 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         int imported = 0, skipped = 0, credits = 0, debits = 0, transfers = 0, matched = 0, pendingReview = 0, returned = 0;
         var created = new List<Transaction>();
         var fees = new List<Transaction>();
-        var matchedIds = new HashSet<Guid>();
+        // The legs rows of this import confirm: a transfer's departure and its return can be on
+        // one statement (a bounced transfer), but no leg is confirmed twice.
+        var matchedIds = new HashSet<(Guid TransferId, TransferLeg Leg)>();
         var held = new List<ImportHeldRow>();
 
         // Rule 74/11: the statement account is evaluated row by row in date order, against its
@@ -205,7 +207,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 if (returnShortfall is not null)
                 {
                     (target.ReturnedOn, target.ReturnBankReference, target.ReceivedOn) = (previousReturned, previousReturnReference, previousReceived);
-                    matchedIds.Remove(returnId);
+                    matchedIds.Remove((returnId, TransferLeg.Return));
                     known.Remove(reference);
                     held.Add(new ImportHeldRow(item.Reference, returnShortfall));
                     continue;
@@ -268,6 +270,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 if (item.MatchTransferId is Guid matchId)
                 {
                     var (target, newFee) = ConfirmMatch(item, matchId, importAccountId, counterparty, matchTargets, matchedIds);
+                    var returnBasis = await TransferReturns.BasisAsync(_db, target, cancellationToken);
                     var before = (target.DepartedOn, target.ReceivedOn, target.BankReference, target.ReceiptBankReference, target.Date, target.Amount);
                     var oldFee = target.Fee;
                     if (item.IsCredit)
@@ -317,7 +320,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     if (matchShortfall is not null)
                     {
                         (target.DepartedOn, target.ReceivedOn, target.BankReference, target.ReceiptBankReference, target.Date, target.Amount) = before;
-                        matchedIds.Remove(matchId);
+                        matchedIds.Remove((matchId, item.IsCredit ? TransferLeg.Receipt : TransferLeg.Departure));
                         known.Remove(reference);
                         held.Add(new ImportHeldRow(item.Reference, matchShortfall));
                         continue;
@@ -361,6 +364,11 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     else if (item.PaidFromJarId is not null)
                     {
                         await JarMovements.ApplyOutgoingAsync(_db, userId, target, importAccount, item.PaidFromJarId, "Items", cancellationToken);
+                    }
+                    // A returned transfer's jars follow a departure now drawn from other jars (rule 90).
+                    if (target.ReturnedOn is not null && target.AccountId is Guid returnSource)
+                    {
+                        await TransferReturns.SyncAsync(_db, target, returnSource, returnBasis, cancellationToken);
                     }
                     matched++;
                     transfers++;
@@ -601,7 +609,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
     /// </summary>
     private static (Transaction Target, decimal? NewFee) ConfirmMatch(
         CommitImportItem item, Guid matchId, Guid importAccountId, Guid counterparty,
-        IReadOnlyDictionary<Guid, Transaction> targets, HashSet<Guid> matchedIds)
+        IReadOnlyDictionary<Guid, Transaction> targets, HashSet<(Guid, TransferLeg)> matchedIds)
     {
         if (!targets.TryGetValue(matchId, out var target))
         {
@@ -651,9 +659,11 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         {
             errors.Add("the amounts already agree, so there is no fee to record");
         }
-        if (!matchedIds.Add(matchId))
+        if (!matchedIds.Add((matchId, item.IsCredit ? TransferLeg.Receipt : TransferLeg.Departure)))
         {
-            errors.Add("another row in this import already confirms the same transfer");
+            errors.Add(item.IsCredit
+                ? "another row in this import already confirms its receipt"
+                : "another row in this import already confirms its departure");
         }
         if (errors.Count > 0)
         {
@@ -675,7 +685,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
     /// </summary>
     private static Transaction ConfirmReturn(
         CommitImportItem item, Guid transferId, Account importAccount,
-        IReadOnlyDictionary<Guid, Transaction> targets, HashSet<Guid> matchedIds)
+        IReadOnlyDictionary<Guid, Transaction> targets, HashSet<(Guid, TransferLeg)> matchedIds)
     {
         if (!targets.TryGetValue(transferId, out var target))
         {
@@ -695,7 +705,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 ? item.Date < target.DepartedOn!.Value
                     ? "the money can't come back before it left"
                     : $"its amount is {target.Currency.Value} {target.Amount:0.####}, not {item.Currency} {item.Amount:0.####}"
-                : !matchedIds.Add(transferId) ? "another row in this import already confirms it" : null;
+                : !matchedIds.Add((transferId, TransferLeg.Return)) ? "another row in this import already confirms it" : null;
         if (error is not null)
         {
             throw new ValidationException(new Dictionary<string, string[]>
@@ -908,4 +918,12 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             }
         }
     }
+}
+
+/// <summary>The leg of a transfer an import row confirms.</summary>
+internal enum TransferLeg
+{
+    Departure,
+    Receipt,
+    Return,
 }

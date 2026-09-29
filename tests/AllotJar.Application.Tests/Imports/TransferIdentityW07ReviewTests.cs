@@ -23,7 +23,7 @@ namespace AllotJar.Application.Tests.Imports;
 
 /// <summary>
 /// Regressions from the adversarial review of W07 (round 1 at 6070119, round 2 at 1f182dc,
-/// round 3 at 6e776a3): each test is the reviewer's probe and failed on that head.
+/// round 3 at 6e776a3, round 4 at 3233809): each test is the reviewer's probe and failed on that head.
 /// </summary>
 public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
 {
@@ -601,5 +601,97 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
 
         row.TransferMatches.Select(m => m.TransferId).Should().Equal(near.Id, far.Id);
         row.TransferMatches.Single(m => m.TransferId == far.Id).SameReference.Should().BeTrue();
+    }
+
+    // Round 4. A statement often shows a bounced transfer leaving and coming back: one import
+    // confirms both legs (R4-P2-1), and when the departure turns out to have been paid from
+    // another jar, the return goes back to that jar (R4-P2-2).
+    private static string Camt2(params (string Ref, DateOnly Date, decimal Amount, bool Credit)[] rows) =>
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Document xmlns=\"urn:iso:std:iso:20022:tech:xsd:camt.053.001.08\"><BkToCstmrStmt><Stmt><Id>S</Id>"
+        + "<Acct><Id><IBAN>DE89370400440532013000</IBAN></Id><Ccy>EUR</Ccy></Acct>"
+        + string.Concat(rows.Select(r => $"<Ntry><Amt Ccy=\"EUR\">{r.Amount:0.00}</Amt><CdtDbtInd>{(r.Credit ? "CRDT" : "DBIT")}</CdtDbtInd><BookgDt><Dt>{r.Date:yyyy-MM-dd}</Dt></BookgDt><AcctSvcrRef>{r.Ref}</AcctSvcrRef></Ntry>"))
+        + "</Stmt></BkToCstmrStmt></Document>";
+
+    private static CommitImportItem Item(ImportCandidate row, bool credit, Guid? match = null, Guid? paidFrom = null, Guid? returnOf = null) =>
+        new(row.Reference, row.Date, row.Payee, row.Amount, row.Currency, credit, null, null,
+            MatchTransferId: match, PaidFromJarId: paidFrom, ReturnOfTransferId: returnOf);
+
+    private static async Task<(Account A, Account B, Jar Holiday, Jar Car, Guid TransferId)> SeedHolidayAndCarAsync(ApplicationDbContext db)
+    {
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 200m, Sep1, AccountType.Current, order: 1);
+        var holiday = SeedGoal(db, a);
+        var car = SeedGoal(db, a, "Car");
+        LedgerFixtures.Allocate(db, Owner, a.Id, holiday.Id, 400m, Sep1);
+        LedgerFixtures.Allocate(db, Owner, a.Id, car.Id, 400m, Sep1);
+        var t = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Sep10, 100m, a.Id, b.Id, FromJarId: holiday.Id), Ct);
+        return (a, b, holiday, car, t.Id);
+    }
+
+    [Fact]
+    public async Task OneStatementWithTheDepartureAndTheReturn_ImportsBoth()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 200m, Sep1, AccountType.Current, order: 1);
+        var t = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(Sep10, 100m, a.Id, b.Id), Ct);
+        var rows = (await PreviewAsync(db, User, Camt2(("D-5", Sep10, 100m, false), ("R-5", Sep12, 100m, true)), a.Id)).Items;
+
+        var result = await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(new CommitImportCommand(a.Id, new[]
+        {
+            Item(rows[0], false, match: t.Id),
+            Item(rows[1], true, returnOf: t.Id),
+        }), Ct);
+
+        result.MatchedTransfers.Should().Be(1);
+        result.Returned.Should().Be(1);
+        var stored = await db.Transactions.SingleAsync(x => x.Id == t.Id);
+        (stored.BankReference, stored.DepartedOn, stored.ReturnBankReference, stored.ReturnedOn)
+            .Should().Be(("D-5", Sep10, "R-5", Sep12));
+
+        // Neither leg can be confirmed twice.
+        var again = (await PreviewAsync(db, User, Camt2(("D-6", Sep10, 100m, false)), a.Id)).Items.Single();
+        again.TransferMatches.Should().NotContain(m => m.TransferId == t.Id);
+    }
+
+    [Fact]
+    public async Task ADepartureMatchedToAnotherJar_AfterAHandMarkedReturn_InOneStatement_MovesTheReturnToo()
+    {
+        await using var db = NewContext();
+        var (a, b, holiday, car, t) = await SeedHolidayAndCarAsync(db);
+        await new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(t, a.Id, b.Id, 100m, Sep10, null, Sep12, FromJarId: holiday.Id), Ct);
+
+        var rows = (await PreviewAsync(db, User, Camt2(("D-1", Sep10, 100m, false), ("R-1", Sep12, 100m, true)), a.Id)).Items;
+        await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(new CommitImportCommand(a.Id, new[]
+        {
+            Item(rows[0], false, match: t, paidFrom: car.Id),
+            Item(rows[1], true, returnOf: t),
+        }), Ct);
+
+        var view = (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[a.Id];
+        output.WriteLine($"holiday={view.JarBalances.GetValueOrDefault(holiday.Id)} car={view.JarBalances.GetValueOrDefault(car.Id)} unallocated={view.Unallocated}");
+        view.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(400m, "Holiday lost nothing: the departure was paid from Car");
+        view.JarBalances.GetValueOrDefault(car.Id).Should().Be(400m, "Car's 100 came back");
+    }
+
+    [Fact]
+    public async Task ADepartureMatchedToAnotherJar_AfterAConfirmedReturn_MovesTheReturnToo()
+    {
+        await using var db = NewContext();
+        var (a, _, holiday, car, t) = await SeedHolidayAndCarAsync(db);
+        var back = (await PreviewAsync(db, User, Camt2(("R-2", Sep12, 100m, true)), a.Id)).Items.Single();
+        await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(
+            new CommitImportCommand(a.Id, new[] { Item(back, true, returnOf: t) }), Ct);
+
+        var departure = (await PreviewAsync(db, User, Camt2(("D-2", Sep10, 100m, false)), a.Id)).Items.Single();
+        await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(
+            new CommitImportCommand(a.Id, new[] { Item(departure, false, match: t, paidFrom: car.Id) }), Ct);
+
+        var view = (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[a.Id];
+        output.WriteLine($"holiday={view.JarBalances.GetValueOrDefault(holiday.Id)} car={view.JarBalances.GetValueOrDefault(car.Id)} unallocated={view.Unallocated}");
+        view.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(400m);
+        view.JarBalances.GetValueOrDefault(car.Id).Should().Be(400m);
     }
 }
