@@ -40,7 +40,7 @@ public class DeleteJarCommandHandler : IRequestHandler<DeleteJarCommand>
 
         // Its lines were plans only (no transaction was ever assigned to one — that would count
         // as money spent from the jar); rule 84 removes them, past months included. Its cycles
-        // (a Recurring jar that was never funded) go with it.
+        // (a Recurring jar that was never funded) and its definition and archive history go with it.
         var lines = await _db.BudgetItems
             .Where(i => i.SavingsId == jar.Id)
             .ToListAsync(cancellationToken);
@@ -53,6 +53,10 @@ public class DeleteJarCommandHandler : IRequestHandler<DeleteJarCommand>
             .Where(r => r.JarId == jar.Id)
             .ToListAsync(cancellationToken);
         _db.JarRevisions.RemoveRange(revisions);
+        var archivePeriods = await _db.JarArchivePeriods
+            .Where(p => p.JarId == jar.Id)
+            .ToListAsync(cancellationToken);
+        _db.JarArchivePeriods.RemoveRange(archivePeriods);
         _db.Jars.Remove(jar);
 
         await _db.SaveChangesAsync(cancellationToken);

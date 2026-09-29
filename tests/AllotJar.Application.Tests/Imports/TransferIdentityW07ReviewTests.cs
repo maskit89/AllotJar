@@ -694,4 +694,41 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
         view.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(400m);
         view.JarBalances.GetValueOrDefault(car.Id).Should().Be(400m);
     }
+
+    // Merged with #276: its startup backfill settles a jar's postings in an account it moved away
+    // from before departures were recorded. A stored Return operation (no transaction; dated the
+    // return) is ordinary jar history there: the departure settles what it gave back, dated on it.
+    [Fact]
+    public async Task TheJarDepartureBackfill_SettlesAReturnsShare_OnTheReturnDay()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 200m, Sep1, AccountType.Current, order: 1);
+        var c = LedgerFixtures.SeedAccount(db, Owner, "C", 0m, Sep1, AccountType.Savings, order: 2);
+        var holiday = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, holiday.Id, 100m, Sep1);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Sep10, 100m, a.Id, b.Id, FromJarId: holiday.Id), Ct);
+        var back = (await PreviewAsync(db, User, Camt("RET-11", Sep12, 100m, true, "Returned"), a.Id)).Items.Single();
+        await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
+        {
+            new CommitImportItem(back.Reference, back.Date, back.Payee, back.Amount, back.Currency, true, null, null, ReturnOfTransferId: transfer.Id),
+        }), Ct);
+        (await JarDepartures.BackfillAsync(db, Ct)).Departures.Should().Be(0, "the jar is still in A");
+
+        // A move made before departures were recorded: nothing was written down.
+        holiday.FundingAccountId = c.Id;
+        await db.SaveChangesAsync();
+        (await JarDepartures.BackfillAsync(db, Ct)).Departures.Should().Be(1);
+
+        async Task<decimal> HolidayInA(DateOnly on) =>
+            (await JarLedgerReader.ReadAsync(db, Owner, on, Ct)).Accounts[a.Id].JarBalances.GetValueOrDefault(holiday.Id);
+        (await HolidayInA(new DateOnly(2026, 9, 11))).Should().Be(0m);
+        (await HolidayInA(Sep12)).Should().Be(0m, "the departure is dated the return, the last day A touched the jar");
+        (await HolidayInA(Sep15)).Should().Be(0m);
+        var departure = await db.JarAllocations.Include(x => x.Postings).SingleAsync(x => x.Kind == JarAllocationKind.Departure);
+        departure.Date.Should().Be(Sep12);
+        departure.Postings.Should().ContainSingle(p => p.JarId == holiday.Id && p.Amount == -100m);
+        (await JarDepartures.BackfillAsync(db, Ct)).Departures.Should().Be(0);
+    }
 }

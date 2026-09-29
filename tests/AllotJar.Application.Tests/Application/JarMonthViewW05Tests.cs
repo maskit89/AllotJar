@@ -184,7 +184,7 @@ public class JarMonthViewW05Tests
     [Fact]
     public async Task Rule48_APastMonthsStatus_IsWhatItWasAtTheMonthsEnd()
     {
-        // 1,200 target held in full at September's end, then 900 spent from the jar in October:
+        // A 300 target held in full at September's end, then 250 spent from the jar in October:
         // September still reads Funded; October reads the plan again.
         await using var db = NewContext();
         var account = LedgerFixtures.SeedAccount(db, Owner, opening: 2000m);
@@ -331,8 +331,9 @@ public class JarMonthViewW05Tests
     public async Task Rule80_AJarMovedToAnAccountOpenedLater_StillReadsWhatTheOldAccountHeld_ForTheEarlierMonth()
     {
         // As above, but B only opened on 1 October: August is before B existed, and the jar's
-        // money that month was in A, whose ledger was open. Only a month before any account held
-        // the jar reads unavailable (rule 67).
+        // money that month was in A, whose ledger was open. July, before the jar's first posting in
+        // A, reads the 0 A held then (P2-15). Only a month before any account held the jar reads
+        // unavailable (rule 67).
         await using var db = NewContext();
         var a = LedgerFixtures.SeedAccount(db, Owner, name: "A", opening: 2000m);
         var b = LedgerFixtures.SeedAccount(db, Owner, name: "B", opening: 500m, order: 1, openingDate: October);
@@ -350,6 +351,14 @@ public class JarMonthViewW05Tests
         inAugust.Status.Should().NotBe("Unavailable");
         (await GridAvailableAsync(db, august)).Should().Be(100m);
         (await ReadAsync(db, October)).CurrentBalance.Should().Be(50m);
+
+        var july = new DateOnly(2026, 7, 1);
+        SeedMonth(db, july, jar, 0m);
+        var inJuly = await ReadAsync(db, july);
+        inJuly.CurrentBalance.Should().Be(0m);
+        inJuly.Status.Should().NotBe("Unavailable");
+        (await GridAvailableAsync(db, july)).Should().Be(0m);
+        (await JarLedgerReader.ReadAsync(db, Owner, new DateOnly(2025, 12, 31), CancellationToken.None)).BalanceOf(jar.Id).Should().BeNull();
     }
 
     [Fact]

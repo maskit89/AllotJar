@@ -42,12 +42,14 @@ public static class JarCycles
         }
 
         var changed = false;
+        // Settling moves no money: one load of the ledger serves every deadline and replant (P3-10).
+        var ledger = await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken);
         foreach (var jar in due)
         {
             var advanced = false;
             while (jar.CycleDeadline is { } deadline && deadline <= today)
             {
-                var held = await BalanceBeforeAsync(db, ownerId, jar, deadline, cancellationToken);
+                var held = ledger.At(deadline.AddDays(-1)).BalanceOf(jar.Id);
                 if (held is null || held < jar.TargetAmount)
                 {
                     // Short (or unknowable) when the money had to be there: Deadline missed,
@@ -70,7 +72,7 @@ public static class JarCycles
             }
             if (advanced)
             {
-                await JarPlanner.ReplantAsync(db, ownerId, jar, today, 0m, cancellationToken);
+                await JarPlanner.ReplantAsync(db, ownerId, jar, today, 0m, cancellationToken, ledger);
                 changed = true;
             }
         }
@@ -94,6 +96,8 @@ public static class JarCycles
     {
         var deadline = jar.CycleDeadline
             ?? throw new InvalidOperationException($"{jar.Name} has no open cycle.");
+        // Closing a cycle moves no money: one load serves the deadline's balance and the replant.
+        var ledger = await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken);
         var cycle = new JarCycle
         {
             OwnerId = ownerId,
@@ -101,7 +105,7 @@ public static class JarCycles
             Deadline = deadline,
             TargetAmount = jar.TargetAmount,
             Outcome = outcome,
-            BalanceAtDeadline = deadline <= today ? await BalanceBeforeAsync(db, ownerId, jar, deadline, cancellationToken) : null,
+            BalanceAtDeadline = deadline <= today ? ledger.At(deadline.AddDays(-1)).BalanceOf(jar.Id) : null,
             ClosedOn = today,
             CreatedUtc = DateTime.UtcNow,
         };
@@ -113,7 +117,7 @@ public static class JarCycles
         jar.CycleDeadline = JarSchedule.NextCycleDeadline(jar, deadline);
         // The next cycle starts from what is actually left (rules 19, 23): the bill that just
         // left the jar counts now, this month included (JarPlanner.PlanningBalance).
-        await JarPlanner.ReplantAsync(db, ownerId, jar, today, 0m, cancellationToken);
+        await JarPlanner.ReplantAsync(db, ownerId, jar, today, 0m, cancellationToken, ledger);
         return cycle;
     }
 
@@ -146,13 +150,5 @@ public static class JarCycles
             return (existing.TargetDate, open);
         }
         return (requested, requested);
-    }
-
-    /// <summary>The jar's balance at the end of the day before <paramref name="deadline"/>; null when unavailable (rule 67).</summary>
-    public static async Task<decimal?> BalanceBeforeAsync(
-        IApplicationDbContext db, string ownerId, Jar jar, DateOnly deadline, CancellationToken cancellationToken)
-    {
-        var snapshot = await JarLedgerReader.ReadAsync(db, ownerId, deadline.AddDays(-1), cancellationToken);
-        return snapshot.BalanceOf(jar.Id);
     }
 }

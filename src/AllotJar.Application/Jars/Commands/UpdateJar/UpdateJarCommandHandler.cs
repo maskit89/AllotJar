@@ -42,6 +42,9 @@ public class UpdateJarCommandHandler
         // A funded cycle whose deadline has arrived rolls forward before the edit is compared
         // (rule 21), so an edit never re-plants toward a cycle that is already over.
         await JarCycles.SettleAsync(_db, userId, today, cancellationToken, jar.Id);
+        // The ledger as it stands before the edit, loaded once for the zero check and the replant:
+        // an edit moves no money, and what it writes down keeps every balance as it reads (P3-10).
+        var ledger = await JarLedgerReader.LoadAsync(_db, userId, cancellationToken);
 
         if (request.FundingAccountId != jar.FundingAccountId)
         {
@@ -49,7 +52,7 @@ public class UpdateJarCommandHandler
             // later date its old account has an entry for; a field change never moves money.
             // Anything else goes through "Move money" (a confirmed transfer).
             var account = await JarAccounts.LoadDesignatedAsync(_db, userId, request.FundingAccountId, "FundingAccountId", cancellationToken, _identity);
-            var current = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken);
+            var current = ledger.At(today);
             var balance = current.BalanceOf(jar.Id);
             if (balance is null)
             {
@@ -79,7 +82,13 @@ public class UpdateJarCommandHandler
             await JarAccounts.EnsureVisibleForJarAsync(_db, account, request.ShareAccount, cancellationToken);
             var kept = await JarMovements.KeepLineAttributionAsync(_db, userId, jar, today, cancellationToken);
             await JarDepartures.RecordAsync(_db, userId, jar.Id, jar.FundingAccountId, today, kept > 0, cancellationToken);
+            // The account it joins keeps its history too: its payments on the jar's lines dated up
+            // to today were made while the jar was held elsewhere, so they stay on its unallocated
+            // money. From today, a payment on the jar's line from the new account draws from the
+            // jar, and one dated before today is refused (P2-20).
+            await JarMovements.KeepArrivalAttributionAsync(_db, userId, jar, account, today, cancellationToken);
             jar.FundingAccountId = account.Id;
+            jar.FundingAccountSince = today;
         }
 
         if (jar.IsCompleted && request.Kind == JarKind.Recurring)
@@ -122,7 +131,7 @@ public class UpdateJarCommandHandler
         }
         if (JarSchedule.IsPlanning(jar) && redefined)
         {
-            await JarPlanner.ReplantAsync(_db, userId, jar, today, 0m, cancellationToken);
+            await JarPlanner.ReplantAsync(_db, userId, jar, today, 0m, cancellationToken, ledger);
         }
 
         await _db.SaveChangesAsync(cancellationToken);

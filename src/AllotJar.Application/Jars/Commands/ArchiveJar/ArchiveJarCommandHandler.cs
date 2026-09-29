@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Dtos;
+using AllotJar.Domain.Entities;
 
 namespace AllotJar.Application.Jars.Commands.ArchiveJar;
 
@@ -34,7 +35,8 @@ public class ArchiveJarCommandHandler
         }
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var snapshot = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken);
+        var ledger = await JarLedgerReader.LoadAsync(_db, userId, cancellationToken);
+        var snapshot = ledger.At(today);
 
         if (request.Archived && !jar.IsArchived)
         {
@@ -63,6 +65,12 @@ public class ArchiveJarCommandHandler
         if (request.Archived != jar.IsArchived)
         {
             // Dated, so a month that ended before today still reads the jar as it was then (W05).
+            // Restoring keeps the stretch it spent archived, so the months that ended in it still
+            // read it as archived (P2-19); an archive with no recorded day has no stretch to keep.
+            if (!request.Archived && jar.ArchivedOn is { } archivedOn && archivedOn < today)
+            {
+                _db.JarArchivePeriods.Add(new JarArchivePeriod { JarId = jar.Id, ArchivedOn = archivedOn, RestoredOn = today });
+            }
             jar.ArchivedOn = request.Archived ? today : null;
         }
         jar.IsArchived = request.Archived;
@@ -70,7 +78,7 @@ public class ArchiveJarCommandHandler
         {
             // Restoring is the inverse: the jar saves again from this month on (its lines were
             // removed when it was archived). A completed jar stays completed (rule 55).
-            await JarPlanner.ReplantAsync(_db, userId, jar, today, 0m, cancellationToken);
+            await JarPlanner.ReplantAsync(_db, userId, jar, today, 0m, cancellationToken, ledger);
         }
         await _db.SaveChangesAsync(cancellationToken);
 
