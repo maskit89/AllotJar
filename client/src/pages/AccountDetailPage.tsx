@@ -197,6 +197,11 @@ export function AccountDetailPage() {
                                   In transit
                                 </span>
                               )}
+                              {t.transferStatus === 'Returned' && (
+                                <span className="ml-1.5 rounded-[5px] border border-rose-200 bg-rose-50 px-1.5 py-px text-[9.5px] font-semibold text-rose-700 dark:border-rose-400/30 dark:bg-rose-400/10 dark:text-rose-300">
+                                  Returned
+                                </span>
+                              )}
                               {t.transferStatus === 'PendingReview' && (
                                 <span className="ml-1.5 rounded-[5px] border border-amber-200 bg-amber-50 px-1.5 py-px text-[9.5px] font-semibold text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300">
                                   Pending review

@@ -94,13 +94,23 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
 
         // Drop rows we've already imported. The filter is the COMMIT's dedup exactly (shared
         // StatementReferences): scoped to the statement account and to the leg that account's
-        // statement carries, case-insensitive to agree with the unique indexes' CI collation.
+        // statement carries, case-insensitive to agree with the unique indexes' CI collation. A
+        // reference already imported for an entry with different details is offered under a
+        // derived reference, flagged (O1 answer 2).
         var accountId = request.AccountId;
-        var already = await StatementReferences.KnownAsync(_db, userId, accountId, cancellationToken);
+        var known = await StatementReferences.KnownAsync(_db, userId, accountId, cancellationToken);
 
-        var fresh = statement.Entries
-            .Where(e => e.Reference is null || !already.Contains(e.Reference))
-            .ToList();
+        var fresh = new List<ParsedStatementEntry>();
+        var resolved = new List<ResolvedReference>();
+        foreach (var entry in statement.Entries)
+        {
+            var resolution = known.Resolve(entry.Reference, entry.BookingDate, entry.Amount, entry.IsCredit);
+            if (!resolution.Duplicate)
+            {
+                fresh.Add(entry);
+                resolved.Add(resolution);
+            }
+        }
         var skipped = statement.Entries.Count - fresh.Count;
 
         // Content-level duplicate hints for the rows whose reference did NOT match (e.g. the same
@@ -109,8 +119,8 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
 
         // Recorded transfers whose other side this statement could confirm (rules 50/51/72). The
         // user chooses; the amount agreeing is a reason to SHOW a candidate, never to match it.
-        var openLegs = accountId is Guid statementAccountId
-            ? await StatementReferences.OpenTransferLegsAsync(_db, userId, statementAccountId, cancellationToken)
+        var transfers = accountId is Guid statementAccountId
+            ? await StatementReferences.TransfersAsync(_db, userId, statementAccountId, cancellationToken)
             : new List<Domain.Entities.Transaction>();
 
         // Suggest a budget line per row from the user's past categorisations — same direction,
@@ -141,22 +151,19 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
                 : null;
             var suggestedName = suggestedId is Guid sid && nameById.TryGetValue(sid, out var n) ? n : null;
             var matches = accountId is Guid statementAccount
-                ? openLegs
-                    .Where(t => StatementReferences.IsOpenFor(t, statementAccount, e.IsCredit)
-                                && t.Amount == e.Amount
-                                && string.Equals(t.Currency.Value, e.Currency, StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(t => Math.Abs((t.DepartedOn ?? t.ReceivedOn ?? e.BookingDate).DayNumber - e.BookingDate.DayNumber))
-                    .Select(t =>
-                    {
-                        var counterparty = e.IsCredit ? t.Account! : t.TransferAccount!;
-                        return new TransferMatchCandidate(
-                            t.Id, counterparty.Id, counterparty.Name, t.Amount, t.Currency.Value,
-                            t.DepartedOn, t.ReceivedOn, t.Payee);
-                    })
+                ? transfers
+                    .Select(t => (Transfer: t, Candidate: StatementReferences.CandidateFor(
+                        t, statementAccount, e.IsCredit, e.Amount, e.Currency, e.BookingDate, e.Reference)))
+                    .Where(x => x.Candidate is not null)
+                    .OrderByDescending(x => x.Candidate!.SameReference)
+                    .ThenBy(x => Math.Abs((x.Transfer.DepartedOn ?? x.Transfer.ReceivedOn ?? e.BookingDate).DayNumber - e.BookingDate.DayNumber))
+                    .ThenBy(x => x.Candidate!.Fee is null ? 0 : 1)
+                    .Select(x => x.Candidate!)
                     .ToList()
                 : [];
+            var resolution = resolved[index];
             return new ImportCandidate(
-                Reference: e.Reference ?? string.Empty,
+                Reference: resolution.Reference ?? string.Empty,
                 Date: e.BookingDate,
                 Payee: e.Payee,
                 Amount: e.Amount,
@@ -166,7 +173,10 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
                 SuggestedBudgetItemName: suggestedName,
                 LikelyTransfer: TransferHeuristic.IsLikelyTransfer(e.Payee) || matches.Count > 0,
                 PossibleDuplicate: possibleDuplicates.Contains(index),
-                TransferMatches: matches);
+                TransferMatches: matches,
+                ReusedReference: resolution.ReusedFrom is KnownEntry reused
+                    ? new ReusedReference(reused.Date, reused.Amount, reused.IsCredit)
+                    : null);
         }).ToList();
 
         return new ImportPreviewResult(

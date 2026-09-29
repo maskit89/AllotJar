@@ -115,7 +115,7 @@ public static class AccountLedgerReader
         decimal transitOut = 0m, transitIn = 0m;
         foreach (var transfer in transactions.Where(t => t.Type == TransactionType.Transfer && t.DepartedOn is not null))
         {
-            var position = TransferLedger.Calculate(transfer, new TransferPostingDates(transfer.DepartedOn, transfer.ReceivedOn), asOf);
+            var position = TransferLedger.Calculate(transfer, TransferPostingDates.Of(transfer), asOf);
             if (position.UnsettledAmount <= 0m)
             {
                 continue;

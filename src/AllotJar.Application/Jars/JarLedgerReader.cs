@@ -129,6 +129,9 @@ public static class JarLedgerReader
             .ToList();
         var postingDates = TransferLedger.PostingDates(readable);
         var byId = readable.ToDictionary(t => t.Id);
+        var returnLegs = readable
+            .Where(t => t.Type == TransactionType.Transfer && t.ReturnedOn is not null)
+            .ToDictionary(t => TransferLedger.ReturnLegId(t.Id), t => t.Id);
 
         var lineJars = await LineJarsAsync(db, ownerId, cancellationToken);
 
@@ -188,13 +191,40 @@ public static class JarLedgerReader
 
             foreach (var (transactionId, movement) in entries.Movements)
             {
-                if (attributed.Contains(transactionId))
+                if (attributed.Contains(transactionId) || returnLegs.ContainsKey(transactionId))
                 {
                     continue;
                 }
                 operations.Add(new JarLedgerOperation(
                     Guid.NewGuid(), ownerId, account.Id, movement.Date, transactionId,
                     Derive(byId[transactionId], account, movement.Amount, lineJars, jarsById)));
+            }
+
+            // A returned transfer's money goes back where it left from: the return leg mirrors the
+            // departure's attribution, except that a jar that has since left this account or been
+            // archived gets nothing back (its share returns to unallocated).
+            foreach (var (legId, movement) in entries.Movements)
+            {
+                if (!returnLegs.TryGetValue(legId, out var transferId))
+                {
+                    continue;
+                }
+                var departure = operations.FirstOrDefault(o => o.TransactionId == transferId);
+                var postings = departure is null
+                    ? new List<JarLedgerPosting> { new(null, movement.Amount) }
+                    : departure.Postings
+                        .GroupBy(p => p.JarId is Guid jarId && jarsById.TryGetValue(jarId, out var jar)
+                                       && jar.FundingAccountId == account.Id && !jar.IsArchived
+                            ? p.JarId
+                            : null)
+                        .Select(g => new JarLedgerPosting(g.Key, -g.Sum(p => p.Amount)))
+                        .Where(p => p.Amount != 0m)
+                        .ToList();
+                if (postings.Count == 0)
+                {
+                    postings.Add(new JarLedgerPosting(null, movement.Amount));
+                }
+                operations.Add(new JarLedgerOperation(Guid.NewGuid(), ownerId, account.Id, movement.Date, legId, postings));
             }
 
             var ledger = ActualSavingsLedger.Calculate(account, openingDate, asOf, jars, readable, operations, postingDates);

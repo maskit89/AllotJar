@@ -79,6 +79,25 @@ public class ImportHoldsTests
     }
 
     [Fact]
+    public async Task CommitImport_JudgesASameDayDebitOnTheDaysClosingBalance_CreditsFirst()
+    {
+        // Rule 74 on end-of-day balances: the debit listed before the same-day salary still fits,
+        // because the day closes at 100 - 150 + 200 = 150.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, "Current", opening: 100m, type: AccountType.Current);
+
+        var result = await NewCommit(db).Handle(new CommitImportCommand(account.Id, new[]
+        {
+            Debit("D1", June5, 150m),
+            Credit("C1", June5, 200m),
+        }), CancellationToken.None);
+
+        result.Imported.Should().Be(2);
+        result.HeldCount.Should().Be(0);
+        (await StoredReferencesAsync(db)).Should().BeEquivalentTo(new[] { "D1", "C1" });
+    }
+
+    [Fact]
     public async Task CommitImport_ALaterDebitThatOnlyFitsBecauseTheHeldRowWasNotPosted_IsImported()
     {
         // 100 opening: −150 on 5 June is held; −80 on 10 June fits (100 − 80 = 20) precisely

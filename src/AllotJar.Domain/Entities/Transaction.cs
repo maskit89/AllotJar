@@ -116,12 +116,43 @@ public class Transaction : BaseEntity
     public string? ReceiptBankReference { get; set; }
 
     /// <summary>
+    /// For a transfer the source bank sent back (O1 answer 4): the date the money was credited
+    /// back to the source account. Only for a transfer that departed and was never received; the
+    /// destination never receives it and nothing is in transit from this date.
+    /// </summary>
+    public DateOnly? ReturnedOn { get; set; }
+
+    /// <summary>For a returned transfer: the source statement's own reference for the credit back.</summary>
+    public string? ReturnBankReference { get; set; }
+
+    /// <summary>
+    /// The app's own key for an income-allocation transfer (<c>alloc:{year}-{month}:{member}</c>),
+    /// so a re-run finds the transfers it recorded. Kept apart from <see cref="BankReference"/>,
+    /// which only ever holds a bank statement's reference.
+    /// </summary>
+    public string? AllocationKey { get; set; }
+
+    /// <summary>
+    /// On a fee row (an expense on the transfer's source account, dated its departure): the
+    /// transfer whose explicit fee it is (O1 answer 5). The source is debited the transfer's
+    /// amount plus this fee; the destination receives the transfer's amount. A fee row is changed
+    /// only through its transfer.
+    /// </summary>
+    public Guid? FeeForTransferId { get; set; }
+    public Transaction? FeeForTransfer { get; set; }
+
+    /// <summary>On a transfer: its fee row, when a fee was supplied.</summary>
+    public Transaction? Fee { get; set; }
+
+    /// <summary>
     /// The recorded-evidence status of a transfer (see <see cref="TransferStatus"/>). Only
     /// meaningful when <see cref="Type"/> is <see cref="TransactionType.Transfer"/>.
     /// </summary>
     public TransferStatus TransferStatus => DepartedOn is null
         ? TransferStatus.PendingReview
-        : ReceivedOn is null ? TransferStatus.InTransit : TransferStatus.Completed;
+        : ReceivedOn is not null ? TransferStatus.Completed
+        : ReturnedOn is not null ? TransferStatus.Returned
+        : TransferStatus.InTransit;
 
     /// <summary>
     /// The slices this transaction is split across. Empty for a normal

@@ -38,6 +38,10 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
         {
             throw new ForbiddenAccessException();
         }
+        if (transaction.FeeForTransferId is not null)
+        {
+            throw TransferFees.ChangedDirectly("TransactionId");
+        }
 
         // A refund's whole amount reduces the one line it lands on (rules 38/39); slicing it
         // across lines would let a refund reduce categories the purchase never touched.

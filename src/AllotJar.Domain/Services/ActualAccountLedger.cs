@@ -63,6 +63,17 @@ public static class ActualAccountLedger
                     continue;
                 }
                 date = transaction.AccountId == account.Id ? dates.DepartedOn : dates.ReceivedOn;
+                // A returned transfer comes back to its source on the return date: a second
+                // movement on the same account under the return leg's own identity, counted even
+                // when the departure predates the opening (the opening balance already lacks it).
+                if (transaction.AccountId == account.Id && dates.ReturnedOn is DateOnly returnedOn
+                    && returnedOn >= openingDate && returnedOn <= asOf)
+                {
+                    if (transaction.Currency != account.Currency)
+                        throw new InvalidOperationException("Account movements require an authoritative amount in the account currency.");
+                    if (!result.TryAdd(TransferLedger.ReturnLegId(transaction.Id), new(returnedOn, transaction.Amount)))
+                        throw new InvalidOperationException("The same transaction cannot be counted twice.");
+                }
             }
             // A missing receipt has no destination movement. The account's opening
             // cutoff applies to its own leg, not the other bank's posting date.

@@ -682,6 +682,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("AccountId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("AllocationKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<decimal>("Amount")
                         .HasPrecision(18, 4)
                         .HasColumnType("decimal(18,4)");
@@ -711,6 +715,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 6)
                         .HasColumnType("decimal(18,6)")
                         .HasDefaultValue(1m);
+
+                    b.Property<Guid?>("FeeForTransferId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<bool>("FxPending")
                         .HasColumnType("bit");
@@ -742,6 +749,13 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("RefundOfTransactionId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("ReturnBankReference")
+                        .HasMaxLength(140)
+                        .HasColumnType("nvarchar(140)");
+
+                    b.Property<DateOnly?>("ReturnedOn")
+                        .HasColumnType("date");
+
                     b.Property<Guid?>("TransferAccountId")
                         .HasColumnType("uniqueidentifier");
 
@@ -754,6 +768,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("BudgetItemId");
 
+                    b.HasIndex("FeeForTransferId")
+                        .IsUnique()
+                        .HasFilter("[FeeForTransferId] IS NOT NULL");
+
                     b.HasIndex("MemberId");
 
                     b.HasIndex("OwnerId");
@@ -762,12 +780,19 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TransferAccountId");
 
+                    b.HasIndex("OwnerId", "AllocationKey")
+                        .HasFilter("[AllocationKey] IS NOT NULL");
+
                     b.HasIndex("OwnerId", "FxPending")
                         .HasFilter("[FxPending] = 1");
 
                     b.HasIndex("OwnerId", "AccountId", "BankReference")
                         .IsUnique()
                         .HasFilter("[BankReference] IS NOT NULL");
+
+                    b.HasIndex("OwnerId", "AccountId", "ReturnBankReference")
+                        .IsUnique()
+                        .HasFilter("[ReturnBankReference] IS NOT NULL");
 
                     b.HasIndex("OwnerId", "TransferAccountId", "ReceiptBankReference")
                         .IsUnique()
@@ -776,6 +801,8 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.ToTable("Transactions", null, t =>
                         {
                             t.HasCheckConstraint("CK_Transactions_TransferLegs", "[Type] <> 2 OR [DepartedOn] IS NOT NULL OR [ReceivedOn] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_Transactions_TransferReturn", "[ReturnedOn] IS NULL OR ([Type] = 2 AND [DepartedOn] IS NOT NULL AND [ReceivedOn] IS NULL AND [ReturnedOn] >= [DepartedOn])");
                         });
                 });
 
@@ -1200,6 +1227,11 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasForeignKey("BudgetItemId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("AllotJar.Domain.Entities.Transaction", "FeeForTransfer")
+                        .WithOne("Fee")
+                        .HasForeignKey("AllotJar.Domain.Entities.Transaction", "FeeForTransferId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("AllotJar.Domain.Entities.HouseholdMember", "Member")
                         .WithMany()
                         .HasForeignKey("MemberId")
@@ -1218,6 +1250,8 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Navigation("Account");
 
                     b.Navigation("BudgetItem");
+
+                    b.Navigation("FeeForTransfer");
 
                     b.Navigation("Member");
 
@@ -1338,6 +1372,8 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("AllotJar.Domain.Entities.Transaction", b =>
                 {
+                    b.Navigation("Fee");
+
                     b.Navigation("JarAllocations");
 
                     b.Navigation("Refunds");

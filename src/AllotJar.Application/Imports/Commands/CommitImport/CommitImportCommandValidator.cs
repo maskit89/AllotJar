@@ -53,6 +53,31 @@ public class CommitImportCommandValidator : AbstractValidator<CommitImportComman
                 .NotNull()
                 .When(i => i.MatchTransferId is not null)
                 .WithMessage("Mark the row as a transfer and choose its account before matching it to a recorded transfer.");
+
+            // A fee is part of a transfer: a debit recorded as one, or a match that states it.
+            item.RuleFor(i => i.Fee)
+                .GreaterThan(0m).WithMessage("A fee must be greater than zero.")
+                .When(i => i.Fee.HasValue);
+            item.RuleFor(i => i.Fee)
+                .Must((i, fee) => i.TransferAccountId is not null && (i.MatchTransferId is not null || !i.IsCredit))
+                .When(i => i.Fee.HasValue)
+                .WithMessage("Only a transfer can carry a fee: a payment out recorded as a transfer, or a match that states it.");
+            item.RuleFor(i => i.Fee)
+                .Must((i, fee) => fee < i.Amount)
+                .When(i => i.Fee.HasValue && i.MatchTransferId is null)
+                .WithMessage("The fee must be less than the amount that left the account.");
+            item.RuleFor(i => i.FeeBudgetItemId)
+                .Null()
+                .When(i => i.Fee is not > 0m)
+                .WithMessage("Choose a line for the fee only when there is a fee.");
+
+            // A returned transfer is confirmed on its own: no line, member, split, jar answer or other transfer.
+            item.RuleFor(i => i)
+                .Must(i => i.IsCredit && i.TransferAccountId is null && i.MatchTransferId is null
+                           && i.BudgetItemId is null && i.MemberId is null && i.Splits is not { Count: > 0 }
+                           && i.JarAllocations is not { Count: > 0 } && i.Fee is null)
+                .When(i => i.ReturnOfTransferId is not null)
+                .WithMessage("Money coming back from a transfer is confirmed on its own, as money received with nothing else chosen.");
         });
 
         // Transfers need to know which account the statement belongs to.

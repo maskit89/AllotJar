@@ -57,8 +57,28 @@ public class TransactionDto
     /// <summary>For a transfer: the destination statement's reference for the credit leg (the source reference is <see cref="BankReference"/>).</summary>
     public string? ReceiptBankReference { get; set; }
 
-    /// <summary>For a transfer: Completed | InTransit | PendingReview, derived from the two bank legs. Null for income/expense rows.</summary>
+    /// <summary>For a transfer: Completed | InTransit | PendingReview | Returned, derived from the bank legs. Null for income/expense rows.</summary>
     public string? TransferStatus { get; set; }
+
+    /// <summary>For a returned transfer: the date the source bank credited the money back, and the source statement's reference for it.</summary>
+    public DateOnly? ReturnedOn { get; set; }
+    public string? ReturnBankReference { get; set; }
+
+    /// <summary>
+    /// For a transfer: which legs a bank statement has confirmed (each carries that bank's
+    /// reference). A confirmed leg keeps the bank's date and amount when the transfer is edited.
+    /// </summary>
+    public bool DepartureConfirmedByStatement { get; set; }
+    public bool ReceiptConfirmedByStatement { get; set; }
+    public bool ReturnConfirmedByStatement { get; set; }
+
+    /// <summary>For a transfer: its explicit fee (what left the source beyond the amount), and the fee's budget line. Null when none.</summary>
+    public decimal? Fee { get; set; }
+    public Guid? FeeBudgetItemId { get; set; }
+    public string? FeeBudgetItemName { get; set; }
+
+    /// <summary>On a fee row: the transfer whose fee it is. The row is changed only through that transfer.</summary>
+    public Guid? FeeForTransferId { get; set; }
 
     /// <summary>
     /// For a refund (rules 38/39): the purchase this money came back from, with enough of it to
@@ -148,6 +168,15 @@ public static class TransactionMapping
         ReceivedOn = t.Type == TransactionType.Transfer ? t.ReceivedOn : null,
         ReceiptBankReference = t.Type == TransactionType.Transfer ? t.ReceiptBankReference : null,
         TransferStatus = t.Type == TransactionType.Transfer ? t.TransferStatus.ToString() : null,
+        ReturnedOn = t.Type == TransactionType.Transfer ? t.ReturnedOn : null,
+        ReturnBankReference = t.Type == TransactionType.Transfer ? t.ReturnBankReference : null,
+        DepartureConfirmedByStatement = t.Type == TransactionType.Transfer && t.BankReference is not null,
+        ReceiptConfirmedByStatement = t.Type == TransactionType.Transfer && t.ReceiptBankReference is not null,
+        ReturnConfirmedByStatement = t.Type == TransactionType.Transfer && t.ReturnBankReference is not null,
+        Fee = t.Fee?.Amount,
+        FeeBudgetItemId = t.Fee?.BudgetItemId,
+        FeeBudgetItemName = t.Fee?.BudgetItem?.Name,
+        FeeForTransferId = t.FeeForTransferId,
         RefundOfTransactionId = t.RefundOfTransactionId,
         RefundOfPayee = t.RefundOf?.Payee,
         RefundOfDate = t.RefundOf?.Date,

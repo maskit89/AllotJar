@@ -73,10 +73,14 @@ public class CreateTransferCommandHandler : IRequestHandler<CreateTransferComman
 
         _db.Transactions.Add(transfer);
 
-        // Rule 74 on the source: the departure must leave it at or above zero on every date.
         await using var write = await _db.BeginLedgerWriteAsync(from.Id, cancellationToken);
+        var fee = await TransferFees.ApplyAsync(
+            _db, userId, transfer, from, request.Fee, request.FeeBudgetItemId, request.AcknowledgeCrossMonth,
+            request.FromJarId, nameof(request.Fee), new List<Guid>(), cancellationToken);
+
+        // Rule 74 on the source: the departure (and its fee) must leave it at or above zero on every date.
         await AccountBalanceGuard.EnsureNonNegativeAsync(
-            _db, new[] { from }, new[] { transfer }, Array.Empty<Guid>(), "Amount", cancellationToken);
+            _db, new[] { from }, fee is null ? new[] { transfer } : new[] { transfer, fee }, Array.Empty<Guid>(), "Amount", cancellationToken);
 
         if (request.FromJarId is not null)
         {
@@ -95,7 +99,7 @@ public class CreateTransferCommandHandler : IRequestHandler<CreateTransferComman
             await write.CommitAsync(cancellationToken);
         }
 
-        return transfer.JarAllocations.Count == 0
+        return transfer.JarAllocations.Count == 0 && fee is null
             ? transfer.ToDto()
             : await TransactionReads.ReadDtoAsync(_db, transfer.Id, cancellationToken);
     }

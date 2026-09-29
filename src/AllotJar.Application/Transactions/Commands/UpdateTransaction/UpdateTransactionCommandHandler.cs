@@ -31,6 +31,7 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             .Include(t => t.Account)
             .Include(t => t.TransferAccount)
             .Include(t => t.Splits)
+            .Include(t => t.Fee)
             .FirstOrDefaultAsync(t => t.Id == request.TransactionId, cancellationToken);
 
         if (transaction is null)
@@ -40,6 +41,10 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         if (transaction.OwnerId != userId)
         {
             throw new ForbiddenAccessException();
+        }
+        if (transaction.FeeForTransferId is not null)
+        {
+            throw TransferFees.ChangedDirectly("TransactionId");
         }
 
         Account? account = null;
@@ -250,6 +255,9 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             transaction.DepartedOn = null;
             transaction.ReceivedOn = null;
             transaction.ReceiptBankReference = null;
+            transaction.ReturnedOn = null;
+            transaction.ReturnBankReference = null;
+            transaction.AllocationKey = null;
         }
         transaction.Account = account;
         transaction.AccountId = account?.Id;
@@ -260,11 +268,18 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         // receiving it (moving an income away, or shrinking it, can leave later payments uncovered),
         // and the destination of a transfer that stops being one — its receipt is what the edit
         // takes away, so the money spent from it since must still be covered.
+        // A transfer's fee goes with the transfer.
+        var removed = new List<Guid>();
+        if (request.Type != TransactionType.Transfer && transaction.Fee is Transaction fee && previousAccount is not null)
+        {
+            await TransferFees.ApplyAsync(
+                _db, userId, transaction, previousAccount, null, null, false, null, "Amount", removed, cancellationToken);
+        }
         var affected = new[] { previousAccount, previousDestination, account }.Where(a => a is not null).Select(a => a!).ToList();
         if (affected.Count > 0)
         {
             await AccountBalanceGuard.EnsureNonNegativeAsync(
-                _db, affected, new[] { transaction }, Array.Empty<Guid>(), "Amount", cancellationToken);
+                _db, affected, new[] { transaction }, removed, "Amount", cancellationToken);
         }
 
         // The jar split of the previous leg no longer describes this row once it changes account

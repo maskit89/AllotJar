@@ -14,4 +14,7 @@ public enum TransferStatus
 
     /// <summary>Receipt is known but departure is not: held for review with no posted effect on either account (rule 72).</summary>
     PendingReview = 2,
+
+    /// <summary>The source bank sent the money back: it left and returned to the source account and never reached the destination.</summary>
+    Returned = 3,
 }

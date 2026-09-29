@@ -4,7 +4,7 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Accounts;
 using AllotJar.Application.Jars;
-using AllotJar.Application.Imports.Commands.ImportStatement;
+using AllotJar.Application.Imports.Models;
 using AllotJar.Application.Transactions;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Domain.Common;
@@ -60,7 +60,15 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         // Transfers the user chose to confirm the other side of. Loaded tracked: matching writes
         // the statement's date and reference onto the open leg instead of inserting a row.
         var matchTargets = await LoadMatchTargetsAsync(
-            request.Items.Select(i => i.MatchTransferId), userId, cancellationToken);
+            request.Items.Select(i => i.MatchTransferId).Concat(request.Items.Select(i => i.ReturnOfTransferId)),
+            userId, cancellationToken);
+        if (request.AccountId is null && request.Items.Any(i => i.ReturnOfTransferId is not null))
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["AccountId"] = new[] { "Choose the account this import belongs to before confirming a returned transfer." },
+            });
+        }
 
         // Whole-row assignments run through the same invariant every other write path uses
         // (direction↔kind, month coherence with the acknowledge escape) — batch-loaded here so a
@@ -86,10 +94,11 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         // ReceiptBankReference. A bank reference reused on a DIFFERENT statement account remains
         // a genuinely distinct transaction, not a duplicate.
         var accountId = request.AccountId;
-        var seen = await StatementReferences.KnownAsync(_db, userId, accountId, cancellationToken);
+        var known = await StatementReferences.KnownAsync(_db, userId, accountId, cancellationToken);
 
-        int imported = 0, skipped = 0, credits = 0, debits = 0, transfers = 0, matched = 0, pendingReview = 0;
+        int imported = 0, skipped = 0, credits = 0, debits = 0, transfers = 0, matched = 0, pendingReview = 0, returned = 0;
         var created = new List<Transaction>();
+        var fees = new List<Transaction>();
         var matchedIds = new HashSet<Guid>();
         var held = new List<ImportHeldRow>();
 
@@ -106,27 +115,66 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                             && (t.AccountId == importAccount.Id
                                 || (t.Type == TransactionType.Transfer && t.TransferAccountId == importAccount.Id)))
                 .ToListAsync(cancellationToken);
-            candidate.AddRange(storedRows.Where(t => !matchTargets.ContainsKey(t.Id)));
+            var trackedFees = matchTargets.Values.Where(t => t.Fee is not null).Select(t => t.Fee!).ToList();
+            var tracked = matchTargets.Keys.Concat(trackedFees.Select(f => f.Id)).ToHashSet();
+            candidate.AddRange(storedRows.Where(t => !tracked.Contains(t.Id)));
             candidate.AddRange(matchTargets.Values);
+            candidate.AddRange(trackedFees);
         }
-        string? Shortfall(Transaction? tentative) =>
+        // The import account's state with the rows accepted so far, plus tentative rows in place of
+        // the one with <paramref name="replacing"/>'s id (a fee about to change).
+        string? Shortfall(Guid? replacing, params Transaction[] tentative) =>
             importAccount is null
                 ? null
                 : AccountBalanceGuard.FirstShortfall(
                     new[] { importAccount },
-                    tentative is null ? candidate : candidate.Append(tentative).ToList());
+                    candidate.Where(t => t.Id != replacing).Concat(tentative).ToList());
 
+        // Rule 74/11 judges each day on its closing balance, so a day's money in is taken before
+        // its money out: a payment is never held only because the file lists it before that
+        // day's deposit.
         var ordered = request.Items
             .Select((item, index) => (item, index))
             .OrderBy(x => x.item.Date)
+            .ThenBy(x => x.item.IsCredit ? 0 : 1)
             .ThenBy(x => x.index)
             .Select(x => x.item);
 
         foreach (var item in ordered)
         {
-            if (!string.IsNullOrEmpty(item.Reference) && !seen.Add(item.Reference))
+            // A reference this account already recorded for the same entry is a duplicate; one
+            // recorded for an entry with different details (a reused reference) is imported under
+            // a derived reference unique to this entry (O1 answer 2).
+            var resolution = known.Resolve(item.Reference, item.Date, item.Amount, item.IsCredit);
+            if (resolution.Duplicate
+                || (resolution.Reference is string taken && !known.Add(taken, item.Date, item.Amount, item.IsCredit)))
             {
                 skipped++;
+                continue;
+            }
+            var reference = resolution.Reference;
+
+            // The bank sent a transfer back: the credit confirms its return to this account, and
+            // the destination never receives it (O1 answer 4).
+            if (item.ReturnOfTransferId is Guid returnId)
+            {
+                var target = ConfirmReturn(item, returnId, importAccount!, matchTargets, matchedIds);
+                var (previousReturned, previousReturnReference) = (target.ReturnedOn, target.ReturnBankReference);
+                target.ReturnedOn = item.Date;
+                target.ReturnBankReference = reference;
+                if (Shortfall(null) is string returnShortfall)
+                {
+                    (target.ReturnedOn, target.ReturnBankReference) = (previousReturned, previousReturnReference);
+                    matchedIds.Remove(returnId);
+                    known.Remove(reference);
+                    held.Add(new ImportHeldRow(item.Reference, returnShortfall));
+                    continue;
+                }
+                if (target.TransferAccountId is Guid neverReached)
+                {
+                    await JarMovements.ClearAsync(_db, target, neverReached, cancellationToken);
+                }
+                returned++;
                 continue;
             }
 
@@ -162,41 +210,83 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 }
                 TransactionInvariants.EnsureAccountCurrency(importAccount, CurrencyCode.From(item.Currency), "Items");
 
-                var reference = string.IsNullOrEmpty(item.Reference) ? null : item.Reference;
-
                 // The user picked a recorded transfer this row is the other side of: attach this
-                // statement's leg to it and apply no second balance movement (rules 8/50/51).
+                // statement's leg to it and apply no second balance movement (rules 8/50/51). A leg
+                // recorded in the app takes the bank's date (rule 69). A difference between what
+                // left and what arrived is the fee the user accepted (O1 answer 5).
                 if (item.MatchTransferId is Guid matchId)
                 {
-                    var target = ConfirmMatch(item, matchId, importAccountId, counterparty, matchTargets, matchedIds);
+                    var (target, newFee) = ConfirmMatch(item, matchId, importAccountId, counterparty, matchTargets, matchedIds);
+                    var before = (target.DepartedOn, target.ReceivedOn, target.BankReference, target.ReceiptBankReference, target.Date, target.Amount);
+                    var oldFee = target.Fee;
                     if (item.IsCredit)
                     {
                         target.ReceivedOn = item.Date;
                         target.ReceiptBankReference = reference;
-                        if (item.JarAllocations is { Count: > 0 })
+                        target.Amount = item.Amount;
+                    }
+                    else
+                    {
+                        target.DepartedOn = item.Date;
+                        target.BankReference = reference;
+                        target.Date = item.Date;
+                    }
+                    // The fee follows the departure; judged here on its new amount and date.
+                    var tentativeFee = newFee is decimal f || oldFee is not null
+                        ? new Transaction
                         {
-                            await JarMovements.ApplyIncomingAsync(
-                                _db, userId, target, importAccount, item.Date, target.Amount, item.JarAllocations, "Items", cancellationToken);
+                            Id = oldFee?.Id ?? Guid.NewGuid(), OwnerId = userId, Type = TransactionType.Expense,
+                            AccountId = target.AccountId, Amount = newFee ?? oldFee!.Amount, Currency = target.Currency,
+                            Date = target.DepartedOn ?? item.Date,
+                        }
+                        : null;
+                    var matchShortfall = tentativeFee is null ? Shortfall(null) : Shortfall(oldFee?.Id, tentativeFee);
+                    if (matchShortfall is not null)
+                    {
+                        (target.DepartedOn, target.ReceivedOn, target.BankReference, target.ReceiptBankReference, target.Date, target.Amount) = before;
+                        matchedIds.Remove(matchId);
+                        known.Remove(reference);
+                        held.Add(new ImportHeldRow(item.Reference, matchShortfall));
+                        continue;
+                    }
+
+                    var sourceAccount = item.IsCredit ? counterpartyAccount : importAccount;
+                    // Where the money left from: the row's answer on a debit; on a credit, the jar
+                    // the departure already names, kept when a fee changes the transfer's amount.
+                    var fromJar = item.IsCredit
+                        ? await DepartureJarAsync(target.Id, sourceAccount.Id, cancellationToken)
+                        : item.PaidFromJarId;
+                    if (newFee is decimal fee)
+                    {
+                        var feeRow = await TransferFees.ApplyAsync(
+                            _db, userId, target, sourceAccount, fee, item.FeeBudgetItemId, item.AcknowledgeCrossMonth, fromJar,
+                            "Items", new List<Guid>(), cancellationToken);
+                        if (oldFee is null && feeRow is not null)
+                        {
+                            fees.Add(feeRow);
+                            candidate.Add(feeRow);
                         }
                     }
                     else
                     {
-                        var (previousDeparted, previousReference, previousDate) = (target.DepartedOn, target.BankReference, target.Date);
-                        target.DepartedOn = item.Date;
-                        target.BankReference = reference;
-                        target.Date = item.Date;
-                        if (Shortfall(null) is string shortfall)
+                        TransferFees.FollowDeparture(target);
+                    }
+
+                    if (item.IsCredit)
+                    {
+                        if (item.JarAllocations is { Count: > 0 } || target.Amount != before.Amount)
                         {
-                            (target.DepartedOn, target.BankReference, target.Date) = (previousDeparted, previousReference, previousDate);
-                            matchedIds.Remove(matchId);
-                            seen.Remove(item.Reference);
-                            held.Add(new ImportHeldRow(item.Reference, shortfall));
-                            continue;
+                            await JarMovements.ApplyIncomingAsync(
+                                _db, userId, target, importAccount, item.Date, target.Amount, item.JarAllocations, "Items", cancellationToken);
                         }
-                        if (item.PaidFromJarId is not null)
+                        if (target.Amount != before.Amount && target.DepartedOn is not null)
                         {
-                            await JarMovements.ApplyOutgoingAsync(_db, userId, target, importAccount, item.PaidFromJarId, "Items", cancellationToken);
+                            await JarMovements.ApplyOutgoingAsync(_db, userId, target, sourceAccount, fromJar, "Items", cancellationToken);
                         }
+                    }
+                    else if (item.PaidFromJarId is not null)
+                    {
+                        await JarMovements.ApplyOutgoingAsync(_db, userId, target, importAccount, item.PaidFromJarId, "Items", cancellationToken);
                     }
                     matched++;
                     transfers++;
@@ -210,10 +300,13 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 var (source, dest) = item.IsCredit
                     ? (counterparty, importAccountId)
                     : (importAccountId, counterparty);
+                // A debit may be split into the transfer and its explicit fee (O1 answer 5): what
+                // arrives is the row less the fee.
+                var rowFee = !item.IsCredit && item.Fee is > 0m ? item.Fee.Value : 0m;
                 var transfer = new Transaction
                 {
                     OwnerId = userId,
-                    Amount = item.Amount,
+                    Amount = item.Amount - rowFee,
                     Currency = CurrencyCode.From(item.Currency),
                     ExchangeRate = 1m,
                     Type = TransactionType.Transfer,
@@ -226,15 +319,31 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     BankReference = item.IsCredit ? null : reference,
                     ReceiptBankReference = item.IsCredit ? reference : null,
                 };
-                if (!item.IsCredit && Shortfall(transfer) is string transferShortfall)
+                var newTransferFee = rowFee > 0m
+                    ? new Transaction
+                    {
+                        OwnerId = userId, Type = TransactionType.Expense, AccountId = source, Amount = rowFee,
+                        Currency = transfer.Currency, Date = item.Date,
+                    }
+                    : null;
+                if (!item.IsCredit
+                    && (newTransferFee is null ? Shortfall(null, transfer) : Shortfall(null, transfer, newTransferFee)) is string transferShortfall)
                 {
-                    seen.Remove(item.Reference);
+                    known.Remove(reference);
                     held.Add(new ImportHeldRow(item.Reference, transferShortfall));
                     continue;
                 }
                 _db.Transactions.Add(transfer);
                 created.Add(transfer);
                 candidate.Add(transfer);
+                if (rowFee > 0m)
+                {
+                    var feeRow = await TransferFees.ApplyAsync(
+                        _db, userId, transfer, importAccount, rowFee, item.FeeBudgetItemId, item.AcknowledgeCrossMonth,
+                        item.PaidFromJarId, "Items", new List<Guid>(), cancellationToken);
+                    fees.Add(feeRow!);
+                    candidate.Add(feeRow!);
+                }
                 if (item.IsCredit)
                 {
                     if (item.JarAllocations is { Count: > 0 })
@@ -277,7 +386,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 Type = type,
                 Date = item.Date,
                 Payee = Truncate(item.Payee, 200),
-                BankReference = string.IsNullOrEmpty(item.Reference) ? null : item.Reference,
+                BankReference = reference,
                 AccountId = request.AccountId,
                 // A split transaction carries no whole-row line/member — the slices do.
                 BudgetItemId = isSplit ? null : item.BudgetItemId,
@@ -307,9 +416,9 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 }
             }
 
-            if (!item.IsCredit && Shortfall(transaction) is string rowShortfall)
+            if (!item.IsCredit && Shortfall(null, transaction) is string rowShortfall)
             {
-                seen.Remove(item.Reference);
+                known.Remove(reference);
                 held.Add(new ImportHeldRow(item.Reference, rowShortfall));
                 continue;
             }
@@ -335,9 +444,9 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             if (item.IsCredit) credits++; else debits++;
         }
 
-        if (created.Count > 0 || matched > 0)
+        if (created.Count > 0 || matched > 0 || returned > 0)
         {
-            await FxRateResolver.ApplyAsync(_db, _exchangeRates, userId, created, cancellationToken);
+            await FxRateResolver.ApplyAsync(_db, _exchangeRates, userId, created.Concat(fees).ToList(), cancellationToken);
 
             // The dedup snapshot above is per-request memory; a CONCURRENT commit (double-click,
             // second device, another login in the household) can insert the same references after
@@ -360,6 +469,11 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
 
                     foreach (var row in collided)
                     {
+                        if (row.Fee is Transaction collidedFee)
+                        {
+                            _db.JarAllocations.RemoveRange(collidedFee.JarAllocations);
+                            _db.Transactions.Remove(collidedFee);
+                        }
                         _db.JarAllocations.RemoveRange(row.JarAllocations); // Added entities: Remove detaches them
                         _db.Transactions.Remove(row); // an Added entity: Remove detaches it
                         created.Remove(row);
@@ -374,7 +488,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                         else debits--;
                     }
 
-                    if (created.Count == 0 && matched == 0)
+                    if (created.Count == 0 && matched == 0 && returned == 0)
                     {
                         break; // everything we had was already imported by the other commit
                     }
@@ -399,15 +513,19 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             Transfers: transfers,
             MatchedTransfers: matched,
             PendingReviewTransfers: pendingReview,
-            Held: held);
+            Held: held,
+            Returned: returned);
     }
 
     /// <summary>
     /// The user-selected transfer must genuinely be the other side of this row: same two
-    /// accounts in this row's direction, same amount and currency, and its leg for the statement
-    /// account still open. Anything else is a mismatch to surface, never something to guess past.
+    /// accounts in this row's direction, same currency, its leg for the statement account open
+    /// to a statement (unknown, or recorded in the app without that bank's reference), and the
+    /// amounts agreeing, or differing by a fee the row states explicitly (O1 answer 5). Anything
+    /// else is a mismatch to surface, never something to guess past. Returns the transfer and
+    /// its new fee when the match changes it.
     /// </summary>
-    private static Transaction ConfirmMatch(
+    private static (Transaction Target, decimal? NewFee) ConfirmMatch(
         CommitImportItem item, Guid matchId, Guid importAccountId, Guid counterparty,
         IReadOnlyDictionary<Guid, Transaction> targets, HashSet<Guid> matchedIds)
     {
@@ -423,17 +541,41 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         {
             errors.Add("it moves between different accounts");
         }
-        if (target.Amount != item.Amount || !string.Equals(target.Currency.Value, item.Currency, StringComparison.OrdinalIgnoreCase))
-        {
-            errors.Add($"its amount is {target.Currency.Value} {target.Amount:0.####}, not {item.Currency} {item.Amount:0.####}");
-        }
+        decimal? newFee = null;
+        var candidate = target.AccountId is null || target.TransferAccountId is null
+            ? null
+            : StatementReferences.CandidateFor(target, importAccountId, item.IsCredit, item.Amount, item.Currency, item.Date, null);
         if (!StatementReferences.IsOpenFor(target, importAccountId, item.IsCredit))
         {
-            errors.Add(item.IsCredit ? "its receipt is already confirmed" : "its departure is already confirmed");
+            errors.Add(item.IsCredit
+                ? target.ReturnedOn is not null ? "it was sent back, so it has no receipt" : "its receipt is already confirmed by a statement"
+                : "its departure is already confirmed by a statement");
+        }
+        else if (candidate is null || candidate.Kind != TransferMatchKinds.Match)
+        {
+            var fee = target.Fee?.Amount ?? 0m;
+            errors.Add(!string.Equals(target.Currency.Value, item.Currency, StringComparison.OrdinalIgnoreCase)
+                ? $"it is in {target.Currency.Value}, not {item.Currency}"
+                : item.IsCredit
+                    ? $"{target.Amount:0.####} {target.Currency.Value} was sent, less than the {item.Amount:0.####} received"
+                    : $"its amount is {target.Currency.Value} {target.Amount + fee:0.####}, more than the {item.Currency} {item.Amount:0.####} that left");
+        }
+        else if (candidate.Fee is decimal fee)
+        {
+            // The difference is a fee only when the user says so, with the exact figure.
+            if (item.Fee != fee)
+            {
+                errors.Add($"what left and what arrived differ by {fee:0.####} {target.Currency.Value}; confirm that fee to match it");
+            }
+            newFee = fee;
+        }
+        else if (item.Fee is > 0m && item.Fee != target.Fee?.Amount)
+        {
+            errors.Add("the amounts already agree, so there is no fee to record");
         }
         if (!matchedIds.Add(matchId))
         {
-            errors.Add("another row in this import already confirms the same leg");
+            errors.Add("another row in this import already confirms the same transfer");
         }
         if (errors.Count > 0)
         {
@@ -445,8 +587,53 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 },
             });
         }
+        return (target, newFee);
+    }
+
+    /// <summary>
+    /// The user-selected transfer must genuinely be coming back to this account: it left this
+    /// account, was never received, no statement confirmed a return yet, and the amount, currency
+    /// and date (not before it left) agree.
+    /// </summary>
+    private static Transaction ConfirmReturn(
+        CommitImportItem item, Guid transferId, Account importAccount,
+        IReadOnlyDictionary<Guid, Transaction> targets, HashSet<Guid> matchedIds)
+    {
+        if (!targets.TryGetValue(transferId, out var target))
+        {
+            throw new NotFoundException($"Transfer {transferId} was not found.");
+        }
+        var candidate = target.AccountId is null || target.TransferAccountId is null
+            ? null
+            : StatementReferences.CandidateFor(target, importAccount.Id, true, item.Amount, item.Currency, item.Date, null);
+        string? error = !StatementReferences.IsReturnableTo(target, importAccount.Id)
+            ? target.AccountId != importAccount.Id ? "it did not leave this account"
+                : target.DepartedOn is null ? "its departure is not known yet"
+                : target.ReceivedOn is not null ? "it was received"
+                : "its return is already confirmed by a statement"
+            : candidate is not { Kind: TransferMatchKinds.Return }
+                ? item.Date < target.DepartedOn!.Value
+                    ? "the money can't come back before it left"
+                    : $"its amount is {target.Currency.Value} {target.Amount:0.####}, not {item.Currency} {item.Amount:0.####}"
+                : !matchedIds.Add(transferId) ? "another row in this import already confirms it" : null;
+        if (error is not null)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["Items"] = new[] { $"'{item.Payee}' can't confirm the selected transfer came back: {error}." },
+            });
+        }
         return target;
     }
+
+    /// <summary>The jar a transfer's departure is recorded as drawing from on the source account, if any.</summary>
+    private async Task<Guid?> DepartureJarAsync(Guid transferId, Guid sourceId, CancellationToken cancellationToken) =>
+        await _db.JarAllocationPostings
+            .AsNoTracking()
+            .Where(p => p.JarAllocation.TransactionId == transferId && p.JarAllocation.AccountId == sourceId
+                        && p.JarId != null && p.Amount < 0m)
+            .Select(p => p.JarId)
+            .FirstOrDefaultAsync(cancellationToken);
 
     /// <summary>
     /// True when the save failed on one of the unique statement-reference indexes. Matched by index
@@ -454,7 +641,8 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
     /// </summary>
     private static bool IsReferenceCollision(DbUpdateException ex) =>
         ex.InnerException?.Message.Contains("IX_Transactions_OwnerId_AccountId_BankReference", StringComparison.Ordinal) == true
-        || ex.InnerException?.Message.Contains("IX_Transactions_OwnerId_TransferAccountId_ReceiptBankReference", StringComparison.Ordinal) == true;
+        || ex.InnerException?.Message.Contains("IX_Transactions_OwnerId_TransferAccountId_ReceiptBankReference", StringComparison.Ordinal) == true
+        || ex.InnerException?.Message.Contains("IX_Transactions_OwnerId_AccountId_ReturnBankReference", StringComparison.Ordinal) == true;
 
     /// <summary>
     /// The created rows whose statement reference another commit persisted first. Each row is
@@ -551,6 +739,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             return new Dictionary<Guid, Transaction>();
         }
         var transfers = await _db.Transactions
+            .Include(t => t.Fee)
             .Where(t => ids.Contains(t.Id))
             .ToListAsync(ct);
         foreach (var id in ids)
@@ -603,6 +792,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
     private static IEnumerable<Guid?> BudgetItemIds(CommitImportItem item)
     {
         yield return item.BudgetItemId;
+        yield return item.FeeBudgetItemId;
         if (item.Splits is not null)
         {
             foreach (var slice in item.Splits)

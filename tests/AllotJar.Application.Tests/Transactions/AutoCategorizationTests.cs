@@ -2,7 +2,6 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 using AllotJar.Application.Common.Interfaces;
-using AllotJar.Application.Imports.Commands.ImportStatement;
 using AllotJar.Application.Transactions;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Domain.Entities;
@@ -231,38 +230,6 @@ public class AutoCategorizationTests
             CancellationToken.None);
 
         dto.BudgetItemId.Should().Be(dining.Id); // explicit choice wins
-    }
-
-    // --- Import integration --------------------------------------------------
-
-    [Fact]
-    public async Task Import_InheritsLineFromAPriorTransactionWithTheSameDescription()
-    {
-        await using var db = NewContext();
-        // The CAMT.053 sample's rent entry: payee "Landlord GmbH", ref REF-RENT-001.
-        var rent = new BudgetItem { Name = "Rent", PlannedAmount = 1100m };
-        db.BudgetMonths.Add(new BudgetMonth
-        {
-            OwnerId = "user-1",
-            Year = 2026,
-            Month = 6,
-            Categories = new List<BudgetCategory>
-            {
-                new() { Name = "Housing", Items = new List<BudgetItem> { rent } },
-            },
-        });
-        await db.SaveChangesAsync();
-        SeedAssignedTransaction(db, "user-1", "Landlord GmbH", rent.Id, new DateOnly(2026, 5, 1));
-
-        var handler = new ImportStatementCommandHandler(
-            db, new CurrentUserStub("user-1"), new[] { new Camt053StatementParser() }, new FakeExchangeRateProvider());
-        var result = await handler.Handle(new ImportStatementCommand(Camt053Samples.ThreeEntries), CancellationToken.None);
-
-        result.Imported.Should().Be(3);
-        result.AutoCategorized.Should().Be(1); // only the rent entry matched a prior description
-
-        var rentTx = await db.Transactions.SingleAsync(t => t.BankReference == "REF-RENT-001");
-        rentTx.BudgetItemId.Should().Be(rent.Id);
     }
 
     // --- Direction- and date-awareness (2026-07-22 re-review F4) ------------------------

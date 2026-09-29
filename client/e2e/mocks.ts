@@ -158,17 +158,36 @@ function accountReconciliation() {
   ]
 }
 
-// Two not-yet-imported rows so the import review table renders (checkboxes, per-row
+// Not-yet-imported rows so the import review table renders (checkboxes, per-row
 // category/member selects, bulk controls). A `layout` is included so the generic-CSV mapping
 // panel — column selects, the sample-rows table, delimiter/date-format controls and the
-// detected-format readout — is covered by the a11y + mobile-overflow scans too.
+// detected-format readout — is covered by the a11y + mobile-overflow scans too. W07: WOLT has
+// recorded-transfer candidates (one with a fee, the same bank reference and an app-recorded
+// date), a credit could be a transfer coming back, and one row reuses a known bank reference
+// (flagged and unticked).
 function importPreview() {
   return {
-    totalEntries: 3, newCount: 2, skippedDuplicates: 1, credits: 0, debits: 2,
+    totalEntries: 5, newCount: 4, skippedDuplicates: 1, credits: 1, debits: 3,
     detectedFormat: 'GenericCsv',
     items: [
       { reference: 'csv:a#0', date: '2026-06-17', payee: 'AUTOMARKET', amount: 35, currency: 'EUR', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: 'Rent', likelyTransfer: false },
-      { reference: 'csv:b#0', date: '2026-06-15', payee: 'WOLT', amount: 80.9, currency: 'EUR', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: null, likelyTransfer: true },
+      {
+        reference: 'csv:b#0', date: '2026-06-15', payee: 'WOLT', amount: 80.9, currency: 'EUR', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: null, likelyTransfer: true,
+        transferMatches: [
+          { transferId: 'tr-fee', counterpartyAccountId: 'acc1', counterpartyAccountName: 'Savings Joint', amount: 78.9, currency: 'EUR', departedOn: '2026-06-14', receivedOn: null, payee: 'Transfer', kind: 'Match', fee: 2, recordedDate: '2026-06-14', sameReference: true },
+          { transferId: 'tr-plain', counterpartyAccountId: 'acc1', counterpartyAccountName: 'Savings Joint', amount: 80.9, currency: 'EUR', departedOn: null, receivedOn: '2026-06-16', payee: 'Transfer', kind: 'Match', fee: null, recordedDate: null, sameReference: false },
+        ],
+      },
+      {
+        reference: 'csv:c#0', date: '2026-06-18', payee: 'SEPA RETURN', amount: 200, currency: 'EUR', isCredit: true, suggestedBudgetItemId: null, suggestedBudgetItemName: null, likelyTransfer: false,
+        transferMatches: [
+          { transferId: 'tr-ret', counterpartyAccountId: 'acc1', counterpartyAccountName: 'Savings Joint', amount: 200, currency: 'EUR', departedOn: '2026-06-12', receivedOn: null, payee: 'Transfer', kind: 'Return', fee: null, recordedDate: null, sameReference: false },
+        ],
+      },
+      {
+        reference: 'csv:d#0~2', date: '2026-06-19', payee: 'CARD PAYMENT', amount: 15, currency: 'EUR', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: null, likelyTransfer: false,
+        reusedReference: { date: '2026-05-19', amount: 12, isCredit: false },
+      },
     ],
     layout: {
       columns: ['Date', 'Description', 'Amount'],
@@ -190,6 +209,7 @@ function importPreview() {
 // and an income — exercising the badges, dropdowns and row action buttons.
 function transactions() {
   const base = { currency: 'EUR', exchangeRate: 1, bankReference: null, transferAccountId: null, transferAccountName: null, memberId: null, memberName: null }
+  const transferFields = { returnedOn: null, returnBankReference: null, fee: null, feeBudgetItemId: null, feeBudgetItemName: null, departureConfirmedByStatement: false, receiptConfirmedByStatement: false, returnConfirmedByStatement: false }
   return [
     { ...base, id: 't1', date: '2026-06-20', payee: 'Welbees Supermarket', amount: 64.5, baseAmount: 64.5, type: 0, budgetItemId: 'i-rent', budgetItemName: 'Rent', accountId: 'acc0', accountName: 'Joint Current', isSplit: false, splits: [] },
     { ...base, id: 't2', date: '2026-06-19', payee: 'Unknown Shop', amount: 12, baseAmount: 12, type: 0, budgetItemId: null, budgetItemName: null, accountId: 'acc0', accountName: 'Joint Current', isSplit: false, splits: [] },
@@ -198,7 +218,13 @@ function transactions() {
         { id: 's1', budgetItemId: 'i-rent', budgetItemName: 'Rent', memberId: null, memberName: null, amount: 30 },
         { id: 's2', budgetItemId: 'i-car', budgetItemName: 'Car', memberId: null, memberName: null, amount: 20 },
       ] },
-    { ...base, id: 't4', date: '2026-06-17', payee: 'Move to savings', amount: 200, baseAmount: 200, type: 2, budgetItemId: null, budgetItemName: null, accountId: 'acc0', accountName: 'Joint Current', transferAccountId: 'acc1', transferAccountName: 'Savings Joint', isSplit: false, splits: [] },
+    { ...base, id: 't4', date: '2026-06-17', payee: 'Move to savings', amount: 200, baseAmount: 200, type: 2, budgetItemId: null, budgetItemName: null, accountId: 'acc0', accountName: 'Joint Current', transferAccountId: 'acc1', transferAccountName: 'Savings Joint', isSplit: false, splits: [],
+      ...transferFields, departedOn: '2026-06-17', receivedOn: '2026-06-17', transferStatus: 'Completed', fee: 2, feeBudgetItemId: 'i-rent', feeBudgetItemName: 'Rent', departureConfirmedByStatement: true },
+    // W07: the fee row of t4 (edited through its transfer; it can only be put on a line).
+    { ...base, id: 't6', date: '2026-06-17', payee: 'Transfer fee', amount: 2, baseAmount: 2, type: 0, budgetItemId: 'i-rent', budgetItemName: 'Rent', accountId: 'acc0', accountName: 'Joint Current', isSplit: false, splits: [], feeForTransferId: 't4' },
+    // W07: a transfer the bank sent back (the Returned badge).
+    { ...base, id: 't7', date: '2026-06-12', payee: 'Sent back', amount: 150, baseAmount: 150, type: 2, budgetItemId: null, budgetItemName: null, accountId: 'acc0', accountName: 'Joint Current', transferAccountId: 'acc1', transferAccountName: 'Savings Joint', isSplit: false, splits: [],
+      ...transferFields, departedOn: '2026-06-12', receivedOn: null, returnedOn: '2026-06-15', transferStatus: 'Returned' },
     { ...base, id: 't5', date: '2026-06-16', payee: 'Acme Payroll', amount: 3000, baseAmount: 3000, type: 1, budgetItemId: 'i-pay', budgetItemName: 'Take-home Pay', accountId: 'acc0', accountName: 'Joint Current', isSplit: false, splits: [] },
   ]
 }
@@ -306,6 +332,8 @@ export async function mockApi(route: Route) {
   if (path === '/auth/me') return json(meResponse())
   if (path === '/access/members') return json(memberships())
   if (path === '/transactions') return json(transactions())
+  // W07: editing a transfer in place answers with the (updated) transfer.
+  if (/^\/transactions\/[^/]+\/transfer$/.test(path)) return json(transactions().find((t) => t.id === 't4'))
   if (path === '/import/preview') return json(importPreview())
   if (path === '/budget/current') return json(budgetMonth(2026, 6))
   if (/^\/budget\/\d+\/\d+$/.test(path)) {

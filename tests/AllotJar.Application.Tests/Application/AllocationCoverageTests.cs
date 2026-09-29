@@ -96,7 +96,7 @@ public class AllocationCoverageTests
 
     /// <summary>A transfer moving <paramref name="amount"/> INTO <paramref name="intoAccount"/>.</summary>
     private static void SeedTransferInto(
-        ApplicationDbContext db, Guid intoAccount, decimal amount, string? bankRef)
+        ApplicationDbContext db, Guid intoAccount, decimal amount, string? allocationKey)
     {
         // A readable transfer has two accounts and a confirmed bank leg per side; the dated
         // ledger ignores a half-movement rather than crediting it.
@@ -106,7 +106,7 @@ public class AllocationCoverageTests
             OwnerId = Owner, Type = TransactionType.Transfer, Date = new DateOnly(2026, 7, 1),
             DepartedOn = new DateOnly(2026, 7, 1), ReceivedOn = new DateOnly(2026, 7, 1),
             Amount = amount, Currency = CurrencyCode.Eur, ExchangeRate = 1m,
-            AccountId = elsewhere.Id, TransferAccountId = intoAccount, BankReference = bankRef, Payee = "prior transfer",
+            AccountId = elsewhere.Id, TransferAccountId = intoAccount, AllocationKey = allocationKey, Payee = "prior transfer",
         });
         db.SaveChanges();
     }
@@ -266,7 +266,7 @@ public class AllocationCoverageTests
     }
 
     // ALLOC-047 — the savings balances that feed the balance tilt must EXCLUDE this month's own
-    // allocation transfers (BankReference prefix "alloc:{year}-{month}:") so preview == a re-commit
+    // allocation transfers (allocation key prefix "alloc:{year}-{month}:") so preview == a re-commit
     // view; ordinary (non-alloc) transfers still count.
     [Fact]
     public async Task Preview_SavingsBalanceForTilt_ExcludesThisMonthsAllocationTransfers()
@@ -280,9 +280,9 @@ public class AllocationCoverageTests
         SeedBudget(db, 2026, 7, envelopes: 2000m, funds: 500m);
 
         // This month's own allocation transfer INTO Alex's savings — must be excluded from the tilt.
-        SeedTransferInto(db, chrisSavings.Id, amount: 500m, bankRef: "alloc:2026-7:someone");
+        SeedTransferInto(db, chrisSavings.Id, amount: 500m, allocationKey: "alloc:2026-7:someone");
         // An ordinary transfer INTO Alex's savings — must be included.
-        SeedTransferInto(db, chrisSavings.Id, amount: 200m, bankRef: null);
+        SeedTransferInto(db, chrisSavings.Id, amount: 200m, allocationKey: null);
 
         await Upsert(db, user, StandardRules(savingsSplit: SplitMethod.BalanceTilt));
 
@@ -451,8 +451,9 @@ public class AllocationCoverageTests
         transfer.ExchangeRate.Should().Be(1m);
         transfer.AccountId.Should().Be(source.Id);
         transfer.TransferAccountId.Should().Be(chrisSavings.Id);
-        transfer.BankReference.Should().Be($"alloc:2026-7:{alex.Id}");
-        transfer.BankReference.Should().NotContain("2026-07"); // month not zero-padded
+        transfer.AllocationKey.Should().Be($"alloc:2026-7:{alex.Id}");
+        transfer.AllocationKey.Should().NotContain("2026-07"); // month not zero-padded
+        transfer.BankReference.Should().BeNull("no bank statement has confirmed the departure yet");
     }
 
     // A member's savings account in a different currency than the source is rejected — an allocation
@@ -494,7 +495,7 @@ public class AllocationCoverageTests
             OwnerId = Owner, Type = TransactionType.Transfer, Date = new DateOnly(2026, 7, 1),
             DepartedOn = new DateOnly(2026, 7, 1),
             Amount = 75m, Currency = gbp, AccountId = source.Id, TransferAccountId = savings.Id,
-            BankReference = $"alloc:2026-7:{member.Id}", Payee = "Existing allocation",
+            AllocationKey = $"alloc:2026-7:{member.Id}", Payee = "Existing allocation",
         };
         db.Transactions.Add(prior);
         await db.SaveChangesAsync();

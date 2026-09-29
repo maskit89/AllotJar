@@ -19,6 +19,7 @@ import type {
   CreateTransferRequest,
   HouseholdMemberDto,
   TransactionDto,
+  UpdateTransferRequest,
 } from '../types'
 import { TransactionType } from '../types'
 import { formatMoney, formatPlain, fromAmount, parseMinor, sumMinor, toAmount, toEditString } from '../lib/money'
@@ -111,6 +112,16 @@ function jarSplitLabels(t: TransactionDto): string[] {
   return labels
 }
 
+/** The yyyy-MM key of a budget month, to compare against a date's first seven characters. */
+function monthKeyOf(m: BudgetMonthDto): string {
+  return `${m.year}-${String(m.month).padStart(2, '0')}`
+}
+
+/** A short hint beside a transfer form field whose value came from a bank statement. */
+function StatementLockHint() {
+  return <span className="font-normal text-slate-500">Confirmed by the bank statement</span>
+}
+
 export function TransactionsPage() {
   const features = useFeatures()
   // Recording/editing transactions is day-to-day entry (Limited+); importing needs Admin+.
@@ -159,6 +170,16 @@ export function TransactionsPage() {
   const [tTo, setTTo] = useState('')
   const [tPayee, setTPayee] = useState('')
   const [transferring, setTransferring] = useState(false)
+  // An optional fee on top of the transfer: extra money leaving the source on the departure
+  // date, recorded as its own row on the chosen budget line ('' = uncategorised).
+  const [tFee, setTFee] = useState('')
+  const [tFeeLine, setTFeeLine] = useState('')
+  // Editing a recorded transfer reuses the same form (PUT /transactions/{id}/transfer); null
+  // while recording a new one. tReturned is the date the bank sent the money back, if it did.
+  const [editingTransfer, setEditingTransfer] = useState<TransactionDto | null>(null)
+  const [tReturned, setTReturned] = useState('')
+  // Budget months other than the loaded one, fetched for a fee dated in them (null = none).
+  const [feeMonths, setFeeMonths] = useState<Record<string, BudgetMonthDto | null>>({})
 
   // Inline leg confirmation on a transfer row: the receipt date for an in-transit transfer, or
   // the departure date for a receipt held for review.
@@ -271,6 +292,39 @@ export function TransactionsPage() {
   const tFromJars = activeJars(tFromLedger)
   const tToLedger = ledgerOf(tTo)
   const tToJars = activeJars(tToLedger)
+  // The fee is dated the departure date, so its line picker offers that month's lines: the
+  // loaded month when the date falls in it, otherwise that month fetched on demand (the loaded
+  // month stands in while it loads or when it has no budget; the cross-month prompt covers it).
+  const tFeeMinor = tFee.trim() ? parseMinor(tFee) : null
+  const tHasFee = tFeeMinor !== null && tFeeMinor > 0
+  const feeMonthKey = /^\d{4}-\d{2}/.test(tDate) ? tDate.slice(0, 7) : ''
+  const feeMonthIsLoaded = !!month && feeMonthKey === monthKeyOf(month)
+  const feeMonthWanted = showAdd && mode === 'transfer' && tHasFee && !!feeMonthKey && !feeMonthIsLoaded
+  useEffect(() => {
+    if (!feeMonthWanted || feeMonthKey in feeMonths) return
+    let cancelled = false
+    const [year, monthNum] = feeMonthKey.split('-').map(Number)
+    api
+      .get<BudgetMonthDto>(`/budget/${year}/${monthNum}`)
+      .then(({ data }) => {
+        if (cancelled) return
+        const loaded = data && Array.isArray(data.categories) ? data : null
+        setFeeMonths((prev) => ({ ...prev, [feeMonthKey]: loaded }))
+      })
+      // No budget for that month yet (404): the loaded month's lines stand in.
+      .catch(() => !cancelled && setFeeMonths((prev) => ({ ...prev, [feeMonthKey]: null })))
+    return () => {
+      cancelled = true
+    }
+  }, [feeMonthWanted, feeMonthKey, feeMonths])
+  const feeMonth = feeMonthIsLoaded || !feeMonthKey ? month : (feeMonths[feeMonthKey] ?? month)
+  const feeLineOptions = buildItemOptions(feeMonth, TransactionType.Expense)
+  // The legs a bank statement confirmed keep the bank's date and amount (edit only).
+  const departureLocked = !!editingTransfer?.departureConfirmedByStatement
+  const receiptLocked = !!editingTransfer?.receiptConfirmedByStatement
+  const returnLocked = !!editingTransfer?.returnConfirmedByStatement
+  // "Returned on" applies only to a transfer that departed and was never received.
+  const returnApplies = !!editingTransfer && !!tDate && !tReceived
 
   useEffect(() => {
     let cancelled = false
@@ -293,6 +347,15 @@ export function TransactionsPage() {
     return () => {
       cancelled = true
     }
+  }, [])
+
+  /** Re-read the register, for a write that changes more than the one row it returns (a transfer's fee row). */
+  const reloadTransactions = useCallback(() => {
+    api
+      .get<TransactionDto[]>('/transactions')
+      .then(({ data }) => Array.isArray(data) && setTransactions(data))
+      // The row the write returned is already shown; a failed refresh only leaves the fee row stale.
+      .catch(() => {})
   }, [])
 
   const assign = useCallback(
@@ -429,7 +492,60 @@ export function TransactionsPage() {
     addIncomeJarsApply, addJarAlloc, addPaidFromApplies, addPaidFrom, resetAddJarPrompts, reloadLedgers,
   ])
 
-  const addTransfer = useCallback(async () => {
+  /** Back to a blank transfer form (after editing a transfer, whose values must not linger). */
+  function resetTransferForm() {
+    setEditingTransfer(null)
+    setTDate(today())
+    setTReceived('')
+    setTReturned('')
+    setTConfirmed(false)
+    setTAmount('')
+    setTFrom('')
+    setTTo('')
+    setTPayee('')
+    setTFee('')
+    setTFeeLine('')
+    setTFromJar(PAID_FROM_UNALLOCATED)
+    setTJarAlloc({})
+  }
+
+  /** Close the add/transfer modal; an edit in progress is dropped. */
+  function closeAddModal() {
+    setShowAdd(false)
+    resetAddSplit()
+    if (editingTransfer) resetTransferForm()
+  }
+
+  /** Open the transfer form pre-filled with a recorded transfer, to edit it in place. */
+  function startTransferEdit(t: TransactionDto) {
+    setEditingId(null)
+    cancelSplit()
+    setLegId(null)
+    setError(null)
+    setEditingTransfer(t)
+    setMode('transfer')
+    setTDate(t.departedOn ?? '')
+    setTReceived(t.receivedOn ?? '')
+    setTReturned(t.returnedOn ?? '')
+    setTAmount(toEditString(fromAmount(t.amount)))
+    setTFrom(t.accountId ?? '')
+    setTTo(t.transferAccountId ?? '')
+    setTPayee(t.payee)
+    setTFee(t.fee != null ? toEditString(fromAmount(t.fee)) : '')
+    setTFeeLine(t.feeBudgetItemId ?? '')
+    // The edit re-answers the jar questions, so pre-fill them from the stored split (an omitted
+    // answer would return that leg to its default on save).
+    setTFromJar(paidFromJarOf(t.jarAllocations, t.accountId, new Set()) ?? PAID_FROM_UNALLOCATED)
+    setTJarAlloc(fromJarAllocations(incomingAllocationsOf(t.jarAllocations, t.transferAccountId)))
+    setShowAdd(true)
+  }
+
+  /**
+   * Record a new transfer, or save the one being edited. A plain function (not memoised) so the
+   * cross-month prompt can re-run it acknowledged, as the other forms do.
+   */
+  async function submitTransfer(acknowledgeCrossMonth = false) {
+    const editing = editingTransfer
     const minor = parseMinor(tAmount)
     if (minor === null || minor <= 0) {
       setError('Enter a valid transfer amount greater than zero.')
@@ -443,48 +559,102 @@ export function TransactionsPage() {
       setError('A transfer needs two different accounts.')
       return
     }
-    if (tReceived && tReceived < tDate) {
+    if (tReceived && tDate && tReceived < tDate) {
       setError('The receipt date can’t be before the departure date.')
       return
     }
-    if (!tConfirmed) {
+    const returnedOn = returnApplies ? tReturned || null : null
+    if (returnedOn && returnedOn < tDate) {
+      setError('The return date can’t be before the departure date.')
+      return
+    }
+    if (tFee.trim() && !tHasFee) {
+      setError('Enter a valid fee greater than zero, or leave it blank.')
+      return
+    }
+    if (tHasFee && !tDate) {
+      setError('A fee needs the date the money left the source account.')
+      return
+    }
+    if (!editing && !tConfirmed) {
       setError('Confirm that you’ve completed this transfer before recording it.')
       return
     }
+    const fee = tHasFee ? toAmount(tFeeMinor as number) : null
+    const feeBudgetItemId = tHasFee ? tFeeLine || null : null
     setTransferring(true)
     setError(null)
     try {
-      const body: CreateTransferRequest = {
-        departedOn: tDate,
-        receivedOn: tReceived || null,
-        amount: toAmount(minor),
-        fromAccountId: tFrom,
-        toAccountId: tTo,
-        payee: tPayee || null,
+      if (editing) {
+        // An edit replaces the transfer, so every field is sent, the jar answers included
+        // (null returns a leg to its default).
+        const body: UpdateTransferRequest = {
+          fromAccountId: tFrom,
+          toAccountId: tTo,
+          amount: toAmount(minor),
+          departedOn: tDate || null,
+          receivedOn: tReceived || null,
+          returnedOn,
+          payee: tPayee || null,
+          fee,
+          feeBudgetItemId,
+          acknowledgeCrossMonth,
+          fromJarId: tFromJars.length > 0 && tDate ? tFromJar || null : null,
+          jarAllocations: tToJars.length > 0 && tReceived ? toJarAllocations(tJarAlloc) : null,
+        }
+        const { data } = await api.put<TransactionDto>(`/transactions/${editing.id}/transfer`, body)
+        setTransactions((prev) => prev.map((x) => (x.id === editing.id ? data : x)))
+        track(EVENTS.transactionEdited)
+        resetTransferForm()
+      } else {
+        const body: CreateTransferRequest = {
+          departedOn: tDate,
+          receivedOn: tReceived || null,
+          amount: toAmount(minor),
+          fromAccountId: tFrom,
+          toAccountId: tTo,
+          payee: tPayee || null,
+        }
+        // Rule 80: a transfer out of a jar-backed account may say which jar it leaves (null =
+        // unallocated); rule 78: a receipt already dated into one says how it is divided.
+        if (tFromJars.length > 0) body.fromJarId = tFromJar || null
+        if (tToJars.length > 0 && tReceived) {
+          const rows = toJarAllocations(tJarAlloc)
+          if (rows.length > 0) body.jarAllocations = rows
+        }
+        if (fee !== null) {
+          body.fee = fee
+          body.feeBudgetItemId = feeBudgetItemId
+        }
+        if (acknowledgeCrossMonth) body.acknowledgeCrossMonth = true
+        const { data } = await api.post<TransactionDto>('/transactions/transfer', body)
+        setTransactions((prev) => [data, ...prev])
+        track(EVENTS.transferCreated)
+        setTAmount('')
+        setTPayee('')
+        setTReceived('')
+        setTConfirmed(false)
+        setTFee('')
+        setTFeeLine('')
+        resetAddJarPrompts()
       }
-      // Rule 80: a transfer out of a jar-backed account may say which jar it leaves (null =
-      // unallocated); rule 78: a receipt already dated into one says how it is divided.
-      if (tFromJars.length > 0) body.fromJarId = tFromJar || null
-      if (tToJars.length > 0 && tReceived) {
-        const rows = toJarAllocations(tJarAlloc)
-        if (rows.length > 0) body.jarAllocations = rows
-      }
-      const { data } = await api.post<TransactionDto>('/transactions/transfer', body)
-      setTransactions((prev) => [data, ...prev])
       reloadLedgers()
-      track(EVENTS.transferCreated)
-      setTAmount('')
-      setTPayee('')
-      setTReceived('')
-      setTConfirmed(false)
-      resetAddJarPrompts()
+      // A fee is its own row: reload the register so it appears (or updates) beside the transfer.
+      if (fee !== null || editing?.fee != null) reloadTransactions()
       setShowAdd(false)
+      setCrossMonthPrompt(null)
     } catch (err) {
-      setError(serverErrors(err) ?? 'Could not record that transfer.')
+      // A fee put on a line in another month than its date is the same confirmable choice.
+      const crossMonth = crossMonthError(err)
+      if (crossMonth && !acknowledgeCrossMonth) {
+        setCrossMonthPrompt({ message: crossMonth, retry: () => submitTransfer(true) })
+      } else {
+        setError(serverErrors(err) ?? (editing ? 'Could not save that transfer.' : 'Could not record that transfer.'))
+      }
     } finally {
       setTransferring(false)
     }
-  }, [tDate, tReceived, tConfirmed, tAmount, tFrom, tTo, tPayee, tFromJars, tFromJar, tToJars, tJarAlloc, resetAddJarPrompts, reloadLedgers])
+  }
 
   /** Confirm the bank leg a transfer is still missing (never rewrites a confirmed one). */
   const confirmLeg = useCallback(
@@ -833,13 +1003,10 @@ export function TransactionsPage() {
         {/* Add transaction / transfer — a modal opened from the toolbar's + button. */}
         {showAdd && canEnterData && (
         <Modal
-          title={mode === 'transfer' ? 'Record a transfer' : 'Add a transaction'}
-          onClose={() => {
-            setShowAdd(false)
-            resetAddSplit()
-          }}
+          title={editingTransfer ? 'Edit transfer' : mode === 'transfer' ? 'Record a transfer' : 'Add a transaction'}
+          onClose={closeAddModal}
         >
-          {accounts.length >= 2 && (
+          {accounts.length >= 2 && !editingTransfer && (
             <div className="mb-4">
               <SegmentedControl
                 ariaLabel="Entry type"
@@ -1110,9 +1277,11 @@ export function TransactionsPage() {
                   type="date"
                   value={tDate}
                   aria-label="Transfer date"
+                  disabled={departureLocked}
                   onChange={(e) => setTDate(e.target.value)}
                   className="w-full text-slate-700"
                 />
+                {departureLocked && <StatementLockHint />}
               </label>
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
                 Amount
@@ -1123,12 +1292,15 @@ export function TransactionsPage() {
                   value={tAmount}
                   placeholder="0.00"
                   aria-label="Transfer amount"
+                  // What arrives: fixed by either bank's statement once one confirmed a leg.
+                  disabled={departureLocked || receiptLocked}
                   onChange={(e) => setTAmount(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') addTransfer()
+                    if (e.key === 'Enter') submitTransfer()
                   }}
                   className="w-full text-right tabular-nums"
                 />
+                {(departureLocked || receiptLocked) && <StatementLockHint />}
               </label>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -1137,6 +1309,7 @@ export function TransactionsPage() {
                 <Select
                   value={tFrom}
                   aria-label="Transfer from account"
+                  disabled={departureLocked}
                   onChange={(e) => {
                     setTFrom(e.target.value)
                     setTFromJar(PAID_FROM_UNALLOCATED)
@@ -1150,12 +1323,14 @@ export function TransactionsPage() {
                     </option>
                   ))}
                 </Select>
+                {departureLocked && <StatementLockHint />}
               </label>
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
                 To
                 <Select
                   value={tTo}
                   aria-label="Transfer to account"
+                  disabled={receiptLocked}
                   onChange={(e) => {
                     setTTo(e.target.value)
                     setTJarAlloc({})
@@ -1169,6 +1344,7 @@ export function TransactionsPage() {
                     </option>
                   ))}
                 </Select>
+                {receiptLocked && <StatementLockHint />}
               </label>
             </div>
             {/* Rule 80: money leaving a jar-backed account may say which jar it comes from. */}
@@ -1182,6 +1358,53 @@ export function TransactionsPage() {
                 value={tFromJar}
                 onChange={setTFromJar}
               />
+            )}
+            {/* An optional fee: extra money leaving the source with the transfer, recorded as its
+                own expense on the departure date, on the line picked here (or uncategorised). */}
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Fee (optional)
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  {...selectOnFocusProps}
+                  value={tFee}
+                  placeholder="0.00"
+                  aria-label="Transfer fee"
+                  disabled={departureLocked}
+                  onChange={(e) => setTFee(e.target.value)}
+                  className="w-full text-right tabular-nums"
+                />
+                {departureLocked && <StatementLockHint />}
+              </label>
+              {tHasFee && (
+                <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                  Fee category
+                  <Select
+                    value={tFeeLine}
+                    aria-label="Transfer fee category"
+                    onChange={(e) => setTFeeLine(e.target.value)}
+                    className="w-full"
+                  >
+                    <option value="">Unassigned</option>
+                    {feeLineOptions.map((g) => (
+                      <optgroup key={g.category} label={g.category}>
+                        {g.items.map((i) => (
+                          <option key={i.id} value={i.id}>
+                            {i.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </Select>
+                </label>
+              )}
+            </div>
+            {tHasFee && (
+              <p className="text-xs text-slate-500">
+                The fee leaves {accounts.find((a) => a.id === tFrom)?.name ?? 'the source account'} on top of the
+                amount, as its own expense on the same day.
+              </p>
             )}
             <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
               Note
@@ -1200,14 +1423,42 @@ export function TransactionsPage() {
                 type="date"
                 value={tReceived}
                 aria-label="Transfer receipt date"
+                // A returned transfer never arrived: clear the return date to record a receipt.
+                disabled={receiptLocked || (returnApplies && !!tReturned)}
                 onChange={(e) => setTReceived(e.target.value)}
                 className="w-full text-slate-700"
               />
-              <span className="font-normal text-slate-400">
-                Leave blank until the receiving bank shows it: the amount stays in transit and belongs to
-                neither account until then.
-              </span>
+              {receiptLocked ? (
+                <StatementLockHint />
+              ) : (
+                <span className="font-normal text-slate-400">
+                  Leave blank until the receiving bank shows it: the amount stays in transit and belongs to
+                  neither account until then.
+                </span>
+              )}
             </label>
+            {/* Only a transfer that left and never arrived can have come back to its source. */}
+            {returnApplies && (
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Returned on (optional)
+                <Input
+                  type="date"
+                  value={tReturned}
+                  aria-label="Transfer returned date"
+                  disabled={returnLocked}
+                  onChange={(e) => setTReturned(e.target.value)}
+                  className="w-full text-slate-700"
+                />
+                {returnLocked ? (
+                  <StatementLockHint />
+                ) : (
+                  <span className="font-normal text-slate-400">
+                    The date the bank sent the money back to {accounts.find((a) => a.id === tFrom)?.name ?? 'the source account'}.
+                    {tFromJars.length > 0 && ' It goes back to the jar it left from.'}
+                  </span>
+                )}
+              </label>
+            )}
             {/* Rule 78: a receipt already dated into a jar-backed account asks how it is divided. */}
             {tToLedger && tToJars.length > 0 && tReceived && (
               <JarAllocationFields
@@ -1220,23 +1471,31 @@ export function TransactionsPage() {
                 idPrefix="transfer"
               />
             )}
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={tConfirmed}
-                aria-label="Transfer completed confirmation"
-                onChange={(e) => setTConfirmed(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-              />
-              I’ve completed this transfer.
-            </label>
+            {!editingTransfer && (
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={tConfirmed}
+                  aria-label="Transfer completed confirmation"
+                  onChange={(e) => setTConfirmed(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                />
+                I’ve completed this transfer.
+              </label>
+            )}
             <div className="flex justify-end gap-2 pt-1">
-              <Button variant="ghost" onClick={() => setShowAdd(false)}>
+              <Button variant="ghost" onClick={closeAddModal}>
                 Cancel
               </Button>
-              <Button onClick={addTransfer} disabled={transferring} aria-label="Record transfer">
-                Record transfer
-              </Button>
+              {editingTransfer ? (
+                <Button onClick={() => submitTransfer()} disabled={transferring} aria-label="Save transfer">
+                  Save transfer
+                </Button>
+              ) : (
+                <Button onClick={() => submitTransfer()} disabled={transferring} aria-label="Record transfer">
+                  Record transfer
+                </Button>
+              )}
             </div>
           </div>
           )}
@@ -1254,7 +1513,7 @@ export function TransactionsPage() {
               <Button variant="secondary" size="sm" onClick={() => setCrossMonthPrompt(null)}>
                 Cancel
               </Button>
-              <Button size="sm" onClick={crossMonthPrompt.retry} disabled={savingId !== null || adding}>
+              <Button size="sm" onClick={crossMonthPrompt.retry} disabled={savingId !== null || adding || transferring}>
                 Budget it anyway
               </Button>
             </div>
@@ -1379,6 +1638,9 @@ export function TransactionsPage() {
                     const isIncome = transactionTypeLabel(t.type) === 'Income'
                     const isTransfer = t.type === TransactionType.Transfer
                     const isRefund = !!t.refundOfTransactionId
+                    // A transfer's fee row: changed through its transfer, never on its own (it can
+                    // still be put on a line).
+                    const isFeeRow = !!t.feeForTransferId
                     const hasRefunds = (t.refundCount ?? 0) > 0
                     const editing = editingId === t.id
                     const splitting = splittingId === t.id
@@ -1547,6 +1809,11 @@ export function TransactionsPage() {
                                     Refund
                                   </Badge>
                                 )}
+                                {isFeeRow && (
+                                  <Badge tone="neutral" className="shrink-0" title="Edit the transfer to change this fee">
+                                    Fee for transfer
+                                  </Badge>
+                                )}
                                 {/* A purchase that has been (partly) refunded says so, so its line's net is explicable. */}
                                 {hasRefunds && (
                                   <span
@@ -1598,6 +1865,14 @@ export function TransactionsPage() {
                                       In transit
                                     </span>
                                   )}
+                                  {t.transferStatus === 'Returned' && (
+                                    <span
+                                      title={`Sent back to ${t.accountName ?? 'the source'} on ${formatDate(t.returnedOn ?? t.date)}`}
+                                      className="rounded-[5px] border border-rose-200 bg-rose-50 px-1.5 py-px text-[9.5px] font-semibold text-rose-700 dark:border-rose-400/30 dark:bg-rose-400/10 dark:text-rose-300"
+                                    >
+                                      Returned
+                                    </span>
+                                  )}
                                   {t.transferStatus === 'PendingReview' && (
                                     <span
                                       title={`Received by ${t.transferAccountName ?? 'the destination'} on ${formatDate(t.receivedOn ?? t.date)}; departure date unknown — nothing is posted until it is supplied`}
@@ -1606,7 +1881,9 @@ export function TransactionsPage() {
                                       Pending review
                                     </span>
                                   )}
-                                  {(rowEditable || canConfirmVisibleLeg) && t.transferStatus && t.transferStatus !== 'Completed' && legId !== t.id && (
+                                  {(rowEditable || canConfirmVisibleLeg) &&
+                                    (t.transferStatus === 'InTransit' || t.transferStatus === 'PendingReview') &&
+                                    legId !== t.id && (
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -1753,12 +2030,32 @@ export function TransactionsPage() {
                               {t.fxPending && <FxPendingTag />}
                               {isTransfer ? '' : isIncome ? '+' : '−'}
                               {formatMoney(fromAmount(t.amount), t.currency)}
+                              {/* The fee that left the source on top of what arrived (its own row). */}
+                              {isTransfer && t.fee != null && t.fee > 0 && (
+                                <span
+                                  className="block text-xs font-normal text-slate-500"
+                                  title={`Fee on ${t.feeBudgetItemName ?? 'no budget line'}`}
+                                >
+                                  + fee {formatPlain(fromAmount(t.fee))}
+                                </span>
+                              )}
                             </td>
                             <td className="px-4 py-3.5 text-right">
-                              {rowEditable && (
+                              {rowEditable && !isFeeRow && (
                               // Always visible (not hover-revealed): the tester never found the
                               // split action, and touch devices have no hover at all.
                               <div className="flex justify-end gap-1">
+                                {isTransfer && (
+                                  <button
+                                    type="button"
+                                    onClick={() => startTransferEdit(t)}
+                                    aria-label={`Edit transfer: ${t.payee || t.date}`}
+                                    title="Edit transfer"
+                                    className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                  >
+                                    ✎
+                                  </button>
+                                )}
                                 {!isTransfer && (
                                   <>
                                     <button

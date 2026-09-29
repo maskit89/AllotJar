@@ -12,9 +12,16 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
     {
         // A transfer must carry at least one confirmed bank leg: a departure, a receipt, or both.
         // Neither date is ever inferred from Date, so the database refuses a transfer with none.
-        builder.ToTable("Transactions", t => t.HasCheckConstraint(
-            "CK_Transactions_TransferLegs",
-            "[Type] <> 2 OR [DepartedOn] IS NOT NULL OR [ReceivedOn] IS NOT NULL"));
+        builder.ToTable("Transactions", t =>
+        {
+            t.HasCheckConstraint(
+                "CK_Transactions_TransferLegs",
+                "[Type] <> 2 OR [DepartedOn] IS NOT NULL OR [ReceivedOn] IS NOT NULL");
+            // Only a transfer that departed and was never received can come back, on or after it left.
+            t.HasCheckConstraint(
+                "CK_Transactions_TransferReturn",
+                "[ReturnedOn] IS NULL OR ([Type] = 2 AND [DepartedOn] IS NOT NULL AND [ReceivedOn] IS NULL AND [ReturnedOn] >= [DepartedOn])");
+        });
         builder.HasKey(t => t.Id);
 
         builder.Property(t => t.OwnerId)
@@ -50,6 +57,25 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
 
         builder.Property(t => t.ReceiptBankReference)
             .HasMaxLength(140);
+
+        builder.Property(t => t.ReturnBankReference)
+            .HasMaxLength(140);
+
+        builder.Property(t => t.AllocationKey)
+            .HasMaxLength(100);
+        builder.HasIndex(t => new { t.OwnerId, t.AllocationKey })
+            .HasFilter("[AllocationKey] IS NOT NULL");
+
+        // A transfer's explicit fee is one expense row on its source account. Restrict, like the
+        // refund link: DeleteTransactionCommandHandler removes the fee with its transfer, and a fee
+        // row is never deleted on its own. At most one fee per transfer.
+        builder.HasOne(t => t.FeeForTransfer)
+            .WithOne(t => t.Fee)
+            .HasForeignKey<Transaction>(t => t.FeeForTransferId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(t => t.FeeForTransferId)
+            .IsUnique()
+            .HasFilter("[FeeForTransferId] IS NOT NULL");
 
         // Derived from the two bank legs; never stored.
         builder.Ignore(t => t.TransferStatus);
@@ -113,5 +139,10 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         builder.HasIndex(t => new { t.OwnerId, t.TransferAccountId, t.ReceiptBankReference })
             .IsUnique()
             .HasFilter("[ReceiptBankReference] IS NOT NULL");
+
+        // A returned transfer's credit back is on the SOURCE account's statement, deduplicated there.
+        builder.HasIndex(t => new { t.OwnerId, t.AccountId, t.ReturnBankReference })
+            .IsUnique()
+            .HasFilter("[ReturnBankReference] IS NOT NULL");
     }
 }

@@ -273,6 +273,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     private static readonly HashSet<string> SourceLegFields = new(StringComparer.Ordinal)
     {
         nameof(Transaction.DepartedOn), nameof(Transaction.BankReference), nameof(Transaction.Date),
+        nameof(Transaction.ReturnedOn), nameof(Transaction.ReturnBankReference),
     };
     private static readonly HashSet<string> ReceiptLegFields = new(StringComparer.Ordinal)
     {

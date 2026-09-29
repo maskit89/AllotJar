@@ -2,7 +2,6 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 using AllotJar.Application.Common.Interfaces;
-using AllotJar.Application.Imports.Commands.ImportStatement;
 using AllotJar.Application.Tests.Imports;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Application.Transactions;
@@ -237,50 +236,5 @@ public class FxRateResolverTests
 
         converted.Should().Be(1);
         tx.ExchangeRate.Should().Be(1.2m);
-    }
-
-    [Fact]
-    public async Task Import_ResolvesRatesForForeignEntries()
-    {
-        await using var db = NewContext();
-        SeedEurMonth(db, "user-1", 2026, 6);
-
-        // The sample has one GBP entry (London Cab, 45.50, 2026-06-03) + two EUR.
-        var handler = new ImportStatementCommandHandler(
-            db, new CurrentUserStub("user-1"), new[] { new Camt053StatementParser() }, new FakeExchangeRateProvider(1.10m));
-
-        await handler.Handle(new ImportStatementCommand(Camt053Samples.ThreeEntries), CancellationToken.None);
-
-        var gbp = await db.Transactions.SingleAsync(t => t.Currency.Value == "GBP");
-        gbp.ExchangeRate.Should().Be(1.10m);
-
-        // EUR entries are untouched (rate 1).
-        var eur = await db.Transactions.Where(t => t.Currency.Value == "EUR").ToListAsync();
-        eur.Should().OnlyContain(t => t.ExchangeRate == 1m);
-    }
-
-    [Fact]
-    public async Task Import_AllDuplicates_StillReconcilesPendingRows()
-    {
-        await using var db = NewContext();
-        SeedEurMonth(db, "user-1", 2026, 6);
-
-        // First import during a provider outage: the GBP row lands pending at face value.
-        var down = new ImportStatementCommandHandler(
-            db, new CurrentUserStub("user-1"), new[] { new Camt053StatementParser() }, new FakeExchangeRateProvider(null));
-        await down.Handle(new ImportStatementCommand(Camt053Samples.ThreeEntries), CancellationToken.None);
-        (await db.Transactions.SingleAsync(t => t.Currency.Value == "GBP")).FxPending.Should().BeTrue();
-
-        // Re-importing the same statement (all duplicates) is the natural retry: nothing new is
-        // created, but the pending row must still reconcile now that the provider is back.
-        var up = new ImportStatementCommandHandler(
-            db, new CurrentUserStub("user-1"), new[] { new Camt053StatementParser() }, new FakeExchangeRateProvider(1.10m));
-        var result = await up.Handle(new ImportStatementCommand(Camt053Samples.ThreeEntries), CancellationToken.None);
-
-        result.Imported.Should().Be(0);
-        db.ChangeTracker.Clear();
-        var gbp = await db.Transactions.SingleAsync(t => t.Currency.Value == "GBP");
-        gbp.FxPending.Should().BeFalse();
-        gbp.ExchangeRate.Should().Be(1.10m);
     }
 }

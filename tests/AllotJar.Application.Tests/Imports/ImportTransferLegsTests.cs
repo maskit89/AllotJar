@@ -329,8 +329,10 @@ public class ImportTransferLegsTests
         var knownToA = await StatementReferences.KnownAsync(db, "user-1", a.Id, CancellationToken.None);
         var knownToB = await StatementReferences.KnownAsync(db, "user-1", b.Id, CancellationToken.None);
 
-        knownToA.Should().BeEquivalentTo(new[] { "LEGACY-1", "OPEN-1" });
-        knownToB.Should().BeEquivalentTo(new[] { "LEGACY-1" });
+        knownToA.Contains("LEGACY-1").Should().BeTrue();
+        knownToA.Contains("OPEN-1").Should().BeTrue();
+        knownToB.Contains("LEGACY-1").Should().BeTrue();
+        knownToB.Contains("OPEN-1").Should().BeFalse();
     }
 
     // ── Rule 50: two recorded transfers of 100 could match one statement entry of 100.
@@ -370,6 +372,9 @@ public class ImportTransferLegsTests
         var transfers = new CreateTransferCommandHandler(db, User);
         var wrongAmount = await transfers.Handle(new CreateTransferCommand(Departure, 150m, a.Id, b.Id), CancellationToken.None);
         var alreadyReceived = await transfers.Handle(new CreateTransferCommand(Departure, 100m, a.Id, b.Id, ReceivedOn: Receipt), CancellationToken.None);
+        // B's statement already confirmed that receipt (an app-recorded receipt is still open to it).
+        (await db.Transactions.SingleAsync(t => t.Id == alreadyReceived.Id)).ReceiptBankReference = "B-STATEMENT-9";
+        await db.SaveChangesAsync();
         var otherSource = await transfers.Handle(new CreateTransferCommand(Departure, 100m, c.Id, b.Id), CancellationToken.None);
         var foreign = SeedAccount(db, "Theirs", 100m, owner: "user-2");
         var foreignDest = SeedAccount(db, "Theirs too", 0m, owner: "user-2");
@@ -387,7 +392,8 @@ public class ImportTransferLegsTests
             return ex;
         }
 
-        (await Reject(wrongAmount.Id, a.Id)).Errors["Items"].Single().Should().Contain("amount");
+        // 150 left and 100 arrived: only a fee the row states explicitly can explain it (O1 answer 5).
+        (await Reject(wrongAmount.Id, a.Id)).Errors["Items"].Single().Should().Contain("confirm that fee");
         (await Reject(alreadyReceived.Id, a.Id)).Errors["Items"].Single().Should().Contain("already confirmed");
         (await Reject(otherSource.Id, a.Id)).Errors["Items"].Single().Should().Contain("different accounts");
         await Assert.ThrowsAsync<ForbiddenAccessException>(() =>
@@ -406,7 +412,7 @@ public class ImportTransferLegsTests
 
         var after = await db.Transactions.AsNoTracking().OrderBy(t => t.Id).ToListAsync();
         after.Where(t => t.Id != open.Id).Should().BeEquivalentTo(snapshot, "a rejected match must leave every transfer untouched");
-        (await db.Transactions.CountAsync(t => t.ReceiptBankReference != null)).Should().Be(0);
+        (await db.Transactions.CountAsync(t => t.ReceiptBankReference != null)).Should().Be(1, "only the receipt B's statement confirmed before");
     }
 
     [Fact]

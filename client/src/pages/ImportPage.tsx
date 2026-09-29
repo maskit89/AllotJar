@@ -16,6 +16,7 @@ import type {
   HouseholdMemberDto,
   ImportCandidate,
   ImportPreviewResult,
+  ImportReusedReference,
   ImportStatementResult,
 } from '../types'
 import { TransactionType, type TransferMatchCandidate } from '../types'
@@ -108,13 +109,22 @@ interface ReviewRow {
   likelyTransfer: boolean
   /** Content-level hint that an existing transaction already matches this row; unticked by default. */
   possibleDuplicate: boolean
+  /** The already-imported entry that printed the same bank reference with other details; unticked by default. */
+  reusedReference: ImportReusedReference | null
   /** When true, the row is a transfer to/from `transferAccountId` instead of income/spending. */
   isTransfer: boolean
   transferAccountId: string
   /** Recorded transfers this row could be the other side of (server suggestions; the user picks). */
   transferMatches: TransferMatchCandidate[]
-  /** The recorded transfer this row confirms, chosen by the user; '' = record it as its own movement. */
+  /**
+   * The recorded transfer this row confirms (or, for a 'Return' candidate, brings back), chosen by
+   * the user; '' = record it as its own movement.
+   */
   matchTransferId: string
+  /** A debit transfer with no match: the part of the row that is a fee, as typed ('' = none). */
+  feeInput: string
+  /** The fee's budget line (a chosen candidate's fee, or the typed one); '' = uncategorised. */
+  feeBudgetItemId: string
   /**
    * A credit into a jar-backed account: the typed amount per jar id (rule 78), as entered.
    * Empty = all unallocated, the default.
@@ -182,6 +192,60 @@ function splitInfo(row: ReviewRow): { valid: boolean; remainingMinor: number } {
   return { valid, remainingMinor }
 }
 
+/** The candidate the row's user picked, if any. */
+function chosenMatch(r: ReviewRow): TransferMatchCandidate | undefined {
+  return r.matchTransferId ? r.transferMatches.find((m) => m.transferId === r.matchTransferId) : undefined
+}
+
+/** True when the row brings a transfer back to the account it left (a chosen 'Return' candidate). */
+function isReturnRow(r: ReviewRow): boolean {
+  return r.isTransfer && chosenMatch(r)?.kind === 'Return'
+}
+
+/**
+ * The fee a transfer row records, in minor units: the chosen candidate's fee, or the part of an
+ * unmatched debit the user typed as a fee. Null when there is none (or it doesn't parse); the
+ * typed fee is only checked by manualFeeValid.
+ */
+function rowFeeMinor(r: ReviewRow): number | null {
+  if (!r.isTransfer) return null
+  const match = chosenMatch(r)
+  if (match) return match.fee != null && match.fee > 0 ? fromAmount(match.fee) : null
+  if (r.isCredit || !r.feeInput.trim()) return null
+  const minor = parseMinor(r.feeInput)
+  return minor !== null && minor > 0 ? minor : null
+}
+
+/** A typed fee (unmatched debit transfer) is blank, or more than zero and less than the row. */
+function manualFeeValid(r: ReviewRow): boolean {
+  if (!r.isTransfer || r.isCredit || r.matchTransferId || !r.feeInput.trim()) return true
+  const minor = parseMinor(r.feeInput)
+  return minor !== null && minor > 0 && minor < fromAmount(r.amount)
+}
+
+/** The date a row's fee is recorded on: the transfer's departure (the row's own date for a debit). */
+function feeDateOf(r: ReviewRow): string {
+  return r.isCredit ? (chosenMatch(r)?.departedOn ?? r.date) : r.date
+}
+
+/**
+ * A candidate's line in the "Already recorded?" picker. A 'Return' is the transfer coming back
+ * to this account; a match reads as before, plus the fee it records and a shared bank reference.
+ */
+function matchLabel(r: ReviewRow, m: TransferMatchCandidate): string {
+  if (m.kind === 'Return') {
+    return `Returned: transfer to ${m.counterpartyAccountName} on ${formatDate(m.departedOn ?? r.date)}`
+  }
+  const parts = [
+    r.isCredit ? `From ${m.counterpartyAccountName}` : `To ${m.counterpartyAccountName}`,
+    formatMoney(fromAmount(m.amount), m.currency),
+    m.departedOn ? `left ${formatDate(m.departedOn)}` : `received ${formatDate(m.receivedOn ?? r.date)}`,
+  ]
+  if (m.fee != null && m.fee > 0) parts.push(`with a fee of ${formatMoney(fromAmount(m.fee), m.currency)}`)
+  if (m.sameReference) parts.push('same bank reference')
+  return parts.join(' · ')
+}
+
 /** A DOM id prefix for one row's prompts: the statement reference, sanitised, plus the row's position. */
 function rowDomId(reference: string, index: number): string {
   return `import-row-${index}-${reference.replace(/[^A-Za-z0-9_-]/g, '_')}`
@@ -194,7 +258,7 @@ function rowDomId(reference: string, index: number): string {
  * (or on a jar line) shows nothing.
  */
 function paidFromApplies(r: ReviewRow, jarLineIds: Set<string>): boolean {
-  if (r.isCredit) return false
+  if (r.isCredit || isReturnRow(r)) return false
   if (r.isTransfer) return true
   if (r.splits) return r.splits.some((l) => l.budgetItemId !== '' && !jarLineIds.has(l.budgetItemId))
   return r.budgetItemId !== '' && !jarLineIds.has(r.budgetItemId)
@@ -283,6 +347,7 @@ export function ImportPage() {
   const expenseGroups = useMemo(() => buildItemOptions(month, TransactionType.Expense), [month])
   const includedCount = useMemo(() => rows.filter((r) => r.include).length, [rows])
   const possibleDuplicateCount = useMemo(() => rows.filter((r) => r.possibleDuplicate).length, [rows])
+  const reusedReferenceCount = useMemo(() => rows.filter((r) => r.reusedReference).length, [rows])
   // The mapping has unsaved edits when it differs from the one that produced the current rows.
   const mappingDirty = useMemo(
     () => !!mapping && !!scannedMapping && JSON.stringify(mapping) !== JSON.stringify(scannedMapping),
@@ -303,16 +368,18 @@ export function ImportPage() {
     () => new Set((month?.categories ?? []).flatMap((c) => c.items).filter((i) => i.savingsId).map((i) => i.id)),
     [month],
   )
-  // Block the import while a split doesn't add up, a transfer hasn't picked a counterparty, or
-  // a credit's jar amounts exceed what arrived.
+  // Block the import while a split doesn't add up, a transfer hasn't picked a counterparty (a
+  // return names its transfer instead), a typed fee isn't less than the row, or a credit's jar
+  // amounts exceed what arrived.
   const reviewIncomplete = useMemo(
     () =>
       rows.some(
         (r) =>
           r.include &&
           ((r.splits && !splitInfo(r).valid) ||
-            (r.isTransfer && !r.transferAccountId) ||
-            (importBacksJars && r.isCredit && !jarAllocationValid(r))),
+            (r.isTransfer && !isReturnRow(r) && !r.transferAccountId) ||
+            !manualFeeValid(r) ||
+            (importBacksJars && r.isCredit && !isReturnRow(r) && !jarAllocationValid(r))),
       ),
     [rows, importBacksJars],
   )
@@ -338,17 +405,21 @@ export function ImportPage() {
           amount: c.amount,
           currency: c.currency,
           isCredit: c.isCredit,
-          // Rows that look already-imported start unticked — the user opts them back in.
-          include: kept ? kept.include : !c.possibleDuplicate,
+          // Rows that look already-imported (or reuse a known bank reference) start unticked:
+          // the user opts them back in.
+          include: kept ? kept.include : !c.possibleDuplicate && !c.reusedReference,
           budgetItemId: kept ? kept.budgetItemId : resolveSuggestion(c, month),
           memberId: kept ? kept.memberId : '',
           splits: kept ? kept.splits : null,
           likelyTransfer: c.likelyTransfer,
           possibleDuplicate: c.possibleDuplicate ?? false,
+          reusedReference: c.reusedReference ?? null,
           isTransfer: kept ? kept.isTransfer : false,
           transferAccountId: kept ? kept.transferAccountId : '',
           transferMatches: c.transferMatches ?? [],
           matchTransferId: kept ? kept.matchTransferId : '',
+          feeInput: kept ? kept.feeInput : '',
+          feeBudgetItemId: kept ? kept.feeBudgetItemId : '',
           jarAllocation: kept ? kept.jarAllocation : {},
           paidFromJarId: kept ? kept.paidFromJarId : '',
           heldMessage: null,
@@ -433,10 +504,17 @@ export function ImportPage() {
   }
   function clearTransfer(index: number) {
     setRows((rs) =>
-      rs.map((r, i) => (i === index ? { ...r, isTransfer: false, transferAccountId: '', matchTransferId: '' } : r)),
+      rs.map((r, i) =>
+        i === index
+          ? { ...r, isTransfer: false, transferAccountId: '', matchTransferId: '', feeInput: '', feeBudgetItemId: '' }
+          : r,
+      ),
     )
   }
-  /** Choosing a recorded transfer also fixes the counterparty it names; '' records the row as its own movement. */
+  /**
+   * Choosing a recorded transfer also fixes the counterparty it names; '' records the row as its
+   * own movement. A 'Return' candidate names the transfer coming back, not a counterparty.
+   */
   function chooseMatch(index: number, matchTransferId: string) {
     setRows((rs) =>
       rs.map((r, i) => {
@@ -498,8 +576,13 @@ export function ImportPage() {
    *  committing it budgets money to a different month than it was spent, which needs an
    *  explicit confirmation (the categories on offer are always the current month's lines). */
   function isCrossMonthRow(r: ReviewRow): boolean {
-    if (!month || (!r.budgetItemId && !r.splits) || r.isTransfer) return false
-    return Number(r.date.slice(0, 4)) !== month.year || Number(r.date.slice(5, 7)) !== month.month
+    if (!month) return false
+    const outsideMonth = (date: string) =>
+      Number(date.slice(0, 4)) !== month.year || Number(date.slice(5, 7)) !== month.month
+    // A transfer's fee put on one of this month's lines is dated the departure.
+    if (r.isTransfer) return rowFeeMinor(r) !== null && !!r.feeBudgetItemId && outsideMonth(feeDateOf(r))
+    if (!r.budgetItemId && !r.splits) return false
+    return outsideMonth(r.date)
   }
 
   /**
@@ -509,7 +592,8 @@ export function ImportPage() {
    * jar answer in the wrong direction, so a credit never carries `paidFromJarId` and vice versa.
    */
   function jarAnswer(r: ReviewRow): Pick<CommitImportItem, 'jarAllocations' | 'paidFromJarId'> {
-    if (!importBacksJars) return {}
+    // A return goes back to the jars the money left from; it carries no jar answer.
+    if (!importBacksJars || isReturnRow(r)) return {}
     if (r.isCredit) {
       const jarAllocations = toJarAllocations(r.jarAllocation)
       return jarAllocations.length > 0 ? { jarAllocations } : {}
@@ -529,16 +613,26 @@ export function ImportPage() {
         isCredit: r.isCredit,
         ...jarAnswer(r),
       }
+      const acknowledged = acknowledgeCrossMonth && isCrossMonthRow(r) ? { acknowledgeCrossMonth: true } : {}
+      if (isReturnRow(r)) {
+        // The transfer coming back names only that transfer: no counterparty, line, member or jars.
+        return { ...base, budgetItemId: null, memberId: null, transferAccountId: null, matchTransferId: null, returnOfTransferId: r.matchTransferId }
+      }
       if (r.isTransfer) {
+        const feeMinor = rowFeeMinor(r)
         return {
           ...base,
           budgetItemId: null,
           memberId: null,
           transferAccountId: r.transferAccountId,
           matchTransferId: r.matchTransferId || null,
+          // A chosen candidate's fee is echoed as the server computed it; a typed one splits the row.
+          ...(feeMinor !== null
+            ? { fee: chosenMatch(r)?.fee ?? toAmount(feeMinor), feeBudgetItemId: r.feeBudgetItemId || null }
+            : {}),
+          ...acknowledged,
         }
       }
-      const acknowledged = acknowledgeCrossMonth && isCrossMonthRow(r) ? { acknowledgeCrossMonth: true } : {}
       if (r.splits) {
         return {
           ...base,
@@ -765,6 +859,8 @@ export function ImportPage() {
                 ` — ${preview.skippedDuplicates} already imported (skipped)`}
               {possibleDuplicateCount > 0 &&
                 ` — ${possibleDuplicateCount} possible duplicate${possibleDuplicateCount === 1 ? '' : 's'} unticked (tick to include)`}
+              {reusedReferenceCount > 0 &&
+                `; ${reusedReferenceCount} reusing a known bank reference unticked (tick to include)`}
               . Categorise them (split a row, or mark a transfer), untick any you don't want, then import.
             </p>
           )}
@@ -1046,7 +1142,7 @@ export function ImportPage() {
                   const open = splitOpen === r.reference
                   const domId = rowDomId(r.reference, index)
                   // The jar prompts (rules 78/79) apply only to a ticked row into/out of a jar-backed account.
-                  const showAllocation = importBacksJars && r.include && r.isCredit
+                  const showAllocation = importBacksJars && r.include && r.isCredit && !isReturnRow(r)
                   const showPaidFrom = importBacksJars && r.include && paidFromApplies(r, jarLineIds)
                   return (
                     <Fragment key={r.reference}>
@@ -1057,7 +1153,7 @@ export function ImportPage() {
                         className={
                           r.include
                             ? 'hover:bg-slate-50'
-                            : r.possibleDuplicate
+                            : r.possibleDuplicate || r.reusedReference
                               ? 'bg-amber-50/70 dark:bg-amber-500/10'
                               : 'opacity-50'
                         }
@@ -1087,9 +1183,22 @@ export function ImportPage() {
                               Possibly already imported
                             </span>
                           )}
+                          {r.reusedReference && (
+                            <span className="block max-w-md text-xs font-normal text-amber-700 dark:text-amber-400">
+                              An entry with this bank reference was already imported: {formatDate(r.reusedReference.date)}{' '}
+                              {r.reusedReference.isCredit ? '+' : '−'}
+                              {formatMoney(fromAmount(r.reusedReference.amount), r.currency)}. Tick it only if this is a
+                              different payment.
+                            </span>
+                          )}
                           {r.likelyTransfer && !r.isTransfer && (
                             <span className="block text-xs font-normal text-amber-700 dark:text-amber-400">
                               Looks like a transfer
+                            </span>
+                          )}
+                          {!r.likelyTransfer && !r.isTransfer && r.transferMatches.some((m) => m.kind === 'Return') && (
+                            <span className="block text-xs font-normal text-amber-700 dark:text-amber-400">
+                              Looks like a transfer coming back
                             </span>
                           )}
                         </td>
@@ -1103,25 +1212,36 @@ export function ImportPage() {
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex flex-col gap-1.5">
-                            {r.isTransfer ? (
+                            {r.isTransfer ? (() => {
+                              const match = chosenMatch(r)
+                              const returning = match?.kind === 'Return'
+                              const feeMinor = rowFeeMinor(r)
+                              const typedFee = !r.isCredit && !match
+                              return (
                               <div className="flex flex-col gap-1">
                                 <div className="flex items-center gap-2">
                                   <Badge tone="brand">Transfer</Badge>
-                                  <span className="text-xs text-slate-500">{r.isCredit ? 'from' : 'to'}</span>
-                                  <Select
-                                    aria-label={`Transfer account for ${r.payee} on ${r.date}`}
-                                    value={r.transferAccountId}
-                                    disabled={!r.include || !!r.matchTransferId}
-                                    onChange={(e) => updateRow(index, { transferAccountId: e.target.value })}
-                                    className="w-44"
-                                  >
-                                    <option value="">Choose account…</option>
-                                    {otherAccounts.map((a) => (
-                                      <option key={a.id} value={a.id}>
-                                        {a.name}
-                                      </option>
-                                    ))}
-                                  </Select>
+                                  {returning ? (
+                                    <span className="text-xs text-slate-500">coming back</span>
+                                  ) : (
+                                    <>
+                                      <span className="text-xs text-slate-500">{r.isCredit ? 'from' : 'to'}</span>
+                                      <Select
+                                        aria-label={`Transfer account for ${r.payee} on ${r.date}`}
+                                        value={r.transferAccountId}
+                                        disabled={!r.include || !!r.matchTransferId}
+                                        onChange={(e) => updateRow(index, { transferAccountId: e.target.value })}
+                                        className="w-44"
+                                      >
+                                        <option value="">Choose account…</option>
+                                        {otherAccounts.map((a) => (
+                                          <option key={a.id} value={a.id}>
+                                            {a.name}
+                                          </option>
+                                        ))}
+                                      </Select>
+                                    </>
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() => clearTransfer(index)}
@@ -1142,17 +1262,67 @@ export function ImportPage() {
                                       className="w-72"
                                     >
                                       <option value="">No — record it as a new transfer</option>
+                                      {/* In the server's order: same bank reference first, then nearest date. */}
                                       {r.transferMatches.map((m) => (
                                         <option key={m.transferId} value={m.transferId}>
-                                          {r.isCredit ? `From ${m.counterpartyAccountName}` : `To ${m.counterpartyAccountName}`} ·{' '}
-                                          {formatMoney(fromAmount(m.amount), m.currency)} ·{' '}
-                                          {m.departedOn ? `left ${formatDate(m.departedOn)}` : `received ${formatDate(m.receivedOn ?? r.date)}`}
+                                          {matchLabel(r, m)}
                                         </option>
                                       ))}
                                     </Select>
+                                    {match?.sameReference && <Badge tone="teal">Same bank reference</Badge>}
                                   </div>
                                 )}
-                                {r.matchTransferId ? (
+                                {match?.recordedDate && (
+                                  <span className="text-xs text-slate-500">
+                                    Recorded in the app on {formatDate(match.recordedDate)}; the bank&rsquo;s date will be used.
+                                  </span>
+                                )}
+                                {/* A fee: the candidate's (accepted by choosing it) or one typed for an unmatched debit. */}
+                                {typedFee && (
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-xs text-slate-500">Fee (optional)</span>
+                                    <Input
+                                      type="text"
+                                      inputMode="decimal"
+                                      {...selectOnFocusProps}
+                                      placeholder="0.00"
+                                      aria-label={`Fee for ${r.payee} on ${r.date}`}
+                                      value={r.feeInput}
+                                      disabled={!r.include}
+                                      onChange={(e) => updateRow(index, { feeInput: e.target.value })}
+                                      className="w-24 text-right tabular-nums"
+                                    />
+                                  </div>
+                                )}
+                                {typedFee && !manualFeeValid(r) && (
+                                  <span className="text-xs text-rose-600 dark:text-rose-400">
+                                    The fee must be more than zero and less than the row&rsquo;s amount.
+                                  </span>
+                                )}
+                                {feeMinor !== null && (
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-xs text-slate-500">
+                                      {typedFee
+                                        ? `A transfer of ${formatMoney(fromAmount(r.amount) - feeMinor, r.currency)} plus a fee of ${formatMoney(feeMinor, r.currency)}. Fee category:`
+                                        : `Records a fee of ${formatMoney(feeMinor, r.currency)}. Fee category:`}
+                                    </span>
+                                    <Select
+                                      aria-label={`Fee category for ${r.payee} on ${r.date}`}
+                                      value={r.feeBudgetItemId}
+                                      disabled={!r.include}
+                                      onChange={(e) => updateRow(index, { feeBudgetItemId: e.target.value })}
+                                      className="w-48"
+                                    >
+                                      <CategoryOptions groups={expenseGroups} />
+                                    </Select>
+                                  </div>
+                                )}
+                                {returning ? (
+                                  <span className="text-xs text-slate-500">
+                                    Records the transfer to {match.counterpartyAccountName} as returned: the money is back in{' '}
+                                    {importAccount?.name ?? 'this account'} and goes back to the jars it left from.
+                                  </span>
+                                ) : r.matchTransferId ? (
                                   <span className="text-xs text-slate-500">
                                     Confirms the other side of the recorded transfer — no second balance movement.
                                   </span>
@@ -1166,7 +1336,8 @@ export function ImportPage() {
                                   </span>
                                 )}
                               </div>
-                            ) : r.splits ? (
+                              )
+                            })() : r.splits ? (
                               <div className="flex flex-col gap-0.5">
                                 <div className="flex items-center gap-2">
                                   <Badge tone={info.valid ? 'violet' : 'amber'}>Split · {r.splits.length}</Badge>
@@ -1485,8 +1656,9 @@ export function ImportPage() {
                 transfers: t.transfers + r.transfers,
                 matched: t.matched + (r.matchedTransfers ?? 0),
                 pendingReview: t.pendingReview + (r.pendingReviewTransfers ?? 0),
+                returned: t.returned + (r.returned ?? 0),
               }),
-              { imported: 0, skipped: 0, transfers: 0, matched: 0, pendingReview: 0 },
+              { imported: 0, skipped: 0, transfers: 0, matched: 0, pendingReview: 0, returned: 0 },
             )
             // Money in/out are the actual sums of what was imported (the accepted rows are still
             // in state), not transaction counts. Transfers are internal moves, so they stay a count.
@@ -1513,6 +1685,7 @@ export function ImportPage() {
                   <Stat label="Transfers" value={total.transfers} />
                   {total.matched > 0 && <Stat label="Matched" value={total.matched} />}
                   {total.pendingReview > 0 && <Stat label="Pending review" value={total.pendingReview} />}
+                  {total.returned > 0 && <Stat label="Returned" value={total.returned} />}
                   {heldEverCount > 0 && <Stat label="Held" value={heldEverCount} />}
                 </dl>
               </>

@@ -26,6 +26,7 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
         var transaction = await _db.Transactions
             .Include(t => t.Account)
             .Include(t => t.TransferAccount)
+            .Include(t => t.Fee)
             .FirstOrDefaultAsync(t => t.Id == request.TransactionId, cancellationToken);
 
         if (transaction is null)
@@ -35,6 +36,10 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
         if (transaction.OwnerId != userId)
         {
             throw new ForbiddenAccessException();
+        }
+        if (transaction.FeeForTransferId is not null)
+        {
+            throw TransferFees.ChangedDirectly("TransactionId");
         }
 
         // Rule 38: a refund and its purchase both stay in history. Deleting the purchase would
@@ -66,8 +71,18 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
             : await _db.BeginLedgerWriteAsync(affected[0].Id, cancellationToken);
         if (affected.Count > 0)
         {
+            // A transfer's fee goes with it.
+            var removed = transaction.Fee is Transaction fee ? new[] { transaction.Id, fee.Id } : new[] { transaction.Id };
             await AccountBalanceGuard.EnsureNonNegativeAsync(
-                _db, affected, Array.Empty<Transaction>(), new[] { transaction.Id }, "TransactionId", cancellationToken);
+                _db, affected, Array.Empty<Transaction>(), removed, "TransactionId", cancellationToken);
+        }
+        if (transaction.Fee is Transaction feeRow)
+        {
+            if (feeRow.AccountId is Guid feeAccountId)
+            {
+                await Jars.JarMovements.ClearAsync(_db, feeRow, feeAccountId, cancellationToken);
+            }
+            _db.Transactions.Remove(feeRow);
         }
 
         // Each leg's jar split goes first, through the one writer that keeps a departed jar's

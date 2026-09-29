@@ -96,7 +96,7 @@ public class AllocationRerunTests
         await using var verify = _fixture.CreateContext();
         var allocRows = await verify.Transactions
             .AsNoTracking()
-            .Where(t => t.OwnerId == owner && t.BankReference!.StartsWith("alloc:2026-7:"))
+            .Where(t => t.OwnerId == owner && t.AllocationKey!.StartsWith("alloc:2026-7:"))
             .ToListAsync();
         allocRows.Should().HaveCount(1); // recreated, never duplicated
         allocRows[0].Amount.Should().Be(1800m);

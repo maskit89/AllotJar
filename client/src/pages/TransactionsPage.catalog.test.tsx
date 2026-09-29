@@ -31,7 +31,7 @@ vi.mock('../lib/api', async (importOriginal) => ({
 
 import { TransactionsPage } from './TransactionsPage'
 import { AuthProvider } from '../auth/AuthContext'
-import { monthYear, shortDate } from '../lib/dates'
+import { formatDate, monthYear, shortDate } from '../lib/dates'
 
 // --- Fixtures ---------------------------------------------------------------
 // The catalog's default month: Income group (Salary), Expense group (Groceries + Internet, the
@@ -760,12 +760,13 @@ describe('TransactionsPage catalog — split editor', () => {
     expect(screen.getByLabelText('Split line 1 category')).toBeInTheDocument()
   })
 
-  // TX-058 — a transfer row exposes only delete; no edit or split affordance.
-  it('offers no edit or split affordance on a transfer row', { timeout: 15000 }, async () => {
+  // TX-058 (W07) — a transfer row is edited through the transfer form, never split or edited inline.
+  it('offers the transfer edit, and no inline edit or split, on a transfer row', { timeout: 15000 }, async () => {
     mockLoad([tx({ payee: 'Move', type: 2, amount: 100, accountName: 'Joint', transferAccountName: 'Rainy Day' })], accountsFixture())
     renderPage()
     await screen.findByText('Move', {}, { timeout: 5000 })
 
+    expect(screen.getByLabelText('Edit transfer: Move')).toBeInTheDocument()
     expect(screen.queryByLabelText('Edit transaction: Move')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Split transaction: Move')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Delete transaction: Move')).toBeInTheDocument()
@@ -1273,5 +1274,211 @@ describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
     // The refunded purchase's type is locked too, until its refunds are unmarked.
     await user.click(screen.getByRole('button', { name: 'Edit transaction: Tesco' }))
     expect(screen.getByLabelText('Edit type')).toBeDisabled()
+  })
+})
+
+describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', () => {
+  function transfer(over: Partial<TransactionDto> = {}): TransactionDto {
+    return tx({
+      id: 't-tr', payee: 'Move', type: 2, amount: 100, date: '2026-07-10',
+      accountId: 'a-joint', accountName: 'Joint', transferAccountId: 'a-rainy', transferAccountName: 'Rainy Day',
+      transferStatus: 'InTransit', departedOn: '2026-07-10', receivedOn: null, returnedOn: null, fee: null,
+      feeBudgetItemId: null, feeBudgetItemName: null,
+      departureConfirmedByStatement: false, receiptConfirmedByStatement: false, returnConfirmedByStatement: false,
+      ...over,
+    })
+  }
+
+  it('edits a transfer in place, sending every field to PUT /transfer', { timeout: 20000 }, async () => {
+    const t = transfer()
+    mockLoad([t], accountsFixture())
+    mockPut.mockResolvedValue({ data: transfer({ receivedOn: '2026-07-12', transferStatus: 'Completed', payee: 'Top up', fee: 1.5 }) })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
+    // Pre-filled from the stored transfer; no "completed" confirmation for a recorded one.
+    expect(within(dialog).getByLabelText('Transfer date')).toHaveValue('2026-07-10')
+    expect(within(dialog).getByLabelText('Transfer amount')).toHaveValue('100')
+    expect(within(dialog).getByLabelText('Transfer from account')).toHaveValue('a-joint')
+    expect(within(dialog).getByLabelText('Transfer to account')).toHaveValue('a-rainy')
+    expect(within(dialog).getByLabelText('Transfer note')).toHaveValue('Move')
+    expect(within(dialog).queryByLabelText('Transfer completed confirmation')).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: 'Transfer' })).not.toBeInTheDocument()
+
+    await user.type(within(dialog).getByLabelText('Transfer receipt date'), '2026-07-12')
+    await user.clear(within(dialog).getByLabelText('Transfer note'))
+    await user.type(within(dialog).getByLabelText('Transfer note'), 'Top up')
+    // The fee line picker appears once a fee is typed, offering the departure month's lines.
+    expect(within(dialog).queryByLabelText('Transfer fee category')).not.toBeInTheDocument()
+    await user.type(within(dialog).getByLabelText('Transfer fee'), '1.5')
+    await user.selectOptions(within(dialog).getByLabelText('Transfer fee category'), 'i-groceries')
+    await user.click(within(dialog).getByRole('button', { name: 'Save transfer' }))
+
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith('/transactions/t-tr/transfer', {
+        fromAccountId: 'a-joint', toAccountId: 'a-rainy', amount: 100,
+        departedOn: '2026-07-10', receivedOn: '2026-07-12', returnedOn: null,
+        payee: 'Top up', fee: 1.5, feeBudgetItemId: 'i-groceries', acknowledgeCrossMonth: false,
+        fromJarId: null, jarAllocations: null,
+      }),
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    // The fee is its own row: the register is re-read after the save.
+    await waitFor(() => expect(mockGet.mock.calls.filter(([url]) => url === '/transactions')).toHaveLength(2))
+  })
+
+  it('fetches the departure month for the fee line when it is not the loaded month', { timeout: 20000 }, async () => {
+    mockLoad([transfer({ departedOn: '2026-06-28', date: '2026-06-28' })], accountsFixture())
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await user.type(await screen.findByLabelText('Transfer fee', {}, { timeout: 5000 }), '2')
+    await screen.findByLabelText('Transfer fee category', {}, { timeout: 5000 })
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/budget/2026/6'))
+  })
+
+  it('marks an in-transit transfer as returned; the receipt date is then off', { timeout: 20000 }, async () => {
+    mockLoad([transfer()], accountsFixture())
+    mockPut.mockResolvedValue({ data: transfer({ transferStatus: 'Returned', returnedOn: '2026-07-15' }) })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
+    await user.type(within(dialog).getByLabelText('Transfer returned date'), '2026-07-15')
+    expect(within(dialog).getByLabelText('Transfer receipt date')).toBeDisabled()
+    await user.click(within(dialog).getByRole('button', { name: 'Save transfer' }))
+
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith(
+        '/transactions/t-tr/transfer',
+        expect.objectContaining({ departedOn: '2026-07-10', receivedOn: null, returnedOn: '2026-07-15' }),
+      ),
+    )
+    // The register row now reads Returned, and offers no receipt to confirm.
+    expect(await screen.findByText('Returned', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Confirm receipt: Move' })).not.toBeInTheDocument()
+  })
+
+  it('offers "Returned on" only while the transfer has departed and has no receipt', { timeout: 15000 }, async () => {
+    mockLoad([transfer({ receivedOn: '2026-07-11', transferStatus: 'Completed' })], accountsFixture())
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
+    expect(within(dialog).queryByLabelText('Transfer returned date')).not.toBeInTheDocument()
+    // Clearing the receipt makes it a departed, unreceived transfer again.
+    await user.clear(within(dialog).getByLabelText('Transfer receipt date'))
+    expect(within(dialog).getByLabelText('Transfer returned date')).toBeInTheDocument()
+  })
+
+  it('disables the fields a bank statement confirmed', { timeout: 15000 }, async () => {
+    mockLoad(
+      [
+        transfer({ receivedOn: '2026-07-11', transferStatus: 'Completed', departureConfirmedByStatement: true, receiptConfirmedByStatement: true }),
+        transfer({ id: 't-ret', payee: 'Bounced', transferStatus: 'Returned', returnedOn: '2026-07-15', returnConfirmedByStatement: true }),
+      ],
+      accountsFixture(),
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    let dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
+    for (const label of ['Transfer date', 'Transfer amount', 'Transfer from account', 'Transfer fee', 'Transfer to account', 'Transfer receipt date']) {
+      expect(within(dialog).getByLabelText(label)).toBeDisabled()
+    }
+    expect(within(dialog).getByLabelText('Transfer note')).toBeEnabled()
+    expect(within(dialog).getAllByText('Confirmed by the bank statement').length).toBeGreaterThan(0)
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+
+    // A return the source statement confirmed keeps its date; the departure is still editable.
+    await user.click(screen.getByLabelText('Edit transfer: Bounced'))
+    dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
+    expect(within(dialog).getByLabelText('Transfer returned date')).toHaveValue('2026-07-15')
+    expect(within(dialog).getByLabelText('Transfer returned date')).toBeDisabled()
+    expect(within(dialog).getByLabelText('Transfer date')).toBeEnabled()
+    expect(within(dialog).getByLabelText('Transfer to account')).toBeEnabled()
+  })
+
+  it('badges a returned transfer and offers no receipt to confirm', { timeout: 15000 }, async () => {
+    mockLoad([transfer({ transferStatus: 'Returned', returnedOn: '2026-07-15' })], accountsFixture())
+    renderPage()
+
+    const badge = await screen.findByText('Returned', {}, { timeout: 5000 })
+    expect(badge).toHaveAttribute('title', `Sent back to Joint on ${formatDate('2026-07-15')}`)
+    expect(screen.queryByRole('button', { name: /Confirm receipt/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('In transit')).not.toBeInTheDocument()
+  })
+
+  it('shows a transfer fee on its row, and its fee row only takes a line', { timeout: 15000 }, async () => {
+    mockLoad(
+      [
+        transfer({ transferStatus: 'Completed', receivedOn: '2026-07-10', fee: 2, feeBudgetItemId: 'i-groceries', feeBudgetItemName: 'Groceries' }),
+        tx({ id: 't-fee', payee: 'Transfer fee', amount: 2, accountId: 'a-joint', accountName: 'Joint', feeForTransferId: 't-tr' }),
+      ],
+      accountsFixture(),
+    )
+    renderPage()
+
+    await screen.findByText('Transfer fee', {}, { timeout: 5000 })
+    expect(cellsFor('Move')[4]).toHaveTextContent(/\+ fee 2\.00/)
+    expect(screen.getByText('Fee for transfer')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Edit transaction: Transfer fee')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Split transaction: Transfer fee')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Delete transaction: Transfer fee')).not.toBeInTheDocument()
+    // It can still be put on a line.
+    expect(screen.getByRole('button', { name: 'Assign Transfer fee' })).toBeInTheDocument()
+  })
+
+  it('records a new transfer with a fee, confirming a cross-month fee line', { timeout: 20000 }, async () => {
+    mockLoad([], accountsFixture())
+    mockPost
+      .mockRejectedValueOnce({
+        isAxiosError: true,
+        response: { status: 400, data: { errors: { crossMonth: ['The fee is dated 2026-06 but that budget line is in 2026-07.'] } } },
+      })
+      .mockResolvedValueOnce({ data: transfer({ fee: 2 }) })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    await user.click(await screen.findByRole('button', { name: 'Transfer' }, { timeout: 5000 }))
+    await user.clear(screen.getByLabelText('Transfer date'))
+    await user.type(screen.getByLabelText('Transfer date'), '2026-07-10')
+    await user.type(screen.getByLabelText('Transfer amount'), '100')
+    await user.selectOptions(screen.getByLabelText('Transfer from account'), 'a-joint')
+    await user.selectOptions(screen.getByLabelText('Transfer to account'), 'a-rainy')
+    await user.type(screen.getByLabelText('Transfer fee'), '2')
+    await user.selectOptions(screen.getByLabelText('Transfer fee category'), 'i-internet')
+    await user.click(screen.getByLabelText('Transfer completed confirmation'))
+    await user.click(screen.getByRole('button', { name: 'Record transfer' }))
+
+    const expected = {
+      departedOn: '2026-07-10', receivedOn: null, amount: 100, fromAccountId: 'a-joint', toAccountId: 'a-rainy', payee: null,
+      fee: 2, feeBudgetItemId: 'i-internet',
+    }
+    const confirm = await screen.findByRole('button', { name: 'Budget it anyway' }, { timeout: 5000 })
+    expect(mockPost).toHaveBeenCalledWith('/transactions/transfer', expected)
+    await user.click(confirm)
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenLastCalledWith('/transactions/transfer', { ...expected, acknowledgeCrossMonth: true }),
+    )
+  })
+
+  it('blocks a fee that is not a positive amount', { timeout: 15000 }, async () => {
+    mockLoad([transfer()], accountsFixture())
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await user.type(await screen.findByLabelText('Transfer fee', {}, { timeout: 5000 }), '0')
+    await user.click(screen.getByRole('button', { name: 'Save transfer' }))
+    expect(await screen.findByText('Enter a valid fee greater than zero, or leave it blank.', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPut).not.toHaveBeenCalled()
   })
 })
