@@ -245,6 +245,11 @@ export function formatPlain(minor: Minor): string {
   return fmt.format(toAmount(minor))
 }
 
+/** An exchange rate as a grouped decimal in the active format, up to 6 places (e.g. "0.923456"). */
+export function formatRate(rate: number): string {
+  return new Intl.NumberFormat(activeLocale, { maximumFractionDigits: 6 }).format(rate)
+}
+
 /** The currency's symbol for the active locale (e.g. "EUR" -> "€", "GBP" -> "£"). */
 export function currencySymbol(currency: string): string {
   const part = formatterFor(currency)

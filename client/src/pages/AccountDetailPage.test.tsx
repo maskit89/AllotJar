@@ -23,7 +23,7 @@ function account(): AccountDto {
 
 function tx(over: Partial<TransactionDto> = {}): TransactionDto {
   return {
-    id: 't1', date: '2026-06-20', payee: 'Vodafone', amount: 40, currency: 'EUR', exchangeRate: 1, baseAmount: 40,
+    id: 't1', date: '2026-06-20', payee: 'Vodafone', amount: 40, currency: 'EUR',
     type: 0, bankReference: null, budgetItemId: null, budgetItemName: null, accountId: 'a1', accountName: 'Everyday Current',
     transferAccountId: null, transferAccountName: null, memberId: null, memberName: null, isSplit: false, splits: [], ...over,
   }
@@ -105,8 +105,8 @@ describe('AccountDetailPage', () => {
   })
 
   it('flags an FX-pending row and leaves settled rows unmarked', { timeout: 15000 }, async () => {
-    // fxPending = the server resolved no exchange rate (amount counts at face value);
-    // the register must say so instead of presenting the figure as settled.
+    // fxPending = the row is in another currency and waits for its amount in the budget
+    // currency; it counts nowhere until then, and the register must say so.
     mockGet.mockImplementation((url: string) => {
       if (url === '/accounts') return Promise.resolve({ data: [account()] })
       if (url === '/transactions')
@@ -121,8 +121,8 @@ describe('AccountDetailPage', () => {
 
     renderPage()
 
-    const tag = await screen.findByText('Rate pending', {}, { timeout: 5000 })
-    expect(tag).toHaveAttribute('title', expect.stringContaining('face value'))
-    expect(screen.getAllByText('Rate pending')).toHaveLength(1) // only the unresolved row
+    const tag = await screen.findByText('Needs EUR amount', {}, { timeout: 5000 })
+    expect(tag).toHaveAttribute('title', expect.stringContaining('Not counted anywhere until you enter the amount in EUR'))
+    expect(screen.getAllByText('Needs EUR amount')).toHaveLength(1) // only the waiting row
   })
 })

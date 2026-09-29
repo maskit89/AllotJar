@@ -124,7 +124,7 @@ public static class JarCycles
         cycle.PaymentTransactionId = payment.Id;
         cycle.PaymentTransaction = payment;
         cycle.PaidOn = payment.Date;
-        cycle.PaidAmount = payment.BaseAmount;
+        cycle.PaidAmount = payment.BudgetAmount ?? payment.Amount;
     }
 
     /// <summary>

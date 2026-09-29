@@ -3,8 +3,9 @@ namespace AllotJar.Domain.ValueObjects;
 /// <summary>
 /// An amount paired with its currency. Always <see cref="decimal"/> for exact
 /// financial precision. Cross-currency arithmetic is forbidden — adding EUR to
-/// GBP throws rather than silently producing a meaningless number. Convert via
-/// an explicit exchange rate first (see <see cref="Entities.Transaction"/>).
+/// GBP throws rather than silently producing a meaningless number. Every amount that
+/// counts is in the budget currency; a foreign figure waits for the user to enter its
+/// budget-currency amount (see <see cref="Entities.Transaction"/>).
 /// </summary>
 public readonly record struct Money(decimal Amount, CurrencyCode Currency)
 {

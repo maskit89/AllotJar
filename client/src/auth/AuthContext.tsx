@@ -37,8 +37,15 @@ interface AuthState {
   displayName: string | null
   firstName: string | null
   lastName: string | null
-  /** The user's home currency (ISO 4217) — drives the app-wide default + display label. */
+  /** The login's own currency preference (ISO 4217). It seeds a brand-new household's budget
+   *  currency; it never labels money (use budgetCurrency for that). */
   preferredCurrency: string
+  /** The active household's budget currency: every account and every counted amount is in it.
+   *  Falls back to preferredCurrency until /auth/me says otherwise. */
+  budgetCurrency: string
+  /** True once the login's own household has accounts, months or transactions, so its budget
+   *  currency can no longer be changed. */
+  currencyLocked: boolean
   /** The user's money-format preference key (e.g. "dot-comma"). */
   numberFormat: string
   /** Numeric HouseholdRole for the current login (defaults to Owner until resolved). */
@@ -110,6 +117,7 @@ const EMAIL_KEY = 'zbb.email'
 const ROLE_KEY = 'zbb.role'
 const NAME_KEY = 'zbb.displayName'
 const CURRENCY_KEY = 'zbb.currency'
+const BUDGET_CURRENCY_KEY = 'zbb.budgetCurrency'
 const FORMAT_KEY = 'zbb.numberFormat'
 
 // The app-wide neutral fallbacks, shared with the backend default and the sign-up
@@ -136,6 +144,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [numberFormat, setNumberFormat] = useState<string>(
     localStorage.getItem(FORMAT_KEY) || DEFAULT_FORMAT,
   )
+  // The active household's budget currency (null until known: preferredCurrency stands in).
+  const [budgetCurrencyState, setBudgetCurrencyState] = useState<string | null>(
+    localStorage.getItem(BUDGET_CURRENCY_KEY),
+  )
+  const [currencyLocked, setCurrencyLocked] = useState(false)
   const [role, setRole] = useState<number>(storedRole())
   const [households, setHouseholds] = useState<HouseholdSummary[]>([])
   const [activeOwnerId, setActiveOwnerId] = useState<string | null>(null)
@@ -252,6 +265,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(FORMAT_KEY, f)
   }
 
+  function applyBudgetCurrency(currency: string | null | undefined) {
+    const c = typeof currency === 'string' && currency ? currency : null
+    setBudgetCurrencyState(c)
+    if (c) localStorage.setItem(BUDGET_CURRENCY_KEY, c)
+    else localStorage.removeItem(BUDGET_CURRENCY_KEY)
+  }
+
   function apply(res: AuthResponse) {
     setToken(res.token, res.expiresAtUtc)
     setTokenState(res.token)
@@ -293,6 +313,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // response that predates it. A cold-load unverified user (latch false) still flips to false.
         setEmailConfirmed(emailConfirmedLatch.current || data.emailConfirmed !== false)
         applyPrefs(data.preferredCurrency, data.numberFormat)
+        applyBudgetCurrency(data.budgetCurrency)
+        setCurrencyLocked(data.currencyLocked === true)
         localStorage.setItem(ROLE_KEY, String(data.role))
       })
       .catch(() => {})
@@ -348,6 +370,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     emailConfirmedLatch.current = false
     setEmailConfirmed(false)
     applyPrefs(input.preferredCurrency, input.numberFormat)
+    // A brand-new household takes its budget currency from the preference chosen at sign-up.
+    applyBudgetCurrency(input.preferredCurrency)
     return {}
   }
 
@@ -426,6 +450,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (data.displayName) localStorage.setItem(NAME_KEY, data.displayName)
     else localStorage.removeItem(NAME_KEY)
     applyPrefs(data.preferredCurrency, data.numberFormat)
+    // The login's own household takes its budget currency from the preference until it has
+    // accounts, months or transactions (then the server refuses a change). Adopt the server's
+    // figure when it sends one; otherwise follow the preference while viewing an unlocked own one.
+    if (typeof data.budgetCurrency === 'string' && data.budgetCurrency) applyBudgetCurrency(data.budgetCurrency)
+    else if (!currencyLocked && households.some((h) => h.isActive && h.isOwn)) applyBudgetCurrency(data.preferredCurrency)
+    if (typeof data.currencyLocked === 'boolean') setCurrencyLocked(data.currencyLocked)
   }
 
   function clearAuthState() {
@@ -444,6 +474,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     emailConfirmedLatch.current = false
     setEmailConfirmed(true)
     applyPrefs(DEFAULT_CURRENCY, DEFAULT_FORMAT)
+    applyBudgetCurrency(null)
+    setCurrencyLocked(false)
     localStorage.removeItem(EMAIL_KEY)
     localStorage.removeItem(ROLE_KEY)
     localStorage.removeItem(NAME_KEY)
@@ -464,6 +496,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       firstName,
       lastName,
       preferredCurrency,
+      budgetCurrency: budgetCurrencyState || preferredCurrency,
+      currencyLocked,
       numberFormat,
       role,
       isAuthenticated: !!token,
@@ -499,7 +533,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updatePreferences,
       logout,
     }),
-    [token, email, displayName, firstName, lastName, preferredCurrency, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, memberId, sharingReviewPending, hasPassword, hasGoogle, emailConfirmed],
+    [token, email, displayName, firstName, lastName, preferredCurrency, budgetCurrencyState, currencyLocked, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, memberId, sharingReviewPending, hasPassword, hasGoogle, emailConfirmed],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

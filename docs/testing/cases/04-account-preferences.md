@@ -1,8 +1,8 @@
 # Account Preferences (/account)
 
-**ID prefix:** PREF | **Scope:** The `/account` page (route always mounted under `RequireAuth`, reached via the UserMenu item "Account settings"): the read-only details card (Email / Name / Access level), the "Preferences" card (First name, Last name, Currency select, Number format select, "Save preferences") including the display-only currency label change (no FX conversion, ever) and the number/money format change with its immediate app-wide effect via `setMoneyFormat`, the "Change password" card (Current password check, new-password rules incl. Identity policy + HIBP, session continuity on this device), the Sharing card as an entry point to `/people`, and theme-toggle persistence (per device/browser, `zbb.theme`). Server side: `PUT /api/auth/preferences` and `POST /api/auth/change-password` on `src/AllotJar.Api/Controllers/AuthController.cs`, normalisation in `src/AllotJar.Infrastructure/Identity/UserPreferences.cs`. | **Out of scope:** currency/format defaults and pickers at sign-up, HIBP at registration, lockout/anti-enumeration on login (02-registration-login.md); refresh mechanics, the cross-device sign-out that a password change causes, replay grace window, cross-tab sign-out broadcast (03-session-auth-lifecycle.md — only the *this-device* side of a password change and the silent-refresh-on-/account regression live here); the "Your own budget" / "Leave this household" cards, household switcher, invites, ConsentModal (households & people file); UserMenu general behavior, greetings, onboarding, month TopBar (routing & app shell file); deep role matrices (roles & access file — only the "read-only can still self-serve" area-specific case lives here); dark/responsive/a11y sweeps (cross-cutting files — `/account` is already axe-scanned light+dark by `client/e2e/a11y.spec.ts` and width-guarded by `client/e2e/mobile-layout.spec.ts`). **Do not test for:** a `GET /auth/preferences` endpoint (only PUT exists; reads come via `/auth/me`), password reset / "Forgot password?", email change (no UI or endpoint), avatar upload, per-user theme sync across devices (theme is deliberately device-local).
+**ID prefix:** PREF | **Scope:** The `/account` page (route always mounted under `RequireAuth`, reached via the UserMenu item "Account settings"): the read-only details card (Email / Name / Access level), the "Preferences" card (First name, Last name, Currency select — **read-only once the budget currency is locked** (W08, rule 85) — Number format select, "Save preferences") including the currency choice of a household that holds nothing yet (no FX conversion, ever) and the number/money format change with its immediate app-wide effect via `setMoneyFormat`, the "Change password" card (Current password check, new-password rules incl. Identity policy + HIBP, session continuity on this device), the Sharing card as an entry point to `/people`, and theme-toggle persistence (per device/browser, `zbb.theme`). Server side: `PUT /api/auth/preferences` and `POST /api/auth/change-password` on `src/AllotJar.Api/Controllers/AuthController.cs`, normalisation in `src/AllotJar.Infrastructure/Identity/UserPreferences.cs`. | **Out of scope:** currency/format defaults and pickers at sign-up, HIBP at registration, lockout/anti-enumeration on login (02-registration-login.md); refresh mechanics, the cross-device sign-out that a password change causes, replay grace window, cross-tab sign-out broadcast (03-session-auth-lifecycle.md — only the *this-device* side of a password change and the silent-refresh-on-/account regression live here); the "Your own budget" / "Leave this household" cards, household switcher, invites, ConsentModal (households & people file); UserMenu general behavior, greetings, onboarding, month TopBar (routing & app shell file); deep role matrices (roles & access file — only the "read-only can still self-serve" area-specific case lives here); dark/responsive/a11y sweeps (cross-cutting files — `/account` is already axe-scanned light+dark by `client/e2e/a11y.spec.ts` and width-guarded by `client/e2e/mobile-layout.spec.ts`). **Do not test for:** a `GET /auth/preferences` endpoint (only PUT exists; reads come via `/auth/me`), password reset / "Forgot password?", email change (no UI or endpoint), avatar upload, per-user theme sync across devices (theme is deliberately device-local).
 
-**Test data setup:** (a) Solo owner login `owner@example.test` / `Sunlit-Meadow-42a` (non-breached, meets digit+upper+lower policy), preferences EUR / `comma-dot` (1,234.56), First name "Alex", Last name "Muscat"; its household has one budget month with income 2,500.00 and planned lines summing 1,234.56, one jar "Emergency Fund" with balance 350.00, and one EUR account "Main" — so currency- and format-changes are observable on real amounts. (b) A shared household (2 members) owned by `owner2@example.test` with an invited member login `member@example.test` (role Read-only where a case says so; invite display name "Sam", no first/last name). (c) Fresh browser profile per case unless stated; locale `en-GB`. (d) "Direct API" steps: any HTTP client with a valid bearer token (copy from devtools) against the JSON endpoints — the UI selects block invalid values client-side. (e) Local stack (API :5099, `ASPNETCORE_ENVIRONMENT=Development`) or staging (staging.allotjar.com); for token-expiry cases run locally with `Jwt__ExpiryMinutes=1` or genuinely wait >15 min. (f) New passwords in positive cases: random non-breached shape `Aa1-<uuid>` (HIBP rejects fixed common passwords).
+**Test data setup:** (a) Solo owner login `owner@example.test` / `Sunlit-Meadow-42a` (non-breached, meets digit+upper+lower policy), preferences EUR / `comma-dot` (1,234.56), First name "Alex", Last name "Muscat"; its household has one budget month with income 2,500.00 and planned lines summing 1,234.56, one jar "Emergency Fund" with balance 350.00, and one EUR account "Main" — so format changes are observable on real amounts, and its budget currency (EUR) is **locked** (`/auth/me` → `currencyLocked: true`). (a2) A fresh solo owner `fresh@example.test` (same password shape) whose household holds **nothing** yet — no account, no month, no transaction — so its currency is still changeable (`currencyLocked: false`). (b) A shared household (2 members) owned by `owner2@example.test` with an invited member login `member@example.test` (role Read-only where a case says so; invite display name "Sam", no first/last name). (c) Fresh browser profile per case unless stated; locale `en-GB`. (d) "Direct API" steps: any HTTP client with a valid bearer token (copy from devtools) against the JSON endpoints — the UI selects block invalid values client-side. (e) Local stack (API :5099, `ASPNETCORE_ENVIRONMENT=Development`) or staging (staging.allotjar.com); for token-expiry cases run locally with `Jwt__ExpiryMinutes=1` or genuinely wait >15 min. (f) New passwords in positive cases: random non-breached shape `Aa1-<uuid>` (HIBP rejects fixed common passwords).
 
 ## Page access & details card
 
@@ -70,7 +70,7 @@
   - `PUT /api/auth/preferences` → 200 with `{firstName:"Christopher", lastName:"Borg", displayName:"Christopher Borg", …}`.
   - Success line (`role="status"`): "Your preferences have been saved."
   - The details card "Name" and the user chip update to "Christopher Borg" immediately, without a reload; avatar initials become "CB".
-  - `localStorage['zbb.displayName']` = "Christopher Borg". Currency and number format are unchanged (the form always submits their current select values).
+  - `localStorage['zbb.displayName']` = "Christopher Borg". Currency and number format are unchanged (the form submits the current number-format value and, while the currency is locked, the stored `preferredCurrency`).
 - **Automated:** Partial (client/src/pages/AccountPage.test.tsx — saves name + prefs via PUT /auth/preferences and asserts the success message; chip/localStorage side-effects unasserted)
 
 ### PREF-006 - Both name fields can be blanked (names are not required)
@@ -133,51 +133,51 @@
   - The save succeeds, but because DisplayName is recomposed from First + Last on every save (`ComposeDisplayName`) and both are blank, "Name" becomes "—" and the chip falls back to the email initial — the invite-provided "Sam" is not preserved. Known quirk of the current implementation: verify the documented behavior and that filling First name "Sam" + saving restores the name.
 - **Automated:** No
 
-## Currency display label (display-only, no FX)
+## Budget currency (fixed once the budget holds anything; no FX)
 
-### PREF-011 - Changing the preferred currency relabels, never converts
-- **Priority:** P1
-- **Type:** Happy
-- **Preconditions:** Signed in as `owner@example.test`, EUR / comma-dot, with the fixture month (planned 1,234.56), jar (350.00) and EUR account "Main".
+### PREF-011 - Once the budget holds anything its currency is read-only and nothing is ever relabelled
+- **Priority:** P0
+- **Type:** Regression
+- **Origin:** W08 (rules 42/85) — changing the currency used to relabel recorded money (€350.00 became $350.00), an implicit 1:1 conversion.
+- **Preconditions:** Signed in as `owner@example.test`, EUR / comma-dot, with the fixture month (planned 1,234.56), jar (350.00) and EUR account "Main" (so `currencyLocked: true`).
 - **Steps:**
-  1. On `/account`, change "Currency" from "Euro (€)" to "US dollar ($)" and click "Save preferences".
-  2. Observe the user chip; then visit `/jars`, `/accounts`, and `/` (Budget).
+  1. On `/account`, read the Preferences card: the intro copy and the "Currency" field.
+  2. Change First name and click "Save preferences".
+  3. Visit `/jars`, `/accounts` and `/` (Budget).
 - **Expected:**
-  - Success message; user chip immediately reads "USD · Personal" (or the household label); `localStorage['zbb.currency']` = "USD".
-  - `/jars`: jar amounts now render with the dollar symbol but the SAME numbers — 350.00 stays 350.00 ($350.00). No FX conversion anywhere.
-  - `/accounts`: each existing account still renders in its OWN currency ("Main" stays €); the add-account form's currency select now defaults to USD; the net-total hero uses USD only when account currencies are mixed.
-  - `/` (Budget): month amounts KEEP the month's own base currency (EUR) — the budget month's `BaseCurrency` is stamped at creation and is not retroactively relabelled; the hero badge noun follows the month currency, while the Getting-started checklist / Help / welcome copy nouns switch to "dollar" ("Give every dollar a job").
-  - Setting persists across a hard reload.
-- **Automated:** Partial (client/src/pages/AccountPage.test.tsx — PUT payload; client/src/lib/money.test.ts — currencyNoun + symbol rendering; no e2e asserts the no-conversion invariant)
+  - Step 1: "Currency" is a **read-only input** (not a select) showing "Euro (€)", described by the note "Your budget currency is fixed once your budget has accounts, months or transactions."; intro: "Your name and how money is shown across the app. Your currency is the one your budget and all its accounts use; number format controls the decimal and grouping separators."
+  - Step 2: the PUT carries the stored `preferredCurrency: "EUR"`; success message; user chip still "EUR · Personal".
+  - Step 3: every amount keeps its currency and number: jar €350.00, "Main" in €, the month in EUR. No FX conversion or relabelling anywhere.
+- **Automated:** Yes (client/src/pages/AccountPage.test.tsx — "shows the currency read-only with a note once the budget currency is locked"; tests/AllotJar.Application.Tests/Transactions/ForeignAmountsTests.cs — `The_budget_currency_is_fixed_once_the_household_holds_anything`)
 
 ### PREF-012 - Currency select offers exactly the curated 24-currency list
 - **Priority:** P2
 - **Type:** Happy
-- **Preconditions:** Signed in, on `/account`.
+- **Preconditions:** Signed in as `fresh@example.test` (nothing recorded, so the currency is still a select), on `/account`.
 - **Steps:**
   1. Open the "Currency" select and read every option.
 - **Expected:**
   - Exactly 24 options in `CURRENCY_OPTIONS` order, starting "Euro (€)", "British pound (£)", "US dollar ($)", "Swiss franc (CHF)", … ending "Turkish lira (₺)"; identical list to the sign-up form (labels like "Polish złoty (zł)", "Indian rupee (₹)").
   - The "Number format" select offers exactly 5 worked-example options: `1,234.56`, `1.234,56`, `1 234,56`, `1'234.56`, `1,23,456.78`.
-  - Helper copy above the form: "Your name and how money is shown across the app. Your currency sets the app-wide default; number format controls the decimal and grouping separators."
+  - Helper copy above the form: "Your name and how money is shown across the app. Your currency is the one your budget and all its accounts use; number format controls the decimal and grouping separators." No "fixed" note while unlocked.
 - **Automated:** No
 
 ### PREF-013 - Per-currency decimals: JPY renders with no decimal places
 - **Priority:** P2
 - **Type:** Regression
 - **Origin:** PR #125 — formatMoney/currencySymbol dropped the hardcoded 2 fraction digits; each currency uses its ISO minor-unit count
-- **Preconditions:** Signed in as `owner@example.test` with the jar fixture.
+- **Preconditions:** Signed in as `fresh@example.test` (unlocked).
 - **Steps:**
   1. Change "Currency" to "Japanese yen (¥)" and save.
-  2. Visit `/jars` and `/allocation` (if shared) and read the amounts.
+  2. Add an account "Wallet" with opening 350 and a jar held in it; visit `/accounts` and `/jars` and read the amounts.
 - **Expected:**
-  - Amounts render 0-decimal yen style: "¥350" not "¥350.00" (comma-dot format → en-GB locale). Switching back to EUR restores 2 decimals. The underlying numeric values never change.
+  - The account is created in JPY (the budget currency) and amounts render 0-decimal yen style: "¥350" not "¥350.00" (comma-dot format → en-GB locale). The underlying numeric values never change. (The currency is now locked — switching back to EUR is no longer possible, PREF-042.)
 - **Automated:** Partial (client/src/lib/money.test.ts — per-currency natural fraction digits; not asserted through the preferences flow)
 
 ### PREF-014 - Direct API: any syntactically valid 3-letter code is accepted (e.g. XXX)
 - **Priority:** P3
 - **Type:** Edge
-- **Preconditions:** Bearer token for `owner@example.test`; HTTP client.
+- **Preconditions:** Bearer token for `fresh@example.test` (unlocked — for `owner@example.test` the change is refused, PREF-042); HTTP client.
 - **Steps:**
   1. `PUT /api/auth/preferences` with `{"preferredCurrency":"xxx","numberFormat":"comma-dot","firstName":"Alex","lastName":"Muscat"}`.
   2. Reload `/account` in the browser.
@@ -265,7 +265,7 @@
 ### PREF-021 - Blank currency/format mean "leave as is" — a name-only save can't reset them
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** `owner@example.test` has saved USD / `lakh`. Bearer token; HTTP client.
+- **Preconditions:** `fresh@example.test` has saved USD / `lakh` while unlocked (it may have added an account since — resending the stored code is not a change, so the lock doesn't refuse it). Bearer token; HTTP client.
 - **Steps:**
   1. `PUT /api/auth/preferences` with `{"firstName":"Alex","lastName":"Muscat","preferredCurrency":"","numberFormat":""}`.
   2. `GET /api/auth/me`.
@@ -529,3 +529,48 @@
   - 2: Disconnect is **disabled** with a hint that Google is the only sign-in method and to add a password first (link to `/forgot-password`) — unlinking is refused server-side (400) too.
   - 3: no "Connected accounts" card at all.
 - **Automated:** Full (client/src/pages/AccountPage.catalog.test.tsx — PREF-041; tests/AllotJar.IntegrationTests/Http/GoogleSignInFlowTests.cs — REG-085 for the server contract incl. the stamp-rotation reissue and the passwordless-refusal)
+
+## Budget currency lock (W08)
+
+### PREF-042 - The API refuses a currency change once the household holds an account, month or transaction
+- **Priority:** P0
+- **Type:** Negative
+- **Origin:** W08 (rules 42/85) — the preference is the own household's budget currency; changing it after money is recorded would relabel that money 1:1.
+- **Preconditions:** Bearer token for `owner@example.test` (EUR, locked); HTTP client. For the UI leg, a stale tab opened while unlocked (or a mocked `currencyLocked: false`) so the select is still offered.
+- **Steps:**
+  1. `PUT /api/auth/preferences` with `preferredCurrency: "USD"` (format valid).
+  2. `PUT /api/auth/preferences` with `preferredCurrency: "eur"` and a new first name.
+  3. In the stale tab pick "US dollar ($)" and click "Save preferences".
+- **Expected:**
+  - Step 1: 400 `{"error":"Your budget is in EUR and already has accounts, months or transactions, so its currency can't be changed."}`; nothing is saved (name/format in the same request are not applied either).
+  - Step 2: 200 — "eur" normalises to the stored EUR, which is not a change; the name is saved.
+  - Step 3: the server's message is shown verbatim in the card's error banner (`role="alert"`); the chip and stored currency stay EUR.
+  - A household counts as holding something as soon as **any** account (including another login's private one), budget month or transaction exists (`BudgetCurrency.IsFixedAsync` reads past the privacy filters).
+- **Automated:** Partial (client/src/pages/AccountPage.test.tsx — "shows the server’s reason when a currency change is refused"; ForeignAmountsTests — `The_budget_currency_is_fixed_once_the_household_holds_anything`; the 400 body of `PUT /auth/preferences` is not asserted)
+
+### PREF-043 - An empty household can still change its currency; the first account, month or transaction fixes it
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Signed in as `fresh@example.test` (EUR, nothing recorded, `currencyLocked: false`).
+- **Steps:**
+  1. On `/account`, change "Currency" to "British pound (£)" and save.
+  2. Read the user chip; open `/accounts` → **+ Add account**.
+  3. Add account "Current"; reload `/account`.
+- **Expected:**
+  - Step 1–2: success; the chip reads "GBP · Personal" at once (`budgetCurrency` follows the preference while the own household is unlocked); the add form says "The account holds GBP, your budget currency."; the tagline/welcome nouns say "pound".
+  - Step 3: the account is GBP; `/auth/me` now returns `currencyLocked: true`, and "Currency" is the read-only "British pound (£)" with the fixed note (PREF-011). Creating the first budget month instead of an account locks it the same way, and that month is stamped GBP.
+- **Automated:** Partial (ForeignAmountsTests — `The_budget_currency_is_the_first_months_else_the_owners_choice`, `The_budget_currency_is_fixed_once_the_household_holds_anything`; the UI flow is not asserted end to end)
+
+### PREF-044 - A member sees the active household's budget currency, whatever their own preference
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** `member@example.test` (own preference **EUR**, own household empty) has joined `owner2@example.test`'s household whose first month is **GBP**; the shared household is active.
+- **Steps:**
+  1. Read the user chip and `/accounts`, `/transactions`, `/` (Budget).
+  2. On `/account`, read "Currency".
+  3. Switch to the member's own household and read the chip again.
+- **Expected:**
+  - Step 1: chip "GBP · {owner2's label}"; amounts, the add-account note ("The account holds GBP, your budget currency.") and "Needs GBP amount" tags use **GBP** (`/auth/me.budgetCurrency` = the active household's). New months/accounts created there are GBP, never the member's EUR.
+  - Step 2: "Currency" still shows and edits the member's **own** preference (EUR) — the lock (`currencyLocked`) is about the member's own household, which is empty, so it is a select.
+  - Step 3: chip "EUR · Your household".
+- **Automated:** No

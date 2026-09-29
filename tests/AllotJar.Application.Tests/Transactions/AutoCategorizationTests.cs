@@ -255,7 +255,7 @@ public class AutoCategorizationTests
         SeedAssignedTransaction(db, "user-1", "Landlord GmbH", rent.Id, new DateOnly(2026, 5, 1));
 
         var handler = new ImportStatementCommandHandler(
-            db, new CurrentUserStub("user-1"), new[] { new Camt053StatementParser() }, new FakeExchangeRateProvider());
+            db, new CurrentUserStub("user-1"), new[] { new Camt053StatementParser() });
         var result = await handler.Handle(new ImportStatementCommand(Camt053Samples.ThreeEntries), CancellationToken.None);
 
         result.Imported.Should().Be(3);

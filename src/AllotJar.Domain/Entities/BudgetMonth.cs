@@ -23,10 +23,10 @@ public class BudgetMonth : BaseEntity
     public int Month { get; set; }
 
     /// <summary>
-    /// The home currency this budget is planned in. Every planned/actual amount
-    /// in the tree is expressed in this currency, which keeps the totals summable.
-    /// Foreign-currency transactions are converted to this currency before they
-    /// affect the budget.
+    /// The household's budget currency (rule 85), stamped on the month when it is created
+    /// (<c>BudgetCurrency.ResolveAsync</c>). Every planned/actual amount in the tree is in this
+    /// currency; a transaction in another currency counts only once the user has supplied its
+    /// amount in it.
     /// </summary>
     public CurrencyCode BaseCurrency { get; set; } = CurrencyCode.Eur;
 
@@ -75,8 +75,8 @@ public class BudgetMonth : BaseEntity
     public bool IsBalanced => TotalIncome > 0m && RemainingToBudget == 0m;
 
     /// <summary>
-    /// How many of this month's transactions are awaiting an exchange rate
-    /// (<see cref="Transaction.FxPending"/>). Those rows are EXCLUDED from the derived
+    /// How many of this month's transactions are in another currency and still wait for their
+    /// budget-currency amount (<see cref="Transaction.FxPending"/>). Those rows are EXCLUDED from the derived
     /// actuals, so a non-zero count marks every aggregate on this month as incomplete.
     /// Derived at read time (see AllotJar.Application.Budgets.BudgetActuals); not persisted.
     /// </summary>

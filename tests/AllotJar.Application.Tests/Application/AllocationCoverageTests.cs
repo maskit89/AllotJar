@@ -105,7 +105,7 @@ public class AllocationCoverageTests
         {
             OwnerId = Owner, Type = TransactionType.Transfer, Date = new DateOnly(2026, 7, 1),
             DepartedOn = new DateOnly(2026, 7, 1), ReceivedOn = new DateOnly(2026, 7, 1),
-            Amount = amount, Currency = CurrencyCode.Eur, ExchangeRate = 1m,
+            Amount = amount, Currency = CurrencyCode.Eur,
             AccountId = elsewhere.Id, TransferAccountId = intoAccount, BankReference = bankRef, Payee = "prior transfer",
         });
         db.SaveChanges();
@@ -448,7 +448,6 @@ public class AllocationCoverageTests
         transfer.Payee.Should().Be("Income allocation — Alex");
         transfer.Amount.Should().Be(1000m);
         transfer.Currency.Should().Be(gbp); // the source/savings currency, not a hardcoded EUR
-        transfer.ExchangeRate.Should().Be(1m);
         transfer.AccountId.Should().Be(source.Id);
         transfer.TransferAccountId.Should().Be(chrisSavings.Id);
         transfer.BankReference.Should().Be($"alloc:2026-7:{alex.Id}");

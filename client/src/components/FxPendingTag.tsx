@@ -1,16 +1,16 @@
 /**
- * Row-level marker for a foreign-currency transaction whose exchange rate is still
- * unresolved (server-side FxPending): the amount counts at face value until a later
- * import reconciles the real rate, so the register must say so rather than present
- * the figure as settled. Styled after the "Budgeted to" row tag.
+ * Row-level marker for a transaction recorded in another currency that still waits for its
+ * amount in the budget currency (server-side FxPending). The app never converts on its own, so
+ * the row counts nowhere (budget, reports, people) until the user enters or confirms that amount.
+ * Styled after the "Budgeted to" row tag.
  */
-export function FxPendingTag() {
+export function FxPendingTag({ budgetCurrency, className = '' }: { budgetCurrency: string; className?: string }) {
   return (
     <span
-      title="Exchange rate unavailable — this amount counts at face value until a later import resolves the rate"
-      className="mr-1.5 inline-block rounded-[5px] border border-amber-200 bg-amber-50 px-1.5 py-px align-middle text-[9.5px] font-semibold text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300"
+      title={`In another currency. Not counted anywhere until you enter the amount in ${budgetCurrency}.`}
+      className={`inline-block rounded-[5px] border border-amber-200 bg-amber-50 px-1.5 py-px align-middle text-[9.5px] font-semibold text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300 ${className}`}
     >
-      Rate pending
+      Needs {budgetCurrency} amount
     </span>
   )
 }

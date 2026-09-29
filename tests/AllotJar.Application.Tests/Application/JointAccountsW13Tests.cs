@@ -650,7 +650,7 @@ public class JointAccountsW13Tests
         await using (var db = As(Sam))
         {
             var result = await new ImportStatementCommandHandler(
-                    db, Sam, new[] { new Camt053StatementParser() }, new FakeExchangeRateProvider())
+                    db, Sam, new[] { new Camt053StatementParser() })
                 .Handle(new ImportStatementCommand(Camt053Samples.TwoEurEntries, mine), CancellationToken.None);
             result.Imported.Should().Be(2);
             result.AutoCategorized.Should().Be(0);

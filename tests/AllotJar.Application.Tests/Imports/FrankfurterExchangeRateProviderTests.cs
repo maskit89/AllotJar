@@ -56,7 +56,7 @@ public class FrankfurterExchangeRateProviderTests
         handler.Requests.Should().Be(1);
 
         // …but once the interval passes, the recovered API is consulted again. A permanently
-        // cached failure would pin FxPending rows unresolved until an app restart.
+        // cached failure would leave every suggestion unavailable until an app restart.
         handler.Respond = () => Ok("1.15");
         clock.Now += FrankfurterExchangeRateProvider.FailureRetryInterval + TimeSpan.FromSeconds(1);
         (await provider.GetRateAsync(CurrencyCode.From("GBP"), CurrencyCode.Eur, date, CancellationToken.None)).Should().Be(1.15m);

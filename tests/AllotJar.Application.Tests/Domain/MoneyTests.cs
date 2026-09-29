@@ -78,18 +78,4 @@ public class MoneyTests
         Assert.Equal(500m, remaining.Amount);
         Assert.Equal(Gbp, remaining.Currency);
     }
-
-    [Fact]
-    public void Transaction_BaseAmount_AppliesExchangeRate()
-    {
-        // 50 GBP at 1.17 EUR/GBP -> 58.50 in the budget's base currency.
-        var tx = new Transaction
-        {
-            Amount = 50m,
-            Currency = Gbp,
-            ExchangeRate = 1.17m,
-        };
-
-        Assert.Equal(58.50m, tx.BaseAmount);
-    }
 }

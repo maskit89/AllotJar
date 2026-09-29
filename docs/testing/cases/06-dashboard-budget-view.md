@@ -246,7 +246,7 @@
 ### DASH-021 - Currency-aware noun, symbol and fraction digits in the Hero
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Three variants: (a) month baseCurrency GBP, balanced; (b) baseCurrency JPY; (c) baseCurrency set via API to a code outside the noun map (e.g. ISK).
+- **Preconditions:** Three fresh households whose budget currency (chosen at sign-up, so every month's `baseCurrency`) is: (a) GBP, month balanced; (b) JPY; (c) a code outside the noun map (e.g. ISK). A month's currency can't be set on its own — it is always the budget currency (BUDG-011).
 - **Steps:**
   1. Load each variant's dashboard and read the Hero.
 - **Expected:**
@@ -960,3 +960,20 @@
   1. Create the next month with "copy from previous".
 - **Expected:** Every income line's `MemberId` carries into the new month EXCEPT lines attributed to an archived member, which copy as whole-household (null) — never crediting someone who left. The one-time `AddBudgetItemMember` migration also backfills history conservatively: an income line is attributed only when exactly ONE active member's name prefixes the line name (the importer's "{Member} — Salary" shape); solo "Take-home Pay" and ambiguous prefixes stay null.
 - **Automated:** Full (backend `BudgetItemMemberTests.MonthCopy_CarriesAttribution_ButDropsArchivedMembers`; the migration applies in the real-SQL fixture)
+
+---
+
+## Money in another currency (W08)
+
+### DASH-080 - Rows waiting for their budget-currency amount are left out of the month and a notice says so
+- **Priority:** P1
+- **Type:** Edge
+- **Origin:** Re-review F5 / W08 (rules 42–44). Before W08 the rows were "awaiting an exchange rate"; now nothing converts them and the user enters the amount.
+- **Preconditions:** dash-owner, July 2026 month; Groceries (Food) planned 400.00 with €150.00 spent; two imported GBP rows dated in July, both assigned to Groceries and waiting (`fxPending`). A second month (June) with no waiting rows.
+- **Steps:**
+  1. Open `/` on July 2026; read the notice, Groceries' actual and the Hero.
+  2. Follow the notice's link; enter the EUR amount for one row (e.g. 20.00); return to `/`.
+  3. Enter the other row's amount; return to `/`. Switch to June.
+- **Expected:** Step 1: an amber `role="status"` notice under the Hero reads **"2 transactions in another currency are waiting for their amount in EUR and aren’t counted until it’s entered."** with the link **"Enter them on Transactions"** (`/transactions`); Groceries still reads €150.00 spent and Remaining/leftovers ignore both rows (`fxPendingCount: 2` on the month; every sum excludes them). Step 2: Groceries reads €170.00; the notice reads "1 transaction in another currency is waiting for its amount in EUR and isn’t counted until it’s entered." with "Enter it on Transactions". Step 3: no notice; June never shows one. The count covers every waiting row dated in the month (assigned or not), except a row on a private account that is not on a budget line (rule P56: it counts nowhere for the household anyway).
+- **Automated:** Partial (client `DashboardPage.catalog.test.tsx` — "shows the pending-FX notice when the month reports pending rows", "renders no pending-FX notice when nothing is pending"; backend FxPendingAggregatesTests — `BudgetActuals_ExcludePendingRows_AndReportTheCount`, `A_confirmed_amount_counts_on_its_line_and_leaves_the_waiting_count`)
+

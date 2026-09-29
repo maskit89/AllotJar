@@ -68,6 +68,6 @@ public class BudgetTrendPointDto
     /// <summary>Expense rows and refunds still needing a line (flagged for review).</summary>
     public int UncategorisedCount { get; set; }
 
-    /// <summary>Rows awaiting an exchange rate, left out of the figures.</summary>
+    /// <summary>Rows still waiting for a budget-currency amount, left out of the figures.</summary>
     public int FxPendingCount { get; set; }
 }

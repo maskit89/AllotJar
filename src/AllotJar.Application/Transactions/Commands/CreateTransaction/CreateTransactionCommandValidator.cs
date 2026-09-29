@@ -17,6 +17,26 @@ public class CreateTransactionCommandValidator : AbstractValidator<CreateTransac
         RuleFor(x => x.Payee)
             .MaximumLength(200);
 
+        // Paid in another currency: the foreign figure is kept for reference, both halves or neither.
+        RuleFor(x => x.OriginalCurrency)
+            .NotEmpty()
+            .When(x => x.OriginalAmount is not null)
+            .WithMessage("Choose the currency that was paid.");
+        RuleFor(x => x.OriginalCurrency)
+            .Matches("^[A-Za-z]{3}$")
+            .When(x => x.OriginalCurrency is not null)
+            .WithMessage("Currency must be a 3-letter ISO 4217 code.");
+        RuleFor(x => x.OriginalAmount)
+            .NotNull()
+            .When(x => x.OriginalCurrency is not null)
+            .WithMessage("Enter the amount that was paid in that currency.");
+        RuleFor(x => x.OriginalAmount)
+            .GreaterThan(0m)
+            .WithMessage("Enter an amount greater than zero.")
+            .LessThanOrEqualTo(99_999_999_999_999.9999m)
+            .WithMessage("Amount exceeds the supported range.")
+            .When(x => x.OriginalAmount is not null);
+
         // Only income and expense may be entered directly. A transfer moves money
         // between two accounts and must go through CreateTransfer, which records both
         // legs; a bare Type=Transfer here would leave a destination-less transfer that

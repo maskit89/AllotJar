@@ -30,7 +30,7 @@
   2. Inspect the form top-to-bottom.
   3. Click "Sign in" to switch back.
 - **Expected:**
-  - Registration mode adds, in order: "First name" + "Last name" side by side (both required, autocomplete `given-name`/`family-name`); "Currency" select; "Number format" select; hint "You can change your currency and number format anytime in account settings."; unticked sample-figures checkbox ("Start with sample figures to explore — example groups and amounts you can edit or delete anytime. Leave unticked to start with an empty budget."); required terms checkbox ("I agree to the Terms of Service and Privacy Policy."); staging build only: required amber checkbox "I understand this is the AllotJar staging test environment, and that my data may be reset or permanently lost."
+  - Registration mode adds, in order: "First name" + "Last name" side by side (both required, autocomplete `given-name`/`family-name`); "Currency" select; "Number format" select; hint "Your budget and its accounts use this currency. You can change it in account settings until you add your first account, month or transaction; the number format any time." (then it is the fixed budget currency, PREF-011/PREF-042); unticked sample-figures checkbox ("Start with sample figures to explore — example groups and amounts you can edit or delete anytime. Leave unticked to start with an empty budget."); required terms checkbox ("I agree to the Terms of Service and Privacy Policy."); staging build only: required amber checkbox "I understand this is the AllotJar staging test environment, and that my data may be reset or permanently lost."
   - Password autocomplete switches to `new-password`; submit button label becomes "Create account".
   - The "Terms of Service" and "Privacy Policy" links open `/terms` and `/privacy` in a new tab (`target="_blank"`, `rel="noopener noreferrer"`).
   - Switching back to "Sign in" hides every registration-only field again; entered email/password values are kept.
@@ -411,7 +411,7 @@
   3. Open `/account` → Preferences card.
 - **Expected:**
   - Money renders in PLN with dot-comma grouping app-wide (hero "Remaining to budget" shows the seeded 800 as `800,00 zł`-style per the PLN formatter with de-DE grouping).
-  - Account-menu chip shows "PLN · Your household". `/account` Preferences preselects "Polish złoty (zł)" and "1.234,56".
+  - Account-menu chip shows "PLN · Your household" (the budget currency). `/account` Preferences preselects "Polish złoty (zł)" and "1.234,56" while the budget is still empty; once it holds an account, month or transaction the currency shows read-only with "Your budget currency is fixed once your budget has accounts, months or transactions." (PREF-011), and every month is created in PLN.
   - Footer tagline on later logged-out visits aside, the in-app "give every złoty a job" surfaces use the noun "złoty".
 - **Automated:** Partial (client/src/pages/LoginPage.test.tsx — registration submits the chosen prefs; client/src/lib/money.test.ts — formats render; the end-to-end render isn't tested)
 
@@ -463,7 +463,7 @@
   2. Inspect localStorage and the URL history.
 - **Expected:**
   - Navigated to `/` with `replace: true` (Back does not return to `/login`); DashboardPage renders the user's month.
-  - localStorage holds only identity *hints* (`zbb.email`, `zbb.displayName`, `zbb.currency`, `zbb.numberFormat`, `zbb.role`) — **never** the access token (in-memory only; refresh token is the HttpOnly `zbb_rt` cookie, invisible to JS). Session persistence itself is file 03.
+  - localStorage holds only identity *hints* (`zbb.email`, `zbb.displayName`, `zbb.currency`, `zbb.budgetCurrency`, `zbb.numberFormat`, `zbb.role`) — **never** the access token (in-memory only; refresh token is the HttpOnly `zbb_rt` cookie, invisible to JS). Session persistence itself is file 03.
 - **Automated:** Yes (client/e2e-journey/session-expiry.spec.ts + helpers sign in against the real backend; client/src/pages/LoginPage.test.tsx — sign-in submit)
 
 ### REG-037 - Wrong password shows the generic credential error
@@ -622,7 +622,7 @@
   2. Inspect the nav.
   3. Open `/account`.
 - **Expected:**
-  - Chip shows the display name and "{currency} · Your household"; no household-switcher section (single household); menu offers "Account settings" and "Sign out".
+  - Chip shows the display name and "{budget currency} · Your household"; no household-switcher section (single household); menu offers "Account settings" and "Sign out".
   - Nav: "People" is visible (always — project invariant); "Allocation" is hidden (solo household of 1 member — the owner is member #1, never a 0-member household).
   - `/account`: "Access level" = "Owner"; the Sharing card reads the solo variant ("You're budgeting on your own. …" with "Share this budget"); no "Leave household" card.
 - **Automated:** Partial (client/src/components/AppNav.test.tsx — People always/Allocation solo-hidden; client/src/pages/AccountPage.test.tsx — solo cards; client/src/components/HouseholdSwitcher.test.tsx — hidden for single household; not exercised as one post-registration flow)

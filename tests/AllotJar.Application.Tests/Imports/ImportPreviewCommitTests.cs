@@ -34,7 +34,7 @@ public class ImportPreviewCommitTests
             new GenericCsvImporter());
 
     private static CommitImportCommandHandler NewCommit(ApplicationDbContext db, string userId) =>
-        new(db, new CurrentUserStub(userId), new FakeExchangeRateProvider());
+        new(db, new CurrentUserStub(userId));
 
     private static PreviewImportCommand Preview(string content = null!) =>
         new(content ?? HsbcCsvSamples.Mixed, StatementFormat.HsbcCsv);
@@ -154,7 +154,7 @@ public class ImportPreviewCommitTests
         // migration left every row recorded before the legs existed (rule 51).
         Transaction Row(string reference, Guid? accountId, Guid? transferAccountId = null) => new()
         {
-            OwnerId = "user-1", Amount = 10m, Currency = CurrencyCode.Eur, ExchangeRate = 1m,
+            OwnerId = "user-1", Amount = 10m, Currency = CurrencyCode.Eur,
             Type = transferAccountId is null ? TransactionType.Expense : TransactionType.Transfer,
             Date = new DateOnly(2026, 6, 15), Payee = "SEEDED", BankReference = reference,
             AccountId = accountId, TransferAccountId = transferAccountId,

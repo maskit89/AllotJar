@@ -133,7 +133,7 @@
 - **Steps:**
   1. After sign-in, inspect `localStorage` and `sessionStorage`.
   2. Look for any JWT / bearer token key (historically `zbb.token`).
-- **Expected:** No durable access token exists in web storage — the JWT is held in a module variable in `lib/api.ts` (`accessToken`). Only non-secret UI hints persist (`zbb.email`, `zbb.role`, `zbb.displayName`, `zbb.currency`, `zbb.numberFormat`, `zbb.analyticsConsent`). A successful XSS therefore cannot exfiltrate a long-lived credential from storage; the durable session sits only in the JS-unreadable HttpOnly refresh cookie. A full page reload drops the in-memory token and the session is rebuilt from the cookie (SEC-013 / SEC-019).
+- **Expected:** No durable access token exists in web storage — the JWT is held in a module variable in `lib/api.ts` (`accessToken`). Only non-secret UI hints persist (`zbb.email`, `zbb.role`, `zbb.displayName`, `zbb.currency`, `zbb.budgetCurrency`, `zbb.numberFormat`, `zbb.analyticsConsent`). A successful XSS therefore cannot exfiltrate a long-lived credential from storage; the durable session sits only in the JS-unreadable HttpOnly refresh cookie. A full page reload drops the in-memory token and the session is rebuilt from the cookie (SEC-013 / SEC-019).
 - **Automated:** Partial (`client/e2e-journey/register.spec.ts` → "the session survives a full page reload via the refresh cookie" exercises the in-memory + cookie split)
 
 ### SEC-013 - The refresh cookie carries the correct security flags

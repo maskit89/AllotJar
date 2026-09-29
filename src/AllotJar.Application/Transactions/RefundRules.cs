@@ -21,10 +21,15 @@ public static class RefundRules
     public const string Key = "RefundOfTransactionId";
 
     /// <summary>
-    /// Load the purchase a refund points at and check that <paramref name="refundAmount"/> in
-    /// <paramref name="refundCurrency"/> received on <paramref name="refundDate"/> can be a
-    /// refund of it. <paramref name="refundId"/> is the refund's own id when it already exists,
-    /// so its stored amount is not counted against itself.
+    /// Load the purchase a refund points at and check that <paramref name="refundAmount"/>
+    /// received on <paramref name="refundDate"/> can be a refund of it. <paramref name="refundId"/>
+    /// is the refund's own id when it already exists, so its stored amount is not counted against
+    /// itself. Amounts compare as recorded: every row that counts is in the budget currency
+    /// (rule 85). A null <paramref name="refundAmount"/> is a refund still waiting for its
+    /// budget-currency amount, which counts nothing yet. <paramref name="previousAmount"/> is what an
+    /// existing refund counted before this change: the fit is checked only when the refund starts
+    /// counting or counts more than before, so a payee, date or category edit never trips over a
+    /// pair whose figures were fixed apart (the migration restated each at its own day's rate).
     /// </summary>
     public static async Task<Transaction> ValidateOriginalAsync(
         IApplicationDbContext db,
@@ -32,10 +37,9 @@ public static class RefundRules
         Guid originalId,
         Guid? refundId,
         DateOnly refundDate,
-        decimal refundAmount,
-        Domain.ValueObjects.CurrencyCode refundCurrency,
-        decimal refundExchangeRate,
-        CancellationToken cancellationToken)
+        decimal? refundAmount,
+        CancellationToken cancellationToken,
+        decimal? previousAmount = null)
     {
         if (refundId is not null && refundId == originalId)
         {
@@ -67,19 +71,30 @@ public static class RefundRules
         {
             throw Refuse($"A refund can't be dated before the purchase it refunds ({original.Date:d MMM yyyy}).");
         }
+        var checkFit = refundAmount is decimal counted && (previousAmount is not decimal before || counted > before);
+        // Until the purchase has its budget-currency amount there is nothing to compare a refund
+        // with (rule 44); a refund that would count now could not be checked.
+        if (original.FxPending && checkFit)
+        {
+            throw Refuse(
+                $"The purchase this refunds is in {original.Currency.Value} and is waiting for its amount in the budget currency. " +
+                "Enter the purchase's amount first.");
+        }
 
         // Refunds of one purchase never exceed it — counting the ones the caller can't see (W13).
-        var others = (await AllRefundsAsync(db, originalId, cancellationToken)).Where(r => r.Id != refundId).ToList();
-        var legs = others.Select(r => r.Leg).Append(new RefundLeg(refundAmount, refundCurrency, refundExchangeRate)).ToList();
-        var (paid, refunded, sameCurrency) = Totals(original.Currency, original.Amount, original.ExchangeRate, legs);
-        if (refunded > paid)
+        var others = (await AllRefundsAsync(db, originalId, cancellationToken))
+            .Where(r => r.Id != refundId && !r.Waiting)
+            .ToList();
+        var paid = original.BudgetAmount ?? original.Amount;
+        var already = others.Sum(r => r.Amount);
+        var refunded = already + (refundAmount ?? 0m);
+        if (checkFit && !original.FxPending && refunded > paid)
         {
             if (others.Any(r => r.Hidden))
             {
                 // Say no more than that it doesn't fit: the other refunds' amounts are private.
                 throw Refuse($"This refund doesn't fit: refunds of this purchase can't add up to more than the {paid:0.##} paid.");
             }
-            var already = sameCurrency ? others.Sum(r => r.Amount) : others.Sum(r => r.Amount * r.ExchangeRate);
             throw Refuse(already > 0m
                 ? $"Refunds of this purchase would total {refunded:0.##}, more than the {paid:0.##} paid ({already:0.##} already refunded)."
                 : $"A refund of {refunded:0.##} is more than the {paid:0.##} paid for this purchase.");
@@ -98,42 +113,23 @@ public static class RefundRules
     {
         var all = await db.Transactions.IgnoreQueryFilters()
             .Where(r => r.RefundOfTransactionId == originalId)
-            .Select(r => new { r.Id, r.Amount, r.Currency, r.ExchangeRate, r.Date })
+            .Select(r => new { r.Id, Amount = r.BudgetAmount ?? r.Amount, r.FxPending, r.Date })
             .ToListAsync(cancellationToken);
         var ids = all.Select(r => r.Id).ToList();
         var visible = (await db.Transactions.Where(r => ids.Contains(r.Id)).Select(r => r.Id).ToListAsync(cancellationToken))
             .ToHashSet();
-        return all.Select(r => new RefundRecord(r.Id, r.Amount, r.Currency, r.ExchangeRate, r.Date, !visible.Contains(r.Id)))
+        return all.Select(r => new RefundRecord(r.Id, r.Amount, r.Date, !visible.Contains(r.Id), r.FxPending))
             .ToList();
     }
 
-    /// <summary>A refund of a purchase as the refund checks need it; <c>Hidden</c> when the caller can't see it.</summary>
-    public readonly record struct RefundRecord(
-        Guid Id, decimal Amount, Domain.ValueObjects.CurrencyCode Currency, decimal ExchangeRate, DateOnly Date, bool Hidden)
-    {
-        public RefundLeg Leg => new(Amount, Currency, ExchangeRate);
-    }
-
-    /// <summary>One refund's money as recorded: its amount, currency and the rate that converts it to the base currency.</summary>
-    public readonly record struct RefundLeg(decimal Amount, Domain.ValueObjects.CurrencyCode Currency, decimal ExchangeRate);
-
     /// <summary>
-    /// What a purchase of <paramref name="purchaseAmount"/> in <paramref name="purchaseCurrency"/>
-    /// paid and what <paramref name="refunds"/> gave back, on one scale (rule 39): when every
-    /// refund is in the purchase's currency the amounts as recorded are compared, otherwise the
-    /// base-currency values (each amount × its own rate; O5: the user's converted figure). The
-    /// one comparison behind linking a refund and editing the purchase it refunds.
-    /// <c>SameCurrency</c> says which scale the two figures are on.
+    /// A refund of a purchase as the refund checks need it; <c>Hidden</c> when the caller can't
+    /// see it, <c>Waiting</c> while it has no budget-currency amount (it then counts nothing).
     /// </summary>
-    public static (decimal Paid, decimal Refunded, bool SameCurrency) Totals(
-        Domain.ValueObjects.CurrencyCode purchaseCurrency, decimal purchaseAmount, decimal purchaseExchangeRate,
-        IReadOnlyCollection<RefundLeg> refunds)
-    {
-        var sameCurrency = refunds.All(r => r.Currency == purchaseCurrency);
-        return sameCurrency
-            ? (purchaseAmount, refunds.Sum(r => r.Amount), true)
-            : (purchaseAmount * purchaseExchangeRate, refunds.Sum(r => r.Amount * r.ExchangeRate), false);
-    }
+    public readonly record struct RefundRecord(Guid Id, decimal Amount, DateOnly Date, bool Hidden, bool Waiting);
+
+    /// <summary>What the refunds that count gave back: the ones with a budget-currency amount.</summary>
+    public static decimal Refunded(IEnumerable<RefundRecord> refunds) => refunds.Where(r => !r.Waiting).Sum(r => r.Amount);
 
     /// <summary>
     /// The line a refund lands on when the user picks none: the line in the refund's own month

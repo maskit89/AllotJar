@@ -10,9 +10,9 @@ public class MemberSpendingDto
     public Guid MemberId { get; set; }
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>Total expense attributed to this member (whole transactions and slices) in the budget's base currency, over the requested month or all time; rows with a pending exchange rate are left out.</summary>
+    /// <summary>Total expense attributed to this member (whole transactions and slices) in the budget currency, over the requested month or all time; rows still waiting for a budget-currency amount are left out.</summary>
     public decimal Spent { get; set; }
 
-    /// <summary>Attributed expense rows whose exchange rate is still unresolved and therefore not counted.</summary>
+    /// <summary>Attributed expense rows still waiting for their budget-currency amount and therefore not counted.</summary>
     public int FxPendingCount { get; set; }
 }

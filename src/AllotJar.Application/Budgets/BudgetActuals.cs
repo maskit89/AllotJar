@@ -10,8 +10,8 @@ namespace AllotJar.Application.Budgets;
 /// Derives each budget line's <see cref="BudgetItem.ActualAmount"/> from the
 /// transactions assigned to it: the sum of the assigned transactions of the
 /// line's own kind (income lines roll up income transactions, expense lines roll
-/// up expense transactions), in the budget's base currency via
-/// Amount × ExchangeRate, plus any split slices. So an income line's "received"
+/// up expense transactions), in the budget currency, plus any split slices. A row
+/// still waiting for its budget-currency amount (rule 44) counts nowhere. So an income line's "received"
 /// and an expense line's "spent" both work the same way. A refund (money received
 /// that is linked to an earlier purchase, rules 38/39) is subtracted from the
 /// expense/savings line it is assigned to — net spending in the month it was
@@ -33,10 +33,10 @@ public static class BudgetActuals
         BudgetMonth month,
         CancellationToken cancellationToken)
     {
-        // How many of this month's rows are awaiting an exchange rate. Those rows are EXCLUDED
-        // from every sum below — a pending row's rate is a placeholder 1, and counting it would
-        // present face-value amounts as base-currency money. The count marks the aggregates as
-        // incomplete instead of silently wrong (computed even when the month has no lines yet).
+        // How many of this month's rows are in another currency and still wait for their
+        // budget-currency amount. Those rows are EXCLUDED from every sum below — their amount is
+        // not budget-currency money (rule 44). The count marks the aggregates as incomplete
+        // instead of silently wrong (computed even when the month has no lines yet).
         month.FxPendingCount = await db.Transactions
             .Where(HouseholdMoney.Counts(db))
             .CountAsync(t => t.OwnerId == ownerId
@@ -61,7 +61,7 @@ public static class BudgetActuals
 
         var itemIds = items.Select(i => i.Id).ToList();
 
-        // Whole (non-split) transactions assigned directly to a line. Pending-FX rows are
+        // Whole (non-split) transactions assigned directly to a line. Waiting rows are
         // excluded — see FxPendingCount above. Refunds are grouped apart: they are Income rows
         // that reduce an expense/savings line (rules 38/39) and never feed an income line.
         var sums = await db.Transactions
@@ -70,12 +70,12 @@ public static class BudgetActuals
                         && t.BudgetItemId != null
                         && itemIds.Contains(t.BudgetItemId.Value))
             .GroupBy(t => new { ItemId = t.BudgetItemId!.Value, t.Type, IsRefund = t.RefundOfTransactionId != null })
-            .Select(g => new { g.Key.ItemId, g.Key.Type, g.Key.IsRefund, Total = g.Sum(t => t.Amount * t.ExchangeRate) })
+            .Select(g => new { g.Key.ItemId, g.Key.Type, g.Key.IsRefund, Total = g.Sum(t => t.BudgetAmount ?? t.Amount) })
             .ToListAsync(cancellationToken);
 
         // Slices of split transactions. A split transaction has BudgetItemId == null
-        // so it never appears above — no double counting. Each slice rolls up at the
-        // parent's exchange rate and inherits the parent's direction (Type). A refund is
+        // so it never appears above — no double counting. Each slice inherits the
+        // parent's direction (Type). A refund is
         // never split (RefundRules), so the filter only guards a hand-crafted row.
         var splitRows = await (
             from s in db.TransactionSplits
@@ -85,7 +85,7 @@ public static class BudgetActuals
                   && t.RefundOfTransactionId == null
                   && s.BudgetItemId != null
                   && itemIds.Contains(s.BudgetItemId.Value)
-            select new { ItemId = s.BudgetItemId!.Value, t.Type, Total = s.Amount * t.ExchangeRate })
+            select new { ItemId = s.BudgetItemId!.Value, t.Type, Total = s.BudgetAmount ?? s.Amount })
             .ToListAsync(cancellationToken);
 
         var splitSums = splitRows

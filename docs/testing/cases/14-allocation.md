@@ -570,15 +570,15 @@
 - **Expected:** Exactly **one** transfer is written (member A). B (residual 0, not > 0), C (residual ≤ 0), and D (no savings account) are all skipped; `transfersCreated = 1`, banner singular ("1 savings transfer created"). D's 900 shows in the stranded note.
 - **Automated:** Partial (Application/AllocationTests.cs — Allocate transfer creation; combined skip-conditions not all in one test)
 
-### ALLOC-058 - Transfer composition: EUR-hardcoded, non-zero-padded BankReference
+### ALLOC-058 - Transfer composition: one currency throughout, non-zero-padded BankReference
 - **Priority:** P1
 - **Type:** Regression
-- **Origin:** gotchas #12/#13 — commit currency hardcoded EUR; `BankReference = "alloc:{year}-{month}:{memberId}"` month not zero-padded
-- **Preconditions:** A GBP household commits July; a member with residual > 0 + savings account.
+- **Origin:** gotchas #12/#13 — the commit currency used to be hardcoded EUR (since fixed: it is the source account's) and `BankReference = "alloc:{year}-{month}:{memberId}"` month is not zero-padded; W08 removed the exchange rate altogether.
+- **Preconditions:** A GBP household (budget currency GBP) commits July; a member with residual > 0 and a GBP savings account.
 - **Steps:**
   1. Commit and inspect the written transfer (register / DB).
-- **Expected:** Each transfer is `Type=Transfer`, Date = 1st of month, Payee = "Income allocation — {name}", Amount = residual, `AccountId` = source, `TransferAccountId` = member savings, **Currency = EUR / ExchangeRate = 1 (hardcoded)** even for a GBP household (known display-label limitation), and `BankReference = "alloc:2026-7:{memberId}"` — month **"7"**, not "07". The prefix filter for idempotent re-runs and the unique (Owner, BankReference) index both depend on this exact, non-padded composition; changing it breaks both.
-- **Automated:** Partial (AllocationRerunTests.cs exercises the reference/index; the EUR label and non-padding are not separately asserted)
+- **Expected:** Each transfer is `Type=Transfer`, Date = 1st of month, Payee = "Income allocation — {name}", Amount = residual, `AccountId` = source, `TransferAccountId` = member savings, **Currency = the source account's currency (GBP)** — there is no exchange rate — and `BankReference = "alloc:2026-7:{memberId}"` — month **"7"**, not "07". The source must be in the month's budget currency ("The source account is in {X}, but this budget is in {Y}. Choose an account in the budget currency.") and each savings account in the source's ("{name}'s savings account is in {C} but the source account is in {S}. Allocation transfers must stay in one currency."); since W08 only a legacy account can trip either (CMB-011). The prefix filter for idempotent re-runs and the unique (Owner, BankReference) index both depend on this exact, non-padded composition; changing it breaks both.
+- **Automated:** Partial (AllocationRerunTests.cs exercises the reference/index; the currency stamp and non-padding are not separately asserted)
 
 ### ALLOC-059 - Commit with no profile (raw API) → 404
 - **Priority:** P2

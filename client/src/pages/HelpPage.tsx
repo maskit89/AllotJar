@@ -41,8 +41,8 @@ function HelpCard({
 export function HelpPage() {
   const { replay } = useOnboarding()
   const { available, consent, accept, decline } = useAnalytics()
-  const { preferredCurrency } = useAuth()
-  const noun = currencyNoun(preferredCurrency)
+  const { budgetCurrency } = useAuth()
+  const noun = currencyNoun(budgetCurrency)
   return (
     <AppShell active="help">
       <PageHeader
@@ -120,7 +120,7 @@ export function HelpPage() {
         <HelpCard hueIndex={3} title="Your account">
           <p>
             Open the menu under your name (bottom of the sidebar) for <strong>Account settings</strong> — your
-            display name, preferred currency and number format, and changing your password. If you belong to
+            display name, currency and number format, and changing your password. If you belong to
             more than one household, switch between them there too.
           </p>
         </HelpCard>

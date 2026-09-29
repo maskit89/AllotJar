@@ -579,8 +579,9 @@ describe('DashboardPage catalog — pending-FX honesty (re-review F5)', () => {
     renderPage()
 
     const notice = await screen.findByRole('status', {}, { timeout: 5000 })
-    expect(notice.textContent).toContain('2 imported transactions await an exchange rate')
-    expect(notice.textContent).toContain('totals exclude them')
+    expect(notice.textContent).toContain('2 transactions in another currency are waiting for their amount in EUR')
+    expect(notice.textContent).toContain('aren’t counted until it’s entered')
+    expect(within(notice).getByRole('link', { name: 'Enter them on Transactions' })).toHaveAttribute('href', '/transactions')
   })
 
   it('renders no pending-FX notice when nothing is pending', { timeout: 15000 }, async () => {

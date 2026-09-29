@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Accounts;
+using AllotJar.Application.Budgets;
 using AllotJar.Application.Transactions;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -15,18 +16,18 @@ public class ImportStatementCommandHandler : IRequestHandler<ImportStatementComm
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
     private readonly IReadOnlyCollection<IStatementParser> _parsers;
-    private readonly IExchangeRateProvider _exchangeRates;
+    private readonly IIdentityService? _identity;
 
     public ImportStatementCommandHandler(
         IApplicationDbContext db,
         ICurrentUser currentUser,
         IEnumerable<IStatementParser> parsers,
-        IExchangeRateProvider exchangeRates)
+        IIdentityService? identity = null)
     {
         _db = db;
         _currentUser = currentUser;
         _parsers = parsers.ToList();
-        _exchangeRates = exchangeRates;
+        _identity = identity;
     }
 
     public async Task<ImportStatementResult> Handle(ImportStatementCommand request, CancellationToken cancellationToken)
@@ -106,7 +107,6 @@ public class ImportStatementCommandHandler : IRequestHandler<ImportStatementComm
                 OwnerId = userId,
                 Amount = entry.Amount,
                 Currency = CurrencyCode.From(entry.Currency),
-                ExchangeRate = 1m, // provisional — FxRateResolver sets the real rate below
                 Type = entry.IsCredit ? TransactionType.Income : TransactionType.Expense,
                 Date = entry.BookingDate,
                 Payee = Truncate(entry.Payee, 200),
@@ -131,17 +131,13 @@ public class ImportStatementCommandHandler : IRequestHandler<ImportStatementComm
         var autoCategorized = 0;
         if (created.Count > 0)
         {
-            // Resolve FX rates to the budget base currency, then apply learned
-            // payee -> line rules, then persist once.
-            await FxRateResolver.ApplyAsync(_db, _exchangeRates, userId, created, cancellationToken);
+            // A row in another currency waits for its budget-currency amount (rules 42/44):
+            // no rate is looked up or applied. Then learned payee -> line rules, then one save.
+            ForeignAmounts.MarkWaiting(
+                created, await BudgetCurrency.ResolveAsync(_db, _identity, userId, cancellationToken));
             autoCategorized = await AutoCategorizer.ApplyAsync(_db, userId, created, cancellationToken);
             await _db.SaveChangesAsync(cancellationToken);
         }
-
-        // Reconcile previously-pending FX rows even when this import added nothing new — an
-        // all-duplicates re-import is the natural retry after an outage. Runs after (and
-        // outside) the import's own save so it can neither fail nor roll back the import.
-        await FxRateResolver.ReconcilePendingAsync(_db, _exchangeRates, userId, cancellationToken);
 
         return new ImportStatementResult(
             TotalEntries: statement.Entries.Count,
@@ -151,7 +147,8 @@ public class ImportStatementCommandHandler : IRequestHandler<ImportStatementComm
             Debits: debits,
             Iban: statement.Iban,
             AutoCategorized: autoCategorized,
-            Held: held);
+            Held: held,
+            AwaitingAmount: created.Count(t => t.FxPending));
     }
 
     private static string Truncate(string value, int max) =>

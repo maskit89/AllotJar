@@ -74,8 +74,8 @@ function tooltipStyle(box: Box | null): CSSProperties {
  */
 export function SpotlightTour() {
   const { tourStep, totalTourSteps, nextTourStep, prevTourStep, endTour } = useOnboarding()
-  const { preferredCurrency } = useAuth()
-  const steps = useMemo(() => buildTourSteps(currencyNoun(preferredCurrency)), [preferredCurrency])
+  const { budgetCurrency } = useAuth()
+  const steps = useMemo(() => buildTourSteps(currencyNoun(budgetCurrency)), [budgetCurrency])
   const step = steps[tourStep]
   const dialogRef = useRef<HTMLDivElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)

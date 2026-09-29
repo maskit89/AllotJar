@@ -9,7 +9,8 @@ namespace AllotJar.Application.Accounts.Commands.CreateAccount;
 /// <paramref name="OpeningDate"/> (rule 40); the returned balance is that amount as of today.
 /// <paramref name="HolderIds"/> are the people who hold it (rule 30; none = the household's own).
 /// <paramref name="IsPrivate"/> null follows rule 31: an account whose only holder is the caller's
-/// own person starts private, any other starts shared.
+/// own person starts private, any other starts shared. <paramref name="Currency"/> must be the
+/// household's budget currency (rules 63/85).
 /// </summary>
 public record CreateAccountCommand(
     string Name,

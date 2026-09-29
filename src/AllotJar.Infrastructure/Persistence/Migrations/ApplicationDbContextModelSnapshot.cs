@@ -690,6 +690,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasMaxLength(140)
                         .HasColumnType("nvarchar(140)");
 
+                    b.Property<decimal?>("BudgetAmount")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
                     b.Property<Guid?>("BudgetItemId")
                         .HasColumnType("uniqueidentifier");
 
@@ -706,12 +710,6 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly?>("DepartedOn")
                         .HasColumnType("date");
 
-                    b.Property<decimal>("ExchangeRate")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(18, 6)
-                        .HasColumnType("decimal(18,6)")
-                        .HasDefaultValue(1m);
-
                     b.Property<bool>("FxPending")
                         .HasColumnType("bit");
 
@@ -721,6 +719,14 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
+
+                    b.Property<decimal?>("OriginalAmount")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("OriginalCurrency")
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
 
                     b.Property<string>("OwnerId")
                         .IsRequired()
@@ -786,6 +792,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Amount")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<decimal?>("BudgetAmount")
                         .HasPrecision(18, 4)
                         .HasColumnType("decimal(18,4)");
 

@@ -8,7 +8,6 @@ public class JarPaymentDto
     public string Payee { get; set; } = string.Empty;
     public decimal Amount { get; set; }
     public string Currency { get; set; } = "EUR";
-    public decimal BaseAmount { get; set; }
     public bool FxPending { get; set; }
     public Guid? AccountId { get; set; }
     public string? AccountName { get; set; }

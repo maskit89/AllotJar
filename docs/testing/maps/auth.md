@@ -40,7 +40,7 @@ Guard mechanics:
   - "First name" / "Last name" (both `required`, side by side).
   - "Currency" select — 24 options from `CURRENCY_OPTIONS` (money.ts:69-94), labels like "Euro (€)", "British pound (£)", … "Turkish lira (₺)". Pre-selected from browser locale (`detectLocaleDefaults`, money.ts:191-195), fallback EUR.
   - "Number format" select — 5 options from `NUMBER_FORMAT_OPTIONS` (money.ts:55-61): `1,234.56` (comma-dot), `1.234,56` (dot-comma), `1 234,56` (space-comma), `1'234.56` (apostrophe), `1,23,456.78` (lakh). Pre-selected from locale.
-  - Hint text: "You can change your currency and number format anytime in account settings."
+  - Hint text: "Your budget and its accounts use this currency. You can change it in account settings until you add your first account, month or transaction; the number format any time."
   - Sample-data checkbox (NOT required, default **unchecked** — PR #170): "Start with sample figures to explore — example groups and amounts you can edit or delete anytime. Leave unticked to start with an empty budget."
   - Terms checkbox (`required`): "I agree to the **Terms of Service** and **Privacy Policy**." (links open `/terms`, `/privacy` in new tab).
   - Staging-only checkbox (`required`, only when `IS_STAGING`): "I understand this is the AllotJar **staging** test environment, and that my data may be reset or permanently lost." — client-side only; not sent to the server.
@@ -55,11 +55,11 @@ Guard mechanics:
 - "Your own budget" card — only when `!ownsHousehold` (login joined others but owns nothing): body "You're a member of a shared household. Want a budget of your own too? …" Button **"Start my own budget"** → "Setting up…"; error banner "Could not start your budget. Please try again." On success → full navigation to `/?started=1` (AuthContext.tsx:306-310).
 - "Sharing" card — hidden while `householdLoading`. If `isShared` (≥2 members): "This budget is shared between N people. …" + link **"Manage people →"** to `/people`. Else: "You're budgeting on your own. …" + Button **"Share this budget"** → navigates `/people`.
 - "Leave this household" card — only when the ACTIVE household is one the user joined (`viewingJoined` = active household not own; AccountPage.tsx:33-34). Button **"Leave household"** → inline confirm "Are you sure?" + **"Yes, leave"** ("Leaving…") + **"Cancel"**. Error "Could not leave this household. Please try again." Success → full navigation to `/?left=1` (AuthContext.tsx:312-318).
-- "Preferences" card: "First name", "Last name" (not required — can be blanked), "Currency" and "Number format" selects (same option lists as sign-up), Button **"Save preferences"** ("Saving…"), success `role="status"`: "Your preferences have been saved."
+- "Preferences" card: intro "Your name and how money is shown across the app. Your currency is the one your budget and all its accounts use; number format controls the decimal and grouping separators." Fields "First name", "Last name" (not required — can be blanked), "Currency" and "Number format" selects (same option lists as sign-up), Button **"Save preferences"** ("Saving…"), success `role="status"`: "Your preferences have been saved." **Currency lock (W08, rule 85):** when `currencyLocked` (from `/auth/me`) is true, "Currency" renders as a **read-only input** (`#pf-currency`, value = the option label, e.g. "Euro (€)") with the note "Your budget currency is fixed once your budget has accounts, months or transactions." (`#pf-currency-note`), and a save re-sends the stored `preferredCurrency` unchanged. A server refusal is shown in the card's `ErrorBanner`.
 - "Change password" card: "Current password" (required), "New password" (required, minLength 8, placeholder "At least 8 characters"), "Confirm new password" (required, minLength 8). Button **"Change password"** ("Saving…"), success `role="status"`: "Your password has been changed." Fields cleared on success; analytics `password_changed`.
 
 ### AppShell account menu (`client/src/components/AppShell.tsx`)
-- User chip (aria-label "Account menu") shows displayName + "{preferredCurrency} · {household label}". Menu (`role="menu"`):
+- User chip (aria-label "Account menu") shows displayName + "{budgetCurrency} · {household label}" (the ACTIVE household's budget currency, not the login's preference — W08). Menu (`role="menu"`):
   - Household section (only when >1 household): each household as a menuitem, active marked "✓"; clicking a non-active one calls `switchHousehold` → `POST /households/switch` → full nav to `/` (AuthContext.tsx:300-304).
   - **"Account settings"** → `/account`.
   - **"Sign out"** → analytics `logout`, then `logout()` (fire-and-forget `POST /auth/logout`, clear state, cross-tab broadcast; AuthContext.tsx:347-352).
@@ -87,7 +87,7 @@ All under `api/auth` in `src/AllotJar.Api/Controllers/AuthController.cs` unless 
 | `POST /api/auth/refresh` | `[AllowAnonymous]`, cookie-driven | yes | 200 `AuthResponse` + rotated cookie | 401 (cookie cleared EXCEPT on grace-window supersede — PR #171, AuthController.cs:176-187) |
 | `POST /api/auth/logout` | `[AllowAnonymous]` | yes | 204, revokes refresh token, **rotates security stamp** (kills the access token instantly), clears cookie | — (idempotent; no cookie → still 204) |
 | `POST /api/auth/change-password` | `[Authorize]` | yes | 200 `AuthResponse` (fresh token + cookie for THIS device; **revokes ALL refresh tokens** first) | 400 `{errors:[…]}` / 401 |
-| `GET /api/auth/me` | `[Authorize]` | no | 200 `MeResponse` (userId, email, displayName, role, ownerId, memberId, firstName, lastName, preferredCurrency, numberFormat, households[], needsConsent) | 401 |
+| `GET /api/auth/me` | `[Authorize]` | no | 200 `MeResponse` (userId, email, displayName, role, ownerId, memberId, firstName, lastName, preferredCurrency, numberFormat, households[], needsConsent, …, `budgetCurrency` = the ACTIVE household's budget currency via `BudgetCurrency.ResolveAsync`, `currencyLocked` = the login's OWN household holds any account, budget month or transaction via `BudgetCurrency.IsFixedAsync`) | 401 |
 | `POST /api/auth/consent` | `[Authorize]` | no | 204 (idempotent — only sets `ConsentedUtc` when null) | 401 |
 | `PUT /api/auth/preferences` | `[Authorize]` | no | 200 `PreferencesResponse` | 400 / 401 |
 | `POST /api/households/switch` | `[Authorize]` (HouseholdsController.cs:39) | no | 204 (sets `ActiveOwnerId`, null = own; effect on NEXT request) | 404 `{error:"You don't have access to that household."}` / 401 |
@@ -130,6 +130,7 @@ JWT (`Infrastructure/Identity/JwtTokenGenerator.cs`, `DependencyInjection.cs:106
 
 ### Server — preferences (`AuthController.UpdatePreferences`)
 - Blank `preferredCurrency`/`numberFormat` = "leave as is" (a name-only save can't reset them, AuthController.cs:390-403). Invalid values → the same 400 `{error:…}` messages as registration. First/Last may be blanked (nulls the DisplayName).
+- **Budget-currency lock (W08, rules 42/85)**: the preference IS the login's own household's budget currency until that household has a budget month. A `preferredCurrency` different from the stored one is refused once the own household holds any account, budget month or transaction (`BudgetCurrency.IsFixedAsync`, reads past privacy filters): 400 `{error: "Your budget is in {X} and already has accounts, months or transactions, so its currency can't be changed."}`. Re-sending the same code (e.g. a name-only save) is allowed. Number format is never locked.
 
 ### Server — accept-invite (thrown as `ValidationException`/`NotFoundException`/`ForbiddenAccessException` → `ExceptionHandlingMiddleware` shapes: 400 `{status,title:"Validation failed",errors:{Field:["msg"]}}`, 404/403 `{status,title:"msg"}`)
 - Invalid/used token → 404 "This invite link is invalid or has already been used."
@@ -157,7 +158,7 @@ JWT (`Infrastructure/Identity/JwtTokenGenerator.cs`, `DependencyInjection.cs:106
 - **Idle tab returns**: `focus`/`visibilitychange` revalidation when `isAccessTokenExpired()` (expiry epoch tracked from `AuthResponse.expiresAtUtc`); silent re-arm on success, `sessionExpired()` on failure (AuthContext.tsx:162-178).
 - **Cross-tab**: BroadcastChannel `zbb.auth`, message `'signed-out'`; receiver clears state only `if (getToken())` (ignores its own broadcast; no loops). Degrades silently without BroadcastChannel (authChannel.ts).
 - **Multi-tab refresh race** (session restore): per-tab single-flight + server 30s grace (§4) means losers get 401-without-cookie-clear and retry off the winner's cookie.
-- **localStorage persistence** (identity hints only, never the token): `zbb.email`, `zbb.role`, `zbb.displayName`, `zbb.currency`, `zbb.numberFormat`. On a fresh tab before `/auth/me` resolves, role falls back to **Owner** (`storedRole()`, AuthContext.tsx:96-100) — UI chrome may briefly over-render; server enforces real role per request. `/auth/me` refires on every token change and re-syncs role/prefs/households/needsConsent; malformed `/auth/me` payloads are ignored (never downgrade, AuthContext.tsx:237-251).
+- **localStorage persistence** (identity hints only, never the token): `zbb.email`, `zbb.role`, `zbb.displayName`, `zbb.currency`, `zbb.budgetCurrency` (active household's budget currency; W08), `zbb.numberFormat`. On a fresh tab before `/auth/me` resolves, role falls back to **Owner** (`storedRole()`, AuthContext.tsx:96-100) — UI chrome may briefly over-render; server enforces real role per request. `/auth/me` refires on every token change and re-syncs role/prefs/households/needsConsent; malformed `/auth/me` payloads are ignored (never downgrade, AuthContext.tsx:237-251).
 - **Role variants**: Owner(0)/Admin(1)/Limited(2)/ReadOnly(3). Derived: `canManageHousehold` = Owner only; `canWrite` = ≤Admin; `canEnterData` = ≤Limited; `isReadOnly` = ReadOnly (AuthContext.tsx:365-368). Read-only/limited banners in AppShell.
 - **Solo vs shared**: Sharing card swaps copy/CTA on `isShared` (≥2 members); card hidden entirely while household data loads. People nav always visible (project invariant).
 - **Multi-household**: switcher section in the account menu only when `households.length > 1`; `MeResponse.Households` labels own as "Your household", others by owner displayName ?? email ?? "Household", ordered own-first then label; a login with zero membership rows still gets a synthesized own-household entry (AuthController.cs:333-368).
@@ -182,7 +183,8 @@ JWT (`Infrastructure/Identity/JwtTokenGenerator.cs`, `DependencyInjection.cs:106
 - Client money: integer minor units at scale 4 (`FACTOR = 10_000`), matching server decimal(18,4); all sums integer; conversion only at API boundary/display (money.ts:1-32).
 - Number-format key → render locale: comma-dot→en-GB, dot-comma→de-DE, space-comma→fr-FR, apostrophe→de-CH, lakh→en-IN (money.ts:46-52); `setMoneyFormat` sets a module-level locale applied app-wide (called on mount, on `/auth/me`, on prefs save, reset to default on logout/state-clear).
 - Locale detection at sign-up (money.ts:145-195): browser region → currency via 24-entry map (unlisted → EUR); number format: IN→lakh, CH/LI→apostrophe, else inferred from `Intl.NumberFormat` group/decimal separators; SSR-safe fallback EUR/comma-dot.
-- `currencyNoun`: per-currency singular ("euro", "pound", "złoty"…; unknown → "unit") for the "Give every ___ a job" tagline.
+- `currencyNoun`: per-currency singular ("euro", "pound", "złoty"…; unknown → "unit") for the "Give every ___ a job" tagline. Inside the app (welcome dialog, spotlight tour, getting-started checklist) the noun follows `budgetCurrency`, not `preferredCurrency` (W08).
+- **Budget currency (W08, `src/AllotJar.Application/Budgets/BudgetCurrency.cs`)**: a household has ONE currency = its earliest budget month's `BaseCurrency`, else the owner's `PreferredCurrency`, else EUR. Client `AuthContext.budgetCurrency` = `/auth/me.budgetCurrency` (falls back to `preferredCurrency` until known; sign-up seeds it from the chosen currency); `currencyLocked` from `/auth/me`. The sign-up hint says the currency stays changeable only until the budget holds an account, month or transaction.
 - `safeInternalPath` (lib/returnUrl.ts): accepts only single-slash-rooted paths; rejects null, non-`/`-prefixed, `//…`, `/\…`, and any control char 0x00-0x1F/0x7F (WHATWG-parser strip attack).
 - `loginRedirectPath` (api.ts:66-71): null when already on `/login`; `returnUrl` omitted when at `/`; always carries `reason=expired`.
 
@@ -212,6 +214,7 @@ JWT (`Infrastructure/Identity/JwtTokenGenerator.cs`, `DependencyInjection.cs:106
 18. **`AuthResponse.Role` may differ from the active household's role** for multi-household logins (FirstOrDefault, see §6) — the client treats it as provisional and corrects from `/auth/me`.
 19. Journey harness (`client/e2e-journey/`, real API :5099 + SQL) is the only full-stack layer: `session-expiry.spec.ts` (revoked tab → prompt → returnUrl round-trip; password change signs out device A, device B unaffected), `concurrent-refresh.spec.ts` (same-cookie race over HTTP; fresh `request.newContext()` per call with explicit cookie header), `register.spec.ts`, `invite.spec.ts` (leave leg pins never-seed), `password-reset.spec.ts` (follows the actual emailed link via the dev mailbox; replay leg). `page.request.post('/api/auth/logout')` shares the browser cookie jar — handy to kill a session mid-test.
 18. Cookie `Path=/api/auth` — the refresh cookie rides only on auth endpoints; XSS cannot read it (HttpOnly) and the access token is in-memory only (never localStorage).
+20. **Budget currency is fixed once the household holds data (W08, rule 85)** — changing the preference after that would relabel recorded money, an implicit 1:1 conversion (rule 42). `/auth/me.currencyLocked` is about the login's OWN household; `budgetCurrency` is the ACTIVE one's (a member viewing a joined GBP household sees GBP even with an EUR preference). Tests: `client/src/pages/AccountPage.test.tsx` ("shows the currency read-only with a note once the budget currency is locked", "shows the server’s reason when a currency change is refused"); `tests/AllotJar.Application.Tests/Transactions/ForeignAmountsTests.cs` (`The_budget_currency_is_the_first_months_else_the_owners_choice`, `The_budget_currency_is_fixed_once_the_household_holds_anything`).
 
 ---
 
@@ -224,13 +227,14 @@ Server:
 - `src/AllotJar.Api/Program.cs` — rate limiter, pipeline order, startup backfills, health check
 - `src/AllotJar.Api/Middleware/HouseholdResolutionMiddleware.cs`, `src/AllotJar.Api/Middleware/ExceptionHandlingMiddleware.cs`
 - `src/AllotJar.Api/appsettings.json`, `src/AllotJar.Api/appsettings.Production.json.example`
-- `src/AllotJar.Infrastructure/DependencyInjection.cs` — Identity options, JWT bearer + sstamp validation, HIBP/FX HttpClients
+- `src/AllotJar.Infrastructure/DependencyInjection.cs` — Identity options, JWT bearer + sstamp validation, HIBP/Frankfurter HttpClients (Frankfurter now only feeds conversion *suggestions*; the `FxReconciliationService` hosted service was deleted in W08)
 - `src/AllotJar.Infrastructure/Identity/{RefreshTokenService,BreachedPasswordValidator,IdentityService,JwtTokenGenerator,JwtSettings,SecurityStampValidation,UserPreferences,ApplicationUser}.cs`
 - `src/AllotJar.Infrastructure/Persistence/{HouseholdBootstrap,BudgetSeeder}.cs`
 - `src/AllotJar.Application/Auth/Commands/Login/LoginCommandHandler.cs`
 - `src/AllotJar.Application/Common/Interfaces/IRefreshTokenService.cs` (`Superseded` flag)
 - `src/AllotJar.Application/HouseholdAccess/Commands/AcceptInvite/AcceptInviteCommandHandler.cs`
 - `src/AllotJar.Domain/ValueObjects/CurrencyCode.cs`
+- `src/AllotJar.Application/Budgets/BudgetCurrency.cs` (budget currency resolve + lock; W08)
 
 Client:
 - `client/src/lib/api.ts` — axios instance, token store, single-flight refresh, 401 interceptor, sessionExpired, loginRedirectPath

@@ -14,11 +14,13 @@ public class UpdateJarCommandHandler
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly IIdentityService? _identity;
 
-    public UpdateJarCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public UpdateJarCommandHandler(IApplicationDbContext db, ICurrentUser currentUser, IIdentityService? identity = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _identity = identity;
     }
 
     public async Task<JarDto> Handle(
@@ -46,7 +48,7 @@ public class UpdateJarCommandHandler
             // Rule 80: the account can change only while the jar holds nothing, today and on every
             // later date its old account has an entry for; a field change never moves money.
             // Anything else goes through "Move money" (a confirmed transfer).
-            var account = await JarAccounts.LoadDesignatedAsync(_db, userId, request.FundingAccountId, "FundingAccountId", cancellationToken);
+            var account = await JarAccounts.LoadDesignatedAsync(_db, userId, request.FundingAccountId, "FundingAccountId", cancellationToken, _identity);
             var current = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken);
             var balance = current.BalanceOf(jar.Id);
             if (balance is null)
