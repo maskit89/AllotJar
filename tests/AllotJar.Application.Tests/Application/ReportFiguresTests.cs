@@ -33,11 +33,6 @@ public class ReportFiguresTests
 
     private static readonly CurrentUserStub User = new("user-1");
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-report-figures-{Guid.NewGuid()}")
-            .Options);
-
     /// <summary>Income/Salary (planned 3000) and Household/Groceries (planned 400) + Clothes (planned 100).</summary>
     private static Dictionary<string, BudgetItem> SeedMonth(ApplicationDbContext db, int year, int month, decimal incomePlanned = 3000m)
     {

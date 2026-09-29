@@ -30,11 +30,6 @@ public class AllocationCommitConfirmationTests
     private static readonly CurrentUserStub User = new("user-1");
     private static readonly DateOnly Departure = new(2026, 6, 3);
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-alloc-confirm-{Guid.NewGuid()}")
-            .Options);
-
     private static Account SeedAccount(ApplicationDbContext db, string name, decimal opening = 0m)
     {
         var a = new Account

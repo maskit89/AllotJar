@@ -28,11 +28,6 @@ public class SavingsTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-savings-{Guid.NewGuid()}")
-            .Options);
-
     private static BudgetMonth NewMonth(string ownerId, int year, int month) => new()
     {
         OwnerId = ownerId,

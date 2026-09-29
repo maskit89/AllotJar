@@ -21,11 +21,6 @@ public class BudgetTrendsTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-trends-{Guid.NewGuid()}")
-            .Options);
-
     /// <summary>A month with a 1000 income line and an 800 Rent line spending `spent`
     /// (recorded as an assigned expense transaction).</summary>
     private static BudgetMonth SeedMonth(

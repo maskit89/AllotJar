@@ -47,11 +47,6 @@ public class BBillsCoverageTests
         public Guid? MemberId => null;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-bills-cov-{Guid.NewGuid()}")
-            .Options);
-
     /// <summary>
     /// Seeds a single expense line inside a Housing group on the given month and returns it,
     /// so a test can drive the bill/paid handlers against a real, owned line.

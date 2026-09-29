@@ -50,11 +50,6 @@ public class TTransactionsCoverageTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-tx-cov-{Guid.NewGuid()}")
-            .Options);
-
     private sealed record Fixture(Guid SalaryId, Guid GroceriesId, Guid InternetId, Guid EmergencyId);
 
     /// <summary>EUR July-2026 month for <paramref name="ownerId"/>: Income(Salary),

@@ -44,11 +44,6 @@ public class AAccountsCoverageTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-accts-cov-{Guid.NewGuid()}")
-            .Options);
-
     private static Account SeedAccount(
         ApplicationDbContext db, string ownerId, string name,
         decimal opening = 0m, AccountType type = AccountType.Current,

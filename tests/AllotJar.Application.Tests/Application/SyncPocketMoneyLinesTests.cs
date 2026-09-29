@@ -25,11 +25,6 @@ public class SyncPocketMoneyLinesTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-pocket-sync-{Guid.NewGuid()}")
-            .Options);
-
     private static void SeedProfile(ApplicationDbContext db, string owner, decimal pocketEach)
     {
         db.AllocationProfiles.Add(new AllocationProfile

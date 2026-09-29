@@ -38,11 +38,6 @@ public class ExcludeFromAllocationCoverageTests
 
     private const string Owner = "user-1";
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-excl-alloc-{Guid.NewGuid()}")
-            .Options);
-
     // TX-095 — an expense assigned to a line inside an ExcludeFromAllocation category counts
     // toward that line's transaction-derived actual EXACTLY like a line in a normal category:
     // both the whole-transaction path and the split-slice path land, and the excluded line's

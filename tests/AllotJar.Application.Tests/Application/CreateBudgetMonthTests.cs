@@ -27,11 +27,6 @@ public class CreateBudgetMonthTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
-            .Options);
-
     // Seeds June 2026: Income(Pay 3000) + Housing(Rent 1000, spent 250 via a transaction) in GBP.
     private static void SeedJune(ApplicationDbContext db, string ownerId)
     {

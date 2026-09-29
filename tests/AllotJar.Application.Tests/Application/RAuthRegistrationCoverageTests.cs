@@ -42,11 +42,6 @@ public class RAuthRegistrationCoverageTests
     // Group A — registration seeds nothing (rule 81; replaces the opt-in sample budget of PR #170)
     // ---------------------------------------------------------------------------------------------
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-reg-{Guid.NewGuid()}")
-            .Options);
-
     private static ApplicationUser Registrant(string id) => new()
     {
         Id = id, UserName = $"{id}@x.com", Email = $"{id}@x.com", FirstName = "Sam", DisplayName = "Sam Solo",

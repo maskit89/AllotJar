@@ -21,11 +21,6 @@ public class BudgetActualsTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-actuals-{Guid.NewGuid()}")
-            .Options);
-
     [Fact]
     public async Task ActualAmount_SumsOnlyAssignedExpensesForTheOwner()
     {

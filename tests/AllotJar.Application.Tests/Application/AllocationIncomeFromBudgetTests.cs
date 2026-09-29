@@ -25,11 +25,6 @@ public class AllocationIncomeFromBudgetTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-income-budget-{Guid.NewGuid()}")
-            .Options);
-
     private sealed record Seeded(HouseholdMember Alex, HouseholdMember Robin, BudgetCategory Income);
 
     private static Seeded Seed(ApplicationDbContext db, string owner = "user-1")

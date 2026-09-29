@@ -81,11 +81,6 @@ public class HouseholdAccessTests
             Task.FromResult(CredentialCheckResult.Invalid);
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-access-{Guid.NewGuid()}")
-            .Options);
-
     private static HouseholdMembership Owner() => new()
     {
         OwnerId = OwnerId,

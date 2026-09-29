@@ -26,11 +26,6 @@ public class AllocationTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-alloc-{Guid.NewGuid()}")
-            .Options);
-
     private static Account SeedAccount(ApplicationDbContext db, string owner, string name, decimal opening = 0m)
     {
         var a = new Account { OwnerId = owner, Name = name, Type = AccountType.Current, Currency = CurrencyCode.Eur, OpeningBalance = opening, OpeningDate = new DateOnly(2026, 1, 1) };

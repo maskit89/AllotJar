@@ -22,11 +22,6 @@ public class ImportPreviewCommitTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-prevcommit-{Guid.NewGuid()}")
-            .Options);
-
     // Both parsers, in DI registration order — sniffing must pick the right one, not the only one.
     private static PreviewImportCommandHandler NewPreview(ApplicationDbContext db, string userId) =>
         new(db, new CurrentUserStub(userId),

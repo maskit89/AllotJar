@@ -18,11 +18,6 @@ public class TransactionHandlersTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-tx-{Guid.NewGuid()}")
-            .Options);
-
     private static BudgetItem SeedMonthWithItem(ApplicationDbContext db, string ownerId)
     {
         var item = new BudgetItem { Name = "Groceries", PlannedAmount = 400m };

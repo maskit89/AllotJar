@@ -40,11 +40,6 @@ public class BMonthLifecycleCoverageTests
         public Guid? MemberId => null;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-budg-{Guid.NewGuid()}")
-            .Options);
-
     // BUDG-028 / BUDG-056: a blank (or first-ever) month for a household that already owns
     // an active, seedable jar is born OVER-BUDGETED — the jar-append step adds an
     // accrual-planned savings line, so income 0 + planned > 0 → negative remaining and

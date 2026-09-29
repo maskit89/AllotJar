@@ -25,11 +25,6 @@ public class AutoCategorizationTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-autocat-{Guid.NewGuid()}")
-            .Options);
-
     private static BudgetItem SeedMonthWithFood(ApplicationDbContext db, string ownerId, int year, int month)
     {
         var groceries = new BudgetItem { Name = "Groceries", PlannedAmount = 400m };

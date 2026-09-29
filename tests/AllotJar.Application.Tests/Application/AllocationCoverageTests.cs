@@ -31,11 +31,6 @@ public class AllocationCoverageTests
 
     private const string Owner = "user-1";
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-alloc-cov-{Guid.NewGuid()}")
-            .Options);
-
     private static Account SeedAccount(
         ApplicationDbContext db, string name, decimal opening = 0m, CurrencyCode? currency = null)
     {

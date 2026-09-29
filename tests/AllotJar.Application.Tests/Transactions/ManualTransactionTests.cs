@@ -25,11 +25,6 @@ public class ManualTransactionTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
-            .Options);
-
     // Income(3000) + Housing(Rent planned 1000). Returns the Rent line id.
     private static Guid Seed(ApplicationDbContext db, string ownerId)
     {

@@ -24,11 +24,6 @@ public class BudgetItemMemberTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-item-member-{Guid.NewGuid()}")
-            .Options);
-
     private sealed record Seeded(Guid IncomeCategoryId, Guid ExpenseCategoryId, Guid IncomeLineId, HouseholdMember Alex, HouseholdMember Robin);
 
     private static Seeded Seed(ApplicationDbContext db, string ownerId = "user-1")

@@ -37,11 +37,6 @@ public class DDashboardActualsCoverageTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-dash-actuals-{Guid.NewGuid()}")
-            .Options);
-
     private sealed record Jul26(
         Guid MonthId,
         Guid TakeHomePayId,

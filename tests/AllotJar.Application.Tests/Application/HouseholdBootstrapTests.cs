@@ -17,11 +17,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class HouseholdBootstrapTests
 {
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-bootstrap-{Guid.NewGuid()}")
-            .Options);
-
     private static ApplicationUser User(string id) => new()
     {
         Id = id,

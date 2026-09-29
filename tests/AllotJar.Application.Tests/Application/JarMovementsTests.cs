@@ -42,11 +42,6 @@ public class JarMovementsTests
     private static readonly DateOnly June8 = new(2026, 6, 8);
     private static readonly DateOnly AsOf = new(2026, 6, 30);
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-jar-movements-{Guid.NewGuid()}")
-            .Options);
-
     private static Jar SeedJar(ApplicationDbContext db, Account account, string name, decimal allocated = 0m)
     {
         var jar = new Jar

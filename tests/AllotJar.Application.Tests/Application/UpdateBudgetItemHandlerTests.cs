@@ -22,11 +22,6 @@ public class UpdateBudgetItemHandlerTests
         public string? UserId { get; }
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
-            .Options);
-
     private static (Guid monthId, Guid itemId) Seed(ApplicationDbContext db, string ownerId)
     {
         var item = new BudgetItem { Name = "Rent", PlannedAmount = 1000m };

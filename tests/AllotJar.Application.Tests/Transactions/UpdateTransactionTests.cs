@@ -18,11 +18,6 @@ public class UpdateTransactionTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
-            .Options);
-
     private static Transaction Seed(ApplicationDbContext db, string ownerId)
     {
         var tx = new Transaction

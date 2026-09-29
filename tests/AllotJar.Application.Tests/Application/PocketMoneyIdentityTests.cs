@@ -30,11 +30,6 @@ public class PocketMoneyIdentityTests
 
     private const string Owner = "user-1";
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-pocket-identity-{Guid.NewGuid()}")
-            .Options);
-
     /// <summary>The real current month shifted by <paramref name="months"/> — the handlers read UTC "now".</summary>
     private static (int Year, int Month) Shift(int months)
     {

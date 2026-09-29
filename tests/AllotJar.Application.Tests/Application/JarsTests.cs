@@ -28,11 +28,6 @@ public class JarsTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-funds2-{Guid.NewGuid()}")
-            .Options);
-
     /// <summary>A jar in <paramref name="account"/>; <paramref name="allocated"/> is an initial allocation from the account's money (rule 77).</summary>
     private static Jar SeedFund(
         ApplicationDbContext db, string ownerId, Guid id, decimal target, Account account,

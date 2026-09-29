@@ -42,11 +42,6 @@ public class RReportsCoverageTests
         public HouseholdRole? Role { get; } = role;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-reports-cov-{Guid.NewGuid()}")
-            .Options);
-
     /// <summary>
     /// Seeds one budget month. When <paramref name="incomePlanned"/>/<paramref name="incomeReceived"/>
     /// is non-zero an Income group with a "Salary" line is added (received income is recorded as an

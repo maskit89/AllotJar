@@ -34,11 +34,6 @@ public class JJarsCoverageTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-jarcov-{Guid.NewGuid()}")
-            .Options);
-
     /// <summary>A jar in <paramref name="account"/>; <paramref name="allocated"/> is an initial allocation of the account's money (rule 77).</summary>
     private static Jar SeedJar(
         ApplicationDbContext db, string ownerId, Guid id, decimal target, Account account,

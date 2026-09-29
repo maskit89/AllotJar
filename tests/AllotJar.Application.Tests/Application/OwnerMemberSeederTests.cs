@@ -15,11 +15,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class OwnerMemberSeederTests
 {
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
-            .Options);
-
     private static HouseholdMembership Owner(string id) => new()
     {
         OwnerId = id,

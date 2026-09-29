@@ -70,11 +70,6 @@ public class CCategoriesLinesCoverageTests
         public Guid? MemberId => null;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-cat-cov-{Guid.NewGuid()}")
-            .Options);
-
     // Income(Salary 2000) + Housing(Rent 900, Utilities 150) under one owner-scoped month.
     private sealed record Seeded(
         Guid MonthId, Guid IncomeId, Guid HousingId, Guid RentId, Guid UtilitiesId);

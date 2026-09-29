@@ -47,11 +47,6 @@ public class LoginTests
             ($"token-for-{userId}", DateTime.UtcNow.AddMinutes(30));
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-login-{Guid.NewGuid()}")
-            .Options);
-
     [Fact]
     public async Task Locked_out_returns_locked_and_never_issues_a_token()
     {

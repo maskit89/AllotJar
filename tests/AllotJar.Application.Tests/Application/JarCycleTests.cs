@@ -40,11 +40,6 @@ public class JarCycleTests
     private static readonly DateOnly MonthStart = new(Today.Year, Today.Month, 1);
     private static readonly DateOnly NextMonth = MonthStart.AddMonths(1);
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-cycles-{Guid.NewGuid()}")
-            .Options);
-
     private static CurrentUserStub User(string id = Owner) => new(id);
 
     /// <summary>A yearly Recurring jar whose open cycle is due on <paramref name="due"/>.</summary>

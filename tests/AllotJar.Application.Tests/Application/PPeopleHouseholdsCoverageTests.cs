@@ -40,11 +40,6 @@ public class PPeopleHouseholdsCoverageTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-pplcov-{Guid.NewGuid()}")
-            .Options);
-
     private static async Task<HouseholdMember> SeedMember(
         ApplicationDbContext db, string ownerId, string name, decimal net,
         bool archived = false, int order = 0)

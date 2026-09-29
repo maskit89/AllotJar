@@ -25,11 +25,6 @@ public class CreateTransactionWithSplitsTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-create-split-{Guid.NewGuid()}")
-            .Options);
-
     private sealed record Seeded(
         BudgetMonth Month, BudgetItem Groceries, BudgetItem Household, BudgetItem Salary);
 

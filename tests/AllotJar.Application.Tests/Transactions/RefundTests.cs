@@ -38,11 +38,6 @@ public class RefundTests
 
     private static readonly CurrentUserStub User = new("user-1");
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-refunds-{Guid.NewGuid()}")
-            .Options);
-
     /// <summary>A month with Income/Salary and Household/Groceries (+ Clothes) lines. Returns the lines by name.</summary>
     private static Dictionary<string, BudgetItem> SeedMonth(ApplicationDbContext db, int year, int month, string owner = "user-1")
     {

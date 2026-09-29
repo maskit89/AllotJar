@@ -42,11 +42,6 @@ public class TTransfersCoverageTests
         public HouseholdRole? Role { get; } = role;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-transfers-cov-{Guid.NewGuid()}")
-            .Options);
-
     private static Account SeedAccount(
         ApplicationDbContext db, string ownerId, string name, decimal opening = 0m, string currency = "EUR")
     {

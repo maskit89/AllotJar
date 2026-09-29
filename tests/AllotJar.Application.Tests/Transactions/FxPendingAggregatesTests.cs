@@ -25,11 +25,6 @@ public class FxPendingAggregatesTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-fxagg-{Guid.NewGuid()}")
-            .Options);
-
     /// <summary>June 2026 (EUR) with one expense line; returns the line.</summary>
     private static BudgetItem SeedJune(ApplicationDbContext db, string ownerId)
     {

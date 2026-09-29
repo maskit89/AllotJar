@@ -118,11 +118,6 @@ public class IInvitesCoverageTests
             Task.FromResult(CredentialCheckResult.Invalid);
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-inv-cov-{Guid.NewGuid()}")
-            .Options);
-
     private static HouseholdMembership Owner() => new()
     {
         OwnerId = OwnerId,

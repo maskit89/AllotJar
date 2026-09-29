@@ -36,11 +36,6 @@ public class AccountLedgerActivationTests
     private static readonly CurrentUserStub User = new("user-1");
     private static readonly DateOnly Opening = new(2026, 9, 1);
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-ledger-activation-{Guid.NewGuid()}")
-            .Options);
-
     private static Account SeedAccount(
         ApplicationDbContext db, string name, decimal opening, DateOnly? openingDate,
         string owner = "user-1", AccountType type = AccountType.Current)

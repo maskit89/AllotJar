@@ -35,11 +35,6 @@ public class AllocationJarPromptTests
     private static readonly DateOnly Receipt = new(2026, 6, 4);
     private static readonly DateOnly AsOf = new(2026, 6, 30);
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-alloc-jars-{Guid.NewGuid()}")
-            .Options);
-
     private static HouseholdMember SeedMember(ApplicationDbContext db, string name, decimal net, Guid savings)
     {
         var member = new HouseholdMember { OwnerId = Owner, Name = name, NetMonthlyIncome = net, DisplayOrder = 0, PersonalSavingsAccountId = savings };

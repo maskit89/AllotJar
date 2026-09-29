@@ -26,11 +26,6 @@ public class JarLifecycleTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
-            .Options);
-
     private static Jar Recurring(DateOnly? due, int? recurMonths = 12, decimal target = 600m, Guid? accountId = null) => new()
     {
         OwnerId = "user-1", Name = "Insurance", Kind = JarKind.Recurring,

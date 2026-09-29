@@ -31,11 +31,6 @@ public class JarReallocationTests
     private static readonly CurrentUserStub User = new("user-1");
     private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-realloc-{Guid.NewGuid()}")
-            .Options);
-
     private static Jar SeedJar(ApplicationDbContext db, Account account, string name, decimal allocated = 0m, bool archived = false)
     {
         var jar = new Jar

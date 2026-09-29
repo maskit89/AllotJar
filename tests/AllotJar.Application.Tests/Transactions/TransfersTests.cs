@@ -26,11 +26,6 @@ public class TransfersTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-transfers-{Guid.NewGuid()}")
-            .Options);
-
     private static Account SeedAccount(ApplicationDbContext db, string ownerId, string name, decimal opening)
     {
         var a = new Account

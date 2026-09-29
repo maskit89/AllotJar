@@ -17,11 +17,6 @@ public class ReorderBudgetCategoriesTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
-            .Options);
-
     private sealed record Seeded(Guid MonthId, Guid Housing, Guid Food, Guid Savings);
 
     // Expense groups Housing(0), Food(1), Savings(2) under one month.

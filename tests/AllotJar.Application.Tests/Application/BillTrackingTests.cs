@@ -24,11 +24,6 @@ public class BillTrackingTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-bills-{Guid.NewGuid()}")
-            .Options);
-
     private static BudgetItem SeedRent(ApplicationDbContext db, string ownerId = "user-1", int year = 2026, int month = 6)
     {
         var rent = new BudgetItem { Name = "Rent", PlannedAmount = 1100m };

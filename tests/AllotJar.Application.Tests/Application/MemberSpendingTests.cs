@@ -20,11 +20,6 @@ public class MemberSpendingTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-memberspend-{Guid.NewGuid()}")
-            .Options);
-
     [Fact]
     public async Task Spending_SumsWholeTransactionsAndSlicesPerMember()
     {

@@ -24,11 +24,6 @@ public class AccountsTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-accounts-{Guid.NewGuid()}")
-            .Options);
-
     private static Account SeedAccount(ApplicationDbContext db, string ownerId, decimal opening, int order = 0)
     {
         var account = new Account

@@ -26,11 +26,6 @@ public class JarPlannerTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-planner-{Guid.NewGuid()}")
-            .Options);
-
     private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
     private static readonly DateOnly Current = new(Today.Year, Today.Month, 1);
 

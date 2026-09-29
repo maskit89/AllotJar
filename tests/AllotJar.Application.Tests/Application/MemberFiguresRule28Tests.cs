@@ -35,11 +35,6 @@ public class MemberFiguresRule28Tests
     private static readonly CurrentUserStub User = new(Owner);
     private static readonly CurrencyCode Gbp = CurrencyCode.From("GBP");
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-member-figures-{Guid.NewGuid()}")
-            .Options);
-
     private static async Task<HouseholdMember> SeedMember(
         ApplicationDbContext db, string name, decimal savedDefault, int order, bool archived = false)
     {

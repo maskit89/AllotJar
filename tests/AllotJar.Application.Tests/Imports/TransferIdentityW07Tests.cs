@@ -71,11 +71,6 @@ public class TransferIdentityW07Tests
         03/10/2026,RETURNED PAYMENT        * 03/10/2026 •••• •••• •••• 4242 100.00 EUR,100.00
         """;
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-w07-{Guid.NewGuid()}")
-            .Options);
-
     private static Account SeedAccount(ApplicationDbContext db, string name, decimal opening) =>
         LedgerFixtures.SeedAccount(db, Owner, name, opening, Opening, AccountType.Current);
 

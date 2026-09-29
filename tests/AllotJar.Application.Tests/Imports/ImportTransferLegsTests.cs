@@ -48,11 +48,6 @@ public class ImportTransferLegsTests
         01/10/2026,TRANSFER FROM CURRENT   * 01/10/2026 •••• •••• •••• 4242 100.00 EUR,100.00
         """;
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-import-legs-{Guid.NewGuid()}")
-            .Options);
-
     private static PreviewImportCommandHandler NewPreview(ApplicationDbContext db, string userId = "user-1") =>
         new(db, new CurrentUserStub(userId),
             new IStatementParser[] { new Camt053StatementParser(), new HsbcCsvStatementParser() },

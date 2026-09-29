@@ -48,11 +48,6 @@ public class JarW05FollowUpTests
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
     private static DateOnly Deadline => new(Today.Year + 1, 7, 1);
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-w05-follow-up-{Guid.NewGuid()}")
-            .Options);
-
     private static Jar SeedGoal(ApplicationDbContext db, Account account, string name = "Holiday")
     {
         var jar = new Jar

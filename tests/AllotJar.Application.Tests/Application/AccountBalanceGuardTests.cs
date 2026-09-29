@@ -35,11 +35,6 @@ public class AccountBalanceGuardTests
     private static readonly CurrentUserStub User = new(Owner);
     private static readonly DateOnly Opening = LedgerFixtures.DefaultOpening; // 2026-01-01
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-balance-guard-{Guid.NewGuid()}")
-            .Options);
-
     private static Transaction Transfer(
         Guid from, Guid to, decimal amount, DateOnly? departedOn, DateOnly? receivedOn, string owner = Owner) =>
         new()

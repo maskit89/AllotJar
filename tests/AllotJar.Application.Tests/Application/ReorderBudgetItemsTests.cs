@@ -16,11 +16,6 @@ public class ReorderBudgetItemsTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
-            .Options);
-
     private sealed record Seeded(Guid CategoryId, Guid Rent, Guid Utilities, Guid Internet);
 
     // Housing with Rent(0), Utilities(1), Internet(2).

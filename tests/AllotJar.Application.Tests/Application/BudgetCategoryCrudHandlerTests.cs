@@ -26,11 +26,6 @@ public class BudgetCategoryCrudHandlerTests
         public string? UserId { get; }
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
-            .Options);
-
     private sealed record Seeded(Guid MonthId, Guid IncomeCategoryId, Guid HousingCategoryId);
 
     // Income(Take-home Pay 3000) + Housing(Rent 1000).

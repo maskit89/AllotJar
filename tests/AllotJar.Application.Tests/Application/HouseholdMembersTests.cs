@@ -26,11 +26,6 @@ public class HouseholdMembersTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-members-{Guid.NewGuid()}")
-            .Options);
-
     private static async Task<HouseholdMember> Seed(ApplicationDbContext db, string ownerId, string name, decimal net, bool archived = false)
     {
         var m = new HouseholdMember { OwnerId = ownerId, Name = name, NetMonthlyIncome = net, IsArchived = archived };

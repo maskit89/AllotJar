@@ -23,11 +23,6 @@ public class AccountReconciliationTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-recon-{Guid.NewGuid()}")
-            .Options);
-
     [Fact]
     public async Task Reconciles_AccountBalance_AgainstBackedJarBalances()
     {

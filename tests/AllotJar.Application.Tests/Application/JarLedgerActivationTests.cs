@@ -47,11 +47,6 @@ public class JarLedgerActivationTests
     private static readonly CurrentUserStub User = new("user-1");
     private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-jarledger-{Guid.NewGuid()}")
-            .Options);
-
     private static Jar SeedJar(ApplicationDbContext db, Account account, string name = "Holiday", decimal target = 1000m, string owner = "user-1")
     {
         var jar = new Jar

@@ -15,11 +15,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class MembershipSeederTests
 {
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
-            .Options);
-
     [Fact]
     public async Task Seeds_exactly_one_owner_per_user_and_is_idempotent()
     {

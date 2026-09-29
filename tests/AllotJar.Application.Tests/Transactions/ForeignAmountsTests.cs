@@ -46,11 +46,6 @@ public class ForeignAmountsTests
 
     private static readonly ICurrentUser User = new CurrentUserStub(Owner);
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-w08-{Guid.NewGuid()}")
-            .Options);
-
     private static IIdentityService Prefers(string currency)
     {
         var identity = Substitute.For<IIdentityService>();

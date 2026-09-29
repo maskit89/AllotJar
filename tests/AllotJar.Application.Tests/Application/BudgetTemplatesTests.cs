@@ -22,11 +22,6 @@ public class BudgetTemplatesTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-templates-{Guid.NewGuid()}")
-            .Options);
-
     [Fact]
     public async Task GetTemplates_ReturnsTheBuiltInCatalogue()
     {

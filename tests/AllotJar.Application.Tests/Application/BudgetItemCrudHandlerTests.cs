@@ -25,11 +25,6 @@ public class BudgetItemCrudHandlerTests
         public string? UserId { get; }
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
-            .Options);
-
     private sealed record Seeded(Guid IncomeCategoryId, Guid ExpenseCategoryId, Guid IncomeLineId);
 
     // Income(Take-home Pay 3000) + Housing(Rent 1000) -> RemainingToBudget = 2000.

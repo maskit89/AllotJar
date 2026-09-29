@@ -31,11 +31,6 @@ public class ImportHoldsTests
     private static readonly DateOnly June5 = new(2026, 6, 5);
     private static readonly DateOnly June10 = new(2026, 6, 10);
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-import-holds-{Guid.NewGuid()}")
-            .Options);
-
     private static CommitImportCommandHandler NewCommit(ApplicationDbContext db) =>
         new(db, User);
 

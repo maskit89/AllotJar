@@ -51,11 +51,6 @@ public class IImportCoverageTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-import-cov-{Guid.NewGuid()}")
-            .Options);
-
     // Both dedicated parsers in DI registration order (CAMT before HSBC) + the generic importer,
     // so sniffing must pick the right adapter rather than the only one available.
     private static PreviewImportCommandHandler NewPreview(ApplicationDbContext db, string userId) =>

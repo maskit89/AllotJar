@@ -30,11 +30,6 @@ public class JarBudgetLinkTests
         public string? UserId { get; } = userId;
     }
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
-            .Options);
-
     private static BudgetMonth SeedMonth(
         ApplicationDbContext db, string ownerId, int year, int month, bool withSavingsGroup = false)
     {

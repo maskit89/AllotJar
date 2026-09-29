@@ -44,11 +44,6 @@ public class JarMoveAcceptAndSettleTests
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
     private static readonly DateOnly August = new(2026, 8, 1);
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-r2-d1-{Guid.NewGuid()}")
-            .Options);
-
     private static Jar SeedGoal(ApplicationDbContext db, Account account, string name = "Holiday")
     {
         var jar = new Jar

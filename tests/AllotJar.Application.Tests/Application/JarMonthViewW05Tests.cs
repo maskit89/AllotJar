@@ -41,11 +41,6 @@ public class JarMonthViewW05Tests
     private static readonly DateOnly October = new(2026, 10, 1);
     private static readonly DateOnly November = new(2026, 11, 1);
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-w05-{Guid.NewGuid()}")
-            .Options);
-
     private static CurrentUserStub User() => new(Owner);
 
     private static Jar SeedGoal(ApplicationDbContext db, Account account, decimal target = 1200m)

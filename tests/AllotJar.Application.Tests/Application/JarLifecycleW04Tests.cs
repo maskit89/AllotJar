@@ -42,11 +42,6 @@ public class JarLifecycleW04Tests
     private static readonly DateOnly Next = Current.AddMonths(1);
     private static readonly DateOnly After = Current.AddMonths(2);
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-w04-{Guid.NewGuid()}")
-            .Options);
-
     private static CurrentUserStub User(string id = Owner) => new(id);
 
     /// <summary>A 300 goal due on the 1st in three months: 100 a month over this month and the next two.</summary>
