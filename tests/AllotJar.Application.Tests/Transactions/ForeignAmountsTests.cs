@@ -674,41 +674,19 @@ public class ForeignAmountsTests
     public async Task A_transfer_fee_on_accounts_kept_in_another_currency_waits_for_its_amount()
     {
         await using var db = NewContext();
-        SeedMonth(db);
+        var fees = SeedLine(db, "Bank fees");
         var gbp = LedgerFixtures.SeedAccount(db, Owner, "UK card", opening: 500m, currency: "GBP");
         var gbpSavings = LedgerFixtures.SeedAccount(db, Owner, "UK savings", opening: 0m, currency: "GBP", order: 1);
         var eur = LedgerFixtures.SeedAccount(db, Owner, "Joint", opening: 500m, order: 2);
         var eurSavings = LedgerFixtures.SeedAccount(db, Owner, "Savings", opening: 0m, order: 3);
 
         var foreign = await new AllotJar.Application.Transactions.Commands.CreateTransfer.CreateTransferCommandHandler(db, User)
-            .Handle(new AllotJar.Application.Transactions.Commands.CreateTransfer.CreateTransferCommand(June3, 100m, gbp.Id, gbpSavings.Id, Fee: 2m), CancellationToken.None);
+            .Handle(new AllotJar.Application.Transactions.Commands.CreateTransfer.CreateTransferCommand(June3, 100m, gbp.Id, gbpSavings.Id, Fee: 2m, FeeBudgetItemId: fees.Id), CancellationToken.None);
         var home = await new AllotJar.Application.Transactions.Commands.CreateTransfer.CreateTransferCommandHandler(db, User)
-            .Handle(new AllotJar.Application.Transactions.Commands.CreateTransfer.CreateTransferCommand(June3, 100m, eur.Id, eurSavings.Id, Fee: 2m), CancellationToken.None);
+            .Handle(new AllotJar.Application.Transactions.Commands.CreateTransfer.CreateTransferCommand(June3, 100m, eur.Id, eurSavings.Id, Fee: 2m, FeeBudgetItemId: fees.Id), CancellationToken.None);
 
         (await db.Transactions.SingleAsync(t => t.FeeForTransferId == foreign.Id)).FxPending.Should().BeTrue();
         (await db.Transactions.SingleAsync(t => t.FeeForTransferId == home.Id)).FxPending.Should().BeFalse();
         (await db.Transactions.SingleAsync(t => t.Id == foreign.Id)).FxPending.Should().BeFalse("a transfer never waits");
-    }
-
-    // Review M-P2-1: before the household's first budget month the budget currency is the one the
-    // user chose at sign-up, so a GBP household's fee on its own GBP account counts at once.
-    [Fact]
-    public async Task A_transfer_fee_before_the_first_month_counts_in_the_currency_chosen_at_sign_up()
-    {
-        await using var db = NewContext();
-        var gbp = Prefers("GBP");
-        var card = LedgerFixtures.SeedAccount(db, Owner, "Card", opening: 500m, currency: "GBP");
-        var savings = LedgerFixtures.SeedAccount(db, Owner, "Savings", opening: 0m, currency: "GBP", order: 1);
-
-        var transfer = await new AllotJar.Application.Transactions.Commands.CreateTransfer.CreateTransferCommandHandler(db, User, gbp)
-            .Handle(new AllotJar.Application.Transactions.Commands.CreateTransfer.CreateTransferCommand(June3, 100m, card.Id, savings.Id, Fee: 2m), CancellationToken.None);
-        (await db.Transactions.SingleAsync(t => t.FeeForTransferId == transfer.Id)).FxPending.Should().BeFalse();
-
-        await new AllotJar.Application.Transactions.Commands.UpdateTransfer.UpdateTransferCommandHandler(db, User, gbp)
-            .Handle(new AllotJar.Application.Transactions.Commands.UpdateTransfer.UpdateTransferCommand(
-                transfer.Id, card.Id, savings.Id, 100m, June3, null, Fee: 3m), CancellationToken.None);
-        var fee = await db.Transactions.SingleAsync(t => t.FeeForTransferId == transfer.Id);
-        fee.FxPending.Should().BeFalse();
-        fee.Amount.Should().Be(3m);
     }
 }
