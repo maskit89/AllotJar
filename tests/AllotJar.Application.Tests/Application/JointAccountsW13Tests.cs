@@ -20,6 +20,7 @@ using AllotJar.Application.HouseholdAccess.Commands.RevokeMember;
 using AllotJar.Application.Imports.Commands.ImportStatement;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.CreateJar;
+using AllotJar.Application.Jars.Commands.UpdateJar;
 using AllotJar.Application.Reports.Queries.GetMonthReport;
 using AllotJar.Application.Tests.Imports;
 using AllotJar.Application.Tests.TestDoubles;
@@ -548,6 +549,50 @@ public class JointAccountsW13Tests
             await new CreateJarCommandHandler(db, Sam).Handle(create with { ShareAccount = true }, CancellationToken.None);
         }
         (await AccountNamesAsync(Chris)).Should().Contain("Sam's savings");
+    }
+
+    [Fact]
+    public async Task MovingAJarIntoTheHoldersPrivateAccount_SharesIt_AndItsEarlierPaymentOnTheJarsLineStaysOffTheJar_Rule34()
+    {
+        // With P2-20 (#276): the account a jar joins keeps the payments on the jar's line it recorded
+        // before the move on its own unallocated money, even one dated the move day. They are written
+        // down in the same save that shares the account, which the privacy guard lets through.
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var household = await CreateAccountAsync(Chris, "Household", null);
+        var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam });
+        var jar = new Jar
+        {
+            OwnerId = Household, Name = "Holiday", Kind = JarKind.Goal, TargetAmount = 1000m,
+            Accrual = AccrualMethod.FixedMonthly, MonthlyContribution = 100m, FundingAccountId = household,
+        };
+        using (var db = Seed())
+        {
+            db.Jars.Add(jar);
+            var line = new BudgetItem { Name = "Holiday", PlannedAmount = 100m, SavingsId = jar.Id };
+            db.BudgetMonths.Add(new BudgetMonth
+            {
+                OwnerId = Household, Year = today.Year, Month = today.Month,
+                Categories = new List<BudgetCategory> { new() { Name = "Savings", Kind = CategoryKind.Savings, Items = new List<BudgetItem> { line } } },
+            });
+            db.SaveChanges();
+            LedgerFixtures.Expense(db, Household, mine, 50m, today, line.Id);
+        }
+
+        await using (var db = As(Sam))
+        {
+            await new UpdateJarCommandHandler(db, Sam).Handle(
+                new UpdateJarCommand(jar.Id, "Holiday", JarKind.Goal, 1000m, null, AccrualMethod.FixedMonthly, mine,
+                    MonthlyContribution: 100m, ShareAccount: true),
+                CancellationToken.None);
+        }
+
+        (await AccountNamesAsync(Chris)).Should().Contain("Sam's current");
+        using (var db = Seed())
+        {
+            var ledger = await JarLedgerReader.ReadAsync(db, Household, today, CancellationToken.None);
+            ledger.BalanceOf(jar.Id).Should().Be(0m);
+            ledger.Accounts[mine].Unallocated.Should().Be(950m);
+        }
     }
 
     [Fact]

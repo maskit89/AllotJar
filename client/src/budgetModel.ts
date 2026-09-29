@@ -215,7 +215,9 @@ export function withItemPlanned(m: MonthVM, itemId: string, plannedMinor: Minor)
     ...m,
     categories: m.categories.map((c) => ({
       ...c,
-      items: c.items.map((i) => (i.id === itemId ? { ...i, plannedMinor } : i)),
+      // A typed amount on a skipped jar line is a plan for the month: the server ends the skip
+      // (rule 60), so the line stops saying "Skipped" at once.
+      items: c.items.map((i) => (i.id === itemId ? { ...i, plannedMinor, isSkipped: i.isSkipped && plannedMinor === 0 } : i)),
     })),
   }
 }

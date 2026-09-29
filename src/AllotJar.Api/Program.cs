@@ -130,6 +130,9 @@ await BackfillMembershipsAsync(app);
 // Ensure every household has the owner as member #1, so a household is never "0 members".
 await BackfillOwnerMembersAsync(app);
 
+// Settles jar moves made before departures were recorded (P3-8).
+await BackfillJarDeparturesAsync(app);
+
 // Repair pre-#142 starter budgets whose "Savings" group defaulted to Expense (idempotent).
 
 // State plainly, once, which outbound-email provider actually resolved. Without this, "is email
@@ -237,6 +240,30 @@ static async Task BackfillOwnerMembersAsync(WebApplication app)
     catch (Exception ex)
     {
         logger.LogWarning(ex, "Owner-member backfill failed; continuing startup.");
+    }
+}
+
+// Records the departure a jar move made before #275 lacks, so a residue left in the old account
+// no longer blocks the jar's archive (P3-8), and writes down the old account's line payments such
+// a move left unrecorded (P2-B). Idempotent and non-fatal: a move with a departure is untouched.
+// If the run fails, a legacy move is still settled on the next edit of a kept entry, but without
+// that write-down. The counts are logged at Warning (see LogEmailProvider) so the deploy's check of
+// the Event Log sees them.
+static async Task BackfillJarDeparturesAsync(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        var result = await AllotJar.Application.Jars.JarDepartures.BackfillAsync(db, CancellationToken.None);
+        logger.LogWarning(
+            "Jar-departure backfill: recorded {Departures} departure(s) and wrote down {Payments} line payment(s).",
+            result.Departures, result.PaymentsWrittenDown);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Jar-departure backfill failed; nothing was saved. Continuing startup.");
     }
 }
 

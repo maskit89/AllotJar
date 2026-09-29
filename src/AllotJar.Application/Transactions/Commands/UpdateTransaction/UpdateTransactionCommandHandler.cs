@@ -199,6 +199,11 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         // Moving the payment to another account also re-runs it: a jar line's payment must keep
         // leaving the jar's account (rule 79).
         var accountChanged = request.AccountId != transaction.AccountId;
+        // A draw kept from an earlier stretch the jar spent in this account (it moved away and
+        // back) is its departure's (P51), whichever check the date edit runs.
+        var kept = accountChanged || request.Date == transaction.Date
+            ? new List<Guid>()
+            : await TransactionInvariants.KeptDrawJarsAsync(_db, transaction.Id, request.AccountId, request.Date, cancellationToken);
         if (transaction.BudgetItemId is Guid retainedLineId
             && (request.Type != transaction.Type || monthChanged || accountChanged))
         {
@@ -206,7 +211,7 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
                 _db, userId, TransactionInvariants.LineDirection(request.Type, transaction.IsRefund), retainedLineId,
                 request.Date, request.AcknowledgeCrossMonth,
                 accountChanged && !monthChanged && request.Type == transaction.Type ? "AccountId" : "Type",
-                cancellationToken, request.AccountId);
+                cancellationToken, request.AccountId, kept);
         }
 
         // Same rule for a split: moving the transaction to another month moves every slice's
@@ -230,8 +235,20 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             {
                 TransactionInvariants.EnsureWholeLineAssignable(
                     line, userId, transaction.Type, request.Date, request.AcknowledgeCrossMonth,
-                    monthChanged ? "Date" : "AccountId", request.AccountId);
+                    monthChanged ? "Date" : "AccountId", request.AccountId, kept);
             }
+        }
+
+        // A date edit within the month skips those checks, but a payment on a jar's line from the
+        // jar's account still can't move to before the day the jar arrived there (P2-20): the
+        // ledger would take it off the jar without a word. A draw kept from an earlier stretch
+        // the jar spent in this account (it moved away and back) is its departure's (P51).
+        if (request.Date != transaction.Date)
+        {
+            var lineIds = transaction.Splits.Count > 0
+                ? transaction.Splits.Where(s => s.BudgetItemId is not null).Select(s => s.BudgetItemId!.Value).Distinct().ToList()
+                : transaction.BudgetItemId is Guid lineId ? new List<Guid> { lineId } : new List<Guid>();
+            await TransactionInvariants.EnsureJarLinesArrivedAsync(_db, lineIds, request.AccountId, request.Date, "Date", cancellationToken, kept);
         }
 
         transaction.Date = request.Date;

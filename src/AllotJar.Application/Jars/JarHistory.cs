@@ -46,6 +46,23 @@ public static class JarHistory
     }
 
     /// <summary>
+    /// <paramref name="jar"/> as archived or live on <paramref name="date"/> (P2-19): a copy
+    /// marked archived from the start of the <see cref="JarArchivePeriod"/> covering the date,
+    /// when the jar was archived then and has been restored since; otherwise the jar's own archive
+    /// (<see cref="JarSchedule.IsArchivedOn"/> reads its day). A detached copy; the row is not changed.
+    /// </summary>
+    public static Jar ArchiveOn(Jar jar, IEnumerable<JarArchivePeriod>? periods, DateOnly date)
+    {
+        var then = jar.Copy();
+        if (periods?.Where(p => p.ArchivedOn <= date && date < p.RestoredOn).MinBy(p => p.ArchivedOn) is { } period)
+        {
+            then.IsArchived = true;
+            then.ArchivedOn = period.ArchivedOn;
+        }
+        return then;
+    }
+
+    /// <summary>
     /// The recorded Recurring cycle that was still open at the end of <paramref name="date"/> and
     /// has closed since: the earliest one not closed by then. A cycle paid on time counts as closed
     /// from its payment (rule 22, <see cref="JarCycle.ClosedForHistoryOn"/>), even when the user

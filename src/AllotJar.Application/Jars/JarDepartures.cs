@@ -87,6 +87,8 @@ public static class JarDepartures
             {
                 return null;
             }
+            // BackfillAsync records these at startup, with the old account's line payments written
+            // down first; this covers a residue it could not record (its run failed).
             var last = await db.JarAllocations
                 .Where(a => a.AccountId == accountId && a.Postings.Any(p => p.JarId == jarId))
                 .MaxAsync(a => (DateOnly?)a.Date, cancellationToken) ?? date;
@@ -119,11 +121,26 @@ public static class JarDepartures
             return;
         }
         var designated = await db.Jars.AsNoTracking().Where(j => jarIds.Contains(j.Id)).ToDictionaryAsync(j => j.Id, j => j.FundingAccountId, cancellationToken);
+        // The departures of these jars from this account, in one query: a jar still designated
+        // here that never left it has no kept history to settle, so the common write (a leg on a
+        // jar of its own account) costs no query per jar (P3-10).
+        await db.JarAllocations
+            .Include(a => a.Postings)
+            .Where(a => a.AccountId == accountId && a.Kind == JarAllocationKind.Departure
+                        && a.Postings.Any(p => p.JarId != null && jarIds.Contains(p.JarId.Value)))
+            .LoadAsync(cancellationToken);
+        var leftHere = db.JarAllocations.Local
+            .Where(a => a.AccountId == accountId && a.Kind == JarAllocationKind.Departure)
+            .SelectMany(a => a.Postings)
+            .Where(p => p.JarId is not null)
+            .Select(p => p.JarId!.Value)
+            .ToHashSet();
         foreach (var jarId in jarIds)
         {
             var was = before.Where(p => p.JarId == jarId).Sum(p => p.Amount);
             var now = after.Where(p => p.JarId == jarId).Sum(p => p.Amount);
-            if (was == now && beforeDate == afterDate)
+            if ((was == now && beforeDate == afterDate)
+                || (designated.GetValueOrDefault(jarId) == accountId && !leftHere.Contains(jarId)))
             {
                 continue;
             }
@@ -144,6 +161,146 @@ public static class JarDepartures
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// The day #275 reached production. Every move since then records its departure, so a jar
+    /// and account without one moved before it, and a payment dated later never drew from the
+    /// jar there.
+    /// </summary>
+    internal static readonly DateOnly DeparturesRecordedFrom = new(2026, 9, 29);
+
+    /// <summary>
+    /// P3-8: records the departure every move made before departures were recorded still lacks,
+    /// for each jar with postings in an account it is no longer designated to and no departure
+    /// there. A move made before #274 wrote nothing down, so the payments the jar's lines drew
+    /// from that account while it was held there lost the jar at the move and left its postings
+    /// there unsettled (P2-B): they are written down first as drawing from the jar. Only the
+    /// payments the account's ledger counts are written: dated on or after its opening date and
+    /// no later than <see cref="DeparturesRecordedFrom"/> (or <paramref name="today"/>, if
+    /// earlier). An account with no opening date has none written. The departure then settles
+    /// what the ledger reads the jar holding there (its postings plus those payments, and the
+    /// shares stored on transfer legs it will post later), dated on
+    /// the last day the account's ledger touched the jar: its last posting, on the day the
+    /// ledger posts it, or its last such payment. The history before that date reads as it did
+    /// before the move. Idempotent: a jar and account with a departure are left alone. Saves
+    /// once. Run at startup.
+    /// </summary>
+    /// <param name="today">The run's date; null is today (UTC).</param>
+    public static async Task<JarBackfill> BackfillAsync(
+        IApplicationDbContext db, CancellationToken cancellationToken, DateOnly? today = null)
+    {
+        var runOn = today ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var upTo = runOn < DeparturesRecordedFrom ? runOn : DeparturesRecordedFrom;
+        var postings = await db.JarAllocationPostings
+            .AsNoTracking()
+            .Where(p => p.JarId != null && p.Jar != null && p.JarAllocation.AccountId != p.Jar.FundingAccountId)
+            .Select(p => new
+            {
+                JarId = p.JarId!.Value,
+                p.JarAllocation.AccountId,
+                p.JarAllocation.OwnerId,
+                p.JarAllocation.Date,
+                p.JarAllocation.Kind,
+                p.JarAllocation.TransactionId,
+                p.Amount,
+            })
+            .ToListAsync(cancellationToken);
+        var legacy = postings
+            .GroupBy(p => (p.JarId, p.AccountId))
+            .Where(g => !g.Any(p => p.Kind == JarAllocationKind.Departure))
+            .ToList();
+        if (legacy.Count == 0)
+        {
+            return new JarBackfill(0, 0);
+        }
+
+        // A stored leg posts on its transaction's date, a transfer leg on its own bank date, as
+        // the ledger reads it: a departure dated on the transfer's earlier date would read the
+        // jar below zero until the money arrived.
+        var transactionIds = legacy.SelectMany(g => g).Where(p => p.TransactionId is not null).Select(p => p.TransactionId!.Value).Distinct().ToList();
+        var legs = await db.Transactions
+            .AsNoTracking()
+            .Where(t => transactionIds.Contains(t.Id))
+            .Select(t => new { t.Id, t.Type, t.AccountId, t.Date, t.DepartedOn, t.ReceivedOn })
+            .ToDictionaryAsync(t => t.Id, cancellationToken);
+        DateOnly PostedOn(Guid accountId, Guid? transactionId, DateOnly stored) =>
+            transactionId is Guid id && legs.TryGetValue(id, out var leg)
+                ? leg.Type == TransactionType.Transfer
+                    ? (leg.AccountId == accountId ? leg.DepartedOn : leg.ReceivedOn) ?? stored
+                    : leg.Date
+                : stored;
+
+        var departures = 0;
+        var written = 0;
+        foreach (var here in legacy.GroupBy(g => (g.First().OwnerId, g.Key.AccountId)))
+        {
+            var (ownerId, accountId) = here.Key;
+            var jarIds = here.Select(g => g.Key.JarId).ToList();
+            var last = here.ToDictionary(g => g.Key.JarId, g => g.Max(p => PostedOn(accountId, p.TransactionId, p.Date)));
+            var account = await db.Accounts.AsNoTracking().FirstAsync(a => a.Id == accountId, cancellationToken);
+
+            Dictionary<Guid, decimal> held;
+            if (account.OpeningDate is not DateOnly opened)
+            {
+                // The ledger can't read this account yet: settle the postings as stored, so the
+                // jar holds nothing here once an opening date on or before its first entry is set.
+                held = here.ToDictionary(g => g.Key.JarId, g => g.Sum(p => p.Amount));
+            }
+            else
+            {
+                // What the ledger reads the jar holding here, which leaves out an entry dated
+                // before the opening date. A transfer leg the ledger hasn't posted yet posts later
+                // with its stored share, so that share is settled too: left out, the jar would hold
+                // it here for good once the leg posts (it reads below zero here until then).
+                var source = await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken, new[] { accountId });
+                var view = source.At(last.Values.Max()).Accounts.GetValueOrDefault(accountId);
+                var unposted = here.SelectMany(g => g)
+                    .Where(p => p.TransactionId is Guid id && legs.TryGetValue(id, out var leg) && leg.Type == TransactionType.Transfer
+                                && (leg.DepartedOn == null || (leg.AccountId != accountId && leg.ReceivedOn == null)))
+                    .GroupBy(p => p.JarId)
+                    .ToDictionary(g => g.Key, g => g.Sum(p => p.Amount));
+                held = jarIds.ToDictionary(j => j, j => (view?.JarBalances.GetValueOrDefault(j) ?? 0m) + unposted.GetValueOrDefault(j));
+
+                var payments = (await JarMovements.UnstoredLinePaymentsAsync(db, ownerId, jarIds, accountId, upTo, cancellationToken))
+                    .Where(t => t.Date >= opened)
+                    .ToList();
+                if (payments.Count > 0)
+                {
+                    var jars = await db.Jars.AsNoTracking().Where(j => j.OwnerId == ownerId).ToDictionaryAsync(j => j.Id, cancellationToken);
+                    foreach (var jarId in jarIds.Where(jars.ContainsKey))
+                    {
+                        // As the reader derived these payments while the jar was held here.
+                        var then = jars[jarId].Copy();
+                        then.FundingAccountId = accountId;
+                        then.FundingAccountSince = null;
+                        jars[jarId] = then;
+                    }
+                    var lineJars = await JarLedgerReader.LineJarsAsync(db, ownerId, cancellationToken);
+                    foreach (var payment in JarMovements.WriteDown(db, ownerId, payments, account, lineJars, jars))
+                    {
+                        written++;
+                        foreach (var posting in payment.Postings.Where(p => p.JarId is Guid id && held.ContainsKey(id) && p.Amount != 0m))
+                        {
+                            var jarId = posting.JarId!.Value;
+                            held[jarId] += posting.Amount;
+                            if (payment.Date > last[jarId])
+                            {
+                                last[jarId] = payment.Date;
+                            }
+                        }
+                    }
+                }
+            }
+
+            foreach (var jarId in jarIds)
+            {
+                db.JarAllocations.Add(New(ownerId, accountId, jarId, last[jarId], held[jarId]));
+                departures++;
+            }
+        }
+        await db.SaveChangesAsync(cancellationToken);
+        return new JarBackfill(departures, written);
     }
 
     /// <summary>The day the jar last left the account.</summary>
@@ -194,3 +351,6 @@ public static class JarDepartures
             },
         });
 }
+
+/// <summary>What <see cref="JarDepartures.BackfillAsync"/> recorded: departures, and line payments written down as drawing from their jar.</summary>
+public sealed record JarBackfill(int Departures, int PaymentsWrittenDown);

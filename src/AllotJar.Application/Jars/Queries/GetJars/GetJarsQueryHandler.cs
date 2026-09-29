@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Dtos;
+using AllotJar.Domain.Services;
 
 namespace AllotJar.Application.Jars.Queries.GetJars;
 
@@ -50,6 +51,24 @@ public class GetJarsQueryHandler
                                                                   && i.BudgetCategory.BudgetMonth.Month == monthNumber))))
             .OrderBy(f => f.Name)
             .ToListAsync(cancellationToken);
+        if (isOver && !request.IncludeArchived)
+        {
+            // A jar restored since, but archived all through the month's end with no line there,
+            // was not on that month's shelf: restoring it does not add it after the fact (P2-19).
+            var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+            var periods = await JarFigures.ArchivePeriodsAsync(_db, jars.Select(j => j.Id).ToList(), cancellationToken);
+            var lined = await _db.BudgetItems
+                .AsNoTracking()
+                .Where(i => i.SavingsId != null
+                            && i.BudgetCategory.BudgetMonth.OwnerId == userId
+                            && i.BudgetCategory.BudgetMonth.Year == year
+                            && i.BudgetCategory.BudgetMonth.Month == monthNumber)
+                .Select(i => i.SavingsId!.Value)
+                .ToListAsync(cancellationToken);
+            jars = jars
+                .Where(j => lined.Contains(j.Id) || !JarSchedule.IsArchivedOn(JarHistory.ArchiveOn(j, periods.GetValueOrDefault(j.Id), monthEnd), monthEnd))
+                .ToList();
+        }
 
         // W05 (rule 48): the figures of the selected month — a past month as of its end, the
         // current or a later month as of today — never today's all-time balance for history.

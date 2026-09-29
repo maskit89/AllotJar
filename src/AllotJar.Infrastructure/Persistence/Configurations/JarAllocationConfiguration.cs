@@ -49,7 +49,11 @@ public class JarAllocationPostingConfiguration : IEntityTypeConfiguration<JarAll
     {
         builder.ToTable("JarAllocationPostings");
         builder.HasKey(p => p.Id);
-        builder.Property(p => p.Amount).HasPrecision(18, 4);
+        // A departure's postings are adjusted in place when a kept leg is corrected
+        // (JarDepartures.Shift), by writers that may hold another account's ledger lock: the
+        // amount read is the concurrency token, so a second writer that read the same departure
+        // fails instead of overwriting the first one's shift (P3-9).
+        builder.Property(p => p.Amount).HasPrecision(18, 4).IsConcurrencyToken();
 
         // A jar with postings is history; it can be archived, never deleted (rule 25).
         builder.HasOne(p => p.Jar)
