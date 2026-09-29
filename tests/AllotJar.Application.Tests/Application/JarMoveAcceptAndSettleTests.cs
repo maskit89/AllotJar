@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
+using AllotJar.Application.Accounts.Commands.UpdateAccount;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.CommitImport;
@@ -532,5 +533,26 @@ public class JarMoveAcceptAndSettleTests
         (await UnallocatedAsync(db, a.Id, Today)).Should().Be(1000m);
         (await db.JarAllocations.AnyAsync(x => x.TransactionId == late.Id || x.TransactionId == paid.Id || x.TransactionId == dinner.Id))
             .Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task P3_3_MovingTheOldAccountsOpeningDatePastTheJarsMoney_IsRefused_AndAMoveThatDropsNoJarEntryIsAccepted()
+    {
+        // Holiday's 300 went in on 1 Aug and out on 20 Aug; it then moved to B. With A opening on
+        // 15 Aug the 300 put in would no longer count, but the payment would, so Holiday would read
+        // -300 in A for good.
+        var w = await MovedAsync();
+        await using var db = w.Db;
+        var handler = new UpdateAccountCommandHandler(db, User);
+
+        (await RefusalAsync(() => handler.Handle(
+                new UpdateAccountCommand(w.A.Id, "A", AccountType.Savings, 1000m, new DateOnly(2026, 8, 15)), Ct)))
+            .Should().ContainSingle().Which.Should().StartWith("Holiday would change");
+        db.ChangeTracker.Clear();
+        (await BalanceAsync(db, w.Jar.Id, Today)).Should().Be(0m);
+
+        await handler.Handle(new UpdateAccountCommand(w.A.Id, "A", AccountType.Savings, 1000m, new DateOnly(2026, 7, 15)), Ct);
+        (await db.Accounts.AsNoTracking().SingleAsync(a => a.Id == w.A.Id)).OpeningDate.Should().Be(new DateOnly(2026, 7, 15));
+        (await BalanceAsync(db, w.Jar.Id, Today)).Should().Be(0m);
     }
 }
