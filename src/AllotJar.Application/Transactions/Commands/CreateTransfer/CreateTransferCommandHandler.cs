@@ -14,11 +14,14 @@ public class CreateTransferCommandHandler : IRequestHandler<CreateTransferComman
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly IIdentityService? _identity;
 
-    public CreateTransferCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public CreateTransferCommandHandler(
+        IApplicationDbContext db, ICurrentUser currentUser, IIdentityService? identity = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _identity = identity;
     }
 
     public async Task<TransactionDto> Handle(CreateTransferCommand request, CancellationToken cancellationToken)
@@ -74,7 +77,7 @@ public class CreateTransferCommandHandler : IRequestHandler<CreateTransferComman
 
         await using var write = await _db.BeginLedgerWriteAsync(from.Id, cancellationToken);
         var fee = await TransferFees.ApplyAsync(
-            _db, userId, transfer, from, request.Fee, request.FeeBudgetItemId, request.AcknowledgeCrossMonth,
+            _db, _identity, userId, transfer, from, request.Fee, request.FeeBudgetItemId, request.AcknowledgeCrossMonth,
             request.FromJarId, nameof(request.Fee), new List<Guid>(), cancellationToken);
 
         // Rule 74 on the source: the departure (and its fee) must leave it at or above zero on every date.

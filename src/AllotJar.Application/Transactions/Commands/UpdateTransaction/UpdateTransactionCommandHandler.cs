@@ -15,11 +15,14 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly IIdentityService? _identity;
 
-    public UpdateTransactionCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public UpdateTransactionCommandHandler(
+        IApplicationDbContext db, ICurrentUser currentUser, IIdentityService? identity = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _identity = identity;
     }
 
     public async Task<TransactionDto> Handle(UpdateTransactionCommand request, CancellationToken cancellationToken)
@@ -295,7 +298,7 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         if (request.Type != TransactionType.Transfer && transaction.Fee is Transaction fee && previousAccount is not null)
         {
             await TransferFees.ApplyAsync(
-                _db, userId, transaction, previousAccount, null, null, false, null, "Amount", removed, cancellationToken);
+                _db, _identity, userId, transaction, previousAccount, null, null, false, null, "Amount", removed, cancellationToken);
         }
         var affected = new[] { previousAccount, previousDestination, account }.Where(a => a is not null).Select(a => a!).ToList();
         if (affected.Count > 0)

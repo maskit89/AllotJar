@@ -14,11 +14,14 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly IIdentityService? _identity;
 
-    public UpdateTransferCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public UpdateTransferCommandHandler(
+        IApplicationDbContext db, ICurrentUser currentUser, IIdentityService? identity = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _identity = identity;
     }
 
     public async Task<TransactionDto> Handle(UpdateTransferCommand request, CancellationToken cancellationToken)
@@ -123,7 +126,7 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
 
         var removed = new List<Guid>();
         var fee = await TransferFees.ApplyAsync(
-            _db, userId, transfer, from, request.Fee, request.FeeBudgetItemId, request.AcknowledgeCrossMonth,
+            _db, _identity, userId, transfer, from, request.Fee, request.FeeBudgetItemId, request.AcknowledgeCrossMonth,
             request.FromJarId, nameof(request.Fee), removed, cancellationToken);
 
         // Rule 74 on every account the edit touches, before and after.

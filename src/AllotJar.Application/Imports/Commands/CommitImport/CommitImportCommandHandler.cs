@@ -337,7 +337,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     if (newFee is decimal fee)
                     {
                         var feeRow = await TransferFees.ApplyAsync(
-                            _db, userId, target, sourceAccount!, fee, item.FeeBudgetItemId, item.AcknowledgeCrossMonth, fromJar,
+                            _db, _identity, userId, target, sourceAccount!, fee, item.FeeBudgetItemId, item.AcknowledgeCrossMonth, fromJar,
                             "Items", new List<Guid>(), cancellationToken);
                         if (oldFee is null && feeRow is not null)
                         {
@@ -421,7 +421,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 if (rowFee > 0m)
                 {
                     var feeRow = await TransferFees.ApplyAsync(
-                        _db, userId, transfer, importAccount, rowFee, item.FeeBudgetItemId, item.AcknowledgeCrossMonth,
+                        _db, _identity, userId, transfer, importAccount, rowFee, item.FeeBudgetItemId, item.AcknowledgeCrossMonth,
                         item.PaidFromJarId, "Items", new List<Guid>(), cancellationToken);
                     fees.Add(feeRow!);
                     AddToCandidate(feeRow!);

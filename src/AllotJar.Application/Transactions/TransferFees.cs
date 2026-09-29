@@ -27,7 +27,7 @@ public static class TransferFees
     /// it in its rule 74 check; a removed row's id is added to <paramref name="removedIds"/>.
     /// </summary>
     public static async Task<Transaction?> ApplyAsync(
-        IApplicationDbContext db, string ownerId, Transaction transfer, Account source,
+        IApplicationDbContext db, IIdentityService? identity, string ownerId, Transaction transfer, Account source,
         decimal? fee, Guid? lineId, bool acknowledgeCrossMonth, Guid? paidFromJarId,
         string errorKey, ICollection<Guid> removedIds, CancellationToken cancellationToken)
     {
@@ -74,7 +74,7 @@ public static class TransferFees
         // A fee is spending: on an account kept in another currency it waits for its amount in
         // the budget currency, like any new entry there (rules 42/44), until the user confirms it;
         // a confirmed figure stands while the fee's amount and currency do.
-        var budgetCurrency = await BudgetCurrency.ResolveAsync(db, null, ownerId, cancellationToken);
+        var budgetCurrency = await BudgetCurrency.ResolveAsync(db, identity, ownerId, cancellationToken);
         if (transfer.Currency == budgetCurrency)
         {
             row.FxPending = false;
