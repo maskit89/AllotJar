@@ -518,7 +518,7 @@
 - **Preconditions:** Owner; jar "Gifts" opening 50.00, linked savings line planned 30.00 in each of June/July 2026, and a €20.00 expense transaction assigned to July's "Gifts" line.
 - **Steps:**
   1. Open `/jars` and read the "Gifts" balance.
-- **Expected:** `currentBalance` = 50 + (30 + 30) − 20 = **€90.00** (`OpeningBalance + Σ planned across ALL months − Σ assigned expense spend, at FX`). Split slices assigned to the line count too; transfers never do.
+- **Expected:** `currentBalance` = 50 + (30 + 30) − 20 = **€90.00** (`OpeningBalance + Σ planned across ALL months − Σ assigned expense spend`, spend taken at its budget-currency amount). Split slices assigned to the line count too; transfers never do, and neither does a row still waiting for its amount in the budget currency (W08) until that amount is confirmed.
 - **Automated:** Yes (JarsTests.cs / SavingsTests.cs — balance = opening + contributions − spend)
 
 ### JAR-053 - Jars-page balance vs budget-grid "avail." differ by the opening balance / future lines
@@ -1103,3 +1103,28 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
   1. As Sam, **New jar** "Bike", Held in "Sam's current", Save. 2. **Pick another account**. 3. Save again with "Sam's current"; **Share the account and continue**. 4. Move an existing jar to a private account from its Edit form. 5. With the warning showing for one private account, switch **Held in** to another account.
 - **Expected:** 1: nothing is saved; a warning: "'Sam's current' is private. A jar is part of the household budget, so the account it lives in is visible to everyone: sharing this jar shows the household 'Sam's current', its balance and all its transactions. Share the account, or pick another account for the jar." The form notes the account is private beforehand. 2: the warning closes, the form stays. 3: the account becomes shared and the jar is created in it; no money moves. 4: the same warning and choices. 5: the warning goes, so it can never share an account it didn't name; saving with another private account warns about that one.
 - **Automated:** Yes (JointAccountsW13Tests — `AJarOnAPrivateAccount_WarnsFirst_ThenSharesTheAccount_Rule34`; JarsPage tests, including `drops the rule 34 warning when the account changes, so it never shares another account`)
+
+---
+
+## One budget currency (W08; rule 63)
+
+### JAR-113 - A jar can't be held in an account kept in another currency
+- **Priority:** P1
+- **Type:** Negative
+- **Origin:** W08 (one budget currency). New accounts are always in the budget currency (ACCT-079), so this only bites on a legacy account created before W08 in another currency.
+- **Preconditions:** Owner; budget in EUR; a legacy account "UK savings" in GBP and an EUR account "Main"; a jar "Rainy day" held in "Main".
+- **Steps:**
+  1. `/jars` → **New jar** "Holiday", Goal, target 1000, Held in "UK savings" → Save. 2. Edit "Rainy day" → Held in "UK savings" → Save. 3. `POST /api/jars/reallocations` with `accountId` = UK savings (reallocating jar money within that account).
+- **Expected:** 1 and 2: 400 on `FundingAccountId`: "UK savings is in GBP, but the budget is in EUR. Choose an account in EUR."; no jar is created and "Rainy day" stays in "Main". 3: the same message on `AccountId`; nothing moves. A credit card is still refused first with its own message. The picker itself does not hide the legacy account; the server refuses it.
+- **Automated:** Partial (ForeignAmountsTests — `A_jar_cannot_live_in_an_account_kept_in_another_currency`, create path only)
+
+### JAR-114 - A payment still waiting for its budget-currency amount can't mark a cycle paid
+- **Priority:** P1
+- **Type:** Negative
+- **Origin:** W08 adversarial review — a waiting payment counts nowhere yet (rule 44), so settling a cycle with it would record its foreign figure as budget money.
+- **Preconditions:** Owner; budget in EUR; the JAR-088 (a) jar (Road tax, cycle due 1 Sep 2026); an imported expense "US insurer" **USD 650.00** dated on or before today, on **no** account (a waiting row can't sit on the jar's EUR account: an import refuses a row in another currency than its account), still waiting (`fxPending`, "Needs EUR amount").
+- **Steps:**
+  1. Click **Mark paid**; tick **Show payments from other accounts** (`GET /jars/{id}/payments?all=true`); read the list. 2. Try to choose "US insurer". 3. `POST /api/jars/{id}/cycles/paid` with `{ deadline: "2026-09-01", paymentTransactionId: <US insurer> }`. 4. On `/transactions`, **Enter amount** on US insurer (e.g. 598.00); re-open **Mark paid** and choose it.
+- **Expected:** 1: "US insurer" is listed (without the From-this-jar badge), dimmed, with " · Needs its amount entered on Transactions first" after its date and line. 2: its radio is **disabled**, so nothing is selected and **Mark paid** (aria "Confirm Road tax paid") stays disabled. 3: 400 keyed `PaymentTransactionId` → "That payment is in USD and is waiting for its amount in the budget currency. Enter that amount on Transactions first."; no cycle is recorded and the jar is unchanged. 4: once confirmed the payment is an ordinary choice and marking paid proceeds as in JAR-089 (the server checks "money out, not income, a transfer or a refund" and "dated in the future" before this refusal, and "already fulfilled" after it — JAR-090).
+- **Automated:** Yes (ForeignAmountsTests — `A_waiting_payment_cannot_mark_a_cycle_paid`; client/src/pages/JarsPage.cycles.test.tsx — "JAR-114: a payment still waiting for its budget-currency amount is listed but cannot be chosen"; step 4 is not asserted)
+

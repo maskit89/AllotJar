@@ -9,7 +9,7 @@ import { firstOfMonthAhead, register } from './helpers'
  * exercise the real IncomeAllocator over HTTP, the no-source commit guard, the
  * committed banner, the "I've completed these transfers" confirmation and departure
  * date the commit now requires (rules 7/29/71), the re-commit that keeps unchanged
- * `alloc:{y}-{m}:{memberId}` BankReference transfers and withdraws superseded in-transit
+ * `alloc:{y}-{m}:{memberId}` AllocationKey transfers and withdraws superseded in-transit
  * ones, the real register rows and the dated account balances they move (the source is
  * debited on departure; pots are credited only when a receipt is confirmed), and the
  * stranded-surplus / nothing-to-save notes with real data.
@@ -514,10 +514,11 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   await page.getByRole('link', { name: 'View Robin Pot', exact: true }).click()
   await expect(detailBalance(page, 'Robin Pot')).toContainText('500.00')
 
-  // --- ALLOC-058: the stored transfer composition — exactly two alloc: rows survive
-  // the re-commit, BankReference = "alloc:{year}-{month}:{memberId}" with the month
-  // NOT zero-padded (the idempotency prefix and the unique index both depend on it),
-  // Type=Transfer, dated the confirmed departure (today), distinct members.
+  // --- ALLOC-058: the stored transfer composition — exactly two allocation transfers survive
+  // the re-commit, Type=Transfer, dated the confirmed departure (today), one per member. Their
+  // key ("alloc:{year}-{month}:{memberId}", month not zero-padded) lives in AllocationKey, which
+  // the API doesn't return (AllocationCoverageTests pins it); BankReference stays empty, since it
+  // only ever holds a bank statement's reference (rule 88).
   const txResponse = await page.request.get('/api/transactions', {
     headers: { Authorization: auth()! },
   })
@@ -528,18 +529,17 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
     date: string
     payee: string
     amount: number
+    transferAccountId: string | null
   }>
-  const allocTx = transactions.filter((t) => t.bankReference?.startsWith('alloc:'))
+  const allocTx = transactions.filter((t) => t.type === 2 && /^Income allocation/.test(t.payee))
   expect(allocTx).toHaveLength(2)
   const departedOn = new Date().toISOString().slice(0, 10)
   for (const t of allocTx) {
-    expect(t.bankReference).toMatch(new RegExp(`^alloc:${year}-${month}:.+`)) // month un-padded
-    expect(t.type).toBe(2) // Transfer
+    expect(t.bankReference).toBeNull()
     expect(t.date.startsWith(departedOn)).toBeTruthy()
-    expect(t.payee).toMatch(/^Income allocation/)
     expect(t.amount).toBe(1250)
   }
-  expect(new Set(allocTx.map((t) => t.bankReference)).size).toBe(2) // one per member
+  expect(new Set(allocTx.map((t) => t.transferAccountId)).size).toBe(2) // one per member
 })
 
 test('a member without a savings account strands their share; over-committing the month flips to nothing-to-save and a re-commit removes the prior transfer', async ({

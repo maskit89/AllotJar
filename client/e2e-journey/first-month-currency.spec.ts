@@ -3,9 +3,10 @@ import { register } from './helpers'
 
 /**
  * Non-EUR end-to-end regression for the first-month currency rule (#216): the first-ever budget
- * month used to hardcode EUR while a new user's accounts default to their sign-up currency, so
- * the account-currency invariant (#210) rejected EVERY account-linked transaction for a non-EUR
+ * month used to hardcode EUR while a new user's accounts took their sign-up currency, so the
+ * account-currency invariant (#210) rejected EVERY account-linked transaction for a non-EUR
  * household — the add-transaction modal just stuck open on "Could not add that transaction."
+ * Since W08 the sign-up currency is the budget currency (rule 85) and every account uses it.
  *
  * The rest of the suite registers in EUR (the helpers pin it), so without this spec the non-EUR
  * path — the one that actually broke — would have no journey coverage. Registers a GBP user,
@@ -51,7 +52,7 @@ test('a non-EUR registrant can budget and log account-linked spending — the fi
   await addExpenseGroup(page, 'Everyday')
   await addLine(page, 'Everyday', 'Groceries')
 
-  // An account picks up the sign-up currency by default (GBP — same as the month now).
+  // Every account is in the budget currency (rule 63): GBP, the same as the month.
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await page.getByRole('button', { name: 'Add account', exact: true }).click()
   const accountDialog = page.getByRole('dialog')

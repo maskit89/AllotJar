@@ -56,29 +56,50 @@ public class Transaction : BaseEntity
     public Guid? MemberId { get; set; }
     public HouseholdMember? Member { get; set; }
 
-    /// <summary>Amount in the transaction's own <see cref="Currency"/>. Positive magnitude; direction is on <see cref="Type"/>.</summary>
+    /// <summary>
+    /// Amount in the transaction's <see cref="Currency"/>. Positive magnitude; direction is on
+    /// <see cref="Type"/>. Once a row counts (<see cref="FxPending"/> false) this is the budget
+    /// currency amount, as the bank or the user supplied it (rules 43/85); the app never
+    /// converts it. The one exception is a row on an account kept in another currency (from
+    /// before rule 63): its amount is that account's money and stays in that currency, and what
+    /// it counts in the budget is <see cref="BudgetAmount"/>.
+    /// </summary>
     public decimal Amount { get; set; }
 
-    /// <summary>The currency the transaction actually happened in (e.g. GBP abroad).</summary>
+    /// <summary>
+    /// The currency of <see cref="Amount"/>: the budget currency for every row that counts, the
+    /// account's currency for a row on an account, and another currency only while the row
+    /// waits for its budget-currency amount (<see cref="FxPending"/>).
+    /// </summary>
     public CurrencyCode Currency { get; set; } = CurrencyCode.Eur;
 
     /// <summary>
-    /// Multiplier converting <see cref="Amount"/> into the budget's base currency.
-    /// 1 when the transaction is already in the base currency. decimal(18,6).
-    /// </summary>
-    public decimal ExchangeRate { get; set; } = 1m;
-
-    /// <summary>The amount expressed in the budget's base currency (<see cref="Amount"/> × <see cref="ExchangeRate"/>).</summary>
-    public decimal BaseAmount => Amount * ExchangeRate;
-
-    /// <summary>
-    /// True when this is a foreign-currency transaction whose exchange rate could NOT be
-    /// resolved, so <see cref="ExchangeRate"/> is a placeholder 1 (the amount is counted at face
-    /// value in the base currency until reconciled). Distinguishes "genuinely 1:1" from
-    /// "unknown rate", so a provider outage no longer silently distorts base-currency totals; a
-    /// later resolution pass clears it.
+    /// True when the row was recorded in another currency and has no amount in the budget
+    /// currency yet (rules 42/44). It counts in no budget, report or People figure until the
+    /// user enters or confirms that amount (<c>ConfirmConvertedAmount</c>); a suggested
+    /// conversion is never applied on its own.
     /// </summary>
     public bool FxPending { get; set; }
+
+    /// <summary>
+    /// What was paid in another currency, kept for reference once the budget-currency amount is
+    /// known: the foreign amount the user converted, or the one a confirmed waiting row carried.
+    /// Never counted; <see cref="Amount"/> is the money.
+    /// </summary>
+    public decimal? OriginalAmount { get; set; }
+
+    /// <summary>The currency of <see cref="OriginalAmount"/>; set together with it.</summary>
+    public CurrencyCode? OriginalCurrency { get; set; }
+
+    /// <summary>
+    /// The row's figure in the budget currency when <see cref="Amount"/> is in another one: a row
+    /// on an account kept in another currency, whose amount is that account's money and can't be
+    /// restated without changing its balance. Set once, by the <c>ForeignAmounts</c> migration
+    /// (the figure the row already counted at) or by the user confirming it; never derived from a
+    /// rate. Every budget, report, People and refund figure reads it instead of the amount; account
+    /// and jar balances keep reading <see cref="Amount"/>. Null on every other row.
+    /// </summary>
+    public decimal? BudgetAmount { get; set; }
 
     public TransactionType Type { get; set; } = TransactionType.Expense;
 

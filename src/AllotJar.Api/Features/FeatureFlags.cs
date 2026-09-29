@@ -12,7 +12,11 @@ public class FeatureFlags
     /// <summary>Accounts &amp; derived balances (YNAB-style register).</summary>
     public bool Accounts { get; set; } = true;
 
-    /// <summary>Foreign-currency transactions and FX.</summary>
+    /// <summary>
+    /// Entering a hand-made transaction paid in another currency (its budget-currency amount is
+    /// still what counts) and account currency labels. Off hides only that entry option; rows
+    /// already waiting for a budget-currency amount can still be confirmed.
+    /// </summary>
     public bool MultiCurrency { get; set; } = true;
 
     /// <summary>CAMT.053 SEPA statement import.</summary>

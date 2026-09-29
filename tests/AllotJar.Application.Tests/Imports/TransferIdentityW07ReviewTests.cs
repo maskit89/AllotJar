@@ -215,7 +215,7 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
         var item = new CommitImportItem(row.Reference, row.Date, row.Payee, row.Amount, row.Currency, false, null, null,
             MatchTransferId: transferId);
         new CommitImportCommandValidator().Validate(new CommitImportCommand(joint, new[] { item })).IsValid.Should().BeTrue();
-        var result = await new CommitImportCommandHandler(db, chrisView, new FakeExchangeRateProvider())
+        var result = await new CommitImportCommandHandler(db, chrisView)
             .Handle(new CommitImportCommand(joint, new[] { item }), Ct);
 
         result.Transfers.Should().Be(1);
@@ -270,7 +270,7 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
         var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
         var statement = Camt("CARD-777", Sep10, 42.50m, false, "Cafe");
         var row = (await PreviewAsync(db, User, statement, a.Id)).Items.Single();
-        await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(
+        await new CommitImportCommandHandler(db, User).Handle(
             new CommitImportCommand(a.Id, new[] { new CommitImportItem(row.Reference, row.Date, row.Payee, row.Amount, row.Currency, false, null, null) }), Ct);
         var stored = await db.Transactions.SingleAsync();
 
@@ -307,7 +307,7 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
         var b = LedgerFixtures.SeedAccount(db, Owner, "B", 200m, Sep1, AccountType.Savings, order: 1);
         var transfer = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(Sep10, 100m, a.Id, b.Id, ReceivedOn: Sep10), Ct);
         var row = (await PreviewAsync(db, User, Camt("TRF-1", Sep12, 100m, false, "To savings"), a.Id)).Items.Single();
-        await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(new CommitImportCommand(a.Id, new[]
+        await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
         {
             new CommitImportItem(row.Reference, row.Date, row.Payee, row.Amount, row.Currency, false, null, null,
                 TransferAccountId: b.Id, MatchTransferId: transfer.Id),
@@ -331,7 +331,7 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
         var c = LedgerFixtures.SeedAccount(db, Owner, "C", 1000m, Sep1, AccountType.Current, order: 2);
         var transfer = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(Sep10, 100m, a.Id, b.Id), Ct);
         var row = (await PreviewAsync(db, User, Camt("RET-1", Sep12, 100m, true, "Returned"), a.Id)).Items.Single();
-        await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(new CommitImportCommand(a.Id, new[]
+        await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
         {
             new CommitImportItem(row.Reference, row.Date, row.Payee, row.Amount, row.Currency, true, null, null, ReturnOfTransferId: transfer.Id),
         }), Ct);
@@ -375,7 +375,7 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
         holiday.ArchivedOn = new DateOnly(2026, 9, 11);
         await db.SaveChangesAsync();
         var back = (await PreviewAsync(db, User, Camt("RET-7", Sep12, 100m, true, "Returned"), a.Id)).Items.Single();
-        await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(new CommitImportCommand(a.Id, new[]
+        await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
         {
             new CommitImportItem(back.Reference, back.Date, back.Payee, back.Amount, back.Currency, true, null, null, ReturnOfTransferId: transfer.Id),
         }), Ct);
@@ -450,7 +450,7 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
         await new ArchiveJarCommandHandler(db, User).Handle(new ArchiveJarCommand(holiday.Id), Ct);
 
         var back = (await PreviewAsync(db, User, Camt("RET-8", Sep12, 100m, true, "Returned"), a.Id)).Items.Single();
-        await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(new CommitImportCommand(a.Id, new[]
+        await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
         {
             new CommitImportItem(back.Reference, back.Date, back.Payee, back.Amount, back.Currency, true, null, null, ReturnOfTransferId: transfer.Id),
         }), Ct);
@@ -484,7 +484,7 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
             </Document>
             """;
         var rows = (await PreviewAsync(db, User, statement, a.Id)).Items;
-        var result = await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(new CommitImportCommand(a.Id, new[]
+        var result = await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
         {
             new CommitImportItem(rows[0].Reference, rows[0].Date, rows[0].Payee, rows[0].Amount, rows[0].Currency, false, null, null, TransferAccountId: b.Id, MatchTransferId: t1.Id),
             new CommitImportItem(rows[1].Reference, rows[1].Date, rows[1].Payee, rows[1].Amount, rows[1].Currency, false, null, null, TransferAccountId: b.Id, MatchTransferId: t2.Id),
@@ -553,7 +553,7 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
 
         // The bank printed the credit a day later than the user marked it.
         var back = (await PreviewAsync(db, User, Camt("RET-9", new DateOnly(2026, 9, 13), 100m, true, "Returned"), a.Id)).Items.Single();
-        await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(new CommitImportCommand(a.Id, new[]
+        await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
         {
             new CommitImportItem(back.Reference, back.Date, back.Payee, back.Amount, back.Currency, true, null, null, ReturnOfTransferId: transfer.Id),
         }), Ct);
@@ -638,7 +638,7 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
         var t = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(Sep10, 100m, a.Id, b.Id), Ct);
         var rows = (await PreviewAsync(db, User, Camt2(("D-5", Sep10, 100m, false), ("R-5", Sep12, 100m, true)), a.Id)).Items;
 
-        var result = await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(new CommitImportCommand(a.Id, new[]
+        var result = await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
         {
             Item(rows[0], false, match: t.Id),
             Item(rows[1], true, returnOf: t.Id),
@@ -664,7 +664,7 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
             new UpdateTransferCommand(t, a.Id, b.Id, 100m, Sep10, null, Sep12, FromJarId: holiday.Id), Ct);
 
         var rows = (await PreviewAsync(db, User, Camt2(("D-1", Sep10, 100m, false), ("R-1", Sep12, 100m, true)), a.Id)).Items;
-        await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(new CommitImportCommand(a.Id, new[]
+        await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
         {
             Item(rows[0], false, match: t, paidFrom: car.Id),
             Item(rows[1], true, returnOf: t),
@@ -682,11 +682,11 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
         await using var db = NewContext();
         var (a, _, holiday, car, t) = await SeedHolidayAndCarAsync(db);
         var back = (await PreviewAsync(db, User, Camt2(("R-2", Sep12, 100m, true)), a.Id)).Items.Single();
-        await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(
+        await new CommitImportCommandHandler(db, User).Handle(
             new CommitImportCommand(a.Id, new[] { Item(back, true, returnOf: t) }), Ct);
 
         var departure = (await PreviewAsync(db, User, Camt2(("D-2", Sep10, 100m, false)), a.Id)).Items.Single();
-        await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(
+        await new CommitImportCommandHandler(db, User).Handle(
             new CommitImportCommand(a.Id, new[] { Item(departure, false, match: t, paidFrom: car.Id) }), Ct);
 
         var view = (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[a.Id];

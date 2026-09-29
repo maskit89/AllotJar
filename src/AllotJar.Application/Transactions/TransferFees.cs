@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
+using AllotJar.Application.Budgets;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars;
 using AllotJar.Domain.Entities;
@@ -60,7 +61,6 @@ public static class TransferFees
             {
                 OwnerId = ownerId,
                 Type = TransactionType.Expense,
-                ExchangeRate = 1m,
                 FeeForTransfer = transfer,
             };
             transfer.Fee = row;
@@ -70,6 +70,20 @@ public static class TransferFees
         {
             // The transfer now leaves another account: the fee's stored jar answer belonged to the old one.
             await JarMovements.ClearAsync(db, row, row.AccountId!.Value, cancellationToken);
+        }
+        // A fee is spending: on an account kept in another currency it waits for its amount in
+        // the budget currency, like any new entry there (rules 42/44), until the user confirms it;
+        // a confirmed figure stands while the fee's amount and currency do.
+        var budgetCurrency = await BudgetCurrency.ResolveAsync(db, null, ownerId, cancellationToken);
+        if (transfer.Currency == budgetCurrency)
+        {
+            row.FxPending = false;
+            row.BudgetAmount = null;
+        }
+        else if (row.Amount != fee.Value || row.Currency != transfer.Currency)
+        {
+            row.FxPending = true;
+            row.BudgetAmount = null;
         }
         row.AccountId = source.Id;
         row.Account = source;

@@ -8,7 +8,7 @@ import { register } from './helpers'
  * account balances but into NO budget actual, hero total or allocation. These
  * journeys drive the live POST /transactions/transfer against real SQL and
  * verify the derived balances, the register/detail rendering, the delete
- * revert, the cross-currency guard, and the Type=Transfer injection guard on
+ * revert, the refusal of an account in another currency, and the Type=Transfer injection guard on
  * the generic endpoints (PR #167's money-vanish regression) end-to-end.
  *
  * Money assertions are symbol-agnostic ("1,700.00", not "€1,700.00") because
@@ -75,14 +75,11 @@ async function setPlanned(page: Page, line: string, value: string) {
  */
 async function addAccount(
   page: Page,
-  acc: { name: string; opening: string; currencyLabel?: string },
+  acc: { name: string; opening: string },
 ) {
   await page.getByRole('button', { name: 'Add account', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Account name').fill(acc.name)
-  if (acc.currencyLabel) {
-    await dialog.getByLabel('Account currency').selectOption({ label: acc.currencyLabel })
-  }
   await dialog.getByLabel('Opening balance').fill(acc.opening)
   await dialog.getByLabel('Opening date').fill('2026-01-01')
   await dialog.getByRole('button', { name: 'Add account', exact: true }).click()
@@ -158,7 +155,7 @@ test('a transfer moves both balances but never the budget, renders badge + from 
   const remainingBefore = (await page.getByLabel(/^Remaining to budget:/).textContent()) ?? ''
   expect(remainingBefore).toContain('400.00') // 0 income − 400 planned
 
-  // Two same-currency accounts (the add-modal default currency is shared).
+  // Two accounts, both in the budget currency (rule 63).
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await addAccount(page, { name: 'Wallet', opening: '2000' })
   await addAccount(page, { name: 'Pot', opening: '500' })
@@ -257,17 +254,22 @@ test('a transfer moves both balances but never the budget, renders badge + from 
   await expect(page.getByText('No transactions on this account yet.')).toBeVisible()
 })
 
-test('client-side transfer validation blocks bad input without an API call, and a cross-currency transfer is rejected and moves nothing', async ({
+test('client-side transfer validation blocks bad input without an API call, and an account in another currency is refused, so no cross-currency transfer can exist', async ({
   page,
 }) => {
+  // The access token lives in memory only, so the direct API call below replays the SPA's header.
+  let authHeader: string | undefined
+  page.on('request', (r) => {
+    const h = r.headers()['authorization']
+    if (h && r.url().includes('/api/')) authHeader = h
+  })
   await register(page)
   await startBlankBudget(page)
 
-  // Two REAL accounts in different currencies (explicitly chosen so the test is
-  // independent of the locale-detected default).
+  // Two REAL accounts, both in the budget currency (rule 63: the Add form has no currency choice).
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
-  await addAccount(page, { name: 'Euro Main', opening: '100', currencyLabel: 'Euro (€)' })
-  await addAccount(page, { name: 'Dollar Stash', opening: '100', currencyLabel: 'US dollar ($)' })
+  await addAccount(page, { name: 'Euro Main', opening: '100' })
+  await addAccount(page, { name: 'Euro Pot', opening: '100' })
 
   // Count every transfer POST — the client guards below must never send one.
   let transferPosts = 0
@@ -281,7 +283,7 @@ test('client-side transfer validation blocks bad input without an API call, and 
   // --- TRF-011 + TRF-012: a zero amount is blocked client-side with the exact
   // error string and no POST (even with both accounts validly chosen).
   await dialog.getByLabel('Transfer from account').selectOption({ label: 'Euro Main' })
-  await dialog.getByLabel('Transfer to account').selectOption({ label: 'Dollar Stash' })
+  await dialog.getByLabel('Transfer to account').selectOption({ label: 'Euro Pot' })
   await dialog.getByLabel('Transfer amount').fill('0')
   await dialog.getByRole('button', { name: 'Record transfer', exact: true }).click()
   await expect(dialog.getByText('Enter a valid transfer amount greater than zero.')).toBeVisible()
@@ -310,30 +312,28 @@ test('client-side transfer validation blocks bad input without an API call, and 
   await page.waitForTimeout(300)
   expect(transferPosts).toBe(0)
 
-  // --- TRF-021 + TRF-015: EUR → USD passes the client checks, so the POST goes
-  // out and the server's cross-currency guard rejects it (400). The client shows
-  // the server's own message verbatim, prepends no row, and the modal stays open.
-  await dialog.getByLabel('Transfer completed confirmation').check()
-  const rejected = page.waitForResponse(
-    (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/transactions/transfer',
-  )
-  await dialog.getByRole('button', { name: 'Record transfer', exact: true }).click()
-  const rejection = await rejected
-  expect(rejection.status()).toBe(400)
-  expect(await rejection.text()).toContain('Both accounts must use the same currency to transfer between them.')
-  await expect(dialog.getByText('Both accounts must use the same currency to transfer between them.')).toBeVisible()
-  await expect(page.getByRole('dialog', { name: 'Record a transfer' })).toBeVisible()
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(page.getByText('No transactions yet')).toBeVisible() // no phantom row
+  await expect(page.getByText('No transactions yet')).toBeVisible() // nothing was recorded
 
-  // --- TRF-021 (moves-nothing leg): both balances are exactly their openings.
+  // --- TRF-021 (W08, rule 63): a cross-currency transfer needs an account in another currency,
+  // and the server refuses to create one, so the transfer's own guard is now unreachable.
+  expect(authHeader).toBeTruthy()
+  const foreign = await page.request.post('/api/accounts', {
+    headers: { Authorization: authHeader! },
+    data: { name: 'Dollar Stash', type: 0, currency: 'USD', openingBalance: 100, openingDate: '2026-01-01' },
+  })
+  expect(foreign.status()).toBe(400)
+  expect(await foreign.text()).toContain('This budget is in EUR, so its accounts are too.')
+
+  // Nothing moved: both balances are exactly their openings, and no third account appeared.
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
+  await expect(page.getByRole('link', { name: 'View Dollar Stash', exact: true })).toHaveCount(0)
   await page.getByRole('link', { name: 'View Euro Main', exact: true }).click()
   await expect(detailBalance(page, 'Euro Main')).toContainText('100.00')
   await expect(page.getByText('No transactions on this account yet.')).toBeVisible()
   await page.getByRole('link', { name: '‹ Accounts' }).click()
-  await page.getByRole('link', { name: 'View Dollar Stash', exact: true }).click()
-  await expect(detailBalance(page, 'Dollar Stash')).toContainText('100.00')
+  await page.getByRole('link', { name: 'View Euro Pot', exact: true }).click()
+  await expect(detailBalance(page, 'Euro Pot')).toContainText('100.00')
   await expect(page.getByText('No transactions on this account yet.')).toBeVisible()
 })
 

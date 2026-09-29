@@ -59,7 +59,7 @@ public class ImportTransferLegsTests
             new GenericCsvImporter());
 
     private static CommitImportCommandHandler NewCommit(ApplicationDbContext db, string userId = "user-1") =>
-        new(db, new CurrentUserStub(userId), new FakeExchangeRateProvider());
+        new(db, new CurrentUserStub(userId));
 
     private static Account SeedAccount(ApplicationDbContext db, string name, decimal opening, string owner = "user-1")
     {

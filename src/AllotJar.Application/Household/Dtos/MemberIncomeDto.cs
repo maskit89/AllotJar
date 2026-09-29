@@ -9,7 +9,7 @@ public class MemberIncomeResultDto
     /// <summary>False when the month has no budget yet (planned figures are then zero).</summary>
     public bool HasBudget { get; set; }
 
-    /// <summary>Income transactions in the month whose exchange rate is still unresolved; they are left out of Received until reconciled.</summary>
+    /// <summary>Income transactions in the month still waiting for their budget-currency amount; they are left out of Received until the user enters it.</summary>
     public int FxPendingCount { get; set; }
 
     /// <summary>Planned income not attributed to any active person (whole-household).</summary>
@@ -26,7 +26,7 @@ public class MemberIncomeDto
     /// <summary>The month's income lines attributed to this person (planned amounts).</summary>
     public decimal Planned { get; set; }
 
-    /// <summary>Income transactions (whole + slices) attributed to this person, dated in the month, in the budget's base currency; rows with a pending exchange rate are left out.</summary>
+    /// <summary>Income transactions (whole + slices) attributed to this person, dated in the month, in the budget currency; rows still waiting for a budget-currency amount are left out.</summary>
     public decimal Received { get; set; }
 
     /// <summary>This person's month income the way the allocation sees it: attributed lines plus an equal share of the unattributed ones.</summary>

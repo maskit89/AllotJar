@@ -116,7 +116,7 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
                 nameof(request.JarAllocations), cancellationToken);
         }
 
-        // The return's jars (P65): recorded again only when the return, the account it left, the
+        // The return's jars (P72): recorded again only when the return, the account it left, the
         // amount or the departure's jars changed; otherwise it keeps what was decided when it was
         // recorded, whatever has happened to the jars since.
         await TransferReturns.SyncAsync(_db, transfer, from.Id, previousReturn, cancellationToken);

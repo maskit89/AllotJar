@@ -114,8 +114,8 @@ describe('AccountsPage — catalog (ACCT)', () => {
     expect(screen.getByLabelText('Total balance: -€450.00')).toBeInTheDocument()
     expect(screen.getByText('€0.00')).toBeInTheDocument() // Available
     expect(screen.getByText('€450.00')).toBeInTheDocument() // Owed
-    // Unanimous currency ⇒ no mixed-currency footnote.
-    expect(screen.queryByText(/some accounts hold another currency/i)).not.toBeInTheDocument()
+    // Every account is in the budget currency ⇒ no "not counted" footnote.
+    expect(screen.queryByText(/in another currency/i)).not.toBeInTheDocument()
   })
 
   it('ACCT-004: one currency labels the hero in it, no footnote, cards keep their own currency', { timeout: 15000 }, async () => {
@@ -128,9 +128,9 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     renderPage()
 
-    // heroCurrency === the single currency (EUR); total 1,750 labelled in EUR, no pill.
+    // Totals are labelled in the budget currency (EUR); total 1,750, no pill.
     expect(await screen.findByLabelText('Total balance: €1,750.00', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.queryByText(/some accounts hold another currency/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/in another currency/i)).not.toBeInTheDocument()
     // Per-account balances + "Opening …" captions in the account's own currency.
     expect(screen.getByText('€1,250.00')).toBeInTheDocument()
     expect(screen.getByText('€500.00')).toBeInTheDocument()
@@ -139,7 +139,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
     expect(screen.getByText('Your accounts')).toBeInTheDocument()
   })
 
-  it('ACCT-005: mixed currencies show the raw sum, a footnote pill, and per-currency cards', { timeout: 15000 }, async () => {
+  it('ACCT-005: an account in another currency is left out of the totals and called out; cards keep their currency', { timeout: 15000 }, async () => {
     mockLoads({
       accounts: [
         acct({ id: 'j1', name: 'Joint', openingBalance: 1250, currentBalance: 1250 }),
@@ -149,11 +149,13 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     renderPage()
 
-    // Raw cross-currency sum 1,250 + 200 = 1,450, labelled in the preferred currency (EUR).
-    expect(await screen.findByLabelText('Total balance: €1,450.00', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText('Totals shown in EUR; some accounts hold another currency.')).toBeInTheDocument()
-    // Each card still formats in its own currency (€ vs £).
-    expect(screen.getByText('€1,250.00')).toBeInTheDocument()
+    // The app never converts: only the budget-currency (EUR) account counts, 1,250 not 1,450.
+    expect(await screen.findByLabelText('Total balance: €1,250.00', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText('1 account in another currency is not counted.')).toBeInTheDocument()
+    expect(screen.queryByText(/Totals shown in/)).not.toBeInTheDocument()
+    // Each card still formats in its own currency (€ vs £); €1,250.00 is also the hero's
+    // Available tile now that it is the only counted account.
+    expect(screen.getAllByText('€1,250.00').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('£200.00')).toBeInTheDocument()
     expect(screen.getByText(/Opening £200\.00/)).toBeInTheDocument()
   })
@@ -343,51 +345,48 @@ describe('AccountsPage — catalog (ACCT)', () => {
     expect(await screen.findByText('Could not add that account.', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
-  it('ACCT-018: the currency select defaults to preferred, notes immutability, and resets after add', { timeout: 15000 }, async () => {
+  it('ACCT-018: the add form has no currency picker; the POST uses the budget currency, not the preference', { timeout: 15000 }, async () => {
     mockLoads({ accounts: [] })
-    mockPost.mockResolvedValue({ data: acct({ id: 'f1', name: 'Foreign', currency: 'GBP' }) })
+    const base = mockGet.getMockImplementation()!
+    mockGet.mockImplementation((url: string) =>
+      url === '/auth/me'
+        ? Promise.resolve({
+            data: { userId: 'u1', email: 'a@x.com', displayName: 'A', role: 0, ownerId: 'u1', memberId: null,
+              preferredCurrency: 'EUR', budgetCurrency: 'GBP', currencyLocked: true },
+          })
+        : base(url),
+    )
+    mockPost.mockResolvedValue({ data: acct({ id: 'f1', name: 'Pot', currency: 'GBP' }) })
     const user = userEvent.setup()
 
     renderPage()
 
-    let dialog = await openAddModal(user)
-    const currency = dialog.getByLabelText('Account currency') as HTMLSelectElement
-    expect(currency.value).toBe('EUR') // defaults to preferredCurrency
-    expect(dialog.getByText(/currency is fixed once created/i)).toBeInTheDocument()
+    // The hero is labelled in the budget currency once /auth/me answers.
+    await screen.findByLabelText('Total balance: £0.00', {}, { timeout: 5000 })
+    const dialog = await openAddModal(user)
+    expect(dialog.queryByLabelText('Account currency')).not.toBeInTheDocument()
+    expect(dialog.getByText('The account holds GBP, your budget currency.')).toBeInTheDocument()
 
-    await user.type(dialog.getByLabelText('Account name'), 'Foreign')
-    await user.selectOptions(currency, 'GBP')
+    await user.type(dialog.getByLabelText('Account name'), 'Pot')
     await user.click(dialog.getByRole('button', { name: 'Add account' }))
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/accounts', expect.objectContaining({ currency: 'GBP' })),
     )
-
-    // Reopening the modal resets the select back to the preferred currency.
-    dialog = await openAddModal(user)
-    expect((dialog.getByLabelText('Account currency') as HTMLSelectElement).value).toBe('EUR')
   })
 
-  it('ACCT-019: with multiCurrency off there is no currency picker and the POST uses the preferred currency', { timeout: 15000 }, async () => {
-    mockLoads({ accounts: [acct({ id: 'a1', name: 'Everyday' })], features: { multiCurrency: false } })
-    mockPost.mockResolvedValue({ data: acct({ id: 'n1', name: 'Second' }) })
-    const user = userEvent.setup()
+  it('ACCT-019: with multiCurrency off only an account in another currency keeps its currency chip', { timeout: 15000 }, async () => {
+    mockLoads({
+      accounts: [acct({ id: 'a1', name: 'Everyday' }), acct({ id: 'uk1', name: 'UK Pot', currency: 'GBP' })],
+      features: { multiCurrency: false },
+    })
 
     renderPageWithFeatures()
 
-    // Once the flag load settles, the card currency chip disappears — our signal that
-    // multiCurrency is now off (it starts on by default before /features resolves).
+    // Once the flag load settles the budget-currency chip disappears (the flag starts on by
+    // default before /features resolves); the GBP account still says what it holds.
     await screen.findByText('Everyday', {}, { timeout: 5000 })
     await waitFor(() => expect(screen.queryByText('EUR')).not.toBeInTheDocument(), { timeout: 5000 })
-
-    const dialog = await openAddModal(user)
-    expect(dialog.queryByLabelText('Account currency')).not.toBeInTheDocument()
-    expect(dialog.queryByText(/fixed once created/i)).not.toBeInTheDocument()
-
-    await user.type(dialog.getByLabelText('Account name'), 'Second')
-    await user.click(dialog.getByRole('button', { name: 'Add account' }))
-    await waitFor(() =>
-      expect(mockPost).toHaveBeenCalledWith('/accounts', expect.objectContaining({ currency: 'EUR' })),
-    )
+    expect(screen.getByText('GBP')).toBeInTheDocument()
   })
 
   it('ACCT-020: pressing Enter in the opening field submits the add', { timeout: 15000 }, async () => {

@@ -18,8 +18,8 @@ public class BudgetMonthDto
     public bool IsBalanced { get; set; }
 
     /// <summary>
-    /// How many of this month's transactions are awaiting an exchange rate. Those rows are
-    /// EXCLUDED from every actual on this DTO, so a non-zero count means the aggregates are
+    /// How many of this month's transactions are in another currency and still wait for their
+    /// budget-currency amount. Those rows are EXCLUDED from every actual on this DTO, so a non-zero count means the aggregates are
     /// incomplete — the client surfaces it rather than presenting face-value money as real.
     /// </summary>
     public int FxPendingCount { get; set; }

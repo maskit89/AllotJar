@@ -62,7 +62,7 @@ public class MonthReportDto
     /// <summary>Income rows dated in the month that still need a line.</summary>
     public int UncategorisedIncomeCount { get; set; }
 
-    /// <summary>Rows in the month awaiting an exchange rate; they are left out of every figure above.</summary>
+    /// <summary>Rows in the month still waiting for a budget-currency amount; they are left out of every figure above.</summary>
     public int FxPendingCount { get; set; }
 
     /// <summary>

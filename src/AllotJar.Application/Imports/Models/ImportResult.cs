@@ -5,7 +5,7 @@ namespace AllotJar.Application.Imports.Models;
 /// or confirmed; <paramref name="MatchedTransfers"/> is the subset that confirmed the other side
 /// of an existing transfer (no new transaction); <paramref name="PendingReviewTransfers"/> the
 /// subset held for review because only the receipt is known (rule 72); <paramref name="Returned"/>
-/// the rows that confirmed a transfer coming back to its source (O1 answer 4). <paramref name="Held"/>
+/// the rows that confirmed a transfer coming back to its source (O1 answer 4). <paramref name="AwaitingAmount"/> counts the new rows in another currency that wait for their budget-currency amount (rules 42/44). <paramref name="Held"/>
 /// lists the rows not imported because posting them would take the statement account below
 /// zero on some date (rules 11/74): each names the reason, so the user records the missing
 /// deposit and re-commits it, corrects it, or discards it; nothing is posted "anyway".
@@ -22,7 +22,8 @@ public record ImportStatementResult(
     int MatchedTransfers = 0,
     int PendingReviewTransfers = 0,
     IReadOnlyList<ImportHeldRow>? Held = null,
-    int Returned = 0)
+    int Returned = 0,
+    int AwaitingAmount = 0)
 {
     public IReadOnlyList<ImportHeldRow> Held { get; init; } = Held ?? [];
     public int HeldCount => Held.Count;

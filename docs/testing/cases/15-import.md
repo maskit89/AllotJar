@@ -2,7 +2,7 @@
 
 **ID prefix:** IMP | **Scope:** The Import screen at `/import` (`client/src/pages/ImportPage.tsx`) end to end, plus the server pipeline behind it: the upload form (File format / Statement file / Add to account); server-side format **sniffing** (`PreviewImportCommandHandler` routes a "Bank CSV (auto-detect)" upload to the `Camt053`/`HsbcCsv` adapter when their `CanParse` matches, else the `GenericCsvImporter`); the generic-CSV **column-mapping** panel (date/amount/description/currency columns, single signed-amount column, date-format + number-format + delimiter + header, sample-rows preview); **date-format pinning** + per-file lock; **mapping dirty-state** blocking a stale-parse import; **dedup** (the `csv:`/`hsbc:`/CAMT `BankReference` invariant, unique filtered index `IX_Transactions_OwnerId_BankReference`, `#occurrence` suffix for same-signature repeats, the `possibleDuplicate` content hint on re-import); **re-scan carry-over**; import into a chosen **account**; the review grid (include/exclude, categorise, bulk apply, split, transfer) as it gates the import; the **commit** + "Import complete" summary with real money sums; **all-caught-up**; parser robustness (BOM, bare CR, trailing/paren sign, 2-digit years, thousands separators, HSBC packed Details, quoted thousands, 0.00 skip); malformed/empty/oversized files; and the concurrent-commit race recovery. Covers `POST /import/preview` and `POST /import/commit`, both under `ImportController` (feature-gated by `FeatureFlags.CamtImport`); these are the only import endpoints since W07 removed the direct one-shot `POST /import/hsbc-csv` + `POST /import/camt053` (IMP-084..087 retired). Also covers the W07 identity rules on the review grid: reused bank references listed and flagged, recorded transfers offered as match/return candidates (with implied fees), and same-day rows judged on the day's closing balance, credits first (IMP-091..095). | **Out of scope:** Viewing/editing imported rows in the register, manual add, filter/search → `10-transactions.md`; the generic transfer entry form and transfers as ledger rows → `11-transfers.md`; account CRUD, per-account currency, derived balance and reconciliation the import feeds → `12-accounts-reconciliation.md`; budget-line/category creation that populates the category selects, and the learned payee→line auto-categoriser rules → `08-categories-budget-lines.md`; member add/archive, roles and the full `canWrite` matrix (only import-page gating appears here) → the households/people sibling; FX-rate resolution to base currency → `12-accounts-reconciliation.md`; responsive / dark-mode / a11y sweeps of the mapping + review panels (`client/e2e/mocks.ts` + `a11y.spec.ts` + `mobile-layout.spec.ts`) → the a11y/responsive sibling; session/refresh and cross-tab logout → the auth sibling (referenced only where behaviour is import-specific).
 
-**Test data setup:** Unless a case says otherwise, assume an authenticated **Owner** (`canWrite = true`) of a **shared EUR household "Home"** with **2 active members** — *Alex* and *Robin*. `preferredCurrency = "EUR"`, browser locale **en-GB**, today **2026-07-15**, so `GET /budget/current` returns **July 2026** with expense lines *Groceries* + *Soap* (category *Food*) and *Fuel* (category *Transport*), plus an income line *Salary*. Two EUR accounts exist: **"Joint"** and **"Savings"**. `Features:CamtImport = true`. The SPA always imports through **preview → commit** (`previewImport` → `POST /import/preview` multipart `file,format,mapping?,defaultCurrency?`; `commitImport` → `POST /import/commit` JSON `{accountId, items}`). Money is `decimal(18,4)` server-side, integer minor units client-side; imported actuals are always transaction-derived. Idempotency keys (never change composition): generic `csv:{32-hex SHA-256 head}#{occurrence}` over `date|signed:0.####|UPPER(rawDesc)`; HSBC `hsbc:{32-hex}#{occurrence}` over `postingDate|purchaseDate|last4|signed:0.00|UPPER(desc)`; CAMT = the raw `AcctSvcrRef`/`EndToEndId` (≤140 chars, `#occurrence` on repeats). Unique filtered index `IX_Transactions_OwnerId_BankReference WHERE BankReference IS NOT NULL`; manual (reference-less) rows are exempt. Reference fixture **3-row generic CSV** (`Date,Description,Amount,Currency`): TESCO STORES −42.50, ACME SALARY 2500.00, COFFEE HOUSE −3.80 (all EUR) → Money in €2,500.00 / Money out €46.30 — the exact file the journey test drives. Exception→HTTP mapping (`ExceptionHandlingMiddleware`): `ValidationException`→400 `{title:"Validation failed", errors}`, `NotFoundException`→404, `ForbiddenAccessException`→403, `StatementParseException`→422 (title = message), controller `BadRequest({error})`→400; the client `ErrorBanner` shows `data.title ?? data.error`. Client wiring: `client/src/pages/ImportPage.test.tsx`; full-stack round-trip: `client/e2e-journey/import.spec.ts`; parsers: `tests/AllotJar.Application.Tests/Imports/{GenericCsvImporterTests,HsbcCsvStatementParserTests,Camt053StatementParserTests}.cs`; preview/commit: `ImportPreviewCommitTests.cs`; holds and transfer legs: `ImportHoldsTests.cs`, `ImportTransferLegsTests.cs`, `TransferIdentityW07Tests.cs`; DB race/index: `tests/AllotJar.IntegrationTests/UniqueBankReferenceTests.cs`.
+**Test data setup:** Unless a case says otherwise, assume an authenticated **Owner** (`canWrite = true`) of a **shared EUR household "Home"** with **2 active members** — *Alex* and *Robin*. `preferredCurrency = "EUR"` and budget currency **EUR** (`/auth/me` → `budgetCurrency: "EUR"`), browser locale **en-GB**, today **2026-07-15**, so `GET /budget/current` returns **July 2026** with expense lines *Groceries* + *Soap* (category *Food*) and *Fuel* (category *Transport*), plus an income line *Salary*. Two EUR accounts exist: **"Joint"** and **"Savings"**. `Features:CamtImport = true`. The SPA always imports through **preview → commit** (`previewImport` → `POST /import/preview` multipart `file,format,mapping?,defaultCurrency?`; `commitImport` → `POST /import/commit` JSON `{accountId, items}`). Money is `decimal(18,4)` server-side, integer minor units client-side; imported actuals are always transaction-derived. Idempotency keys (never change composition): generic `csv:{32-hex SHA-256 head}#{occurrence}` over `date|signed:0.####|UPPER(rawDesc)`; HSBC `hsbc:{32-hex}#{occurrence}` over `postingDate|purchaseDate|last4|signed:0.00|UPPER(desc)`; CAMT = the raw `AcctSvcrRef`/`EndToEndId` (≤140 chars, `#occurrence` on repeats). Unique filtered index `IX_Transactions_OwnerId_BankReference WHERE BankReference IS NOT NULL`; manual (reference-less) rows are exempt. Reference fixture **3-row generic CSV** (`Date,Description,Amount,Currency`): TESCO STORES −42.50, ACME SALARY 2500.00, COFFEE HOUSE −3.80 (all EUR) → Money in €2,500.00 / Money out €46.30 — the exact file the journey test drives. Exception→HTTP mapping (`ExceptionHandlingMiddleware`): `ValidationException`→400 `{title:"Validation failed", errors}`, `NotFoundException`→404, `ForbiddenAccessException`→403, `StatementParseException`→422 (title = message), controller `BadRequest({error})`→400; the client `ErrorBanner` shows `data.title ?? data.error`. Client wiring: `client/src/pages/ImportPage.test.tsx`; full-stack round-trip: `client/e2e-journey/import.spec.ts`; parsers: `tests/AllotJar.Application.Tests/Imports/{GenericCsvImporterTests,HsbcCsvStatementParserTests,Camt053StatementParserTests}.cs`; preview/commit: `ImportPreviewCommitTests.cs`; holds and transfer legs: `ImportHoldsTests.cs`, `ImportTransferLegsTests.cs`, `TransferIdentityW07Tests.cs`; DB race/index: `tests/AllotJar.IntegrationTests/UniqueBankReferenceTests.cs`.
 
 ---
 
@@ -199,17 +199,18 @@
 - **Steps:**
   1. Change **Description column** to a different index.
   2. Click **"Apply changes & re-scan"**.
-- **Expected:** `previewImport` is re-called with the edited `mapping` and `defaultCurrency: "EUR"`; the grid re-renders from the new parse. The re-scan button label is "Re-scan with this mapping" (secondary) when clean, "Apply changes & re-scan" (primary) when dirty, "Re-scanning…" while busy.
+- **Expected:** `previewImport` is re-called with the edited `mapping` and `defaultCurrency: "EUR"` (the import account's currency, else the budget currency); the grid re-renders from the new parse. The re-scan button label is "Re-scan with this mapping" (secondary) when clean, "Apply changes & re-scan" (primary) when dirty, "Re-scanning…" while busy.
 - **Automated:** Yes (ImportPage.test.tsx — "generic CSV: shows the mapping panel and re-scans with a corrected mapping"; import.spec.ts)
 
-### IMP-021 - Currency column: "Use EUR for every row" maps to a null column
+### IMP-021 - Currency column: "Use {currency} for every row" maps to a null column; the fallback is the import account's currency, else the budget currency
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Generic CSV without a currency column.
+- **Preconditions:** Generic CSV without a currency column. Variant B: a legacy **GBP** account "UK Current" chosen as **Add to account** (legacy data — new accounts can only be EUR here).
 - **Steps:**
-  1. Open the **Currency column** select.
-- **Expected:** First option "Use **EUR** for every row" (uses `preferredCurrency`), then each file column. Choosing it sets `currencyColumn = null`; the server resolves currency from `DefaultCurrency` (falling back to "EUR" if unset). A currency column is auto-selected only when ≥80% of its cells match `^[A-Za-z]{3}$`.
-- **Automated:** Partial (ImportPreviewCommitTests.cs — default-currency stamping; GenericCsvImporterTests.cs — "Parse_falls_back_to_the_default_currency…")
+  1. With no import account (or "Joint"), upload, review, open the **Currency column** select.
+  2. Variant B: choose "UK Current" in **Add to account**, upload, review, open the select.
+- **Expected:** Step 1: first option "Use **EUR** for every row" (the household's `budgetCurrency`, not the login's `preferredCurrency` — W08), then each file column; the preview request carries `defaultCurrency: "EUR"`. Step 2: the option reads "Use **GBP** for every row" and the request carries `defaultCurrency: "GBP"`, so the rows match their account (a mismatch would be refused at commit). Choosing the option sets `currencyColumn = null`; the server resolves currency from `DefaultCurrency` (falling back to "EUR" if unset). A currency column is auto-selected only when ≥80% of its cells match `^[A-Za-z]{3}$`.
+- **Automated:** Yes (client/src/pages/ImportPage.test.tsx — "generic CSV: rows without a currency are read in the chosen import account’s currency"; ImportPreviewCommitTests.cs — `Preview_GenericCsv_DetectsLayout_AndStampsTheDefaultCurrency`; GenericCsvImporterTests.cs — "Parse_falls_back_to_the_default_currency…")
 
 ### IMP-022 - Delimiter select re-reads a semicolon / tab / pipe file
 - **Priority:** P1
@@ -660,13 +661,14 @@
 - **Expected:** "Import complete" with "2 transactions added." Stat tiles: **Imported** 2, **Skipped** 0, **Money in** €0.00, **Money out** €115.90 (35 + 80.90 summed from the reviewed rows in state), **Transfers** 0. Money is summed in minor units grouped by currency (transfers excluded from in/out; they stay a count). For the 3-row fixture: Money in €2,500.00 / Money out €46.30.
 - **Automated:** Yes (ImportPage.test.tsx — "shows real money sums (not counts) on the success screen"; import.spec.ts asserts 2,500.00 in / 46.30 out)
 
-### IMP-068 - Mixed-currency import sums each currency separately
+### IMP-068 - Mixed-currency import sums each currency separately; the other-currency rows arrive waiting
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** A statement with EUR and GBP debits imported together.
+- **Preconditions:** A statement with EUR and GBP debits (and no credits), imported with **no** import account (with "Joint" chosen the GBP rows are refused at commit: "…EUR…", `Commit_RejectsARowWhoseCurrencyDiffersFromTheImportAccount`).
 - **Steps:**
-  1. Import; read Money out.
-- **Expected:** `moneyByCurrency` groups by currency and renders "€X + £Y" (never a cross-currency sum). An empty group shows the preferred currency at 0 (e.g. "€0.00").
+  1. Import; read Money in / Money out.
+  2. Open `/transactions`.
+- **Expected:** `moneyByCurrency` groups by currency and renders Money out as "€X + £Y" (never a cross-currency sum); the empty Money in group shows the **budget currency** at 0 ("€0.00"). On Transactions the GBP rows read "GBP …" with **"Needs EUR amount"** and count in no figure until confirmed (IMP-091, TX-104); the EUR rows count at once.
 - **Automated:** No
 
 ### IMP-069 - Commit stamps the chosen account on every row
@@ -684,7 +686,7 @@
 - **Preconditions:** Rows categorised with a member.
 - **Steps:**
   1. Import.
-- **Expected:** Non-split rows persist `BudgetItemId` + `MemberId`; the actual for that line reflects the new transaction (actuals are always tx-derived). `ExchangeRate` defaults to 1 and FX is resolved to the base currency by `FxRateResolver`.
+- **Expected:** Non-split rows persist `BudgetItemId` + `MemberId`; the actual for that line reflects the new transaction (actuals are always tx-derived). No exchange rate is looked up or stored (W08); a row in another currency than the budget's is saved in its own currency, waiting (IMP-091), and does not reach the line until its amount is confirmed.
 - **Automated:** Yes (ImportPreviewCommitTests.cs — "Commit_PersistsChosenCategoryAndMember_AndTracksTheLine")
 
 ### IMP-071 - Long payee is truncated; long reference is capped
@@ -883,9 +885,42 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
 - **Expected:** The form value model-binds to `(StatementFormat)99` / `(StatementFormat)-1` — enum binding converts a numeric form value even when it names no member, and `PreviewImportCommandValidator` does not apply `IsInEnum` (it only asserts `Content` `NotEmpty`). This is asymmetric with `CreateJarCommandValidator` (`Kind`/`Accrual` `.IsInEnum()`) and `CreateAccountCommandValidator` (`Type` `.IsInEnum()`), which reject an out-of-range enum with **400** "Validation failed". Because `99 != GenericCsv`, `PreviewImportCommandHandler` takes the non-generic branch and `_parsers.FirstOrDefault(p => p.Format == request.Format)` matches no registered parser (only `Camt053` + `HsbcCsv` are registered as `IStatementParser`), so it throws `NotFoundException` (`PreviewImportCommandHandler.cs:77-78`) → **404** via `ExceptionHandlingMiddleware` with `title` = "No statement parser is registered for format '99'." (`'-1'` for the negative case); the client `ErrorBanner` would show that title. The negative and positive out-of-range values take the identical path. The point of the case: this unknown-format lookup must stay a **404** and never regress to a **500**. (Contrast: a non-numeric, non-name string such as `format=banana` fails model binding → automatic **400** ModelState.  `/import/commit`'s `CommitImportCommand` carries no format at all, rebuilding rows from the already-parsed preview items.)
 - **Automated:** No
 
+### IMP-091 - A row in another currency is imported as it is and waits; nothing ever converts it
+- **Priority:** P0
+- **Type:** Regression
+- **Origin:** W08 (rules 42–44) — imports used to convert at the ECB rate (`FxRateResolver`), count unresolved rows at face value, and re-convert them later (`FxReconciliationService`); all of that is deleted.
+- **Preconditions:** Budget currency EUR (July 2026 month exists); a CAMT.053 statement with two EUR entries and one GBP entry "London Cab" 45.50; no import account; any rate provider state (up or down makes no difference).
+- **Steps:**
+  1. Import (preview → commit); note the result.
+  2. Open `/transactions` and the dashboard.
+  3. Re-import the same statement; wait past any interval, restart the API.
+- **Expected:** Step 1: the GBP row is stored with `amount 45.50` (never multiplied by a rate), `currency GBP`, `fxPending true`; the EUR rows count normally; the result's `awaitingAmount` is **1** (the client doesn't display it today). Step 2: the row shows "GBP 45.50" + **"Needs EUR amount"** + **Enter amount**, and is left out of every figure; the dashboard notice reads "1 transaction in another currency is waiting for its amount in EUR and isn’t counted until it’s entered. Enter it on Transactions". Step 3: the row still waits — a re-import is not a retry and no background job exists. A row committed as a transfer is never marked waiting, whatever its currency (`ForeignAmounts.MarkWaiting`).
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Transactions/ForeignAmountsTests.cs — `An_imported_row_in_another_currency_waits_and_nothing_converts_it`, `A_transfer_never_waits`)
+
+### IMP-092 - Before any budget month exists, the owner's chosen currency decides which rows wait (not EUR)
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** A brand-new household whose owner chose **GBP** at sign-up; no budget month, no accounts yet.
+- **Steps:**
+  1. Import the IMP-091 statement (two EUR entries, one GBP) with no import account.
+- **Expected:** The **GBP** row counts (GBP is the budget currency) and the two **EUR** rows wait with "Needs GBP amount" — the old "default EUR when no month exists" rule is gone. Creating the first month afterwards stamps it GBP (`BudgetCurrency.ResolveAsync`), and the household's currency is now locked (it holds transactions).
+- **Automated:** Yes (ForeignAmountsTests — `Without_a_budget_month_the_owners_currency_decides_what_waits_not_EUR`)
+
+### IMP-093 - A statement imported onto a legacy account kept in another currency waits, and each row can be confirmed without touching the account's money
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** W08 adversarial review — such rows used to wait with no way to confirm them (Enter amount refused any row on an account); Christopher's "Support them" (29 Sep 2026).
+- **Preconditions:** Budget currency EUR; a legacy **GBP** account "UK card" (opening £500.00, created before rule 63); a CAMT.053 statement for it with two GBP entries (every row in the account's currency — a row in another currency than the import account's is refused, CMB-006).
+- **Steps:**
+  1. Import the statement into UK card (preview → commit with the account); note the result.
+  2. Read UK card's balance and `/transactions`.
+  3. **Enter amount** on the first row (e.g. 10.00) and confirm.
+- **Expected:** Step 1: both rows are stored in GBP, `fxPending true`; `awaitingAmount` equals `imported` (2). Step 2: UK card's balance moves by the rows' pound amounts at once (balances sum `amount`, waiting or not); each row reads "GBP {amount}" + "Needs EUR amount" + **Enter amount**, and counts in no budget figure. Step 3: 200 with `budgetAmount 10.00`, `fxPending false`, the GBP `amount` and `currency` unchanged; the row now counts €10.00 and shows "Counts as €10.00"; UK card's balance does not move (TX-112, ACCT-042).
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Transactions/ForeignAmountsTests.cs — `A_statement_imported_onto_an_account_kept_in_another_currency_waits_and_can_be_confirmed`; the balance and register are covered by TX-112's tests)
+
 ## W07: reused references, transfer candidates, fees and same-day order
 
-### IMP-091 - A known reference with different details is listed, flagged and unticked
+### IMP-096 - A known reference with different details is listed, flagged and unticked
 - **Priority:** P0
 - **Type:** Regression
 - **Origin:** W07 / reused bank references (O1 answer 2)
@@ -896,7 +931,7 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
 - **Expected:** The unchanged copy is skipped as a duplicate, but the 20 Jul row is **listed** (not skipped) with `reusedReference` = the earlier entry's date, amount and direction, and is **unticked** by default. When imported it is stored under a derived reference `REF-1~{8 hex}`, not `REF-1`. The second run skips it (the derived reference is now known), so re-imports stay idempotent and the unique index is never hit.
 - **Automated:** Partial (TransferIdentityW07Tests.cs; ImportPreviewCommitTests.cs)
 
-### IMP-092 - A transfer recorded in the app is offered as a match and the bank's date wins
+### IMP-097 - A transfer recorded in the app is offered as a match and the bank's date wins
 - **Priority:** P0
 - **Type:** Happy
 - **Origin:** W07 / candidates regardless of date and reference
@@ -907,7 +942,7 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
 - **Expected:** The row carries `transferMatches` with `kind = "match"`, `recordedDate = 3 Jul`, no `fee`, even though the dates differ by six days (every open leg is offered, nearest date first). A single candidate is never auto-selected. On commit no new transaction is created: the transfer's Joint leg takes the bank's reference and the receipt date becomes **9 Jul** (the bank's date replaces the recorded one). `matchedTransfers = 1`.
 - **Automated:** Partial (ImportTransferLegsTests.cs; TransferIdentityW07Tests.cs)
 
-### IMP-093 - A credit on the source account can confirm a transfer came back (return candidate)
+### IMP-098 - A credit on the source account can confirm a transfer came back (return candidate)
 - **Priority:** P0
 - **Type:** Happy
 - **Origin:** W07 / returned transfers (O1 answer 4)
@@ -918,7 +953,7 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
 - **Expected:** The credit row lists the transfer with `kind = "return"`. On commit the row confirms the return only: the transfer becomes status `Returned`, nothing stays in transit, no new income or transfer row is created. The result shows `returned = 1`.
 - **Automated:** Partial (TransferIdentityW07Tests.cs)
 
-### IMP-094 - A match that implies a fee requires the fee to be accepted with a line
+### IMP-099 - A match that implies a fee requires the fee to be accepted with a line
 - **Priority:** P1
 - **Type:** Boundary
 - **Origin:** W07 / transfer fees (O1 answer 5)
@@ -930,7 +965,7 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
 - **Expected:** (a) The candidate carries `fee = 2.50` (the debit is larger than the transfer). (b) The candidate carries `fee = 2.00` (the credit is smaller). In both cases the user must accept the fee explicitly and pick its budget line in the review grid (echoed on commit as `fee`, `feeBudgetItemId`; the server refuses a fee without a line, "Choose the budget line the transfer's fee is spent from."); a transfer that already has a fee pre-fills that fee's line. A match is never confirmed with a fee the user has not accepted, and a fee is only proposed while it is at most the larger of 10% of what arrives and 10.00: a 1,100.00 debit is not offered as the 100.00 transfer with a fee of 1,000.00, while a 30.00 debit is offered as a 20.00 transfer with a fee of 10.00 (30.01 is not). Candidates stay nearest date first (rule 87); an exact amount only comes first between candidates on the same date. Once accepted, the transfer is confirmed and a separate fee expense row is created on the **source** account, dated the departure, on the chosen line.
 - **Automated:** Partial (TransferIdentityW07Tests.cs, TransferIdentityW07ReviewTests.cs)
 
-### IMP-095 - Same-day rows are judged on the day's closing balance, credits first
+### IMP-100 - Same-day rows are judged on the day's closing balance, credits first
 - **Priority:** P0
 - **Type:** Regression
 - **Origin:** W07 / rule 74

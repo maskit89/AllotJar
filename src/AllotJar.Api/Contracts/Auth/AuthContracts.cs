@@ -93,7 +93,9 @@ public record PreferencesResponse(
 
 /// <summary>The authenticated login's identity, active household, access level and preferences.
 /// <see cref="NeedsConsent"/> flags invite-created logins that haven't accepted the terms yet.
-/// <see cref="SharingReviewPending"/> asks the login to review who sees its personal accounts (rule 32).</summary>
+/// <see cref="SharingReviewPending"/> asks the login to review who sees its personal accounts (rule 32).
+/// <see cref="BudgetCurrency"/> is the active household's one currency (rule 85), which labels its money;
+/// <see cref="CurrencyLocked"/> says the login's own household holds data, so its currency is fixed.</summary>
 public record MeResponse(
     string UserId,
     string Email,
@@ -110,7 +112,9 @@ public record MeResponse(
     bool HasPassword,
     bool HasGoogle,
     bool EmailConfirmed,
-    bool SharingReviewPending = false);
+    bool SharingReviewPending = false,
+    string BudgetCurrency = "EUR",
+    bool CurrencyLocked = false);
 
 /// <summary>One household the login can act in, for the household switcher. The active one has <see cref="IsActive"/>.</summary>
 public record HouseholdSummary(string OwnerId, string Label, HouseholdRole Role, bool IsActive, bool IsOwn);

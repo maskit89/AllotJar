@@ -5,8 +5,8 @@
 **Test data setup:** These journeys assume a clean staging environment (`staging.allotjar.com`, `IS_STAGING` true, `RateLimiting__AuthPermitLimit` raised for serial e2e). Passwords must be HIBP-safe randoms (`Aa1-<uuid>`), never fixed common strings. Canonical fixtures used across journeys:
 - **Solo user "Sam":** EUR, number format `comma-dot` (en-GB), registers with the sample checkbox **unticked** (PR #170 default = empty account).
 - **Couple "Alex + Sam":** Alex owns the household (net monthly income 3,000.00), Sam is member #2 (net 2,000.00); joint EUR account "Joint" opening 1,250.00, plus each member's personal savings account. The allocation golden anchor figures (keep-own remainder Alex 1,200.50 / Sam 800.25) are the Bank-Summary-2026 reference numbers.
-- **Multi-currency household:** one EUR account "Joint" and one GBP account "UK Savings" (currency fixed at create).
-- All money is decimal(18,4) server-side / integer minor units client-side; actuals are ALWAYS transaction-derived at read time; `ExchangeRate` is hardcoded 1 app-wide today (FX deferred).
+- **One-currency household (W08):** a fresh EUR household with `multiCurrency` ON and one EUR account "Joint". Every account is in the budget currency (rule 63); money paid or imported in another currency is recorded with its budget-currency amount, or waits for one.
+- All money is decimal(18,4) server-side / integer minor units client-side; actuals are ALWAYS transaction-derived at read time; there is no exchange rate anywhere (W08 removed `ExchangeRate`/`BaseAmount`). The budget currency is the first month's `BaseCurrency`, else the owner's preferred currency, and it is fixed once the household holds an account, a month or a transaction.
 
 ---
 
@@ -267,27 +267,30 @@
 
 ---
 
-## Multi-currency & role-scoped daily use
+## One budget currency & role-scoped daily use
 
-### JRN-011 - Multi-currency household daily use: per-account currency, blocked cross-currency transfer, foreign import, currency-following reports
+### JRN-011 - One budget currency, daily use: the currency locks, accounts follow it, money paid abroad counts, a foreign import waits until its amount is entered
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** A household whose user prefers EUR (`comma-dot`). `multiCurrency` flag ON. Create two accounts: "Joint" (EUR, opening 1,250.00) and "UK Savings" (GBP, opening 800.00) — currency fixed at create.
+- **Origin:** W08 (rules 42–44, 63, 85). Replaces the pre-W08 journey (per-account currencies, a refused EUR→GBP transfer, raw cross-currency hero sums), none of which can be set up any more.
+- **Preconditions:** A freshly registered household (Currency EUR, `comma-dot`), `multiCurrency` flag ON, no data yet. A CAMT.053 statement with one EUR entry and one GBP entry "London Cab" 45.50. The rate provider is reachable.
 - **Steps:**
-  1. On `/accounts` confirm each card and its opening caption format in the account's OWN currency, and read the hero mixed-currency footnote.
-  2. Attempt to edit "UK Savings" and look for a currency field.
-  3. On `/transactions` open **"Record a transfer"**, set From "Joint" (EUR) → To "UK Savings" (GBP), amount 100.00, **"Record transfer"**.
-  4. Record a same-currency GBP transaction against "UK Savings" and a EUR one against "Joint".
-  5. Import a foreign-currency statement into "UK Savings".
-  6. Open `/reports`, then change the **"Breakdown month"** to a month whose `baseCurrency` differs.
+  1. Open `/account` and look at the Currency preference; then start a blank month on `/` and return to `/account`.
+  2. On `/accounts` click **Add account**, read the form, and create "Joint" (current, opening 1,250.00); open its edit card.
+  3. Replaying the SPA's bearer token, `POST /api/accounts` with `currency: "GBP"` (the UI offers no way to pick one).
+  4. On `/transactions` click **+ Add transaction**: payee "Diner", assigned to a line, account "Joint", tick **Paid in another currency**, Currency "USD", Amount paid 20, **Suggest**, keep or correct the Amount (e.g. 18.40), **Add transaction**.
+  5. On `/import` import the statement with no import account; open `/transactions` and `/`.
+  6. On London Cab click **Enter amount** → **Suggest** → **Confirm amount**; assign it to a line; reopen `/`.
+  7. Open `/reports`.
 - **Expected:**
-  - CP1: cards/opening/reconciliation format in `a.currency` (EUR vs GBP), NOT the preferred currency; the hero shows the raw cross-currency sum labelled with `preferredCurrency` + the footnote "Totals shown in {heroCurrency}; some accounts hold another currency." (ACCT-037).
-  - CP2: the edit card shows the read-only note "Currency GBP — fixed once created." with no currency input (immutable by API shape).
-  - CP3: the transfer is **rejected** with "Both accounts must use the same currency to transfer between them." and moves nothing (PR #167 / TRF-021).
-  - CP4: each transaction's amount renders in its own stamped currency; account balances raw-sum amounts (no FX applied — ExchangeRate 1, deferred).
-  - CP5: the import stamps each row's own currency; success sums group per currency joined with " + ".
-  - CP6: the whole Reports page re-labels into the breakdown month's `baseCurrency` (`?? 'EUR'`), including annual totals — a deliberate currency-follows-breakdown behaviour (RPT-035).
-- **Automated:** No
+  - CP1: before any data the Currency select is editable (PREF-043); once the month exists it is read-only with "Your budget currency is fixed once your budget has accounts, months or transactions." (PREF-011). The month's `baseCurrency` is EUR.
+  - CP2: the add form has no currency picker and notes "The account holds EUR, your budget currency."; the card shows €1,250.00 with an EUR chip (flag on), and the edit card reads "Currency EUR — fixed once created." (ACCT-018/019).
+  - CP3: 400 on `Currency`: "This budget is in EUR, so its accounts are too. A bank converts payments in other currencies into EUR itself." No second account exists, so no cross-currency transfer can be recorded (TRF-021, ACCT-079).
+  - CP4: the POST carries `amount 18.4, originalAmount 20, originalCurrency "USD"`; the row reads −€18.40 with a grey caption "USD 20.00" (title "Paid in USD"), counts at once on its line and in Joint's balance (€1,231.60), and never waits (TX-109).
+  - CP5: the EUR entry counts normally; London Cab is stored as it is ("GBP 45.50", `fxPending`), tagged **"Needs EUR amount"** with an **Enter amount** button, and left out of the hero, the dashboard, reports and People; the dashboard notice reads "1 transaction in another currency is waiting for its amount in EUR and isn’t counted until it’s entered." with the link "Enter it on Transactions" (IMP-091, CURR-052). The import success tiles list each currency's own sum, joined with " + ".
+  - CP6: Suggest fills the EUR amount from the ECB reference rate (45.50 × rate, rounded to cents) without saving; Confirm makes the row −€{amount} with the caption "GBP 45.50"; the notice is gone and the row now counts on its line (TX-104).
+  - CP7: every figure is labelled EUR — the page takes the breakdown month's `baseCurrency` (`?? 'EUR'`, RPT-035), and every month created since W08 carries the budget currency. The waiting-then-confirmed row appears only at its confirmed amount.
+- **Automated:** Partial — CP3 by `client/e2e-journey/transfers-balances.spec.ts` ("…an account in another currency is refused, so no cross-currency transfer can exist"); the first-month-in-the-registrant's-currency leg by `client/e2e-journey/first-month-currency.spec.ts`; the rest only per area (TransactionsPage.test.tsx W08 describe, ForeignAmountsTests).
 
 ### JRN-012 - Role-scoped daily use: a Limited member works, then is downgraded to Read-only mid-session
 - **Priority:** P1

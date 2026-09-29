@@ -193,7 +193,6 @@ public class TransferLedgerTests
         var transfer = Transfer();
         transfer.Currency = CurrencyCode.From("GBP");
         transfer.Amount = 1.2345m;
-        transfer.ExchangeRate = 9m;
         var result = TransferLedger.Calculate(transfer, new(Departure, null), Departure);
         result.Currency.Should().Be(CurrencyCode.From("GBP"));
         result.UnsettledAmount.Should().Be(1.2345m);
@@ -362,7 +361,6 @@ public class TransferLedgerTests
         var transfer = Transfer();
         transfer.Currency = CurrencyCode.From("GBP");
         transfer.Amount = 1.2345m;
-        transfer.ExchangeRate = 9m;
         var result = TransferLedger.Calculate(transfer, new(null, Receipt), Receipt);
         result.PendingReceipt.Should().Be(new PendingTransferReceipt(transfer.Id, transfer.Currency, Receipt, 1.2345m));
         result.CreditedAmount.Should().Be(0m);

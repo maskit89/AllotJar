@@ -3,9 +3,9 @@ using AllotJar.Domain.ValueObjects;
 namespace AllotJar.Application.Common.Interfaces;
 
 /// <summary>
-/// Resolves a currency conversion rate for a given date. Implementations must
-/// degrade gracefully — returning null (rather than throwing) when a rate can't
-/// be obtained — so an import never fails because of FX.
+/// Looks up a reference rate for a given date, used only to SUGGEST a budget-currency amount the
+/// user then confirms (rule 44). Implementations must degrade gracefully — returning null
+/// (rather than throwing) when a rate can't be obtained.
 /// </summary>
 public interface IExchangeRateProvider
 {

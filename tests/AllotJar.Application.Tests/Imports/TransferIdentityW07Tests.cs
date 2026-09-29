@@ -85,7 +85,7 @@ public class TransferIdentityW07Tests
             .Handle(new PreviewImportCommand(content, format, AccountId: accountId), CancellationToken.None);
 
     private static Task<ImportStatementResult> CommitAsync(ApplicationDbContext db, Guid accountId, params CommitImportItem[] items) =>
-        new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider())
+        new CommitImportCommandHandler(db, User)
             .Handle(new CommitImportCommand(accountId, items), CancellationToken.None);
 
     private static CommitImportItem Row(ImportCandidate row) =>

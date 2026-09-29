@@ -19,9 +19,7 @@ namespace AllotJar.Application.Tests.Application;
 /// Automates the highest-value P0/P1 (plus a few cheap P2/P3) cases whose behaviour lives
 /// at the Application/domain layer and was previously "No"/"Partial":
 /// the complete derived-balance formula on a single account including transfer legs
-/// (ACCT-037/038); splits never move the account balance (ACCT-040); the deferred-FX
-/// invariant that AccountBalances sums the raw amount and never applies ExchangeRate
-/// (ACCT-042); ordering by DisplayOrder then Name with duplicate names allowed (ACCT-007);
+/// (ACCT-037/038); splits never move the account balance (ACCT-040); ordering by DisplayOrder then Name with duplicate names allowed (ACCT-007);
 /// creating an account of every type (ACCT-010); negative/zero openings accepted
 /// (ACCT-011/012); the server validators for empty name (ACCT-013/026), out-of-range
 /// opening (ACCT-016), overlong name (ACCT-017), the currency regex contract (ACCT-022)
@@ -73,7 +71,7 @@ public class AAccountsCoverageTests
 
     private static void AddTx(
         ApplicationDbContext db, string ownerId, Guid? accountId, decimal amount,
-        TransactionType type, decimal exchangeRate = 1m, Guid? transferAccountId = null,
+        TransactionType type, Guid? transferAccountId = null,
         ICollection<TransactionSplit>? splits = null)
     {
         db.Transactions.Add(new Transaction
@@ -83,7 +81,6 @@ public class AAccountsCoverageTests
             TransferAccountId = transferAccountId,
             Amount = amount,
             Type = type,
-            ExchangeRate = exchangeRate,
             Currency = CurrencyCode.Eur,
             Date = new DateOnly(2026, 7, 10),
             // A seeded transfer is a completed same-day movement: both bank legs are explicit.
@@ -137,23 +134,6 @@ public class AAccountsCoverageTests
             .Handle(new GetAccountsQuery(), CancellationToken.None);
 
         result.Single().CurrentBalance.Should().Be(880m); // 1000 − 120, unaffected by the 70/50 split
-    }
-
-    // ACCT-042 — Deferred-FX invariant: AccountBalances sums t.Amount verbatim and never applies
-    // ExchangeRate. A €100 income stamped at ExchangeRate 2 moves the balance by 100, not 200.
-    [Fact]
-    public async Task GetAccounts_Balance_SumsRawAmount_NeverAppliesExchangeRate()
-    {
-        await using var db = NewContext();
-        var account = SeedAccount(db, "user-1", "Joint", opening: 0m);
-        AddTx(db, "user-1", account.Id, 100m, TransactionType.Income, exchangeRate: 2m);
-
-        var result = await new GetAccountsQueryHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new GetAccountsQuery(), CancellationToken.None);
-
-        var balance = result.Single().CurrentBalance;
-        balance.Should().Be(100m);   // raw amount
-        balance.Should().NotBe(200m); // NOT amount × exchangeRate
     }
 
     // ACCT-007 — GetAccounts orders by DisplayOrder then Name; duplicate names coexist with distinct ids.

@@ -45,18 +45,15 @@ public static class DependencyInjection
         // Generic bank-CSV import (user-confirmed column mapping) — see ICsvImporter.
         services.AddScoped<ICsvImporter, GenericCsvImporter>();
 
-        // FX rates via the free, key-less Frankfurter (ECB) API. The provider takes a
-        // TimeProvider so its failure-cache expiry is testable.
+        // Reference rates for SUGGESTED conversions only (rule 44), via the free, key-less
+        // Frankfurter (ECB) API. Nothing applies a rate without the user confirming the amount.
+        // The provider takes a TimeProvider so its failure-cache expiry is testable.
         services.TryAddSingleton(TimeProvider.System);
         services.AddHttpClient<IExchangeRateProvider, FrankfurterExchangeRateProvider>(client =>
         {
             client.BaseAddress = new Uri("https://api.frankfurter.app/");
             client.Timeout = TimeSpan.FromSeconds(5);
         });
-
-        // Background pass that re-attempts pending-FX rows for every owner, so an unresolved
-        // rate reconciles once the provider recovers — not only on that user's next import.
-        services.AddHostedService<FxReconciliationService>();
 
         // Have I Been Pwned "Pwned Passwords" range API for the breached-password check
         // (k-anonymity; see BreachedPasswordValidator). A short timeout keeps register/change-password

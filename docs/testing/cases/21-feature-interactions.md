@@ -15,11 +15,11 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 | Import × dedup × account deletion | `BankReference` dedup keys on `(OwnerId, BankReference)`, account-independent | **CH** CMB-001, CMB-002 |
 | Import × account choice × dedup | same statement re-imported to a different account | **CH** CMB-003 |
 | Import × month boundaries | assigned-line month vs statement date; repeat-charge suffix | **CH** CMB-004, CMB-005 |
-| Import × account currencies | mixed-currency file into one account; per-row stamped currency | **CH** CMB-006 |
+| Import × account currencies × waiting rows | mixed-currency file: refused into one account; imported account-less, the other-currency rows wait | **CH** CMB-006 |
 | Import × concurrency × dedup | unique-index race recovery keeps attribution | area IMP-076 (+ CMB-001 note) |
 | Transfers × allocation × reconciliation | alloc commit writes member transfers → account balances → Float tile | **CH** CMB-007, CMB-008 |
 | Transfers × allocation pool | pool = member net income, not transactions | **CH** CMB-010 |
-| Transfers × allocation × currency | EUR-stamped alloc transfer into a non-EUR account | **CH** CMB-011 |
+| Transfers × allocation × currency | alloc transfer stamped in the source currency; a savings account in another currency refused | **CH** CMB-011 |
 | Transfers × reports | transfers excluded from every report sum | area RPT-029 (+ CMB-022 note) |
 | Transfers × jars × reconciliation | cash moved into a funding account vs the jar's tracked balance | **CH** CMB-012 |
 | Allocation × balance-tilt × prior transfers | tilt reads account balance minus this month's own alloc transfers | **CH** CMB-009 |
@@ -34,7 +34,7 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 | Splits × actuals × account balance | slices to lines, whole amount to the account | **CH** CMB-022 |
 | Splits × reports sums | split counted once in trend/annual | area RPT-028 (+ CMB-022) |
 | Splits × jars/savings | split slice into a savings line rolls into the jar | **CH** CMB-023 |
-| Splits × FX | slices roll up at the parent's rate; balance in account currency | **CH** CMB-024 |
+| Splits × money in another currency | a waiting split row counts nothing and can't be confirmed; confirm, then split | **CH** CMB-024 |
 | ExcludeFromAllocation × allocation totals × copy | excluded category left out of BOTH envelopes and funds; survives copy | **CH** CMB-027 |
 | Member removal × transactions × allocation | archive keeps attribution but drops the member from the pool | **CH** CMB-025 |
 | Member re-activation × allocation | unarchive restores the pool | **CH** CMB-026 |
@@ -65,12 +65,17 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 | Split-slice member attribution × member archive | archived member's slices drop from member-spending while the line actual, reports and account balance stay | **CH** CMB-055 (builds on CMB-022, CMB-025) |
 | Import × uncreated month × time-scoped assign | a past-dated imported row is unattachable; later creating that month does not adopt it | **CH** CMB-056 (builds on CMB-004, TIME-026) |
 | Import × auto-categorisation | shared suggestion machinery; commit persists explicit choices only | area IMP-039, CAT auto-categoriser — no new seam beyond CMB note |
-| Manual entry × account currency | manual tx stamped month-base, mismatches a foreign account | area CURR-038 / ACCT-048 — single-surface quirk |
+| Manual entry × account currency | manual tx is always in the budget currency; refused on a legacy account in another currency | area CURR-038 / ACCT-048 — single-surface guard |
 | Reports × breakdown-month currency | page relabels every card in the breakdown month's base currency | area RPT-032 / CURR-032 — owned by reports/currency files |
 | Household switch × write scoping | writes land in the ACTIVE household's OwnerId | area PPL-058, RPT-031 — data-isolation, no new seam |
 | Import × invites/roles | Read-only/Limited cannot import | area IMP-002, TX-087 — no new seam |
 | Reports × households switch | reports scoped to active household | area RPT-031, PPL-058 — data-isolation, no new seam |
-| Currency × transfers | cross-currency transfer refused | area TRF-017/TX-083 — single-feature guard |
+| Currency × transfers | cross-currency transfer refused (legacy data only — no new account can be in another currency) | area TRF-021/TX-083 — single-feature guard |
+| Waiting rows × refunds | a waiting refund counts nothing; a confirmed one must fit its purchase | area TX-107 |
+| Waiting rows × every aggregate | budget, reports, People, jars, Transactions hero exclude a waiting row until confirmed | area CURR-052 |
+| Waiting rows × jar cycles | a waiting payment is listed but can't mark a cycle paid until its amount is entered | area JAR-114 |
+| Legacy-account rows × every aggregate | a row on an account kept in another currency counts its `budgetAmount` in budget, reports, People, refunds and the Transactions hero; balances keep its own amount | area CURR-057 / ACCT-042 |
+| Legacy-account rows × edits, splits, refunds | an amount edit makes it wait again; a split shares the figure; a refund is measured against the figure | area TX-113 / TX-114 / TX-115 |
 | Jars × invites | **N/M** — jars have no per-role sub-behaviour beyond the Read-only hide (JAR-011) |
 | Bills × allocation | **N/M** — bills are Expense lines already summed into the envelopes total; no bill-specific allocation path |
 | Reports × bills | **N/M** — reports read actuals, which don't distinguish bill lines from plain expense lines |
@@ -132,15 +137,15 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 - **Expected:** February's charge imports (1 imported), because its reference carries the month/occurrence context and does not collide with January's — the dedup index suppresses true re-submissions of the same statement, not legitimately recurring monthly charges. Over four months you get four Netflix rows, not one.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Imports/GenericCsvImporterTests.cs and HsbcCsvStatementParserTests.cs cover occurrence-suffix references)
 
-### CMB-006 - A mixed-currency file imported to one EUR account stamps each row's own currency
+### CMB-006 - A mixed-currency file is refused into one EUR account; imported with no account, the other-currency rows wait
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** shared household; EUR account **Joint**; `MultiCurrency` on; a CSV with a currency column containing EUR, GBP and USD rows.
+- **Preconditions:** shared household, budget currency EUR; EUR account **Joint**; a CSV with a currency column containing EUR, GBP and USD rows.
 - **Steps:**
   1. Import the CSV, map the currency column (do NOT choose "Use EUR for every row" — IMP-021), select **Joint** as the import account, and commit.
-  2. Open **Joint**'s register (`/accounts/:id`) and the commit summary.
-- **Expected:** each committed transaction is stamped with its OWN row currency (not the account's EUR), so the **Joint** register shows amounts formatted per-row in EUR, GBP and USD (ACCT-048); the commit summary sums each currency separately (IMP-068). The account balance derivation nets the raw amounts in the account's own terms with no FX applied — a documented mixed-currency-on-one-account limitation, not an error.
-- **Automated:** No
+  2. Re-run with **no** import account and commit; open `/transactions`, the dashboard and the commit summary.
+- **Expected:** Step 1: the commit is refused as a whole (400 `Items` → "This account is in EUR, but the transaction is in GBP. Record it in EUR, or choose an account in the transaction's currency.") — nothing is imported, so Joint's balance can't mix currencies. Step 2: each row is stamped with its OWN currency; the EUR rows count, the GBP and USD rows **wait** ("GBP …"/"USD …" + "Needs EUR amount") and are left out of every figure until their EUR amounts are confirmed (TX-104); the commit summary sums each currency separately (IMP-068). No exchange rate is applied anywhere.
+- **Automated:** Partial (ImportPreviewCommitTests — `Commit_RejectsARowWhoseCurrencyDiffersFromTheImportAccount`; ForeignAmountsTests — `An_imported_row_in_another_currency_waits_and_nothing_converts_it`)
 
 ---
 
@@ -188,16 +193,16 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 - **Expected:** the pool is UNCHANGED at 2,000.75 — `IncomeAllocator.Compute` sums `AllocationMember.NetIncome` (each member's `NetMonthlyIncome` field), not transactions. Received income drives reports/actuals and the dashboard, but the allocation pool is member-record-driven. To change the pool you edit a member's income on `/people`, not the register. (This is why TRF-030 "transfer excluded from the split pool" holds trivially — no transaction of any type feeds the pool.)
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Domain/IncomeAllocatorTests.cs)
 
-### CMB-011 - Allocating into a non-EUR account writes a EUR-stamped transfer the balance treats in account currency
+### CMB-011 - Allocation transfers stay in one currency: stamped in the source account's, and a savings account in another is refused
 - **Priority:** P1
 - **Type:** Boundary
-- **Origin:** `AllocateIncomeCommandHandler` hardcodes `Currency = CurrencyCode.Eur` on the transfer (ALLOC-058); `AccountBalances` moves transfers by raw `Amount` in each account's own currency.
-- **Preconditions:** shared household; `MultiCurrency` on; a member whose personal savings account is a **USD** account (opening 0.00 USD); source account **Joint** (EUR); that member's residual > 0.
+- **Origin:** `AllocateIncomeCommandHandler` used to hardcode `Currency = CurrencyCode.Eur` on the transfer (ALLOC-058), silently mixing currencies into a non-EUR savings account; it now stamps `source.Currency`, requires the source to be in the month's base currency and each savings account to share the source's currency. Since W08 no new account can be in another currency, so this needs legacy data.
+- **Preconditions:** shared household, budget currency EUR; source account **Joint** (EUR); a member whose personal savings account is a **legacy USD** account; that member's residual > 0. Variant: the member's savings account is EUR.
 - **Steps:**
   1. Commit allocation on `/allocation`.
-  2. Open the member's USD savings account register and the `/accounts` hero.
-- **Expected:** the alloc transfer is stamped **EUR** even though the destination is USD; the USD account's register shows the row (formatted in its stamped EUR per ACCT-048, producing a mixed-currency register on one account), and `AccountBalances` adds the raw `Amount` to the USD balance with no FX conversion. This is a real money-integrity edge — allocation bypasses the cross-currency transfer guard that blocks the manual `/transfer` path (TRF-017). Flag it: allocation into a non-EUR account silently mixes currencies.
-- **Automated:** No
+  2. Variant: commit again; open the savings account register and the `/accounts` hero.
+- **Expected:** Step 1: 400 — "{member}'s savings account is in USD but the source account is in EUR. Allocation transfers must stay in one currency."; nothing is written. Variant: the alloc transfer is stamped **EUR** (the source's currency), never waits, and moves both EUR balances by the raw amount; the hero is unchanged in total. (A source account in another currency than the month is refused too: "The source account is in {X}, but this budget is in {Y}. Choose an account in the budget currency.")
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/AllocationCoverageTests.cs — `Commit_WithASavingsAccountInADifferentCurrency_IsRejected`, `SoloCommit_WritesOneTransfer_InTheAccountsCurrency_AndNonPaddedReference`, `Commit_WhenBothAccountsUseADifferentCurrencyThanTheBudget_PreservesPriorTransfers`)
 
 ### CMB-012 - Cash moved into a jar's funding account raises the account balance but not the jar balance
 - **Priority:** P1
@@ -328,14 +333,17 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 - **Expected:** the 50.00 slice is treated as SPEND against the Holiday fund line (JarBalances subtracts expense-type split slices at the parent's rate), lowering the jar's tracked balance by 50.00, exactly as a whole 50.00 expense assigned to that line would. Split slices are first-class in both `BudgetActuals.ApplySavingsBalancesAsync` and `JarBalances`, so a jar can be drawn down via a split.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/SavingsTests.cs covers split-slice fund spend)
 
-### CMB-024 - A split on a foreign-currency transaction rolls slices up at the parent's rate but moves the account in its own currency
+### CMB-024 - A split row in another currency counts nothing and can't be confirmed; confirm first, then split in the budget currency
 - **Priority:** P1
 - **Type:** Boundary
-- **Preconditions:** shared household; `MultiCurrency` on; a USD account; a USD expense of 120.00 with `ExchangeRate` to EUR resolved on import, split 80/40 across two EUR-budget lines.
+- **Origin:** W08 — slices used to roll up at the parent's exchange rate; with no rate any more, a waiting parent's slices are in its own currency and the confirm endpoint refuses split rows.
+- **Preconditions:** budget currency EUR; a waiting USD 120.00 expense on no account (imported), split 80/40 across two EUR-budget lines before its amount was known.
 - **Steps:**
-  1. Open the budget grid (EUR base) and the USD account detail.
-- **Expected:** each slice contributes `slice.Amount × parent.ExchangeRate` to its line's actual in the budget BASE currency (so the two slices convert consistently at ONE rate), and reports sum in base currency the same way. The USD account balance nets the raw 120.00 USD (no FX) because balances live in the account's own currency. Splitting never introduces a second FX rate.
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Transactions/FxRateResolverTests.cs + BudgetActualsTests.cs)
+  1. Open the budget grid and the register row.
+  2. `PUT /transactions/{id}/converted-amount {amount: 110.40}`.
+  3. **Remove split**, **Enter amount** 110.40, then split it 73.60/36.80 across the two lines.
+- **Expected:** Step 1: neither line's actual moves — slices of a waiting parent are excluded like the parent; the row shows "USD 120.00" + "Needs EUR amount" but **no** Enter amount button (split). Step 2: 400 "This transaction is split. Remove the split, enter the amount, then split it again.". Step 3: the row counts €110.40 (`originalAmount 120 USD`) and each line gains its EUR slice; the slices sum exactly to the confirmed amount. (Pre-W08 split rows that had counted at a rate were restated by the `ForeignAmounts` migration with the largest slice absorbing the rounding — CURR-053.)
+- **Automated:** Partial (FxPendingAggregatesTests — `BudgetActuals_ExcludeSlicesOfAPendingParent`; ForeignAmountsTests — `Only_a_waiting_row_that_is_not_split_can_be_given_an_amount`; ForeignAmountsMigrationTests — slice restatement)
 
 ---
 
@@ -457,16 +465,16 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 ### CMB-035 - Currency symbol tracks each value's stamped currency while the format follows the user preference
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** `MultiCurrency` on; user preference `dot-comma`; a EUR account, a GBP account, and a USD transaction.
+- **Preconditions:** `MultiCurrency` on; user preference `dot-comma`; budget currency EUR; an EUR account, a **legacy** GBP account, and a waiting USD transaction (imported, no account).
 - **Steps:**
-  1. Open `/accounts` and each account's register.
-- **Expected:** every amount uses the USER's `dot-comma` grouping, but the CURRENCY SYMBOL is per stamped value — `1.234,56 €` for EUR, `1.234,56 £` for GBP, `1.234,56 $` for USD (`formatMoney(minor, currency)` = active-locale format + per-value currency). Format is a global preference; currency is a per-account/per-transaction property. The mixed-currency accounts hero raw-sums and footnotes (ACCT-005) while still honouring the format preference on the sum.
+  1. Open `/accounts`, each account's register and `/transactions`.
+- **Expected:** every amount uses the USER's `dot-comma` grouping, but the CURRENCY SYMBOL is per stamped value — `1.234,56 €` for EUR, `1.234,56 £` for GBP (`formatMoney(minor, currency)` = active-locale format + per-value currency). The waiting USD row has no symbol at all: "USD 1.234,56" (`formatForeign` = code + `formatPlain` in the active format). Format is a global preference; currency is a per-account/per-transaction property. The accounts hero counts only EUR accounts and says the GBP one is not counted (ACCT-005), still honouring the format preference on the sum.
 - **Automated:** Partial (client/src/lib/money.test.ts)
 
 ### CMB-036 - A zero-decimal currency shows no decimals in displays but two in editable amount fields
 - **Priority:** P2
 - **Type:** Boundary
-- **Preconditions:** `MultiCurrency` on; a **JPY** account (JPY has 0 ISO minor digits).
+- **Preconditions:** a household whose budget currency is **JPY** (JPY has 0 ISO minor digits) with a JPY account.
 - **Steps:**
   1. View the JPY account balance on `/accounts` (a display).
   2. Open the edit/opening-balance field for the JPY account or a JPY amount input (an editable field using `formatPlain`).

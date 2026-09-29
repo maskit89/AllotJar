@@ -6,7 +6,7 @@ using AllotJar.Domain.Enums;
 namespace AllotJar.Application.Jars;
 
 /// <summary>
-/// Where a returned transfer's money goes in the source account's jars (O1 answer 4, P65). The
+/// Where a returned transfer's money goes in the source account's jars (O1 answer 4, P72). The
 /// return leg posts to unallocated; a stored zero-sum <see cref="JarAllocationKind.Return"/>
 /// operation then puts back each jar's share of the departure, decided when the return is
 /// recorded: a jar still on the account and not archived gets its share back, any other share

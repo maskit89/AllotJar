@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Accounts;
+using AllotJar.Application.Budgets;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Imports.Models;
 using AllotJar.Application.Transactions;
@@ -18,16 +19,16 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
-    private readonly IExchangeRateProvider _exchangeRates;
+    private readonly IIdentityService? _identity;
 
     public CommitImportCommandHandler(
         IApplicationDbContext db,
         ICurrentUser currentUser,
-        IExchangeRateProvider exchangeRates)
+        IIdentityService? identity = null)
     {
         _db = db;
         _currentUser = currentUser;
-        _exchangeRates = exchangeRates;
+        _identity = identity;
     }
 
     public async Task<ImportStatementResult> Handle(CommitImportCommand request, CancellationToken cancellationToken)
@@ -216,7 +217,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 {
                     await JarMovements.ClearAsync(_db, target, neverReached, cancellationToken);
                 }
-                // The jars the money left get it back, as they stand now (P65); a return already
+                // The jars the money left get it back, as they stand now (P72); a return already
                 // marked by hand keeps the decision it was recorded with and takes the bank's date.
                 await TransferReturns.SyncAsync(_db, target, importAccount!.Id, returnBasis, cancellationToken);
                 returned++;
@@ -390,7 +391,6 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     OwnerId = userId,
                     Amount = item.Amount - rowFee,
                     Currency = CurrencyCode.From(item.Currency),
-                    ExchangeRate = 1m,
                     Type = TransactionType.Transfer,
                     Date = item.Date,
                     Payee = Truncate(item.Payee, 200),
@@ -464,7 +464,6 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 OwnerId = userId,
                 Amount = item.Amount,
                 Currency = CurrencyCode.From(item.Currency),
-                ExchangeRate = 1m,
                 Type = type,
                 Date = item.Date,
                 Payee = Truncate(item.Payee, 200),
@@ -528,7 +527,10 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
 
         if (created.Count > 0 || matched > 0 || returned > 0)
         {
-            await FxRateResolver.ApplyAsync(_db, _exchangeRates, userId, created.Concat(fees).ToList(), cancellationToken);
+            // A row in another currency waits for its budget-currency amount (rules 42/44); a
+            // transfer's fee row does so in TransferFees.
+            ForeignAmounts.MarkWaiting(
+                created, await BudgetCurrency.ResolveAsync(_db, _identity, userId, cancellationToken));
 
             // The dedup snapshot above is per-request memory; a CONCURRENT commit (double-click,
             // second device, another login in the household) can insert the same references after
@@ -578,12 +580,6 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             }
         }
 
-        // Reconcile previously-pending FX rows even when this commit added nothing new — an
-        // all-duplicates re-commit is the natural retry after an outage. Runs after (and
-        // outside) the commit's own save so it can neither fail nor roll back the import,
-        // and so the all-collided break above can't discard a reconcile.
-        await FxRateResolver.ReconcilePendingAsync(_db, _exchangeRates, userId, cancellationToken);
-
         return new ImportStatementResult(
             TotalEntries: request.Items.Count,
             Imported: imported,
@@ -596,7 +592,8 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             MatchedTransfers: matched,
             PendingReviewTransfers: pendingReview,
             Held: held,
-            Returned: returned);
+            Returned: returned,
+            AwaitingAmount: created.Concat(fees).Count(t => t.FxPending));
     }
 
     /// <summary>

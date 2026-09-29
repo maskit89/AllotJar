@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Accounts;
+using AllotJar.Application.Budgets;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Application.Transactions;
@@ -19,7 +20,7 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
     private readonly IIdentityService? _identity;
 
     // The identity service is optional (same pattern as CreateBudgetMonth) so the existing test
-    // constructions stand; it is only consulted when the transaction's month has no budget yet.
+    // constructions stand; it is only consulted when the household has no budget month yet.
     public CreateTransactionCommandHandler(
         IApplicationDbContext db, ICurrentUser currentUser, IIdentityService? identity = null)
     {
@@ -33,23 +34,17 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
-        // Manual entries are in the budget's base currency for that month (no FX). A date with no
-        // budget yet falls back to the owner's preferred currency — the same rule the first month
-        // follows (#216) — not a hardcoded EUR, which would wrongly clash with a non-EUR
-        // household's accounts on the check below.
-        var month = await _db.BudgetMonths
-            .AsNoTracking()
-            .FirstOrDefaultAsync(
-                m => m.OwnerId == userId
-                     && m.Year == request.Date.Year
-                     && m.Month == request.Date.Month,
-                cancellationToken);
-        var currency = month?.BaseCurrency;
-        if (currency is null && _identity is not null)
+        // Manual entries are in the household's budget currency (rules 63/85). Money paid in
+        // another currency is entered as the budget-currency amount the user settled on; the
+        // foreign figure only rides along for reference (OriginalAmount).
+        var currency = await BudgetCurrency.ResolveAsync(_db, _identity, userId, cancellationToken);
+        if (request.OriginalCurrency is string originalCode && CurrencyCode.From(originalCode) == currency)
         {
-            currency = await _identity.GetPreferredCurrencyAsync(userId);
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["OriginalCurrency"] = new[] { $"The budget is in {currency.Value} already; leave the other currency empty." },
+            });
         }
-        currency ??= CurrencyCode.Eur;
 
         // A refund follows the purchase it comes back from (rules 38/39): the original must be
         // the user's own expense, dated on or before the refund, and not already refunded in full.
@@ -58,7 +53,7 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
         if (request.RefundOfTransactionId is Guid originalId)
         {
             original = await RefundRules.ValidateOriginalAsync(
-                _db, userId, originalId, refundId: null, request.Date, request.Amount, currency, 1m, cancellationToken);
+                _db, userId, originalId, refundId: null, request.Date, request.Amount, cancellationToken);
         }
 
         BudgetItem? item = null;
@@ -124,7 +119,8 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
             Payee = request.Payee.Trim(),
             Amount = request.Amount,
             Currency = currency,
-            ExchangeRate = 1m,
+            OriginalAmount = request.OriginalAmount,
+            OriginalCurrency = request.OriginalCurrency is null ? null : CurrencyCode.From(request.OriginalCurrency),
             Type = request.Type,
             BudgetItem = item,
             BudgetItemId = item?.Id,
