@@ -1,5 +1,4 @@
 using FluentAssertions;
-using Xunit;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Imports.Models;
 using AllotJar.Infrastructure.Statements;

@@ -24,11 +24,6 @@ public class AccountBalanceSqlTests
 
     public AccountBalanceSqlTests(SqlServerFixture fixture) => _fixture = fixture;
 
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static string NewOwner() => $"user-{Guid.NewGuid():N}";
 
     private static async Task<Account> SeedAccountAsync(ApplicationDbContext db, string owner, string name, decimal opening)

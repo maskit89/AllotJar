@@ -1,5 +1,4 @@
 using FluentAssertions;
-using Xunit;
 using AllotJar.Infrastructure.Statements;
 
 namespace AllotJar.Application.Tests.Imports;

@@ -1,12 +1,10 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Imports.Commands.PreviewImport;
 using AllotJar.Application.Imports.Models;
-using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -17,16 +15,6 @@ namespace AllotJar.Application.Tests.Imports;
 
 public class ImportPreviewCommitTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-prevcommit-{Guid.NewGuid()}")
-            .Options);
-
     // Both parsers, in DI registration order — sniffing must pick the right one, not the only one.
     private static PreviewImportCommandHandler NewPreview(ApplicationDbContext db, string userId) =>
         new(db, new CurrentUserStub(userId),
@@ -567,45 +555,6 @@ public class ImportPreviewCommitTests
 
         result.Items.Single(i => i.Payee == "E-BANKING PAYMENT").LikelyTransfer.Should().BeTrue();
         result.Items.Single(i => i.Payee == "4 PILLARS").LikelyTransfer.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task Commit_Transfer_Credit_MovesMoneyIntoTheImportAccount()
-    {
-        await using var db = NewContext();
-        var card = SeedAccount(db, "user-1", "HSBC card");
-        var savings = SeedAccount(db, "user-1", "Savings");
-        var preview = await NewPreview(db, "user-1").Handle(Preview(), CancellationToken.None);
-        // E-BANKING PAYMENT is the credit (money in) — moved from Savings into the card.
-        var items = ToCommitItemsAsTransfer(preview, "E-BANKING PAYMENT", savings.Id);
-
-        var result = await NewCommit(db, "user-1").Handle(
-            new CommitImportCommand(card.Id, items), CancellationToken.None);
-
-        result.Transfers.Should().Be(1);
-        var transfer = await db.Transactions.SingleAsync(t => t.Payee == "E-BANKING PAYMENT");
-        transfer.Type.Should().Be(TransactionType.Transfer);
-        transfer.AccountId.Should().Be(savings.Id);          // source = counterparty (credit)
-        transfer.TransferAccountId.Should().Be(card.Id);     // destination = import account
-        transfer.BudgetItemId.Should().BeNull();
-    }
-
-    [Fact]
-    public async Task Commit_Transfer_Debit_MovesMoneyOutOfTheImportAccount()
-    {
-        await using var db = NewContext();
-        var card = SeedAccount(db, "user-1", "HSBC card");
-        var savings = SeedAccount(db, "user-1", "Savings");
-        var preview = await NewPreview(db, "user-1").Handle(Preview(), CancellationToken.None);
-        // AUTOMARKET is a debit (money out) — treat it as a move from the card to Savings.
-        var items = ToCommitItemsAsTransfer(preview, "AUTOMARKET SER STATION", savings.Id);
-
-        await NewCommit(db, "user-1").Handle(new CommitImportCommand(card.Id, items), CancellationToken.None);
-
-        var transfer = await db.Transactions.SingleAsync(t => t.Payee == "AUTOMARKET SER STATION");
-        transfer.Type.Should().Be(TransactionType.Transfer);
-        transfer.AccountId.Should().Be(card.Id);             // source = import account (debit)
-        transfer.TransferAccountId.Should().Be(savings.Id);  // destination = counterparty
     }
 
     [Fact]

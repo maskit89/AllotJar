@@ -1,6 +1,5 @@
 using AllotJar.Infrastructure.Email;
 using FluentAssertions;
-using Xunit;
 
 namespace AllotJar.Application.Tests.Application;
 

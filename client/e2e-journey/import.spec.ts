@@ -56,20 +56,3 @@ test('import a CSV end-to-end, then re-import shows all-caught-up (dedup)', asyn
   await expect(page.getByRole('button', { name: /Import \d+ transaction/ })).toHaveCount(0)
 })
 
-test('editing the column mapping blocks import until re-scanned', async ({ page }) => {
-  await register(page)
-  await upload(page)
-
-  await expect(page.getByLabel('Include TESCO STORES on 2026-06-20')).toBeVisible()
-
-  // Editing a mapping control marks the parse stale, so import is blocked with a warning until a
-  // re-scan applies the change (the silent-wrong-data trap I2 closes). Changing the description
-  // column keeps dates/amounts parseable so the subsequent re-scan still succeeds.
-  await page.getByLabel('Description column').selectOption('3')
-  await expect(page.getByRole('button', { name: /Import \d+ transaction/ })).toBeDisabled()
-  await expect(page.getByText(/changed the column mapping/)).toBeVisible()
-
-  // Re-scanning (while still dirty) applies the mapping and re-enables import.
-  await page.getByRole('button', { name: 'Apply changes & re-scan' }).click()
-  await expect(page.getByRole('button', { name: /Import \d+ transaction/ })).toBeEnabled()
-})

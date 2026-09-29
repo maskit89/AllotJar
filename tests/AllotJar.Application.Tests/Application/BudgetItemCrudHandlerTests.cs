@@ -1,10 +1,8 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Commands.AddBudgetItem;
 using AllotJar.Application.Budgets.Commands.DeleteBudgetItem;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Persistence;
@@ -19,17 +17,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class BudgetItemCrudHandlerTests
 {
-    private sealed class CurrentUserStub : ICurrentUser
-    {
-        public CurrentUserStub(string? userId) => UserId = userId;
-        public string? UserId { get; }
-    }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
-            .Options);
-
     private sealed record Seeded(Guid IncomeCategoryId, Guid ExpenseCategoryId, Guid IncomeLineId);
 
     // Income(Take-home Pay 3000) + Housing(Rent 1000) -> RemainingToBudget = 2000.

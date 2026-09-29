@@ -1,10 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Tests.TestDoubles;
-using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Persistence;
 
@@ -19,22 +16,12 @@ namespace AllotJar.Application.Tests.Imports;
 /// </summary>
 public class ImportHoldsTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private const string Owner = "user-1";
     private static readonly CurrentUserStub User = new(Owner);
     private static readonly DateOnly June1 = new(2026, 6, 1);
     private static readonly DateOnly June3 = new(2026, 6, 3);
     private static readonly DateOnly June5 = new(2026, 6, 5);
     private static readonly DateOnly June10 = new(2026, 6, 10);
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-import-holds-{Guid.NewGuid()}")
-            .Options);
 
     private static CommitImportCommandHandler NewCommit(ApplicationDbContext db) =>
         new(db, User);

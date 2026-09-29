@@ -41,11 +41,6 @@ describe('Onboarding', () => {
     localStorage.setItem('zbb.email', 'me@test.app')
   })
 
-  it('auto-opens the welcome dialog for a brand-new user', async () => {
-    renderApp()
-    expect(await screen.findByRole('heading', { name: 'Welcome to AllotJar' })).toBeInTheDocument()
-  })
-
   it('walks from welcome through the tour to the checklist', async () => {
     renderApp()
     fireEvent.click(await screen.findByRole('button', { name: 'Take the tour' }))

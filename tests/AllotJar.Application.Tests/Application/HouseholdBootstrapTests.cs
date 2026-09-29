@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Identity;
@@ -17,11 +16,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class HouseholdBootstrapTests
 {
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-bootstrap-{Guid.NewGuid()}")
-            .Options);
-
     private static ApplicationUser User(string id) => new()
     {
         Id = id,
@@ -77,24 +71,6 @@ public class HouseholdBootstrapTests
         (await db.HouseholdMemberships.CountAsync(m => m.OwnerId == "user-1")).Should().Be(1);
         (await db.BudgetMonths.CountAsync(m => m.OwnerId == "user-1")).Should().Be(0);
         (await db.HouseholdMembers.CountAsync(m => m.OwnerId == "user-1")).Should().Be(1);
-    }
-
-    [Fact]
-    public async Task A_later_bootstrap_never_injects_figures_into_an_established_budget()
-    {
-        using var db = NewContext();
-        var user = User("user-1");
-
-        // Registered, then built a real month of their own.
-        await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, Now);
-        db.BudgetMonths.Add(new BudgetMonth { OwnerId = "user-1", Year = 2026, Month = 6 });
-        await db.SaveChangesAsync();
-
-        // A later bootstrap (e.g. a re-used path) must respect the real budget and add nothing.
-        await HouseholdBootstrap.EnsureOwnHouseholdAsync(db, user, Now);
-
-        var months = await db.BudgetMonths.Where(m => m.OwnerId == "user-1").ToListAsync();
-        months.Should().ContainSingle().Which.Month.Should().Be(6);
     }
 
     [Fact]

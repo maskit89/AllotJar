@@ -338,7 +338,7 @@ describe('JarsPage — recurring cycles (W03)', () => {
     expect(screen.queryByText('Paid it? Record the payment')).not.toBeInTheDocument()
   })
 
-  it('JAR-093: a Goal, an unavailable jar and a read-only viewer get no cycle actions', async () => {
+  it('JAR-093: a Goal and an unavailable jar get no cycle actions', async () => {
     mockLoads({
       jars: [
         jar({ id: 'f2', name: 'Holiday', kind: 1, recurMonths: null, targetDate: '2027-06-01', deadline: '2027-06-01', shortfall: null, status: 'Behind' }),

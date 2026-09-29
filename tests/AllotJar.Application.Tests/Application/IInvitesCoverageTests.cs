@@ -1,7 +1,6 @@
 using FluentAssertions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Common.Behaviours;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
@@ -12,7 +11,6 @@ using AllotJar.Application.HouseholdAccess.Commands.RevokeMember;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.ValueObjects;
 using AllotJar.Domain.Enums;
-using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Application;
 
@@ -39,7 +37,7 @@ namespace AllotJar.Application.Tests.Application;
 ///  - INV-046 — a redeemed link cannot be used a second time.
 ///  - INV-050 — the accepter lands with exactly the role chosen at invite time (invite→accept round-trip).
 ///  - INV-052 — a revoked pending link is no longer redeemable.
-///  - INV-042 — SUSPECTED BUG (skipped): AuthorizationBehaviour blocks a signed-in Limited/ReadOnly accepter.
+///  - INV-042 — a signed-in Limited/ReadOnly login can accept an invite (AcceptInviteCommand is [AllowAnyRole]).
 ///
 /// Pure client/UI cases (modal defaults, control labels, hints, copy-to-clipboard, the "Invited"
 /// badge render, missing-code alert, "Not now" navigation, returnUrl round-trip) are deferred to
@@ -117,11 +115,6 @@ public class IInvitesCoverageTests
         public Task<CredentialCheckResult> CheckCredentialsAsync(string email, string password) =>
             Task.FromResult(CredentialCheckResult.Invalid);
     }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-inv-cov-{Guid.NewGuid()}")
-            .Options);
 
     private static HouseholdMembership Owner() => new()
     {
