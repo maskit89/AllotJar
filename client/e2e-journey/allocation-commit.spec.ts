@@ -334,7 +334,7 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   page,
 }) => {
   test.slow() // one long linear journey: full household fixture + two commits
-  const { year, month, name: monthName } = currentPeriod()
+  const { name: monthName } = currentPeriod()
   const auth = captureAuth(page)
 
   await register(page)

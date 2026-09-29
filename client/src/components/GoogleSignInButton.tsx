@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { GOOGLE_CLIENT_ID, renderGoogleButton } from '../lib/googleAuth'
 
 /**
@@ -22,9 +22,11 @@ export function GoogleSignInButton({
 
   // Keep the latest callbacks without re-rendering Google's iframe on every parent render.
   const onCredentialRef = useRef(onCredential)
-  onCredentialRef.current = onCredential
   const onReadyRef = useRef(onReady)
-  onReadyRef.current = onReady
+  useLayoutEffect(() => {
+    onCredentialRef.current = onCredential
+    onReadyRef.current = onReady
+  })
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID || !container.current) return

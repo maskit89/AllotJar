@@ -18,5 +18,17 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // The screens load their data in effects and set a loading flag as the request starts;
+      // this rule targets the React Compiler, which the app doesn't use.
+      'react-hooks/set-state-in-effect': 'off',
+    },
+  },
+  {
+    // A context's provider and its hook live in one file by design.
+    files: ['src/**/*Context.tsx', 'src/analytics/AnalyticsProvider.tsx'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
   },
 ])

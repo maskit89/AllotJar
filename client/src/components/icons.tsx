@@ -23,26 +23,6 @@ function Base({ className = 'h-5 w-5', children }: { className?: string; childre
   )
 }
 
-/** The AllotJar brand mark: a filled rounded badge with a euro glyph. */
-export function LogoMark({ className = 'h-8 w-8' }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
-      <rect x="2" y="2" width="20" height="20" rx="6" fill="currentColor" />
-      <text
-        x="12"
-        y="16.5"
-        textAnchor="middle"
-        fontSize="13"
-        fontWeight="700"
-        fontFamily="'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif"
-        fill="#ffffff"
-      >
-        €
-      </text>
-    </svg>
-  )
-}
-
 /** Import — a downward arrow dropping into an open tray. */
 export function ImportIcon({ className }: { className?: string }) {
   return (
@@ -135,34 +115,12 @@ export function ReportsIcon({ className }: { className?: string }) {
   )
 }
 
-/** Hamburger menu. */
-export function MenuIcon({ className }: { className?: string }) {
-  return (
-    <Base className={className}>
-      <path d="M4 6h16" />
-      <path d="M4 12h16" />
-      <path d="M4 18h16" />
-    </Base>
-  )
-}
-
 /** Close (×). */
 export function CloseIcon({ className }: { className?: string }) {
   return (
     <Base className={className}>
       <path d="M6 6l12 12" />
       <path d="M18 6L6 18" />
-    </Base>
-  )
-}
-
-/** Help — a question mark in a circle. */
-export function HelpIcon({ className }: { className?: string }) {
-  return (
-    <Base className={className}>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M9.6 9.4a2.4 2.4 0 1 1 3.5 2.2c-.9.55-1.4 1-1.4 2" />
-      <circle cx="12" cy="16.6" r="0.6" fill="currentColor" stroke="none" />
     </Base>
   )
 }
@@ -185,32 +143,6 @@ export function LogoutIcon({ className }: { className?: string }) {
       <path d="M14 4H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7" />
       <path d="M16 8l4 4-4 4" />
       <path d="M20 12H10" />
-    </Base>
-  )
-}
-
-/** Light mode — a sun. */
-export function SunIcon({ className }: { className?: string }) {
-  return (
-    <Base className={className}>
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2" />
-      <path d="M12 20v2" />
-      <path d="M2 12h2" />
-      <path d="M20 12h2" />
-      <path d="M4.9 4.9l1.4 1.4" />
-      <path d="M17.7 17.7l1.4 1.4" />
-      <path d="M19.1 4.9l-1.4 1.4" />
-      <path d="M6.3 17.7l-1.4 1.4" />
-    </Base>
-  )
-}
-
-/** Dark mode — a crescent moon. */
-export function MoonIcon({ className }: { className?: string }) {
-  return (
-    <Base className={className}>
-      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
     </Base>
   )
 }

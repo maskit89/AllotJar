@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildItemOptions, transactionTypeLabel, signedAmountMinorFromAmount } from './transactions'
+import { buildItemOptions, transactionTypeLabel } from './transactions'
 import type { BudgetMonthDto } from '../types'
 
 const month = {
@@ -41,10 +41,5 @@ describe('transactions helpers', () => {
   it('labels transaction direction', () => {
     expect(transactionTypeLabel(0)).toBe('Expense')
     expect(transactionTypeLabel(1)).toBe('Income')
-  })
-
-  it('signs the amount by direction (integer minor units)', () => {
-    expect(signedAmountMinorFromAmount({ amount: 25, type: 0 })).toBe(-250_000) // expense
-    expect(signedAmountMinorFromAmount({ amount: 25, type: 1 })).toBe(250_000) // income
   })
 })

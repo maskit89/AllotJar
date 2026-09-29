@@ -62,10 +62,6 @@ const readOnlyMe = {
   households: [{ ownerId: 'owner-1', label: 'Alex', role: 3, isActive: true, isOwn: false }],
 }
 
-function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
-  return { id: 'm1', name: 'Alex', netMonthlyIncome: 6000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1, ...over }
-}
-
 /** A plain object axios treats as an AxiosError (isAxiosError flag) so the page's catch
  *  surfaces the server body verbatim, exactly as in production. */
 function axiosError(data: unknown, status = 400) {

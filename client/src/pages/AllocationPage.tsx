@@ -315,7 +315,7 @@ export function AllocationPage() {
 
   // What will actually transfer on commit vs. what's stranded because a member has no savings
   // account (a positive share with nowhere to go stays in the source account).
-  const members = preview?.members ?? []
+  const members = useMemo(() => preview?.members ?? [], [preview])
   const strandedMembers = members.filter((m) => !m.savingsAccountId && !m.savingsPrivate && m.residual > 0)
   const strandedMinor = fromAmount(strandedMembers.reduce((sum, m) => sum + m.residual, 0))
   const strandedNames = formatNames(strandedMembers.map((m) => m.name))
