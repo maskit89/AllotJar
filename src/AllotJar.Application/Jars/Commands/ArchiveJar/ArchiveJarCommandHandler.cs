@@ -4,6 +4,7 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Dtos;
 using AllotJar.Domain.Entities;
+using AllotJar.Domain.Enums;
 
 namespace AllotJar.Application.Jars.Commands.ArchiveJar;
 
@@ -99,7 +100,8 @@ public class ArchiveJarCommandHandler
     {
         var legs = await _db.JarAllocations.AsNoTracking()
             .Include(a => a.Postings)
-            .Include(a => a.Transaction)
+            .Include(a => a.Transaction).ThenInclude(t => t!.Account)
+            .Include(a => a.Transaction).ThenInclude(t => t!.TransferAccount)
             .Where(a => a.AccountId == jar.FundingAccountId && a.TransactionId != null
                 && a.Postings.Any(p => p.JarId == jar.Id && p.Amount != 0m))
             .ToListAsync(cancellationToken);
@@ -111,9 +113,15 @@ public class ArchiveJarCommandHandler
             .OrderBy(l => l.Posts ?? DateOnly.MaxValue)
             .Select(l =>
             {
+                var t = l.Leg.Transaction!;
                 var amount = l.Leg.Postings.Where(p => p.JarId == jar.Id).Sum(p => p.Amount);
-                var when = l.Posts is DateOnly posts ? $"on {posts:d MMM yyyy}" : "not received yet";
-                return $"{Math.Abs(amount):0.##} {(amount > 0m ? "in from" : "out for")} {l.Leg.Transaction!.Payee} ({when})";
+                var when = l.Posts is DateOnly posts ? $"on {posts:d MMM yyyy}"
+                    : t.DepartedOn is null ? "waiting for its departure" : "not received yet";
+                // A transfer is named by the account at its other end.
+                var other = t.Type != TransactionType.Transfer ? null : amount > 0m ? t.Account?.Name : t.TransferAccount?.Name;
+                return amount > 0m
+                    ? $"{amount:0.##} in from {other ?? t.Payee} ({when})"
+                    : $"{-amount:0.##} out {(other is null ? $"for {t.Payee}" : $"to {other}")} ({when})";
             })
             .ToList();
     }

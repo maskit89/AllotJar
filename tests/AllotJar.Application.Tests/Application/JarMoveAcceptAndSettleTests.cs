@@ -623,7 +623,7 @@ public class JarMoveAcceptAndSettleTests
 
         (await RefusalAsync(() => archive.Handle(new ArchiveJarCommand(jar.Id), Ct)))
             .Should().ContainSingle().Which.Should().Contain("Holiday has entries that haven't reached the account yet")
-            .And.Contain("100 in from To savings (not received yet)");
+            .And.Contain("100 in from A (not received yet)");
         db.ChangeTracker.Clear();
         (await db.Jars.AsNoTracking().SingleAsync(j => j.Id == jar.Id)).IsArchived.Should().BeFalse();
 
@@ -671,6 +671,42 @@ public class JarMoveAcceptAndSettleTests
             await new ConfirmTransferLegsCommandHandler(db, User).Handle(new ConfirmTransferLegsCommand(transfer.Id, ReceivedOn: departed), Ct);
         }
 
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+        (await UnallocatedAsync(db, b.Id, Today)).Should().Be(1100m);
+    }
+
+    [Fact]
+    public async Task AReceiptHeldForItsDeparture_PostsNothingIntoAJarArchivedMeanwhile_WhenTheOtherStatementSuppliesTheDeparture_R2_P3_1()
+    {
+        // B's statement came first with 100 for Holiday; the receipt waits for its departure
+        // (rule 72). Holiday can't be archived meanwhile; one archived before that refusal existed
+        // gets nothing when A's statement supplies the departure.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, b);
+        var day = Today.AddDays(-2);
+        await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(b.Id, new[]
+        {
+            new CommitImportItem("B-1", day, "From A", 100m, "EUR", true, null, null, TransferAccountId: a.Id,
+                JarAllocations: new[] { new JarAllocationInput(jar.Id, 100m) }),
+        }), Ct);
+        var transfer = await db.Transactions.AsNoTracking().SingleAsync(t => t.Type == TransactionType.Transfer);
+        transfer.DepartedOn.Should().BeNull();
+
+        (await RefusalAsync(() => new ArchiveJarCommandHandler(db, User).Handle(new ArchiveJarCommand(jar.Id), Ct)))
+            .Should().ContainSingle().Which.Should().Contain("100 in from A (waiting for its departure)");
+        db.ChangeTracker.Clear();
+        (await db.Jars.SingleAsync(j => j.Id == jar.Id)).IsArchived = true;
+        await db.SaveChangesAsync(Ct);
+        db.ChangeTracker.Clear();
+
+        await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
+        {
+            new CommitImportItem("A-1", day, "To B", 100m, "EUR", false, null, null, TransferAccountId: b.Id, MatchTransferId: transfer.Id),
+        }), Ct);
+
+        (await db.Transactions.AsNoTracking().SingleAsync(t => t.Id == transfer.Id)).DepartedOn.Should().Be(day);
         (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
         (await UnallocatedAsync(db, b.Id, Today)).Should().Be(1100m);
     }

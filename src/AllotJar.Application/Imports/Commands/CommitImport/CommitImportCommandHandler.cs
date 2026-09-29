@@ -393,6 +393,11 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     {
                         await JarMovements.ApplyOutgoingAsync(_db, userId, target, importAccount, item.PaidFromJarId, "Items", cancellationToken);
                     }
+                    // A receipt held for its departure posts now, keeping the answer it was imported with.
+                    if (!item.IsCredit && before.DepartedOn is null && target.ReceivedOn is DateOnly heldReceipt && target.TransferAccountId is Guid heldIn)
+                    {
+                        await JarMovements.FollowReceiptAsync(_db, target, heldIn, heldReceipt, cancellationToken);
+                    }
                     // Otherwise the departure keeps its jar answer, and its draws follow a date
                     // the statement moved, as the fee's do.
                     if (target.DepartedOn is DateOnly departed && departed != before.DepartedOn && target.AccountId is Guid departedFrom
