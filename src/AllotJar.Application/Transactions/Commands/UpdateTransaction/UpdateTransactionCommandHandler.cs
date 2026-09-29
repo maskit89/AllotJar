@@ -269,6 +269,7 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             transaction.ReceiptBankReference = null;
             transaction.ReturnedOn = null;
             transaction.ReturnBankReference = null;
+            await TransferReturns.ClearAsync(_db, transaction.Id, cancellationToken);
             transaction.AllocationKey = null;
         }
         transaction.Account = account;

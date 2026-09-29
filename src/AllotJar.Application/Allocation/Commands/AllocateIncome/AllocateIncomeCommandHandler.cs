@@ -267,6 +267,7 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                 _db.Transactions.Remove(stale.Fee);
                 removed.Add(stale.Fee.Id);
             }
+            await TransferReturns.ClearAsync(_db, stale.Id, cancellationToken);
             _db.Transactions.Remove(stale);
             removed.Add(stale.Id);
         }

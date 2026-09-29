@@ -200,41 +200,16 @@ public static class JarLedgerReader
                     Derive(byId[transactionId], account, movement.Amount, lineJars, jarsById)));
             }
 
-            // A returned transfer's money goes back where it left from: the return leg mirrors the
-            // departure's attribution, judged as of the day the money came back so a later archive
-            // or move can't rewrite it (rules 26/80 empty the jar with the returned money counted).
-            // A jar that had left this account or been archived by then gets nothing back: its
-            // share returns to unallocated.
-            var departuresHere = stored
-                .Where(a => a.AccountId == account.Id && a.Kind == JarAllocationKind.Departure)
-                .SelectMany(a => a.Postings.Where(p => p.JarId is not null).Select(p => (JarId: p.JarId!.Value, a.Date)))
-                .ToList();
-            bool HeldHereOn(Guid jarId, DateOnly left, DateOnly back) =>
-                jarsById.TryGetValue(jarId, out var jar)
-                && !(jar.IsArchived && (jar.ArchivedOn is not DateOnly archived || archived <= back))
-                // It held the money the transfer took on the day it left; it still holds this
-                // account's money unless it departed from it in between.
-                && !departuresHere.Any(d => d.JarId == jarId && d.Date >= left && d.Date <= back)
-                && (jar.FundingAccountId == account.Id || departuresHere.Any(d => d.JarId == jarId && d.Date > back));
+            // A returned transfer's money comes back as unallocated money; its stored Return
+            // operation (TransferReturns) puts each jar's share back, as decided when the return
+            // was recorded.
             foreach (var (legId, movement) in entries.Movements)
             {
-                if (!returnLegs.TryGetValue(legId, out var transferId))
+                if (returnLegs.ContainsKey(legId))
                 {
-                    continue;
+                    operations.Add(new JarLedgerOperation(Guid.NewGuid(), ownerId, account.Id, movement.Date, legId,
+                        new[] { new JarLedgerPosting(null, movement.Amount) }));
                 }
-                var departure = operations.FirstOrDefault(o => o.TransactionId == transferId);
-                var postings = departure is null
-                    ? new List<JarLedgerPosting> { new(null, movement.Amount) }
-                    : departure.Postings
-                        .GroupBy(p => p.JarId is Guid jarId && HeldHereOn(jarId, departure.Date, movement.Date) ? p.JarId : null)
-                        .Select(g => new JarLedgerPosting(g.Key, -g.Sum(p => p.Amount)))
-                        .Where(p => p.Amount != 0m)
-                        .ToList();
-                if (postings.Count == 0)
-                {
-                    postings.Add(new JarLedgerPosting(null, movement.Amount));
-                }
-                operations.Add(new JarLedgerOperation(Guid.NewGuid(), ownerId, account.Id, movement.Date, legId, postings));
             }
 
             var ledger = ActualSavingsLedger.Calculate(account, openingDate, asOf, jars, readable, operations, postingDates);

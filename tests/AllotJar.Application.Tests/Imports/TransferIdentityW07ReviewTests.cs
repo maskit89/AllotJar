@@ -22,8 +22,8 @@ using AllotJar.Infrastructure.Statements;
 namespace AllotJar.Application.Tests.Imports;
 
 /// <summary>
-/// Regressions from the adversarial review of W07 (round 1, at 6070119): each test is the
-/// reviewer's probe and failed on that head.
+/// Regressions from the adversarial review of W07 (round 1 at 6070119, round 2 at 1f182dc): each
+/// test is the reviewer's probe and failed on that head.
 /// </summary>
 public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
 {
@@ -356,5 +356,180 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
         var row = (await PreviewAsync(db, User, Camt("RET-9", Sep12, 100m, true, "Returned payment"), a.Id)).Items.Single();
         output.WriteLine($"return candidates: {row.TransferMatches.Count(m => m.Kind == TransferMatchKinds.Return)}");
         row.TransferMatches.Should().Contain(m => m.TransferId == transfer.Id && m.Kind == TransferMatchKinds.Return);
+    }
+
+    // Round 2. A return's jar postings are stored when it is recorded, so the jar's later archive,
+    // move or restore changes nothing it already read (R2-P1-1, R2-P2-1, R2-P2-2).
+    [Fact]
+    public async Task RestoringAnArchivedJar_DoesNotPullAnEarlierReturnBackIntoIt()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 200m, Sep1, AccountType.Current, order: 1);
+        var holiday = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, holiday.Id, 100m, Sep1);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Sep10, 100m, a.Id, b.Id, FromJarId: holiday.Id), Ct);
+        // Holiday is empty after the transfer and was archived on 11 September.
+        holiday.IsArchived = true;
+        holiday.ArchivedOn = new DateOnly(2026, 9, 11);
+        await db.SaveChangesAsync();
+        var back = (await PreviewAsync(db, User, Camt("RET-7", Sep12, 100m, true, "Returned"), a.Id)).Items.Single();
+        await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(new CommitImportCommand(a.Id, new[]
+        {
+            new CommitImportItem(back.Reference, back.Date, back.Payee, back.Amount, back.Currency, true, null, null, ReturnOfTransferId: transfer.Id),
+        }), Ct);
+
+        var before = (await JarLedgerReader.ReadAsync(db, Owner, Sep15, Ct)).Accounts[a.Id];
+        await new ArchiveJarCommandHandler(db, User).Handle(new ArchiveJarCommand(holiday.Id, Archived: false), Ct);
+        var after = (await JarLedgerReader.ReadAsync(db, Owner, Sep15, Ct)).Accounts[a.Id];
+        output.WriteLine($"15 Sep: archived holiday={before.JarBalances.GetValueOrDefault(holiday.Id)}, restored holiday={after.JarBalances.GetValueOrDefault(holiday.Id)} unallocated={after.Unallocated}");
+
+        before.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(0m);
+        after.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(0m, "restoring a jar today can't change what it held on 15 September");
+        after.Unallocated.Should().Be(1000m);
+    }
+
+    [Fact]
+    public async Task ArchivingOnTheReturnDay_AfterTheReturn_KeepsTheJarAtZero()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 200m, Sep1, AccountType.Current, order: 1);
+        var holiday = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, holiday.Id, 400m, Sep1);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Sep10, 100m, a.Id, b.Id, FromJarId: holiday.Id), Ct);
+        await new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(transfer.Id, a.Id, b.Id, 100m, Sep10, null, Today, FromJarId: holiday.Id), Ct);
+        (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).BalanceOf(holiday.Id).Should().Be(400m);
+
+        LedgerFixtures.Allocate(db, Owner, a.Id, holiday.Id, -400m, Today, JarAllocationKind.Reallocation);
+        await new ArchiveJarCommandHandler(db, User).Handle(new ArchiveJarCommand(holiday.Id), Ct);
+
+        var view = (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[a.Id];
+        output.WriteLine($"same-day archive: holiday={view.JarBalances.GetValueOrDefault(holiday.Id)} unallocated={view.Unallocated} A={view.AccountBalance}");
+        view.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(0m);
+        view.Unallocated.Should().Be(1000m);
+    }
+
+    [Fact]
+    public async Task MovingTheJarOnTheReturnDay_AfterTheReturn_LeavesNothingOfItOnTheOldAccount()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 200m, Sep1, AccountType.Current, order: 1);
+        var c = LedgerFixtures.SeedAccount(db, Owner, "C", 0m, Sep1, AccountType.Savings, order: 2);
+        var holiday = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, holiday.Id, 400m, Sep1);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Sep10, 100m, a.Id, b.Id, FromJarId: holiday.Id), Ct);
+        await new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(transfer.Id, a.Id, b.Id, 100m, Sep10, null, Today, FromJarId: holiday.Id), Ct);
+
+        LedgerFixtures.Allocate(db, Owner, a.Id, holiday.Id, -400m, Today, JarAllocationKind.Reallocation);
+        await new UpdateJarCommandHandler(db, User).Handle(new UpdateJarCommand(
+            holiday.Id, "Holiday", JarKind.Goal, 1200m, holiday.TargetDate, AccrualMethod.TargetByDate, c.Id), Ct);
+
+        var view = (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[a.Id];
+        output.WriteLine($"same-day move: holiday-on-A={view.JarBalances.GetValueOrDefault(holiday.Id)} unallocated={view.Unallocated} A={view.AccountBalance}");
+        view.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(0m);
+        view.Unallocated.Should().Be(1000m);
+    }
+
+    [Fact]
+    public async Task AReturnImportedAfterTheJarWasArchived_DoesNotLeaveMoneyInTheArchivedJar()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 200m, Sep1, AccountType.Current, order: 1);
+        var holiday = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, holiday.Id, 100m, Sep1);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Sep10, 100m, a.Id, b.Id, FromJarId: holiday.Id), Ct);
+        await new ArchiveJarCommandHandler(db, User).Handle(new ArchiveJarCommand(holiday.Id), Ct);
+
+        var back = (await PreviewAsync(db, User, Camt("RET-8", Sep12, 100m, true, "Returned"), a.Id)).Items.Single();
+        await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(new CommitImportCommand(a.Id, new[]
+        {
+            new CommitImportItem(back.Reference, back.Date, back.Payee, back.Amount, back.Currency, true, null, null, ReturnOfTransferId: transfer.Id),
+        }), Ct);
+
+        var view = (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[a.Id];
+        output.WriteLine($"archived jar after the late return: holiday={view.JarBalances.GetValueOrDefault(holiday.Id)} unallocated={view.Unallocated} A={view.AccountBalance}");
+        view.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(0m, "an archived jar holds nothing (rule 26)");
+        view.Unallocated.Should().Be(1000m);
+    }
+
+    // Rule 74 on the other account is judged against every row the import already accepted, not
+    // the database alone (R2-P2-3).
+    [Fact]
+    public async Task TwoMatchesInOneImport_CantTogetherTakeTheOtherAccountBelowZero()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 0m, Sep1, AccountType.Savings, order: 1);
+        var t1 = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(Sep10, 100m, a.Id, b.Id, ReceivedOn: Sep10), Ct);
+        var t2 = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(Sep10, 100m, a.Id, b.Id, ReceivedOn: Sep10), Ct);
+        LedgerFixtures.Expense(db, Owner, b.Id, 50m, new DateOnly(2026, 9, 11));
+
+        var statement = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+              <BkToCstmrStmt><Stmt><Id>S</Id>
+                <Acct><Id><IBAN>DE89370400440532013000</IBAN></Id><Ccy>EUR</Ccy></Acct>
+                <Ntry><Amt Ccy="EUR">100.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><BookgDt><Dt>2026-09-12</Dt></BookgDt><AcctSvcrRef>T-1</AcctSvcrRef></Ntry>
+                <Ntry><Amt Ccy="EUR">100.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><BookgDt><Dt>2026-09-12</Dt></BookgDt><AcctSvcrRef>T-2</AcctSvcrRef></Ntry>
+              </Stmt></BkToCstmrStmt>
+            </Document>
+            """;
+        var rows = (await PreviewAsync(db, User, statement, a.Id)).Items;
+        var result = await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(new CommitImportCommand(a.Id, new[]
+        {
+            new CommitImportItem(rows[0].Reference, rows[0].Date, rows[0].Payee, rows[0].Amount, rows[0].Currency, false, null, null, TransferAccountId: b.Id, MatchTransferId: t1.Id),
+            new CommitImportItem(rows[1].Reference, rows[1].Date, rows[1].Payee, rows[1].Amount, rows[1].Currency, false, null, null, TransferAccountId: b.Id, MatchTransferId: t2.Id),
+        }), Ct);
+
+        db.ChangeTracker.Clear();
+        var bOn11 = (await new AllotJar.Application.Accounts.Queries.GetAccounts.GetAccountsQueryHandler(db, User)
+            .Handle(new AllotJar.Application.Accounts.Queries.GetAccounts.GetAccountsQuery(new DateOnly(2026, 9, 11)), Ct)).Single(x => x.Id == b.Id).CurrentBalance;
+        output.WriteLine($"matched={result.MatchedTransfers} held={result.HeldCount}; B on 11 Sep = {bOn11}");
+        result.MatchedTransfers.Should().Be(1);
+        result.HeldCount.Should().Be(1);
+        bOn11.Should().Be(50m, "rule 74: the second match would leave B below zero on 11 September");
+    }
+
+    // Christopher, 29 September: a fee is offered up to the larger of 10% of the transfer and 10,
+    // so a bank's fixed charge on a small transfer is still offered (R2-D1).
+    [Fact]
+    public async Task ASmallTransferWithAFixedBankFee_IsStillOffered()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 0m, Sep1, AccountType.Current, order: 1);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(Sep10, 20m, a.Id, b.Id), Ct);
+
+        var within = (await PreviewAsync(db, User, Camt("INTL-1", Sep10, 30m, false, "International transfer"), a.Id)).Items.Single();
+        var beyond = (await PreviewAsync(db, User, Camt("INTL-2", Sep10, 30.01m, false, "International transfer"), a.Id)).Items.Single();
+
+        within.TransferMatches.Should().ContainSingle(m => m.TransferId == transfer.Id && m.Fee == 10m);
+        beyond.TransferMatches.Should().BeEmpty("a 10.01 fee is more than both 10 and 10% of 20");
+    }
+
+    // Rule 87: every candidate is listed nearest date first, a fee candidate included; an exact
+    // amount only breaks a tie on the date.
+    [Fact]
+    public async Task Candidates_AreListedNearestDateFirst_WhetherOrNotTheyNeedAFee()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 0m, Sep1, AccountType.Current, order: 1);
+        var farExact = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(Sep1, 100m, a.Id, b.Id, ReceivedOn: Sep1), Ct);
+        var nearWithFee = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(Sep12, 98m, a.Id, b.Id, ReceivedOn: Sep12), Ct);
+        var sameDayExact = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(Sep12, 100m, a.Id, b.Id, ReceivedOn: Sep12), Ct);
+
+        var row = (await PreviewAsync(db, User, Camt("T-9", Sep12, 100m, false, "Transfer"), a.Id)).Items.Single();
+
+        row.TransferMatches.Select(m => m.TransferId).Should().Equal(sameDayExact.Id, nearWithFee.Id, farExact.Id);
     }
 }

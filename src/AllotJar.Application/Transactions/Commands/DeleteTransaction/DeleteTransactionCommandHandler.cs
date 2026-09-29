@@ -91,6 +91,7 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
         {
             await Jars.JarMovements.ClearAsync(_db, transaction, legAccount.Id, cancellationToken);
         }
+        await Jars.TransferReturns.ClearAsync(_db, transaction.Id, cancellationToken);
         _db.Transactions.Remove(transaction);
         await _db.SaveChangesAsync(cancellationToken);
         if (write is not null)

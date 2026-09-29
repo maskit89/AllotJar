@@ -489,12 +489,19 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
 
+                    b.Property<Guid?>("ReturnOfTransferId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("TransactionId")
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
 
                     b.HasIndex("AccountId");
+
+                    b.HasIndex("ReturnOfTransferId")
+                        .IsUnique()
+                        .HasFilter("[ReturnOfTransferId] IS NOT NULL");
 
                     b.HasIndex("TransactionId", "AccountId")
                         .IsUnique()
@@ -1161,6 +1168,11 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasForeignKey("AccountId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("AllotJar.Domain.Entities.Transaction", null)
+                        .WithMany()
+                        .HasForeignKey("ReturnOfTransferId")
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("AllotJar.Domain.Entities.Transaction", "Transaction")
                         .WithMany("JarAllocations")

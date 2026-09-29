@@ -141,7 +141,7 @@ public static class StatementReferences
 
     /// <summary>One statement entry's details as <see cref="Transaction.BankEntry"/> keeps them.</summary>
     public static string Entry(DateOnly date, decimal amount, bool isCredit) =>
-        $"{date:yyyy-MM-dd}|{amount.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)}|{(isCredit ? 'C' : 'D')}";
+        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{date:yyyy-MM-dd}|{amount:0.####}|{(isCredit ? 'C' : 'D')}");
 
     /// <summary>
     /// The reference a row with a reused bank reference is stored under: the bank's reference
@@ -149,7 +149,7 @@ public static class StatementReferences
     /// </summary>
     public static string Derive(string reference, DateOnly date, decimal amount, bool isCredit)
     {
-        var signature = $"{date:yyyy-MM-dd}|{amount:0.####}|{(isCredit ? 'C' : 'D')}";
+        var signature = Entry(date, amount, isCredit);
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(signature)), 0, 4).ToLowerInvariant();
         var suffix = "~" + hash;
         var head = reference.Length + suffix.Length <= MaxReferenceLength
@@ -181,11 +181,18 @@ public static class StatementReferences
             .ToListAsync(cancellationToken);
 
     /// <summary>
-    /// The largest fee a statement row can propose, against what arrives: a larger difference is
+    /// The largest fee a statement row can propose is the larger of this share of what arrives and
+    /// <see cref="MaxProposedFeeFloor"/> (Christopher, 29 September 2026): a larger difference is
     /// another payment, not this transfer (a 1,100 rent debit is not last month's 100 transfer
-    /// with a fee of 1,000).
+    /// with a fee of 1,000), while a bank's fixed charge on a small transfer is still offered.
     /// </summary>
     public const decimal MaxProposedFeeShare = 0.10m;
+
+    /// <summary>
+    /// The fee a statement row can always propose, whatever the transfer's size: 10 in the
+    /// transfer's currency, which is the budget currency for every account kept in it.
+    /// </summary>
+    public const decimal MaxProposedFeeFloor = 10m;
 
     /// <summary>
     /// How a statement row on <paramref name="accountId"/> can confirm a leg of
@@ -194,7 +201,7 @@ public static class StatementReferences
     /// difference that the user must accept (O1 answer 5). A credit confirms the receipt: a
     /// smaller credit means the difference was a fee taken on the way, when the departure is
     /// known. A fee is proposed only while it is small against what arrives
-    /// (<see cref="MaxProposedFeeShare"/>). A credit on the source of a transfer that departed and
+    /// (<see cref="MaxProposedFeeShare"/>, <see cref="MaxProposedFeeFloor"/>). A credit on the source of a transfer that departed and
     /// whose receipt no statement confirmed confirms the money coming back (O1 answer 4). A leg
     /// recorded in the app without a statement reference can be confirmed too: the bank's date
     /// replaces the recorded one (rule 69) and no money moves again (rules 8/71). A leg a
@@ -216,7 +223,8 @@ public static class StatementReferences
         var destinationHidden = transfer.TransferAccount is null;
         bool SameAs(string? other) =>
             reference is not null && other is not null && string.Equals(reference, other, StringComparison.OrdinalIgnoreCase);
-        bool Proposable(decimal proposed, decimal arriving) => proposed <= arriving * MaxProposedFeeShare;
+        bool Proposable(decimal proposed, decimal arriving) =>
+            proposed <= Math.Max(arriving * MaxProposedFeeShare, MaxProposedFeeFloor);
 
         if (!isCredit)
         {

@@ -12,17 +12,17 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AddColumn<string>(
-                name: "BankEntry",
-                table: "Transactions",
-                type: "nvarchar(40)",
-                maxLength: 40,
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
                 name: "AllocationKey",
                 table: "Transactions",
                 type: "nvarchar(100)",
                 maxLength: 100,
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
+                name: "BankEntry",
+                table: "Transactions",
+                type: "nvarchar(40)",
+                maxLength: 40,
                 nullable: true);
 
             migrationBuilder.AddColumn<Guid>(
@@ -42,6 +42,12 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                 name: "ReturnedOn",
                 table: "Transactions",
                 type: "date",
+                nullable: true);
+
+            migrationBuilder.AddColumn<Guid>(
+                name: "ReturnOfTransferId",
+                table: "JarAllocations",
+                type: "uniqueidentifier",
                 nullable: true);
 
             // An income-allocation transfer kept its app key in BankReference, where a statement
@@ -77,6 +83,20 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                 table: "Transactions",
                 sql: "[ReturnedOn] IS NULL OR ([Type] = 2 AND [DepartedOn] IS NOT NULL AND [ReceivedOn] IS NULL AND [ReturnedOn] >= [DepartedOn])");
 
+            migrationBuilder.CreateIndex(
+                name: "IX_JarAllocations_ReturnOfTransferId",
+                table: "JarAllocations",
+                column: "ReturnOfTransferId",
+                unique: true,
+                filter: "[ReturnOfTransferId] IS NOT NULL");
+
+            migrationBuilder.AddForeignKey(
+                name: "FK_JarAllocations_Transactions_ReturnOfTransferId",
+                table: "JarAllocations",
+                column: "ReturnOfTransferId",
+                principalTable: "Transactions",
+                principalColumn: "Id");
+
             migrationBuilder.AddForeignKey(
                 name: "FK_Transactions_Transactions_FeeForTransferId",
                 table: "Transactions",
@@ -89,6 +109,13 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // Return operations (Kind 4) mean nothing without ReturnedOn; their postings cascade.
+            migrationBuilder.Sql("DELETE FROM [JarAllocations] WHERE [ReturnOfTransferId] IS NOT NULL;");
+
+            migrationBuilder.DropForeignKey(
+                name: "FK_JarAllocations_Transactions_ReturnOfTransferId",
+                table: "JarAllocations");
+
             migrationBuilder.DropForeignKey(
                 name: "FK_Transactions_Transactions_FeeForTransferId",
                 table: "Transactions");
@@ -109,12 +136,20 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                 name: "CK_Transactions_TransferReturn",
                 table: "Transactions");
 
+            migrationBuilder.DropIndex(
+                name: "IX_JarAllocations_ReturnOfTransferId",
+                table: "JarAllocations");
+
             migrationBuilder.Sql(
                 "UPDATE [Transactions] SET [BankReference] = [AllocationKey] " +
                 "WHERE [AllocationKey] IS NOT NULL AND [BankReference] IS NULL;");
 
             migrationBuilder.DropColumn(
                 name: "AllocationKey",
+                table: "Transactions");
+
+            migrationBuilder.DropColumn(
+                name: "BankEntry",
                 table: "Transactions");
 
             migrationBuilder.DropColumn(
@@ -130,8 +165,8 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                 table: "Transactions");
 
             migrationBuilder.DropColumn(
-                name: "BankEntry",
-                table: "Transactions");
+                name: "ReturnOfTransferId",
+                table: "JarAllocations");
         }
     }
 }

@@ -14,8 +14,9 @@ namespace AllotJar.IntegrationTests;
 /// <summary>
 /// W07's relational guarantees that EF InMemory cannot see: a return only on a departed,
 /// unreceived transfer on or after its departure; one fee row per transfer; one return reference
-/// per statement account; a transfer edit's lock on every account it touches; and the migration
-/// moving allocation keys out of the bank reference.
+/// per statement account; one stored jar return per transfer, never orphaned; a transfer edit's
+/// lock on every account it touches; and the migration moving allocation keys out of the bank
+/// reference.
 /// </summary>
 [Collection(nameof(SqlServerCollection))]
 public class TransferIdentitySqlTests
@@ -147,6 +148,38 @@ public class TransferIdentitySqlTests
         second.Transactions.Add(again);
         var act = () => second.SaveChangesAsync();
         await act.Should().ThrowAsync<DbUpdateException>();
+    }
+
+    private static JarAllocation ReturnOp(string owner, Account source, Transaction transfer) => new()
+    {
+        OwnerId = owner, AccountId = source.Id, Kind = JarAllocationKind.Return, Date = transfer.ReturnedOn!.Value,
+        ReturnOfTransferId = transfer.Id, CreatedUtc = DateTime.UtcNow,
+        Postings = new List<JarAllocationPosting> { new() { JarId = null, Amount = 0m } },
+    };
+
+    [Fact]
+    public async Task Database_keeps_one_jar_return_per_transfer_and_never_orphans_it()
+    {
+        var owner = NewOwner();
+        await using var db = _fixture.CreateContext();
+        var (a, b) = await SeedAccountsAsync(db, owner);
+        var transfer = Transfer(owner, a, b, returnedOn: Departed.AddDays(2));
+        db.Transactions.Add(transfer);
+        db.JarAllocations.Add(ReturnOp(owner, a, transfer));
+        await db.SaveChangesAsync();
+
+        await using (var second = _fixture.CreateContext())
+        {
+            second.JarAllocations.Add(ReturnOp(owner, a, transfer));
+            var twice = () => second.SaveChangesAsync();
+            await twice.Should().ThrowAsync<DbUpdateException>("IX_JarAllocations_ReturnOfTransferId");
+        }
+
+        await using var other = _fixture.CreateContext();
+        other.Transactions.Remove(await other.Transactions.SingleAsync(t => t.Id == transfer.Id));
+        var orphan = () => other.SaveChangesAsync();
+        // No action: TransferReturns.ClearAsync removes the return with its transfer.
+        await orphan.Should().ThrowAsync<DbUpdateException>();
     }
 
     [Fact]

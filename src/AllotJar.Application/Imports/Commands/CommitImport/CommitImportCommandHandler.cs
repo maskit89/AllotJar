@@ -106,29 +106,61 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         // stored money plus the rows accepted so far. A row that would take it below zero on any
         // date is held (reported, not posted) and the later rows are judged without it. The
         // candidate state carries the tracked match targets, since matching posts their open leg.
+        // A match or a return can also move the OTHER account's leg; that account joins the same
+        // running state the first time, so two rows of one import are judged together there too.
         var candidate = new List<Transaction>();
-        if (importAccount is not null)
+        var inCandidate = new HashSet<Guid>();
+        var loadedAccounts = new HashSet<Guid>();
+        async Task LoadIntoCandidateAsync(Account account)
         {
+            if (!loadedAccounts.Add(account.Id))
+            {
+                return;
+            }
             var storedRows = await _db.Transactions
                 .AsNoTracking()
-                .Where(t => t.OwnerId == userId
-                            && (t.AccountId == importAccount.Id
-                                || (t.Type == TransactionType.Transfer && t.TransferAccountId == importAccount.Id)))
+                .Where(t => t.OwnerId == account.OwnerId
+                            && (t.AccountId == account.Id
+                                || (t.Type == TransactionType.Transfer && t.TransferAccountId == account.Id)))
                 .ToListAsync(cancellationToken);
-            var trackedFees = matchTargets.Values.Where(t => t.Fee is not null).Select(t => t.Fee!).ToList();
-            var tracked = matchTargets.Keys.Concat(trackedFees.Select(f => f.Id)).ToHashSet();
-            candidate.AddRange(storedRows.Where(t => !tracked.Contains(t.Id)));
-            candidate.AddRange(matchTargets.Values);
-            candidate.AddRange(trackedFees);
+            foreach (var row in storedRows.Where(t => inCandidate.Add(t.Id)))
+            {
+                candidate.Add(row);
+            }
         }
-        // The import account's state with the rows accepted so far, plus tentative rows in place of
-        // the one with <paramref name="replacing"/>'s id (a fee about to change).
+        void AddToCandidate(Transaction row)
+        {
+            if (inCandidate.Add(row.Id))
+            {
+                candidate.Add(row);
+            }
+        }
+        // The tracked match targets and their fees stand in for their stored rows.
+        foreach (var target in matchTargets.Values)
+        {
+            AddToCandidate(target);
+            if (target.Fee is not null)
+            {
+                AddToCandidate(target.Fee);
+            }
+        }
+        if (importAccount is not null)
+        {
+            await LoadIntoCandidateAsync(importAccount);
+        }
+        // An account's state with the rows accepted so far, plus tentative rows in place of the
+        // one with <paramref name="replacing"/>'s id (a fee about to change).
+        string? ShortfallIn(Account account, Guid? replacing, params Transaction[] tentative) =>
+            AccountBalanceGuard.FirstShortfall(
+                new[] { account },
+                candidate.Where(t => t.Id != replacing).Concat(tentative).ToList());
         string? Shortfall(Guid? replacing, params Transaction[] tentative) =>
-            importAccount is null
-                ? null
-                : AccountBalanceGuard.FirstShortfall(
-                    new[] { importAccount },
-                    candidate.Where(t => t.Id != replacing).Concat(tentative).ToList());
+            importAccount is null ? null : ShortfallIn(importAccount, replacing, tentative);
+        async Task<string?> OtherShortfallAsync(Account account, Guid? replacing, params Transaction[] tentative)
+        {
+            await LoadIntoCandidateAsync(account);
+            return ShortfallIn(account, replacing, tentative);
+        }
 
         // Rule 74/11 judges each day on its closing balance, so a day's money in is taken before
         // its money out: a payment is never held only because the file lists it before that
@@ -167,7 +199,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 target.ReceivedOn = null;
                 var returnShortfall = Shortfall(null)
                     ?? (previousReceived is not null
-                        ? await AccountBalanceGuard.FirstShortfallAsync(_db, new[] { target.TransferAccount! }, new[] { target }, Array.Empty<Guid>(), cancellationToken)
+                        ? await OtherShortfallAsync(target.TransferAccount!, null)
                         : null);
                 if (returnShortfall is not null)
                 {
@@ -181,6 +213,8 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 {
                     await JarMovements.ClearAsync(_db, target, neverReached, cancellationToken);
                 }
+                // The jars the money left get it back, as they stand now (P65).
+                await TransferReturns.RecordAsync(_db, target, importAccount!.Id, cancellationToken);
                 returned++;
                 continue;
             }
@@ -275,9 +309,9 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     var matchShortfall = (tentativeFee is null ? Shortfall(null) : Shortfall(oldFee?.Id, tentativeFee))
                         ?? (otherLegAccount is null
                             ? null
-                            : await AccountBalanceGuard.FirstShortfallAsync(
-                                _db, new[] { otherLegAccount }, tentativeFee is null ? new[] { target } : new[] { target, tentativeFee },
-                                Array.Empty<Guid>(), cancellationToken));
+                            : tentativeFee is null
+                                ? await OtherShortfallAsync(otherLegAccount, null)
+                                : await OtherShortfallAsync(otherLegAccount, oldFee?.Id, tentativeFee));
                     if (matchShortfall is not null)
                     {
                         (target.DepartedOn, target.ReceivedOn, target.BankReference, target.ReceiptBankReference, target.Date, target.Amount) = before;
@@ -302,7 +336,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                         if (oldFee is null && feeRow is not null)
                         {
                             fees.Add(feeRow);
-                            candidate.Add(feeRow);
+                            AddToCandidate(feeRow);
                         }
                     }
                     else
@@ -373,14 +407,14 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 }
                 _db.Transactions.Add(transfer);
                 created.Add(transfer);
-                candidate.Add(transfer);
+                AddToCandidate(transfer);
                 if (rowFee > 0m)
                 {
                     var feeRow = await TransferFees.ApplyAsync(
                         _db, userId, transfer, importAccount, rowFee, item.FeeBudgetItemId, item.AcknowledgeCrossMonth,
                         item.PaidFromJarId, "Items", new List<Guid>(), cancellationToken);
                     fees.Add(feeRow!);
-                    candidate.Add(feeRow!);
+                    AddToCandidate(feeRow!);
                 }
                 if (item.IsCredit)
                 {
@@ -463,7 +497,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
 
             _db.Transactions.Add(transaction);
             created.Add(transaction);
-            candidate.Add(transaction);
+            AddToCandidate(transaction);
 
             if (importAccount is not null)
             {
