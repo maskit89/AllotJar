@@ -410,7 +410,8 @@ Functional CI is green on head `14ad12c` ([run 36192923189](https://github.com/m
 **Follow-ups (not in this PR).**
 - Before deploying: run census Q2 (`/mnt/project-files/reviews/pr-278/pre-deploy-census.sql`) against production; a household with months in more than one currency stops the migration and the API with it.
 - Data where a refund already exceeds its purchase after restating (census Q4) stays as it is; whether to restate such refunds at their purchase's rate is Christopher's call.
-- The suggestion cache keeps a missing rate for a date that later gets one (P3-2).
+- The suggestion cache keeps a missing rate for a date that later gets one, including today's, and has no size bound (P3-2).
+- A row taken off an account kept in another currency without changing its amount keeps its `BudgetAmount` and its foreign currency with no account. It counts the same figure, so nothing is wrong on screen, but `Transaction.BudgetAmount`'s doc says only a row on such an account has one (R2-P3-1).
 - `/auth/me` resolves `budgetCurrency` for the login's own household, not for the household being viewed on a joint account (P3-5).
 - Months created in another currency before W08 keep their currency.
 
