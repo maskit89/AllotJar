@@ -61,6 +61,7 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
             throw Validation(nameof(request.ReceivedOn), "The receipt date can't be before the departure date.");
         }
 
+        var receiptPosted = transfer.TransferAccountId is Guid destination && JarMovements.PostsOn(transfer, destination) is not null;
         var previousSource = transfer.Account;
         var previousDestination = transfer.TransferAccount;
         // What the stored return (if any) was decided from: kept unless one of these changes.
@@ -116,7 +117,8 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
             // A receipt still in transit keeps its answer for the day it is confirmed, as when recorded.
             await JarMovements.ApplyIncomingAsync(
                 _db, userId, transfer, to, transfer.ReceivedOn ?? transfer.Date, transfer.Amount, request.JarAllocations,
-                nameof(request.JarAllocations), cancellationToken);
+                nameof(request.JarAllocations), cancellationToken,
+                postsNow: !receiptPosted && JarMovements.PostsOn(transfer, to.Id) is not null);
         }
 
         // The return's jars (P72): recorded again only when the return, the account it left, the

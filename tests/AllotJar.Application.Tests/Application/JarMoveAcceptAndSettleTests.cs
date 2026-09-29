@@ -6,11 +6,13 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Jars;
+using AllotJar.Application.Jars.Commands.ArchiveJar;
 using AllotJar.Application.Jars.Commands.ReallocateJarMoney;
 using AllotJar.Application.Jars.Commands.UpdateJar;
 using AllotJar.Application.Jars.Queries.GetJarPayments;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Application.Transactions.Commands.AssignTransaction;
+using AllotJar.Application.Transactions.Commands.ConfirmTransferLegs;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.CreateTransfer;
 using AllotJar.Application.Transactions.Commands.DeleteTransaction;
@@ -566,7 +568,7 @@ public class JarMoveAcceptAndSettleTests
         await new ReallocateJarMoneyCommandHandler(db, User).Handle(new ReallocateJarMoneyCommand(w.B.Id, null, w.Jar.Id, 400m, Today), Ct);
         var create = new CreateTransactionCommandHandler(db, User);
         var aug10 = new DateOnly(2026, 8, 10);
-        const string arrived = "Holiday moved to B on";
+        const string arrived = "Holiday has been in B only since";
 
         (await RefusalAsync(() => create.Handle(new CreateTransactionCommand(
                 aug10, "Dinner", 50m, TransactionType.Expense, w.EatingOut.Id, AccountId: w.B.Id, PaidFromJarId: w.Jar.Id), Ct)))
@@ -606,5 +608,145 @@ public class JarMoveAcceptAndSettleTests
         (await db.Transactions.AsNoTracking().SingleAsync(t => t.Id == dinner.Id)).Payee.Should().Be("Dinner out");
         (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 12))).Should().Be(0m);
     }
-}
+    // ---- Money on its way to a jar (#282 review P2-1, #283 review) ----------------------------
 
+    [Fact]
+    public async Task ArchivingAJar_IsRefusedWhileATransferPledgedToItIsInTransit_AndAcceptedOnceTheMoneyArrivedAndMovedOut()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, b);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(
+            Today.AddDays(-2), 100m, a.Id, b.Id, Payee: "To savings", JarAllocations: new[] { new JarAllocationInput(jar.Id, 100m) }), Ct);
+        var archive = new ArchiveJarCommandHandler(db, User);
+
+        (await RefusalAsync(() => archive.Handle(new ArchiveJarCommand(jar.Id), Ct)))
+            .Should().ContainSingle().Which.Should().Contain("Holiday has entries that haven't reached the account yet")
+            .And.Contain("100 in from To savings (not received yet)");
+        db.ChangeTracker.Clear();
+        (await db.Jars.AsNoTracking().SingleAsync(j => j.Id == jar.Id)).IsArchived.Should().BeFalse();
+
+        await new ConfirmTransferLegsCommandHandler(db, User).Handle(new ConfirmTransferLegsCommand(transfer.Id, ReceivedOn: Today), Ct);
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(100m);
+        await new ReallocateJarMoneyCommandHandler(db, User).Handle(new ReallocateJarMoneyCommand(b.Id, jar.Id, null, 100m, Today), Ct);
+        await archive.Handle(new ArchiveJarCommand(jar.Id), Ct);
+        (await db.Jars.AsNoTracking().SingleAsync(j => j.Id == jar.Id)).IsArchived.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AReceiptPledgedToAJarArchivedMeanwhile_IsRefusedWhenTheAnswerIsSentAgain_AndGoesToUnallocatedWhenItIsKept(bool statement)
+    {
+        // 100 on its way to Holiday in B; Holiday was archived before archiving waited for it
+        // (stored before this change). An archived jar holds nothing (rule 26).
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, b);
+        var departed = Today.AddDays(-2);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(
+            departed, 100m, a.Id, b.Id, JarAllocations: new[] { new JarAllocationInput(jar.Id, 100m) }), Ct);
+        var stored = await db.Jars.SingleAsync(j => j.Id == jar.Id);
+        (stored.IsArchived, stored.ArchivedOn) = (true, departed);
+        await db.SaveChangesAsync(Ct);
+        db.ChangeTracker.Clear();
+
+        // Confirmed on the departure day with the stored answer sent again: judged like a new one.
+        (await RefusalAsync(() => new ConfirmTransferLegsCommandHandler(db, User).Handle(new ConfirmTransferLegsCommand(
+                transfer.Id, ReceivedOn: departed, JarAllocations: new[] { new JarAllocationInput(jar.Id, 100m) }), Ct)))
+            .Should().ContainSingle().Which.Should().Contain("Holiday is archived");
+        db.ChangeTracker.Clear();
+
+        if (statement)
+        {
+            await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(b.Id, new[]
+            {
+                new CommitImportItem("B-1", departed, "From A", 100m, "EUR", true, null, null, TransferAccountId: a.Id, MatchTransferId: transfer.Id),
+            }), Ct);
+        }
+        else
+        {
+            await new ConfirmTransferLegsCommandHandler(db, User).Handle(new ConfirmTransferLegsCommand(transfer.Id, ReceivedOn: departed), Ct);
+        }
+
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+        (await UnallocatedAsync(db, b.Id, Today)).Should().Be(1100m);
+    }
+
+    [Fact]
+    public async Task AStatementThatReDatesAReceiptToBeforeTheJarArrived_SendsItsJarShareToUnallocated_P2_2()
+    {
+        // Holiday's 300 went back to A's unallocated money yesterday and Holiday moved to B today;
+        // the transfer carrying the money was recorded today with 300 into Holiday. B's statement
+        // says it arrived three days ago, while Holiday was still in A.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, 300m, August);
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, -300m, Today.AddDays(-1), JarAllocationKind.Reallocation);
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, b.Id), Ct);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(
+            Today, 300m, a.Id, b.Id, ReceivedOn: Today, JarAllocations: new[] { new JarAllocationInput(jar.Id, 300m) }), Ct);
+        var arrived = Today.AddDays(-3);
+
+        await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(b.Id, new[]
+        {
+            new CommitImportItem("B-1", arrived, "From A", 300m, "EUR", true, null, null, TransferAccountId: a.Id, MatchTransferId: transfer.Id),
+        }), Ct);
+
+        (await db.Transactions.AsNoTracking().SingleAsync(t => t.Id == transfer.Id)).ReceivedOn.Should().Be(arrived);
+        (await BalanceAsync(db, jar.Id, arrived)).Should().Be(300m, "the 300 Holiday held in A, and nothing in B");
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+        (await UnallocatedAsync(db, b.Id, Today)).Should().Be(1300m);
+    }
+
+    [Fact]
+    public async Task AnEditRaisingAStoredShareDatedBeforeTheJarArrived_IsRefused_AndTheUnchangedShareIsKept_P3_1()
+    {
+        // A 10 Aug income in B gave 50 to Holiday, which arrived in B today (written before
+        // arrivals were checked).
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, a);
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, b.Id), Ct);
+        var income = await new CreateTransactionCommandHandler(db, User).Handle(new CreateTransactionCommand(
+            Today, "Bonus", 400m, TransactionType.Income, null, AccountId: b.Id, JarAllocations: new[] { new JarAllocationInput(jar.Id, 50m) }), Ct);
+        var aug10 = new DateOnly(2026, 8, 10);
+        (await db.Transactions.SingleAsync(t => t.Id == income.Id)).Date = aug10;
+        (await db.JarAllocations.SingleAsync(x => x.TransactionId == income.Id)).Date = aug10;
+        await db.SaveChangesAsync(Ct);
+        db.ChangeTracker.Clear();
+        var update = new UpdateTransactionCommandHandler(db, User);
+        UpdateTransactionCommand Edit(decimal share) => new(income.Id, aug10, "Bonus", 400m, TransactionType.Income, b.Id,
+            JarAllocations: new[] { new JarAllocationInput(jar.Id, share) });
+
+        (await RefusalAsync(() => update.Handle(Edit(400m), Ct)))
+            .Should().ContainSingle().Which.Should().StartWith($"Holiday has been in B only since {Today:d MMM yyyy}");
+        db.ChangeTracker.Clear();
+        await update.Handle(Edit(50m), Ct);
+
+        (await BalanceAsync(db, jar.Id, aug10)).Should().Be(50m);
+    }
+
+    [Fact]
+    public async Task MoneyDatedInAnEarlierStretchInTheSameAccount_IsRefused_SayingSinceWhenTheJarIsThereThisTime_P3_2()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, a);
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, b.Id), Ct);
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, a.Id), Ct);
+
+        (await RefusalAsync(() => new CreateTransactionCommandHandler(db, User).Handle(new CreateTransactionCommand(
+                new DateOnly(2026, 8, 10), "Bonus", 100m, TransactionType.Income, null, AccountId: a.Id,
+                JarAllocations: new[] { new JarAllocationInput(jar.Id, 100m) }), Ct)))
+            .Should().ContainSingle().Which.Should().Be(
+                $"Holiday has been in A only since {Today:d MMM yyyy}, so money dated before then can't go into or come out of it there. "
+                + $"To put earlier money in Holiday, record it without the jar and use Move money dated {Today:d MMM yyyy} or later.");
+    }
+}

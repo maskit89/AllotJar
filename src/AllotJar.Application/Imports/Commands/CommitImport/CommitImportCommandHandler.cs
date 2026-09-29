@@ -376,7 +376,13 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                         if (item.JarAllocations is { Count: > 0 } || target.Amount != before.Amount)
                         {
                             await JarMovements.ApplyIncomingAsync(
-                                _db, userId, target, importAccount, item.Date, target.Amount, item.JarAllocations, "Items", cancellationToken);
+                                _db, userId, target, importAccount, item.Date, target.Amount, item.JarAllocations, "Items", cancellationToken,
+                                postsNow: before.ReceivedOn is null);
+                        }
+                        else if (target.ReceivedOn is DateOnly received && received != before.ReceivedOn && target.DepartedOn is not null)
+                        {
+                            // The answer kept from before the statement, on the bank's date.
+                            await JarMovements.FollowReceiptAsync(_db, target, importAccount.Id, received, cancellationToken);
                         }
                         if (target.Amount != before.Amount && target.DepartedOn is not null)
                         {

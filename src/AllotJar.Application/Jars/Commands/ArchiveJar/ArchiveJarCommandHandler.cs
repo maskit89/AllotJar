@@ -54,6 +54,15 @@ public class ArchiveJarCommandHandler
                         ? $"{jar.Name} still holds {balance:0.##}. Move it to another jar or to unallocated funds before archiving."
                         : $"{jar.Name} is {(-balance):0.##} overdrawn. Cover the shortfall from another jar or unallocated funds before archiving.");
             }
+            // Money on its way counts too: an entry that names the jar but hasn't reached the
+            // account by today (a transfer in transit, an entry dated later) would move money in or
+            // out of the jar once it was put away (#282 review P2-1).
+            if (await WaitingAsync(jar, today, cancellationToken) is { Count: > 0 } waiting)
+            {
+                throw JarAccounts.Validation("Id",
+                    $"{jar.Name} has entries that haven't reached the account yet: {string.Join("; ", waiting)}. "
+                    + $"Archive it once they have and its balance is zero, or take {jar.Name} out of them first.");
+            }
         }
 
         if (request.Archived && !jar.IsArchived)
@@ -83,5 +92,29 @@ public class ArchiveJarCommandHandler
         await _db.SaveChangesAsync(cancellationToken);
 
         return await JarFigures.ReadOneAsync(_db, userId, jar, today, cancellationToken);
+    }
+
+    /// <summary>The stored jar answers in the jar's account naming it whose leg has not posted by <paramref name="today"/>, described for the refusal.</summary>
+    private async Task<List<string>> WaitingAsync(Jar jar, DateOnly today, CancellationToken cancellationToken)
+    {
+        var legs = await _db.JarAllocations.AsNoTracking()
+            .Include(a => a.Postings)
+            .Include(a => a.Transaction)
+            .Where(a => a.AccountId == jar.FundingAccountId && a.TransactionId != null
+                && a.Postings.Any(p => p.JarId == jar.Id && p.Amount != 0m))
+            .ToListAsync(cancellationToken);
+        return legs
+            .Where(a => a.Transaction is not null)
+            .Select(a => (Leg: a, Posts: JarMovements.PostsOn(a.Transaction!, a.AccountId)))
+            // A receipt sent back never reaches the account, and its answer was cleared with it.
+            .Where(l => l.Posts is DateOnly posts ? posts > today : l.Leg.Transaction!.ReturnedOn is null)
+            .OrderBy(l => l.Posts ?? DateOnly.MaxValue)
+            .Select(l =>
+            {
+                var amount = l.Leg.Postings.Where(p => p.JarId == jar.Id).Sum(p => p.Amount);
+                var when = l.Posts is DateOnly posts ? $"on {posts:d MMM yyyy}" : "not received yet";
+                return $"{Math.Abs(amount):0.##} {(amount > 0m ? "in from" : "out for")} {l.Leg.Transaction!.Payee} ({when})";
+            })
+            .ToList();
     }
 }
