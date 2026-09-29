@@ -4,6 +4,7 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports;
 using AllotJar.Application.Accounts;
+using AllotJar.Application.Budgets;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Domain.Entities;
@@ -130,7 +131,15 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         // figure behind, so the row waits for its new one (rule 44).
         var countedBefore = ForeignAmounts.Counted(transaction);
         var restatesAccountMoney = transaction.BudgetAmount is not null && request.Amount != transaction.Amount;
-        decimal? countedAfter = transaction.FxPending || restatesAccountMoney
+        // A transfer never waits (it enters no budget figure), so one on an account kept in another
+        // currency has no budget figure; retyped into an income or expense, it waits for one like a
+        // new row in that currency (rules 42, 44).
+        var waitsOnRetype = transaction.Type == TransactionType.Transfer
+            && request.Type != TransactionType.Transfer
+            && !transaction.FxPending
+            && transaction.BudgetAmount is null
+            && transaction.Currency != await BudgetCurrency.ResolveAsync(_db, _identity, userId, cancellationToken);
+        decimal? countedAfter = transaction.FxPending || restatesAccountMoney || waitsOnRetype
             ? null
             : transaction.BudgetAmount ?? request.Amount;
 
@@ -279,6 +288,10 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             transaction.BudgetAmount = null;
             transaction.FxPending = true;
             ForeignAmounts.ShareOverSlices(transaction);
+        }
+        if (waitsOnRetype)
+        {
+            transaction.FxPending = true;
         }
         transaction.Type = request.Type;
         // Editing a transfer into a plain income/expense must drop the counterparty
