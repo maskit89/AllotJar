@@ -665,7 +665,7 @@ Christopher asked for a full review and clean-up once the HANDOVER work was done
 **Logged follow-ups closed.**
 - **#279 P3-7:** a departure the bank confirmed fixes only amount plus fee. The edit form now lets the amount move and fills the fee with the rest of the bank's total. It refuses an amount above that total. The amount is still locked once a statement confirms the receipt or the return, as the server keeps it.
 - **#279 P3-8:** a fee left on the line and date it already had re-saves without the cross-month question.
-- **#279 P3-10:** an edit whose stored jar answer names an archived jar is no longer sent. It says: "This entry moved money in or out of Holiday, which is archived. Restore Holiday on the Jars page to change this entry." Sending would have been refused, or, once every jar in the account was archived, the answer would have been left out and the money returned to unallocated. This covers transactions, splits and transfers.
+- **#279 P3-10:** an edit whose stored jar answer names an archived jar is no longer sent. It says: "This entry moved money in or out of Holiday, which is archived. Restore Holiday on the Jars page to change this entry." Sending would have been refused, or, once every jar in the account was archived, the answer would have been left out and the money returned to unallocated. This covers transactions, splits, transfer edits and confirming a transfer's missing departure or receipt, where a receipt can still be pledged to a jar archived while the money was in transit (review of #282, P2-1; with every jar in the account archived, sending no answer would have let the server keep the pledge). The server half, refusing to archive a jar an in-transit receipt names or dropping its share at the receipt, went to the server thread.
 - **#277 P3-5 (client half):** People shows "—", not "Private account", for a savings id when the accounts could not be read. A deleted account's dangling id needs the server to clear it; that went to the server thread.
 - **R2-P3-1 (client half):** the transfer form requires a budget line for a fee (rule 91), as the import already did.
 
@@ -713,3 +713,4 @@ Christopher asked for a full review and clean-up once the HANDOVER work was done
 - Reports don't show how many rows are waiting for a converted amount.
 - The Accounts "Owed" tile can't be non-zero under rule 74.
 - Duplicate split-row helpers in TransactionsPage and ImportPage.
+- Once the server accepts an unchanged stored jar answer that names an archived jar (the server final review, #283), the P3-10 check above is stricter than the server on an edit that leaves the jar answer alone; relax it to refuse only a changed answer. (Done in this PR instead if #283 reaches `main` first.)

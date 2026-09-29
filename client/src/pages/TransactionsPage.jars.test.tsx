@@ -319,6 +319,36 @@ describe('TransactionsPage jar prompts', () => {
     await waitFor(() => expect(screen.queryByText('In transit')).not.toBeInTheDocument())
   })
 
+  // P3-10 on the leg path (#282 review P2-1): a receipt still pledged to a jar archived while the
+  // money was in transit is refused with the restore hint, whether or not another jar is live (with
+  // none live, no answer would be sent and the server would keep the pledge).
+  it.each([
+    ['another jar still live', false],
+    ['every jar archived', true],
+  ])('refuses to confirm a receipt pledged to an archived jar (%s)', { timeout: 15000 }, async (_case, allArchived) => {
+    const inTransit = tx({
+      id: 't-in', payee: 'Stash', type: 2, amount: 150, accountId: 'a1', accountName: 'Everyday',
+      transferAccountId: 'a2', transferAccountName: 'Savings', transferStatus: 'InTransit', departedOn: '2026-09-30', receivedOn: null,
+      jarAllocations: [
+        { accountId: 'a2', jarId: 'j-old', jarName: 'Old boat', amount: 100 },
+        { accountId: 'a2', jarId: null, jarName: null, amount: 50 },
+      ],
+    })
+    const data = ledgers()
+    if (allArchived) data[0].jars = data[0].jars.map((j) => ({ ...j, isArchived: true, balance: 0 }))
+    mockLoad([inTransit], data)
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Confirm receipt: Stash' }, { timeout: 5000 }))
+    await user.click(await screen.findByRole('button', { name: 'Save transfer leg' }))
+
+    expect(
+      await screen.findByText('This entry moved money in or out of Old boat, which is archived. Restore Old boat on the Jars page to change this entry.'),
+    ).toBeInTheDocument()
+    expect(mockPut).not.toHaveBeenCalled()
+  })
+
   it('lets a departure from a jar-backed account name the jar it left', { timeout: 15000 }, async () => {
     const pending = tx({
       id: 't-pend', payee: 'To Everyday', type: 2, amount: 40, accountId: 'a2', accountName: 'Savings',

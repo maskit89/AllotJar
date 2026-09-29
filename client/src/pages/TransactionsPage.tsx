@@ -782,8 +782,25 @@ export function TransactionsPage() {
   const confirmLeg = useCallback(
     async (t: TransactionDto) => {
       if (!legDate) return
+      // P3-10: the stored jar answer (or, once every jar in the account is archived, the answer
+      // the server keeps when none is sent) may name a jar archived while the leg was missing.
+      const departing = t.transferStatus === 'PendingReview'
+      const legAccount = departing ? t.accountId : t.transferAccountId
+      const liveJars = jarsOf(legAccount).length > 0
+      const archived = archivedJarNamed(
+        ledgerOf(legAccount),
+        departing
+          ? [liveJars ? legFromJar : paidFromJarOf(t.jarAllocations, t.accountId, new Set())]
+          : liveJars
+            ? Object.keys(legJarAlloc).filter((jarId) => (parseMinor(legJarAlloc[jarId]) ?? 0) > 0)
+            : incomingAllocationsOf(t.jarAllocations, t.transferAccountId).map((a) => a.jarId),
+      )
+      if (archived) {
+        setError(archivedJarMessage(archived))
+        return
+      }
       const body: ConfirmTransferLegsRequest = {}
-      if (t.transferStatus === 'PendingReview') {
+      if (departing) {
         body.departedOn = legDate
         // Rule 80: the departure from a jar-backed account may name the jar it left.
         if (jarsOf(t.accountId).length > 0) body.fromJarId = legFromJar || null
@@ -814,7 +831,7 @@ export function TransactionsPage() {
         setSavingId(null)
       }
     },
-    [legDate, legFromJar, legJarAlloc, jarsOf, reloadLedgers],
+    [legDate, legFromJar, legJarAlloc, jarsOf, ledgerOf, reloadLedgers],
   )
 
   const removeTransaction = useCallback(async (id: string) => {
