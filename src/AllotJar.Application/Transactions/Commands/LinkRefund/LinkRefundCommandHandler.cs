@@ -61,7 +61,7 @@ public class LinkRefundCommandHandler : IRequestHandler<LinkRefundCommand, Trans
             }
 
             var original = await RefundRules.ValidateOriginalAsync(
-                _db, userId, originalId, transaction.Id, transaction.Date, transaction.Amount, cancellationToken);
+                _db, userId, originalId, transaction.Id, transaction.Date, ForeignAmounts.Counted(transaction), cancellationToken);
             transaction.RefundOfTransactionId = original.Id;
 
             // The row now matches expense/savings lines only (rules 38/39): a chosen line is

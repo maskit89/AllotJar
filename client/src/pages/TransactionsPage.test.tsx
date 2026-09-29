@@ -615,13 +615,23 @@ describe('TransactionsPage currency conversion (W08)', () => {
     expect(screen.queryByText('€25.00')).not.toBeInTheDocument()
   })
 
-  it('offers no Enter amount on a waiting row that sits on an account (its balance would change)', { timeout: 15000 }, async () => {
-    mockLoad([{ ...fxRow(), accountId: 'acc-gbp', accountName: 'UK Current' }])
+  it('Enter amount on a row on an account kept in another currency keeps its amount and shows what it counts', { timeout: 15000 }, async () => {
+    const onAccount = { ...fxRow(), accountId: 'acc-gbp', accountName: 'UK Current' }
+    mockLoad([onAccount])
+    mockPut.mockResolvedValue({ data: { ...onAccount, fxPending: false, budgetAmount: 14.8 } })
+    const user = userEvent.setup()
 
     renderPage()
 
-    expect(await screen.findByText('Needs EUR amount', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Enter amount in EUR/ })).not.toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Enter amount in EUR: London Cab' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByText(/UK Current keeps its GBP amount/)).toBeInTheDocument()
+    await user.type(dialog.getByLabelText('Amount in EUR'), '14.80')
+    await user.click(dialog.getByRole('button', { name: 'Confirm amount' }))
+
+    expect(mockPut).toHaveBeenCalledWith('/transactions/t-fx/converted-amount', { amount: 14.8 })
+    expect(await screen.findByText('Counts as €14.80', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText(/£12\.50/)).toBeInTheDocument() // the account's own amount, unchanged
   })
 
   it('Enter amount: Suggest fills an editable amount without saving; Confirm saves it', { timeout: 15000 }, async () => {

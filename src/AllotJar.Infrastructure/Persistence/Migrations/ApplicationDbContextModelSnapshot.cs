@@ -690,6 +690,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasMaxLength(140)
                         .HasColumnType("nvarchar(140)");
 
+                    b.Property<decimal?>("BudgetAmount")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
                     b.Property<Guid?>("BudgetItemId")
                         .HasColumnType("uniqueidentifier");
 
@@ -788,6 +792,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Amount")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<decimal?>("BudgetAmount")
                         .HasPrecision(18, 4)
                         .HasColumnType("decimal(18,4)");
 

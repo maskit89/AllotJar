@@ -44,15 +44,6 @@ public class ConfirmConvertedAmountCommandHandler : IRequestHandler<ConfirmConve
         {
             throw Refuse("This transaction already counts in the budget currency. Edit its amount instead.");
         }
-        // A row on an account is in that account's currency, and its amount is the account's
-        // money: rewriting it would change the account's balance. Only an account kept in another
-        // currency (which rule 63 no longer allows) can hold such a row.
-        if (transaction.AccountId is not null)
-        {
-            throw Refuse(
-                $"This transaction is on an account kept in {transaction.Currency.Value}, not the budget currency. " +
-                "Its amount can't be converted without changing that account's balance.");
-        }
         // Slices are in the row's own currency; the user splits the confirmed amount instead.
         if (transaction.Splits.Count > 0)
         {
@@ -72,14 +63,25 @@ public class ConfirmConvertedAmountCommandHandler : IRequestHandler<ConfirmConve
             throw Refuse($"This purchase has {refunded:0.##} refunded against it; its amount can't be less than that.");
         }
 
-        var budgetCurrency = await BudgetCurrency.ResolveAsync(_db, _identity, userId, cancellationToken);
-        if (transaction.Currency != budgetCurrency)
+        if (transaction.AccountId is not null)
         {
-            transaction.OriginalAmount = transaction.Amount;
-            transaction.OriginalCurrency = transaction.Currency;
+            // A row on an account is in that account's currency and its amount is the account's
+            // money: only an account kept in another currency (from before rule 63) holds such a
+            // row. Rewriting the amount would change that balance, so the confirmed figure is kept
+            // beside it as what the row counts in the budget.
+            transaction.BudgetAmount = request.Amount;
         }
-        transaction.Amount = request.Amount;
-        transaction.Currency = budgetCurrency;
+        else
+        {
+            var budgetCurrency = await BudgetCurrency.ResolveAsync(_db, _identity, userId, cancellationToken);
+            if (transaction.Currency != budgetCurrency)
+            {
+                transaction.OriginalAmount = transaction.Amount;
+                transaction.OriginalCurrency = transaction.Currency;
+            }
+            transaction.Amount = request.Amount;
+            transaction.Currency = budgetCurrency;
+        }
         transaction.FxPending = false;
 
         await _db.SaveChangesAsync(cancellationToken);

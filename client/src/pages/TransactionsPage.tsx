@@ -610,7 +610,7 @@ export function TransactionsPage() {
             if (t.id === id) return data
             // The purchase's own row carries its refund count; refresh the one that changed.
             if (t.id === refundOfTransactionId) {
-              return { ...t, refundCount: (t.refundCount ?? 0) + 1, refundedAmount: (t.refundedAmount ?? 0) + data.amount }
+              return { ...t, refundCount: (t.refundCount ?? 0) + 1, refundedAmount: (t.refundedAmount ?? 0) + (data.budgetAmount ?? data.amount) }
             }
             return t
           }),
@@ -821,21 +821,22 @@ export function TransactionsPage() {
 
   // Hero totals — derived (never stored), like the budget's read-time actuals. A refund is
   // never money in (rule 41); it comes off money out in the month it was received (rules 38/39).
-  // A row still waiting for its amount in the budget currency (fxPending) counts nowhere.
+  // A row still waiting for its amount in the budget currency (fxPending) counts nowhere; a row on
+  // an account kept in another currency counts its budget figure, not the account's amount.
   const counted = useMemo(() => transactions.filter((t) => !t.fxPending), [transactions])
   const moneyInMinor = useMemo(
     () =>
       sumMinor(
         counted
           .filter((t) => t.type === TransactionType.Income && !t.refundOfTransactionId)
-          .map((t) => fromAmount(t.amount)),
+          .map((t) => fromAmount(t.budgetAmount ?? t.amount)),
       ),
     [counted],
   )
   const moneyOutMinor = useMemo(
     () =>
-      sumMinor(counted.filter((t) => t.type === TransactionType.Expense).map((t) => fromAmount(t.amount))) -
-      sumMinor(counted.filter((t) => !!t.refundOfTransactionId).map((t) => fromAmount(t.amount))),
+      sumMinor(counted.filter((t) => t.type === TransactionType.Expense).map((t) => fromAmount(t.budgetAmount ?? t.amount))) -
+      sumMinor(counted.filter((t) => !!t.refundOfTransactionId).map((t) => fromAmount(t.budgetAmount ?? t.amount))),
     [counted],
   )
   const purchases = useMemo(() => refundablePurchases(transactions), [transactions])
@@ -1701,7 +1702,7 @@ export function TransactionsPage() {
                                     className="shrink-0 rounded-[5px] border border-teal-200 bg-teal-50 px-1.5 py-px text-[9.5px] font-semibold text-teal-700 dark:border-teal-400/30 dark:bg-teal-400/10 dark:text-teal-300"
                                     title={`${t.refundCount} ${t.refundCount === 1 ? 'refund' : 'refunds'} linked to this purchase`}
                                   >
-                                    {formatMoney(fromAmount(t.refundedAmount ?? 0), t.currency)} refunded
+                                    {formatMoney(fromAmount(t.refundedAmount ?? 0), budgetCurrency)} refunded
                                   </span>
                                 )}
                                 {/* Budgeted to a line in a different month than the transaction's date. */}
@@ -1905,9 +1906,7 @@ export function TransactionsPage() {
                               {t.fxPending && (
                                 <span className="mt-1 flex flex-col items-end gap-1 font-normal">
                                   <FxPendingTag budgetCurrency={budgetCurrency} />
-                                  {/* A row on an account is that account's money in its own currency; the
-                                      server refuses to restate it, so only unassigned rows get the button. */}
-                                  {rowEditable && !t.isSplit && !t.accountId && (
+                                  {rowEditable && !t.isSplit && (
                                     <button
                                       type="button"
                                       onClick={() => setConvertingId(t.id)}
@@ -1925,6 +1924,14 @@ export function TransactionsPage() {
                                   title={`Paid in ${t.originalCurrency}`}
                                 >
                                   {formatForeign(t.originalAmount, t.originalCurrency)}
+                                </span>
+                              )}
+                              {!t.fxPending && t.budgetAmount != null && (
+                                <span
+                                  className="mt-0.5 block text-[11px] font-normal text-slate-500"
+                                  title={`The account keeps its ${t.currency} amount; the budget counts this`}
+                                >
+                                  Counts as {formatMoney(fromAmount(t.budgetAmount), budgetCurrency)}
                                 </span>
                               )}
                             </td>

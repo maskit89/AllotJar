@@ -233,6 +233,11 @@ export function AccountDetailPage() {
                               {formatForeign(t.originalAmount, t.originalCurrency)}
                             </span>
                           )}
+                          {!t.fxPending && t.budgetAmount != null && (
+                            <span className="mt-0.5 block text-[11px] font-normal text-slate-500">
+                              Counts as {formatMoney(fromAmount(t.budgetAmount), budgetCurrency)} in the budget
+                            </span>
+                          )}
                         </td>
                       </tr>
                     )

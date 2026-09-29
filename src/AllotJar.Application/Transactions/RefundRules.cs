@@ -26,7 +26,10 @@ public static class RefundRules
     /// is the refund's own id when it already exists, so its stored amount is not counted against
     /// itself. Amounts compare as recorded: every row that counts is in the budget currency
     /// (rule 85). A null <paramref name="refundAmount"/> is a refund still waiting for its
-    /// budget-currency amount, which counts nothing yet.
+    /// budget-currency amount, which counts nothing yet. <paramref name="previousAmount"/> is what an
+    /// existing refund counted before this change: the fit is checked only when the refund starts
+    /// counting or counts more than before, so a payee, date or category edit never trips over a
+    /// pair whose figures were fixed apart (the migration restated each at its own day's rate).
     /// </summary>
     public static async Task<Transaction> ValidateOriginalAsync(
         IApplicationDbContext db,
@@ -35,7 +38,8 @@ public static class RefundRules
         Guid? refundId,
         DateOnly refundDate,
         decimal? refundAmount,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        decimal? previousAmount = null)
     {
         if (refundId is not null && refundId == originalId)
         {
@@ -67,23 +71,24 @@ public static class RefundRules
         {
             throw Refuse($"A refund can't be dated before the purchase it refunds ({original.Date:d MMM yyyy}).");
         }
+        var checkFit = refundAmount is decimal counted && (previousAmount is not decimal before || counted > before);
         // Until the purchase has its budget-currency amount there is nothing to compare a refund
-        // with (rule 44); a link made now could not be checked.
-        if (original.FxPending && refundAmount is not null)
+        // with (rule 44); a refund that would count now could not be checked.
+        if (original.FxPending && checkFit)
         {
             throw Refuse(
-                $"This purchase is in {original.Currency.Value} and is waiting for its amount in the budget currency. " +
-                "Enter that amount before linking a refund to it.");
+                $"The purchase this refunds is in {original.Currency.Value} and is waiting for its amount in the budget currency. " +
+                "Enter the purchase's amount first.");
         }
 
         // Refunds of one purchase never exceed it — counting the ones the caller can't see (W13).
         var others = (await AllRefundsAsync(db, originalId, cancellationToken))
             .Where(r => r.Id != refundId && !r.Waiting)
             .ToList();
-        var paid = original.Amount;
+        var paid = original.BudgetAmount ?? original.Amount;
         var already = others.Sum(r => r.Amount);
         var refunded = already + (refundAmount ?? 0m);
-        if (!original.FxPending && refunded > paid)
+        if (checkFit && !original.FxPending && refunded > paid)
         {
             if (others.Any(r => r.Hidden))
             {
@@ -108,7 +113,7 @@ public static class RefundRules
     {
         var all = await db.Transactions.IgnoreQueryFilters()
             .Where(r => r.RefundOfTransactionId == originalId)
-            .Select(r => new { r.Id, r.Amount, r.FxPending, r.Date })
+            .Select(r => new { r.Id, Amount = r.BudgetAmount ?? r.Amount, r.FxPending, r.Date })
             .ToListAsync(cancellationToken);
         var ids = all.Select(r => r.Id).ToList();
         var visible = (await db.Transactions.Where(r => ids.Contains(r.Id)).Select(r => r.Id).ToListAsync(cancellationToken))

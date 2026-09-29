@@ -1117,3 +1117,14 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
   1. `/jars` → **New jar** "Holiday", Goal, target 1000, Held in "UK savings" → Save. 2. Edit "Rainy day" → Held in "UK savings" → Save. 3. `POST /api/jars/reallocations` with `accountId` = UK savings (reallocating jar money within that account).
 - **Expected:** 1 and 2: 400 on `FundingAccountId`: "UK savings is in GBP, but the budget is in EUR. Choose an account in EUR."; no jar is created and "Rainy day" stays in "Main". 3: the same message on `AccountId`; nothing moves. A credit card is still refused first with its own message. The picker itself does not hide the legacy account; the server refuses it.
 - **Automated:** Partial (ForeignAmountsTests — `A_jar_cannot_live_in_an_account_kept_in_another_currency`, create path only)
+
+### JAR-114 - A payment still waiting for its budget-currency amount can't mark a cycle paid
+- **Priority:** P1
+- **Type:** Negative
+- **Origin:** W08 adversarial review — a waiting payment counts nowhere yet (rule 44), so settling a cycle with it would record its foreign figure as budget money.
+- **Preconditions:** Owner; budget in EUR; the JAR-088 (a) jar (Road tax, cycle due 1 Sep 2026); an imported expense "US insurer" **USD 650.00** dated on or before today, on **no** account (a waiting row can't sit on the jar's EUR account: an import refuses a row in another currency than its account), still waiting (`fxPending`, "Needs EUR amount").
+- **Steps:**
+  1. Click **Mark paid**; tick **Show payments from other accounts** (`GET /jars/{id}/payments?all=true`); read the list. 2. Try to choose "US insurer". 3. `POST /api/jars/{id}/cycles/paid` with `{ deadline: "2026-09-01", paymentTransactionId: <US insurer> }`. 4. On `/transactions`, **Enter amount** on US insurer (e.g. 598.00); re-open **Mark paid** and choose it.
+- **Expected:** 1: "US insurer" is listed (without the From-this-jar badge), dimmed, with " · Needs its amount entered on Transactions first" after its date and line. 2: its radio is **disabled**, so nothing is selected and **Mark paid** (aria "Confirm Road tax paid") stays disabled. 3: 400 keyed `PaymentTransactionId` → "That payment is in USD and is waiting for its amount in the budget currency. Enter that amount on Transactions first."; no cycle is recorded and the jar is unchanged. 4: once confirmed the payment is an ordinary choice and marking paid proceeds as in JAR-089 (the server checks "money out, not income, a transfer or a refund" and "dated in the future" before this refusal, and "already fulfilled" after it — JAR-090).
+- **Automated:** Yes (ForeignAmountsTests — `A_waiting_payment_cannot_mark_a_cycle_paid`; client/src/pages/JarsPage.cycles.test.tsx — "JAR-114: a payment still waiting for its budget-currency amount is listed but cannot be chosen"; step 4 is not asserted)
+

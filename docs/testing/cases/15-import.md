@@ -903,3 +903,16 @@
   1. Import the IMP-091 statement (two EUR entries, one GBP) with no import account.
 - **Expected:** The **GBP** row counts (GBP is the budget currency) and the two **EUR** rows wait with "Needs GBP amount" — the old "default EUR when no month exists" rule is gone. Creating the first month afterwards stamps it GBP (`BudgetCurrency.ResolveAsync`), and the household's currency is now locked (it holds transactions).
 - **Automated:** Yes (ForeignAmountsTests — `Without_a_budget_month_the_owners_currency_decides_what_waits_not_EUR`)
+
+### IMP-093 - A statement imported onto a legacy account kept in another currency waits, and each row can be confirmed without touching the account's money
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** W08 adversarial review — such rows used to wait with no way to confirm them (Enter amount refused any row on an account); Christopher's "Support them" (29 Sep 2026).
+- **Preconditions:** Budget currency EUR; a legacy **GBP** account "UK card" (opening £500.00, created before rule 63); a CAMT.053 statement for it with two GBP entries (every row in the account's currency — a row in another currency than the import account's is refused, CMB-006).
+- **Steps:**
+  1. Import the statement into UK card (preview → commit, or the one-shot `POST /import/camt053` with `accountId`); note the result.
+  2. Read UK card's balance and `/transactions`.
+  3. **Enter amount** on the first row (e.g. 10.00) and confirm.
+- **Expected:** Step 1: both rows are stored in GBP, `fxPending true`; `awaitingAmount` equals `imported` (2). Step 2: UK card's balance moves by the rows' pound amounts at once (balances sum `amount`, waiting or not); each row reads "GBP {amount}" + "Needs EUR amount" + **Enter amount**, and counts in no budget figure. Step 3: 200 with `budgetAmount 10.00`, `fxPending false`, the GBP `amount` and `currency` unchanged; the row now counts €10.00 and shows "Counts as €10.00"; UK card's balance does not move (TX-112, ACCT-042).
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Transactions/ForeignAmountsTests.cs — `A_statement_imported_onto_an_account_kept_in_another_currency_waits_and_can_be_confirmed`; the balance and register are covered by TX-112's tests)
+

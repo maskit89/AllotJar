@@ -46,6 +46,7 @@ export function ConvertedAmountModal({
   }
 
   async function confirm() {
+    if (saving) return // a second Enter while the first save is in flight
     const minor = parseMinor(amount)
     if (minor === null || minor <= 0) {
       setError(`Enter the amount in ${budgetCurrency}, greater than zero.`)
@@ -71,6 +72,7 @@ export function ConvertedAmountModal({
           <span className="font-semibold text-slate-900">{t.payee || 'This transaction'}</span> was{' '}
           {formatForeign(t.amount, t.currency)} on {formatDate(t.date)}. Enter what it cost in {budgetCurrency}.
           It isn’t counted anywhere until you confirm.
+          {t.accountId && ` ${t.accountName ?? 'Its account'} keeps its ${t.currency} amount; the budget counts yours.`}
         </p>
         {error && <ErrorBanner>{error}</ErrorBanner>}
         <div className="flex items-end gap-2">

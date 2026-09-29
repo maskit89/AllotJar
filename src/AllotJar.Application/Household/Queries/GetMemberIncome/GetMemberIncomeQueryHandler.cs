@@ -77,13 +77,13 @@ public class GetMemberIncomeQueryHandler : IRequestHandler<GetMemberIncomeQuery,
                 {
                     if (slice.MemberId is Guid sliceMember && memberIdSet.Contains(sliceMember))
                     {
-                        receivedByMember[sliceMember] = receivedByMember.GetValueOrDefault(sliceMember) + slice.Amount;
+                        receivedByMember[sliceMember] = receivedByMember.GetValueOrDefault(sliceMember) + (slice.BudgetAmount ?? slice.Amount);
                     }
                 }
             }
             else if (t.MemberId is Guid wholeMember && memberIdSet.Contains(wholeMember))
             {
-                receivedByMember[wholeMember] = receivedByMember.GetValueOrDefault(wholeMember) + t.Amount;
+                receivedByMember[wholeMember] = receivedByMember.GetValueOrDefault(wholeMember) + (t.BudgetAmount ?? t.Amount);
             }
         }
 

@@ -33,6 +33,43 @@ public static class ForeignAmounts
     }
 
     /// <summary>
+    /// What a row counts in the budget: nothing while it waits for its budget-currency amount,
+    /// else <see cref="Transaction.BudgetAmount"/> for a row whose amount is an account's other
+    /// currency, else its amount.
+    /// </summary>
+    public static decimal? Counted(Transaction row) => row.FxPending ? null : row.BudgetAmount ?? row.Amount;
+
+    /// <summary>
+    /// Share a row's <see cref="Transaction.BudgetAmount"/> over its slices in proportion to their
+    /// amounts, rounded to four decimals, the largest slice taking the rounding so the shares add
+    /// up to the row's figure exactly (the same rule the <c>ForeignAmounts</c> migration used).
+    /// This divides a figure the user or the migration fixed; it is not a rate. A row without a
+    /// budget figure leaves its slices without one.
+    /// </summary>
+    public static void ShareOverSlices(Transaction row, IReadOnlyCollection<TransactionSplit>? slices = null)
+    {
+        slices ??= row.Splits.ToList();
+        if (row.BudgetAmount is not decimal figure || row.Amount == 0m)
+        {
+            foreach (var slice in slices)
+            {
+                slice.BudgetAmount = null;
+            }
+            return;
+        }
+        if (slices.Count == 0)
+        {
+            return;
+        }
+        foreach (var slice in slices)
+        {
+            slice.BudgetAmount = Math.Round(slice.Amount * figure / row.Amount, 4, MidpointRounding.AwayFromZero);
+        }
+        var largest = slices.OrderByDescending(s => s.Amount).ThenBy(s => s.Id).First();
+        largest.BudgetAmount += figure - slices.Sum(s => s.BudgetAmount!.Value);
+    }
+
+    /// <summary>
     /// A suggested budget-currency amount for <paramref name="amount"/> in <paramref name="currency"/>
     /// on <paramref name="date"/>: the reference rate for that day and the amount it gives,
     /// rounded to cents. Null when no rate is available; the user then types the amount.

@@ -408,17 +408,17 @@
 - **Expected:** The create handler short-circuits `CurrentBalance = OpeningBalance` (no transactions possible yet), so the card shows exactly €1,000.00 and equals the next `GET /accounts`.
 - **Automated:** Partial (AccountsTests.cs — derivation with no transactions equals opening)
 
-### ACCT-042 - A legacy account in another currency: its rows move only its own balance and wait for a budget amount that can't be entered
+### ACCT-042 - A legacy account in another currency: its rows move only its own balance and count a confirmed budget figure beside it
 - **Priority:** P2
 - **Type:** Regression
-- **Origin:** months-accounts-coherence audit (raw cross-currency sums) → W08 (rules 42–44/63/85): no exchange rate exists any more; a row on an account kept in another currency is that account's money and can't be restated
-- **Preconditions:** Owner (budget currency EUR); EUR Joint (€1,250.00) and legacy GBP UK Pot (£200.00); import a statement into UK Pot with one £30.00 debit "Tube".
+- **Origin:** months-accounts-coherence audit (raw cross-currency sums) → W08 (rules 42–44/63/85): no exchange rate exists any more; a row on an account kept in another currency is that account's money and is never restated. The adversarial review of W08 found such rows could never count (Enter amount was refused); Christopher's "Support them" (29 Sep 2026) keeps the confirmed figure beside the amount as `budgetAmount`.
+- **Preconditions:** Owner (budget currency EUR); EUR Joint (€1,250.00) and legacy GBP UK Pot (£200.00); import a statement into UK Pot with one £30.00 debit "Tube", assigned to an expense line.
 - **Steps:**
-  1. Read UK Pot's card and detail register, then the `/accounts` hero.
-  2. On `/transactions` find the "Tube" row; try `PUT /api/transactions/{id}/converted-amount` `{amount: 35}`.
-  3. Read the dashboard for the row's month.
-- **Expected:** UK Pot's balance moves to **£170.00** (`AccountBalances` sums the raw `Amount` in the account's own currency); the hero still reads **€1,250.00** with "1 account in another currency is not counted.". The row shows "GBP 30.00" with the tag **"Needs EUR amount"** and **no** "Enter amount" button (only rows on no account get one); the API refuses with 400 `Amount` → "This transaction is on an account kept in GBP, not the budget currency. Its amount can't be converted without changing that account's balance." The row counts in no budget figure (the dashboard's waiting-rows notice counts it).
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Transactions/ForeignAmountsTests.cs — `Only_a_waiting_row_on_no_account_and_not_split_can_be_given_an_amount`; client/src/pages/TransactionsPage.test.tsx — "offers no Enter amount on a waiting row that sits on an account (its balance would change)"; client/src/pages/AccountsPage.catalog.test.tsx — ACCT-005 hero exclusion)
+  1. Read UK Pot's card and detail register, then the `/accounts` hero and the dashboard for the row's month.
+  2. On `/transactions` click **Enter amount** on "Tube", confirm **35.00**.
+  3. Re-read UK Pot's card and detail register, the hero and the dashboard.
+- **Expected:** Step 1: UK Pot's balance moves to **£170.00** (`AccountBalances` sums the raw `Amount` in the account's own currency); the hero still reads **€1,250.00** with "1 account in another currency is not counted.". The row shows "GBP 30.00" with the tag **"Needs EUR amount"** and counts in no budget figure (the dashboard's waiting-rows notice counts it). Step 2: the dialog says "UK Pot keeps its GBP amount; the budget counts yours."; 200 with `amount 30, currency "GBP", budgetAmount 35, fxPending false`. Step 3: UK Pot is still **£170.00** and the hero still €1,250.00 — confirming never touches the account's money; the detail register shows "−£30.00" with a grey caption **"Counts as €35.00 in the budget"** (the Transactions register: "Counts as €35.00"); the line's actual rises by **€35.00** and the waiting notice is gone. Changing the row's amount later makes it wait again (TX-113).
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Transactions/ForeignAmountsTests.cs — `A_statement_imported_onto_an_account_kept_in_another_currency_waits_and_can_be_confirmed`, `A_waiting_row_on_an_account_kept_in_another_currency_counts_its_confirmed_figure_and_the_balance_stays`; client/src/pages/TransactionsPage.test.tsx — "Enter amount on a row on an account kept in another currency keeps its amount and shows what it counts"; client/src/pages/AccountsPage.catalog.test.tsx — ACCT-005 hero exclusion; the detail register's caption is not asserted)
 
 ## Account detail register (AccountDetailPage)
 
@@ -475,7 +475,7 @@
 - **Preconditions:** Owner; legacy GBP account "UK Pot" with a transaction whose `t.currency` differs from the account (legacy data only: a manual entry on an account in another currency is now refused — `Create_OnAnAccountOfADifferentCurrency_IsRejected` — and an import row must match its import account). Plus, on Joint (EUR), a confirmed row that was paid abroad (`originalAmount` 20, `originalCurrency` "USD") and a waiting row.
 - **Steps:**
   1. Open UK Pot's register and read the Amount cells; then Joint's.
-- **Expected:** Each row formats with `t.currency` (the transaction's own stamped currency), **not** the account currency (`formatMoney(fromAmount(t.amount), t.currency)`); the balance itself is not corrupted. On Joint, the confirmed paid-abroad row shows a small grey caption **"USD 20.00"** (title "Paid in USD") under its budget-currency amount, and a waiting row carries the amber tag **"Needs EUR amount"** (title "In another currency. Not counted anywhere until you enter the amount in EUR."); the detail register has no Enter amount button (read-only page).
+- **Expected:** Each row formats with `t.currency` (the transaction's own stamped currency), **not** the account currency (`formatMoney(fromAmount(t.amount), t.currency)`); the balance itself is not corrupted. On Joint, the confirmed paid-abroad row shows a small grey caption **"USD 20.00"** (title "Paid in USD") under its budget-currency amount, and a waiting row carries the amber tag **"Needs EUR amount"** (title "In another currency. Not counted anywhere until you enter the amount in EUR."); the detail register has no Enter amount button (read-only page). A counted row with a `budgetAmount` — a confirmed row on UK Pot, or a GBP row that sat on Joint from before #210 and was kept by the `ForeignAmounts` migration (CURR-054) — shows its own-currency amount (e.g. "−£30.00") with a grey caption **"Counts as €35.00 in the budget"** (`budgetAmount` formatted in the budget currency); a waiting row never shows that caption.
 - **Automated:** Partial (client/src/pages/AccountDetailPage.catalog.test.tsx — ACCT-048 formatting; client/src/pages/AccountDetailPage.test.tsx — the "Needs EUR amount" tag on the waiting row only)
 
 ### ACCT-049 - Empty register message

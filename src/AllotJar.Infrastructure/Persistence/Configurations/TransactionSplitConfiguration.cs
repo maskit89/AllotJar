@@ -13,6 +13,8 @@ public class TransactionSplitConfiguration : IEntityTypeConfiguration<Transactio
 
         builder.Property(s => s.Amount)
             .HasPrecision(18, 4);
+        builder.Property(s => s.BudgetAmount)
+            .HasPrecision(18, 4);
 
         // Deleting the parent transaction removes its slices.
         builder.HasOne(s => s.Transaction)

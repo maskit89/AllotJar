@@ -116,6 +116,15 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             }
         }
 
+        // What the row counts in the budget before and after this edit. A row whose amount is an
+        // account's other currency counts its fixed budget figure; changing that amount leaves the
+        // figure behind, so the row waits for its new one (rule 44).
+        var countedBefore = ForeignAmounts.Counted(transaction);
+        var restatesAccountMoney = transaction.BudgetAmount is not null && request.Amount != transaction.Amount;
+        decimal? countedAfter = transaction.FxPending || restatesAccountMoney
+            ? null
+            : transaction.BudgetAmount ?? request.Amount;
+
         // A refund stays money received and keeps fitting the purchase it refunds (rules 38/39):
         // its date can't move before the purchase and the purchase's refunds can't exceed it.
         // The link itself is changed through LinkRefund, so an edit never silently turns a
@@ -129,10 +138,11 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
                     ["Type"] = new[] { "A refund is money received. To record it as a payment, first unmark it as a refund." },
                 });
             }
-            // A refund still waiting for its budget-currency amount counts nothing yet (rule 44).
+            // A refund still waiting for its budget-currency amount counts nothing yet (rule 44);
+            // the fit is checked only when the refund would count more than it did.
             await RefundRules.ValidateOriginalAsync(
                 _db, userId, transaction.RefundOfTransactionId!.Value, transaction.Id, request.Date,
-                transaction.FxPending ? null : request.Amount, cancellationToken);
+                countedAfter, cancellationToken, previousAmount: countedBefore);
         }
 
         // A purchase with refunds linked to it stays a purchase that covers them: still an
@@ -149,9 +159,10 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
                 errors["Type"] = new[] { "This purchase has refunds linked to it. Unmark them as refunds before changing its type." };
             }
             // Budget-currency amounts on both sides; a row still waiting for its amount counts
-            // nothing, so a waiting purchase has nothing to compare yet (rule 44).
+            // nothing, so a waiting purchase has nothing to compare yet (rule 44). Only lowering
+            // the purchase is checked, so an edit that keeps its figure is never refused.
             var refunded = RefundRules.Refunded(refunds);
-            if (!transaction.FxPending && request.Amount < refunded)
+            if (countedAfter is decimal after && (countedBefore is not decimal before || after < before) && after < refunded)
             {
                 errors["Amount"] = new[]
                 {
@@ -228,6 +239,12 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         // The amount stays in the row's own currency: editing a row that waits for its
         // budget-currency amount corrects the foreign figure and the row keeps waiting (rule 44).
         transaction.Amount = request.Amount;
+        if (restatesAccountMoney)
+        {
+            transaction.BudgetAmount = null;
+            transaction.FxPending = true;
+            ForeignAmounts.ShareOverSlices(transaction);
+        }
         transaction.Type = request.Type;
         // Editing a transfer into a plain income/expense must drop the counterparty
         // link, or the stale TransferAccountId keeps phantom-crediting the other account

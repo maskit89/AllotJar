@@ -35,6 +35,8 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         // What was paid in another currency, for reference only; never counted.
         builder.Property(t => t.OriginalAmount)
             .HasPrecision(18, 4);
+        builder.Property(t => t.BudgetAmount)
+            .HasPrecision(18, 4);
         builder.Property(t => t.OriginalCurrency)
             .HasConversion(new CurrencyCodeConverter())
             .HasMaxLength(3);

@@ -4,6 +4,9 @@ using NSubstitute;
 using Xunit;
 using AllotJar.Application.Accounts.Commands.CreateAccount;
 using AllotJar.Application.Budgets;
+using AllotJar.Application.Transactions.Commands.SplitTransaction;
+using AllotJar.Application.Jars.Commands.MarkJarCyclePaid;
+using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.ImportStatement;
@@ -205,17 +208,20 @@ public class ForeignAmountsTests
     }
 
     [Theory]
-    [InlineData("EUR", 10)]
-    [InlineData("EURO", 10)]
-    [InlineData("USD", 0)]
-    public async Task A_suggestion_needs_another_currency_and_a_positive_amount(string currency, int amount)
+    [InlineData("EUR", 10, 0)]
+    [InlineData("EURO", 10, 0)]
+    [InlineData("USD", 0, 0)]
+    [InlineData("USD", 10, 1)] // tomorrow: no day's rate exists yet
+    public async Task A_suggestion_needs_another_currency_a_positive_amount_and_a_day_that_has_a_rate(
+        string currency, int amount, int daysFromToday)
     {
         await using var db = NewContext();
         SeedMonth(db);
         var rates = new FakeExchangeRateProvider(1.1m);
+        var date = daysFromToday == 0 ? June3 : DateOnly.FromDateTime(DateTime.UtcNow).AddDays(daysFromToday);
 
         var act = () => new GetConversionSuggestionQueryHandler(db, User, rates)
-            .Handle(new GetConversionSuggestionQuery(currency, amount, June3), CancellationToken.None);
+            .Handle(new GetConversionSuggestionQuery(currency, amount, date), CancellationToken.None);
 
         await act.Should().ThrowAsync<ValidationException>();
         rates.Calls.Should().Be(0);
@@ -243,7 +249,7 @@ public class ForeignAmountsTests
     }
 
     [Fact]
-    public async Task Only_a_waiting_row_on_no_account_and_not_split_can_be_given_an_amount()
+    public async Task Only_a_waiting_row_that_is_not_split_can_be_given_an_amount()
     {
         await using var db = NewContext();
         SeedMonth(db);
@@ -251,21 +257,279 @@ public class ForeignAmountsTests
         {
             OwnerId = Owner, Date = June3, Payee = "Grocer", Amount = 20m, Currency = CurrencyCode.Eur, Type = TransactionType.Expense,
         };
-        var legacyAccount = LedgerFixtures.SeedAccount(db, Owner, "UK card", currency: "GBP");
-        var onAccount = Waiting();
-        onAccount.AccountId = legacyAccount.Id;
         var split = Waiting();
         split.Splits.Add(new TransactionSplit { Amount = 20m });
         split.Splits.Add(new TransactionSplit { Amount = 25.50m });
-        db.Transactions.AddRange(counted, onAccount, split);
+        db.Transactions.AddRange(counted, split);
         await db.SaveChangesAsync();
         var handler = new ConfirmConvertedAmountCommandHandler(db, User);
 
-        foreach (var (row, why) in new[] { (counted, "already counts"), (onAccount, "account's balance"), (split, "is split") })
+        foreach (var (row, why) in new[] { (counted, "already counts"), (split, "is split") })
         {
             var act = () => handler.Handle(new ConfirmConvertedAmountCommand(row.Id, 50m), CancellationToken.None);
             (await act.Should().ThrowAsync<ValidationException>()).Which.Errors["Amount"].Single().Should().Contain(why);
         }
+    }
+
+    // ---- An account kept in another currency (from before rule 63; "Support them") ----------
+
+    private static async Task<decimal> SpentOnAsync(ApplicationDbContext db, Guid lineId)
+    {
+        var month = await db.BudgetMonths.Include(m => m.Categories).ThenInclude(c => c.Items)
+            .SingleAsync(m => m.Categories.Any(c => c.Items.Any(i => i.Id == lineId)));
+        await BudgetActuals.ApplyAsync(db, Owner, month, CancellationToken.None);
+        return month.Categories.SelectMany(c => c.Items).Single(i => i.Id == lineId).ActualAmount;
+    }
+
+    private static BudgetItem SeedLine(ApplicationDbContext db, string name = "Travel")
+    {
+        var line = new BudgetItem { Name = name, PlannedAmount = 500m };
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = Owner, Year = 2026, Month = 6, BaseCurrency = CurrencyCode.Eur,
+            Categories = new List<BudgetCategory> { new() { Name = "Spending", Kind = CategoryKind.Expense, Items = new List<BudgetItem> { line } } },
+        });
+        db.SaveChanges();
+        return line;
+    }
+
+    private static async Task<decimal?> BalanceAsync(ApplicationDbContext db, Guid accountId) =>
+        (await new GetAccountsQueryHandler(db, User).Handle(new GetAccountsQuery(), CancellationToken.None))
+            .Single(a => a.Id == accountId).CurrentBalance;
+
+    [Fact]
+    public async Task A_waiting_row_on_an_account_kept_in_another_currency_counts_its_confirmed_figure_and_the_balance_stays()
+    {
+        await using var db = NewContext();
+        var line = SeedLine(db);
+        var gbp = LedgerFixtures.SeedAccount(db, Owner, "UK card", opening: 500m, currency: "GBP");
+        var row = LedgerFixtures.Expense(db, Owner, gbp.Id, 25m, June3, line.Id, currency: "GBP");
+        row.FxPending = true;
+        await db.SaveChangesAsync();
+        (await SpentOnAsync(db, line.Id)).Should().Be(0m, "a waiting row counts nowhere");
+
+        var dto = await new ConfirmConvertedAmountCommandHandler(db, User)
+            .Handle(new ConfirmConvertedAmountCommand(row.Id, 30m), CancellationToken.None);
+
+        dto.Amount.Should().Be(25m, "the account's money is not restated");
+        dto.Currency.Should().Be("GBP");
+        dto.BudgetAmount.Should().Be(30m);
+        dto.FxPending.Should().BeFalse();
+        db.ChangeTracker.Clear();
+        (await SpentOnAsync(db, line.Id)).Should().Be(30m, "the budget counts the confirmed figure");
+        (await BalanceAsync(db, gbp.Id)).Should().Be(475m, "the account keeps its own money");
+    }
+
+    [Fact]
+    public async Task A_statement_imported_onto_an_account_kept_in_another_currency_waits_and_can_be_confirmed()
+    {
+        await using var db = NewContext();
+        SeedMonth(db);
+        var gbp = LedgerFixtures.SeedAccount(db, Owner, "UK card", opening: 500m, currency: "GBP");
+        var statement = Camt053Samples.TwoEurEntries.Replace("\"EUR\"", "\"GBP\"").Replace(">EUR<", ">GBP<");
+
+        var result = await new ImportStatementCommandHandler(db, User, new[] { new Camt053StatementParser() })
+            .Handle(new ImportStatementCommand(statement, gbp.Id), CancellationToken.None);
+
+        result.AwaitingAmount.Should().Be(result.Imported).And.BePositive();
+        var first = await db.Transactions.FirstAsync(t => t.AccountId == gbp.Id);
+        var dto = await new ConfirmConvertedAmountCommandHandler(db, User)
+            .Handle(new ConfirmConvertedAmountCommand(first.Id, 10m), CancellationToken.None);
+        dto.BudgetAmount.Should().Be(10m);
+        dto.FxPending.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Changing_the_amount_of_such_a_row_makes_it_wait_for_its_new_figure_and_other_edits_keep_it()
+    {
+        await using var db = NewContext();
+        var line = SeedLine(db);
+        var gbp = LedgerFixtures.SeedAccount(db, Owner, "UK card", opening: 500m, currency: "GBP");
+        var row = LedgerFixtures.Expense(db, Owner, gbp.Id, 25m, June3, line.Id, currency: "GBP");
+        row.BudgetAmount = 30m; // as the migration or a confirmation leaves it
+        await db.SaveChangesAsync();
+        var handler = new UpdateTransactionCommandHandler(db, User);
+
+        await handler.Handle(new UpdateTransactionCommand(row.Id, row.Date, "Train", 25m, TransactionType.Expense, gbp.Id),
+            CancellationToken.None);
+        db.ChangeTracker.Clear();
+        var renamed = await db.Transactions.SingleAsync(t => t.Id == row.Id);
+        renamed.BudgetAmount.Should().Be(30m);
+        renamed.FxPending.Should().BeFalse();
+
+        await handler.Handle(new UpdateTransactionCommand(row.Id, row.Date, "Train", 27m, TransactionType.Expense, gbp.Id),
+            CancellationToken.None);
+        db.ChangeTracker.Clear();
+        var corrected = await db.Transactions.SingleAsync(t => t.Id == row.Id);
+        corrected.Amount.Should().Be(27m);
+        corrected.BudgetAmount.Should().BeNull("the old figure was for another amount");
+        corrected.FxPending.Should().BeTrue("it waits for the figure of the corrected amount");
+        (await SpentOnAsync(db, line.Id)).Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task Splitting_such_a_row_shares_its_figure_over_the_slices()
+    {
+        await using var db = NewContext();
+        var travel = new BudgetItem { Name = "Travel", PlannedAmount = 500m };
+        var food = new BudgetItem { Name = "Food", PlannedAmount = 500m };
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = Owner, Year = 2026, Month = 6, BaseCurrency = CurrencyCode.Eur,
+            Categories = new List<BudgetCategory> { new() { Name = "Spending", Kind = CategoryKind.Expense, Items = new List<BudgetItem> { travel, food } } },
+        });
+        var gbp = LedgerFixtures.SeedAccount(db, Owner, "UK card", opening: 500m, currency: "GBP");
+        var row = LedgerFixtures.Expense(db, Owner, gbp.Id, 10m, June3, currency: "GBP");
+        row.BudgetAmount = 11.2346m;
+        await db.SaveChangesAsync();
+
+        await new SplitTransactionCommandHandler(db, User).Handle(new SplitTransactionCommand(row.Id, new[]
+        {
+            new SplitAllocationInput(travel.Id, 3.33m),
+            new SplitAllocationInput(food.Id, 6.67m),
+        }), CancellationToken.None);
+
+        db.ChangeTracker.Clear();
+        var slices = await db.TransactionSplits.Where(s => s.TransactionId == row.Id).OrderBy(s => s.Amount).ToListAsync();
+        slices.Select(s => s.BudgetAmount).Should().Equal(3.7411m, 7.4935m);
+        (await SpentOnAsync(db, travel.Id)).Should().Be(3.7411m);
+        (await SpentOnAsync(db, food.Id)).Should().Be(7.4935m, "the shares add up to the row's figure");
+    }
+
+    [Fact]
+    public async Task A_waiting_payment_cannot_mark_a_cycle_paid()
+    {
+        await using var db = NewContext();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var account = LedgerFixtures.SeedAccount(db, Owner, "Current", opening: 2000m);
+        var jar = new Jar
+        {
+            OwnerId = Owner, Name = "Insurance", Kind = JarKind.Recurring, TargetAmount = 600m,
+            TargetDate = today, CycleDeadline = today, Accrual = AccrualMethod.TargetByDate, RecurMonths = 12,
+            FundingAccountId = account.Id,
+        };
+        db.Jars.Add(jar);
+        var payment = new Transaction
+        {
+            OwnerId = Owner, Date = today, Payee = "US insurer", Amount = 650m, Currency = CurrencyCode.From("USD"),
+            FxPending = true, Type = TransactionType.Expense,
+        };
+        db.Transactions.Add(payment);
+        await db.SaveChangesAsync();
+
+        var act = () => new MarkJarCyclePaidCommandHandler(db, User)
+            .Handle(new MarkJarCyclePaidCommand(jar.Id, today, payment.Id), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<ValidationException>())
+            .Which.Errors["PaymentTransactionId"].Single().Should().Contain("waiting for its amount");
+        (await db.JarCycles.AnyAsync(c => c.PaymentTransactionId == payment.Id)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_cycle_paid_from_an_account_kept_in_another_currency_records_the_payments_budget_figure()
+    {
+        await using var db = NewContext();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var account = LedgerFixtures.SeedAccount(db, Owner, "Current", opening: 2000m);
+        var usd = LedgerFixtures.SeedAccount(db, Owner, "US card", opening: 2000m, currency: "USD", order: 1);
+        var jar = new Jar
+        {
+            OwnerId = Owner, Name = "Insurance", Kind = JarKind.Recurring, TargetAmount = 600m,
+            TargetDate = today, CycleDeadline = today, Accrual = AccrualMethod.TargetByDate, RecurMonths = 12,
+            FundingAccountId = account.Id,
+        };
+        db.Jars.Add(jar);
+        var payment = new Transaction
+        {
+            OwnerId = Owner, AccountId = usd.Id, Date = today, Payee = "US insurer", Amount = 650m,
+            Currency = CurrencyCode.From("USD"), BudgetAmount = 598.5m, Type = TransactionType.Expense,
+        };
+        db.Transactions.Add(payment);
+        await db.SaveChangesAsync();
+
+        await new MarkJarCyclePaidCommandHandler(db, User)
+            .Handle(new MarkJarCyclePaidCommand(jar.Id, today, payment.Id), CancellationToken.None);
+
+        (await db.JarCycles.SingleAsync(c => c.PaymentTransactionId == payment.Id)).PaidAmount.Should().Be(598.5m);
+    }
+
+    [Fact]
+    public async Task A_purchase_and_refund_restated_at_different_rates_can_still_be_edited_but_not_pushed_further_apart()
+    {
+        await using var db = NewContext();
+        SeedMonth(db);
+        // As the migration leaves USD 100 bought at 0.92 and USD 100 refunded at 0.95.
+        var purchase = new Transaction
+        {
+            OwnerId = Owner, Date = June3, Payee = "US shop", Amount = 92m, Currency = CurrencyCode.Eur,
+            OriginalAmount = 100m, OriginalCurrency = CurrencyCode.From("USD"), Type = TransactionType.Expense,
+        };
+        var refund = new Transaction
+        {
+            OwnerId = Owner, Date = June3, Payee = "US shop refund", Amount = 95m, Currency = CurrencyCode.Eur,
+            OriginalAmount = 100m, OriginalCurrency = CurrencyCode.From("USD"), Type = TransactionType.Income,
+            RefundOfTransactionId = purchase.Id,
+        };
+        db.Transactions.AddRange(purchase, refund);
+        await db.SaveChangesAsync();
+        var handler = new UpdateTransactionCommandHandler(db, User);
+
+        await handler.Handle(new UpdateTransactionCommand(purchase.Id, June3, "US shop (online)", 92m, TransactionType.Expense),
+            CancellationToken.None);
+        await handler.Handle(new UpdateTransactionCommand(refund.Id, June3, "Refund", 95m, TransactionType.Income),
+            CancellationToken.None);
+        await handler.Handle(new UpdateTransactionCommand(refund.Id, June3, "Refund", 94m, TransactionType.Income),
+            CancellationToken.None);
+
+        var lowerPurchase = () => handler.Handle(
+            new UpdateTransactionCommand(purchase.Id, June3, "US shop (online)", 91m, TransactionType.Expense), CancellationToken.None);
+        (await lowerPurchase.Should().ThrowAsync<ValidationException>()).Which.Errors.Should().ContainKey("Amount");
+        var raiseRefund = () => handler.Handle(
+            new UpdateTransactionCommand(refund.Id, June3, "Refund", 94.50m, TransactionType.Income), CancellationToken.None);
+        (await raiseRefund.Should().ThrowAsync<ValidationException>()).Which.Errors.Should().ContainKey(RefundRules.Key);
+    }
+
+    [Fact]
+    public async Task Confirming_a_refund_of_a_purchase_that_still_waits_asks_for_the_purchases_amount_first()
+    {
+        await using var db = NewContext();
+        SeedMonth(db);
+        var purchase = Waiting(100m, "USD");
+        db.Transactions.Add(purchase);
+        await db.SaveChangesAsync();
+        var refund = Waiting(20m, "USD");
+        refund.Type = TransactionType.Income;
+        refund.RefundOfTransactionId = purchase.Id;
+        db.Transactions.Add(refund);
+        await db.SaveChangesAsync();
+
+        var act = () => new ConfirmConvertedAmountCommandHandler(db, User)
+            .Handle(new ConfirmConvertedAmountCommand(refund.Id, 18m), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<ValidationException>())
+            .Which.Errors[RefundRules.Key].Single().Should().Contain("Enter the purchase's amount first");
+    }
+
+    [Fact]
+    public async Task A_refund_is_measured_against_what_its_purchase_counts_not_its_accounts_amount()
+    {
+        await using var db = NewContext();
+        SeedMonth(db);
+        var gbp = LedgerFixtures.SeedAccount(db, Owner, "UK card", opening: 500m, currency: "GBP");
+        var purchase = LedgerFixtures.Expense(db, Owner, gbp.Id, 25m, June3, currency: "GBP");
+        purchase.BudgetAmount = 30m;
+        await db.SaveChangesAsync();
+        var refund = Waiting(20m, "USD");
+        refund.Type = TransactionType.Income;
+        refund.RefundOfTransactionId = purchase.Id;
+        db.Transactions.Add(refund);
+        await db.SaveChangesAsync();
+        var handler = new ConfirmConvertedAmountCommandHandler(db, User);
+
+        var tooMuch = () => handler.Handle(new ConfirmConvertedAmountCommand(refund.Id, 30.01m), CancellationToken.None);
+        (await tooMuch.Should().ThrowAsync<ValidationException>()).Which.Errors.Should().ContainKey(RefundRules.Key);
+        (await handler.Handle(new ConfirmConvertedAmountCommand(refund.Id, 28m), CancellationToken.None)).Amount
+            .Should().Be(28m, "28 is more than the account's 25 but within the 30 the purchase counts");
     }
 
     [Fact]

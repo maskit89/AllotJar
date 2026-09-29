@@ -70,7 +70,7 @@ public static class BudgetActuals
                         && t.BudgetItemId != null
                         && itemIds.Contains(t.BudgetItemId.Value))
             .GroupBy(t => new { ItemId = t.BudgetItemId!.Value, t.Type, IsRefund = t.RefundOfTransactionId != null })
-            .Select(g => new { g.Key.ItemId, g.Key.Type, g.Key.IsRefund, Total = g.Sum(t => t.Amount) })
+            .Select(g => new { g.Key.ItemId, g.Key.Type, g.Key.IsRefund, Total = g.Sum(t => t.BudgetAmount ?? t.Amount) })
             .ToListAsync(cancellationToken);
 
         // Slices of split transactions. A split transaction has BudgetItemId == null
@@ -85,7 +85,7 @@ public static class BudgetActuals
                   && t.RefundOfTransactionId == null
                   && s.BudgetItemId != null
                   && itemIds.Contains(s.BudgetItemId.Value)
-            select new { ItemId = s.BudgetItemId!.Value, t.Type, Total = s.Amount })
+            select new { ItemId = s.BudgetItemId!.Value, t.Type, Total = s.BudgetAmount ?? s.Amount })
             .ToListAsync(cancellationToken);
 
         var splitSums = splitRows

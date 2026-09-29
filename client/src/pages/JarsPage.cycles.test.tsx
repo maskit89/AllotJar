@@ -208,6 +208,23 @@ describe('JarsPage — recurring cycles (W03)', () => {
     expect(screen.getByText(/^Funded by Aug 2027 · due .*Sep.*2027, then it repeats$/)).toBeInTheDocument()
   })
 
+  it('JAR-114: a payment still waiting for its budget-currency amount is listed but cannot be chosen', { timeout: 15000 }, async () => {
+    mockLoads({
+      jars: [jar()],
+      payments: { '/jars/f1/payments': [payment({ id: 'tx9', payee: 'US insurer', amount: 650, currency: 'USD', fxPending: true })] },
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(await screen.findByLabelText('Mark Road tax paid', {}, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+
+    const waiting = await dialog.findByRole('radio', { name: /US insurer/ }, { timeout: 5000 })
+    expect(waiting).toBeDisabled()
+    expect(dialog.getByText(/Needs its amount entered on Transactions first/)).toBeInTheDocument()
+    expect(dialog.getByLabelText('Confirm Road tax paid')).toBeDisabled()
+  })
+
   it('JAR-090: "Show payments from other accounts" re-asks with all=true; a refused mark shows the server\'s message', { timeout: 15000 }, async () => {
     mockLoads({
       jars: [jar()],

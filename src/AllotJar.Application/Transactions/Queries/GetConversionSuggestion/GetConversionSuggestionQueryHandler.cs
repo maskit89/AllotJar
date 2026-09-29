@@ -40,6 +40,11 @@ public class GetConversionSuggestionQueryHandler : IRequestHandler<GetConversion
         {
             throw Refuse("Amount", "Enter an amount greater than zero.");
         }
+        // No day's rate exists yet for a future date (the source would answer with its latest one).
+        if (request.Date > DateOnly.FromDateTime(DateTime.UtcNow))
+        {
+            throw Refuse("Date", "There is no reference rate for a future date yet. Enter the amount yourself.");
+        }
 
         var budgetCurrency = await BudgetCurrency.ResolveAsync(_db, _identity, userId, cancellationToken);
         if (currency == budgetCurrency)

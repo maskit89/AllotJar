@@ -87,7 +87,7 @@ public static class ReportFigures
                         && !t.Splits.Any()
                         // P56: a private account's money off the budget is nobody's household total.
                         && !db.AccountPrivacies.Any(p => p.AccountId == t.AccountId))
-            .Select(t => new { t.Type, IsRefund = t.RefundOfTransactionId != null, Base = t.Amount })
+            .Select(t => new { t.Type, IsRefund = t.RefundOfTransactionId != null, Base = t.BudgetAmount ?? t.Amount })
             .ToListAsync(cancellationToken);
 
         // Slices whose line was removed (the FK sets them null) are uncategorised too.
@@ -101,7 +101,7 @@ public static class ReportFigures
                   && t.Date.Year == year
                   && t.Date.Month == month
                   && !db.AccountPrivacies.Any(p => p.AccountId == t.AccountId)
-            select new { t.Type, Base = s.Amount })
+            select new { t.Type, Base = s.BudgetAmount ?? s.Amount })
             .ToListAsync(cancellationToken);
 
         var incomeLoose = loose.Where(t => t.Type == TransactionType.Income && !t.IsRefund).Sum(t => t.Base)

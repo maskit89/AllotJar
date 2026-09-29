@@ -19,6 +19,10 @@ public class TransactionDto
     public decimal? OriginalAmount { get; set; }
     public string? OriginalCurrency { get; set; }
 
+    /// <summary>What the row counts in the budget currency when <see cref="Amount"/> is in an
+    /// account's other currency (an account kept from before rule 63); null otherwise.</summary>
+    public decimal? BudgetAmount { get; set; }
+
     public TransactionType Type { get; set; }
     public string? BankReference { get; set; }
 
@@ -131,6 +135,7 @@ public static class TransactionMapping
         FxPending = t.FxPending,
         OriginalAmount = t.OriginalAmount,
         OriginalCurrency = t.OriginalCurrency?.Value,
+        BudgetAmount = t.BudgetAmount,
         Type = t.Type,
         BankReference = t.BankReference,
         BudgetItemId = t.BudgetItemId,
@@ -151,9 +156,9 @@ public static class TransactionMapping
         RefundOfTransactionId = t.RefundOfTransactionId,
         RefundOfPayee = t.RefundOf?.Payee,
         RefundOfDate = t.RefundOf?.Date,
-        RefundOfAmount = t.RefundOf?.Amount,
+        RefundOfAmount = t.RefundOf is null ? null : t.RefundOf.BudgetAmount ?? t.RefundOf.Amount,
         RefundCount = t.Refunds.Count,
-        RefundedAmount = t.Refunds.Where(r => !r.FxPending).Sum(r => r.Amount),
+        RefundedAmount = t.Refunds.Where(r => !r.FxPending).Sum(r => r.BudgetAmount ?? r.Amount),
         MemberId = t.MemberId,
         MemberName = t.Member?.Name,
         IsSplit = t.Splits.Count > 0,

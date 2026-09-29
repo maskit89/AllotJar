@@ -73,6 +73,9 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 | Currency × transfers | cross-currency transfer refused (legacy data only — no new account can be in another currency) | area TRF-021/TX-083 — single-feature guard |
 | Waiting rows × refunds | a waiting refund counts nothing; a confirmed one must fit its purchase | area TX-107 |
 | Waiting rows × every aggregate | budget, reports, People, jars, Transactions hero exclude a waiting row until confirmed | area CURR-052 |
+| Waiting rows × jar cycles | a waiting payment is listed but can't mark a cycle paid until its amount is entered | area JAR-114 |
+| Legacy-account rows × every aggregate | a row on an account kept in another currency counts its `budgetAmount` in budget, reports, People, refunds and the Transactions hero; balances keep its own amount | area CURR-057 / ACCT-042 |
+| Legacy-account rows × edits, splits, refunds | an amount edit makes it wait again; a split shares the figure; a refund is measured against the figure | area TX-113 / TX-114 / TX-115 |
 | Jars × invites | **N/M** — jars have no per-role sub-behaviour beyond the Read-only hide (JAR-011) |
 | Bills × allocation | **N/M** — bills are Expense lines already summed into the envelopes total; no bill-specific allocation path |
 | Reports × bills | **N/M** — reports read actuals, which don't distinguish bill lines from plain expense lines |
@@ -340,7 +343,7 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
   2. `PUT /transactions/{id}/converted-amount {amount: 110.40}`.
   3. **Remove split**, **Enter amount** 110.40, then split it 73.60/36.80 across the two lines.
 - **Expected:** Step 1: neither line's actual moves — slices of a waiting parent are excluded like the parent; the row shows "USD 120.00" + "Needs EUR amount" but **no** Enter amount button (split). Step 2: 400 "This transaction is split. Remove the split, enter the amount, then split it again.". Step 3: the row counts €110.40 (`originalAmount 120 USD`) and each line gains its EUR slice; the slices sum exactly to the confirmed amount. (Pre-W08 split rows that had counted at a rate were restated by the `ForeignAmounts` migration with the largest slice absorbing the rounding — CURR-053.)
-- **Automated:** Partial (FxPendingAggregatesTests — `BudgetActuals_ExcludeSlicesOfAPendingParent`; ForeignAmountsTests — `Only_a_waiting_row_on_no_account_and_not_split_can_be_given_an_amount`; ForeignAmountsMigrationTests — slice restatement)
+- **Automated:** Partial (FxPendingAggregatesTests — `BudgetActuals_ExcludeSlicesOfAPendingParent`; ForeignAmountsTests — `Only_a_waiting_row_that_is_not_split_can_be_given_an_amount`; ForeignAmountsMigrationTests — slice restatement)
 
 ---
 

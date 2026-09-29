@@ -100,6 +100,12 @@ export interface TransactionDto {
   originalAmount?: number | null
   /** The currency of `originalAmount` (null when the row was paid in the budget currency). */
   originalCurrency?: string | null
+  /**
+   * What the row counts in the budget currency when `amount` is an account's other currency (an
+   * account kept from before one-currency budgets): the account keeps `amount`, the budget counts
+   * this. Null on every other row.
+   */
+  budgetAmount?: number | null
   type: number
   bankReference: string | null
   budgetItemId: string | null

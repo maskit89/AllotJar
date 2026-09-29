@@ -60,7 +60,9 @@ public class Transaction : BaseEntity
     /// Amount in the transaction's <see cref="Currency"/>. Positive magnitude; direction is on
     /// <see cref="Type"/>. Once a row counts (<see cref="FxPending"/> false) this is the budget
     /// currency amount, as the bank or the user supplied it (rules 43/85); the app never
-    /// converts it.
+    /// converts it. The one exception is a row on an account kept in another currency (from
+    /// before rule 63): its amount is that account's money and stays in that currency, and what
+    /// it counts in the budget is <see cref="BudgetAmount"/>.
     /// </summary>
     public decimal Amount { get; set; }
 
@@ -88,6 +90,16 @@ public class Transaction : BaseEntity
 
     /// <summary>The currency of <see cref="OriginalAmount"/>; set together with it.</summary>
     public CurrencyCode? OriginalCurrency { get; set; }
+
+    /// <summary>
+    /// The row's figure in the budget currency when <see cref="Amount"/> is in another one: a row
+    /// on an account kept in another currency, whose amount is that account's money and can't be
+    /// restated without changing its balance. Set once, by the <c>ForeignAmounts</c> migration
+    /// (the figure the row already counted at) or by the user confirming it; never derived from a
+    /// rate. Every budget, report, People and refund figure reads it instead of the amount; account
+    /// and jar balances keep reading <see cref="Amount"/>. Null on every other row.
+    /// </summary>
+    public decimal? BudgetAmount { get; set; }
 
     public TransactionType Type { get; set; } = TransactionType.Expense;
 

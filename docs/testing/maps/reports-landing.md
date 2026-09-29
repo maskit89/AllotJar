@@ -223,7 +223,9 @@ Landing/legal pages have no forms and no validation.
   they re-render in the month's currency afterwards. Selecting a breakdown month whose
   `baseCurrency` differs re-labels ALL cards, including annual totals. Since W08 every new month is
   created in the household's one budget currency (`BudgetCurrency.ResolveAsync`), so a differing
-  month can only be legacy data from before W08 (the ForeignAmounts migration left months unchanged).
+  month can only be legacy data from before W08. The ForeignAmounts migration never restamps a month,
+  and it refuses to run while any household's months are in more than one currency (CURR-056), so
+  on a migrated database a mixed history can only be seeded by hand.
 - **Flag off (server `Features:Reports=false`)**: `/api/features` reports `reports:false` -> nav
   link hidden, `/reports` route unregistered (deep link -> redirect to `/`), and the API 404s as
   defence-in-depth. If the SPA's `/features` fetch *fails* (FeatureContext falls back to all-on,
@@ -273,8 +275,10 @@ Landing/legal pages have no forms and no validation.
 
 Server (all decimal(18,4); actuals ALWAYS derived at read time via
 `BudgetActuals.ApplyAsync` - src/AllotJar.Application/Budgets/BudgetActuals.cs):
-- Per line: ActualAmount = sum(assigned whole transactions of the line's kind: Amount)
-  + sum(split slices: Split.Amount). There is no exchange rate (W08 dropped `ExchangeRate`/`BaseAmount`):
+- Per line: ActualAmount = sum(assigned whole transactions of the line's kind: BudgetAmount ?? Amount)
+  + sum(split slices: Split.BudgetAmount ?? Split.Amount); `BudgetAmount` is set only on a row on a
+  legacy account kept in another currency (its budget figure; the account keeps `Amount`), and the
+  uncategorised figures in `ReportFigures` read the same. There is no exchange rate (W08 dropped `ExchangeRate`/`BaseAmount`):
   a row still waiting for its budget-currency amount (`FxPending`) and its slices count nowhere, and
   every report (trends, annual, month breakdown — all via `ReportFigures.ForMonthAsync`) leaves it out
   and only counts it in `fxPendingCount` on the DTOs, which ReportsPage does not display (RPT-042). Income lines roll up Income transactions; all other

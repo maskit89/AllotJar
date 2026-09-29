@@ -78,7 +78,7 @@ public class GetMemberSpendingQueryHandler
                             pendingByMember[sliceMember] = pendingByMember.GetValueOrDefault(sliceMember) + 1;
                             continue;
                         }
-                        spentByMember[sliceMember] = spentByMember.GetValueOrDefault(sliceMember) + sign * slice.Amount;
+                        spentByMember[sliceMember] = spentByMember.GetValueOrDefault(sliceMember) + sign * (slice.BudgetAmount ?? slice.Amount);
                     }
                 }
             }
@@ -89,7 +89,7 @@ public class GetMemberSpendingQueryHandler
                     pendingByMember[wholeMember] = pendingByMember.GetValueOrDefault(wholeMember) + 1;
                     continue;
                 }
-                spentByMember[wholeMember] = spentByMember.GetValueOrDefault(wholeMember) + sign * t.Amount;
+                spentByMember[wholeMember] = spentByMember.GetValueOrDefault(wholeMember) + sign * (t.BudgetAmount ?? t.Amount);
             }
         }
 

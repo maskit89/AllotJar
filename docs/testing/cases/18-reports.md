@@ -9,7 +9,7 @@
 - **June 2026** — Income budgeted €3,000.00 / received €2,950.00; Housing (Expense) €1,500.00/€1,400.00; Food (Expense) €800.00/€700.00; Emergency Fund (Savings) €300.00/€300.00. Derived: spent €2,400.00, planned €2,600.00.
 - Trends window totals: TotalIncome €6,000.00, TotalIncomeReceived €5,850.00, TotalVariance −€150.00, TotalSpent €5,100.00. Default annual year = **2026**, default breakdown month = **Jun 2026** (`2026-06`).
 
-Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`): income lines roll up **Income** transactions, every other line rolls up **Expense** transactions; whole transactions add `Amount`, split slices add `Split.Amount` (there is no exchange rate since W08; a row still waiting for its budget-currency amount — `FxPending` — and its slices add nothing and are only counted in `fxPendingCount`, which the page does not display); a split parent has `BudgetItemId == null` (no double count); transfers roll up into neither. A **refund** (an Income row linked to a purchase, `RefundOfTransactionId`) is subtracted from the expense/savings line it sits on (`RefundedAmount`) and never reaches an income line; rows and slices on **no** line are reported by their own date through `ReportFigures.ForMonthAsync` as **Uncategorised** (rules 37–39, 41).
+Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`): income lines roll up **Income** transactions, every other line rolls up **Expense** transactions; whole transactions add `BudgetAmount ?? Amount`, split slices add `Split.BudgetAmount ?? Split.Amount` (`BudgetAmount` is set only on a row on a legacy account kept in another currency — CURR-057; there is no exchange rate since W08; a row still waiting for its budget-currency amount — `FxPending` — and its slices add nothing and are only counted in `fxPendingCount`, which the page does not display); a split parent has `BudgetItemId == null` (no double count); transfers roll up into neither. A **refund** (an Income row linked to a purchase, `RefundOfTransactionId`) is subtracted from the expense/savings line it sits on (`RefundedAmount`) and never reaches an income line; rows and slices on **no** line are reported by their own date through `ReportFigures.ForMonthAsync` as **Uncategorised** (rules 37–39, 41).
 
 ---
 
@@ -393,7 +393,7 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** reports-landing map gotcha #10 — `currency = breakdown?.baseCurrency ?? 'EUR'` (the month report's currency) drives every card.
-- **Preconditions:** Legacy data only: June budget `baseCurrency = EUR`, an older budget created before W08 with `baseCurrency = GBP`; both appear in the trend window. (Since W08 every new month takes the household's one budget currency — BUDG-011 — and the ForeignAmounts migration leaves months unchanged, so a mixed history can only come from before it.)
+- **Preconditions:** Legacy data only: June budget `baseCurrency = EUR`, an older budget created before W08 with `baseCurrency = GBP`; both appear in the trend window. (Since W08 every new month takes the household's one budget currency — BUDG-011 — and the ForeignAmounts migration never restamps a month but refuses to run while a household's months are in more than one currency — CURR-056 — so on a migrated database this history has to be seeded directly.)
 - **Steps:**
   1. Load `/reports`; note hero/annual/trend all render in EUR (June breakdown).
   2. Change `Breakdown month` to the GBP month.
