@@ -168,6 +168,38 @@ describe('JarsPage', () => {
     expect(screen.getByText('Add a deadline or a monthly amount to plan contributions')).toBeInTheDocument()
   })
 
+  // Rule 34 (P55): a jar in the user's private account first shows what sharing would expose;
+  // nothing is shared until they choose "Share the account and continue".
+  it('warns before a jar shares a private account, then saves with shareAccount', { timeout: 15000 }, async () => {
+    const warning = "'Joint Current' is private. A jar is part of the household budget, so the account it lives in is visible to everyone."
+    const jarPosts: unknown[] = []
+    mockPost.mockImplementation((url: string, body: unknown) => {
+      if (url !== '/jars') return Promise.resolve({ data: {} })
+      jarPosts.push(body)
+      return jarPosts.length === 1
+        ? Promise.reject({ response: { status: 400, data: { errors: { accountPrivate: [warning] } } } })
+        : Promise.resolve({ data: fund({ id: 'f9', name: 'Vacation' }) })
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'New jar' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(dialog.getByLabelText('Jar name'), 'Vacation')
+    await user.type(dialog.getByLabelText('Target amount'), '1200')
+    fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: '2027-06-01' } })
+    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
+
+    expect(await dialog.findByText(warning)).toBeInTheDocument()
+    expect(jarPosts).toHaveLength(1)
+    expect(jarPosts[0]).not.toHaveProperty('shareAccount')
+    await user.click(dialog.getByRole('button', { name: 'Share the account and continue' }))
+
+    await waitFor(() => expect(jarPosts).toHaveLength(2))
+    expect(jarPosts[1]).toEqual(expect.objectContaining({ name: 'Vacation', shareAccount: true }))
+  })
+
   it('adds a fund from the New jar modal', { timeout: 15000 }, async () => {
     fundsData = []
     mockPost.mockResolvedValue({ data: fund({ id: 'f9', name: 'Vacation', kind: 0, targetAmount: 1200, status: 'OnTrack' }) })

@@ -38,7 +38,9 @@ public class UpdateHouseholdMemberCommandHandler
         // A personal-savings account must exist and belong to this household. It's a soft hint with
         // no FK, so validate here — otherwise a stale or foreign id would be stored and later booked
         // as an allocation transfer into a non-existent (crash) or another household's (leak) account.
-        if (request.PersonalSavingsAccountId is Guid savingsId)
+        // An unchanged choice is kept as it is: it may be the person's own private account, which
+        // someone else editing them cannot see (P53) and must not lose.
+        if (request.PersonalSavingsAccountId is Guid savingsId && savingsId != member.PersonalSavingsAccountId)
         {
             var owned = await _db.Accounts
                 .AnyAsync(a => a.Id == savingsId && a.OwnerId == userId, cancellationToken);

@@ -77,6 +77,27 @@ public class DeleteAccountCommandHandler : IRequestHandler<DeleteAccountCommand>
             });
         }
 
+        // Rule 31 (P56): a private account's own money, off the budget, is seen only by its holder.
+        // Unlinked from the account it would land in everyone's view, so it goes first.
+        if (await _db.AccountPrivacies.AnyAsync(p => p.AccountId == account.Id, cancellationToken))
+        {
+            var privateCount = await _db.Transactions.CountAsync(
+                t => t.AccountId == account.Id && t.BudgetItemId == null && !t.Splits.Any(s => s.BudgetItemId != null),
+                cancellationToken);
+            if (privateCount > 0)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["Id"] = new[]
+                    {
+                        $"'{account.Name}' is private and still has {privateCount} transaction{(privateCount == 1 ? "" : "s")} " +
+                        "off the budget. Deleting the account would show them to the whole household. Delete them first, " +
+                        "or share the account if the household may see them.",
+                    },
+                });
+            }
+        }
+
         // Unlink the account's other transactions explicitly so they survive the delete
         // (the register is the source of truth). This also keeps behaviour identical
         // across providers that don't enforce the FK's ON DELETE SET NULL.

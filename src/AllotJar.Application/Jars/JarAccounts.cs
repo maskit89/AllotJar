@@ -25,6 +25,34 @@ public static class JarAccounts
         return account;
     }
 
+    /// <summary>The error key that tells the client to show the rule 34 warning before sharing.</summary>
+    public const string AccountPrivateKey = "accountPrivate";
+
+    /// <summary>
+    /// Rules 33/34 (P55): a jar is part of the household's budget, so the account it lives in must be
+    /// visible to the household. When the caller picked their own private account, the first attempt
+    /// is refused with <see cref="AccountPrivateKey"/> so the client can warn what would become
+    /// visible; with <paramref name="shareAccount"/> (the user chose "Share the account and
+    /// continue") the account is shared. Money never moves here.
+    /// </summary>
+    public static async Task EnsureVisibleForJarAsync(
+        IApplicationDbContext db, Account account, bool shareAccount, CancellationToken cancellationToken)
+    {
+        var privacy = await db.AccountPrivacies.FirstOrDefaultAsync(p => p.AccountId == account.Id, cancellationToken);
+        if (privacy is null)
+        {
+            return;
+        }
+        if (!shareAccount)
+        {
+            throw Validation(AccountPrivateKey,
+                $"'{account.Name}' is private. A jar is part of the household budget, so the account it lives in " +
+                $"is visible to everyone: sharing this jar shows the household '{account.Name}', its balance and " +
+                "all its transactions. Share the account, or pick another account for the jar.");
+        }
+        db.AccountPrivacies.Remove(privacy);
+    }
+
     public static ValidationException Validation(string key, string message) =>
         new(new Dictionary<string, string[]> { [key] = new[] { message } });
 }

@@ -92,7 +92,8 @@ public record PreferencesResponse(
     string NumberFormat);
 
 /// <summary>The authenticated login's identity, active household, access level and preferences.
-/// <see cref="NeedsConsent"/> flags invite-created logins that haven't accepted the terms yet.</summary>
+/// <see cref="NeedsConsent"/> flags invite-created logins that haven't accepted the terms yet.
+/// <see cref="SharingReviewPending"/> asks the login to review who sees its personal accounts (rule 32).</summary>
 public record MeResponse(
     string UserId,
     string Email,
@@ -108,7 +109,8 @@ public record MeResponse(
     bool NeedsConsent,
     bool HasPassword,
     bool HasGoogle,
-    bool EmailConfirmed);
+    bool EmailConfirmed,
+    bool SharingReviewPending = false);
 
 /// <summary>One household the login can act in, for the household switcher. The active one has <see cref="IsActive"/>.</summary>
 public record HouseholdSummary(string OwnerId, string Label, HouseholdRole Role, bool IsActive, bool IsOwn);

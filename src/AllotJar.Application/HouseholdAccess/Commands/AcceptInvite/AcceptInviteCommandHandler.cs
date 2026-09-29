@@ -106,6 +106,8 @@ public class AcceptInviteCommandHandler : IRequestHandler<AcceptInviteCommand, A
     private static void Activate(HouseholdMembership membership, string? displayName)
     {
         membership.Status = MembershipStatus.Active;
+        // Rule 32: a person who gains a login reviews who sees the accounts they already hold.
+        membership.SharingReviewPending = membership.MemberId is not null;
         membership.InviteTokenHash = null;
         membership.InviteExpiresUtc = null;
         if (!string.IsNullOrWhiteSpace(displayName))

@@ -7,6 +7,9 @@ import { Modal } from '../components/Modal'
 import { AccountsIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { useFeatures } from '../features/FeatureContext'
+import { useHousehold } from '../features/HouseholdContext'
+import { HolderPicker, PrivateCheckbox } from '../components/AccountHolders'
+import { holderNames } from '../lib/accountHolders'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import type { AccountDto, AccountReconciliationDto } from '../types'
@@ -67,8 +70,10 @@ const ID_FIELDS: Array<{ key: keyof Identifiers; label: string; placeholder: str
 
 export function AccountsPage() {
   // Managing accounts needs Admin+ (canWrite); others get a read-only register.
-  const { canWrite, preferredCurrency } = useAuth()
+  const { canWrite, preferredCurrency, memberId } = useAuth()
   const { multiCurrency } = useFeatures()
+  // W13: the people who can hold an account (rule 30).
+  const { members } = useHousehold()
   const [accounts, setAccounts] = useState<AccountDto[]>([])
   const [reconciliation, setReconciliation] = useState<AccountReconciliationDto[]>([])
   const [loading, setLoading] = useState(true)
@@ -85,6 +90,9 @@ export function AccountsPage() {
   const [openingDate, setOpeningDate] = useState(todayIso)
   const [currency, setCurrency] = useState(preferredCurrency)
   const [ids, setIds] = useState<Identifiers>(BLANK_IDS)
+  const [holderIds, setHolderIds] = useState<string[]>([])
+  // Rule 31: an account you add for yourself alone starts private unless you untick this.
+  const [keepPrivate, setKeepPrivate] = useState(true)
   const [adding, setAdding] = useState(false)
 
   // Inline (in-card) edit.
@@ -94,6 +102,7 @@ export function AccountsPage() {
   const [eOpening, setEOpening] = useState('')
   const [eOpeningDate, setEOpeningDate] = useState('')
   const [eIds, setEIds] = useState<Identifiers>(BLANK_IDS)
+  const [eHolderIds, setEHolderIds] = useState<string[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -121,6 +130,8 @@ export function AccountsPage() {
     }
   }, [accounts])
 
+  const ownPersonal = !!memberId && holderIds.length === 1 && holderIds[0] === memberId
+
   const addAccount = useCallback(async () => {
     if (name.trim() === '') {
       setError('Give the account a name.')
@@ -145,6 +156,8 @@ export function AccountsPage() {
         openingBalance,
         openingDate,
         ...identifiersPayload(ids),
+        holderIds,
+        ...(ownPersonal ? { isPrivate: keepPrivate } : {}),
       })
       setAccounts((prev) => [...prev, data])
       track(EVENTS.accountCreated, { kind: ACCOUNT_TYPE_LABELS[type] ?? 'unknown' })
@@ -153,13 +166,15 @@ export function AccountsPage() {
       setOpeningDate(todayIso())
       setCurrency(preferredCurrency)
       setIds(BLANK_IDS)
+      setHolderIds([])
+      setKeepPrivate(true)
       setShowAdd(false)
     } catch (err) {
       setError(serverErrors(err) ?? 'Could not add that account.')
     } finally {
       setAdding(false)
     }
-  }, [name, type, opening, openingDate, currency, ids, preferredCurrency])
+  }, [name, type, opening, openingDate, currency, ids, preferredCurrency, holderIds, keepPrivate, ownPersonal])
 
   function startEdit(a: AccountDto) {
     setEditingId(a.id)
@@ -168,6 +183,7 @@ export function AccountsPage() {
     setEOpening(toEditString(fromAmount(a.openingBalance)))
     setEOpeningDate(a.openingDate ?? '')
     setEIds(identifiersFrom(a))
+    setEHolderIds((a.holders ?? []).map((h) => h.memberId))
   }
 
   const saveEdit = useCallback(
@@ -194,6 +210,8 @@ export function AccountsPage() {
           openingBalance,
           openingDate: eOpeningDate,
           ...identifiersPayload(eIds),
+          // Sent only once the people are known, so an unloaded list never clears the holders.
+          ...(members.length > 0 ? { holderIds: eHolderIds } : {}),
         })
         setAccounts((prev) => prev.map((a) => (a.id === id ? data : a)))
         track(EVENTS.accountEdited)
@@ -204,8 +222,22 @@ export function AccountsPage() {
         setSavingId(null)
       }
     },
-    [eName, eType, eOpening, eOpeningDate, eIds],
+    [eName, eType, eOpening, eOpeningDate, eIds, eHolderIds, members.length],
   )
+
+  // Rules 31/33: the holder's own choice of who sees their personal account.
+  const setSharing = useCallback(async (a: AccountDto, isPrivate: boolean) => {
+    setSavingId(a.id)
+    setError(null)
+    try {
+      const { data } = await api.put<AccountDto>(`/accounts/${a.id}/sharing`, { isPrivate })
+      setAccounts((prev) => prev.map((x) => (x.id === a.id ? data : x)))
+    } catch (err) {
+      setError(serverErrors(err) ?? 'Could not change who sees that account.')
+    } finally {
+      setSavingId(null)
+    }
+  }, [])
 
   const remove = useCallback(async (id: string) => {
     setSavingId(id)
@@ -310,6 +342,8 @@ export function AccountsPage() {
                 className="w-full"
               />
             </label>
+            <HolderPicker members={members} value={holderIds} onChange={setHolderIds} />
+            {ownPersonal && <PrivateCheckbox checked={keepPrivate} onChange={setKeepPrivate} />}
             {multiCurrency && (
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
                 Currency
@@ -483,6 +517,7 @@ export function AccountsPage() {
                           className="w-full"
                         />
                       ))}
+                      <HolderPicker members={members} value={eHolderIds} onChange={setEHolderIds} accountName={a.name} />
                       {multiCurrency && (
                         <p className="text-xs text-slate-500">
                           Currency <span className="font-semibold text-slate-700">{a.currency}</span> — fixed once created.
@@ -517,6 +552,8 @@ export function AccountsPage() {
                             {a.currency}
                           </span>
                         )}
+                        {a.isPrivate && <Badge tone="violet">Private</Badge>}
+                        {(a.holders?.length ?? 0) > 1 && <Badge tone="brand">Joint</Badge>}
                         <span className="rounded-full border border-slate-200 px-2.5 py-0.5 text-xs font-medium text-slate-500">
                           {ACCOUNT_TYPE_LABELS[a.type] ?? 'Other'}
                         </span>
@@ -524,6 +561,9 @@ export function AccountsPage() {
                     </div>
                     <div>
                       <div className="text-[14.5px] font-semibold text-slate-900">{a.name}</div>
+                      {(a.holders?.length ?? 0) > 0 && (
+                        <div className="text-xs text-slate-500">Held by {holderNames(a)}</div>
+                      )}
                       {balanceMinor === null ? (
                         <div className="mt-0.5">
                           <div className="text-[19px] font-bold text-slate-500">Not available</div>
@@ -560,6 +600,24 @@ export function AccountsPage() {
                         </div>
                       )}
                     </div>
+                    {a.canChangeSharing && (
+                      <div className="relative z-10 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                        {a.isPrivate ? (
+                          <>
+                            <span>Only you can see this account.</span>
+                            <Button size="sm" variant="ghost" onClick={() => setSharing(a, false)} disabled={savingId === a.id} aria-label={`Share ${a.name} with the household`}>
+                              Share with household
+                            </Button>
+                          </>
+                        ) : a.sharingBlockedReason ? (
+                          <span title={a.sharingBlockedReason}>Visible to the household: a jar uses it.</span>
+                        ) : (
+                          <Button size="sm" variant="ghost" onClick={() => setSharing(a, true)} disabled={savingId === a.id} aria-label={`Make ${a.name} private`}>
+                            Make private
+                          </Button>
+                        )}
+                      </div>
+                    )}
                     {canWrite && (
                       <div className="absolute bottom-3 right-3 z-10 flex gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
                         <button

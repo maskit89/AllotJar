@@ -42,6 +42,12 @@ public class TransactionDto
     public Guid? TransferAccountId { get; set; }
     public string? TransferAccountName { get; set; }
 
+    /// <summary>
+    /// True when an account this money moved in is private to another login (P56/P57): its name
+    /// reads "Private account" and only its holder can change the entry.
+    /// </summary>
+    public bool InPrivateAccount { get; set; }
+
     /// <summary>For a transfer: the source bank's posting date, or null while the departure is unknown (held for review).</summary>
     public DateOnly? DepartedOn { get; set; }
 
@@ -108,6 +114,13 @@ public class TransactionSplitDto
 
 public static class TransactionMapping
 {
+    /// <summary>How an account private to another login is named wherever its money is visible (P56/P57).</summary>
+    public const string PrivateAccountName = "Private account";
+
+    // Every read path loads (or tracks) the account navigations, and the query filter leaves one
+    // empty only when the account is private to another login.
+    private static bool Hidden(Guid? id, Account? account) => id is not null && account is null;
+
     public static TransactionDto ToDto(this Transaction t) => new()
     {
         Id = t.Id,
@@ -126,9 +139,10 @@ public static class TransactionMapping
         BudgetItemYear = t.BudgetItem?.BudgetCategory?.BudgetMonth?.Year,
         BudgetItemMonth = t.BudgetItem?.BudgetCategory?.BudgetMonth?.Month,
         AccountId = t.AccountId,
-        AccountName = t.Account?.Name,
+        AccountName = Hidden(t.AccountId, t.Account) ? PrivateAccountName : t.Account?.Name,
         TransferAccountId = t.TransferAccountId,
-        TransferAccountName = t.TransferAccount?.Name,
+        TransferAccountName = Hidden(t.TransferAccountId, t.TransferAccount) ? PrivateAccountName : t.TransferAccount?.Name,
+        InPrivateAccount = Hidden(t.AccountId, t.Account) || Hidden(t.TransferAccountId, t.TransferAccount),
         DepartedOn = t.Type == TransactionType.Transfer ? t.DepartedOn : null,
         ReceivedOn = t.Type == TransactionType.Transfer ? t.ReceivedOn : null,
         ReceiptBankReference = t.Type == TransactionType.Transfer ? t.ReceiptBankReference : null,

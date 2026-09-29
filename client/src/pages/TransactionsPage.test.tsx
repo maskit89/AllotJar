@@ -265,6 +265,24 @@ describe('TransactionsPage manual sheet', () => {
     await waitFor(() => expect(screen.queryByText('Tesco')).not.toBeInTheDocument())
   })
 
+  // W13 (P56): money from someone else's private account shows on the budget line it was put on,
+  // named "Private account", and only its holder can change it.
+  it('shows another login\'s private-account entry read-only', { timeout: 15000 }, async () => {
+    mockLoad([
+      { ...tx(), id: 't2', payee: 'Lidl', accountId: 'p9', accountName: 'Private account', budgetItemId: 'i-food', budgetItemName: 'Groceries', inPrivateAccount: true },
+      tx(),
+    ])
+
+    renderPage()
+
+    expect(await screen.findByText('Lidl', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText('Private account')).toBeInTheDocument()
+    expect(screen.getByLabelText('Delete transaction: Tesco')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Delete transaction: Lidl')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Edit transaction: Lidl')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Reassign Lidl')).not.toBeInTheDocument()
+  })
+
   it('edits a transaction inline', { timeout: 15000 }, async () => {
     mockLoad([tx()])
     mockPut.mockResolvedValue({ data: { ...tx(), payee: 'Aldi', amount: 31.5 } })

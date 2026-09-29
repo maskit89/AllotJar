@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Accounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Household.Dtos;
@@ -47,6 +48,7 @@ public class GetMemberSpendingQueryHandler
         var query = _db.Transactions
             .AsNoTracking()
             .Include(t => t.Splits)
+            .Where(HouseholdMoney.Counts(_db))
             .Where(t => t.OwnerId == userId
                         && (t.Type == TransactionType.Expense || t.RefundOfTransactionId != null));
         if (request.Year is int year && request.Month is int month)
@@ -59,6 +61,7 @@ public class GetMemberSpendingQueryHandler
 
         // Base-currency amounts, like the budget grid; a row whose rate is still pending is
         // counted separately rather than at face value (rules 41–44).
+        var privateAccounts = await HouseholdMoney.PrivateAccountIdsAsync(_db, expenses, cancellationToken);
         var spentByMember = new Dictionary<Guid, decimal>();
         var pendingByMember = new Dictionary<Guid, int>();
         foreach (var t in expenses)
@@ -66,7 +69,7 @@ public class GetMemberSpendingQueryHandler
             var sign = t.IsRefund ? -1m : 1m;
             if (t.Splits.Count > 0)
             {
-                foreach (var slice in t.Splits)
+                foreach (var slice in t.Splits.Where(slice => HouseholdMoney.SliceCounts(t, slice, privateAccounts)))
                 {
                     if (slice.MemberId is Guid sliceMember && memberIds.Contains(sliceMember))
                     {

@@ -120,6 +120,18 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
             }
             if (!savingsAccounts.TryGetValue(savingsId, out var savings))
             {
+                // P53: another login's private account is not there for this caller to pay into.
+                if (await _db.AccountPrivacies.AnyAsync(p => p.AccountId == savingsId, cancellationToken))
+                {
+                    throw new ValidationException(new Dictionary<string, string[]>
+                    {
+                        ["Allocation"] = new[]
+                        {
+                            $"{m.Name}'s savings account is private, so only {m.Name} can record a transfer into it. " +
+                            $"Point {m.Name}'s savings at a shared account on the People page, or leave it empty.",
+                        },
+                    });
+                }
                 throw new NotFoundException($"Savings account {savingsId} was not found.");
             }
             // A member whose savings account IS the allocation source would get a no-op
