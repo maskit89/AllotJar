@@ -58,6 +58,9 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         builder.Property(t => t.ReceiptBankReference)
             .HasMaxLength(140);
 
+        builder.Property(t => t.BankEntry)
+            .HasMaxLength(40);
+
         builder.Property(t => t.ReturnBankReference)
             .HasMaxLength(140);
 

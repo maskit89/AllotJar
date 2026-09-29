@@ -14,7 +14,8 @@ namespace AllotJar.IntegrationTests;
 /// <summary>
 /// W07's relational guarantees that EF InMemory cannot see: a return only on a departed,
 /// unreceived transfer on or after its departure; one fee row per transfer; one return reference
-/// per statement account; and the migration moving allocation keys out of the bank reference.
+/// per statement account; a transfer edit's lock on every account it touches; and the migration
+/// moving allocation keys out of the bank reference.
 /// </summary>
 [Collection(nameof(SqlServerCollection))]
 public class TransferIdentitySqlTests
@@ -146,6 +147,31 @@ public class TransferIdentitySqlTests
         second.Transactions.Add(again);
         var act = () => second.SaveChangesAsync();
         await act.Should().ThrowAsync<DbUpdateException>();
+    }
+
+    [Fact]
+    public async Task A_transfer_edit_holds_every_account_it_touches_until_it_commits()
+    {
+        // P2-5: an edit can take money from its destination too, so a payment from that account
+        // waits for it instead of validating against a read the edit is about to change.
+        var owner = NewOwner();
+        await using var db = _fixture.CreateContext();
+        var (a, b) = await SeedAccountsAsync(db, owner);
+
+        await using var edit = _fixture.CreateContext();
+        var write = await edit.BeginLedgerWriteAsync(new[] { b.Id, a.Id });
+        await using var payment = _fixture.CreateContext();
+        var waiting = Task.Run(async () =>
+        {
+            await using var other = await payment.BeginLedgerWriteAsync(b.Id);
+            await other!.CommitAsync(CancellationToken.None);
+        });
+
+        await Task.WhenAny(waiting, Task.Delay(TimeSpan.FromSeconds(1)));
+        waiting.IsCompleted.Should().BeFalse("the payment from B waits on the edit's lock");
+        await write!.CommitAsync(CancellationToken.None);
+        await write.DisposeAsync();
+        await waiting.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
     [Fact]

@@ -19,11 +19,13 @@ public static class TransferMatchKinds
 /// transfer's fee after this match (what left beyond what arrived): the user accepts it
 /// explicitly and picks its line. <see cref="RecordedDate"/> is the date recorded in the app for
 /// that leg, which the statement's date replaces. <see cref="SameReference"/> marks a transfer
-/// whose other bank printed this row's reference.
+/// whose other bank printed this row's reference. <see cref="CounterpartyAccountId"/> is null and
+/// the name "Private account" when the other side is private to another login (P57);
+/// <see cref="FeeBudgetItemId"/> is the line the transfer's current fee is on, to pre-fill.
 /// </summary>
 public record TransferMatchCandidate(
     Guid TransferId,
-    Guid CounterpartyAccountId,
+    Guid? CounterpartyAccountId,
     string CounterpartyAccountName,
     decimal Amount,
     string Currency,
@@ -33,6 +35,7 @@ public record TransferMatchCandidate(
 {
     public string Kind { get; init; } = TransferMatchKinds.Match;
     public decimal? Fee { get; init; }
+    public Guid? FeeBudgetItemId { get; init; }
     public DateOnly? RecordedDate { get; init; }
     public bool SameReference { get; init; }
 }

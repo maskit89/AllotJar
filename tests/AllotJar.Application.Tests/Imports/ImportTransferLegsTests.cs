@@ -393,7 +393,7 @@ public class ImportTransferLegsTests
         }
 
         // 150 left and 100 arrived: only a fee the row states explicitly can explain it (O1 answer 5).
-        (await Reject(wrongAmount.Id, a.Id)).Errors["Items"].Single().Should().Contain("confirm that fee");
+        (await Reject(wrongAmount.Id, a.Id)).Errors["Items"].Single().Should().Contain("too large a difference to be a fee");
         (await Reject(alreadyReceived.Id, a.Id)).Errors["Items"].Single().Should().Contain("already confirmed");
         (await Reject(otherSource.Id, a.Id)).Errors["Items"].Single().Should().Contain("different accounts");
         await Assert.ThrowsAsync<ForbiddenAccessException>(() =>
@@ -416,7 +416,7 @@ public class ImportTransferLegsTests
     }
 
     [Fact]
-    public async Task Candidates_RequireAStatementAccount_AndAMatchRequiresTheTransferMarking()
+    public async Task Candidates_RequireAStatementAccount_AndAMatchIsTheTransferItNames()
     {
         await using var db = NewContext();
         var a = SeedAccount(db, "A", 1000m);
@@ -429,9 +429,12 @@ public class ImportTransferLegsTests
         var validator = new CommitImportCommandValidator();
         var row = (await PreviewAsync(db, DestinationStatement, b.Id)).Items.Single();
         var candidate = row.TransferMatches.Single();
-        var unmarked = new CommitImportItem(row.Reference, row.Date, row.Payee, row.Amount, row.Currency, row.IsCredit, null, null,
+        // A match may leave the counterparty to the transfer (its other side can be private, P57),
+        // but it is that transfer: no budget line besides.
+        var named = new CommitImportItem(row.Reference, row.Date, row.Payee, row.Amount, row.Currency, row.IsCredit, null, null,
             MatchTransferId: candidate.TransferId);
-        validator.Validate(new CommitImportCommand(b.Id, new[] { unmarked })).IsValid.Should().BeFalse();
+        validator.Validate(new CommitImportCommand(b.Id, new[] { named })).IsValid.Should().BeTrue();
+        validator.Validate(new CommitImportCommand(b.Id, new[] { named with { BudgetItemId = Guid.NewGuid() } })).IsValid.Should().BeFalse();
         validator.Validate(new CommitImportCommand(b.Id, new[] { AsTransfer(row, a.Id, candidate.TransferId) })).IsValid.Should().BeTrue();
     }
 }

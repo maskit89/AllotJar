@@ -61,8 +61,10 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
         var previousSource = transfer.Account;
         var previousDestination = transfer.TransferAccount;
 
-        // Serialise against the source account's other writers for the rule 74 check below.
-        await using var write = await _db.BeginLedgerWriteAsync(from.Id, cancellationToken);
+        // Serialise against the other writers of every account the edit can take money from (the
+        // rule 74 check below reads all four).
+        await using var write = await _db.BeginLedgerWriteAsync(
+            new[] { from.Id, to.Id, previousSource?.Id ?? from.Id, previousDestination?.Id ?? to.Id }, cancellationToken);
 
         transfer.Account = from;
         transfer.AccountId = from.Id;
@@ -134,7 +136,7 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
     /// <summary>
     /// A leg a bank statement confirmed keeps the bank's account, date and amount: the departure
     /// debited the source <c>amount + fee</c>, the receipt credited the destination <c>amount</c>,
-    /// and a statement-confirmed return stays returned on its date.
+    /// and a statement-confirmed return credited the source <c>amount</c> back on its date.
     /// </summary>
     private static void EnsureConfirmedLegsKept(Transaction transfer, UpdateTransferCommand request)
     {
@@ -159,9 +161,15 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
             if (request.Amount != transfer.Amount && !errors.ContainsKey(nameof(request.Amount)))
                 errors[nameof(request.Amount)] = new[] { Kept("receipt", $"amount ({transfer.Amount:0.00})") };
         }
-        if (transfer.ReturnBankReference is not null && request.ReturnedOn != transfer.ReturnedOn)
+        if (transfer.ReturnBankReference is not null)
         {
-            errors[nameof(request.ReturnedOn)] = new[] { Kept("return", $"date ({transfer.ReturnedOn:yyyy-MM-dd})") };
+            // The source's statement credited this amount back to this account on this date.
+            if (request.ReturnedOn != transfer.ReturnedOn)
+                errors[nameof(request.ReturnedOn)] = new[] { Kept("return", $"date ({transfer.ReturnedOn:yyyy-MM-dd})") };
+            if (request.FromAccountId != transfer.AccountId && !errors.ContainsKey(nameof(request.FromAccountId)))
+                errors[nameof(request.FromAccountId)] = new[] { Kept("return", "account it came back to") };
+            if (request.Amount != transfer.Amount && !errors.ContainsKey(nameof(request.Amount)))
+                errors[nameof(request.Amount)] = new[] { Kept("return", $"amount ({transfer.Amount:0.00})") };
         }
         if (errors.Count > 0)
         {

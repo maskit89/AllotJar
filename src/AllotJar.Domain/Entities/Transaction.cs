@@ -126,6 +126,14 @@ public class Transaction : BaseEntity
     public string? ReturnBankReference { get; set; }
 
     /// <summary>
+    /// What the bank's statement printed under <see cref="BankReference"/> (<c>yyyy-MM-dd|amount|C</c>
+    /// or <c>|D</c>), kept the first time the user changes this row's date, amount or direction,
+    /// so importing that statement again still recognises the entry (rule 88). Null while the row
+    /// reads as the bank printed it.
+    /// </summary>
+    public string? BankEntry { get; set; }
+
+    /// <summary>
     /// The app's own key for an income-allocation transfer (<c>alloc:{year}-{month}:{member}</c>),
     /// so a re-run finds the transfers it recorded. Kept apart from <see cref="BankReference"/>,
     /// which only ever holds a bank statement's reference.

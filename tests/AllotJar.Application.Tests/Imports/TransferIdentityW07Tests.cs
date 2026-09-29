@@ -298,18 +298,27 @@ public class TransferIdentityW07Tests
     }
 
     [Fact]
-    public async Task AReturnMustMatchTheTransferThatLeft_ThisAccount_AndWasNeverReceived()
+    public async Task AReturnMustMatchTheTransferThatLeft_ThisAccount_AndWhoseReceiptNoStatementConfirmed()
     {
         await using var db = NewContext();
         var a = SeedAccount(db, "A", 1000m);
         var b = SeedAccount(db, "B", 200m);
         var received = await Transfers(db).Handle(new CreateTransferCommand(Departure, 100m, a.Id, b.Id, ReceivedOn: Receipt), CancellationToken.None);
+        await ReceiptConfirmedByStatementAsync(db, received.Id);
         var row = (await PreviewAsync(db, ReturnStatement, a.Id)).Items.Single();
-        row.TransferMatches.Should().BeEmpty("a transfer that arrived can't come back");
+        row.TransferMatches.Should().BeEmpty("B's statement shows the money arrived, so it can't come back");
 
         var ex = await Assert.ThrowsAsync<ValidationException>(() => CommitAsync(db, a.Id, Row(row) with { ReturnOfTransferId = received.Id }));
-        ex.Errors["Items"].Single().Should().Contain("it was received");
+        ex.Errors["Items"].Single().Should().Contain("its receipt is confirmed by a statement");
         (await ReloadAsync(db, received.Id)).ReturnedOn.Should().BeNull();
+    }
+
+    private static async Task ReceiptConfirmedByStatementAsync(ApplicationDbContext db, Guid transferId)
+    {
+        var transfer = await db.Transactions.SingleAsync(t => t.Id == transferId);
+        transfer.ReceiptBankReference = "B-RECEIPT-1";
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
     }
 
     // ── O1 answer 5: an explicit transfer fee ──

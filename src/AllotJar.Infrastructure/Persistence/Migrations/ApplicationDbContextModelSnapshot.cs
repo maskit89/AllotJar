@@ -690,6 +690,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 4)
                         .HasColumnType("decimal(18,4)");
 
+                    b.Property<string>("BankEntry")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
                     b.Property<string>("BankReference")
                         .HasMaxLength(140)
                         .HasColumnType("nvarchar(140)");

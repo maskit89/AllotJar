@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Imports;
 using AllotJar.Application.Accounts;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Dtos;
@@ -236,6 +237,17 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         if (transaction.FxPending && request.Amount != transaction.Amount)
         {
             transaction.FxPending = false;
+        }
+
+        // An imported row keeps what its bank printed the first time it is changed, so importing
+        // that statement again recognises the entry instead of offering it anew (rule 88).
+        if (transaction.BankReference is not null && transaction.BankEntry is null
+            && (request.Date != transaction.Date || request.Amount != transaction.Amount || request.Type != transaction.Type))
+        {
+            transaction.BankEntry = StatementReferences.Entry(
+                transaction.Type == TransactionType.Transfer ? transaction.DepartedOn ?? transaction.Date : transaction.Date,
+                transaction.Type == TransactionType.Transfer ? transaction.Amount + (transaction.Fee?.Amount ?? 0m) : transaction.Amount,
+                transaction.Type == TransactionType.Income);
         }
 
         transaction.Date = request.Date;

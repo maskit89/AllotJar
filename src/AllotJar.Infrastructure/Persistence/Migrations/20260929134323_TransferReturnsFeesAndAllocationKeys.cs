@@ -12,6 +12,13 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AddColumn<string>(
+                name: "BankEntry",
+                table: "Transactions",
+                type: "nvarchar(40)",
+                maxLength: 40,
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
                 name: "AllocationKey",
                 table: "Transactions",
                 type: "nvarchar(100)",
@@ -120,6 +127,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
             migrationBuilder.DropColumn(
                 name: "ReturnedOn",
+                table: "Transactions");
+
+            migrationBuilder.DropColumn(
+                name: "BankEntry",
                 table: "Transactions");
         }
     }

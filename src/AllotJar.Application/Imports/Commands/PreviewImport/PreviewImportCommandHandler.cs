@@ -155,9 +155,9 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
                     .Select(t => (Transfer: t, Candidate: StatementReferences.CandidateFor(
                         t, statementAccount, e.IsCredit, e.Amount, e.Currency, e.BookingDate, e.Reference)))
                     .Where(x => x.Candidate is not null)
-                    .OrderByDescending(x => x.Candidate!.SameReference)
+                    .OrderBy(x => x.Candidate!.Fee is null ? 0 : 1)
+                    .ThenByDescending(x => x.Candidate!.SameReference)
                     .ThenBy(x => Math.Abs((x.Transfer.DepartedOn ?? x.Transfer.ReceivedOn ?? e.BookingDate).DayNumber - e.BookingDate.DayNumber))
-                    .ThenBy(x => x.Candidate!.Fee is null ? 0 : 1)
                     .Select(x => x.Candidate!)
                     .ToList()
                 : [];

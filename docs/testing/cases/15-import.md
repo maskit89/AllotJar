@@ -927,8 +927,8 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
   1. Preview the Joint statement; pick the transfer as the match on the 102.50 debit.
   2. Try to import without accepting the fee, then accept it, pick a budget line for the fee and import.
   3. Repeat with the Savings credit of 98.00.
-- **Expected:** (a) The candidate carries `fee = 2.50` (the debit is larger than the transfer). (b) The candidate carries `fee = 2.00` (the credit is smaller). In both cases the user must accept the fee explicitly and pick its budget line in the review grid (echoed on commit as `fee`, `feeBudgetItemId`); a match is never confirmed with a fee the user has not accepted. Once accepted, the transfer is confirmed and a separate fee expense row is created on the **source** account, dated the departure, on the chosen line.
-- **Automated:** Partial (TransferIdentityW07Tests.cs)
+- **Expected:** (a) The candidate carries `fee = 2.50` (the debit is larger than the transfer). (b) The candidate carries `fee = 2.00` (the credit is smaller). In both cases the user must accept the fee explicitly and pick its budget line in the review grid (echoed on commit as `fee`, `feeBudgetItemId`; the server refuses a fee without a line, "Choose the budget line the transfer's fee is spent from."); a transfer that already has a fee pre-fills that fee's line. A match is never confirmed with a fee the user has not accepted, and a fee is only proposed while it is at most 10% of what arrives: a 1,100.00 debit is not offered as the 100.00 transfer with a fee of 1,000.00. Exact-amount candidates are listed before fee candidates. Once accepted, the transfer is confirmed and a separate fee expense row is created on the **source** account, dated the departure, on the chosen line.
+- **Automated:** Partial (TransferIdentityW07Tests.cs, TransferIdentityW07ReviewTests.cs)
 
 ### IMP-095 - Same-day rows are judged on the day's closing balance, credits first
 - **Priority:** P0

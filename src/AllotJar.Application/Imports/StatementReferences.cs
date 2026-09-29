@@ -3,16 +3,21 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Models;
+using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 
 namespace AllotJar.Application.Imports;
 
 /// <summary>What a statement account already recorded under one bank reference: the entry's date, amount and direction on that account.</summary>
-public sealed record KnownEntry(DateOnly Date, decimal Amount, bool IsCredit)
+/// <paramref name="BankEntry"/> is what the bank printed, when the user has since changed the row
+/// (<see cref="Transaction.BankEntry"/>): the statement's entry is then recognised by it.
+public sealed record KnownEntry(DateOnly Date, decimal Amount, bool IsCredit, string? BankEntry = null)
 {
     public bool Matches(DateOnly date, decimal amount, bool isCredit) =>
-        Date == date && Amount == amount && IsCredit == isCredit;
+        BankEntry is not null
+            ? BankEntry == StatementReferences.Entry(date, amount, isCredit)
+            : Date == date && Amount == amount && IsCredit == isCredit;
 }
 
 /// <summary>
@@ -102,7 +107,7 @@ public static class StatementReferences
             .Select(t => new
             {
                 t.Type, t.AccountId, t.Amount, t.Date, t.DepartedOn, t.ReceivedOn, t.ReturnedOn,
-                t.BankReference, t.ReceiptBankReference, t.ReturnBankReference,
+                t.BankReference, t.ReceiptBankReference, t.ReturnBankReference, t.BankEntry,
                 Fee = t.Fee != null ? t.Fee.Amount : 0m,
             })
             .ToListAsync(cancellationToken);
@@ -116,9 +121,9 @@ public static class StatementReferences
                 {
                     entries.TryAdd(t.BankReference, t.Type switch
                     {
-                        TransactionType.Income => new KnownEntry(t.Date, t.Amount, true),
-                        TransactionType.Transfer => new KnownEntry(t.DepartedOn ?? t.Date, t.Amount + t.Fee, false),
-                        _ => new KnownEntry(t.Date, t.Amount, false),
+                        TransactionType.Income => new KnownEntry(t.Date, t.Amount, true, t.BankEntry),
+                        TransactionType.Transfer => new KnownEntry(t.DepartedOn ?? t.Date, t.Amount + t.Fee, false, t.BankEntry),
+                        _ => new KnownEntry(t.Date, t.Amount, false, t.BankEntry),
                     });
                 }
                 if (t.ReturnBankReference is not null)
@@ -133,6 +138,10 @@ public static class StatementReferences
         }
         return new KnownReferences(entries);
     }
+
+    /// <summary>One statement entry's details as <see cref="Transaction.BankEntry"/> keeps them.</summary>
+    public static string Entry(DateOnly date, decimal amount, bool isCredit) =>
+        $"{date:yyyy-MM-dd}|{amount.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)}|{(isCredit ? 'C' : 'D')}";
 
     /// <summary>
     /// The reference a row with a reused bank reference is stored under: the bank's reference
@@ -167,8 +176,16 @@ public static class StatementReferences
                              && (t.ReceivedOn == null || t.ReceiptBankReference == null) && t.ReturnedOn == null)
                             || (t.AccountId == accountId
                                 && (t.DepartedOn == null || t.BankReference == null
-                                    || (t.ReceivedOn == null && t.ReturnBankReference == null)))))
+                                    || ((t.ReceivedOn == null || t.ReceiptBankReference == null)
+                                        && t.ReturnBankReference == null)))))
             .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// The largest fee a statement row can propose, against what arrives: a larger difference is
+    /// another payment, not this transfer (a 1,100 rent debit is not last month's 100 transfer
+    /// with a fee of 1,000).
+    /// </summary>
+    public const decimal MaxProposedFeeShare = 0.10m;
 
     /// <summary>
     /// How a statement row on <paramref name="accountId"/> can confirm a leg of
@@ -176,10 +193,15 @@ public static class StatementReferences
     /// source was debited the transfer's amount plus its fee, so a larger debit means a fee of the
     /// difference that the user must accept (O1 answer 5). A credit confirms the receipt: a
     /// smaller credit means the difference was a fee taken on the way, when the departure is
-    /// known. A credit on the source of a transfer that departed and was never received confirms
-    /// the money coming back (O1 answer 4). A leg recorded in the app without a statement
-    /// reference can be confirmed too: the bank's date replaces the recorded one (rule 69) and no
-    /// money moves again (rules 8/71). A leg a statement already confirmed is never offered.
+    /// known. A fee is proposed only while it is small against what arrives
+    /// (<see cref="MaxProposedFeeShare"/>). A credit on the source of a transfer that departed and
+    /// whose receipt no statement confirmed confirms the money coming back (O1 answer 4). A leg
+    /// recorded in the app without a statement reference can be confirmed too: the bank's date
+    /// replaces the recorded one (rule 69) and no money moves again (rules 8/71). A leg a
+    /// statement already confirmed is never offered. The transfer's <see cref="Transaction.Account"/>
+    /// and <see cref="Transaction.TransferAccount"/> must be loaded through the privacy filter: a
+    /// side private to another login reads "Private account", and nothing that would change that
+    /// side (a fee taken from it, a return that undoes its receipt) is offered (P57).
     /// </summary>
     public static TransferMatchCandidate? CandidateFor(
         Transaction transfer, Guid accountId, bool isCredit, decimal amount, string currency, DateOnly date, string? reference)
@@ -190,8 +212,11 @@ public static class StatementReferences
             return null;
         }
         var fee = transfer.Fee?.Amount ?? 0m;
+        var sourceHidden = transfer.Account is null;
+        var destinationHidden = transfer.TransferAccount is null;
         bool SameAs(string? other) =>
             reference is not null && other is not null && string.Equals(reference, other, StringComparison.OrdinalIgnoreCase);
+        bool Proposable(decimal proposed, decimal arriving) => proposed <= arriving * MaxProposedFeeShare;
 
         if (!isCredit)
         {
@@ -200,31 +225,31 @@ public static class StatementReferences
             {
                 return null;
             }
-            decimal? newFee = transfer.Amount + fee == amount ? null
-                : transfer.Amount < amount ? amount - transfer.Amount
-                : (decimal?)-1m;
-            if (newFee == -1m)
+            if (transfer.Amount + fee == amount)
             {
-                return null;
+                return Candidate(transfer, false, TransferMatchKinds.Match, null, transfer.DepartedOn, SameAs(transfer.ReceiptBankReference));
             }
-            return Candidate(transfer, transfer.TransferAccount!, TransferMatchKinds.Match, newFee,
-                transfer.DepartedOn, SameAs(transfer.ReceiptBankReference));
+            return transfer.Amount < amount && Proposable(amount - transfer.Amount, transfer.Amount)
+                ? Candidate(transfer, false, TransferMatchKinds.Match, amount - transfer.Amount, transfer.DepartedOn, SameAs(transfer.ReceiptBankReference))
+                : null;
         }
 
         if (transfer.TransferAccountId == accountId && IsOpenFor(transfer, accountId, true))
         {
-            decimal? newFee = transfer.Amount == amount ? null
-                : transfer.Amount > amount && transfer.DepartedOn is not null ? transfer.Amount + fee - amount
-                : (decimal?)-1m;
-            return newFee == -1m
-                ? null
-                : Candidate(transfer, transfer.Account!, TransferMatchKinds.Match, newFee,
-                    transfer.ReceivedOn, SameAs(transfer.BankReference));
+            if (transfer.Amount == amount)
+            {
+                return Candidate(transfer, true, TransferMatchKinds.Match, null, transfer.ReceivedOn, SameAs(transfer.BankReference));
+            }
+            // The fee is taken from the source: not offered when that side is private to another login.
+            var newFee = transfer.Amount + fee - amount;
+            return transfer.Amount > amount && transfer.DepartedOn is not null && !sourceHidden && Proposable(newFee, amount)
+                ? Candidate(transfer, true, TransferMatchKinds.Match, newFee, transfer.ReceivedOn, SameAs(transfer.BankReference))
+                : null;
         }
-        if (transfer.AccountId == accountId && IsReturnableTo(transfer, accountId)
+        if (transfer.AccountId == accountId && IsReturnableTo(transfer, accountId) && !destinationHidden
             && transfer.Amount == amount && date >= transfer.DepartedOn!.Value)
         {
-            return Candidate(transfer, transfer.TransferAccount!, TransferMatchKinds.Return, null, transfer.ReturnedOn, false);
+            return Candidate(transfer, false, TransferMatchKinds.Return, null, transfer.ReturnedOn, false);
         }
         return null;
     }
@@ -241,19 +266,32 @@ public static class StatementReferences
               && (transfer.ReceivedOn is null || transfer.ReceiptBankReference is null)
             : transfer.AccountId == accountId && (transfer.DepartedOn is null || transfer.BankReference is null);
 
-    /// <summary>Whether a credit on <paramref name="accountId"/> can confirm <paramref name="transfer"/> coming back: it left this account, was never received, and no statement confirmed a return yet.</summary>
+    /// <summary>
+    /// Whether a credit on <paramref name="accountId"/> can confirm <paramref name="transfer"/>
+    /// coming back: it left this account, no statement confirmed its receipt (an arrival the app
+    /// only guessed, as "Move money" does, is undone by the return) and none confirmed a return yet.
+    /// </summary>
     public static bool IsReturnableTo(Transaction transfer, Guid accountId) =>
-        transfer.AccountId == accountId && transfer.DepartedOn is not null && transfer.ReceivedOn is null
+        transfer.AccountId == accountId && transfer.DepartedOn is not null
+        && (transfer.ReceivedOn is null || transfer.ReceiptBankReference is null)
         && transfer.ReturnBankReference is null;
 
     private static TransferMatchCandidate Candidate(
-        Transaction transfer, Account counterparty, string kind, decimal? fee, DateOnly? recorded, bool sameReference) =>
-        new(transfer.Id, counterparty.Id, counterparty.Name, transfer.Amount, transfer.Currency.Value,
+        Transaction transfer, bool isCredit, string kind, decimal? fee, DateOnly? recorded, bool sameReference)
+    {
+        // The other side of the transfer: its source for a receipt, its destination otherwise.
+        var (counterpartyId, counterparty) = isCredit && kind == TransferMatchKinds.Match
+            ? (transfer.AccountId!.Value, transfer.Account)
+            : (transfer.TransferAccountId!.Value, transfer.TransferAccount);
+        return new(transfer.Id, counterparty is null ? null : counterpartyId,
+            counterparty?.Name ?? TransactionMapping.PrivateAccountName, transfer.Amount, transfer.Currency.Value,
             transfer.DepartedOn, transfer.ReceivedOn, transfer.Payee)
         {
             Kind = kind,
             Fee = fee,
+            FeeBudgetItemId = transfer.Fee?.BudgetItemId,
             RecordedDate = recorded,
             SameReference = sameReference,
         };
+    }
 }

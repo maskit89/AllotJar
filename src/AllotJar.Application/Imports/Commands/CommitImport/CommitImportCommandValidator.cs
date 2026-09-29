@@ -47,19 +47,25 @@ public class CommitImportCommandValidator : AbstractValidator<CommitImportComman
                 .When(i => i.TransferAccountId is not null)
                 .WithMessage("A transfer can't also be split.");
 
-            // Confirming the other side of a recorded transfer is a transfer decision: the row must
-            // be marked as one, with the counterparty the candidate names.
-            item.RuleFor(i => i.TransferAccountId)
-                .NotNull()
+            // Confirming the other side of a recorded transfer is a transfer decision: the row names
+            // the counterparty the candidate names, or leaves it to the transfer (a side private to
+            // another login has no id this login receives, P57).
+            item.RuleFor(i => i)
+                .Must(i => i.BudgetItemId is null && i.MemberId is null && i.Splits is not { Count: > 0 })
                 .When(i => i.MatchTransferId is not null)
-                .WithMessage("Mark the row as a transfer and choose its account before matching it to a recorded transfer.");
+                .WithMessage("A row that confirms a recorded transfer is that transfer: it takes no budget line, person or split.");
 
-            // A fee is part of a transfer: a debit recorded as one, or a match that states it.
+            // A fee is part of a transfer: a debit recorded as one, or a match that states it. A
+            // fee confirmed here always names the line it is spent from (O1 answer 5, rule 91).
             item.RuleFor(i => i.Fee)
                 .GreaterThan(0m).WithMessage("A fee must be greater than zero.")
                 .When(i => i.Fee.HasValue);
+            item.RuleFor(i => i.FeeBudgetItemId)
+                .NotNull()
+                .When(i => i.Fee is > 0m)
+                .WithMessage("Choose the budget line the transfer's fee is spent from.");
             item.RuleFor(i => i.Fee)
-                .Must((i, fee) => i.TransferAccountId is not null && (i.MatchTransferId is not null || !i.IsCredit))
+                .Must((i, fee) => i.MatchTransferId is not null || (i.TransferAccountId is not null && !i.IsCredit))
                 .When(i => i.Fee.HasValue)
                 .WithMessage("Only a transfer can carry a fee: a payment out recorded as a transfer, or a match that states it.");
             item.RuleFor(i => i.Fee)

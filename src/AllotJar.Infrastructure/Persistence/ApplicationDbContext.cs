@@ -66,17 +66,24 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     /// <inheritdoc />
-    public async Task<ILedgerWrite?> BeginLedgerWriteAsync(Guid accountId, CancellationToken cancellationToken = default)
+    public Task<ILedgerWrite?> BeginLedgerWriteAsync(Guid accountId, CancellationToken cancellationToken = default) =>
+        BeginLedgerWriteAsync(new[] { accountId }, cancellationToken);
+
+    public async Task<ILedgerWrite?> BeginLedgerWriteAsync(IEnumerable<Guid> accountIds, CancellationToken cancellationToken = default)
     {
         if (!Database.IsRelational())
         {
             return null;
         }
         var transaction = await Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken);
-        // Hold the account row until commit: a second writer on the same account waits here and
-        // then validates against the committed money, never against a stale read.
-        await Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT [Id] FROM [Accounts] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {accountId}", cancellationToken);
+        // Hold each account row until commit: a second writer on the same account waits here and
+        // then validates against the committed money, never against a stale read. Always in id
+        // order, so two writers sharing accounts wait for each other instead of deadlocking.
+        foreach (var accountId in accountIds.Distinct().Order())
+        {
+            await Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT [Id] FROM [Accounts] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {accountId}", cancellationToken);
+        }
         return new LedgerWrite(transaction);
     }
 

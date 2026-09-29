@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AllotJar.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260929125546_TransferReturnsFeesAndAllocationKeys")]
+    [Migration("20260929134323_TransferReturnsFeesAndAllocationKeys")]
     partial class TransferReturnsFeesAndAllocationKeys
     {
         /// <inheritdoc />
@@ -692,6 +692,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<decimal>("Amount")
                         .HasPrecision(18, 4)
                         .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("BankEntry")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
 
                     b.Property<string>("BankReference")
                         .HasMaxLength(140)
