@@ -25,8 +25,8 @@ const now = new Date()
  */
 export function GettingStartedChecklist() {
   const { dismissChecklist } = useOnboarding()
-  const { preferredCurrency, households } = useAuth()
-  const noun = currencyNoun(preferredCurrency)
+  const { budgetCurrency, households } = useAuth()
+  const noun = currencyNoun(budgetCurrency)
   const location = useLocation()
   const [open, setOpen] = useState(true)
   const [progress, setProgress] = useState<Progress>(EMPTY)

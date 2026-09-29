@@ -6,6 +6,8 @@ import { FxPendingTag } from '../components/FxPendingTag'
 import { Hero } from '../components/Hero'
 import { TransactionsIcon } from '../components/icons'
 import { api } from '../lib/api'
+import { useAuth } from '../auth/AuthContext'
+import { formatForeign } from '../lib/conversion'
 import type { AccountDto, BudgetMonthDto, TransactionDto } from '../types'
 import { ACCOUNT_TYPE_LABELS, TransactionType } from '../types'
 import { formatMoney, fromAmount } from '../lib/money'
@@ -20,6 +22,7 @@ import { transactionTypeLabel } from '../lib/transactions'
  */
 export function AccountDetailPage() {
   const { id = '' } = useParams()
+  const { budgetCurrency } = useAuth()
   const [account, setAccount] = useState<AccountDto | null>(null)
   const [transactions, setTransactions] = useState<TransactionDto[]>([])
   const [month, setMonth] = useState<BudgetMonthDto | null>(null)
@@ -220,11 +223,21 @@ export function AccountDetailPage() {
                             isTransfer ? 'text-slate-500' : isIncome ? 'text-brand-700 dark:text-brand-200' : 'text-slate-900'
                           }`}
                         >
-                          {t.fxPending && <FxPendingTag />}
+                          {t.fxPending && <FxPendingTag budgetCurrency={budgetCurrency} className="mr-1.5" />}
                           {/* On a single-account register a transfer is signed by direction:
                               − when this account is the source, + when it's the destination. */}
                           {isTransfer ? (t.accountId === id ? '−' : '+') : isIncome ? '+' : '−'}
                           {formatMoney(fromAmount(t.amount), t.currency)}
+                          {!t.fxPending && t.originalCurrency && t.originalAmount != null && (
+                            <span className="mt-0.5 block text-[11px] font-normal text-slate-500" title={`Paid in ${t.originalCurrency}`}>
+                              {formatForeign(t.originalAmount, t.originalCurrency)}
+                            </span>
+                          )}
+                          {!t.fxPending && t.budgetAmount != null && (
+                            <span className="mt-0.5 block text-[11px] font-normal text-slate-500">
+                              Counts as {formatMoney(fromAmount(t.budgetAmount), budgetCurrency)} in the budget
+                            </span>
+                          )}
                         </td>
                       </tr>
                     )

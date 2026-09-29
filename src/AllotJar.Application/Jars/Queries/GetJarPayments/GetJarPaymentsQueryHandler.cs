@@ -86,7 +86,6 @@ public class GetJarPaymentsQueryHandler : IRequestHandler<GetJarPaymentsQuery, I
             Payee = x.Transaction.Payee,
             Amount = x.Transaction.Amount,
             Currency = x.Transaction.Currency.Value,
-            BaseAmount = x.Transaction.BaseAmount,
             FxPending = x.Transaction.FxPending,
             AccountId = x.InPrivateAccount ? null : x.Transaction.AccountId,
             AccountName = x.AccountName,

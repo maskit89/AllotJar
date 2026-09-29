@@ -70,7 +70,7 @@ function ledgers(): JarAccountLedgerDto[] {
 function tx(over: Partial<TransactionDto> = {}): TransactionDto {
   return {
     id: 't1', date: '2026-09-10', payee: 'Tesco', amount: 12.5, currency: 'EUR',
-    exchangeRate: 1, baseAmount: 12.5, type: 0, bankReference: null,
+    type: 0, bankReference: null,
     budgetItemId: null, budgetItemName: null, accountId: 'a2', accountName: 'Savings',
     transferAccountId: null, transferAccountName: null,
     memberId: null, memberName: null,

@@ -103,15 +103,10 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         async Task<IReadOnlyDictionary<Guid, decimal>> PlansAsync() =>
             plans ??= await JarPlanner.PlanMonthAsync(_db, userId, activeJars.Values, request.Year, request.Month, today, cancellationToken);
 
-        // A later month inherits its predecessor's base. The FIRST month adopts the creating
-        // login's preferred currency instead of assuming EUR: the account form defaults to that
-        // same preference, so a hardcoded EUR base would make every account-attached transaction
-        // fail the account-currency invariant for a non-EUR household.
-        var baseCurrency = previous?.BaseCurrency
-            ?? (_identity is not null && _currentUser.UserId is string loginId
-                ? await _identity.GetPreferredCurrencyAsync(loginId)
-                : null)
-            ?? CurrencyCode.Eur;
+        // Every month is in the household's one budget currency (rule 85): the first month's,
+        // or before there is one the owner's chosen currency. Never the creating login's own
+        // preference, which a member who joined the household may have set differently.
+        var baseCurrency = await BudgetCurrency.ResolveAsync(_db, _identity, userId, cancellationToken);
 
         var budget = new BudgetMonth
         {

@@ -55,10 +55,10 @@ function standardRules(costSplit: number, pocketAmount: number, savingsSplit: nu
 
 export function AllocationPage() {
   // Editing the allocation profile needs Admin+; running an allocation is day-to-day (Limited+).
-  const { canWrite, canEnterData, preferredCurrency } = useAuth()
+  const { canWrite, canEnterData, budgetCurrency } = useAuth()
   const { isShared, loading: householdLoading } = useHousehold()
   const navigate = useNavigate()
-  const CURRENCY = preferredCurrency
+  const CURRENCY = budgetCurrency
   // The app-wide selected month (rule 29): the allocation reads the same month and figures as
   // the Budget page, and moves with the top bar's month navigator.
   const { year, month, label: monthLabel } = useMonth()

@@ -225,7 +225,7 @@ function CategoryOptions({ groups }: { groups: ItemOptionGroup[] }) {
 
 export function ImportPage() {
   // Importing a statement creates/edits budget structure, so it needs Admin+ (canWrite).
-  const { canWrite, preferredCurrency } = useAuth()
+  const { canWrite, budgetCurrency } = useAuth()
   const [phase, setPhase] = useState<Phase>('upload')
   const [format, setFormat] = useState<Format>('generic')
   const [file, setFile] = useState<File | null>(null)
@@ -297,7 +297,10 @@ export function ImportPage() {
   const importLedger = accountId ? byAccount.get(accountId) : undefined
   const importJars = useMemo(() => activeJars(importLedger), [importLedger])
   const importBacksJars = importJars.length > 0
-  const importCurrency = importLedger?.currency || importAccount?.currency || preferredCurrency
+  const importCurrency = importLedger?.currency || importAccount?.currency || budgetCurrency
+  // The currency a CSV row without its own currency column is read in: the chosen import
+  // account's currency, else the budget currency.
+  const fallbackCurrency = importAccount?.currency || budgetCurrency
   // The month's jar lines (a savings line names its jar), whose debits never ask for a jar.
   const jarLineIds = useMemo(
     () => new Set((month?.categories ?? []).flatMap((c) => c.items).filter((i) => i.savingsId).map((i) => i.id)),
@@ -369,11 +372,11 @@ export function ImportPage() {
     setBusy(true)
     setError(null)
     try {
-      // Generic CSV auto-detects the layout on first upload; send the home currency as the
-      // fallback. The chosen account scopes the server's already-imported filter to the same
+      // Generic CSV auto-detects the layout on first upload; send the import account's currency
+      // (else the budget currency) as the fallback. The chosen account scopes the server's already-imported filter to the same
       // account the commit will dedup against.
       const opts = {
-        ...(format === 'generic' ? { defaultCurrency: preferredCurrency } : {}),
+        ...(format === 'generic' ? { defaultCurrency: fallbackCurrency } : {}),
         accountId: accountId || null,
       }
       const data = await previewImport(file, FORMATS[format].wire, opts)
@@ -397,7 +400,7 @@ export function ImportPage() {
       const priorRows = rows
       const data = await previewImport(file, 'GenericCsv', {
         mapping,
-        defaultCurrency: preferredCurrency,
+        defaultCurrency: fallbackCurrency,
         accountId: accountId || null,
       })
       applyPreview(data, priorRows)
@@ -905,7 +908,7 @@ export function ImportPage() {
                       )
                     }
                   >
-                    <option value="">Use {preferredCurrency} for every row</option>
+                    <option value="">Use {fallbackCurrency} for every row</option>
                     {layout.columns.map((name, i) => (
                       <option key={i} value={i}>
                         {name}
@@ -1494,7 +1497,7 @@ export function ImportPage() {
             const moneyOut = moneyByCurrency(committedRows, (r) => !r.isTransfer && !r.isCredit)
             const money = (groups: { currency: string; minor: number }[]) =>
               groups.length === 0
-                ? formatMoney(0, preferredCurrency)
+                ? formatMoney(0, budgetCurrency)
                 : groups.map((g) => formatMoney(g.minor, g.currency)).join(' + ')
             return (
               <>

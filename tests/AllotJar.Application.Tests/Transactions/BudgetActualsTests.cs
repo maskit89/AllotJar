@@ -64,7 +64,7 @@ public class BudgetActualsTests
     }
 
     [Fact]
-    public async Task ActualAmount_AppliesExchangeRate()
+    public async Task ActualAmount_CountsTheConfirmedAmount_NotThePaidAbroadFigure()
     {
         await using var db = NewContext();
 
@@ -80,14 +80,15 @@ public class BudgetActualsTests
                 new() { Name = "Leisure", Items = new List<BudgetItem> { travel } },
             },
         });
-        // 40 GBP at 1.15 -> 46.00 EUR in the base currency.
+        // Paid as 40 GBP; the user confirmed 46.00 EUR.
         db.Transactions.Add(new Transaction
         {
             OwnerId = "user-1",
             BudgetItemId = travel.Id,
-            Amount = 40m,
-            Currency = CurrencyCode.From("GBP"),
-            ExchangeRate = 1.15m,
+            Amount = 46m,
+            Currency = CurrencyCode.Eur,
+            OriginalAmount = 40m,
+            OriginalCurrency = CurrencyCode.From("GBP"),
             Type = TransactionType.Expense,
         });
         await db.SaveChangesAsync();

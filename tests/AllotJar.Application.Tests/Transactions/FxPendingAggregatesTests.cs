@@ -5,7 +5,7 @@ using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Queries.GetJars;
 using AllotJar.Application.Tests.TestDoubles;
-using AllotJar.Application.Transactions;
+using AllotJar.Application.Transactions.Commands.ConfirmConvertedAmount;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -14,10 +14,9 @@ using AllotJar.Infrastructure.Persistence;
 namespace AllotJar.Application.Tests.Transactions;
 
 /// <summary>
-/// Pending-FX honesty in the derived aggregates (2026-07-22 re-review F5): a row whose rate is
-/// still the placeholder 1 must be EXCLUDED from budget actuals and jar balances, the month must
-/// carry a pending count so the incompleteness is visible, and the background reconcile entry
-/// point must resolve pending rows for every owner without an import.
+/// A row in another currency that still waits for its budget-currency amount (rules 42/44) is
+/// EXCLUDED from budget actuals and jar balances, and the month carries a count so the
+/// incompleteness is visible. Once the user confirms its amount it counts like any other row.
 /// </summary>
 public class FxPendingAggregatesTests
 {
@@ -57,7 +56,6 @@ public class FxPendingAggregatesTests
             Payee = "Foreign Shop",
             Amount = amount,
             Currency = CurrencyCode.From(currency),
-            ExchangeRate = 1m,
             FxPending = fxPending,
             Type = TransactionType.Expense,
             BudgetItemId = lineId,
@@ -138,35 +136,20 @@ public class FxPendingAggregatesTests
     }
 
     [Fact]
-    public async Task ReconcileAllPending_ResolvesEveryOwnersRows_WithoutAnImport()
+    public async Task A_confirmed_amount_counts_on_its_line_and_leaves_the_waiting_count()
     {
         await using var db = NewContext();
-        SeedJune(db, "user-1");
-        db.Transactions.AddRange(
-            Tx("user-1", 40m, lineId: null, fxPending: true, currency: "GBP"),
-            Tx("user-2", 25m, lineId: null, fxPending: true, currency: "GBP"));
+        var line = SeedJune(db, "user-1");
+        var waiting = Tx("user-1", 40m, line.Id, fxPending: true, currency: "GBP");
+        db.Transactions.Add(waiting);
         await db.SaveChangesAsync();
 
-        var reconciled = await FxRateResolver.ReconcileAllPendingAsync(
-            db, new FakeExchangeRateProvider(1.15m), CancellationToken.None);
+        await new ConfirmConvertedAmountCommandHandler(db, new CurrentUserStub("user-1"))
+            .Handle(new ConfirmConvertedAmountCommand(waiting.Id, 46.80m), CancellationToken.None);
 
-        reconciled.Should().Be(2);
-        var rows = await db.Transactions.ToListAsync();
-        rows.Should().OnlyContain(t => !t.FxPending);
-        rows.Should().OnlyContain(t => t.ExchangeRate == 1.15m);
-    }
-
-    [Fact]
-    public async Task ReconcileAllPending_LeavesRowsPending_WhenTheProviderStillFails()
-    {
-        await using var db = NewContext();
-        db.Transactions.Add(Tx("user-1", 40m, lineId: null, fxPending: true, currency: "GBP"));
-        await db.SaveChangesAsync();
-
-        var reconciled = await FxRateResolver.ReconcileAllPendingAsync(
-            db, new FakeExchangeRateProvider(rate: null), CancellationToken.None);
-
-        reconciled.Should().Be(0);
-        (await db.Transactions.SingleAsync()).FxPending.Should().BeTrue();
+        var month = await new GetBudgetMonthQueryHandler(db, new CurrentUserStub("user-1"))
+            .Handle(new GetBudgetMonthQuery(2026, 6), CancellationToken.None);
+        month.Categories.Single().Items.Single().ActualAmount.Should().Be(46.80m);
+        month.FxPendingCount.Should().Be(0);
     }
 }

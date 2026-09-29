@@ -101,41 +101,15 @@ public class UpdateTransactionTests
     }
 
     [Fact]
-    public async Task Update_AmountEdit_OnAPendingFxRow_ClearsThePendingFlag()
-    {
-        // A pending-FX row counts at face value; editing the amount is the user's manual fix.
-        // The flag must clear, or a later reconcile pass would stamp a real rate onto the
-        // corrected figure and double-convert it.
-        await using var db = NewContext();
-        var tx = new Transaction
-        {
-            OwnerId = "user-1", Date = new DateOnly(2026, 6, 1), Payee = "London Cab",
-            Amount = 40m, Currency = CurrencyCode.From("GBP"), ExchangeRate = 1m,
-            FxPending = true, Type = TransactionType.Expense,
-        };
-        db.Transactions.Add(tx);
-        await db.SaveChangesAsync();
-        var handler = new UpdateTransactionCommandHandler(db, new CurrentUserStub("user-1"));
-
-        await handler.Handle(
-            new UpdateTransactionCommand(tx.Id, tx.Date, "London Cab", 46m, TransactionType.Expense),
-            CancellationToken.None);
-
-        var reloaded = await db.Transactions.SingleAsync(t => t.Id == tx.Id);
-        reloaded.FxPending.Should().BeFalse();
-        reloaded.ExchangeRate.Should().Be(1m); // the corrected face value stands as-is
-    }
-
-    [Fact]
     public async Task Update_NonAmountEdit_KeepsThePendingFlag()
     {
-        // Renaming the payee (amount unchanged) is not a correction of the face value —
-        // the row stays pending so reconciliation can still fetch the real rate.
+        // Renaming the payee changes nothing about the money: the row still waits for its
+        // budget-currency amount (rule 44).
         await using var db = NewContext();
         var tx = new Transaction
         {
             OwnerId = "user-1", Date = new DateOnly(2026, 6, 1), Payee = "LNDN CAB 0042",
-            Amount = 40m, Currency = CurrencyCode.From("GBP"), ExchangeRate = 1m,
+            Amount = 40m, Currency = CurrencyCode.From("GBP"),
             FxPending = true, Type = TransactionType.Expense,
         };
         db.Transactions.Add(tx);

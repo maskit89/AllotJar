@@ -60,7 +60,7 @@ export interface BudgetMonthDto {
   totalPlanned: number
   remainingToBudget: number
   isBalanced: boolean
-  /** Transactions this month still awaiting an exchange rate — excluded from every actual, so >0 marks the totals incomplete. */
+  /** Transactions this month in another currency still waiting for their amount in the budget currency — excluded from every actual, so >0 marks the totals incomplete. */
   fxPendingCount?: number
   categories: BudgetCategoryDto[]
 }
@@ -89,11 +89,23 @@ export interface TransactionDto {
   date: string
   payee: string
   amount: number
+  /** The row's currency. For a confirmed row this is the budget currency and `amount` is in it. */
   currency: string
-  exchangeRate: number
-  baseAmount: number
-  /** True when this foreign row's exchange rate is unresolved (counted at face value until reconciled). */
+  /**
+   * True when the row is in another currency and still waits for the user to enter (or confirm)
+   * its amount in the budget currency. It counts nowhere (budget, reports, people) until then.
+   */
   fxPending?: boolean
+  /** The foreign figure the user paid, when it was paid in another currency (null otherwise). */
+  originalAmount?: number | null
+  /** The currency of `originalAmount` (null when the row was paid in the budget currency). */
+  originalCurrency?: string | null
+  /**
+   * What the row counts in the budget currency when `amount` is an account's other currency (an
+   * account kept from before one-currency budgets): the account keeps `amount`, the budget counts
+   * this. Null on every other row.
+   */
+  budgetAmount?: number | null
   type: number
   bankReference: string | null
   budgetItemId: string | null
@@ -147,6 +159,21 @@ export interface TransactionDto {
    * payment drawn from its budget line's jar or unallocated). Optional so fixtures stay valid.
    */
   jarAllocations?: TransactionJarAllocationDto[]
+}
+
+/**
+ * GET /transactions/conversion-suggestion: a SUGGESTED budget-currency amount for a foreign figure
+ * (ECB reference rate, rounded to 2 decimals by the server). Nothing is saved by asking; the user
+ * must confirm the amount. `rate`/`suggestedAmount` are null when no rate is available.
+ */
+export interface ConversionSuggestionDto {
+  currency: string
+  amount: number
+  budgetCurrency: string
+  date: string
+  rate: number | null
+  suggestedAmount: number | null
+  source: string
 }
 
 export interface TransactionJarAllocationDto {
@@ -466,7 +493,7 @@ export interface BudgetTrendPointDto {
   refunds?: number
   /** Expense rows and refunds still needing a line (flagged for review). */
   uncategorisedCount?: number
-  /** Rows awaiting an exchange rate, left out of the figures. */
+  /** Rows in another currency waiting for their amount in the budget currency, left out of the figures. */
   fxPendingCount?: number
 }
 
@@ -699,7 +726,6 @@ export interface JarPaymentDto {
   payee: string
   amount: number
   currency: string
-  baseAmount: number
   fxPending: boolean
   accountId: string | null
   accountName: string | null
@@ -841,7 +867,7 @@ export interface MemberSpendingDto {
   name: string
   /** Attributed spending in the budget's base currency; rows with a pending exchange rate are left out. */
   spent: number
-  /** Attributed rows whose exchange rate is still unresolved and therefore not counted. */
+  /** Attributed rows still waiting for their amount in the budget currency, and therefore not counted. */
   fxPendingCount?: number
 }
 
@@ -935,7 +961,7 @@ export interface MemberIncomeResultDto {
   incomeFromBudget: boolean
   /** False when the month has no budget yet. */
   hasBudget?: boolean
-  /** Income rows in the month whose exchange rate is still unresolved and therefore not in `received`. */
+  /** Income rows in the month still waiting for their amount in the budget currency, so not in `received`. */
   fxPendingCount?: number
   unattributedPlanned: number
   items: MemberIncomeDto[]
@@ -1031,7 +1057,12 @@ export interface MeResponse {
   memberId: string | null
   firstName?: string | null
   lastName?: string | null
+  /** The login's own currency preference (seeds a brand-new household's budget currency). */
   preferredCurrency?: string
+  /** The ACTIVE household's budget currency: every account and every counted amount uses it. */
+  budgetCurrency?: string
+  /** True once the login's OWN household has accounts, months or transactions (currency is fixed). */
+  currencyLocked?: boolean
   numberFormat?: string
   households?: HouseholdSummary[]
   /** True for invite-created logins that haven't accepted the terms yet (blocking consent prompt). */
@@ -1053,6 +1084,10 @@ export interface PreferencesResponse {
   displayName: string | null
   preferredCurrency: string
   numberFormat: string
+  /** The active household's budget currency after the save, when the server reports it. */
+  budgetCurrency?: string
+  /** Whether the login's own household's currency is now fixed, when the server reports it. */
+  currencyLocked?: boolean
 }
 
 export interface AuthResponse {

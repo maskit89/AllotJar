@@ -53,6 +53,13 @@ public class MarkJarCyclePaidCommandHandler : IRequestHandler<MarkJarCyclePaidCo
         {
             throw JarAccounts.Validation("PaymentTransactionId", "That payment is dated in the future.");
         }
+        // A payment still waiting for its budget-currency amount counts nowhere yet (rule 44), so
+        // it can't settle a cycle: the cycle would record its foreign figure as budget money.
+        if (payment.FxPending)
+        {
+            throw JarAccounts.Validation("PaymentTransactionId",
+                $"That payment is in {payment.Currency.Value} and is waiting for its amount in the budget currency. Enter that amount on Transactions first.");
+        }
         var alreadyFulfilled = await _db.JarCycles
             .Include(c => c.Jar)
             .FirstOrDefaultAsync(c => c.PaymentTransactionId == payment.Id, cancellationToken);

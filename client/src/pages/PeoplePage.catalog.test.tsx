@@ -995,9 +995,10 @@ describe('PeoplePage — catalog (PPL)', () => {
     expect(screen.queryByText('50%')).not.toBeInTheDocument()
   })
 
-  // PPL-082 — rows awaiting an exchange rate are not counted, and the page says so: a "+N pending
-  // rate" hint on the member's Spent cell, and one under the hero for the income result.
-  it('PPL-082: FX-pending spending and income rows show a "+N pending rate" hint', async () => {
+  // PPL-082 — rows in another currency still waiting for their amount in the budget currency are
+  // not counted, and the page says so: a "+N need EUR amount" hint on the member's Spent cell,
+  // and one under the hero for the income result.
+  it('PPL-082: FX-pending spending and income rows show a "+N need EUR amount" hint', async () => {
     membersData = [member({ id: 'm1', name: 'Alex' }), member({ id: 'm2', name: 'Sam', incomeSharePct: 0.5 })]
     spendingData = [
       { memberId: 'm1', name: 'Alex', spent: 120, fxPendingCount: 2 },
@@ -1018,10 +1019,10 @@ describe('PeoplePage — catalog (PPL)', () => {
 
     await screen.findByRole('table', {}, { timeout: 5000 })
     expect(screen.getByText('€120.00')).toBeInTheDocument()
-    expect(screen.getByText('+2 pending rate')).toBeInTheDocument()
-    expect(screen.getByText(/\+1 income row pending rate/)).toBeInTheDocument()
+    expect(screen.getByText('+2 need EUR amount')).toBeInTheDocument()
+    expect(screen.getByText(/\+1 income row in another currency, not counted until its amount in EUR is entered/)).toBeInTheDocument()
     // Sam has nothing pending → exactly one row hint on the page.
-    expect(screen.getAllByText(/^\+\d+ pending rate$/)).toHaveLength(1)
+    expect(screen.getAllByText(/^\+\d+ needs? EUR amount$/)).toHaveLength(1)
   })
 
   // PPL-083 — the add-person and inline income fields are the DEFAULT income, labelled and hinted

@@ -44,7 +44,7 @@ export interface MonthVM {
   year: number
   month: number
   currency: string
-  /** Transactions this month awaiting an exchange rate — excluded from every actual, so >0 marks the totals incomplete. */
+  /** Transactions this month in another currency still waiting for their amount in the budget currency — excluded from every actual, so >0 marks the totals incomplete. */
   fxPendingCount: number
   categories: CategoryVM[]
 }

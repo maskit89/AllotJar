@@ -64,7 +64,7 @@ const MONTH_NAMES = [
 
 export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // Building/editing the budget (groups, lines, months) needs Admin+ (canWrite).
-  const { canWrite, preferredCurrency } = useAuth()
+  const { canWrite, budgetCurrency } = useAuth()
   // Who earns each income line — shown only once the household is shared.
   const { isShared, members: householdMembers } = useHousehold()
   // The viewed month comes from the app-wide top bar (MonthContext).
@@ -873,19 +873,23 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
               }
             />
 
-            {/* Pending-FX honesty: those rows are EXCLUDED from every actual on this page, so
-                say so rather than presenting incomplete totals as final. Rates resolve on
-                their own (background reconciliation) or on the next import. */}
+            {/* Rows in another currency still waiting for their amount in the budget currency are
+                EXCLUDED from every actual on this page (the app never converts on its own), so
+                say so rather than presenting incomplete totals as final. */}
             {month.fxPendingCount > 0 && (
               <div
                 role="status"
                 className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
               >
                 <span className="font-medium">
-                  {month.fxPendingCount} imported transaction{month.fxPendingCount === 1 ? '' : 's'} await
-                  {month.fxPendingCount === 1 ? 's' : ''} an exchange rate
+                  {month.fxPendingCount} transaction{month.fxPendingCount === 1 ? '' : 's'} in another currency{' '}
+                  {month.fxPendingCount === 1 ? 'is' : 'are'} waiting for {month.fxPendingCount === 1 ? 'its' : 'their'}{' '}
+                  amount in {budgetCurrency}
                 </span>{' '}
-                — spent totals exclude {month.fxPendingCount === 1 ? 'it' : 'them'} until the rate arrives.
+                and {month.fxPendingCount === 1 ? 'isn’t' : 'aren’t'} counted until it’s entered.{' '}
+                <Link to="/transactions" className="font-semibold underline underline-offset-2">
+                  Enter {month.fxPendingCount === 1 ? 'it' : 'them'} on Transactions
+                </Link>
               </div>
             )}
 
@@ -1144,7 +1148,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           <JarFormModal
             jar={null}
             accounts={accounts}
-            currency={month?.currency ?? preferredCurrency}
+            currency={month?.currency ?? budgetCurrency}
             onClose={() => setJarFormOpen(false)}
             onSaved={onJarCreated}
           />

@@ -635,6 +635,43 @@ public class JarW05FollowUpTests
     }
 
     [Fact]
+    public async Task P3_8_TheBackfill_WritesDownALinePaymentsOwnAmount_AfterForeignAmountsGaveItABudgetFigure()
+    {
+        // Merge with #278: ForeignAmounts ran first in production. A row in another currency on an
+        // account keeps its amount (the account's money) and either carries the figure it counts
+        // in the budget beside it (BudgetAmount) or waits for one (FxPending). Jar balances read
+        // the amount, so the backfill writes each payment down at its amount, whatever it counts
+        // in the budget: Holiday holds 0 in A, and A keeps the rest as unallocated money.
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "UK savings", opening: 1000m, currency: "GBP");
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, 500m, new DateOnly(2026, 7, 15));
+        var line = SeedMonth(db, new DateOnly(2026, 8, 1), (jar, 500m)).Single();
+        var counted = LedgerFixtures.Expense(db, Owner, a.Id, 200m, new DateOnly(2026, 8, 10), line.Id, currency: "GBP");
+        counted.BudgetAmount = 234m;
+        var waiting = LedgerFixtures.Expense(db, Owner, a.Id, 100m, new DateOnly(2026, 8, 20), line.Id, currency: "GBP");
+        waiting.FxPending = true;
+        jar.FundingAccountId = b.Id;
+        await db.SaveChangesAsync(Ct);
+
+        var result = await JarDepartures.BackfillAsync(db, Ct);
+
+        result.Departures.Should().Be(1);
+        result.PaymentsWrittenDown.Should().Be(2);
+        var written = await db.JarAllocations.Include(x => x.Postings)
+            .Where(x => x.TransactionId == counted.Id || x.TransactionId == waiting.Id).ToListAsync(Ct);
+        written.SelectMany(x => x.Postings).Where(p => p.JarId == jar.Id).Select(p => p.Amount)
+            .Should().BeEquivalentTo(new[] { -200m, -100m });
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 10))).Should().Be(300m);
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 19))).Should().Be(300m);
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+        var ledger = await JarLedgerReader.ReadAsync(db, Owner, Today, Ct);
+        ledger.Accounts[a.Id].JarBalances.GetValueOrDefault(jar.Id).Should().Be(0m);
+        ledger.Accounts[a.Id].Unallocated.Should().Be(700m);
+    }
+
+    [Fact]
     public async Task P3_8_TheBackfill_DatesATransferLegOnTheDayItPosts()
     {
         // Review of #276 (H6b): 200 left C on 10 Aug and reached A on 14 Aug, all of it into

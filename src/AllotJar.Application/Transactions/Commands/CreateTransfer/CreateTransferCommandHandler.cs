@@ -63,7 +63,6 @@ public class CreateTransferCommandHandler : IRequestHandler<CreateTransferComman
             // Both accounts share a currency (guarded above); stamp the transfer in it
             // rather than a hardcoded EUR so the register row matches the accounts.
             Currency = from.Currency,
-            ExchangeRate = 1m,
             Type = TransactionType.Transfer,
             Account = from,
             AccountId = from.Id,

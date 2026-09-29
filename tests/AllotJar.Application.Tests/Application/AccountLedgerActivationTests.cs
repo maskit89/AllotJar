@@ -389,31 +389,4 @@ public class AccountLedgerActivationTests
         rows[b.Id].RequiresReview.Should().BeTrue();
         rows[a.Id].RequiresReview.Should().BeTrue();
     }
-
-    // ── Rule 42: a transfer never carries an unapproved rate or a pending-FX flag.
-    [Fact]
-    public async Task FxRateResolver_NeverMarksATransferPending_EvenWhenTheProviderHasNoRate()
-    {
-        await using var db = NewContext();
-        var gbp = CurrencyCode.From("GBP");
-        var transfer = new Transaction
-        {
-            OwnerId = "user-1", Type = TransactionType.Transfer, Amount = 100m, Currency = gbp,
-            Date = new DateOnly(2026, 9, 30), DepartedOn = new DateOnly(2026, 9, 30),
-            AccountId = Guid.NewGuid(), TransferAccountId = Guid.NewGuid(),
-        };
-        var expense = new Transaction
-        {
-            OwnerId = "user-1", Type = TransactionType.Expense, Amount = 40m, Currency = gbp,
-            Date = new DateOnly(2026, 9, 30),
-        };
-
-        // No budget month → base currency EUR; the provider knows no GBP rate.
-        await FxRateResolver.ApplyAsync(db, new FakeExchangeRateProvider(rate: null), "user-1",
-            new[] { transfer, expense }, CancellationToken.None);
-
-        expense.FxPending.Should().BeTrue("a foreign expense with no rate is explicitly unresolved");
-        transfer.FxPending.Should().BeFalse();
-        transfer.ExchangeRate.Should().Be(1m);
-    }
 }

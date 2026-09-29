@@ -30,7 +30,7 @@ function me(role: number): MeResponse {
 
 function tx(): TransactionDto {
   return {
-    id: 't1', date: '2026-06-01', payee: 'Tesco', amount: 10, currency: 'EUR', exchangeRate: 1, baseAmount: 10,
+    id: 't1', date: '2026-06-01', payee: 'Tesco', amount: 10, currency: 'EUR',
     type: 0, bankReference: null, budgetItemId: 'b1', budgetItemName: 'Groceries', accountId: null, accountName: null,
     transferAccountId: null, transferAccountName: null, memberId: null, memberName: null, isSplit: false, splits: [],
   }

@@ -14,7 +14,7 @@ import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import type { AccountDto, AccountReconciliationDto } from '../types'
 import { ACCOUNT_TYPE_LABELS, ACCOUNT_TYPE_OPTIONS, AccountType } from '../types'
-import { CURRENCY_OPTIONS, formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
 import { formatDate, todayIso } from '../lib/dates'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { serverErrors } from '../lib/serverErrors'
@@ -70,7 +70,7 @@ const ID_FIELDS: Array<{ key: keyof Identifiers; label: string; placeholder: str
 
 export function AccountsPage() {
   // Managing accounts needs Admin+ (canWrite); others get a read-only register.
-  const { canWrite, preferredCurrency, memberId } = useAuth()
+  const { canWrite, budgetCurrency, memberId } = useAuth()
   const { multiCurrency } = useFeatures()
   // W13: the people who can hold an account (rule 30).
   const { members } = useHousehold()
@@ -88,7 +88,6 @@ export function AccountsPage() {
   const [opening, setOpening] = useState('')
   // The opening balance is the money held at the START of this date (rule 40); required.
   const [openingDate, setOpeningDate] = useState(todayIso)
-  const [currency, setCurrency] = useState(preferredCurrency)
   const [ids, setIds] = useState<Identifiers>(BLANK_IDS)
   const [holderIds, setHolderIds] = useState<string[]>([])
   // Rule 31: an account you add for yourself alone starts private unless you untick this.
@@ -152,7 +151,8 @@ export function AccountsPage() {
       const { data } = await api.post<AccountDto>('/accounts', {
         name: name.trim(),
         type,
-        currency,
+        // One currency for the whole budget: every new account uses the budget currency.
+        currency: budgetCurrency,
         openingBalance,
         openingDate,
         ...identifiersPayload(ids),
@@ -164,7 +164,6 @@ export function AccountsPage() {
       setName('')
       setOpening('')
       setOpeningDate(todayIso())
-      setCurrency(preferredCurrency)
       setIds(BLANK_IDS)
       setHolderIds([])
       setKeepPrivate(true)
@@ -174,7 +173,7 @@ export function AccountsPage() {
     } finally {
       setAdding(false)
     }
-  }, [name, type, opening, openingDate, currency, ids, preferredCurrency, holderIds, keepPrivate, ownPersonal])
+  }, [name, type, opening, openingDate, budgetCurrency, ids, holderIds, keepPrivate, ownPersonal])
 
   function startEdit(a: AccountDto) {
     setEditingId(a.id)
@@ -253,11 +252,19 @@ export function AccountsPage() {
     }
   }, [])
 
-  // Net balance across the accounts whose balance is available, plus the hero's split of what
+  // The whole budget uses one currency and the app never converts, so the hero totals count only
+  // accounts in the budget currency. An account in another currency (legacy data) is left out
+  // and called out; per-account figures always use the account's own currency.
+  const inBudgetCurrency = useMemo(
+    () => accounts.filter((a) => a.currency === budgetCurrency),
+    [accounts, budgetCurrency],
+  )
+  const otherCurrencyCount = accounts.length - inBudgetCurrency.length
+  // Net balance across those accounts whose balance is available, plus the hero's split of what
   // you hold (positive balances) vs what you owe (negative ones). An unavailable balance (no
   // opening date, rule 67) is left out and called out, never counted as zero.
-  const known = useMemo(() => accounts.filter((a) => a.currentBalance !== null), [accounts])
-  const unavailableCount = accounts.length - known.length
+  const known = useMemo(() => inBudgetCurrency.filter((a) => a.currentBalance !== null), [inBudgetCurrency])
+  const unavailableCount = inBudgetCurrency.length - known.length
   const netMinor = useMemo(
     () => known.reduce((sum, a) => sum + fromAmount(a.currentBalance ?? 0), 0),
     [known],
@@ -275,14 +282,6 @@ export function AccountsPage() {
     [accounts],
   )
 
-  // Each account is a single-currency ledger. When they all share a currency the hero
-  // totals are shown in it (so a preference change never mislabels them); when they
-  // diverge, the raw cross-currency sum is meaningless — we label it in the preferred
-  // currency and flag it, deferring real FX conversion. Per-account rows always use
-  // their own currency.
-  const currencies = useMemo(() => Array.from(new Set(accounts.map((a) => a.currency))), [accounts])
-  const heroCurrency = currencies.length === 1 ? currencies[0] : preferredCurrency
-  const mixedCurrencies = currencies.length > 1
   const currencyById = useMemo(
     () => Object.fromEntries(accounts.map((a) => [a.id, a.currency])) as Record<string, string>,
     [accounts],
@@ -292,18 +291,18 @@ export function AccountsPage() {
     <AppShell active="accounts" title="Accounts">
       <Hero
         eyebrow="Total balance"
-        amount={formatMoney(netMinor, heroCurrency)}
-        amountLabel={`Total balance: ${formatMoney(netMinor, heroCurrency)}`}
+        amount={formatMoney(netMinor, budgetCurrency)}
+        amountLabel={`Total balance: ${formatMoney(netMinor, budgetCurrency)}`}
         tiles={[
-          { label: 'Available', value: formatMoney(availableMinor, heroCurrency) },
-          { label: 'Owed', value: formatMoney(-owedMinor, heroCurrency) },
+          { label: 'Available', value: formatMoney(availableMinor, budgetCurrency) },
+          { label: 'Owed', value: formatMoney(-owedMinor, budgetCurrency) },
         ]}
         footnote={
-          mixedCurrencies || unavailableCount > 0 || pendingReviewCount > 0 ? (
+          otherCurrencyCount > 0 || unavailableCount > 0 || pendingReviewCount > 0 ? (
             <span className="inline-flex flex-wrap items-center gap-2">
-              {mixedCurrencies && (
+              {otherCurrencyCount > 0 && (
                 <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13px] font-medium">
-                  Totals shown in {heroCurrency}; some accounts hold another currency.
+                  {otherCurrencyCount} account{otherCurrencyCount === 1 ? '' : 's'} in another currency {otherCurrencyCount === 1 ? 'is' : 'are'} not counted.
                 </span>
               )}
               {unavailableCount > 0 && (
@@ -344,19 +343,9 @@ export function AccountsPage() {
             </label>
             <HolderPicker members={members} value={holderIds} onChange={setHolderIds} />
             {ownPersonal && <PrivateCheckbox checked={keepPrivate} onChange={setKeepPrivate} />}
-            {multiCurrency && (
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Currency
-                <Select value={currency} aria-label="Account currency" onChange={(e) => setCurrency(e.target.value)} className="w-full">
-                  {CURRENCY_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
-                <span className="font-normal text-slate-400">An account’s currency is fixed once created.</span>
-              </label>
-            )}
+            <p className="text-xs text-slate-500">
+              The account holds {budgetCurrency}, your budget currency.
+            </p>
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
                 Type
@@ -518,7 +507,7 @@ export function AccountsPage() {
                         />
                       ))}
                       <HolderPicker members={members} value={eHolderIds} onChange={setEHolderIds} accountName={a.name} />
-                      {multiCurrency && (
+                      {(multiCurrency || a.currency !== budgetCurrency) && (
                         <p className="text-xs text-slate-500">
                           Currency <span className="font-semibold text-slate-700">{a.currency}</span> — fixed once created.
                         </p>
@@ -547,7 +536,7 @@ export function AccountsPage() {
                         <span className="h-5 w-5 rounded-lg" style={{ background: hueColor(hue) }} />
                       </div>
                       <div className="flex items-center gap-1.5">
-                        {multiCurrency && (
+                        {(multiCurrency || a.currency !== budgetCurrency) && (
                           <span className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
                             {a.currency}
                           </span>
@@ -678,12 +667,12 @@ export function AccountsPage() {
                     <tr key={r.accountId} className="hover:bg-slate-50">
                       <td className="px-4 py-2.5 font-medium text-slate-700">{r.accountName}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">
-                        {r.currentBalance === null ? 'Not available' : formatMoney(fromAmount(r.currentBalance), currencyById[r.accountId] ?? heroCurrency)}
+                        {r.currentBalance === null ? 'Not available' : formatMoney(fromAmount(r.currentBalance), currencyById[r.accountId] ?? budgetCurrency)}
                         {r.requiresReview && <span className="ml-1 text-xs text-amber-700 dark:text-amber-400">(pending review)</span>}
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-500">{formatMoney(fromAmount(r.backedJarsTotal), currencyById[r.accountId] ?? heroCurrency)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-500">{formatMoney(fromAmount(r.backedJarsTotal), currencyById[r.accountId] ?? budgetCurrency)}</td>
                       <td className={`px-4 py-2.5 text-right font-semibold tabular-nums ${r.float !== null && fromAmount(r.float) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800'}`}>
-                        {r.float === null ? '—' : formatMoney(fromAmount(r.float), currencyById[r.accountId] ?? heroCurrency)}
+                        {r.float === null ? '—' : formatMoney(fromAmount(r.float), currencyById[r.accountId] ?? budgetCurrency)}
                       </td>
                       <td className="px-4 py-2.5">
                         {/* Rule 70: positive jars must be backed by the account's money. */}

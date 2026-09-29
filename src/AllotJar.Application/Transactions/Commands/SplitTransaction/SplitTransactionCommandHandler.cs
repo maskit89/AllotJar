@@ -87,6 +87,9 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
             _db.TransactionSplits.Add(slice);
             slices.Add(slice);
         }
+        // A row whose amount is an account's other currency counts its fixed budget figure; each
+        // slice counts its share of it.
+        ForeignAmounts.ShareOverSlices(transaction, slices);
 
         // Each slice's line decides the jar it draws from (rule 79); the stored answer for the
         // non-jar slices is rewritten with the new split.

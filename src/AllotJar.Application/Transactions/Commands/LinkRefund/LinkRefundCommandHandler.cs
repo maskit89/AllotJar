@@ -53,10 +53,15 @@ public class LinkRefundCommandHandler : IRequestHandler<LinkRefundCommand, Trans
             {
                 throw Refuse("A split transaction can't be a refund. Remove the split first.");
             }
+            if (transaction.FxPending)
+            {
+                throw Refuse(
+                    $"This is in {transaction.Currency.Value} and is waiting for its amount in the budget currency. " +
+                    "Enter that amount before marking it as a refund.");
+            }
 
             var original = await RefundRules.ValidateOriginalAsync(
-                _db, userId, originalId, transaction.Id, transaction.Date, transaction.Amount,
-                transaction.Currency, transaction.ExchangeRate, cancellationToken);
+                _db, userId, originalId, transaction.Id, transaction.Date, ForeignAmounts.Counted(transaction), cancellationToken);
             transaction.RefundOfTransactionId = original.Id;
 
             // The row now matches expense/savings lines only (rules 38/39): a chosen line is

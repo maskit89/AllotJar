@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Accounts.Dtos;
+using AllotJar.Application.Budgets;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
@@ -12,11 +13,13 @@ public class CreateAccountCommandHandler : IRequestHandler<CreateAccountCommand,
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly IIdentityService? _identity;
 
-    public CreateAccountCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public CreateAccountCommandHandler(IApplicationDbContext db, ICurrentUser currentUser, IIdentityService? identity = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _identity = identity;
     }
 
     public async Task<AccountDto> Handle(CreateAccountCommand request, CancellationToken cancellationToken)
@@ -39,6 +42,22 @@ public class CreateAccountCommandHandler : IRequestHandler<CreateAccountCommand,
             });
         }
 
+        // Rule 63/85: every account of the budget is in the budget's one currency. An account in
+        // another currency would hold money no budget figure could count without a conversion.
+        var currency = CurrencyCode.From(request.Currency);
+        var budgetCurrency = await BudgetCurrency.ResolveAsync(_db, _identity, userId, cancellationToken);
+        if (currency != budgetCurrency)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                [nameof(request.Currency)] = new[]
+                {
+                    $"This budget is in {budgetCurrency.Value}, so its accounts are too. " +
+                    $"A bank converts payments in other currencies into {budgetCurrency.Value} itself.",
+                },
+            });
+        }
+
         // New accounts sort after the user's existing ones.
         var nextOrder = await _db.Accounts
             .Where(a => a.OwnerId == userId)
@@ -50,7 +69,7 @@ public class CreateAccountCommandHandler : IRequestHandler<CreateAccountCommand,
             OwnerId = userId,
             Name = request.Name.Trim(),
             Type = request.Type,
-            Currency = CurrencyCode.From(request.Currency),
+            Currency = currency,
             OpeningBalance = request.OpeningBalance,
             // The validator guarantees a date; a defensive throw keeps a bypassing caller from
             // persisting an account whose balance could never be calculated.

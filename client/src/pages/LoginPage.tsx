@@ -301,7 +301,7 @@ export function LoginPage() {
                   </div>
                 </div>
                 <p className="text-xs text-slate-500">
-                  You can change your currency and number format anytime in account settings.
+                  Your budget and its accounts use this currency. You can change it in account settings until you add your first account, month or transaction; the number format any time.
                 </p>
 
                 <label className="flex items-start gap-2 text-sm text-slate-600">

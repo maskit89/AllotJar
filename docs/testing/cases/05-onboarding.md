@@ -54,13 +54,13 @@
 ### ONBD-004 - Currency noun flows through welcome, tour step 3, checklist step 3 and the all-done line
 - **Priority:** P3
 - **Type:** Edge
-- **Preconditions:** A user registered with currency USD (fresh profile); a second user with an unknown/blank preferred currency (set via API `PUT /auth/preferences` if the UI select blocks it).
+- **Preconditions:** A user registered with currency USD (fresh profile); a second fresh user whose currency is a valid ISO code outside the noun map (e.g. ISK), set via API `PUT /auth/preferences` while the budget is still empty (once it holds an account, month or transaction the currency is locked — PREF-042; a blank value is stored as EUR). The noun comes from the **budget currency** (`/auth/me` `budgetCurrency`), which for a new household is the chosen currency.
 - **Steps:**
   1. As the USD user, read the welcome body, then take the tour to step 3, then skip to the checklist and read step 3's label.
-  2. As the unknown-currency user, repeat.
+  2. As the ISK user, repeat.
 - **Expected:**
   - USD: "give **every dollar a job**" in the welcome body; tour step 3 titled "Give every dollar a job"; checklist step 3 labeled "Give every dollar a job"; all-done message (when reached) "All set — every dollar has a job! 🎉".
-  - Unknown/blank currency: the noun falls back to "unit" ("give every unit a job") — no crash, no empty string.
+  - ISK (no noun mapped): the noun falls back to "unit" ("give every unit a job") — no crash, no empty string.
   - Tour step count stays 9 regardless of noun.
 - **Automated:** Partial (client/src/lib/money.test.ts — `currencyNoun` mapping incl. `unit` fallback; the onboarding surfaces themselves unasserted)
 

@@ -1,8 +1,8 @@
 # Accounts & reconciliation
 
-**ID prefix:** ACCT | **Scope:** Everything on the two accounts screens and the money math behind them: the accounts list at `/accounts` (`AccountsPage`) — the **Total balance / Available / Owed** hero with its mixed-currency footnote, the account-card grid (type hue icon, currency chip, type badge, per-account balance and "Opening …" caption, overlay link to detail), the **Add an account** modal (Name, Currency select gated on `multiCurrency`, Type, Opening balance) and its client + server validation, the inline **edit** card (currency immutable), the **Delete {name}?** confirmation modal and what happens to a deleted account's linked transactions/transfers, ordering by `DisplayOrder` then `Name`; the derived-balance formula (`opening + income − expense − transferOut + transferIn`, always computed at read, never stored); the account-detail register at `/accounts/:id` (`AccountDetailPage`) — balance hero, filtered Date/Payee/Category/Amount rows, direction-signed amounts, "(removed account)" transfer fallback, name-keyed category pills, per-transaction currency, not-found state; and the **Jar reconciliation** panel (Account/Balance/In jars/Float, backed-jar float math, archived-jar exclusion). | **Out of scope:** The dedicated transfer entry flow, its form/validation and the register's generic transfer rendering → `11-transfers.md`; whole-transaction assignment to an account, splits, income/expense entry and the main register → `10-transactions.md`; the profile / "My account" page at `/account` (singular — a different subsystem) → `04-account-preferences.md`; jar CRUD, the "Held in" funding-account select, accrual and the allocation engine that produces member savings transfers → the jars/allocation sibling file; `preferredCurrency` / `numberFormat` preference sources → `04-account-preferences.md`; the full role matrix, cross-tab logout, silent-refresh internals → the session & roles sibling files (only account-page `canWrite` gating and the account commands' 403s appear here); responsive / dark-mode / a11y sweeps live in their own files (referenced only where behaviour is account-specific).
+**ID prefix:** ACCT | **Scope:** Everything on the two accounts screens and the money math behind them: the accounts list at `/accounts` (`AccountsPage`) — the **Total balance / Available / Owed** hero (budget-currency accounts only, with the "not counted" pill for a legacy account in another currency — W08), the account-card grid (type hue icon, currency chip, type badge, per-account balance and "Opening …" caption, overlay link to detail), the **Add an account** modal (Name, Type, Opening balance — no currency picker since W08: every account is in the household's budget currency) and its client + server validation, the inline **edit** card (currency immutable), the **Delete {name}?** confirmation modal and what happens to a deleted account's linked transactions/transfers, ordering by `DisplayOrder` then `Name`; the derived-balance formula (`opening + income − expense − transferOut + transferIn`, always computed at read, never stored); the account-detail register at `/accounts/:id` (`AccountDetailPage`) — balance hero, filtered Date/Payee/Category/Amount rows, direction-signed amounts, "(removed account)" transfer fallback, name-keyed category pills, per-transaction currency, not-found state; and the **Jar reconciliation** panel (Account/Balance/In jars/Float, backed-jar float math, archived-jar exclusion). | **Out of scope:** The dedicated transfer entry flow, its form/validation and the register's generic transfer rendering → `11-transfers.md`; whole-transaction assignment to an account, splits, income/expense entry and the main register → `10-transactions.md`; the profile / "My account" page at `/account` (singular — a different subsystem) → `04-account-preferences.md`; jar CRUD, the "Held in" funding-account select, accrual and the allocation engine that produces member savings transfers → the jars/allocation sibling file; `preferredCurrency` / `numberFormat` preference sources → `04-account-preferences.md`; the full role matrix, cross-tab logout, silent-refresh internals → the session & roles sibling files (only account-page `canWrite` gating and the account commands' 403s appear here); responsive / dark-mode / a11y sweeps live in their own files (referenced only where behaviour is account-specific).
 
-**Test data setup:** Unless a case says otherwise, assume an authenticated **Owner** (`canWrite = true`) of a **shared EUR household "Home"** with **2 members** *Alex* and *Robin*. The app-wide viewed month is **July 2026**; `GET /budget/current` returns month **2026-07** (`BaseCurrency = EUR`). The `accounts` and `multiCurrency` feature flags are **on**. Three accounts exist unless stated: EUR **Joint** (opening 1,250.00), EUR **Rainy Day** (opening 500.00), and GBP **UK Pot** (opening 200.00 — present only for multi-currency cases). Money is `decimal(18,4)` server-side and integer minor units at scale 4 (`FACTOR = 10_000`) client-side; account balances and reconciliation totals are always transaction-derived at read time. The Add/Edit opening field is parsed by `parseSignedAmount` (empty → 0; one optional leading "−"; the rest via `parseMinor`, which strips spaces/apostrophes, treats the right-most of a mixed ",/." pair as the decimal separator, rounds HALF-UP beyond 4 dp, and rejects `''` after the sign / whitespace / `abc` / `1.2.3` / `1,2,3` → null). The client never surfaces server field errors on this page — each API failure maps to a fixed generic string. "Solo variant" = the same Owner in a 1-member household (no behavioural difference on these pages; role is what matters). Client wiring is exercised by `client/src/pages/AccountsPage.test.tsx` and `client/src/pages/AccountDetailPage.test.tsx`; backend behaviour by `tests/AllotJar.Application.Tests/Application/AccountsTests.cs`, `AccountReconciliationTests.cs`, and (for transfer/delete interplay) `tests/AllotJar.Application.Tests/Transactions/TransfersTests.cs`.
+**Test data setup:** Unless a case says otherwise, assume an authenticated **Owner** (`canWrite = true`) of a **shared EUR household "Home"** with **2 members** *Alex* and *Robin*. The app-wide viewed month is **July 2026**; `GET /budget/current` returns month **2026-07** (`BaseCurrency = EUR`). The `accounts` and `multiCurrency` feature flags are **on**. The household's **budget currency** is **EUR** (its first month's `BaseCurrency`; `/auth/me` → `budgetCurrency: "EUR"`, `currencyLocked: true`). Three accounts exist unless stated: EUR **Joint** (opening 1,250.00), EUR **Rainy Day** (opening 500.00), and GBP **UK Pot** (opening 200.00 — present only for multi-currency cases, and **legacy data only**: since W08 `POST /accounts` refuses any currency but the budget currency, so seed it directly in the database or keep one from before the `ForeignAmounts` migration). Money is `decimal(18,4)` server-side and integer minor units at scale 4 (`FACTOR = 10_000`) client-side; account balances and reconciliation totals are always transaction-derived at read time. The Add/Edit opening field is parsed by `parseSignedAmount` (empty → 0; one optional leading "−"; the rest via `parseMinor`, which strips spaces/apostrophes, treats the right-most of a mixed ",/." pair as the decimal separator, rounds HALF-UP beyond 4 dp, and rejects `''` after the sign / whitespace / `abc` / `1.2.3` / `1,2,3` → null). The client never surfaces server field errors on this page — each API failure maps to a fixed generic string. "Solo variant" = the same Owner in a 1-member household (no behavioural difference on these pages; role is what matters). Client wiring is exercised by `client/src/pages/AccountsPage.test.tsx` and `client/src/pages/AccountDetailPage.test.tsx`; backend behaviour by `tests/AllotJar.Application.Tests/Application/AccountsTests.cs`, `AccountReconciliationTests.cs`, and (for transfer/delete interplay) `tests/AllotJar.Application.Tests/Transactions/TransfersTests.cs`.
 
 ---
 
@@ -15,7 +15,7 @@
 - **Steps:**
   1. Navigate to `/accounts`.
   2. Read the hero and each account card.
-- **Expected:** Hero eyebrow "Total balance"; because currencies are mixed the amount is the raw cross-currency sum labelled in `preferredCurrency` (EUR) = **1,950.00**, tiles "Available" **1,950.00** and "Owed" **0.00**. Each card shows its name, balance formatted **in the account's own currency** (Joint €1,250.00, Rainy Day €500.00, UK Pot £200.00), and caption "Opening {same amount}". Section header "Your accounts" with a "+ Add account" button (Owner is `canWrite`).
+- **Expected:** Hero eyebrow "Total balance"; the hero counts only accounts in the budget currency (EUR), so the amount is `1,250 + 500` = **€1,750.00**, tiles "Available" **€1,750.00** and "Owed" **€0.00**, with the footnote pill "1 account in another currency is not counted." (UK Pot is never summed in — no FX, W08). Each card shows its name, balance formatted **in the account's own currency** (Joint €1,250.00, Rainy Day €500.00, UK Pot £200.00), and caption "Opening {same amount}". Section header "Your accounts" with a "+ Add account" button (Owner is `canWrite`).
 - **Automated:** Yes (AccountsPage.test.tsx — account cards with balances + net-total hero)
 
 ### ACCT-002 - Negative-balance account colours the card and feeds the Owed tile
@@ -33,26 +33,26 @@
 - **Preconditions:** Brand-new opt-out account (PR #170 default = empty); zero accounts.
 - **Steps:**
   1. Open `/accounts`.
-- **Expected:** `EmptyState` titled "No accounts yet", description "Use + Add account, then tag transactions to it to track its balance." Hero shows 0.00 across Total/Available/Owed in `preferredCurrency`. The "Jar reconciliation" card is absent. Owner still sees "+ Add account".
+- **Expected:** `EmptyState` titled "No accounts yet", description "Use + Add account, then tag transactions to it to track its balance." Hero shows 0.00 across Total/Available/Owed in the budget currency (`budgetCurrency` from `/auth/me`; before it answers, `preferredCurrency` stands in). The "Jar reconciliation" card is absent. Owner still sees "+ Add account".
 - **Automated:** Yes (AccountsPage.test.tsx — empty state)
 
-### ACCT-004 - Unanimous currency labels the hero in that currency (no footnote)
+### ACCT-004 - All accounts in the budget currency: hero labelled in it, no footnote
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Owner with two EUR accounts only (delete UK Pot): Joint (1,250.00), Rainy Day (500.00).
+- **Preconditions:** Owner with two EUR accounts only (delete UK Pot): Joint (1,250.00), Rainy Day (500.00); budget currency EUR.
 - **Steps:**
   1. Open `/accounts`.
-- **Expected:** `currencies.length === 1`, so `heroCurrency` = EUR; hero Total balance **€1,750.00**; no mixed-currency footnote pill. A later `preferredCurrency` preference change must **not** relabel these EUR cards or the hero (per-account cells always use `a.currency`).
-- **Automated:** No
+- **Expected:** The hero is labelled in `budgetCurrency` (EUR, not the login's `preferredCurrency`); hero Total balance **€1,750.00**; no "in another currency" footnote pill. Per-account balances and "Opening …" captions use `a.currency`. The preference can't relabel anything any more: once the household holds an account the currency is locked (PREF cases in `04-account-preferences.md`).
+- **Automated:** Yes (client/src/pages/AccountsPage.catalog.test.tsx — ACCT-004)
 
-### ACCT-005 - Mixed currencies show the raw sum plus a footnote pill
+### ACCT-005 - An account in another currency is left out of the totals and called out
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** Owner with EUR Joint (1,250.00) and GBP UK Pot (£200.00).
+- **Preconditions:** Owner (budget currency EUR) with EUR Joint (1,250.00) and legacy GBP UK Pot (£200.00).
 - **Steps:**
   1. Open `/accounts`.
-- **Expected:** `mixedCurrencies` true; hero amount = raw `1,250 + 200 = 1,450.00` labelled in `preferredCurrency` (EUR), with the footnote pill "Totals shown in EUR; some accounts hold another currency." Each card still formats in its own currency (€ vs £). (Known deferred limitation: no FX conversion — `ExchangeRate` is 1 app-wide.)
-- **Automated:** No
+- **Expected:** The hero counts only budget-currency accounts: Total balance **€1,250.00** (aria "Total balance: €1,250.00") — never the raw `1,450.00` — with the footnote pill **"1 account in another currency is not counted."** (plural: "{N} accounts in another currency are not counted."). The old "Totals shown in EUR; some accounts hold another currency." pill is gone. Each card still formats in its own currency (€1,250.00 vs £200.00, "Opening £200.00").
+- **Automated:** Yes (client/src/pages/AccountsPage.catalog.test.tsx — ACCT-005)
 
 ### ACCT-006 - Load failure shows the accounts error banner
 - **Priority:** P2
@@ -78,7 +78,7 @@
 - **Preconditions:** Owner; Savings account "Rainy Day" (EUR), `multiCurrency` on.
 - **Steps:**
   1. Open `/accounts`; inspect the Rainy Day card and click it.
-- **Expected:** Card shows the type-hue icon tile (Savings → emerald), a currency chip "EUR" (only because `multiCurrency`), a type badge "Savings" (from `ACCOUNT_TYPE_LABELS`, fallback "Other"). The whole card is an overlay `Link` (aria-label "View Rainy Day") to `/accounts/{id}`; clicking anywhere on it navigates to the detail page.
+- **Expected:** Card shows the type-hue icon tile (Savings → emerald), a currency chip "EUR" (only because `multiCurrency` is on — with the flag off a budget-currency account has no chip, see ACCT-019), a type badge "Savings" (from `ACCOUNT_TYPE_LABELS`, fallback "Other"). The whole card is an overlay `Link` (aria-label "View Rainy Day") to `/accounts/{id}`; clicking anywhere on it navigates to the detail page.
 - **Automated:** No
 
 ## Adding an account
@@ -86,13 +86,13 @@
 ### ACCT-009 - Add a Current EUR account end to end
 - **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** Owner; `multiCurrency` on; `preferredCurrency` EUR.
+- **Preconditions:** Owner; `multiCurrency` on; budget currency EUR.
 - **Steps:**
   1. Click "+ Add account" (aria-label "Add account"). Modal "Add an account" opens.
   2. Type "Everyday" into Name (placeholder "e.g. Everyday current").
-  3. Leave Currency at EUR (default = `preferredCurrency`), Type at Current, Opening balance "1000".
+  3. Note there is no Currency field — the form reads "The account holds EUR, your budget currency."; leave Type at Current, Opening balance "1000".
   4. Click "Add account".
-- **Expected:** One `POST /accounts` with `{ name: "Everyday", type: 0, currency: "EUR", openingBalance: 1000 }`. A 201 `AccountDto` is appended to the grid; `DisplayOrder` = max existing + 1. The new card's balance = opening (no transactions yet) = €1,000.00. `account_created` is tracked with `kind: "Current"`; the modal closes and Name/Opening reset, Currency resets to `preferredCurrency`.
+- **Expected:** One `POST /accounts` with `{ name: "Everyday", type: 0, currency: "EUR", openingBalance: 1000, … }` (currency = `budgetCurrency`). A 201 `AccountDto` is appended to the grid; `DisplayOrder` = max existing + 1. The new card's balance = opening (no transactions yet) = €1,000.00. `account_created` is tracked with `kind: "Current"`; the modal closes and Name/Opening reset.
 - **Automated:** Yes (AccountsPage.test.tsx — add account via POST /accounts)
 
 ### ACCT-010 - Add accounts of every type
@@ -170,25 +170,26 @@
 - **Expected:** Client passes (non-empty), POST fires; server `MaximumLength(120)` → 400. Client shows "Could not add that account."
 - **Automated:** No
 
-### ACCT-018 - Currency select: shown only with multiCurrency, defaults to preferred, resets after add
-- **Priority:** P2
-- **Type:** Edge
-- **Preconditions:** Owner; `multiCurrency` on; `preferredCurrency` EUR.
+### ACCT-018 - The add form has no currency picker; the POST uses the budget currency, not the preference
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** W08 (rules 63/85) — an account in another currency held money no budget figure could count without a conversion; the Currency select (aria "Account currency") was removed.
+- **Preconditions:** Owner who joined / owns a household whose budget currency is **GBP** while their own `preferredCurrency` is **EUR** (`/auth/me` → `budgetCurrency: "GBP"`, `currencyLocked: true`); `multiCurrency` on; no accounts.
 - **Steps:**
-  1. Open the Add modal; inspect the Currency select (aria-label "Account currency") and helper text.
-  2. Change it to GBP and add an account; reopen the modal.
-- **Expected:** The Currency `Select` lists the `CURRENCY_OPTIONS` shortlist (24 codes, EUR→TRY) and defaults to EUR; helper text "An account's currency is fixed once created." The added account is created with `currency: "GBP"`. On the next open the select is back to EUR (reset to `preferredCurrency` after a successful add).
-- **Automated:** No
+  1. Open `/accounts` and read the hero; open the Add modal.
+  2. Add an account "Pot".
+- **Expected:** The hero reads **£0.00** (labelled in the budget currency). The modal has **no** "Account currency" select and shows "The account holds GBP, your budget currency." The POST carries `currency: "GBP"` — the budget currency, never the login's EUR preference.
+- **Automated:** Yes (client/src/pages/AccountsPage.catalog.test.tsx — ACCT-018)
 
-### ACCT-019 - With multiCurrency off, no currency picker; account uses preferred currency
+### ACCT-019 - With multiCurrency off only an account in another currency keeps its currency chip
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Owner; `multiCurrency` flag **off**; `preferredCurrency` EUR.
+- **Preconditions:** Owner; `multiCurrency` flag **off**; budget currency EUR; accounts EUR "Everyday" and legacy GBP "UK Pot".
 - **Steps:**
-  1. Open the Add modal.
-  2. Add an account "Everyday".
-- **Expected:** No Currency select is rendered and no "fixed once created" helper. The POST still carries `currency: "EUR"` (state default = `preferredCurrency`), so the account is silently created in EUR. Card currency chips and reconciliation currency labels are hidden while the flag is off, but per-account formatting still uses `a.currency`.
-- **Automated:** No
+  1. Open `/accounts` and read both cards; open the inline edit card of each.
+  2. Open the Add modal and add an account.
+- **Expected:** The EUR card shows **no** "EUR" chip and its edit card no "fixed once created" note; the GBP card **keeps** its "GBP" chip and its edit card the note "Currency GBP — fixed once created." (shown whenever `multiCurrency` is on **or** the account's currency differs from the budget currency, so a legacy account always says what it holds). The add form is the same as with the flag on (no picker; POST `currency: "EUR"`). Per-account formatting still uses `a.currency`.
+- **Automated:** Yes (client/src/pages/AccountsPage.catalog.test.tsx — ACCT-019)
 
 ### ACCT-020 - Enter submits; Cancel closes without a request; page banner stays hidden while modal open
 - **Priority:** P3
@@ -210,15 +211,14 @@
 - **Expected:** Case 1: `name.trim() === ''` → "Give the account a name.", no POST. Case 2: passes; POST sends the trimmed unicode/emoji name; the card renders it verbatim (server trims and stores, MaxLength 120 counts characters).
 - **Automated:** No
 
-### ACCT-022 - Currency validator accepts any 3 letters; non-3-letter rejected at the API
+### ACCT-022 - Currency on create: validator format rules, then the budget-currency rule
 - **Priority:** P2
 - **Type:** Boundary
-- **Preconditions:** Owner; `multiCurrency` on (picker offers only real codes) — this case probes the API contract.
+- **Preconditions:** Owner; budget currency EUR — this case probes the API contract (the UI always sends the budget currency).
 - **Steps:**
-  1. Add an account choosing a currency from the picker (all valid 3-letter codes).
-  2. (API-level) `POST /accounts` with `currency: "ZZZ"`, then with `currency: "EU"`.
-- **Expected:** The picker only ever sends valid codes. At the API, "ZZZ" **passes** (`^[A-Za-z]{3}$` — no ISO list check; stored upper-cased; `Intl.NumberFormat` later renders unknown codes generically); "EU" fails with 400 `{ errors: { Currency: ["Currency must be a 3-letter ISO 4217 code."] } }`. Empty currency → "An account needs a currency."
-- **Automated:** No
+  1. (API-level) `POST /accounts` with `currency: "EU"`, then `""`, then `"ZZZ"`, then `"eur"`.
+- **Expected:** "EU" → 400 `{ errors: { Currency: ["Currency must be a 3-letter ISO 4217 code."] } }`; empty → "An account needs a currency." (validator). "ZZZ" passes the validator (`^[A-Za-z]{3}$`, no ISO list check) but the handler refuses it because it isn't the budget currency: 400 `Currency` → "This budget is in EUR, so its accounts are too. A bank converts payments in other currencies into EUR itself." "eur" is upper-cased by `CurrencyCode.From`, equals the budget currency, and is created (201).
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/AAccountsCoverageTests.cs — `CreateAccountValidator_CurrencyRegex_AcceptsAnyThreeLetters_RejectsOthers`; tests/AllotJar.Application.Tests/Transactions/ForeignAmountsTests.cs — `A_new_account_must_be_in_the_budget_currency`)
 
 ## Editing an account
 
@@ -237,11 +237,11 @@
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** PR #168 / per-account currency + immutable-currency UX
-- **Preconditions:** Owner; `multiCurrency` on; GBP account "UK Pot".
+- **Preconditions:** Owner; `multiCurrency` on; legacy GBP account "UK Pot".
 - **Steps:**
   1. Open the inline edit card for "UK Pot".
-- **Expected:** There is **no** currency input — only a read-only note "Currency GBP — fixed once created." The `PUT` request shape carries no currency field, so the account's currency can never change after create. A regression that let currency change would silently reinterpret the whole register.
-- **Automated:** No
+- **Expected:** There is **no** currency input — only a read-only note "Currency GBP — fixed once created." The `PUT` request shape carries no currency field, so the account's currency can never change after create (and a legacy account in another currency can't be "fixed" by editing it into the budget currency). A regression that let currency change would silently reinterpret the whole register.
+- **Automated:** Yes (client/src/pages/AccountsPage.catalog.test.tsx — ACCT-024; tests/AllotJar.Application.Tests/Application/AAccountsCoverageTests.cs — `UpdateAccount_LeavesCurrencyUnchanged`)
 
 ### ACCT-025 - Opening field pre-fills as a plain (non-localized) decimal
 - **Priority:** P2
@@ -408,15 +408,17 @@
 - **Expected:** The create handler short-circuits `CurrentBalance = OpeningBalance` (no transactions possible yet), so the card shows exactly €1,000.00 and equals the next `GET /accounts`.
 - **Automated:** Partial (AccountsTests.cs — derivation with no transactions equals opening)
 
-### ACCT-042 - Cross-currency totals are a raw sum (no FX) — a deferred limitation
+### ACCT-042 - A legacy account in another currency: its rows move only its own balance and count a confirmed budget figure beside it
 - **Priority:** P2
 - **Type:** Regression
-- **Origin:** months-accounts-coherence audit / deferred FX — `ExchangeRate` hardcoded 1, raw cross-currency sums
-- **Preconditions:** Owner; EUR Joint (€1,250.00) and GBP UK Pot (£200.00).
+- **Origin:** months-accounts-coherence audit (raw cross-currency sums) → W08 (rules 42–44/63/85): no exchange rate exists any more; a row on an account kept in another currency is that account's money and is never restated. The adversarial review of W08 found such rows could never count (Enter amount was refused); Christopher's "Support them" (29 Sep 2026) keeps the confirmed figure beside the amount as `budgetAmount`.
+- **Preconditions:** Owner (budget currency EUR); EUR Joint (€1,250.00) and legacy GBP UK Pot (£200.00); import a statement into UK Pot with one £30.00 debit "Tube", assigned to an expense line.
 - **Steps:**
-  1. Read the hero on `/accounts`.
-- **Expected:** The hero Total balance is the **raw numeric sum** `1450.00` labelled EUR with the mixed-currency footnote — `AccountBalances` sums `t.Amount` verbatim and never applies `ExchangeRate`. This is a known, intentionally-deferred limitation (guarded by the footnote), not a bug to file; the regression is any silent removal of the footnote or an unannounced FX change.
-- **Automated:** No
+  1. Read UK Pot's card and detail register, then the `/accounts` hero and the dashboard for the row's month.
+  2. On `/transactions` click **Enter amount** on "Tube", confirm **35.00**.
+  3. Re-read UK Pot's card and detail register, the hero and the dashboard.
+- **Expected:** Step 1: UK Pot's balance moves to **£170.00** (`AccountBalances` sums the raw `Amount` in the account's own currency); the hero still reads **€1,250.00** with "1 account in another currency is not counted.". The row shows "GBP 30.00" with the tag **"Needs EUR amount"** and counts in no budget figure (the dashboard's waiting-rows notice counts it). Step 2: the dialog says "UK Pot keeps its GBP amount; the budget counts yours."; 200 with `amount 30, currency "GBP", budgetAmount 35, fxPending false`. Step 3: UK Pot is still **£170.00** and the hero still €1,250.00 — confirming never touches the account's money; the detail register shows "−£30.00" with a grey caption **"Counts as €35.00 in the budget"** (the Transactions register: "Counts as €35.00"); the line's actual rises by **€35.00** and the waiting notice is gone. Changing the row's amount later makes it wait again (TX-113).
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Transactions/ForeignAmountsTests.cs — `A_statement_imported_onto_an_account_kept_in_another_currency_waits_and_can_be_confirmed`, `A_waiting_row_on_an_account_kept_in_another_currency_counts_its_confirmed_figure_and_the_balance_stays`; client/src/pages/TransactionsPage.test.tsx — "Enter amount on a row on an account kept in another currency keeps its amount and shows what it counts"; client/src/pages/AccountsPage.catalog.test.tsx — ACCT-005 hero exclusion; the detail register's caption is not asserted)
 
 ## Account detail register (AccountDetailPage)
 
@@ -470,11 +472,11 @@
 ### ACCT-048 - Each amount is formatted in the transaction's own stamped currency
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Owner; GBP account "UK Pot" with a transaction whose `t.currency` differs from the account (deferred display-only mismatch).
+- **Preconditions:** Owner; legacy GBP account "UK Pot" with a transaction whose `t.currency` differs from the account (legacy data only: a manual entry on an account in another currency is now refused — `Create_OnAnAccountOfADifferentCurrency_IsRejected` — and an import row must match its import account). Plus, on Joint (EUR), a confirmed row that was paid abroad (`originalAmount` 20, `originalCurrency` "USD") and a waiting row.
 - **Steps:**
-  1. Open UK Pot's register and read the Amount cells.
-- **Expected:** Each row formats with `t.currency` (the transaction's own stamped currency), **not** the account currency (`formatMoney(fromAmount(t.amount), t.currency)`). This can surface a currency mismatch for manually-entered transactions (currency stamped from the month base) — a known deferred display-only issue; the balance itself is not corrupted.
-- **Automated:** No
+  1. Open UK Pot's register and read the Amount cells; then Joint's.
+- **Expected:** Each row formats with `t.currency` (the transaction's own stamped currency), **not** the account currency (`formatMoney(fromAmount(t.amount), t.currency)`); the balance itself is not corrupted. On Joint, the confirmed paid-abroad row shows a small grey caption **"USD 20.00"** (title "Paid in USD") under its budget-currency amount, and a waiting row carries the amber tag **"Needs EUR amount"** (title "In another currency. Not counted anywhere until you enter the amount in EUR."); the detail register has no Enter amount button (read-only page). A counted row with a `budgetAmount` — a confirmed row on UK Pot, or a GBP row that sat on Joint from before #210 and was kept by the `ForeignAmounts` migration (CURR-054) — shows its own-currency amount (e.g. "−£30.00") with a grey caption **"Counts as €35.00 in the budget"** (`budgetAmount` formatted in the budget currency); a waiting row never shows that caption.
+- **Automated:** Partial (client/src/pages/AccountDetailPage.catalog.test.tsx — ACCT-048 formatting; client/src/pages/AccountDetailPage.test.tsx — the "Needs EUR amount" tag on the waiting row only)
 
 ### ACCT-049 - Empty register message
 - **Priority:** P2
@@ -547,8 +549,8 @@
 - **Preconditions:** Owner; a GBP account "UK Pot" that backs a jar, plus an EUR backed account.
 - **Steps:**
   1. Open `/accounts`; then add/edit/delete any account and observe the table.
-- **Expected:** Each money cell formats in the account's own currency looked up client-side (`currencyById[r.accountId] ?? heroCurrency` — the DTO carries no currency). The reconciliation effect re-fetches whenever the `accounts` array changes (initial load + after any add/edit/delete). A reconciliation fetch failure is swallowed silently (`.catch(() => {})`) — the table just keeps its previous rows, no error banner. (Deferred: Float mixes account-currency balance with base-currency jar totals.)
-- **Automated:** No
+- **Expected:** Each money cell formats in the account's own currency looked up client-side (`currencyById[r.accountId] ?? budgetCurrency` — the DTO carries no currency). The reconciliation effect re-fetches whenever the `accounts` array changes (initial load + after any add/edit/delete). A reconciliation fetch failure is swallowed silently (`.catch(() => {})`) — the table just keeps its previous rows, no error banner. (Since W08 a jar can only be held in a budget-currency account — JAR-113 — so Float never mixes currencies for new data; a jar already held in a legacy account in another currency still compares that account's balance with its jar totals.)
+- **Automated:** Yes (client/src/pages/AccountsPage.catalog.test.tsx — ACCT-056 own-currency cells and the swallowed fetch failure)
 
 ## Roles, feature flags & long-session behaviour
 
@@ -760,3 +762,28 @@ Fixture W13: one household. Chris (budget owner, login), Sam (Admin login, linke
   1. Rename the account, keeping Sam as its holder. 2. Add Kid as a holder.
 - **Expected:** 1: saved. 2: 400 on HolderIds: "Kid is archived and can't hold an account. Restore them on the People page first."
 - **Automated:** Yes (JointAccountsW13Tests — `AnAccountWithAnArchivedHolder_CanStillBeRenamed`)
+
+## One budget currency (W08)
+
+Cases from the W08 foreign-currency slice (rules 42–44, 63, 85): a household has one budget currency — its earliest budget month's `BaseCurrency`, else the owner's `PreferredCurrency`, else EUR (`BudgetCurrency.ResolveAsync`) — and every new account must be in it. ACCT-018/019/022/042 above were rewritten for it.
+
+### ACCT-079 - A new account in another currency than the budget is refused, whatever the login prefers
+- **Priority:** P0
+- **Type:** Negative
+- **Origin:** W08 (rules 63/85) — an account in another currency held money no budget figure could count without a conversion.
+- **Preconditions:** Household A whose first budget month is **GBP** (July 2026) while the owner's `preferredCurrency` is **EUR**; household B with **no** budget month whose owner chose **GBP** at sign-up; household C with no month and no preference stored (EUR fallback).
+- **Steps:**
+  1. In A, `POST /api/accounts` with `currency: "EUR"`, then with `currency: "gbp"`.
+  2. In B, `POST /api/accounts` with `currency: "EUR"`, then `"GBP"`.
+  3. In C, `POST /api/accounts` with `currency: "USD"`, then `"EUR"`.
+- **Expected:** A: EUR → 400 `Currency` → "This budget is in GBP, so its accounts are too. A bank converts payments in other currencies into GBP itself."; "gbp" → 201, stored `GBP`. B: EUR refused the same way ("…in GBP…"), GBP created (the owner's choice decides before any month exists). C: USD refused ("This budget is in EUR, …"), EUR created. No refused request persists anything. In every household the Add modal shows no currency picker and says "The account holds {X}, your budget currency.".
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Transactions/ForeignAmountsTests.cs — `A_new_account_must_be_in_the_budget_currency`, `The_budget_currency_is_the_first_months_else_the_owners_choice`; client/e2e-journey/transfers-balances.spec.ts — USD account refused with "This budget is in EUR, so its accounts are too." on the real stack)
+
+### ACCT-080 - Hero totals exclude every account in another currency, even when it holds the only money
+- **Priority:** P2
+- **Type:** Boundary
+- **Preconditions:** Owner (budget currency EUR) whose only accounts are two legacy accounts: GBP "UK Pot" (£200.00) and USD "US Current" ($50.00).
+- **Steps:**
+  1. Open `/accounts`.
+- **Expected:** Total balance **€0.00**, Available **€0.00**, Owed **€0.00** — nothing is converted or raw-summed; the footnote pill reads **"2 accounts in another currency are not counted."**. Both cards show their own balances (£200.00, $50.00) with their currency chips. An unavailable-balance or pending-review pill, if any applies, sits beside it in the same footnote.
+- **Automated:** No

@@ -24,7 +24,7 @@ function initialsOf(name: string, email: string | null): string {
  * upward in the sidebar, downward on mobile.
  */
 function UserMenu({ compact = false }: { compact?: boolean }) {
-  const { email, displayName, preferredCurrency, households, switchHousehold, logout } = useAuth()
+  const { email, displayName, budgetCurrency, households, switchHousehold, logout } = useAuth()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -74,7 +74,7 @@ function UserMenu({ compact = false }: { compact?: boolean }) {
           <span className="min-w-0">
             {name && <span className="block truncate text-[13.5px] font-semibold text-slate-900">{name}</span>}
             <span className="block truncate text-[11.5px] text-slate-500">
-              {preferredCurrency} · {householdLabel}
+              {budgetCurrency} · {householdLabel}
             </span>
           </span>
         )}

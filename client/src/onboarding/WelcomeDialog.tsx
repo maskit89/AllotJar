@@ -19,7 +19,7 @@ function Bullet({ children }: { children: ReactNode }) {
 /** The first-run welcome. Auto-opens once; offers the tour or a clean skip. */
 export function WelcomeDialog() {
   const { startTour, dismissWelcome } = useOnboarding()
-  const { preferredCurrency, households } = useAuth()
+  const { budgetCurrency, households } = useAuth()
   const ref = useRef<HTMLDivElement>(null)
   useDialogA11y(ref, dismissWelcome)
 
@@ -27,7 +27,7 @@ export function WelcomeDialog() {
   // greet them as a member joining it, not as an owner about to set one up.
   const activeHousehold = households.find((h) => h.isActive)
   const joined = activeHousehold ? !activeHousehold.isOwn : false
-  const noun = currencyNoun(preferredCurrency)
+  const noun = currencyNoun(budgetCurrency)
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">

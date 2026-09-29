@@ -17,6 +17,7 @@ export function AccountPage() {
     firstName,
     lastName,
     preferredCurrency,
+    currencyLocked,
     numberFormat,
     households,
     ownsHousehold,
@@ -92,7 +93,7 @@ export function AccountPage() {
       await updatePreferences({
         firstName: pfFirst.trim(),
         lastName: pfLast.trim(),
-        preferredCurrency: pfCurrency,
+        preferredCurrency: currencyLocked ? preferredCurrency : pfCurrency,
         numberFormat: pfFormat,
       })
       setPrefDone(true)
@@ -289,8 +290,8 @@ export function AccountPage() {
       <Card className="p-5">
         <h2 className="mb-1 text-sm font-semibold text-slate-700">Preferences</h2>
         <p className="mb-4 text-sm text-slate-500">
-          Your name and how money is shown across the app. Your currency sets the app-wide default;
-          number format controls the decimal and grouping separators.
+          Your name and how money is shown across the app. Your currency is the one your budget and
+          all its accounts use; number format controls the decimal and grouping separators.
         </p>
         <form onSubmit={savePreferences} className="max-w-sm space-y-4">
           <div className="grid grid-cols-2 gap-3">
@@ -326,18 +327,31 @@ export function AccountPage() {
               <label htmlFor="pf-currency" className="mb-1 block text-sm font-medium text-slate-600">
                 Currency
               </label>
-              <Select
-                id="pf-currency"
-                value={pfCurrency}
-                onChange={(e) => setPfCurrency(e.target.value)}
-                className="w-full"
-              >
-                {CURRENCY_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </Select>
+              {currencyLocked ? (
+                // The budget already has accounts, months or transactions in this currency, and
+                // the app never converts amounts, so the currency is shown but can't be changed. It
+                // reads the saved currency directly, as the save does, not the form's copy of it.
+                <Input
+                  id="pf-currency"
+                  readOnly
+                  value={CURRENCY_OPTIONS.find((o) => o.value === preferredCurrency)?.label ?? preferredCurrency}
+                  aria-describedby="pf-currency-note"
+                  className="w-full bg-slate-50 text-slate-600"
+                />
+              ) : (
+                <Select
+                  id="pf-currency"
+                  value={pfCurrency}
+                  onChange={(e) => setPfCurrency(e.target.value)}
+                  className="w-full"
+                >
+                  {CURRENCY_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              )}
             </div>
             <div>
               <label htmlFor="pf-format" className="mb-1 block text-sm font-medium text-slate-600">
@@ -357,6 +371,11 @@ export function AccountPage() {
               </Select>
             </div>
           </div>
+          {currencyLocked && (
+            <p id="pf-currency-note" className="text-xs text-slate-500">
+              Your budget currency is fixed once your budget has accounts, months or transactions.
+            </p>
+          )}
 
           {prefError && <ErrorBanner>{prefError}</ErrorBanner>}
           {prefDone && (

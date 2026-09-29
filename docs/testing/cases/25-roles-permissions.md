@@ -17,7 +17,7 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
 ### ROLE-001 - The role → action permission matrix (the spec every other case verifies)
 - **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** Source of truth: `AuthorizationBehaviour.IsPermitted` (Owner⇒always, Admin⇒`!ownerOnly`, Limited⇒`!ownerOnly && allowLimited`, ReadOnly⇒false), the `[AllowLimited]` markers (6 Transaction cmds + `SetBudgetItemPaidCommand` + `AllocateIncomeCommand`) and `[OwnerOnly]` markers (`InviteMember`, `ChangeMemberRole`, `LinkMembershipMember`, `RevokeMember`). All other Commands are Admin+ by default; all Queries are all-role.
+- **Preconditions:** Source of truth: `AuthorizationBehaviour.IsPermitted` (Owner⇒always, Admin⇒`!ownerOnly`, Limited⇒`!ownerOnly && allowLimited`, ReadOnly⇒false), the `[AllowLimited]` markers (9 Transaction cmds — Create, Update, Delete, Split, Assign, CreateTransfer, ConfirmTransferLegs, LinkRefund and, since W08, `ConfirmConvertedAmountCommand` — + `SetBudgetItemPaidCommand` + `AllocateIncomeCommand`) and `[OwnerOnly]` markers (`InviteMember`, `ChangeMemberRole`, `LinkMembershipMember`, `RevokeMember`). All other Commands are Admin+ by default; all Queries are all-role.
 - **Steps:**
   1. Treat this table as the canonical spec. Y = allowed, `403` = ForbiddenAccessException, `-` = n/a. Every ROLE-nnn case below asserts one or more cells of it against the live UI and/or API.
 
@@ -31,6 +31,7 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
   | Mark a bill paid/unpaid (`PUT /budget/items/{id}/paid`) | Y | Y | **Y** | 403 | `[AllowLimited]` |
   | Transaction add/edit/delete/split/assign (`POST /transactions`, `PUT/DELETE …/{id}`, `PUT …/splits`, `PUT …/assignment`) | Y | Y | **Y** | 403 | `[AllowLimited]` |
   | Transfer between accounts (`POST /transactions/transfer`) | Y | Y | **Y** | 403 | `[AllowLimited]` |
+  | Enter a waiting row's budget-currency amount (`PUT /transactions/{id}/converted-amount`, W08); its **Suggest** (`GET /transactions/conversion-suggestion`) is a Query | Y | Y | **Y** | 403 | `[AllowLimited]` |
   | Account create/update/delete (`POST/PUT/DELETE /accounts…`) | Y | Y | 403 | 403 | Command (Admin+) |
   | Jar create/update/archive (`POST/PUT /jars…`, `PUT …/archive`) | Y | Y | 403 | 403 | Command (Admin+) |
   | Allocation profile upsert (`PUT /allocation/profile`) | Y | Y | 403 | 403 | Command (Admin+) |
@@ -419,7 +420,7 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
   1. As Rhea on `/account`, use "Change password" (current + new + confirm).
   2. Save "Preferences" (name, currency, number format).
   3. If `needsConsent`, click "I agree" in the ConsentModal.
-- **Expected:** All succeed (200/204). These are `[Authorize]`-only `/auth/*` endpoints, not MediatR household commands, so the role pipeline never touches them — a Read-only member fully controls their own login, display name and money-format preferences. Role gating governs *household* data, never *self* settings.
+- **Expected:** All succeed (200/204). These are `[Authorize]`-only `/auth/*` endpoints, not MediatR household commands, so the role pipeline never touches them — a Read-only member fully controls their own login, display name and money-format preferences. Role gating governs *household* data, never *self* settings. (The currency part of the save is the login's own household's budget currency: it is refused once that household holds an account, month or transaction — PREF-042 — whatever the role; re-sending the same code is fine.)
 - **Automated:** Partial (`AccountPage.test.tsx` covers change-password + preferences; not asserted under a Read-only role specifically)
 
 ### ROLE-033 - Switch / start-own / leave household are available to every role (not role-gated)

@@ -112,12 +112,18 @@ export function MarkCyclePaidModal({ jar, deadline, currency, onClose, onMarked 
           <ul className="divide-y divide-slate-100">
             {payments.map((p) => (
               <li key={p.id}>
-                <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-white/5">
+                <label
+                  className={`flex items-center gap-3 px-3 py-2 text-sm ${
+                    p.fxPending ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5'
+                  }`}
+                >
                   <input
                     type="radio"
                     name="cycle-payment"
                     value={p.id}
                     checked={selected === p.id}
+                    // A payment waiting for its budget-currency amount can't settle a cycle yet.
+                    disabled={p.fxPending}
                     onChange={() => setSelected(p.id)}
                     aria-label={`${p.payee} on ${formatDate(p.date)}, ${formatMoney(fromAmount(p.amount), p.currency || currency)}`}
                     className="h-4 w-4 border-slate-300 text-brand-600 focus:ring-brand-500"
@@ -128,6 +134,7 @@ export function MarkCyclePaidModal({ jar, deadline, currency, onClose, onMarked 
                       {formatDate(p.date)}
                       {p.accountName ? ` · ${p.accountName}` : ''}
                       {p.budgetItemName ? ` · ${p.budgetItemName}` : ''}
+                      {p.fxPending ? ' · Needs its amount entered on Transactions first' : ''}
                     </span>
                   </span>
                   {p.fromJar && <Badge tone="teal">From this jar</Badge>}

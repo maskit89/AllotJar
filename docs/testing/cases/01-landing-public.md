@@ -561,7 +561,7 @@
 ### LAND-041 - Help page route loads with header, subtitle and the ten topic cards
 - **Priority:** P2
 - **Type:** Happy
-- **Preconditions:** `owner@example.com` signed in (Help is an authed AppShell page); default/local build with `Features:Analytics=false` (so the "Privacy & analytics" card is absent and exactly ten topic cards render). Preferred currency EUR for the noun spot-check.
+- **Preconditions:** `owner@example.com` signed in (Help is an authed AppShell page); default/local build with `Features:Analytics=false` (so the "Privacy & analytics" card is absent and exactly ten topic cards render). Budget currency EUR for the noun spot-check.
 - **Steps:**
   1. From inside the app, navigate to `/help` (or deep-link `/help` while signed in — RequireAuth passes it straight through).
   2. Read the PageHeader and its action button.
@@ -571,7 +571,7 @@
   - Exactly one visible `<h1>` "Help & guide" (rendered by PageHeader — HelpPage passes no AppShell `title`, so there is no competing sr-only h1) with subtitle "How each part of AllotJar works." and an action button "Replay welcome tour" (its replay behavior is owned by ONBD-027; here only its presence matters).
   - The AppShell chrome wraps the page with `active="help"` (Help nav item current); the top month bar (month picker ‹ ›, "Zero-based" pill, ThemeToggle) is present even though Help is a non-month page.
   - Exactly ten topic-card `h3` headings in this order: "Zero-based budgeting", "Months & appearance", "Transactions", "Bills & due dates", "Accounts", "Saving with jars", "Reports", "People & allocation", "Your account", "Good to know". No "Privacy & analytics" card renders (flag off → `useAnalytics().available === false`).
-  - The "Zero-based budgeting" body uses the preferred-currency noun: "Give every euro a job until Remaining to budget reaches zero…" (noun = `currencyNoun(preferredCurrency)`; a USD owner reads "Give every dollar a job…" — same mapping as LAND-005).
+  - The "Zero-based budgeting" body uses the budget-currency noun: "Give every euro a job until Remaining to budget reaches zero…" (noun = `currencyNoun(budgetCurrency)`, the active household's currency from `/auth/me`; a member of a USD household reads "Give every dollar a job…" — same mapping as LAND-005).
   - "Good to know" is a bulleted list containing: inline-editing ("click, type, Enter to save, Escape to cancel"), "Deleting a line or account never deletes its transactions.", the "12.50"/"12,50" cent-exact note, and the "complete user guide" link (asserted in LAND-042).
 - **Automated:** Partial (client/src/pages/HelpPage.test.tsx — asserts the "Help & guide" h1, three topic headings (Zero-based budgeting / Transactions / Accounts) and the "Replay welcome tour" button; the full ten-card set + order, the subtitle, the AppShell/nav-active chrome and the currency-noun body copy are unasserted)
 

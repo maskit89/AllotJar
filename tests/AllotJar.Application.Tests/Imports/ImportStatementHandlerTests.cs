@@ -28,8 +28,7 @@ public class ImportStatementHandlerTests
 
     private static ImportStatementCommandHandler NewHandler(ApplicationDbContext db, string userId) =>
         new(db, new CurrentUserStub(userId),
-            new IStatementParser[] { new Camt053StatementParser(), new HsbcCsvStatementParser() },
-            new FakeExchangeRateProvider());
+            new IStatementParser[] { new Camt053StatementParser(), new HsbcCsvStatementParser() });
 
     [Fact]
     public async Task Handle_ImportsAllEntries_WithCorrectSummary()

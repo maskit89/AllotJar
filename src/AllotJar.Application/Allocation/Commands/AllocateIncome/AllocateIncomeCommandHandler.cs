@@ -220,7 +220,6 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                 Amount = m.Residual,
                 // Stamp the source account's currency (both legs share it, guarded above), not EUR.
                 Currency = source.Currency,
-                ExchangeRate = 1m,
                 Type = TransactionType.Transfer,
                 AccountId = sourceId,
                 TransferAccountId = savingsId,

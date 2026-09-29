@@ -33,7 +33,8 @@ public record ImportStatementResult(
     int Transfers = 0,
     int MatchedTransfers = 0,
     int PendingReviewTransfers = 0,
-    IReadOnlyList<ImportHeldRow>? Held = null)
+    IReadOnlyList<ImportHeldRow>? Held = null,
+    int AwaitingAmount = 0)
 {
     public IReadOnlyList<ImportHeldRow> Held { get; init; } = Held ?? [];
     public int HeldCount => Held.Count;

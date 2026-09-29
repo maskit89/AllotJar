@@ -19,8 +19,8 @@ import { jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from
 
 export function JarsPage() {
   // Managing jars needs Admin+ (canWrite); others see them read-only.
-  const { canWrite, preferredCurrency } = useAuth()
-  const CURRENCY = preferredCurrency
+  const { canWrite, budgetCurrency } = useAuth()
+  const CURRENCY = budgetCurrency
   const [jars, setJars] = useState<JarDto[]>([])
   const [accounts, setAccounts] = useState<AccountDto[]>([])
   // Each jar-backed account's ledger — what's unallocated and whether its jars are backed (rule 70).

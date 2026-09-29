@@ -29,22 +29,32 @@ public class UniqueBankReferenceTests
         public string? UserId { get; } = userId;
     }
 
-    /// <summary>Returns rate 1 and, on its FIRST call, runs a callback — used to deterministically
-    /// inject a competing insert into the window between the handler's dedup snapshot and its save.</summary>
-    private sealed class TrapRateProvider(Func<Task>? onFirstCall = null) : IExchangeRateProvider
+    /// <summary>Answers EUR for the owner's currency and, on its FIRST call, runs a callback — used to
+    /// deterministically inject a competing insert into the window between the handler's dedup
+    /// snapshot and its save (the budget currency is read there, for a household with no month yet).</summary>
+    private sealed class TrapIdentity(Func<Task>? onFirstCall = null) : IIdentityService
     {
         private bool _fired;
 
-        public async Task<decimal?> GetRateAsync(
-            CurrencyCode from, CurrencyCode to, DateOnly date, CancellationToken cancellationToken)
+        public async Task<CurrencyCode?> GetPreferredCurrencyAsync(string userId)
         {
             if (!_fired && onFirstCall is not null)
             {
                 _fired = true;
                 await onFirstCall();
             }
-            return 1m;
+            return CurrencyCode.Eur;
         }
+
+        public Task<bool> EmailExistsAsync(string email) => throw new NotSupportedException();
+        public Task<UserAccount?> FindByEmailAsync(string email) => throw new NotSupportedException();
+        public Task<UserAccount?> FindByIdAsync(string userId) => throw new NotSupportedException();
+        public Task<CreateUserResult> CreateUserAsync(string email, string password, string? displayName, bool consented = false) =>
+            throw new NotSupportedException();
+        public Task SetActiveHouseholdAsync(string userId, string? ownerId) => throw new NotSupportedException();
+        public Task<IReadOnlyList<string>> ChangePasswordAsync(string userId, string currentPassword, string newPassword) =>
+            throw new NotSupportedException();
+        public Task<CredentialCheckResult> CheckCredentialsAsync(string email, string password) => throw new NotSupportedException();
     }
 
     private static string NewOwner() => $"user-{Guid.NewGuid():N}";
@@ -55,7 +65,6 @@ public class UniqueBankReferenceTests
         OwnerId = ownerId,
         Amount = amount,
         Currency = CurrencyCode.From(currency),
-        ExchangeRate = 1m,
         Type = TransactionType.Expense,
         Date = new DateOnly(2026, 6, 15),
         Payee = "GROCER",
@@ -164,19 +173,19 @@ public class UniqueBankReferenceTests
         var owner = NewOwner();
         await using var db = _fixture.CreateContext();
 
-        // Foreign-currency rows force a rate lookup, which happens AFTER the handler's dedup
-        // snapshot and BEFORE its save — the trap inserts the competing row exactly there,
-        // deterministically reproducing the double-click / second-device race.
-        var trap = new TrapRateProvider(async () =>
+        // The budget currency is read AFTER the handler's dedup snapshot and BEFORE its save — the
+        // trap inserts the competing row exactly there, deterministically reproducing the
+        // double-click / second-device race.
+        var trap = new TrapIdentity(async () =>
         {
             await using var rival = _fixture.CreateContext();
-            rival.Transactions.Add(ImportedRow(owner, "race-1", currency: "USD"));
+            rival.Transactions.Add(ImportedRow(owner, "race-1"));
             await rival.SaveChangesAsync();
         });
 
         var handler = new CommitImportCommandHandler(db, new CurrentUserStub(owner), trap);
         var result = await handler.Handle(
-            new CommitImportCommand(null, new[] { Item("race-1", currency: "USD"), Item("race-2", currency: "USD") }),
+            new CommitImportCommand(null, new[] { Item("race-1"), Item("race-2") }),
             CancellationToken.None);
 
         // The collided row is skipped, the rest still lands — and the DB holds exactly one of each.
@@ -197,11 +206,11 @@ public class UniqueBankReferenceTests
         await using var db = _fixture.CreateContext();
         var items = new[] { Item("seq-1"), Item("seq-2") };
 
-        var first = await new CommitImportCommandHandler(db, new CurrentUserStub(owner), new TrapRateProvider())
+        var first = await new CommitImportCommandHandler(db, new CurrentUserStub(owner), new TrapIdentity())
             .Handle(new CommitImportCommand(null, items), CancellationToken.None);
 
         await using var db2 = _fixture.CreateContext();
-        var second = await new CommitImportCommandHandler(db2, new CurrentUserStub(owner), new TrapRateProvider())
+        var second = await new CommitImportCommandHandler(db2, new CurrentUserStub(owner), new TrapIdentity())
             .Handle(new CommitImportCommand(null, items), CancellationToken.None);
 
         first.Imported.Should().Be(2);
@@ -231,7 +240,7 @@ public class UniqueBankReferenceTests
 
         // A credit into A from B: the saved row's AccountId is B (the source), its receipt leg is
         // dated from the statement and A's reference sits in ReceiptBankReference.
-        var first = await new CommitImportCommandHandler(db, new CurrentUserStub(owner), new TrapRateProvider())
+        var first = await new CommitImportCommandHandler(db, new CurrentUserStub(owner), new TrapIdentity())
             .Handle(new CommitImportCommand(accountA.Id, new[]
             {
                 TransferItem("in-ref", accountB.Id, isCredit: true),
@@ -243,7 +252,7 @@ public class UniqueBankReferenceTests
         // also searching A — rethrew: the whole re-import 500ed. The snapshot now reads A's
         // receipt-leg references (TransferAccountId == A) as known.
         await using var db2 = _fixture.CreateContext();
-        var second = await new CommitImportCommandHandler(db2, new CurrentUserStub(owner), new TrapRateProvider())
+        var second = await new CommitImportCommandHandler(db2, new CurrentUserStub(owner), new TrapIdentity())
             .Handle(new CommitImportCommand(accountA.Id, new[]
             {
                 TransferItem("in-ref", accountB.Id, isCredit: true),
@@ -270,14 +279,14 @@ public class UniqueBankReferenceTests
 
         // A debit out of A to B: the saved row's AccountId is A — the straightforward case,
         // guarded so the inbound fix can't regress it.
-        await new CommitImportCommandHandler(db, new CurrentUserStub(owner), new TrapRateProvider())
+        await new CommitImportCommandHandler(db, new CurrentUserStub(owner), new TrapIdentity())
             .Handle(new CommitImportCommand(accountA.Id, new[]
             {
                 TransferItem("out-ref", accountB.Id, isCredit: false),
             }), CancellationToken.None);
 
         await using var db2 = _fixture.CreateContext();
-        var second = await new CommitImportCommandHandler(db2, new CurrentUserStub(owner), new TrapRateProvider())
+        var second = await new CommitImportCommandHandler(db2, new CurrentUserStub(owner), new TrapIdentity())
             .Handle(new CommitImportCommand(accountA.Id, new[]
             {
                 TransferItem("out-ref", accountB.Id, isCredit: false),
@@ -294,13 +303,13 @@ public class UniqueBankReferenceTests
         await using var db = _fixture.CreateContext();
         var account = await SeedAccountAsync(db, owner, "A");
 
-        await new CommitImportCommandHandler(db, new CurrentUserStub(owner), new TrapRateProvider())
+        await new CommitImportCommandHandler(db, new CurrentUserStub(owner), new TrapIdentity())
             .Handle(new CommitImportCommand(account.Id, new[] { Item("Ref-Case") }), CancellationToken.None);
 
         // The database index compares with the CI collation, so the case-variant WOULD collide —
         // the snapshot must skip it up front rather than fall into recovery.
         await using var db2 = _fixture.CreateContext();
-        var second = await new CommitImportCommandHandler(db2, new CurrentUserStub(owner), new TrapRateProvider())
+        var second = await new CommitImportCommandHandler(db2, new CurrentUserStub(owner), new TrapIdentity())
             .Handle(new CommitImportCommand(account.Id, new[] { Item("REF-CASE") }), CancellationToken.None);
 
         second.Imported.Should().Be(0);
@@ -312,23 +321,22 @@ public class UniqueBankReferenceTests
     {
         var owner = NewOwner();
         await using var db = _fixture.CreateContext();
-        // USD accounts + USD rows: foreign against the (EUR-default) budget base, so BOTH rows
-        // trigger a rate lookup — the trap's window between the dedup snapshot and the save —
-        // while still matching the account currency the import invariant enforces.
-        var accountA = new Account { OwnerId = owner, Name = "A", Currency = CurrencyCode.From("USD") };
-        var accountB = new Account { OwnerId = owner, Name = "B", Currency = CurrencyCode.From("USD") };
+        // The household has no budget month yet, so the budget currency is read from the owner —
+        // the trap's window between the dedup snapshot and the save.
+        var accountA = new Account { OwnerId = owner, Name = "A", Currency = CurrencyCode.Eur };
+        var accountB = new Account { OwnerId = owner, Name = "B", Currency = CurrencyCode.Eur };
         db.Accounts.AddRange(accountA, accountB);
         await db.SaveChangesAsync();
 
         // The rival inserts the SAME inbound-transfer row inside the trap window (stored with the
         // counterparty B as its source and A's reference on the receipt leg), so our save collides
         // on the receipt index (owner, A, ref).
-        var trap = new TrapRateProvider(async () =>
+        var trap = new TrapIdentity(async () =>
         {
             await using var rival = _fixture.CreateContext();
             rival.Transactions.Add(new Transaction
             {
-                OwnerId = owner, Amount = 100m, Currency = CurrencyCode.From("USD"), ExchangeRate = 1m,
+                OwnerId = owner, Amount = 100m, Currency = CurrencyCode.Eur,
                 Type = TransactionType.Transfer, Date = new DateOnly(2026, 6, 15), Payee = "TOP-UP",
                 ReceivedOn = new DateOnly(2026, 6, 15), ReceiptBankReference = "race-in",
                 AccountId = accountB.Id, TransferAccountId = accountA.Id,
@@ -339,10 +347,10 @@ public class UniqueBankReferenceTests
         var result = await new CommitImportCommandHandler(db, new CurrentUserStub(owner), trap)
             .Handle(new CommitImportCommand(accountA.Id, new[]
             {
-                new CommitImportItem("race-in", new DateOnly(2026, 6, 15), "TOP-UP", 100m, "USD",
+                new CommitImportItem("race-in", new DateOnly(2026, 6, 15), "TOP-UP", 100m, "EUR",
                     IsCredit: true, BudgetItemId: null, MemberId: null,
                     Splits: null, TransferAccountId: accountB.Id),
-                Item("race-plain", currency: "USD"),
+                Item("race-plain"),
             }), CancellationToken.None);
 
         // The old recovery searched the STATEMENT account (A), found nothing for the transfer

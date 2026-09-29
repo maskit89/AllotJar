@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type {
@@ -169,6 +169,28 @@ describe('ImportPage', () => {
     expect(wire).toBe('GenericCsv')
     expect(opts.mapping.descriptionColumn).toBe(3)
     expect(opts.defaultCurrency).toBe('EUR')
+  })
+
+  it('generic CSV: rows without a currency are read in the chosen import account’s currency', { timeout: 15000 }, async () => {
+    // A legacy account in another currency: its statement's rows are in that currency.
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/accounts') return Promise.resolve({ data: [{ ...accounts[0], currency: 'GBP' }, accounts[1]] })
+      if (url === '/budget/current') return Promise.resolve({ data: month })
+      if (url === '/members') return Promise.resolve({ data: members })
+      return Promise.resolve({ data: [] })
+    })
+    const user = userEvent.setup()
+    mockPreview.mockResolvedValue(csvPreview())
+    renderPage()
+
+    await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
+    await user.upload(screen.getByLabelText('Statement file'), csv())
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+    await screen.findByLabelText('Include TESCO on 2026-06-20')
+
+    expect(mockPreview).toHaveBeenCalledWith(expect.any(File), 'GenericCsv', { defaultCurrency: 'GBP', accountId: 'acc1' })
+    const currencySelect = screen.getByLabelText('Currency column') as HTMLSelectElement
+    expect(within(currencySelect).getAllByRole('option')[0]).toHaveTextContent('Use GBP for every row')
   })
 
   it('previews, then commits with the suggested category pre-filled', { timeout: 15000 }, async () => {
