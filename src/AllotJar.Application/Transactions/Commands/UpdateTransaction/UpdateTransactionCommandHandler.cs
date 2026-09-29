@@ -31,7 +31,6 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             .Include(t => t.Account)
             .Include(t => t.TransferAccount)
             .Include(t => t.Splits)
-            .Include(t => t.Refunds)
             .FirstOrDefaultAsync(t => t.Id == request.TransactionId, cancellationToken);
 
         if (transaction is null)
@@ -137,8 +136,12 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
 
         // A purchase with refunds linked to it stays a purchase that covers them: still an
         // expense, not shrunk below what came back, and not moved after the money returned.
-        if (transaction.Refunds.Count > 0)
+        // Every refund counts, including one in another login's private account (W13); its
+        // amount and date are then not named.
+        var refunds = await RefundRules.AllRefundsAsync(_db, transaction.Id, cancellationToken);
+        if (refunds.Count > 0)
         {
+            var hidden = refunds.Any(r => r.Hidden);
             var errors = new Dictionary<string, string[]>();
             if (request.Type != TransactionType.Expense)
             {
@@ -148,15 +151,25 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             // base-currency values, so a refund in another currency is neither under- nor over-counted.
             var (paid, refunded, _) = RefundRules.Totals(
                 transaction.Currency, request.Amount, transaction.ExchangeRate,
-                transaction.Refunds.Select(RefundRules.RefundLeg.Of).ToList());
+                refunds.Select(r => r.Leg).ToList());
             if (paid < refunded)
             {
-                errors["Amount"] = new[] { $"This purchase has {refunded:0.##} refunded against it; its amount can't be less than that." };
+                errors["Amount"] = new[]
+                {
+                    hidden
+                        ? "This purchase has refunds against it; its amount can't be less than what came back."
+                        : $"This purchase has {refunded:0.##} refunded against it; its amount can't be less than that.",
+                };
             }
-            var firstRefund = transaction.Refunds.Min(r => r.Date);
+            var firstRefund = refunds.Min(r => r.Date);
             if (request.Date > firstRefund)
             {
-                errors["Date"] = new[] { $"This purchase was refunded on {firstRefund:d MMM yyyy}; it can't be dated after its refund." };
+                errors["Date"] = new[]
+                {
+                    hidden
+                        ? "This purchase has a refund dated before that; it can't be dated after its refund."
+                        : $"This purchase was refunded on {firstRefund:d MMM yyyy}; it can't be dated after its refund.",
+                };
             }
             if (errors.Count > 0)
             {

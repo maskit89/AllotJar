@@ -52,8 +52,23 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
             });
         }
 
-        var source = await _db.Accounts.FirstOrDefaultAsync(a => a.Id == sourceId, cancellationToken)
-            ?? throw new NotFoundException($"Source account {sourceId} was not found.");
+        var source = await _db.Accounts.FirstOrDefaultAsync(a => a.Id == sourceId, cancellationToken);
+        if (source is null)
+        {
+            // P53: the profile's source may since have been made private by its holder.
+            if (await _db.AccountPrivacies.AnyAsync(p => p.AccountId == sourceId, cancellationToken))
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["SourceAccountId"] = new[]
+                    {
+                        "The allocation's source account is private to its holder, so only they can record transfers from it. " +
+                        "Choose a shared source account on the allocation profile.",
+                    },
+                });
+            }
+            throw new NotFoundException($"Source account {sourceId} was not found.");
+        }
         if (source.OwnerId != userId)
         {
             throw new ForbiddenAccessException();
@@ -90,6 +105,27 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                 .ToListAsync(cancellationToken))
             .ToDictionary(t => t.BankReference!, StringComparer.OrdinalIgnoreCase);
 
+        // P53: a share bound for a savings account private to another login can't be recorded by
+        // this caller, and neither can the removal of an earlier run's transfer into it. Refuse
+        // before planning any movement, rather than skipping that person or failing halfway.
+        var blocked = plan.Result.Members
+            .Where(m => plan.PrivateSavings?.Contains(m.MemberId) == true
+                        && (m.Residual > 0m || prior.ContainsKey(prefix + m.MemberId)))
+            .Select(m => m.Name)
+            .ToList();
+        if (blocked.Count > 0)
+        {
+            var who = blocked[0];
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["Allocation"] = new[]
+                {
+                    $"{who}'s savings account is private, so only {who} can record a transfer into it. " +
+                    $"{who} can share it, or point their savings at a shared account on the People page.",
+                },
+            });
+        }
+
         // Load every target savings account up front to validate ownership and currency. An
         // allocation transfer, like any transfer, must stay in one currency (the source's), or the
         // currency-blind account balances drift. (Previously the transfer was hardcoded to EUR and
@@ -120,18 +156,6 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
             }
             if (!savingsAccounts.TryGetValue(savingsId, out var savings))
             {
-                // P53: another login's private account is not there for this caller to pay into.
-                if (await _db.AccountPrivacies.AnyAsync(p => p.AccountId == savingsId, cancellationToken))
-                {
-                    throw new ValidationException(new Dictionary<string, string[]>
-                    {
-                        ["Allocation"] = new[]
-                        {
-                            $"{m.Name}'s savings account is private, so only {m.Name} can record a transfer into it. " +
-                            $"Point {m.Name}'s savings at a shared account on the People page, or leave it empty.",
-                        },
-                    });
-                }
                 throw new NotFoundException($"Savings account {savingsId} was not found.");
             }
             // A member whose savings account IS the allocation source would get a no-op
@@ -263,6 +287,6 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
         return plan.Result.ToDto(
             plan.EnvelopesTotal, plan.JarsTotal, created,
             unattributedIncome: plan.UnattributedIncome, incomeFromBudget: plan.IncomeFromBudget,
-            transfersRetained: retained.Count);
+            transfersRetained: retained.Count, privateSavings: plan.PrivateSavings);
     }
 }

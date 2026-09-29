@@ -87,12 +87,14 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
     // Rule 30: the holders are who the account belongs to; its balance and history are untouched.
     private async Task ReplaceHoldersAsync(Account account, IReadOnlyList<Guid> holderIds, string ownerId, CancellationToken ct)
     {
-        var holders = await AccountSharing.ResolveHoldersAsync(_db, ownerId, holderIds, ct);
+        // Unchanged holders need no checks: the Accounts page sends them with every edit, and a
+        // holder archived since (W11) must not block a rename.
         var before = account.Holders.Select(h => h.MemberId).ToHashSet();
-        if (before.SetEquals(holders.Select(h => h.Id)))
+        if (before.SetEquals(holderIds))
         {
             return;
         }
+        var holders = await AccountSharing.ResolveHoldersAsync(_db, ownerId, holderIds, ct, alreadyHolding: before);
 
         // A private account stays personal to its holder (rule 33): sharing it comes first, so
         // nobody is added to — or left holding — an account the others can't see.

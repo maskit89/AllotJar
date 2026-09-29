@@ -104,6 +104,46 @@ public class PrivateAccountsSqlTests
         }
     }
 
+    [Fact]
+    public async Task Making_an_account_private_waits_for_a_jar_being_put_on_it_and_then_refuses()
+    {
+        // Rules 33/34 when two logins act at once (P55): Chris puts a jar on Sam's shared savings
+        // while Sam makes it private, and each request has passed its own check. A save that puts a
+        // jar on an account or makes it private locks the account row, so Sam's save waits for the
+        // jar to commit, then sees it and refuses: never a jar on a private account.
+        var owner = $"user-{Guid.NewGuid():N}";
+        var samLogin = $"sam-{Guid.NewGuid():N}";
+        var account = NewAccount(owner, "Sam's savings");
+        await using (var seed = _fixture.CreateContext())
+        {
+            seed.Accounts.Add(account);
+            await seed.SaveChangesAsync();
+        }
+
+        await using var chris = new ApplicationDbContext(_fixture.Options, new Viewer(owner, owner));
+        await using var chrisWrite = await chris.Database.BeginTransactionAsync();
+        chris.Jars.Add(new Jar
+        {
+            OwnerId = owner, Name = "Holiday", Kind = JarKind.Goal, TargetAmount = 1000m,
+            Accrual = AccrualMethod.TargetByDate, FundingAccountId = account.Id,
+        });
+        await chris.SaveChangesAsync();
+
+        await using var sam = new ApplicationDbContext(_fixture.Options, new Viewer(owner, samLogin));
+        sam.AccountPrivacies.Add(new AccountPrivacy { AccountId = account.Id, UserId = samLogin });
+        var samSave = sam.SaveChangesAsync();
+        await Task.WhenAny(samSave, Task.Delay(TimeSpan.FromSeconds(1)));
+        samSave.IsCompleted.Should().BeFalse("Sam's save waits on the account row Chris's jar holds");
+
+        await chrisWrite.CommitAsync();
+        var act = () => samSave;
+        (await act.Should().ThrowAsync<ValidationException>()).Which.Errors["IsPrivate"].Single().Should().Contain("Holiday");
+
+        await using var verify = _fixture.CreateContext();
+        (await verify.AccountPrivacies.AnyAsync(p => p.AccountId == account.Id)).Should().BeFalse();
+        (await verify.Jars.CountAsync(j => j.FundingAccountId == account.Id)).Should().Be(1);
+    }
+
     private static Account NewAccount(string owner, string name) => new()
     {
         OwnerId = owner, Name = name, Type = AccountType.Current, Currency = CurrencyCode.Eur,

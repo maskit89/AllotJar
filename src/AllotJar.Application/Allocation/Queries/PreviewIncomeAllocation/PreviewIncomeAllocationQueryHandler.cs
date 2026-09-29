@@ -28,6 +28,7 @@ public class PreviewIncomeAllocationQueryHandler
 
         return plan.Result.ToDto(
             plan.EnvelopesTotal, plan.JarsTotal,
-            unattributedIncome: plan.UnattributedIncome, incomeFromBudget: plan.IncomeFromBudget);
+            unattributedIncome: plan.UnattributedIncome, incomeFromBudget: plan.IncomeFromBudget,
+            privateSavings: plan.PrivateSavings);
     }
 }

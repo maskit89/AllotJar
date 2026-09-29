@@ -907,6 +907,8 @@ export interface MemberAllocationDto {
   /** Actual savings-account balance today, before this month's allocation; null when unavailable (no opening date). */
   savingsBalance: number | null
   savingsAccountId: string | null
+  /** W13 (P53): the person's savings account is private to their own login; only they can record the transfer. */
+  savingsPrivate?: boolean
 }
 
 export interface AllocationResultDto {

@@ -8,16 +8,24 @@ using AllotJar.Application.Accounts.Commands.SetAccountSharing;
 using AllotJar.Application.Accounts.Commands.UpdateAccount;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Accounts.Queries.GetSharingReview;
+using AllotJar.Application.Allocation.Commands.AllocateIncome;
+using AllotJar.Application.Allocation.Commands.UpsertAllocationProfile;
+using AllotJar.Application.Allocation.Queries.PreviewIncomeAllocation;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
-using AllotJar.Application.HouseholdAccess.Commands.LinkMembershipMember;
 using AllotJar.Application.Household.Commands.UpdateHouseholdMember;
 using AllotJar.Application.Household.Queries.GetMemberSpending;
+using AllotJar.Application.HouseholdAccess.Commands.LinkMembershipMember;
+using AllotJar.Application.HouseholdAccess.Commands.RevokeMember;
+using AllotJar.Application.Imports.Commands.ImportStatement;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Reports.Queries.GetMonthReport;
+using AllotJar.Application.Tests.Imports;
 using AllotJar.Application.Tests.TestDoubles;
+using AllotJar.Application.Transactions.Commands.AssignTransaction;
 using AllotJar.Application.Transactions.Commands.ConfirmTransferLegs;
+using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.DeleteTransaction;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Application.Transactions.Commands.UpdateTransaction;
@@ -27,6 +35,7 @@ using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
 using AllotJar.Infrastructure.Persistence;
+using AllotJar.Infrastructure.Statements;
 
 namespace AllotJar.Application.Tests.Application;
 
@@ -256,7 +265,7 @@ public class JointAccountsW13Tests
     }
 
     [Fact]
-    public async Task PrivacyStaysWithTheLoginThatChoseIt_ARelinkNeverRevealsIt_P59()
+    public async Task PrivacyStaysWithTheLoginThatChoseIt_WhileItIsInTheHousehold_ARelinkNeverRevealsIt_P59()
     {
         await CreateAccountAsync(Sam, "Sam's current", new[] { _sam });
         Guid samMembership;
@@ -276,6 +285,75 @@ public class JointAccountsW13Tests
 
         (await AccountNamesAsync(new Viewer(Household, _sam))).Should().NotContain("Sam's current");
         (await AccountNamesAsync(new Viewer(SamLogin, null))).Should().Contain("Sam's current");
+
+        // Nor can anyone take the privacy over by hand while Sam's login is still in the household.
+        await using (var db = As(Chris))
+        {
+            (await db.AccountPrivacies.SingleAsync()).UserId = Household;
+            var act = () => db.SaveChangesAsync();
+            await act.Should().ThrowAsync<ForbiddenAccessException>();
+        }
+    }
+
+    [Fact]
+    public async Task ARemovedLoginsPrivateAccount_PassesToThePersonsNextLogin_WithAReview_P59()
+    {
+        await CreateAccountAsync(Sam, "Sam's current", new[] { _sam });
+        await RemoveSamsLoginAsync();
+        (await AccountNamesAsync(Chris)).Should().NotContain("Sam's current", "removing a login never reveals its account");
+
+        var newLogin = await AddLoginAsync("sam-new-login");
+        await using (var db = As(Chris))
+        {
+            await new LinkMembershipMemberCommandHandler(db, Chris)
+                .Handle(new LinkMembershipMemberCommand(newLogin, _sam), CancellationToken.None);
+        }
+
+        (await AccountNamesAsync(new Viewer("sam-new-login", _sam))).Should().Contain("Sam's current");
+        (await AccountNamesAsync(Chris)).Should().NotContain("Sam's current");
+        using (var db = Seed())
+        {
+            db.HouseholdMemberships.Single(m => m.Id == newLogin).SharingReviewPending.Should().BeTrue();
+        }
+    }
+
+    [Fact]
+    public async Task APrivateAccount_PassesToThePersonsLinkedLogin_WhenTheLoginThatChoseItIsRemoved_P59()
+    {
+        await CreateAccountAsync(Sam, "Sam's current", new[] { _sam });
+        var newLogin = await AddLoginAsync("sam-new-login");
+        await using (var db = As(Chris))
+        {
+            var handler = new LinkMembershipMemberCommandHandler(db, Chris);
+            var samMembership = await db.HouseholdMemberships.SingleAsync(m => m.UserId == SamLogin);
+            await handler.Handle(new LinkMembershipMemberCommand(samMembership.Id, null), CancellationToken.None);
+            await handler.Handle(new LinkMembershipMemberCommand(newLogin, _sam), CancellationToken.None);
+        }
+        (await AccountNamesAsync(new Viewer("sam-new-login", _sam))).Should().NotContain(
+            "Sam's current", "the login that chose privacy is still in the household");
+
+        await RemoveSamsLoginAsync();
+
+        (await AccountNamesAsync(new Viewer("sam-new-login", _sam))).Should().Contain("Sam's current");
+    }
+
+    private async Task RemoveSamsLoginAsync()
+    {
+        await using var db = As(Chris);
+        var membership = await db.HouseholdMemberships.SingleAsync(m => m.UserId == SamLogin);
+        await new RevokeMemberCommandHandler(db, Chris).Handle(new RevokeMemberCommand(membership.Id), CancellationToken.None);
+    }
+
+    private async Task<Guid> AddLoginAsync(string userId)
+    {
+        await using var db = Seed();
+        var membership = new HouseholdMembership
+        {
+            OwnerId = Household, UserId = userId, Role = HouseholdRole.Admin, InvitedEmail = $"{userId}@example.com",
+        };
+        db.HouseholdMemberships.Add(membership);
+        await db.SaveChangesAsync();
+        return membership.Id;
     }
 
     [Fact]
@@ -538,5 +616,242 @@ public class JointAccountsW13Tests
             var spending = await new GetMemberSpendingQueryHandler(db, viewer).Handle(new GetMemberSpendingQuery(2026, 6), CancellationToken.None);
             spending.Single(s => s.MemberId == _sam).Spent.Should().Be(0m);
         }
+    }
+
+    // ---- Review of PR #277: privacy through the other flows ------------------------------------
+
+    [Fact]
+    public async Task APrivateEntryLeftOffTheBudget_IsNeverAutoCategorisedOntoALine_P56()
+    {
+        var groceries = SeedLine();
+        var joint = await CreateAccountAsync(Chris, "Joint", holders: null);
+        var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam });
+        using (var db = Seed())
+        {
+            // The household's history teaches "Pharmacy -> Groceries".
+            LedgerFixtures.Expense(db, Household, joint, 20m, new DateOnly(2026, 6, 1), groceries).Payee = "Pharmacy";
+            db.SaveChanges();
+        }
+
+        await using (var db = As(Sam))
+        {
+            var dto = await new CreateTransactionCommandHandler(db, Sam).Handle(
+                new CreateTransactionCommand(June10, "Pharmacy", 85m, TransactionType.Expense, BudgetItemId: null, AccountId: mine),
+                CancellationToken.None);
+            dto.BudgetItemId.Should().BeNull("only its holder puts private money on the budget");
+        }
+        (await TransactionsAsync(Chris)).Should().NotContain(t => t.Amount == 85m);
+    }
+
+    [Fact]
+    public async Task AStatementImportedIntoAPrivateAccount_IsNeverAutoCategorised_P56()
+    {
+        var rent = SeedLine("Rent");
+        var joint = await CreateAccountAsync(Chris, "Joint", holders: null);
+        var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam }, opening: 5000m);
+        using (var db = Seed())
+        {
+            LedgerFixtures.Expense(db, Household, joint, 1100m, new DateOnly(2026, 5, 1), rent).Payee = "Landlord GmbH";
+            db.SaveChanges();
+        }
+
+        await using (var db = As(Sam))
+        {
+            var result = await new ImportStatementCommandHandler(
+                    db, Sam, new[] { new Camt053StatementParser() }, new FakeExchangeRateProvider())
+                .Handle(new ImportStatementCommand(Camt053Samples.TwoEurEntries, mine), CancellationToken.None);
+            result.Imported.Should().Be(2);
+            result.AutoCategorized.Should().Be(0);
+        }
+        (await TransactionsAsync(Chris)).Should().NotContain(t => t.BankReference == "REF-RENT-001");
+    }
+
+    [Fact]
+    public async Task IncomeAllocation_IntoAPrivateSavingsAccount_IsRefusedUpFront_ThenItsHolderRunsIt_P53()
+    {
+        var (joint, samSavings) = await SeedAllocationAsync();
+
+        await using (var db = As(Chris))
+        {
+            var preview = await new PreviewIncomeAllocationQueryHandler(db, Chris)
+                .Handle(new PreviewIncomeAllocationQuery(2026, 6), CancellationToken.None);
+            preview.Members.Single(m => m.MemberId == _sam).SavingsPrivate.Should().BeTrue();
+            preview.Members.Single(m => m.MemberId == _chris).SavingsPrivate.Should().BeFalse();
+
+            var act = () => new AllocateIncomeCommandHandler(db, Chris).Handle(
+                new AllocateIncomeCommand(2026, 6, DepartedOn: new DateOnly(2026, 6, 3), ConfirmedCompleted: true),
+                CancellationToken.None);
+            (await act.Should().ThrowAsync<ValidationException>()).Which.Errors["Allocation"].Single()
+                .Should().StartWith("Sam's savings account is private");
+        }
+        using (var check = Seed())
+        {
+            check.Transactions.Should().NotContain(t => t.Type == TransactionType.Transfer, "nothing moves for anyone");
+        }
+
+        await using (var db = As(Sam))
+        {
+            await new AllocateIncomeCommandHandler(db, Sam).Handle(
+                new AllocateIncomeCommand(2026, 6, DepartedOn: new DateOnly(2026, 6, 3), ConfirmedCompleted: true),
+                CancellationToken.None);
+        }
+        using (var check = Seed())
+        {
+            check.Transactions.Should().Contain(t => t.AccountId == joint && t.TransferAccountId == samSavings);
+        }
+    }
+
+    private async Task<(Guid Joint, Guid SamSavings)> SeedAllocationAsync()
+    {
+        var joint = await CreateAccountAsync(Chris, "Joint", holders: null, opening: 20000m);
+        var chrisSavings = await CreateAccountAsync(Chris, "Chris savings", new[] { _chris }, isPrivate: false);
+        var samSavings = await CreateAccountAsync(Sam, "Sam savings", new[] { _sam });
+        using (var db = Seed())
+        {
+            db.HouseholdMembers.Single(m => m.Id == _chris).PersonalSavingsAccountId = chrisSavings;
+            db.HouseholdMembers.Single(m => m.Id == _sam).PersonalSavingsAccountId = samSavings;
+            db.BudgetMonths.Add(new BudgetMonth
+            {
+                OwnerId = Household, Year = 2026, Month = 6, BaseCurrency = CurrencyCode.Eur,
+                Categories = new List<BudgetCategory>
+                {
+                    new()
+                    {
+                        Name = "Income", Kind = CategoryKind.Income,
+                        Items = new List<BudgetItem>
+                        {
+                            new() { Name = "Chris", PlannedAmount = 3000m, MemberId = _chris },
+                            new() { Name = "Sam", PlannedAmount = 3000m, MemberId = _sam },
+                        },
+                    },
+                    new() { Name = "Living", Kind = CategoryKind.Expense, Items = new List<BudgetItem> { new() { Name = "Living", PlannedAmount = 1000m } } },
+                },
+            });
+            db.SaveChanges();
+        }
+        await using (var db = As(Chris))
+        {
+            await new UpsertAllocationProfileCommandHandler(db, Chris).Handle(
+                new UpsertAllocationProfileCommand(null, "Monthly", joint, new List<AllocationRuleSpec>
+                {
+                    new(0, AllocationRuleType.FundEnvelopes, SplitMethod.Equal, 0m),
+                    new(1, AllocationRuleType.SplitRemainderToMembers, SplitMethod.Equal, 0m),
+                }), CancellationToken.None);
+        }
+        return (joint, samSavings);
+    }
+
+    [Fact]
+    public async Task ARefundInAPrivateAccount_StillCountsAgainstThePurchase_ForEveryone_P20()
+    {
+        var groceries = SeedLine();
+        var joint = await CreateAccountAsync(Chris, "Joint", holders: null);
+        var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam });
+        Guid purchase;
+        using (var db = Seed())
+        {
+            purchase = LedgerFixtures.Expense(db, Household, joint, 100m, new DateOnly(2026, 6, 1), groceries).Id;
+        }
+        // Sam takes 60 back into his private account and keeps it off the budget.
+        await using (var db = As(Sam))
+        {
+            var refund = await new CreateTransactionCommandHandler(db, Sam).Handle(
+                new CreateTransactionCommand(June10, "Shop refund", 60m, TransactionType.Income, BudgetItemId: null,
+                    AccountId: mine, RefundOfTransactionId: purchase),
+                CancellationToken.None);
+            await new AssignTransactionCommandHandler(db, Sam).Handle(new AssignTransactionCommand(refund.Id, null), CancellationToken.None);
+        }
+        (await TransactionsAsync(Chris)).Should().NotContain(t => t.Payee == "Shop refund");
+
+        await using (var db = As(Chris))
+        {
+            var second = () => new CreateTransactionCommandHandler(db, Chris).Handle(
+                new CreateTransactionCommand(June10, "Shop refund", 60m, TransactionType.Income, BudgetItemId: null,
+                    AccountId: joint, RefundOfTransactionId: purchase),
+                CancellationToken.None);
+            (await second.Should().ThrowAsync<ValidationException>("120 back on a 100 purchase")).Which.Errors
+                .SelectMany(e => e.Value).Should().NotContain(m => m.Contains("60"), "the private refund's amount stays private");
+
+            var shrink = () => new UpdateTransactionCommandHandler(db, Chris).Handle(
+                new UpdateTransactionCommand(purchase, new DateOnly(2026, 6, 1), "Shop", 50m, TransactionType.Expense, AccountId: joint),
+                CancellationToken.None);
+            (await shrink.Should().ThrowAsync<ValidationException>()).Which.Errors.Should().ContainKey("Amount");
+
+            var delete = () => new DeleteTransactionCommandHandler(db, Chris).Handle(
+                new DeleteTransactionCommand(purchase), CancellationToken.None);
+            (await delete.Should().ThrowAsync<ValidationException>()).Which.Errors["TransactionId"].Single()
+                .Should().Contain("private account");
+        }
+    }
+
+    [Fact]
+    public async Task AnAccountWithAnArchivedHolder_CanStillBeRenamed()
+    {
+        var account = await CreateAccountAsync(Chris, "Sam's old current", new[] { _sam });
+        using (var db = Seed())
+        {
+            foreach (var person in db.HouseholdMembers.Where(m => m.Id == _sam || m.Id == _kid))
+            {
+                person.IsArchived = true;
+            }
+            db.SaveChanges();
+        }
+
+        await using (var db = As(Chris))
+        {
+            var dto = await new UpdateAccountCommandHandler(db, Chris).Handle(
+                new UpdateAccountCommand(account, "Old current (closed)", AccountType.Current, 1000m, LedgerFixtures.DefaultOpening,
+                    HolderIds: new[] { _sam }),
+                CancellationToken.None);
+            dto.Name.Should().Be("Old current (closed)");
+
+            var addKid = () => new UpdateAccountCommandHandler(db, Chris).Handle(
+                new UpdateAccountCommand(account, "Old current (closed)", AccountType.Current, 1000m, LedgerFixtures.DefaultOpening,
+                    HolderIds: new[] { _sam, _kid }),
+                CancellationToken.None);
+            (await addKid.Should().ThrowAsync<ValidationException>("an archived person still can't be given a new account"))
+                .Which.Errors.Should().ContainKey("HolderIds");
+        }
+    }
+
+    [Fact]
+    public async Task AnAccountThatGetsAJarWhileItIsBeingMadePrivate_StaysShared_Rule33()
+    {
+        var account = await CreateAccountAsync(Sam, "Sam's savings", new[] { _sam }, isPrivate: false);
+
+        // Sam's request passed its checks (no jar yet) and is about to save...
+        await using var sam = As(Sam);
+        sam.AccountPrivacies.Add(new AccountPrivacy { AccountId = account, UserId = SamLogin });
+        // ...when Chris puts a jar on the account.
+        await using (var db = As(Chris))
+        {
+            await new CreateJarCommandHandler(db, Chris).Handle(
+                new CreateJarCommand("Holiday", JarKind.Goal, 1000m, null, AccrualMethod.FixedMonthly, account, MonthlyContribution: 100m),
+                CancellationToken.None);
+        }
+
+        var save = () => sam.SaveChangesAsync();
+        (await save.Should().ThrowAsync<ValidationException>()).Which.Errors["IsPrivate"].Single().Should().Contain("Holiday");
+        (await AccountNamesAsync(Chris)).Should().Contain("Sam's savings");
+    }
+
+    [Fact]
+    public async Task AJarPutOnAnAccountThatWentPrivateMeanwhile_IsWarnedAboutAgain_Rule34()
+    {
+        var account = await CreateAccountAsync(Sam, "Sam's savings", new[] { _sam }, isPrivate: false);
+
+        // Sam's jar passed its check (the account was shared) and is about to save...
+        await using var creating = As(Sam);
+        creating.Jars.Add(new Jar { OwnerId = Household, Name = "Holiday", FundingAccountId = account });
+        // ...when Sam, on another device, makes the account private.
+        await using (var db = As(Sam))
+        {
+            await new SetAccountSharingCommandHandler(db, Sam).Handle(new SetAccountSharingCommand(account, true), CancellationToken.None);
+        }
+
+        var save = () => creating.SaveChangesAsync();
+        (await save.Should().ThrowAsync<ValidationException>()).Which.Errors.Should().ContainKey(JarAccounts.AccountPrivateKey);
+        using var check = Seed();
+        check.Jars.Should().BeEmpty();
     }
 }

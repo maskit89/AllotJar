@@ -200,6 +200,48 @@ describe('JarsPage', () => {
     expect(jarPosts[1]).toEqual(expect.objectContaining({ name: 'Vacation', shareAccount: true }))
   })
 
+  // P2-2 of the #277 review: the warning names one account. Switching "Held in" to another
+  // account drops it, so "Share the account and continue" can never share an account it didn't name.
+  it('drops the rule 34 warning when the account changes, so it never shares another account', { timeout: 20000 }, async () => {
+    const warning = "'Joint Current' is private. A jar is part of the household budget, so the account it lives in is visible to everyone."
+    const other = { id: 'acc2', name: 'My Savings', type: 1, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 1, isPrivate: true } as AccountDto
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/accounts') return Promise.resolve({ data: [...accountsData, other] })
+      if (url.startsWith('/jars/ledger')) return Promise.resolve({ data: ledgerData })
+      if (url === '/jars') return Promise.resolve({ data: fundsData })
+      return Promise.resolve({ data: {} })
+    })
+    const jarPosts: Array<Record<string, unknown>> = []
+    mockPost.mockImplementation((url: string, body: Record<string, unknown>) => {
+      if (url !== '/jars') return Promise.resolve({ data: {} })
+      jarPosts.push(body)
+      return jarPosts.length === 1
+        ? Promise.reject({ response: { status: 400, data: { errors: { accountPrivate: [warning] } } } })
+        : Promise.resolve({ data: fund({ id: 'f9', name: 'Vacation', fundingAccountId: 'acc2' }) })
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'New jar' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(dialog.getByLabelText('Jar name'), 'Vacation')
+    await user.type(dialog.getByLabelText('Target amount'), '1200')
+    fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: '2027-06-01' } })
+    await user.selectOptions(dialog.getByLabelText('Funding account'), 'acc1')
+    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
+    expect(await dialog.findByText(warning)).toBeInTheDocument()
+
+    await user.selectOptions(dialog.getByLabelText('Funding account'), 'acc2')
+    expect(dialog.queryByText(warning)).not.toBeInTheDocument()
+    expect(dialog.queryByRole('button', { name: 'Share the account and continue' })).not.toBeInTheDocument()
+
+    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
+    await waitFor(() => expect(jarPosts).toHaveLength(2))
+    expect(jarPosts[1]).toEqual(expect.objectContaining({ fundingAccountId: 'acc2' }))
+    expect(jarPosts[1]).not.toHaveProperty('shareAccount')
+  })
+
   it('adds a fund from the New jar modal', { timeout: 15000 }, async () => {
     fundsData = []
     mockPost.mockResolvedValue({ data: fund({ id: 'f9', name: 'Vacation', kind: 0, targetAmount: 1200, status: 'OnTrack' }) })

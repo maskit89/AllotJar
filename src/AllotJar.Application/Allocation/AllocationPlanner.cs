@@ -50,6 +50,23 @@ public static class AllocationPlanner
 
         var savingsBalances = await SavingsBalancesAsync(db, ownerId, members, year, month, ct);
 
+        // P53: a savings account private to another login is not there for this caller, but it is
+        // not missing either. Those people are named so the preview can say why their share can't
+        // move and the commit can refuse before touching anything, instead of treating them as
+        // having no savings account.
+        var unseen = members
+            .Where(m => m.PersonalSavingsAccountId is Guid sid && !savingsBalances.ContainsKey(sid))
+            .Select(m => m.PersonalSavingsAccountId!.Value)
+            .ToList();
+        var privateElsewhere = unseen.Count == 0
+            ? new HashSet<Guid>()
+            : (await db.AccountPrivacies.Where(p => unseen.Contains(p.AccountId)).Select(p => p.AccountId).ToListAsync(ct))
+                .ToHashSet();
+        var privateSavings = members
+            .Where(m => m.PersonalSavingsAccountId is Guid sid && privateElsewhere.Contains(sid))
+            .Select(m => m.Id)
+            .ToHashSet();
+
         // Rule 28: the engine's income is the month's budgeted income and nothing else — each
         // person's attributed lines plus an equal share of the unattributed lines. The saved
         // per-person defaults never supply or top up the pool; a month with no budget has none.
@@ -91,7 +108,8 @@ public static class AllocationPlanner
         return new AllocationPlan(
             result, profile, envelopes, funds,
             UnattributedIncome: budgetIncome.Unattributed,
-            IncomeFromBudget: true);
+            IncomeFromBudget: true,
+            PrivateSavings: privateSavings);
     }
 
     /// <summary>
@@ -137,4 +155,5 @@ public record AllocationPlan(
     decimal EnvelopesTotal,
     decimal JarsTotal,
     decimal UnattributedIncome = 0m,
-    bool IncomeFromBudget = false);
+    bool IncomeFromBudget = false,
+    IReadOnlySet<Guid>? PrivateSavings = null);

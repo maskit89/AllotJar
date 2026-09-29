@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Accounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
@@ -59,6 +60,7 @@ public class AcceptInviteCommandHandler : IRequestHandler<AcceptInviteCommand, A
             var joinedName = me.DisplayName ?? request.DisplayName;
             Activate(membership, joinedName);
             await _db.SaveChangesAsync(cancellationToken);
+            await AccountSharing.HandOverOrphanedPrivacyAsync(_db, membership.OwnerId, cancellationToken);
 
             // Land the accepter in the household they just joined — otherwise the app resolves
             // back to their own budget and the join looks like it did nothing.
@@ -95,6 +97,7 @@ public class AcceptInviteCommandHandler : IRequestHandler<AcceptInviteCommand, A
         membership.UserId = created.UserId;
         Activate(membership, displayName);
         await _db.SaveChangesAsync(cancellationToken);
+        await AccountSharing.HandOverOrphanedPrivacyAsync(_db, membership.OwnerId, cancellationToken);
 
         // Their only household is the one they just joined; make that explicit so it stays their
         // landing household even if they later start a budget of their own.

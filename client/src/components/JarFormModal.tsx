@@ -152,9 +152,11 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
   const [form, setForm] = useState<FormState>(() => initialForm(jar, eligible))
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  // Rule 34: the server's warning when the chosen account is the user's private one. Nothing is
-  // shared until they pick "Share the account and continue".
-  const [privateWarning, setPrivateWarning] = useState<string | null>(null)
+  // Rule 34: the server's warning when the chosen account is the user's private one, kept with the
+  // account it names. Nothing is shared until they pick "Share the account and continue", and
+  // that answer only ever goes with the account the warning named.
+  const [privateWarning, setPrivateWarning] = useState<{ accountId: string; text: string } | null>(null)
+  const warningShown = privateWarning && privateWarning.accountId === form.fundingAccountId ? privateWarning : null
   // One deliberate step between "Archive jar" / "Delete jar" and it actually happening.
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -287,7 +289,7 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
     } catch (err) {
       const warning = privateAccountWarning(err)
       if (warning) {
-        setPrivateWarning(warning)
+        setPrivateWarning({ accountId: form.fundingAccountId, text: warning })
         return
       }
       // A 400 carries the server's field messages (e.g. a FundingAccountId change refused
@@ -342,12 +344,12 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
           <ErrorBanner>{error}</ErrorBanner>
         </div>
       )}
-      {privateWarning && (
+      {warningShown && (
         <div
           role="alert"
           className="mb-3 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-100"
         >
-          <p>{privateWarning}</p>
+          <p>{warningShown.text}</p>
           <div className="mt-2 flex flex-wrap justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => setPrivateWarning(null)}>
               Pick another account
@@ -490,7 +492,11 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
             <Select
               value={form.fundingAccountId}
               aria-label="Funding account"
-              onChange={(e) => set('fundingAccountId', e.target.value)}
+              onChange={(e) => {
+                // A warning names one account; another account gets its own.
+                setPrivateWarning(null)
+                set('fundingAccountId', e.target.value)
+              }}
               disabled={noAccounts}
               className="w-full"
             >

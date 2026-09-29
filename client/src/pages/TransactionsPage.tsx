@@ -1392,8 +1392,13 @@ export function TransactionsPage() {
                     // W13 (P56/P57): an entry in someone else's private account is theirs to change.
                     // The others may only confirm a transfer's receipt into the shared account they see.
                     const rowEditable = canEnterData && !t.inPrivateAccount
+                    // P57: the others may confirm the leg on the shared side of a transfer with a
+                    // private account, the receipt into it or the departure out of it.
                     const canConfirmVisibleLeg =
-                      canEnterData && !!t.inPrivateAccount && t.transferStatus === 'InTransit' && t.accountName === PRIVATE_ACCOUNT
+                      canEnterData &&
+                      !!t.inPrivateAccount &&
+                      ((t.transferStatus === 'InTransit' && t.accountName === PRIVATE_ACCOUNT) ||
+                        (t.transferStatus === 'PendingReview' && t.transferAccountName === PRIVATE_ACCOUNT))
                     return (
                       <Fragment key={t.id}>
                       <tr className="group hover:bg-slate-50">

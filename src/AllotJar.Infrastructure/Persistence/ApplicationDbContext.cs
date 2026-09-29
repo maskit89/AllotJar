@@ -2,8 +2,11 @@ using System.Reflection;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Storage;
+using AllotJar.Application.Accounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Jars;
 using AllotJar.Domain.Entities;
 using AllotJar.Infrastructure.Identity;
 
@@ -77,7 +80,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
         return new LedgerWrite(transaction);
     }
 
-    private sealed class LedgerWrite(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction) : ILedgerWrite
+    private sealed class LedgerWrite(IDbContextTransaction transaction) : ILedgerWrite
     {
         public Task CommitAsync(CancellationToken cancellationToken) => transaction.CommitAsync(cancellationToken);
         public ValueTask DisposeAsync() => transaction.DisposeAsync();
@@ -112,13 +115,157 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         GuardPrivateAccountsAsync(CancellationToken.None).GetAwaiter().GetResult();
-        return base.SaveChanges(acceptAllChangesOnSuccess);
+        using var held = HoldJarAccountsAsync(CancellationToken.None).GetAwaiter().GetResult();
+        var saved = base.SaveChanges(acceptAllChangesOnSuccess);
+        held?.Commit();
+        return saved;
     }
 
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         await GuardPrivateAccountsAsync(cancellationToken);
-        return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        await using var held = await HoldJarAccountsAsync(cancellationToken);
+        var saved = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        if (held is not null)
+        {
+            await held.CommitAsync(cancellationToken);
+        }
+        return saved;
+    }
+
+    /// <summary>
+    /// Rules 33/34 when two logins act at once (P55): an account never ends up both private and
+    /// behind a jar. The handlers check this before saving, but one login making an account private
+    /// while another puts a jar on it would each pass its own check. So a save that puts a jar on an
+    /// account (new, or moved there) or makes an account private first locks that account's row until
+    /// it commits — the other writer waits — and checks again against what is committed plus this
+    /// save. Returns the transaction it opened, if any, for the caller to commit after the save.
+    /// </summary>
+    private async Task<IDbContextTransaction?> HoldJarAccountsAsync(CancellationToken cancellationToken)
+    {
+        var entries = ChangeTracker.Entries().ToList();
+        var contested = new SortedSet<Guid>();
+        foreach (var entry in entries)
+        {
+            if (entry.Entity is Jar jar
+                && (entry.State == EntityState.Added
+                    || (entry.State == EntityState.Modified && entry.Property(nameof(Jar.FundingAccountId)).IsModified)))
+            {
+                contested.Add(jar.FundingAccountId);
+            }
+            else if (entry.Entity is AccountPrivacy privacy && entry.State == EntityState.Added)
+            {
+                contested.Add(privacy.AccountId);
+            }
+        }
+        if (contested.Count == 0)
+        {
+            return null;
+        }
+
+        IDbContextTransaction? opened = null;
+        try
+        {
+            if (Database.IsRelational())
+            {
+                if (Database.CurrentTransaction is null)
+                {
+                    opened = await Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken);
+                }
+                foreach (var accountId in contested)
+                {
+                    await Database.ExecuteSqlInterpolatedAsync(
+                        $"SELECT [Id] FROM [Accounts] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {accountId}", cancellationToken);
+                }
+            }
+            await RecheckJarAccountsAsync(entries, contested.ToList(), cancellationToken);
+            return opened;
+        }
+        catch
+        {
+            if (opened is not null)
+            {
+                await opened.DisposeAsync();
+            }
+            throw;
+        }
+    }
+
+    private async Task RecheckJarAccountsAsync(List<EntityEntry> entries, List<Guid> ids, CancellationToken cancellationToken)
+    {
+        // Who each account ends up private to: the committed rows, then this save's changes.
+        var privateTo = await AccountPrivacies.AsNoTracking()
+            .Where(p => ids.Contains(p.AccountId))
+            .ToDictionaryAsync(p => p.AccountId, p => p.UserId, cancellationToken);
+        var madePrivate = new HashSet<Guid>();
+        foreach (var entry in entries.Where(e => e.Entity is AccountPrivacy && e.State == EntityState.Deleted))
+        {
+            privateTo.Remove(((AccountPrivacy)entry.Entity).AccountId);
+        }
+        foreach (var entry in entries.Where(e => e.Entity is AccountPrivacy
+                                                 && e.State is EntityState.Added or EntityState.Modified or EntityState.Unchanged))
+        {
+            var privacy = (AccountPrivacy)entry.Entity;
+            privateTo[privacy.AccountId] = privacy.UserId;
+            if (entry.State == EntityState.Added)
+            {
+                madePrivate.Add(privacy.AccountId);
+            }
+        }
+        if (!ids.Any(privateTo.ContainsKey))
+        {
+            return;
+        }
+
+        // Which jar each account ends up behind: the committed jars not moved away or deleted in
+        // this save, then the jars this save adds or moves there.
+        var tracked = entries.Where(e => e.Entity is Jar).ToDictionary(e => ((Jar)e.Entity).Id);
+        var jarOn = new Dictionary<Guid, string>();
+        var committed = await Jars.AsNoTracking()
+            .Where(j => ids.Contains(j.FundingAccountId))
+            .Select(j => new { j.Id, j.FundingAccountId, j.Name })
+            .ToListAsync(cancellationToken);
+        foreach (var jar in committed.Where(j => !tracked.ContainsKey(j.Id)))
+        {
+            jarOn.TryAdd(jar.FundingAccountId, jar.Name);
+        }
+        foreach (var entry in tracked.Values.Where(e => e.State != EntityState.Deleted))
+        {
+            var jar = (Jar)entry.Entity;
+            if (ids.Contains(jar.FundingAccountId))
+            {
+                jarOn.TryAdd(jar.FundingAccountId, jar.Name);
+            }
+        }
+        var heldJarMoney = (await JarAllocations.AsNoTracking()
+                .Where(a => ids.Contains(a.AccountId))
+                .Select(a => a.AccountId)
+                .Distinct()
+                .ToListAsync(cancellationToken))
+            .ToHashSet();
+
+        foreach (var accountId in ids)
+        {
+            if (!privateTo.TryGetValue(accountId, out var login)
+                || (!jarOn.ContainsKey(accountId) && !heldJarMoney.Contains(accountId)))
+            {
+                continue;
+            }
+            var name = await Accounts.IgnoreQueryFilters().AsNoTracking()
+                .Where(a => a.Id == accountId)
+                .Select(a => a.Name)
+                .FirstOrDefaultAsync(cancellationToken) ?? string.Empty;
+            if (madePrivate.Contains(accountId))
+            {
+                // The account got a jar while it was being made private: it stays shared (rule 33).
+                throw JarAccounts.Validation("IsPrivate", jarOn.TryGetValue(accountId, out var jarName)
+                    ? AccountSharing.HoldsJarReason(name, jarName)
+                    : AccountSharing.HeldJarMoneyReason(name));
+            }
+            // The account went private while the jar was being put on it: its holder is warned as
+            // usual (rule 34); anyone else can no longer see the account.
+            throw login == ViewerId ? JarAccounts.PrivateAccountWarning(name) : PrivateAccountWrite();
+        }
     }
 
     // What the login that cannot see one side of a transfer may still record: the bank leg of the
@@ -156,12 +303,18 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
 
         foreach (var privacy in entries.Where(e => e.Entity is AccountPrivacy))
         {
-            // Only the login a privacy row names may create, change or remove it.
+            // Only the login a privacy row names may create, change or remove it — except the P59
+            // hand-over to the holder's own login once the login that chose it has left the household.
+            var row = (AccountPrivacy)privacy.Entity;
             var owner = privacy.State == EntityState.Added
-                ? ((AccountPrivacy)privacy.Entity).UserId
+                ? row.UserId
                 : (string?)privacy.OriginalValues[nameof(AccountPrivacy.UserId)];
-            var now = ((AccountPrivacy)privacy.Entity).UserId;
-            if (owner != viewer || (privacy.State == EntityState.Modified && now != viewer))
+            if (privacy.State == EntityState.Modified && owner is not null && row.UserId != owner
+                && await AccountSharing.HeirAsync(this, row.AccountId, owner, cancellationToken) == row.UserId)
+            {
+                continue;
+            }
+            if (owner != viewer || (privacy.State == EntityState.Modified && row.UserId != viewer))
             {
                 throw PrivateAccountWrite();
             }

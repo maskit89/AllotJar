@@ -138,9 +138,10 @@ public static class TransactionMapping
         // Null-safe through the whole chain: stays null if any nav (or the month) isn't loaded.
         BudgetItemYear = t.BudgetItem?.BudgetCategory?.BudgetMonth?.Year,
         BudgetItemMonth = t.BudgetItem?.BudgetCategory?.BudgetMonth?.Month,
-        AccountId = t.AccountId,
+        // A private account's id stays out too, so the others can't tell its entries apart (P56).
+        AccountId = Hidden(t.AccountId, t.Account) ? null : t.AccountId,
         AccountName = Hidden(t.AccountId, t.Account) ? PrivateAccountName : t.Account?.Name,
-        TransferAccountId = t.TransferAccountId,
+        TransferAccountId = Hidden(t.TransferAccountId, t.TransferAccount) ? null : t.TransferAccountId,
         TransferAccountName = Hidden(t.TransferAccountId, t.TransferAccount) ? PrivateAccountName : t.TransferAccount?.Name,
         InPrivateAccount = Hidden(t.AccountId, t.Account) || Hidden(t.TransferAccountId, t.TransferAccount),
         DepartedOn = t.Type == TransactionType.Transfer ? t.DepartedOn : null,

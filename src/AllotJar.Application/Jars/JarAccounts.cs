@@ -45,13 +45,16 @@ public static class JarAccounts
         }
         if (!shareAccount)
         {
-            throw Validation(AccountPrivateKey,
-                $"'{account.Name}' is private. A jar is part of the household budget, so the account it lives in " +
-                $"is visible to everyone: sharing this jar shows the household '{account.Name}', its balance and " +
-                "all its transactions. Share the account, or pick another account for the jar.");
+            throw PrivateAccountWarning(account.Name);
         }
         db.AccountPrivacies.Remove(privacy);
     }
+
+    /// <summary>The rule 34 warning for a jar about to land on the caller's private account.</summary>
+    public static ValidationException PrivateAccountWarning(string accountName) => Validation(AccountPrivateKey,
+        $"'{accountName}' is private. A jar is part of the household budget, so the account it lives in " +
+        $"is visible to everyone: sharing this jar shows the household '{accountName}', its balance and " +
+        "all its transactions. Share the account, or pick another account for the jar.");
 
     public static ValidationException Validation(string key, string message) =>
         new(new Dictionary<string, string[]> { [key] = new[] { message } });

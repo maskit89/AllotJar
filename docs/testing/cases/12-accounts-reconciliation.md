@@ -663,9 +663,9 @@ Fixture W13: one household. Chris (budget owner, login), Sam (Admin login, linke
 - **Type:** Negative
 - **Preconditions:** Fixture W13; Sam's shared "Sam's savings" holds the jar "Holiday" (also when Holiday is archived, or has jar allocation history there).
 - **Steps:**
-  1. As Sam, open Accounts. 2. `PUT /api/accounts/{samSavings}/sharing {isPrivate:true}`.
-- **Expected:** 1: the card reads "Visible to the household: a jar uses it." (the reason on hover) and offers no **Make private**. 2: 400 naming the jar and rule 33. The sharing review shows the same account with its box disabled and the reason (P55).
-- **Automated:** Yes (JointAccountsW13Tests — `AnAccountAJarUses_CannotBeMadePrivate_AndSaysWhy_P55`; AccountsPage and SharingReviewBanner tests)
+  1. As Sam, open Accounts. 2. `PUT /api/accounts/{samSavings}/sharing {isPrivate:true}`. 3. Without the jar: as Sam make the account private while Chris creates a jar on it at the same moment (two sessions).
+- **Expected:** 1: the card reads "Visible to the household: a jar uses it." (the reason on hover) and offers no **Make private**. 2: 400 naming the jar and rule 33. The sharing review shows the same account with its box disabled and the reason (P55). 3: never both: each save locks the account, so whichever comes second is refused (Sam: 400 naming the jar and rule 33; a jar Sam puts on an account he has just made private elsewhere: the rule 34 warning again).
+- **Automated:** Yes (JointAccountsW13Tests — `AnAccountAJarUses_CannotBeMadePrivate_AndSaysWhy_P55`, `AnAccountThatGetsAJarWhileItIsBeingMadePrivate_StaysShared_Rule33`, `AJarPutOnAnAccountThatWentPrivateMeanwhile_IsWarnedAboutAgain_Rule34`; PrivateAccountsSqlTests — `Making_an_account_private_waits_for_a_jar_being_put_on_it_and_then_refuses`; AccountsPage and SharingReviewBanner tests)
 
 ### ACCT-069 - Private money is hidden off the budget and reads "Private account" on a budget line, read-only
 - **Priority:** P0
@@ -673,7 +673,7 @@ Fixture W13: one household. Chris (budget owner, login), Sam (Admin login, linke
 - **Preconditions:** Fixture W13; "Sam's current" private to Sam with a 40 expense unassigned and a 60 expense on Groceries.
 - **Steps:**
   1. As Chris, open Transactions and the Budget page. 2. Try to edit, reassign, re-split or delete the 60 (UI and API). 3. As Sam, open Transactions.
-- **Expected:** 1: only the 60 shows, its account "Private account", counted in Groceries' Spent; the 40 is not there. 2: no edit, assign or delete controls; the API answers 403 "This belongs to a private account. Only the login it is private to can change it." and nothing changes. 3: Sam sees both under "Sam's current" and can edit them (P56).
+- **Expected:** 1: only the 60 shows, its account "Private account" (the API carries no account id for it), counted in Groceries' Spent; the 40 is not there. 2: no edit, assign or delete controls; the API answers 403 "This belongs to a private account. Only the login it is private to can change it." and nothing changes. 3: Sam sees both under "Sam's current" and can edit them (P56).
 - **Automated:** Yes (JointAccountsW13Tests — `APrivateAccountsMoney_IsHidden_UnlessItsOnABudgetLine_ThenItReadsPrivateAccount_P56`, `OthersCannotChangeOrDeleteAPrivateAccountsEntry_EvenOnTheBudget`, `OthersCannotReSplitAPrivateAccountsEntry_OnlyItsSlicesWouldChange`; PrivateAccountsSqlTests; TransactionsPage tests)
 
 ### ACCT-070 - Private money off the budget stays out of the household reports for everyone
@@ -690,9 +690,9 @@ Fixture W13: one household. Chris (budget owner, login), Sam (Admin login, linke
 - **Type:** Happy / Negative
 - **Preconditions:** Fixture W13; a 100 transfer from Sam's private "Sam's current" to "Joint", in transit.
 - **Steps:**
-  1. As Chris, open Transactions and Joint. 2. Confirm the receipt into Joint. 3. Try to record the departure date or delete the transfer.
-- **Expected:** 1: the transfer shows with the other side "Private account"; Joint's balance counts it once received. 2: allowed. 3: 403; only Sam records the private side's leg or changes the transfer (P57).
-- **Automated:** Yes (JointAccountsW13Tests — `ATransferFromAPrivateAccount_ShowsOnTheSharedSide_WhoseReceiptTheOthersCanConfirm_P57`; PrivateAccountsSqlTests)
+  1. As Chris, open Transactions and Joint. 2. Confirm the receipt into Joint. 3. Try to record the departure date or delete the transfer. 4. The other way: a 50 transfer from Joint to "Sam's current" whose receipt Sam recorded first (Pending review); as Chris, **Add departure date**.
+- **Expected:** 1: the transfer shows with the other side "Private account"; Joint's balance counts it once received. 2: allowed. 3: 403; only Sam records the private side's leg or changes the transfer (P57). 4: the row offers **Add departure date** (the departure is Joint's leg) and the date saves; a private→shared row waiting for its departure offers nothing.
+- **Automated:** Yes (JointAccountsW13Tests — `ATransferFromAPrivateAccount_ShowsOnTheSharedSide_WhoseReceiptTheOthersCanConfirm_P57`; PrivateAccountsSqlTests; TransactionsPage tests)
 
 ### ACCT-072 - A new login reviews its person's accounts; nothing changes until it answers
 - **Priority:** P1
@@ -703,14 +703,14 @@ Fixture W13: one household. Chris (budget owner, login), Sam (Admin login, linke
 - **Expected:** 2: every account Kid holds, as it is now (shared); the jar's account is disabled with its reason. Until step 3 nothing changes. 3: the piggy bank is private to Kid; the banner goes and does not return (rule 32, P58).
 - **Automated:** Yes (JointAccountsW13Tests — `LinkingALoginToAPersonWhoHoldsAccounts_AsksForAReview_WithoutChangingAnything_Rule32`; SharingReviewBanner tests)
 
-### ACCT-073 - Privacy stays with the login that chose it
+### ACCT-073 - Privacy stays with the login that chose it until that login leaves; then the person's next login takes it over
 - **Priority:** P1
-- **Type:** Negative
+- **Type:** Negative / Happy
 - **Preconditions:** Fixture W13; "Sam's current" private to Sam's login.
 - **Steps:**
-  1. Revoke Sam's login, or link the person Sam to a different login. 2. As Chris and as the other login, list Accounts. 3. Give Sam's own login access again.
-- **Expected:** 2: the account stays hidden from everyone. 3: Sam's login sees it again (P59).
-- **Automated:** Yes (JointAccountsW13Tests — `PrivacyStaysWithTheLoginThatChoseIt_ARelinkNeverRevealsIt_P59`)
+  1. On People, unlink Sam's login and link the person Sam to Chris's login. 2. As Chris and as Sam's login, list Accounts. 3. Remove Sam's login from the household (**Revoke**). 4. As Chris, list Accounts. 5. Invite a new login for the person Sam (or link an existing login to Sam), sign in as it.
+- **Expected:** 2: Chris does not see it; Sam's login still does, wherever it is linked. 4: still hidden from everyone. 5: the new login sees "Sam's current" as private to it and gets the **Review sharing** prompt; Chris still doesn't see it. Removing Sam's login after another login was linked to Sam hands it over the same way (P59).
+- **Automated:** Yes (JointAccountsW13Tests — `PrivacyStaysWithTheLoginThatChoseIt_WhileItIsInTheHousehold_ARelinkNeverRevealsIt_P59`, `ARemovedLoginsPrivateAccount_PassesToThePersonsNextLogin_WithAReview_P59`, `APrivateAccount_PassesToThePersonsLinkedLogin_WhenTheLoginThatChoseItIsRemoved_P59`)
 
 ### ACCT-074 - A private account's holders can't change until it is shared
 - **Priority:** P2
@@ -729,3 +729,33 @@ Fixture W13: one household. Chris (budget owner, login), Sam (Admin login, linke
   1. As Sam, delete "Sam's current". 2. Put the 40 on Groceries and delete again.
 - **Expected:** 1: 400 "'Sam's current' is private and still has 1 transaction off the budget. Deleting the account would show them to the whole household…"; nothing changes. 2: deleted; the 40 stays on Groceries with no account (P60).
 - **Automated:** Yes (JointAccountsW13Tests — `DeletingAPrivateAccount_WithMoneyOffTheBudget_IsRefused_SoItNeverSurfacesUnlinked`)
+
+### ACCT-076 - A private entry left off the budget is never put on a line automatically
+- **Priority:** P0
+- **Type:** Negative
+- **Origin:** Adversarial review of PR #277 (P1-1): auto-categorising put such an entry on a line from the payee's history, which showed it to everyone.
+- **Preconditions:** Fixture W13; "Joint" has "Pharmacy, 20" on Groceries; "Sam's current" private to Sam.
+- **Steps:**
+  1. As Sam, add "Pharmacy, 85" to "Sam's current" with no line. 2. As Sam, import a statement into "Sam's current" whose payees the household has put on lines before. 3. As Chris, open Transactions.
+- **Expected:** 1 and 2: the entries stay unassigned (the import reports none auto-categorised). 3: none of them shows. Sam can still put them on a line himself (P56).
+- **Automated:** Yes (JointAccountsW13Tests — `APrivateEntryLeftOffTheBudget_IsNeverAutoCategorisedOntoALine_P56`, `AStatementImportedIntoAPrivateAccount_IsNeverAutoCategorised_P56`)
+
+### ACCT-077 - A refund in a private account still counts against its purchase
+- **Priority:** P1
+- **Type:** Negative
+- **Origin:** Adversarial review of PR #277 (P2-1): the refund cap counted only the refunds the caller could see.
+- **Preconditions:** Fixture W13; a 100 purchase in "Joint" on Groceries; Sam linked a 60 refund of it in his private "Sam's current", off the budget.
+- **Steps:**
+  1. As Chris, link another 60 refund to the purchase. 2. Change the purchase's amount to 50. 3. Delete the purchase.
+- **Expected:** 1: 400, the refunds can't add up to more than the 100 paid; the message names no private amount. 2: 400 on Amount, without naming the refunded total. 3: 400 "This purchase has a refund linked to it in a private account. Its holder must unlink or delete it first." Nothing changes (P20, P56).
+- **Automated:** Yes (JointAccountsW13Tests — `ARefundInAPrivateAccount_StillCountsAgainstThePurchase_ForEveryone_P20`)
+
+### ACCT-078 - An account whose holder is archived can still be edited
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** Adversarial review of PR #277 (P2-3): once a holder was archived, every save of the account was refused.
+- **Preconditions:** Fixture W13; "Sam's old current" held by Sam; Sam and Kid archived on People.
+- **Steps:**
+  1. Rename the account, keeping Sam as its holder. 2. Add Kid as a holder.
+- **Expected:** 1: saved. 2: 400 on HolderIds: "Kid is archived and can't hold an account. Restore them on the People page first."
+- **Automated:** Yes (JointAccountsW13Tests — `AnAccountWithAnArchivedHolder_CanStillBeRenamed`)

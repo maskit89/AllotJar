@@ -15,11 +15,14 @@ namespace AllotJar.Application.Accounts;
 public static class AccountSharing
 {
     /// <summary>
-    /// Validates a holder list (rule 30): each a current person of the household, each once.
+    /// Validates a holder list (rule 30): each a person of the household, each once, and none
+    /// archived unless already holding the account (<paramref name="alreadyHolding"/>) — an archived
+    /// person keeps the accounts they held (W11), they just can't be given new ones.
     /// Returns them in the order given.
     /// </summary>
     public static async Task<IReadOnlyList<HouseholdMember>> ResolveHoldersAsync(
-        IApplicationDbContext db, string ownerId, IReadOnlyList<Guid> holderIds, CancellationToken ct)
+        IApplicationDbContext db, string ownerId, IReadOnlyList<Guid> holderIds, CancellationToken ct,
+        IReadOnlySet<Guid>? alreadyHolding = null)
     {
         var ids = holderIds.Distinct().ToList();
         if (ids.Count == 0)
@@ -35,7 +38,7 @@ public static class AccountSharing
         {
             throw new NotFoundException($"Person {missing[0]} was not found.");
         }
-        var archived = members.FirstOrDefault(m => m.IsArchived);
+        var archived = members.FirstOrDefault(m => m.IsArchived && alreadyHolding?.Contains(m.Id) != true);
         if (archived is not null)
         {
             throw Invalid("HolderIds", $"{archived.Name} is archived and can't hold an account. Restore them on the People page first.");
@@ -80,14 +83,20 @@ public static class AccountSharing
             .FirstOrDefaultAsync(ct);
         if (jar is not null)
         {
-            return $"'{account.Name}' holds the jar '{jar}'. Jars are part of the household budget, so the account behind one stays visible to everyone (rule 33).";
+            return HoldsJarReason(account.Name, jar);
         }
         if (await db.JarAllocations.AnyAsync(a => a.AccountId == account.Id, ct))
         {
-            return $"'{account.Name}' has held jar money before, and that history is part of the household budget, so the account stays visible to everyone (rule 33).";
+            return HeldJarMoneyReason(account.Name);
         }
         return null;
     }
+
+    public static string HoldsJarReason(string accountName, string jarName) =>
+        $"'{accountName}' holds the jar '{jarName}'. Jars are part of the household budget, so the account behind one stays visible to everyone (rule 33).";
+
+    public static string HeldJarMoneyReason(string accountName) =>
+        $"'{accountName}' has held jar money before, and that history is part of the household budget, so the account stays visible to everyone (rule 33).";
 
     /// <summary>Makes the account private to the caller's login, or shared with the household (null).</summary>
     public static async Task SetPrivateAsync(
@@ -131,6 +140,84 @@ public static class AccountSharing
         }
     }
 
+    /// <summary>
+    /// P59: an account is private to the login that chose it, and stays hidden from everyone while
+    /// that login is gone from the household (removed). When its only holder then has a login in the
+    /// household again, that login takes the privacy over and is asked to review sharing, so the
+    /// account is never left where nobody can reach it. Re-linking a login that is still in the
+    /// household hands nothing over: it keeps its private accounts wherever it is linked.
+    /// Call after the membership change is saved; the save guard re-checks each hand-over with
+    /// <see cref="HeirAsync"/>. Returns how many accounts changed hands.
+    /// </summary>
+    public static async Task<int> HandOverOrphanedPrivacyAsync(IApplicationDbContext db, string ownerId, CancellationToken ct)
+    {
+        var sole = (await db.AccountHolders
+                .Where(h => h.Member!.OwnerId == ownerId && db.AccountPrivacies.Any(p => p.AccountId == h.AccountId))
+                .Select(h => new { h.AccountId, h.MemberId })
+                .ToListAsync(ct))
+            .GroupBy(h => h.AccountId)
+            .Where(g => g.Count() == 1)
+            .ToDictionary(g => g.Key, g => g.Single().MemberId);
+        if (sole.Count == 0)
+        {
+            return 0;
+        }
+
+        var logins = await db.HouseholdMemberships
+            .Where(m => m.OwnerId == ownerId && m.UserId != null && m.Status == MembershipStatus.Active)
+            .ToListAsync(ct);
+        var accountIds = sole.Keys.ToList();
+        var privacies = await db.AccountPrivacies.Where(p => accountIds.Contains(p.AccountId)).ToListAsync(ct);
+        var handedOver = 0;
+        foreach (var privacy in privacies)
+        {
+            if (logins.Any(l => l.UserId == privacy.UserId))
+            {
+                continue;
+            }
+            var heir = logins.FirstOrDefault(l => l.MemberId == sole[privacy.AccountId]);
+            if (heir is null)
+            {
+                continue;
+            }
+            privacy.UserId = heir.UserId!;
+            heir.SharingReviewPending = true;
+            handedOver++;
+        }
+        if (handedOver > 0)
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        return handedOver;
+    }
+
+    /// <summary>
+    /// The login that may take over <paramref name="accountId"/>'s privacy from
+    /// <paramref name="privateTo"/> (P59), read from what is saved: none while that login is still
+    /// in the household or the account has other than one holder; otherwise the holder's own login.
+    /// </summary>
+    public static async Task<string?> HeirAsync(
+        IApplicationDbContext db, Guid accountId, string privateTo, CancellationToken ct)
+    {
+        var holders = await db.AccountHolders
+            .Where(h => h.AccountId == accountId)
+            .Select(h => new { h.MemberId, h.Member!.OwnerId })
+            .ToListAsync(ct);
+        if (holders.Count != 1)
+        {
+            return null;
+        }
+        var (memberId, ownerId) = (holders[0].MemberId, holders[0].OwnerId);
+        var logins = await db.HouseholdMemberships
+            .Where(m => m.OwnerId == ownerId && m.UserId != null && m.Status == MembershipStatus.Active
+                        && (m.UserId == privateTo || m.MemberId == memberId))
+            .Select(m => new { m.UserId, m.MemberId })
+            .ToListAsync(ct);
+        return logins.Any(l => l.UserId == privateTo)
+            ? null
+            : logins.FirstOrDefault(l => l.MemberId == memberId)?.UserId;
+    }
+
     /// <summary>Fills in the holders and the caller's sharing controls on each account's DTO.</summary>
     public static async Task DecorateAsync(
         IApplicationDbContext db, ICurrentUser currentUser, IReadOnlyList<(Account Account, AccountDto Dto)> rows,
@@ -158,20 +245,36 @@ public static class AccountSharing
                 .ToListAsync(ct))
             .ToHashSet();
 
+        // What blocks privacy (P55), read once for the whole list rather than per account.
+        var jarNames = (await db.Jars
+                .Where(j => ids.Contains(j.FundingAccountId))
+                .Select(j => new { j.FundingAccountId, j.Name })
+                .ToListAsync(ct))
+            .GroupBy(j => j.FundingAccountId)
+            .ToDictionary(g => g.Key, g => g.Select(j => j.Name).Min(StringComparer.OrdinalIgnoreCase)!);
+        var heldJarMoney = (await db.JarAllocations
+                .Where(a => ids.Contains(a.AccountId))
+                .Select(a => a.AccountId)
+                .Distinct()
+                .ToListAsync(ct))
+            .ToHashSet();
+
         foreach (var (account, dto) in rows)
         {
             dto.Holders = holders.TryGetValue(account.Id, out var list) ? list : new List<AccountHolderDto>();
             // A private account read here is always private to the caller (the filter hides the
-            // rest), and its login may always share it again, even after a re-link (P59).
+            // rest), and its login may always share it again, wherever it is linked (P59).
             dto.IsPrivate = privateIds.Contains(account.Id);
             dto.CanChangeSharing = dto.IsPrivate
                                    || (currentUser.UserId is not null
                                        && currentUser.MemberId is Guid me
                                        && dto.Holders.Count == 1
                                        && dto.Holders[0].MemberId == me);
-            dto.SharingBlockedReason = dto.CanChangeSharing && !dto.IsPrivate
-                ? await BlockedReasonAsync(db, account, ct)
-                : null;
+            dto.SharingBlockedReason = !dto.CanChangeSharing || dto.IsPrivate
+                ? null
+                : jarNames.TryGetValue(account.Id, out var jar)
+                    ? HoldsJarReason(account.Name, jar)
+                    : heldJarMoney.Contains(account.Id) ? HeldJarMoneyReason(account.Name) : null;
         }
     }
 
