@@ -223,6 +223,11 @@ function manualFeeValid(r: ReviewRow): boolean {
   return minor !== null && minor > 0 && minor < fromAmount(r.amount)
 }
 
+/** An included transfer records a fee (the candidate's or a typed one) but no line for it: the server requires one. */
+function feeLineMissing(r: ReviewRow): boolean {
+  return r.include && rowFeeMinor(r) !== null && !r.feeBudgetItemId
+}
+
 /** The date a row's fee is recorded on: the transfer's departure (the row's own date for a debit). */
 function feeDateOf(r: ReviewRow): string {
   return r.isCredit ? (chosenMatch(r)?.departedOn ?? r.date) : r.date
@@ -270,10 +275,21 @@ function jarAllocationValid(r: ReviewRow): boolean {
   return total !== null && total <= r.amount
 }
 
-function CategoryOptions({ groups }: { groups: ItemOptionGroup[] }) {
+function CategoryOptions({
+  groups,
+  emptyLabel = 'Unassigned',
+  currentId = '',
+}: {
+  groups: ItemOptionGroup[]
+  emptyLabel?: string
+  /** A chosen line this month doesn't list (e.g. a transfer's fee line in another month), kept selectable. */
+  currentId?: string
+}) {
+  const listed = !currentId || groups.some((g) => g.items.some((i) => i.id === currentId))
   return (
     <>
-      <option value="">Unassigned</option>
+      <option value="">{emptyLabel}</option>
+      {!listed && <option value={currentId}>The fee&rsquo;s current line</option>}
       {groups.map((g) => (
         <optgroup key={g.category} label={g.category}>
           {g.items.map((i) => (
@@ -348,6 +364,16 @@ export function ImportPage() {
   const includedCount = useMemo(() => rows.filter((r) => r.include).length, [rows])
   const possibleDuplicateCount = useMemo(() => rows.filter((r) => r.possibleDuplicate).length, [rows])
   const reusedReferenceCount = useMemo(() => rows.filter((r) => r.reusedReference).length, [rows])
+  // The summary's note on rows that start unticked, reading naturally with either or both kinds.
+  const flaggedNotes = [
+    possibleDuplicateCount > 0 &&
+      `${possibleDuplicateCount} possible duplicate${possibleDuplicateCount === 1 ? '' : 's'} unticked`,
+    reusedReferenceCount > 0 && `${reusedReferenceCount} reusing a known bank reference unticked`,
+  ].filter((note): note is string => !!note)
+  // The header checkbox reads ticked when every row it ticks is included (rows reusing a known
+  // bank reference are left to the user unless they are all there is).
+  const bulkRows = rows.some((r) => !r.reusedReference) ? rows.filter((r) => !r.reusedReference) : rows
+  const allIncluded = bulkRows.length > 0 && bulkRows.every((r) => r.include)
   // The mapping has unsaved edits when it differs from the one that produced the current rows.
   const mappingDirty = useMemo(
     () => !!mapping && !!scannedMapping && JSON.stringify(mapping) !== JSON.stringify(scannedMapping),
@@ -369,16 +395,18 @@ export function ImportPage() {
     [month],
   )
   // Block the import while a split doesn't add up, a transfer hasn't picked a counterparty (a
-  // return names its transfer instead), a typed fee isn't less than the row, or a credit's jar
-  // amounts exceed what arrived.
+  // return names its transfer instead, and a chosen match its counterparty, which may be private
+  // to another login), a typed fee isn't less than the row, a fee has no line (the server
+  // requires one, rule 91), or a credit's jar amounts exceed what arrived.
   const reviewIncomplete = useMemo(
     () =>
       rows.some(
         (r) =>
           r.include &&
           ((r.splits && !splitInfo(r).valid) ||
-            (r.isTransfer && !isReturnRow(r) && !r.transferAccountId) ||
+            (r.isTransfer && !isReturnRow(r) && !r.transferAccountId && !r.matchTransferId) ||
             !manualFeeValid(r) ||
+            feeLineMissing(r) ||
             (importBacksJars && r.isCredit && !isReturnRow(r) && !jarAllocationValid(r))),
       ),
     [rows, importBacksJars],
@@ -483,8 +511,15 @@ export function ImportPage() {
     setRows((rs) => rs.map((r, i) => (i === index ? { ...r, ...patch } : r)))
   }
 
+  /**
+   * The header checkbox. Ticking all leaves rows reusing a known bank reference as they are
+   * (rule 88: each is opted in on its own), unless they are all there is; unticking clears every row.
+   */
   function setAllIncluded(include: boolean) {
-    setRows((rs) => rs.map((r) => ({ ...r, include })))
+    setRows((rs) => {
+      const skipReused = include && rs.some((r) => !r.reusedReference)
+      return rs.map((r) => (skipReused && r.reusedReference ? r : { ...r, include }))
+    })
   }
 
   // Bulk actions apply to included rows that are plain (not split, not a transfer).
@@ -512,15 +547,23 @@ export function ImportPage() {
     )
   }
   /**
-   * Choosing a recorded transfer also fixes the counterparty it names; '' records the row as its
-   * own movement. A 'Return' candidate names the transfer coming back, not a counterparty.
+   * Choosing a recorded transfer also fixes the counterparty it names ('' when that side is
+   * private to another login: the server derives it) and pre-fills the fee's line with the one
+   * the transfer's current fee is on; '' records the row as its own movement. A 'Return'
+   * candidate names the transfer coming back, not a counterparty.
    */
   function chooseMatch(index: number, matchTransferId: string) {
     setRows((rs) =>
       rs.map((r, i) => {
         if (i !== index) return r
         const match = r.transferMatches.find((m) => m.transferId === matchTransferId)
-        return { ...r, matchTransferId, transferAccountId: match ? match.counterpartyAccountId : r.transferAccountId }
+        if (!match) return { ...r, matchTransferId, feeBudgetItemId: r.matchTransferId ? '' : r.feeBudgetItemId }
+        return {
+          ...r,
+          matchTransferId,
+          transferAccountId: match.counterpartyAccountId ?? '',
+          feeBudgetItemId: match.fee != null && match.fee > 0 ? (match.feeBudgetItemId ?? '') : '',
+        }
       }),
     )
   }
@@ -624,7 +667,8 @@ export function ImportPage() {
           ...base,
           budgetItemId: null,
           memberId: null,
-          transferAccountId: r.transferAccountId,
+          // Null only for a match whose counterparty is private to another login.
+          transferAccountId: r.transferAccountId || null,
           matchTransferId: r.matchTransferId || null,
           // A chosen candidate's fee is echoed as the server computed it; a typed one splits the row.
           ...(feeMinor !== null
@@ -857,10 +901,7 @@ export function ImportPage() {
               {preview.newCount === 1 ? '' : 's'} to review
               {preview.skippedDuplicates > 0 &&
                 ` — ${preview.skippedDuplicates} already imported (skipped)`}
-              {possibleDuplicateCount > 0 &&
-                ` — ${possibleDuplicateCount} possible duplicate${possibleDuplicateCount === 1 ? '' : 's'} unticked (tick to include)`}
-              {reusedReferenceCount > 0 &&
-                `; ${reusedReferenceCount} reusing a known bank reference unticked (tick to include)`}
+              {flaggedNotes.length > 0 && ` — ${flaggedNotes.join(' and ')} (tick to include)`}
               . Categorise them (split a row, or mark a transfer), untick any you don't want, then import.
             </p>
           )}
@@ -1122,7 +1163,7 @@ export function ImportPage() {
                     <input
                       type="checkbox"
                       aria-label="Include all rows"
-                      checked={rows.length > 0 && rows.every((r) => r.include)}
+                      checked={allIncluded}
                       onChange={(e) => setAllIncluded(e.target.checked)}
                       className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                     />
@@ -1223,6 +1264,14 @@ export function ImportPage() {
                                   <Badge tone="brand">Transfer</Badge>
                                   {returning ? (
                                     <span className="text-xs text-slate-500">coming back</span>
+                                  ) : match && match.counterpartyAccountId === null ? (
+                                    // The other side is private to another login: named, never chosen.
+                                    <span className="text-xs text-slate-500">
+                                      {r.isCredit ? 'from' : 'to'}{' '}
+                                      <span className="font-medium text-slate-700">
+                                        {match.counterpartyAccountName || 'Private account'}
+                                      </span>
+                                    </span>
                                   ) : (
                                     <>
                                       <span className="text-xs text-slate-500">{r.isCredit ? 'from' : 'to'}</span>
@@ -1313,9 +1362,12 @@ export function ImportPage() {
                                       onChange={(e) => updateRow(index, { feeBudgetItemId: e.target.value })}
                                       className="w-48"
                                     >
-                                      <CategoryOptions groups={expenseGroups} />
+                                      <CategoryOptions groups={expenseGroups} emptyLabel="Choose a line…" currentId={r.feeBudgetItemId} />
                                     </Select>
                                   </div>
+                                )}
+                                {feeLineMissing(r) && (
+                                  <span className="text-xs text-rose-600 dark:text-rose-400">Choose the fee&rsquo;s category.</span>
                                 )}
                                 {returning ? (
                                   <span className="text-xs text-slate-500">
@@ -1594,8 +1646,8 @@ export function ImportPage() {
 
           {reviewIncomplete && (
             <p className="text-sm text-rose-600 dark:text-rose-400">
-              Finish the highlighted rows first — splits must add up, transfers need an account, and jar amounts can&rsquo;t
-              exceed what arrived.
+              Finish the highlighted rows first — splits must add up, transfers need an account, a fee needs a category,
+              and jar amounts can&rsquo;t exceed what arrived.
             </p>
           )}
           {mappingDirty && (

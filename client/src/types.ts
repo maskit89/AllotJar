@@ -369,7 +369,11 @@ export type TransferMatchKind = 'Match' | 'Return'
 /** A recorded transfer a statement row could be the other side of; see ImportCandidate.transferMatches. */
 export interface TransferMatchCandidate {
   transferId: string
-  counterpartyAccountId: string
+  /**
+   * The other side's account; null when it is private to another login (its name then reads
+   * "Private account"), and a match is committed with `matchTransferId` alone.
+   */
+  counterpartyAccountId: string | null
   counterpartyAccountName: string
   amount: number
   currency: string
@@ -380,6 +384,8 @@ export interface TransferMatchCandidate {
   kind?: TransferMatchKind
   /** The fee confirming this match records (what left minus what arrived); null when none. */
   fee?: number | null
+  /** The budget line the transfer's current fee is on (pre-fills the fee line); null when none. */
+  feeBudgetItemId?: string | null
   /** The leg was recorded in the app on this date (no bank reference yet); the statement's date replaces it. */
   recordedDate?: string | null
   /** The other bank printed the same reference. */
@@ -455,7 +461,8 @@ export interface CommitImportItem {
   /**
    * The recorded transfer this row confirms the other side of, chosen by the user from the
    * preview's candidates. The row's date/reference attach to that transfer's open leg and no new
-   * transaction is created. Requires `transferAccountId` to name the same counterparty.
+   * transaction is created. `transferAccountId` names the same counterparty, or is null when the
+   * candidate's counterparty is private to another login (the server derives it from the transfer).
    */
   matchTransferId?: string | null
   /**
@@ -470,7 +477,7 @@ export interface CommitImportItem {
    * `transferAccountId` on an unmatched debit, the part of the row that is a fee (the transfer is the rest).
    */
   fee?: number | null
-  /** The fee row's budget line; uncategorised when null. */
+  /** The fee row's budget line; required whenever `fee` is sent. */
   feeBudgetItemId?: string | null
   /**
    * For a credit row whose chosen candidate has kind 'Return': the transfer this row brings back.

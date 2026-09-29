@@ -174,14 +174,14 @@ function importPreview() {
       {
         reference: 'csv:b#0', date: '2026-06-15', payee: 'WOLT', amount: 80.9, currency: 'EUR', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: null, likelyTransfer: true,
         transferMatches: [
-          { transferId: 'tr-fee', counterpartyAccountId: 'acc1', counterpartyAccountName: 'Savings Joint', amount: 78.9, currency: 'EUR', departedOn: '2026-06-14', receivedOn: null, payee: 'Transfer', kind: 'Match', fee: 2, recordedDate: '2026-06-14', sameReference: true },
-          { transferId: 'tr-plain', counterpartyAccountId: 'acc1', counterpartyAccountName: 'Savings Joint', amount: 80.9, currency: 'EUR', departedOn: null, receivedOn: '2026-06-16', payee: 'Transfer', kind: 'Match', fee: null, recordedDate: null, sameReference: false },
+          { transferId: 'tr-fee', counterpartyAccountId: 'acc1', counterpartyAccountName: 'Savings Joint', amount: 78.9, currency: 'EUR', departedOn: '2026-06-14', receivedOn: null, payee: 'Transfer', kind: 'Match', fee: 2, feeBudgetItemId: 'i-rent', recordedDate: '2026-06-14', sameReference: true },
+          { transferId: 'tr-plain', counterpartyAccountId: 'acc1', counterpartyAccountName: 'Savings Joint', amount: 80.9, currency: 'EUR', departedOn: null, receivedOn: '2026-06-16', payee: 'Transfer', kind: 'Match', fee: null, feeBudgetItemId: null, recordedDate: null, sameReference: false },
         ],
       },
       {
         reference: 'csv:c#0', date: '2026-06-18', payee: 'SEPA RETURN', amount: 200, currency: 'EUR', isCredit: true, suggestedBudgetItemId: null, suggestedBudgetItemName: null, likelyTransfer: false,
         transferMatches: [
-          { transferId: 'tr-ret', counterpartyAccountId: 'acc1', counterpartyAccountName: 'Savings Joint', amount: 200, currency: 'EUR', departedOn: '2026-06-12', receivedOn: null, payee: 'Transfer', kind: 'Return', fee: null, recordedDate: null, sameReference: false },
+          { transferId: 'tr-ret', counterpartyAccountId: 'acc1', counterpartyAccountName: 'Savings Joint', amount: 200, currency: 'EUR', departedOn: '2026-06-12', receivedOn: null, payee: 'Transfer', kind: 'Return', fee: null, feeBudgetItemId: null, recordedDate: null, sameReference: false },
         ],
       },
       {

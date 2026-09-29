@@ -212,7 +212,7 @@ export function TransactionsPage() {
   // The jar prompts (rules 78/79): which accounts back jars, and each surface's answer. Every
   // answer defaults to "unallocated" (empty fields / no jar) and is reset when its account,
   // direction or line changes, so a stale jar id never rides along with a different account.
-  const { ledgers, reload: reloadLedgers } = useJarLedgers()
+  const { ledgers, reload: reloadLedgers, loaded: ledgersLoaded } = useJarLedgers()
   const [addJarAlloc, setAddJarAlloc] = useState<Record<string, string>>({})
   const [addPaidFrom, setAddPaidFrom] = useState(PAID_FROM_UNALLOCATED)
   const [tFromJar, setTFromJar] = useState(PAID_FROM_UNALLOCATED)
@@ -587,7 +587,10 @@ export function TransactionsPage() {
     try {
       if (editing) {
         // An edit replaces the transfer, so every field is sent, the jar answers included
-        // (null returns a leg to its default).
+        // (null returns a leg to its default). Until the jar ledgers are known (still loading,
+        // or the read failed) the form can't tell whether a leg backs jars, so it sends the
+        // pre-filled answers unchanged rather than resetting them to the default.
+        const incoming = toJarAllocations(tJarAlloc)
         const body: UpdateTransferRequest = {
           fromAccountId: tFrom,
           toAccountId: tTo,
@@ -599,8 +602,9 @@ export function TransactionsPage() {
           fee,
           feeBudgetItemId,
           acknowledgeCrossMonth,
-          fromJarId: tFromJars.length > 0 && tDate ? tFromJar || null : null,
-          jarAllocations: tToJars.length > 0 && tReceived ? toJarAllocations(tJarAlloc) : null,
+          fromJarId: (!ledgersLoaded || tFromJars.length > 0) && tDate ? tFromJar || null : null,
+          jarAllocations:
+            tReceived && (ledgersLoaded ? tToJars.length > 0 : incoming.length > 0) ? incoming : null,
         }
         const { data } = await api.put<TransactionDto>(`/transactions/${editing.id}/transfer`, body)
         setTransactions((prev) => prev.map((x) => (x.id === editing.id ? data : x)))
@@ -692,7 +696,8 @@ export function TransactionsPage() {
     setError(null)
     try {
       await api.delete(`/transactions/${id}`)
-      setTransactions((prev) => prev.filter((t) => t.id !== id))
+      // The server deletes a transfer's fee row with it (P64): drop that row too.
+      setTransactions((prev) => prev.filter((t) => t.id !== id && t.feeForTransferId !== id))
       reloadLedgers()
       track(EVENTS.transactionDeleted)
     } catch (err) {

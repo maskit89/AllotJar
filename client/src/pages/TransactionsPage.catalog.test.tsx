@@ -855,6 +855,34 @@ describe('TransactionsPage catalog — inline edit & delete', () => {
     await waitFor(() => expect(screen.queryByText('Move')).not.toBeInTheDocument())
   })
 
+  // W07 P2-6 — the server deletes a transfer's fee row with it (P64), so the register drops it too.
+  it('deleting a transfer with a fee also drops its fee row', { timeout: 15000 }, async () => {
+    mockLoad(
+      [
+        tx({
+          id: 't-tr', payee: 'Move', type: 2, amount: 100, accountId: 'a-joint', accountName: 'Joint',
+          transferAccountId: 'a-rainy', transferAccountName: 'Rainy Day', fee: 2,
+          feeBudgetItemId: 'i-groceries', feeBudgetItemName: 'Groceries',
+        }),
+        tx({ id: 't-fee', payee: 'Fee: Move', amount: 2, accountId: 'a-joint', accountName: 'Joint', budgetItemId: 'i-groceries', budgetItemName: 'Groceries', feeForTransferId: 't-tr' }),
+        tx({ id: 't-other', payee: 'Tesco' }),
+      ],
+      accountsFixture(),
+    )
+    mockDelete.mockResolvedValue({ data: null })
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('Fee for transfer', {}, { timeout: 5000 })).toBeInTheDocument()
+    await user.click(screen.getByLabelText('Delete transaction: Move'))
+    await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/transactions/t-tr'))
+    await waitFor(() => expect(screen.queryByText('Move')).not.toBeInTheDocument())
+    expect(screen.queryByText('Fee for transfer')).not.toBeInTheDocument()
+    expect(screen.queryByText('Fee: Move')).not.toBeInTheDocument()
+    expect(screen.getByText('Tesco')).toBeInTheDocument()
+    expect(mockDelete).toHaveBeenCalledTimes(1)
+  })
+
   // TX-072 — a delete failure surfaces the generic error and keeps the row.
   it('shows the generic delete error and keeps the row on failure', { timeout: 15000 }, async () => {
     mockLoad([tx({ payee: 'Tesco' })])
