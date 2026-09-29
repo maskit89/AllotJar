@@ -152,6 +152,9 @@ public static class JarMovements
         var keepsHistory = false;
         var keptJars = new HashSet<Guid>();
         var stretches = JarStretches.None;
+        // The account's ledger reads nothing before its opening date, while a departure's share of
+        // a kept draw would still count there: a share dated before it is not kept (R2-N2).
+        var beforeOpening = account.OpeningDate is { } opened && transaction.Date < opened;
         Guid JarFor(Guid? lineId, IReadOnlyDictionary<Guid, (Guid JarId, Guid AccountId, DateOnly? Since)> lineJars)
         {
             if (lineId is not Guid id || !lineJars.TryGetValue(id, out var line))
@@ -173,9 +176,9 @@ public static class JarMovements
                 }
                 return line.JarId;
             }
-            if (heldThen.Contains(line.JarId)
-                || (account.OpeningDate is { } opened && transaction.Date >= opened
-                    && stretches.LeftOn(line.JarId, account.Id, transaction.Date) is not null))
+            if (!beforeOpening
+                && (heldThen.Contains(line.JarId)
+                    || (account.OpeningDate is not null && stretches.LeftOn(line.JarId, account.Id, transaction.Date) is not null)))
             {
                 keepsHistory = true;
                 keptJars.Add(line.JarId);
@@ -214,7 +217,7 @@ public static class JarMovements
         var departedHeld = heldThen.Count == 0 ? new List<Guid>() : await db.Jars.AsNoTracking()
             .Where(j => heldThen.Contains(j.Id) && j.FundingAccountId != account.Id).Select(j => j.Id).ToListAsync(cancellationToken);
         var keptFrom = departedHeld.Where(j => !portions.ContainsKey(j)).Select(j => (Guid?)j).FirstOrDefault();
-        var keepsFrom = keepDepartedDraw && keptFrom is Guid k && unlined != 0m && (paidFromJarId is null || paidFromJarId == k);
+        var keepsFrom = keepDepartedDraw && keptFrom is Guid k && unlined != 0m && !beforeOpening && (paidFromJarId is null || paidFromJarId == k);
         if (keepsFrom)
         {
             keptJars.Add(keptFrom!.Value);

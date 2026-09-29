@@ -499,4 +499,38 @@ public class JarMoveAcceptAndSettleTests
         (await ReadAAsync(db, a, jar, Today)).Should().Be((0m, (decimal?)898m));
         (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
     }
+
+    [Fact]
+    public async Task R2_N2_AKeptPayment_RedatedBeforeTheOldAccountOpened_LeavesTheJarAndTheMoveSettlesBack()
+    {
+        // A opened on 5 Aug; Holiday held 320 there, paid 300 on its line on 20 Aug and a 20 dinner
+        // on Eating out "paid from" it on 12 Aug, then moved to B. A late 50 of 10 Aug is kept on
+        // the jar. Re-dated to 3 Aug, before A opened, each counts nowhere, as an entry dated then
+        // does, so none is kept and Holiday holds nothing in A today.
+        await using var db = NewContext();
+        var opened = new DateOnly(2026, 8, 5);
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", opening: 1000m, openingDate: opened);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", opening: 1000m, order: 1);
+        var jar = SeedGoal(db, a);
+        var (line, eatingOut) = SeedMonth(db, August, jar);
+        LedgerFixtures.Allocate(db, Owner, a.Id, jar.Id, 320m, opened);
+        var paid = LedgerFixtures.Expense(db, Owner, a.Id, 300m, new DateOnly(2026, 8, 20), line.Id);
+        var dinner = await new CreateTransactionCommandHandler(db, User).Handle(new CreateTransactionCommand(
+            new DateOnly(2026, 8, 12), "Dinner", 20m, TransactionType.Expense, eatingOut.Id, AccountId: a.Id, PaidFromJarId: jar.Id), Ct);
+        await new UpdateJarCommandHandler(db, User).Handle(MoveTo(jar, b.Id), Ct);
+        var late = await new CreateTransactionCommandHandler(db, User).Handle(
+            new CreateTransactionCommand(new DateOnly(2026, 8, 10), "Travel insurance", 50m, TransactionType.Expense, line.Id, AccountId: a.Id), Ct);
+        var update = new UpdateTransactionCommandHandler(db, User);
+
+        await update.Handle(new UpdateTransactionCommand(late.Id, new DateOnly(2026, 8, 3), "Travel insurance", 50m, TransactionType.Expense, a.Id), Ct);
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+        await update.Handle(new UpdateTransactionCommand(paid.Id, new DateOnly(2026, 8, 3), "Shop", 300m, TransactionType.Expense, a.Id), Ct);
+        await update.Handle(new UpdateTransactionCommand(dinner.Id, new DateOnly(2026, 8, 3), "Dinner", 20m, TransactionType.Expense, a.Id), Ct);
+
+        (await BalanceAsync(db, jar.Id, new DateOnly(2026, 8, 10))).Should().Be(320m);
+        (await BalanceAsync(db, jar.Id, Today)).Should().Be(0m);
+        (await UnallocatedAsync(db, a.Id, Today)).Should().Be(1000m);
+        (await db.JarAllocations.AnyAsync(x => x.TransactionId == late.Id || x.TransactionId == paid.Id || x.TransactionId == dinner.Id))
+            .Should().BeFalse();
+    }
 }

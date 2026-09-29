@@ -95,13 +95,24 @@ public static class TransferReturns
             var jarIds = op.Postings.Where(p => p.JarId is not null && p.Amount != 0m).Select(p => p.JarId!.Value).ToList();
             var jars = await db.Jars.AsNoTracking().Where(j => jarIds.Contains(j.Id)).ToListAsync(cancellationToken);
             var stretches = await JarStretches.LoadAsync(db, jarIds, cancellationToken);
+            // A share settled on a departure is kept only where the account's ledger reads it: before
+            // its opening date the return counts nowhere while the settlement would (R2-N2). The
+            // return is decided again then, and gives that jar nothing.
+            var beforeOpening = stretches.OpeningDateOf(op.AccountId) is { } opened && returnedOn < opened;
             foreach (var jar in jars)
             {
                 if (jar.FundingAccountId == op.AccountId)
                 {
-                    if (JarLedgerReader.HeldOn(jar.FundingAccountId, jar.FundingAccountSince, op.AccountId, returnedOn)
-                        || stretches.LeftOn(jar.Id, op.AccountId, returnedOn) is not null)
+                    if (JarLedgerReader.HeldOn(jar.FundingAccountId, jar.FundingAccountSince, op.AccountId, returnedOn))
                     {
+                        continue;
+                    }
+                    if (stretches.LeftOn(jar.Id, op.AccountId, returnedOn) is not null)
+                    {
+                        if (beforeOpening)
+                        {
+                            return false;
+                        }
                         continue;
                     }
                     // Dated before the jar arrived: HeldOn fails only when it has an arrival day.
@@ -117,6 +128,10 @@ public static class TransferReturns
                 if (stretches.HeldElsewhereUntil(jar.Id, op.AccountId, returnedOn) is { } since)
                 {
                     return refuseKey is null ? false : throw DatedBeforeArrival(refuseKey, jar.Name, since);
+                }
+                if (beforeOpening)
+                {
+                    return false;
                 }
             }
         }
