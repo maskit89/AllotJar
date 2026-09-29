@@ -16,6 +16,51 @@ namespace AllotJar.Application.Jars;
 public static class TransferReturns
 {
     /// <summary>
+    /// What a return's jar decision was made from: whether and when it was returned, from which
+    /// account, for what amount, and the departure's jar split there. Taken before a write changes
+    /// the transfer and handed to <see cref="SyncAsync"/> after it.
+    /// </summary>
+    public sealed record Basis(DateOnly? ReturnedOn, Guid? SourceId, decimal Amount, IReadOnlyList<(Guid? JarId, decimal Amount)> Departure)
+    {
+        /// <summary>Whether a return decided from <paramref name="other"/> still stands for this one (the date aside).</summary>
+        public bool SameDecisionAs(Basis other) =>
+            ReturnedOn is not null && other.ReturnedOn is not null
+            && SourceId == other.SourceId && Amount == other.Amount && Departure.SequenceEqual(other.Departure);
+    }
+
+    /// <summary>The <see cref="Basis"/> of <paramref name="transfer"/> as this write leaves it so far.</summary>
+    public static async Task<Basis> BasisAsync(IApplicationDbContext db, Transaction transfer, CancellationToken cancellationToken)
+    {
+        var departure = await DepartureAsync(db, transfer.Id, transfer.AccountId, cancellationToken);
+        return new Basis(transfer.ReturnedOn, transfer.AccountId, transfer.Amount,
+            departure?.Postings.Select(p => (p.JarId, p.Amount)).OrderBy(p => p.JarId).ThenBy(p => p.Amount).ToList()
+            ?? new List<(Guid?, decimal)>());
+    }
+
+    /// <summary>
+    /// Brings <paramref name="transfer"/>'s return operation in line with the write, given the
+    /// <paramref name="before"/> taken ahead of it. A return that is no longer one is removed. A
+    /// return whose amount, source and departure split are unchanged keeps the jar decision it was
+    /// recorded with and only follows its date (a statement confirming a return marked by hand,
+    /// a corrected date), so a jar archived or moved since never gets it re-decided. Otherwise the
+    /// jars are decided now (<see cref="RecordAsync"/>).
+    /// </summary>
+    public static async Task SyncAsync(
+        IApplicationDbContext db, Transaction transfer, Guid sourceId, Basis before, CancellationToken cancellationToken)
+    {
+        var after = await BasisAsync(db, transfer, cancellationToken);
+        if (after.ReturnedOn is DateOnly returnedOn && after.SameDecisionAs(before))
+        {
+            foreach (var kept in await OperationsAsync(db, transfer.Id, cancellationToken))
+            {
+                kept.Date = returnedOn;
+            }
+            return;
+        }
+        await RecordAsync(db, transfer, sourceId, cancellationToken);
+    }
+
+    /// <summary>
     /// Writes (or removes) <paramref name="transfer"/>'s return operation for its current
     /// <see cref="Transaction.ReturnedOn"/>, from the departure's stored jar split on
     /// <paramref name="sourceId"/> and the jars as they are now.
@@ -28,18 +73,7 @@ public static class TransferReturns
         {
             return;
         }
-        // The departure's split as this write leaves it: a pending change wins, and a split this
-        // write removed (tracked as deleted, so no longer in Local) counts as none.
-        var departure = db.JarAllocations.Local
-            .FirstOrDefault(a => a.TransactionId == transfer.Id && a.AccountId == sourceId && a.Kind == JarAllocationKind.Movement);
-        if (departure is null)
-        {
-            var stored = await db.JarAllocations
-                .Include(a => a.Postings)
-                .FirstOrDefaultAsync(a => a.TransactionId == transfer.Id && a.AccountId == sourceId
-                                          && a.Kind == JarAllocationKind.Movement, cancellationToken);
-            departure = stored is not null && db.JarAllocations.Local.Contains(stored) ? stored : null;
-        }
+        var departure = await DepartureAsync(db, transfer.Id, sourceId, cancellationToken);
         var drawn = departure?.Postings
             .Where(p => p.JarId is not null && p.Amount < 0m)
             .GroupBy(p => p.JarId!.Value)
@@ -71,6 +105,34 @@ public static class TransferReturns
             CreatedUtc = DateTime.UtcNow,
             Postings = postings,
         });
+    }
+
+    /// <summary>
+    /// The departure's jar split on <paramref name="sourceId"/> as this write leaves it: a pending
+    /// change wins, and a split this write removed (tracked as deleted, so no longer in Local)
+    /// counts as none.
+    /// </summary>
+    private static async Task<JarAllocation?> DepartureAsync(
+        IApplicationDbContext db, Guid transferId, Guid? sourceId, CancellationToken cancellationToken)
+    {
+        var departure = db.JarAllocations.Local
+            .FirstOrDefault(a => a.TransactionId == transferId && a.AccountId == sourceId && a.Kind == JarAllocationKind.Movement);
+        if (departure is null)
+        {
+            var stored = await db.JarAllocations
+                .Include(a => a.Postings)
+                .FirstOrDefaultAsync(a => a.TransactionId == transferId && a.AccountId == sourceId
+                                          && a.Kind == JarAllocationKind.Movement, cancellationToken);
+            departure = stored is not null && db.JarAllocations.Local.Contains(stored) ? stored : null;
+        }
+        return departure;
+    }
+
+    /// <summary><paramref name="transferId"/>'s return operations as this write leaves them (tracked).</summary>
+    private static async Task<List<JarAllocation>> OperationsAsync(IApplicationDbContext db, Guid transferId, CancellationToken cancellationToken)
+    {
+        await db.JarAllocations.Include(a => a.Postings).Where(a => a.ReturnOfTransferId == transferId).LoadAsync(cancellationToken);
+        return db.JarAllocations.Local.Where(a => a.ReturnOfTransferId == transferId).ToList();
     }
 
     /// <summary>Removes <paramref name="transferId"/>'s return operation, if any (the return was undone or the transfer deleted).</summary>

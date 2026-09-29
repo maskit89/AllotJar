@@ -61,8 +61,7 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
         var previousSource = transfer.Account;
         var previousDestination = transfer.TransferAccount;
         // What the stored return (if any) was decided from: kept unless one of these changes.
-        var previousReturn = (transfer.ReturnedOn, transfer.AccountId, transfer.Amount,
-            Departure: await DepartureSplitAsync(transfer.Id, transfer.AccountId, cancellationToken));
+        var previousReturn = await TransferReturns.BasisAsync(_db, transfer, cancellationToken);
 
         // Serialise against the other writers of every account the edit can take money from (the
         // rule 74 check below reads all four).
@@ -120,12 +119,7 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
         // The return's jars (P65): recorded again only when the return, the account it left, the
         // amount or the departure's jars changed; otherwise it keeps what was decided when it was
         // recorded, whatever has happened to the jars since.
-        if (previousReturn.ReturnedOn != transfer.ReturnedOn || previousReturn.AccountId != transfer.AccountId
-            || previousReturn.Amount != transfer.Amount
-            || !previousReturn.Departure.SequenceEqual(await DepartureSplitAsync(transfer.Id, transfer.AccountId, cancellationToken)))
-        {
-            await TransferReturns.RecordAsync(_db, transfer, from.Id, cancellationToken);
-        }
+        await TransferReturns.SyncAsync(_db, transfer, from.Id, previousReturn, cancellationToken);
 
         var removed = new List<Guid>();
         var fee = await TransferFees.ApplyAsync(
@@ -188,23 +182,6 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
         {
             throw new ValidationException(errors);
         }
-    }
-
-    /// <summary>The departure's stored jar split on <paramref name="sourceId"/> as this write leaves it, in a comparable order.</summary>
-    private async Task<List<(Guid? JarId, decimal Amount)>> DepartureSplitAsync(Guid transferId, Guid? sourceId, CancellationToken cancellationToken)
-    {
-        var split = _db.JarAllocations.Local
-            .FirstOrDefault(a => a.TransactionId == transferId && a.AccountId == sourceId && a.Kind == JarAllocationKind.Movement);
-        if (split is null)
-        {
-            var stored = await _db.JarAllocations
-                .Include(a => a.Postings)
-                .FirstOrDefaultAsync(a => a.TransactionId == transferId && a.AccountId == sourceId
-                                          && a.Kind == JarAllocationKind.Movement, cancellationToken);
-            split = stored is not null && _db.JarAllocations.Local.Contains(stored) ? stored : null;
-        }
-        return split?.Postings.Select(p => (p.JarId, p.Amount)).OrderBy(p => p.JarId).ThenBy(p => p.Amount).ToList()
-            ?? new List<(Guid?, decimal)>();
     }
 
     private static string Kept(string leg, string what) =>

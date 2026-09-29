@@ -191,6 +191,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             if (item.ReturnOfTransferId is Guid returnId)
             {
                 var target = ConfirmReturn(item, returnId, importAccount!, matchTargets, matchedIds);
+                var returnBasis = await TransferReturns.BasisAsync(_db, target, cancellationToken);
                 var (previousReturned, previousReturnReference, previousReceived) = (target.ReturnedOn, target.ReturnBankReference, target.ReceivedOn);
                 target.ReturnedOn = item.Date;
                 target.ReturnBankReference = reference;
@@ -213,8 +214,9 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 {
                     await JarMovements.ClearAsync(_db, target, neverReached, cancellationToken);
                 }
-                // The jars the money left get it back, as they stand now (P65).
-                await TransferReturns.RecordAsync(_db, target, importAccount!.Id, cancellationToken);
+                // The jars the money left get it back, as they stand now (P65); a return already
+                // marked by hand keeps the decision it was recorded with and takes the bank's date.
+                await TransferReturns.SyncAsync(_db, target, importAccount!.Id, returnBasis, cancellationToken);
                 returned++;
                 continue;
             }

@@ -617,7 +617,7 @@ describe('ImportPage transfer returns, fees and reused references', () => {
 
     await user.click(screen.getByRole('button', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' }))
     const match = screen.getByLabelText('Match recorded transfer for AUTOMARKET on 2026-06-17')
-    // The server's order is kept: same bank reference first.
+    // The server's order is kept.
     const options = Array.from(match.querySelectorAll('option')).map((o) => o.textContent)
     expect(options[1]).toMatch(/To Pot .* same bank reference/)
     expect(options[2]).toMatch(/with a fee of €2\.00/)

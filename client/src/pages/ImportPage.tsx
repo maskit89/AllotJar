@@ -1311,7 +1311,7 @@ export function ImportPage() {
                                       className="w-72"
                                     >
                                       <option value="">No — record it as a new transfer</option>
-                                      {/* In the server's order: same bank reference first, then nearest date. */}
+                                      {/* In the server's order: nearest date first (rule 87). */}
                                       {r.transferMatches.map((m) => (
                                         <option key={m.transferId} value={m.transferId}>
                                           {matchLabel(r, m)}

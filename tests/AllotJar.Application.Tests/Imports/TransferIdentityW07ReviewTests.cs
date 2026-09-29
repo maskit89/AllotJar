@@ -22,8 +22,8 @@ using AllotJar.Infrastructure.Statements;
 namespace AllotJar.Application.Tests.Imports;
 
 /// <summary>
-/// Regressions from the adversarial review of W07 (round 1 at 6070119, round 2 at 1f182dc): each
-/// test is the reviewer's probe and failed on that head.
+/// Regressions from the adversarial review of W07 (round 1 at 6070119, round 2 at 1f182dc,
+/// round 3 at 6e776a3): each test is the reviewer's probe and failed on that head.
 /// </summary>
 public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
 {
@@ -531,5 +531,75 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
         var row = (await PreviewAsync(db, User, Camt("T-9", Sep12, 100m, false, "Transfer"), a.Id)).Items.Single();
 
         row.TransferMatches.Select(m => m.TransferId).Should().Equal(sameDayExact.Id, nearWithFee.Id, farExact.Id);
+    }
+
+    // Round 3. A statement confirming a return the user already marked by hand keeps the jar
+    // decision made then and only takes the bank's date: the jar, since emptied and archived,
+    // isn't handed the money a second time (R3-P1-1).
+    [Fact]
+    public async Task ConfirmingAHandMarkedReturnAfterTheJarWasArchived_KeepsTheJarAtZero()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 200m, Sep1, AccountType.Current, order: 1);
+        var holiday = SeedGoal(db, a);
+        LedgerFixtures.Allocate(db, Owner, a.Id, holiday.Id, 400m, Sep1);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Sep10, 100m, a.Id, b.Id, FromJarId: holiday.Id), Ct);
+        await new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(transfer.Id, a.Id, b.Id, 100m, Sep10, null, Sep12, FromJarId: holiday.Id), Ct);
+        LedgerFixtures.Allocate(db, Owner, a.Id, holiday.Id, -400m, Today, JarAllocationKind.Reallocation);
+        await new ArchiveJarCommandHandler(db, User).Handle(new ArchiveJarCommand(holiday.Id), Ct);
+
+        // The bank printed the credit a day later than the user marked it.
+        var back = (await PreviewAsync(db, User, Camt("RET-9", new DateOnly(2026, 9, 13), 100m, true, "Returned"), a.Id)).Items.Single();
+        await new CommitImportCommandHandler(db, User, new FakeExchangeRateProvider()).Handle(new CommitImportCommand(a.Id, new[]
+        {
+            new CommitImportItem(back.Reference, back.Date, back.Payee, back.Amount, back.Currency, true, null, null, ReturnOfTransferId: transfer.Id),
+        }), Ct);
+
+        var view = (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[a.Id];
+        output.WriteLine($"after the statement confirmed the return: holiday={view.JarBalances.GetValueOrDefault(holiday.Id)} unallocated={view.Unallocated} A={view.AccountBalance}");
+        view.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(0m, "confirming a return changes nothing about where the money went (rule 26)");
+        view.Unallocated.Should().Be(1000m);
+        var onThe13th = (await JarLedgerReader.ReadAsync(db, Owner, new DateOnly(2026, 9, 13), Ct)).Accounts[a.Id];
+        var onThe12th = (await JarLedgerReader.ReadAsync(db, Owner, Sep12, Ct)).Accounts[a.Id];
+        onThe13th.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(400m, "the jar has its share back from the bank's date");
+        onThe12th.JarBalances.GetValueOrDefault(holiday.Id).Should().Be(300m, "the money was still away on 12 September");
+    }
+
+    [Theory]
+    [InlineData(20, 30, true)]
+    [InlineData(20, 30.01, false)]
+    [InlineData(1000, 1100, true)]
+    [InlineData(1000, 1100.01, false)]
+    public async Task TheFeeBound_IsTheLargerOfTenPercentAndTen(decimal sent, decimal debit, bool offered)
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 5000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 0m, Sep1, AccountType.Current, order: 1);
+        await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(Sep10, sent, a.Id, b.Id), Ct);
+        var row = (await PreviewAsync(db, User, Camt("F-1", Sep10, debit, false, "Transfer"), a.Id)).Items.Single();
+        (row.TransferMatches.Count > 0).Should().Be(offered);
+    }
+
+    // Rule 87: nearest date first, even over a candidate carrying the row's bank reference, which
+    // is badged instead (round 3's candidate order).
+    [Fact]
+    public async Task ACandidateWithTheSameBankReference_IsBadged_NotListedAboveANearerOne()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 1000m, Sep1, AccountType.Current, order: 1);
+        var far = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(Sep1, 100m, a.Id, b.Id), Ct);
+        var farRow = await db.Transactions.SingleAsync(t => t.Id == far.Id);
+        farRow.BankReference = "SHARED-1";
+        await db.SaveChangesAsync();
+        var near = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(new DateOnly(2026, 9, 11), 100m, a.Id, b.Id), Ct);
+
+        var row = (await PreviewAsync(db, User, Camt("SHARED-1", Sep12, 100m, true, "Transfer"), b.Id)).Items.Single();
+
+        row.TransferMatches.Select(m => m.TransferId).Should().Equal(near.Id, far.Id);
+        row.TransferMatches.Single(m => m.TransferId == far.Id).SameReference.Should().BeTrue();
     }
 }
