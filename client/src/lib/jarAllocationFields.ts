@@ -21,6 +21,17 @@ export function jarAllocationsTotal(value: Record<string, string>): number | nul
   return toAmount(total)
 }
 
+/**
+ * Why the typed jar amounts can't be sent, or null when they can. A field that doesn't parse
+ * would otherwise be left out and its money stay unallocated without a word.
+ */
+export function jarAllocationsProblem(value: Record<string, string>, amount: number | null): string | null {
+  const total = jarAllocationsTotal(value)
+  if (total === null) return 'Enter each jar amount as a number, or leave it blank.'
+  if (amount !== null && fromAmount(total) > fromAmount(amount)) return 'The jar amounts add up to more than the amount received.'
+  return null
+}
+
 /** Pre-fills the fields from stored request rows (an edit, or a re-prompt). */
 export function fromJarAllocations(rows: JarAllocationRequest[]): Record<string, string> {
   const value: Record<string, string> = {}

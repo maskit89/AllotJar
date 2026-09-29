@@ -350,11 +350,13 @@ describe('TransactionsPage jar prompts', () => {
     await user.type(screen.getByLabelText('Transfer amount'), '50')
     await user.selectOptions(screen.getByLabelText('Transfer from account'), 'a1')
     await user.selectOptions(screen.getByLabelText('Transfer to account'), 'a2')
-    // Everyday backs no jars: no "From jar"; the receipt prompt waits for a receipt date.
+    // Everyday backs no jars: no "From jar". Savings does: its jars can be answered while the
+    // money is in transit, for the day it arrives.
     expect(screen.queryByLabelText('From jar')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('transfer-jar-allocation')).not.toBeInTheDocument()
-    await user.type(screen.getByLabelText('Transfer receipt date'), '2026-09-30')
     expect(await screen.findByTestId('transfer-jar-allocation')).toBeInTheDocument()
+    expect(screen.getByText(/the jars get their amounts on the day it reaches Savings/)).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Transfer receipt date'), '2026-09-30')
+    expect(screen.queryByText(/the jars get their amounts on the day it reaches/)).not.toBeInTheDocument()
     await user.type(screen.getByLabelText('Amount for Car'), '50')
 
     // Swap the direction: the money now leaves Savings, so it may name the jar it comes from.

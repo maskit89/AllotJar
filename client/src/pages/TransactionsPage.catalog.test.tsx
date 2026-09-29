@@ -117,7 +117,8 @@ function mockLoad(
   budgetData: BudgetMonthDto | null = budget(),
 ) {
   mockGet.mockImplementation((url: string) => {
-    if (url === '/transactions') return Promise.resolve({ data: transactions })
+    // A copy per read, so a test can change the list the next re-read returns.
+    if (url === '/transactions') return Promise.resolve({ data: [...transactions] })
     if (url === '/accounts') return Promise.resolve({ data: accounts })
     if (url === '/members') return Promise.resolve({ data: members })
     if (url === '/budget/current') return Promise.resolve({ data: budgetData })
@@ -147,6 +148,12 @@ function rowFor(payee: string): HTMLElement {
 /** The six <td>s of a normal (non-editing) register row: date, payee, category, account, amount, actions. */
 function cellsFor(payee: string): HTMLTableCellElement[] {
   return Array.from(rowFor(payee).querySelectorAll('td'))
+}
+
+/** A day in the month the top bar shows by default (today's), whose rows the hero counts. */
+function thisMonth(day = 10): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
 beforeEach(() => {
@@ -189,13 +196,15 @@ describe('TransactionsPage catalog — register load, hero & list rendering', ()
   })
 
   // TX-003 — hero Money in / Money out sum all income / expense and EXCLUDE transfers.
-  it('sums hero totals across income and expense, excluding transfers', { timeout: 15000 }, async () => {
+  it('sums the month’s hero totals across income and expense, excluding transfers and other months', { timeout: 15000 }, async () => {
     mockLoad(
       [
-        tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 }),
-        tx({ id: 't-e1', payee: 'Tesco', amount: 40, type: 0 }),
-        tx({ id: 't-e2', payee: 'Cafe', amount: 6.3, type: 0 }),
-        tx({ id: 't-xfer', payee: 'Move', amount: 100, type: 2, accountName: 'Joint', transferAccountName: 'Rainy Day' }),
+        tx({ id: 't-inc', date: thisMonth(), payee: 'Payday', amount: 2500, type: 1 }),
+        tx({ id: 't-e1', date: thisMonth(), payee: 'Tesco', amount: 40, type: 0 }),
+        tx({ id: 't-e2', date: thisMonth(), payee: 'Cafe', amount: 6.3, type: 0 }),
+        tx({ id: 't-xfer', date: thisMonth(), payee: 'Move', amount: 100, type: 2, accountName: 'Joint', transferAccountName: 'Rainy Day' }),
+        // Listed in the register, but not the viewed month's money.
+        tx({ id: 't-old', date: '2025-01-15', payee: 'Old rent', amount: 900, type: 0 }),
       ],
       accountsFixture(),
     )
@@ -382,15 +391,15 @@ describe('TransactionsPage catalog — add modal fields & gating', () => {
   })
 
   // TX-018 — the add-form Category select offers UNFILTERED optgroups (Income & Savings included).
-  it('offers income and savings lines in the add-form Category select', { timeout: 15000 }, async () => {
+  it('offers expense and savings lines, not income lines, in the add-form Category select', { timeout: 15000 }, async () => {
     mockLoad([])
     const user = userEvent.setup()
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
     const select = await screen.findByLabelText('Assign transaction to', {}, { timeout: 5000 })
-    // An expense form still exposes income + savings lines (only the split editor filters by type).
-    expect(within(select).getByRole('option', { name: 'Salary' })).toBeInTheDocument()
+    // The server refuses an expense on an income line, so none is offered.
+    expect(within(select).queryByRole('option', { name: 'Salary' })).not.toBeInTheDocument()
     expect(within(select).getByRole('option', { name: 'Groceries' })).toBeInTheDocument()
     expect(within(select).getByRole('option', { name: 'Emergency fund' })).toBeInTheDocument()
   })
@@ -601,16 +610,16 @@ describe('TransactionsPage catalog — inline assign picker', () => {
   })
 
   // TX-034 — the assign picker is UNFILTERED: an income tx can be pointed at an expense/savings line.
-  it('offers all line kinds in the assign picker for an income transaction', { timeout: 15000 }, async () => {
-    mockLoad([tx({ payee: 'Refund', type: 1, budgetItemId: null })])
+  it('offers only income lines in the assign picker for income that is not a refund', { timeout: 15000 }, async () => {
+    mockLoad([tx({ payee: 'Payday', type: 1, budgetItemId: null })])
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Assign Refund' }, { timeout: 5000 }))
-    const select = await screen.findByLabelText('Assign Refund', {}, { timeout: 5000 })
+    await user.click(await screen.findByRole('button', { name: 'Assign Payday' }, { timeout: 5000 }))
+    const select = await screen.findByLabelText('Assign Payday', {}, { timeout: 5000 })
     expect(within(select).getByRole('option', { name: 'Salary' })).toBeInTheDocument()
-    expect(within(select).getByRole('option', { name: 'Groceries' })).toBeInTheDocument() // expense line offered to income
-    expect(within(select).getByRole('option', { name: 'Emergency fund' })).toBeInTheDocument()
+    expect(within(select).queryByRole('option', { name: 'Groceries' })).not.toBeInTheDocument()
+    expect(within(select).queryByRole('option', { name: 'Emergency fund' })).not.toBeInTheDocument()
   })
 
   // TX-038 — an assign failure surfaces the generic error and the row keeps its prior state.
@@ -1184,8 +1193,12 @@ describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
   // only expense/savings lines (defaulting to the purchase's category) and posts as Income with
   // the link; it never posts without a purchase.
   it('adds a refund linked to a purchase, on expense lines only (TX-099)', { timeout: 15000 }, async () => {
-    mockLoad([purchase(), tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 })])
-    mockPost.mockResolvedValue({ data: refundRow() })
+    const register = [purchase(), tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 })]
+    mockLoad(register)
+    mockPost.mockImplementation(() => {
+      register.unshift(refundRow())
+      return Promise.resolve({ data: refundRow() })
+    })
     const user = userEvent.setup()
     renderPage()
 
@@ -1231,9 +1244,9 @@ describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
   // on the register, but never Money in; Money out is net of it. The purchase says it was refunded.
   it('labels refund rows and nets them out of the hero totals (TX-100)', { timeout: 15000 }, async () => {
     mockLoad([
-      { ...purchase(), refundCount: 1, refundedAmount: 10 },
-      refundRow(),
-      tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 }),
+      { ...purchase(), date: thisMonth(10), refundCount: 1, refundedAmount: 10 },
+      { ...refundRow(), date: thisMonth(12) },
+      tx({ id: 't-inc', date: thisMonth(), payee: 'Payday', amount: 2500, type: 1 }),
     ])
     renderPage()
 
@@ -1252,14 +1265,18 @@ describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
   // TX-101 — money received can be marked as a refund of a purchase (PUT …/refund with the
   // purchase) and a refund unmarked (PUT …/refund with null).
   it('marks income as a refund and unmarks a refund (TX-101)', { timeout: 15000 }, async () => {
-    mockLoad([purchase(), refundRow(), tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 })])
-    mockPut.mockImplementation((url: string, body: { refundOfTransactionId: string | null }) =>
-      Promise.resolve({
-        data: body.refundOfTransactionId
-          ? { ...tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 }), refundOfTransactionId: 't-tesco', refundOfPayee: 'Tesco', refundOfDate: '2026-07-10' }
-          : { ...refundRow(), refundOfTransactionId: null, refundOfPayee: null, refundOfDate: null, budgetItemId: null, budgetItemName: null },
-      }),
-    )
+    const register = [purchase(), refundRow(), tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 })]
+    mockLoad(register)
+    // The server's register after each change: the purchase counts the refunds linked to it.
+    mockPut.mockImplementation((url: string, body: { refundOfTransactionId: string | null }) => {
+      const data = body.refundOfTransactionId
+        ? { ...tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 }), refundOfTransactionId: 't-tesco', refundOfPayee: 'Tesco', refundOfDate: '2026-07-10' }
+        : { ...refundRow(), refundOfTransactionId: null, refundOfPayee: null, refundOfDate: null, budgetItemId: null, budgetItemName: null }
+      register.splice(register.findIndex((t) => t.id === data.id), 1, data)
+      const refunds = register.filter((t) => t.refundOfTransactionId === 't-tesco')
+      register[0] = { ...purchase(), refundCount: refunds.length, refundedAmount: refunds.reduce((sum, t) => sum + t.amount, 0) }
+      return Promise.resolve({ data })
+    })
     const user = userEvent.setup()
     renderPage()
 
@@ -1273,8 +1290,8 @@ describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
     await user.click(save)
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t-inc/refund', { refundOfTransactionId: 't-tesco' }))
     expect(within(await screen.findByText('Payday').then((el) => el.closest('tr') as HTMLElement)).getByText('Refund')).toBeInTheDocument()
-    // The purchase's row picks up the refund's amount (in the budget currency).
-    expect(within(rowFor('Tesco')).getByText('€2,500.00 refunded')).toBeInTheDocument()
+    // The purchase's row shows the refunded total the server counts (both linked refunds).
+    expect(await within(rowFor('Tesco')).findByText('€2,510.00 refunded')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Not a refund: Tesco refund' }))
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t-refund/refund', { refundOfTransactionId: null }))
@@ -1498,6 +1515,103 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     await waitFor(() =>
       expect(mockPost).toHaveBeenLastCalledWith('/transactions/transfer', { ...expected, acknowledgeCrossMonth: true }),
     )
+  })
+
+  it('moves money between amount and fee on a departure the bank confirmed (P3-7)', { timeout: 20000 }, async () => {
+    // The source statement shows 102 leaving Joint: 100 on its way and a 2 fee.
+    mockLoad([transfer({ fee: 2, feeBudgetItemId: 'i-internet', departureConfirmedByStatement: true })], accountsFixture())
+    mockPut.mockResolvedValue({ data: transfer({ amount: 99, fee: 3, departureConfirmedByStatement: true }) })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
+    const amount = within(dialog).getByLabelText('Transfer amount')
+    expect(amount).toBeEnabled()
+    expect(within(dialog).getByLabelText('Transfer fee')).toBeDisabled()
+    expect(within(dialog).getByText(/The bank took 102\.00 in all/)).toBeInTheDocument()
+
+    // More than the bank's total is refused before anything is sent.
+    await user.clear(amount)
+    await user.type(amount, '103')
+    await user.click(within(dialog).getByRole('button', { name: 'Save transfer' }))
+    expect(await within(dialog).findByText(/shows 102\.00 leaving the source account/)).toBeInTheDocument()
+    expect(mockPut).not.toHaveBeenCalled()
+
+    // The fee follows as the rest of the bank's total.
+    await user.clear(amount)
+    await user.type(amount, '99')
+    expect(within(dialog).getByLabelText('Transfer fee')).toHaveValue('3')
+    await user.click(within(dialog).getByRole('button', { name: 'Save transfer' }))
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith(
+        '/transactions/t-tr/transfer',
+        expect.objectContaining({ amount: 99, fee: 3, feeBudgetItemId: 'i-internet' }),
+      ),
+    )
+  })
+
+  it('re-saves a fee left on its line without asking the cross-month question again (P3-8)', { timeout: 20000 }, async () => {
+    mockLoad([transfer({ fee: 2, feeBudgetItemId: 'i-internet', feeBudgetItemName: 'Internet' })], accountsFixture())
+    mockPut.mockResolvedValue({ data: transfer({ fee: 2, feeBudgetItemId: 'i-internet', payee: 'Top up' }) })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
+    await user.clear(within(dialog).getByLabelText('Transfer note'))
+    await user.type(within(dialog).getByLabelText('Transfer note'), 'Top up')
+    await user.click(within(dialog).getByRole('button', { name: 'Save transfer' }))
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith(
+        '/transactions/t-tr/transfer',
+        expect.objectContaining({ fee: 2, feeBudgetItemId: 'i-internet', acknowledgeCrossMonth: true }),
+      ),
+    )
+  })
+
+  it('explains, without sending, an edit whose jar answer names an archived jar (P3-10)', { timeout: 20000 }, async () => {
+    const t = transfer({ jarAllocations: [{ accountId: 'a-joint', jarId: 'jar-hol', jarName: 'Holiday', amount: -100 }] })
+    mockLoad([t], accountsFixture())
+    const load = mockGet.getMockImplementation()!
+    mockGet.mockImplementation((url: string) =>
+      url === '/jars/ledger'
+        ? Promise.resolve({
+            data: [
+              {
+                accountId: 'a-joint', accountName: 'Joint', currency: 'EUR', asOf: '2026-07-20', accountBalance: 1250,
+                unallocated: 1250, positiveAllocations: 0, hasBackingDeficit: false, unreconciledAllocations: 0,
+                requiresReview: false, jars: [{ jarId: 'jar-hol', name: 'Holiday', balance: 0, isArchived: true }],
+              },
+            ],
+          })
+        : load(url),
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/jars/ledger'))
+    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
+    await user.click(within(dialog).getByRole('button', { name: 'Save transfer' }))
+    expect(
+      await within(dialog).findByText(
+        'This entry moved money in or out of Holiday, which is archived. Restore Holiday on the Jars page to change this entry.',
+      ),
+    ).toBeInTheDocument()
+    expect(mockPut).not.toHaveBeenCalled()
+  })
+
+  it('needs a budget line for a fee (rule 91)', { timeout: 15000 }, async () => {
+    mockLoad([transfer()], accountsFixture())
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await user.type(await screen.findByLabelText('Transfer fee', {}, { timeout: 5000 }), '2')
+    await user.click(screen.getByRole('button', { name: 'Save transfer' }))
+    expect(await screen.findByText('Choose the budget line the fee is spent from.', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPut).not.toHaveBeenCalled()
   })
 
   it('blocks a fee that is not a positive amount', { timeout: 15000 }, async () => {

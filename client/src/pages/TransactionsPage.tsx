@@ -32,8 +32,8 @@ import { buildItemOptions, jarLinesOf, transactionTypeLabel } from '../lib/trans
 import { SplitLinesEditor, SplitRemainderChip, type SplitRowDraft } from '../components/SplitLinesEditor'
 import { JarAllocationFields } from '../components/jars/JarAllocationFields'
 import { PAID_FROM_UNALLOCATED, PaidFromJarSelect } from '../components/jars/PaidFromJarSelect'
-import { activeJars, incomingAllocationsOf, paidFromJarOf, useJarLedgers } from '../lib/jarLedgers'
-import { fromJarAllocations, toJarAllocations } from '../lib/jarAllocationFields'
+import { activeJars, archivedJarMessage, archivedJarNamed, incomingAllocationsOf, paidFromJarOf, useJarLedgers } from '../lib/jarLedgers'
+import { fromJarAllocations, jarAllocationsProblem, toJarAllocations } from '../lib/jarAllocationFields'
 import { serverErrors } from '../lib/serverErrors'
 import { PRIVATE_ACCOUNT } from '../lib/accountHolders'
 import { fetchConversionSuggestion, formatForeign, suggestionHint } from '../lib/conversion'
@@ -336,6 +336,12 @@ export function TransactionsPage() {
   const departureLocked = !!editingTransfer?.departureConfirmedByStatement
   const receiptLocked = !!editingTransfer?.receiptConfirmedByStatement
   const returnLocked = !!editingTransfer?.returnConfirmedByStatement
+  // What arrived (or came back) is the bank's once a statement confirmed the receipt or the
+  // return. A confirmed departure fixes only what left the source, the amount plus the fee, so
+  // the amount can still move between the two and the fee follows as the rest (P3-7).
+  const amountLocked = receiptLocked || returnLocked
+  const departureTotalMinor =
+    departureLocked && editingTransfer ? fromAmount(editingTransfer.amount) + fromAmount(editingTransfer.fee ?? 0) : null
   // "Returned on" applies only to a transfer that departed and was never received.
   const returnApplies = !!editingTransfer && !!tDate && !tReceived
 
@@ -462,6 +468,15 @@ export function TransactionsPage() {
       setError('Enter a valid amount greater than zero.')
       return
     }
+    if (!date) {
+      setError('Enter the date of the transaction.')
+      return
+    }
+    const jarProblem = addIncomeJarsApply ? jarAllocationsProblem(addJarAlloc, toAmount(minor)) : null
+    if (jarProblem) {
+      setError(jarProblem)
+      return
+    }
     if (addIsRefund && !refundOf) {
       setError('Choose the purchase this refund is for.')
       return
@@ -521,6 +536,8 @@ export function TransactionsPage() {
       })
       setTransactions((prev) => [data, ...prev])
       reloadLedgers()
+      // The purchase's row carries its refunded total as the server counts it.
+      if (data.refundOfTransactionId) reloadTransactions()
       track(EVENTS.transactionAdded, {
         line_type: addIsRefund ? 'refund' : type === TransactionType.Income ? 'income' : 'expense',
         ...(splitting ? { split: true } : {}),
@@ -550,7 +567,7 @@ export function TransactionsPage() {
     }
   }, [
     date, payee, amount, type, addIsRefund, addApiType, refundOf, assignTo, account, member, addSplit, addRows, resetAddSplit,
-    addIncomeJarsApply, addJarAlloc, addPaidFromApplies, addPaidFrom, resetAddJarPrompts, reloadLedgers,
+    addIncomeJarsApply, addJarAlloc, addPaidFromApplies, addPaidFrom, resetAddJarPrompts, reloadLedgers, reloadTransactions,
     paidForeign, foreignFigure, resetAddForeign,
   ])
 
@@ -621,13 +638,19 @@ export function TransactionsPage() {
       setError('A transfer needs two different accounts.')
       return
     }
-    if (tReceived && tDate && tReceived < tDate) {
+    // Dates two bank statements supplied stand as the banks gave them; only a changed date is checked.
+    const datesChanged = !editing || tDate !== (editing.departedOn ?? '') || tReceived !== (editing.receivedOn ?? '')
+    if (datesChanged && tReceived && tDate && tReceived < tDate) {
       setError('The receipt date can’t be before the departure date.')
       return
     }
     const returnedOn = returnApplies ? tReturned || null : null
     if (returnedOn && returnedOn < tDate) {
       setError('The return date can’t be before the departure date.')
+      return
+    }
+    if (departureTotalMinor !== null && minor > departureTotalMinor) {
+      setError(`The bank statement shows ${formatPlain(departureTotalMinor)} leaving the source account, so the amount can’t be more than that.`)
       return
     }
     if (tFee.trim() && !tHasFee) {
@@ -638,8 +661,35 @@ export function TransactionsPage() {
       setError('A fee needs the date the money left the source account.')
       return
     }
+    // Rule 91: a fee is spent from a budget line.
+    if (tHasFee && !tFeeLine) {
+      setError('Choose the budget line the fee is spent from.')
+      return
+    }
+    if (!editing && !tDate) {
+      setError('Enter the date the money left the source account.')
+      return
+    }
+    // The destination's jar answer applies on arrival, so it can be given while in transit; a
+    // returned transfer never arrives.
+    const incomingApplies = !(returnApplies && tReturned)
+    const jarProblem = incomingApplies && tToJars.length > 0 ? jarAllocationsProblem(tJarAlloc, toAmount(minor)) : null
+    if (jarProblem) {
+      setError(jarProblem)
+      return
+    }
     if (!editing && !tConfirmed) {
       setError('Confirm that you’ve completed this transfer before recording it.')
+      return
+    }
+    // P3-10: an edit re-sends the stored jar answers, and the server refuses one naming a jar
+    // that has since been archived.
+    const archived = editing
+      ? archivedJarNamed(tFromLedger, [tFromJar]) ??
+        (incomingApplies ? archivedJarNamed(tToLedger, Object.keys(tJarAlloc).filter((id) => (parseMinor(tJarAlloc[id]) ?? 0) > 0)) : null)
+      : null
+    if (archived) {
+      setError(archivedJarMessage(archived))
       return
     }
     const fee = tHasFee ? toAmount(tFeeMinor as number) : null
@@ -663,10 +713,16 @@ export function TransactionsPage() {
           payee: tPayee || null,
           fee,
           feeBudgetItemId,
-          acknowledgeCrossMonth,
+          // A fee kept on the line and date it already had was accepted there when it was
+          // recorded, so an unchanged re-save doesn't ask the cross-month question again (P3-8).
+          acknowledgeCrossMonth:
+            acknowledgeCrossMonth ||
+            (fee !== null &&
+              editing.fee != null &&
+              feeBudgetItemId === (editing.feeBudgetItemId ?? null) &&
+              (tDate || null) === (editing.departedOn ?? null)),
           fromJarId: (!ledgersLoaded || tFromJars.length > 0) && tDate ? tFromJar || null : null,
-          jarAllocations:
-            tReceived && (ledgersLoaded ? tToJars.length > 0 : incoming.length > 0) ? incoming : null,
+          jarAllocations: incomingApplies && (ledgersLoaded ? tToJars.length > 0 : incoming.length > 0) ? incoming : null,
         }
         const { data } = await api.put<TransactionDto>(`/transactions/${editing.id}/transfer`, body)
         setTransactions((prev) => prev.map((x) => (x.id === editing.id ? data : x)))
@@ -684,7 +740,7 @@ export function TransactionsPage() {
         // Rule 80: a transfer out of a jar-backed account may say which jar it leaves (null =
         // unallocated); rule 78: a receipt already dated into one says how it is divided.
         if (tFromJars.length > 0) body.fromJarId = tFromJar || null
-        if (tToJars.length > 0 && tReceived) {
+        if (tToJars.length > 0) {
           const rows = toJarAllocations(tJarAlloc)
           if (rows.length > 0) body.jarAllocations = rows
         }
@@ -734,8 +790,16 @@ export function TransactionsPage() {
       } else {
         body.receivedOn = legDate
         // Rule 78: the receipt into a jar-backed account says how it is divided among its jars.
-        const rows = jarsOf(t.transferAccountId).length > 0 ? toJarAllocations(legJarAlloc) : []
-        if (rows.length > 0) body.jarAllocations = rows
+        // The fields start from the answer given when it was recorded, so they are always sent
+        // (an empty list leaves it all unallocated).
+        if (jarsOf(t.transferAccountId).length > 0) {
+          const problem = jarAllocationsProblem(legJarAlloc, t.amount)
+          if (problem) {
+            setError(problem)
+            return
+          }
+          body.jarAllocations = toJarAllocations(legJarAlloc)
+        }
       }
       setSavingId(t.id)
       setError(null)
@@ -761,13 +825,15 @@ export function TransactionsPage() {
       // The server deletes a transfer's fee row with it (P71): drop that row too.
       setTransactions((prev) => prev.filter((t) => t.id !== id && t.feeForTransferId !== id))
       reloadLedgers()
+      // A deleted refund leaves its purchase's refunded total.
+      if (transactions.some((t) => t.id === id && t.refundOfTransactionId)) reloadTransactions()
       track(EVENTS.transactionDeleted)
     } catch (err) {
       setError(serverErrors(err) ?? 'Could not delete that transaction.')
     } finally {
       setSavingId(null)
     }
-  }, [reloadLedgers])
+  }, [reloadLedgers, reloadTransactions, transactions])
 
   /**
    * Mark money received as a refund of a purchase, or clear the link (rules 38/39). The server
@@ -780,16 +846,9 @@ export function TransactionsPage() {
       setError(null)
       try {
         const { data } = await api.put<TransactionDto>(`/transactions/${id}/refund`, { refundOfTransactionId })
-        setTransactions((prev) =>
-          prev.map((t) => {
-            if (t.id === id) return data
-            // The purchase's own row carries its refund count; refresh the one that changed.
-            if (t.id === refundOfTransactionId) {
-              return { ...t, refundCount: (t.refundCount ?? 0) + 1, refundedAmount: (t.refundedAmount ?? 0) + (data.budgetAmount ?? data.amount) }
-            }
-            return t
-          }),
-        )
+        setTransactions((prev) => prev.map((t) => (t.id === id ? data : t)))
+        // The purchase rows carry their refunded totals as the server counts them (linked or unlinked).
+        reloadTransactions()
         setRefundingId(null)
         setRefundPick('')
       } catch (err) {
@@ -798,7 +857,7 @@ export function TransactionsPage() {
         setSavingId(null)
       }
     },
-    [],
+    [reloadTransactions],
   )
 
   function startEdit(t: TransactionDto) {
@@ -824,7 +883,33 @@ export function TransactionsPage() {
         return
       }
       const id = t.id
-      const backsJars = jarsOf(eAccount).length > 0
+      // Until the jar ledgers are known (still loading, or the read failed) the form can't tell
+      // whether the account backs jars, so a stored answer is sent back unchanged rather than
+      // left out, which would return the money to its default.
+      const backsJars =
+        jarsOf(eAccount).length > 0 ||
+        (!ledgersLoaded && (eType === TransactionType.Income ? toJarAllocations(eJarAlloc).length > 0 : !!ePaidFrom))
+      const jarProblem = backsJars && eType === TransactionType.Income ? jarAllocationsProblem(eJarAlloc, toAmount(minor)) : null
+      if (jarProblem) {
+        setError(jarProblem)
+        return
+      }
+      const paidFromApplies = eType === TransactionType.Expense && hasNonJarLine(t, eAccount || null)
+      const sendsPaidFrom = backsJars && paidFromApplies
+      // P3-10: the pre-filled jar answers are re-sent (or, once every jar there is archived, left
+      // out, which would return the money to unallocated), and the server refuses an archived jar.
+      const archived = archivedJarNamed(
+        ledgerOf(eAccount),
+        eType === TransactionType.Income
+          ? Object.keys(eJarAlloc).filter((jarId) => (parseMinor(eJarAlloc[jarId]) ?? 0) > 0)
+          : paidFromApplies
+            ? [ePaidFrom]
+            : [],
+      )
+      if (archived) {
+        setError(archivedJarMessage(archived))
+        return
+      }
       setSavingId(id)
       setError(null)
       try {
@@ -839,9 +924,7 @@ export function TransactionsPage() {
           // An edit re-answers the jar prompts: the current answer is always sent when the
           // account backs jars, because omitting it would reset the leg to its default.
           ...(backsJars && eType === TransactionType.Income ? { jarAllocations: toJarAllocations(eJarAlloc) } : {}),
-          ...(backsJars && eType === TransactionType.Expense
-            ? { paidFromJarId: hasNonJarLine(t, eAccount || null) ? ePaidFrom || null : null }
-            : {}),
+          ...(backsJars && eType === TransactionType.Expense ? { paidFromJarId: sendsPaidFrom ? ePaidFrom || null : null } : {}),
         })
         setTransactions((prev) => prev.map((x) => (x.id === id ? data : x)))
         reloadLedgers()
@@ -861,7 +944,7 @@ export function TransactionsPage() {
         setSavingId(null)
       }
     },
-    [eDate, ePayee, eAmount, eType, eAccount, eMember, eJarAlloc, ePaidFrom, jarsOf, hasNonJarLine, reloadLedgers],
+    [eDate, ePayee, eAmount, eType, eAccount, eMember, eJarAlloc, ePaidFrom, jarsOf, ledgersLoaded, ledgerOf, hasNonJarLine, reloadLedgers],
   )
 
   function startSplit(t: TransactionDto) {
@@ -929,10 +1012,14 @@ export function TransactionsPage() {
         return
       }
       // Rule 79: the slices on lines that are not jars draw from the named jar (null = unallocated).
-      const paidFromApplies =
-        t.type === TransactionType.Expense &&
-        jarsOf(t.accountId).length > 0 &&
-        parsed.some((a) => !isJarLineFor(a.budgetItemId, t.accountId))
+      const drawsUnlined = t.type === TransactionType.Expense && parsed.some((a) => !isJarLineFor(a.budgetItemId, t.accountId))
+      const paidFromApplies = drawsUnlined && jarsOf(t.accountId).length > 0
+      // P3-10: a pre-filled answer naming an archived jar is refused (or dropped with the account's last live jar).
+      const archived = drawsUnlined ? archivedJarNamed(ledgerOf(t.accountId), [splitPaidFrom]) : null
+      if (archived) {
+        setError(archivedJarMessage(archived))
+        return
+      }
       setSavingId(t.id)
       setError(null)
       try {
@@ -962,10 +1049,9 @@ export function TransactionsPage() {
         setSavingId(null)
       }
     },
-    [splitRows, splitPaidFrom, jarsOf, isJarLineFor, reloadLedgers],
+    [splitRows, splitPaidFrom, jarsOf, ledgerOf, isJarLineFor, reloadLedgers],
   )
 
-  const optionGroups = buildItemOptions(month)
   // Split rows only ever target expense/savings lines (the add modal offers splits for expenses).
   const expenseSplitOptions = buildItemOptions(month, TransactionType.Expense)
   const addRemainderMinor = (parseMinor(amount) ?? 0) - sumMinor(addRows.map((r) => parseMinor(r.amount) ?? 0))
@@ -998,7 +1084,13 @@ export function TransactionsPage() {
   // never money in (rule 41); it comes off money out in the month it was received (rules 38/39).
   // A row still waiting for its amount in the budget currency (fxPending) counts nowhere; a row on
   // an account kept in another currency counts its budget figure, not the account's amount.
-  const counted = useMemo(() => transactions.filter((t) => !t.fxPending), [transactions])
+  // The register lists every month; the hero counts only the month the top bar shows.
+  const { year: viewYear, month: viewMonth, label: monthLabel } = useMonth()
+  const viewKey = `${viewYear}-${String(viewMonth).padStart(2, '0')}`
+  const counted = useMemo(
+    () => transactions.filter((t) => !t.fxPending && t.date.startsWith(viewKey)),
+    [transactions, viewKey],
+  )
   const moneyInMinor = useMemo(
     () =>
       sumMinor(
@@ -1022,7 +1114,6 @@ export function TransactionsPage() {
       ).length,
     [transactions],
   )
-  const { label: monthLabel } = useMonth()
   const currency = month?.baseCurrency ?? budgetCurrency
 
   // Budget lines that are bills (have a due day) — so an assigned transaction can
@@ -1340,7 +1431,8 @@ export function TransactionsPage() {
                     className="w-full"
                   >
                     <option value="">{addIsRefund ? 'Same category as the purchase' : 'Unassigned'}</option>
-                    {(addIsRefund ? expenseSplitOptions : optionGroups).map((g) => (
+                    {/* Income goes on income lines; an expense (or a refund, rule 38) on expense or savings lines. */}
+                    {(addIsRefund ? expenseSplitOptions : buildItemOptions(month, addApiType)).map((g) => (
                       <optgroup key={g.category} label={g.category}>
                         {g.items.map((i) => (
                           <option key={i.id} value={i.id}>
@@ -1426,15 +1518,22 @@ export function TransactionsPage() {
                   value={tAmount}
                   placeholder="0.00"
                   aria-label="Transfer amount"
-                  // What arrives: fixed by either bank's statement once one confirmed a leg.
-                  disabled={departureLocked || receiptLocked}
-                  onChange={(e) => setTAmount(e.target.value)}
+                  // What arrives: fixed by the bank once a statement confirmed the receipt or the
+                  // return; with only the departure confirmed, the fee takes up the difference.
+                  disabled={amountLocked}
+                  onChange={(e) => {
+                    setTAmount(e.target.value)
+                    if (departureTotalMinor !== null) {
+                      const typed = parseMinor(e.target.value)
+                      setTFee(typed !== null && typed > 0 && typed < departureTotalMinor ? toEditString(departureTotalMinor - typed) : '')
+                    }
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') submitTransfer()
                   }}
                   className="w-full text-right tabular-nums"
                 />
-                {(departureLocked || receiptLocked) && <StatementLockHint />}
+                {amountLocked && <StatementLockHint />}
               </label>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -1509,7 +1608,14 @@ export function TransactionsPage() {
                   onChange={(e) => setTFee(e.target.value)}
                   className="w-full text-right tabular-nums"
                 />
-                {departureLocked && <StatementLockHint />}
+                {departureLocked &&
+                  (amountLocked || departureTotalMinor === null ? (
+                    <StatementLockHint />
+                  ) : (
+                    <span className="font-normal text-slate-500">
+                      The bank took {formatPlain(departureTotalMinor)} in all; the fee is what the amount leaves of it.
+                    </span>
+                  ))}
               </label>
               {tHasFee && (
                 <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
@@ -1520,7 +1626,7 @@ export function TransactionsPage() {
                     onChange={(e) => setTFeeLine(e.target.value)}
                     className="w-full"
                   >
-                    <option value="">Unassigned</option>
+                    <option value="">Choose a line…</option>
                     {feeLineOptions.map((g) => (
                       <optgroup key={g.category} label={g.category}>
                         {g.items.map((i) => (
@@ -1593,17 +1699,26 @@ export function TransactionsPage() {
                 )}
               </label>
             )}
-            {/* Rule 78: a receipt already dated into a jar-backed account asks how it is divided. */}
-            {tToLedger && tToJars.length > 0 && tReceived && (
-              <JarAllocationFields
-                jars={tToJars}
-                accountName={tToLedger.accountName}
-                currency={tToLedger.currency}
-                amount={tAmountMajor}
-                value={tJarAlloc}
-                onChange={setTJarAlloc}
-                idPrefix="transfer"
-              />
+            {/* Rule 78: money for a jar-backed account asks how it is divided; while it is in
+                transit the answer is kept for the day it arrives (a returned transfer never does). */}
+            {tToLedger && tToJars.length > 0 && !(returnApplies && tReturned) && (
+              <>
+                <JarAllocationFields
+                  jars={tToJars}
+                  accountName={tToLedger.accountName}
+                  currency={tToLedger.currency}
+                  amount={tAmountMajor}
+                  value={tJarAlloc}
+                  onChange={setTJarAlloc}
+                  idPrefix="transfer"
+                />
+                {!tReceived && (
+                  <p className="text-xs text-slate-500">
+                    Until it arrives the money is in transit; the jars get their amounts on the day it reaches{' '}
+                    {tToLedger.accountName}.
+                  </p>
+                )}
+              </>
             )}
             {!editingTransfer && (
               <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -1706,6 +1821,8 @@ export function TransactionsPage() {
                   setTransactions((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
                   setConvertingId(null)
                   reloadLedgers()
+                  // A refund's confirmed figure now counts in its purchase's refunded total.
+                  if (updated.refundOfTransactionId) reloadTransactions()
                 }}
               />
             )
@@ -1800,8 +1917,9 @@ export function TransactionsPage() {
                     const splitting = splittingId === t.id
                     const refunding = refundingId === t.id
                     const splitOptions = buildItemOptions(month, t.type)
-                    // A refund follows its purchase onto expense/savings lines (rule 38).
-                    const rowOptions = isRefund ? expenseSplitOptions : optionGroups
+                    // Only lines the server accepts for the direction: a refund follows its purchase
+                    // onto expense/savings lines (rule 38), other income goes on income lines.
+                    const rowOptions = isRefund ? expenseSplitOptions : splitOptions
                     const totalMinor = fromAmount(t.amount)
                     const allocatedMinor = sumMinor(splitRows.map((r) => parseMinor(r.amount) ?? 0))
                     const remainderMinor = totalMinor - allocatedMinor
@@ -2043,8 +2161,9 @@ export function TransactionsPage() {
                                       onClick={() => {
                                         setLegId(t.id)
                                         setLegDate(t.transferStatus === 'PendingReview' ? t.receivedOn ?? today() : t.departedOn ?? today())
-                                        setLegJarAlloc({})
-                                        setLegFromJar(PAID_FROM_UNALLOCATED)
+                                        // Start from the jar answers given when it was recorded.
+                                        setLegJarAlloc(fromJarAllocations(incomingAllocationsOf(t.jarAllocations, t.transferAccountId)))
+                                        setLegFromJar(paidFromJarOf(t.jarAllocations, t.accountId, new Set()) ?? PAID_FROM_UNALLOCATED)
                                       }}
                                       aria-label={`${t.transferStatus === 'PendingReview' ? 'Add departure date' : 'Confirm receipt'}: ${t.payee || t.date}`}
                                       className="text-[11px] font-semibold text-brand-700 hover:underline dark:text-brand-200"

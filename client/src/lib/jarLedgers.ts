@@ -78,3 +78,19 @@ export function paidFromJarOf(
   const fromJar = allocations.find((a) => a.accountId === accountId && a.jarId && a.amount < 0 && !lineJarIds.has(a.jarId))
   return fromJar?.jarId ?? null
 }
+
+/**
+ * The archived jar a pre-filled jar answer still names in this account, or null (P3-10). The
+ * server won't put money into, or draw from, an archived jar, so an edit that re-sends such an
+ * answer can't be saved until the jar is restored.
+ */
+export function archivedJarNamed(ledger: JarAccountLedgerDto | undefined, jarIds: Iterable<string | null>): JarLedgerLineDto | null {
+  if (!ledger) return null
+  const ids = new Set(jarIds)
+  return ledger.jars.find((j) => j.isArchived && ids.has(j.jarId)) ?? null
+}
+
+/** Why an edit naming an archived jar can't be saved (see {@link archivedJarNamed}). */
+export function archivedJarMessage(jar: JarLedgerLineDto): string {
+  return `This entry moved money in or out of ${jar.name}, which is archived. Restore ${jar.name} on the Jars page to change this entry.`
+}

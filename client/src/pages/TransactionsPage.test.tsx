@@ -601,7 +601,9 @@ describe('TransactionsPage currency conversion (W08)', () => {
   }
 
   it('flags a row waiting for its budget-currency amount and leaves it out of the totals', { timeout: 15000 }, async () => {
-    mockLoad([fxRow(), tx()])
+    const now = new Date()
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-10`
+    mockLoad([{ ...fxRow(), date }, { ...tx(), date }])
 
     renderPage()
 
