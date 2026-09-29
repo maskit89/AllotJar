@@ -55,8 +55,7 @@ public class ActualAccountLedgerTests
     {
         var account = Account();
         var transaction = Movement(account, TransactionType.Expense, 1.2345m, OpeningDate);
-        transaction.ExchangeRate = 9m;
-        transaction.FxPending = true; // This concerns budget FX, not the known account charge.
+        transaction.FxPending = true; // This concerns the budget-currency amount, not the known account charge.
         transaction.Splits.Add(new TransactionSplit { Amount = 0.5m });
         transaction.Splits.Add(new TransactionSplit { Amount = 0.7345m });
 

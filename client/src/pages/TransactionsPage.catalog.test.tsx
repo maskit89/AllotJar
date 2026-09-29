@@ -87,7 +87,7 @@ function incomeOnlyBudget(): BudgetMonthDto {
 function tx(over: Partial<TransactionDto> = {}): TransactionDto {
   return {
     id: 't1', date: '2026-07-10', payee: 'Tesco', amount: 40, currency: 'EUR',
-    exchangeRate: 1, baseAmount: 40, type: 0, bankReference: null,
+    type: 0, bankReference: null,
     budgetItemId: null, budgetItemName: null, accountId: null, accountName: null,
     transferAccountId: null, transferAccountName: null,
     memberId: null, memberName: null,
@@ -1244,6 +1244,8 @@ describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
     await user.click(save)
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t-inc/refund', { refundOfTransactionId: 't-tesco' }))
     expect(within(await screen.findByText('Payday').then((el) => el.closest('tr') as HTMLElement)).getByText('Refund')).toBeInTheDocument()
+    // The purchase's row picks up the refund's amount (in the budget currency).
+    expect(within(rowFor('Tesco')).getByText('€2,500.00 refunded')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Not a refund: Tesco refund' }))
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t-refund/refund', { refundOfTransactionId: null }))

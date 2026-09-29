@@ -1,13 +1,13 @@
 # Currency & Locale Matrix
 
-**ID prefix:** CURR | **Scope:** The cross-feature currency + number-format surface of AllotJar as a test matrix: the 24-currency sign-up/preferences shortlist (plus any ISO 4217 code reachable via API/import) and the 5 number-format presets, how each renders decimals, symbol and symbol-position in **every** money display (dashboard budget lines, transactions, transfers, jars, allocation, accounts, reconciliation, reports, import sums, hero labels), how a **number-format** change ripples app-wide while a **currency-label** change relabels *some* surfaces with **no FX conversion**, the per-surface currency source (frozen `BudgetMonth.BaseCurrency` vs live `preferredCurrency` vs per-account vs per-transaction stamp), mixed per-account currencies in one household (per-currency net footer, cross-currency transfer guard, manual-entry stamping quirk), and locale-formatted amounts in imports with real FX resolution. | **Out of scope:** area-level mechanics owned by sibling files — sign-up form/consent (`19-*` / register), account CRUD + reconciliation (`12-accounts-reconciliation.md`), transfer mechanics (`11-transfers.md`), transaction entry/parsing (`10-transactions.md`), import parser detail (`15-import.md`), allocation math (`14-allocation.md`), jar accrual (`13-jars.md`), reports (`18-reports.md`), month lifecycle (`23-time-date-lifecycle.md`). Reference those by ID; this file only exercises the **cross-feature currency/locale behaviour they cannot see**.
+**ID prefix:** CURR | **Scope:** The cross-feature currency + number-format surface of AllotJar as a test matrix: the 24-currency sign-up/preferences shortlist (plus any ISO 4217 code reachable via API/import) and the 5 number-format presets, how each renders decimals, symbol and symbol-position in **every** money display (dashboard budget lines, transactions, transfers, jars, allocation, accounts, reconciliation, reports, import sums, hero labels), how a **number-format** change ripples app-wide, the household's **one budget currency** (W08, rules 42–44/85: the earliest month's `BaseCurrency`, else the owner's `preferredCurrency`, else EUR; fixed once the household holds an account, month or transaction; **no FX conversion, ever**) and the surfaces that label money with it, legacy accounts kept in another currency (left out of totals, cross-currency transfer guard, no manual entries on them), money recorded in another currency (the "Needs {X} amount" waiting rows, suggested ECB conversions the user confirms, the add form's paid-abroad figure), the `ForeignAmounts` data migration ("Keep counting"), and locale-formatted amounts in imports. | **Out of scope:** area-level mechanics owned by sibling files — sign-up form/consent (`19-*` / register), account CRUD + reconciliation (`12-accounts-reconciliation.md`), transfer mechanics (`11-transfers.md`), transaction entry/parsing (`10-transactions.md`), import parser detail (`15-import.md`), allocation math (`14-allocation.md`), jar accrual (`13-jars.md`), reports (`18-reports.md`), month lifecycle (`23-time-date-lifecycle.md`). Reference those by ID; this file only exercises the **cross-feature currency/locale behaviour they cannot see**.
 
 **Test data setup:** Unless a case says otherwise, assume a staging build. Shared fixtures:
 - **U-EUR**: solo owner, preferredCurrency `EUR`, numberFormat `comma-dot` (en-GB, the app default), one EUR account "Joint" (balance 1,250.00), a current EUR-based budget month with a Rent line planned 1,100.00.
 - **U-USD**: solo owner registered with preferredCurrency `USD`, numberFormat `comma-dot`.
 - **U-DE**: solo owner, preferredCurrency `EUR`, numberFormat `dot-comma` (de-DE).
-- **H-MIX**: shared household, 2 members, two accounts — "Joint" EUR (1,250.00) and "UK Savings" GBP (800.00) — `multiCurrency` feature flag ON.
-- Money is integer minor units at SCALE 4 client-side / `decimal(18,4)` server-side; actuals are always transaction-derived at read time. `BudgetMonth.BaseCurrency` defaults to EUR and is **inherited from the previous month, never derived from `preferredCurrency`**. Manual transactions are stamped in the month's `BaseCurrency` (not the account's currency); imports stamp the row/column currency and resolve FX to the month base.
+- **H-MIX**: shared household (budget currency EUR), 2 members, two accounts — "Joint" EUR (1,250.00) and **legacy** "UK Savings" GBP (800.00) — `multiCurrency` feature flag ON. Since W08 `POST /accounts` refuses any currency but the budget currency, so the GBP account must be seeded directly in the database (or kept from before the `ForeignAmounts` migration).
+- Money is integer minor units at SCALE 4 client-side / `decimal(18,4)` server-side; actuals are always transaction-derived at read time. There is **no exchange rate** anywhere (W08 removed `ExchangeRate`/`BaseAmount`). Every month's `BaseCurrency` and every manual transaction's currency is the household's **budget currency** (`BudgetCurrency.ResolveAsync`); an import row in another currency is stored as it is, marked `fxPending` ("Needs {X} amount") and counts nowhere until the user confirms its budget-currency amount (`PUT /transactions/{id}/converted-amount`). Suggested amounts come from the ECB reference rate (Frankfurter) and are only ever suggestions.
 
 ---
 
@@ -101,17 +101,16 @@
 ### CURR-009 - Two-decimal currencies render with correct symbol (EUR/USD/GBP)
 - **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** U-EUR (comma-dot).
+- **Preconditions:** U-EUR (comma-dot) with EUR "Joint", plus **legacy** accounts USD "Travel" (1,100.00) and GBP "UK" (45.50) seeded directly (the app no longer creates accounts in another currency than the budget's — CURR-050).
 - **Steps:**
-  1. On `/accounts`, add a USD account "Travel" opening 1,100.00, and a GBP account "UK" opening 45.50 (multiCurrency ON).
-  2. Read each card's balance.
-- **Expected:** EUR "Joint" → `€1,250.00`, USD "Travel" → `$1,100.00`, GBP "UK" → `£45.50` — each formatted in the account's OWN currency at its ISO 2-minor-digit precision. `formatMoney(minor,'EUR')` contains `€` and `1,250.00`; GBP contains `£`.
+  1. On `/accounts`, read each card's balance.
+- **Expected:** EUR "Joint" → `€1,250.00`, USD "Travel" → `$1,100.00`, GBP "UK" → `£45.50` — each formatted in the account's OWN currency at its ISO 2-minor-digit precision. `formatMoney(minor,'EUR')` contains `€` and `1,250.00`; GBP contains `£`. (The hero counts only Joint — CURR-034.)
 - **Automated:** Partial (client/src/lib/money.test.ts — formats with budget currency, GBP `£`)
 
 ### CURR-010 - Zero-decimal currency (JPY) renders whole units, no decimal point
 - **Priority:** P1
 - **Type:** Boundary
-- **Preconditions:** U-USD switched to preferredCurrency JPY (or CURR-008 user); a jar "Trip" balance 1,234.
+- **Preconditions:** A household whose budget currency is JPY (JPY chosen at sign-up, CURR-008 user); a jar "Trip" balance 1,234.
 - **Steps:**
   1. Open `/jars` and read the "Trip" jar balance and the "Total saved" hero.
 - **Expected:** JPY uses its ISO minor-unit count of 0 → `¥1,234` (no `.00`). `formatMoney(fromAmount(1234),'JPY')` contains `1,234` and does **not** contain `1,234.0`. No fixed fraction digits are forced by the formatter.
@@ -120,16 +119,16 @@
 ### CURR-011 - Three-decimal currency (KWD/BHD) renders three decimals
 - **Priority:** P1
 - **Type:** Boundary
-- **Preconditions:** A transaction/account stamped `KWD` (reachable via import currency column or the off-list API path in CURR-006; the picker never offers it).
+- **Preconditions:** A household whose budget currency is `KWD` (registered via the off-list API path in CURR-006; the picker never offers it), with a counted transaction of 1,234.567.
 - **Steps:**
-  1. View the KWD-stamped row in the transactions register (`/transactions`).
-- **Expected:** `formatMoney(fromAmount(1234.567),'KWD')` renders three decimals — contains `1,234.567`. The Intl formatter honours each currency's own ISO minor-unit count (2/0/3) without the app pinning a digit count.
+  1. View the row in the transactions register (`/transactions`).
+- **Expected:** `formatMoney(fromAmount(1234.567),'KWD')` renders three decimals — contains `1,234.567`. The Intl formatter honours each currency's own ISO minor-unit count (2/0/3) without the app pinning a digit count. (Contrast: a KWD row **waiting** in another budget currency is shown with `formatForeign` = code + `formatPlain`, which always shows 2 decimals — "KWD 1,234.57" — CURR-049.)
 - **Automated:** Partial (client/src/lib/money.test.ts — KWD three decimals)
 
 ### CURR-012 - JPY amount entered WITH decimals: stored at scale 4, displayed rounded
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** JPY-preferred user; a jar/account whose display currency is JPY.
+- **Preconditions:** A household whose budget currency is JPY; a jar/account displayed in JPY.
 - **Steps:**
   1. In a JPY-displayed money input, type `1234.56` and save.
   2. Re-read the displayed value.
@@ -159,10 +158,10 @@
 ### CURR-015 - Off-list/unknown currency code falls back to showing the code as symbol
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** A transaction stamped with a code Intl has no symbol glyph for (e.g. a rare/off-list ISO code).
+- **Preconditions:** A household whose budget currency is a code Intl has no symbol glyph for (e.g. `XAF`, registered via the API path in CURR-006), with a counted transaction.
 - **Steps:**
   1. View the row in `/transactions`.
-- **Expected:** `currencySymbol` returns the ISO code itself when no symbol part is produced (`part?.value ?? currency`), so the amount reads e.g. `XAF 1,234` rather than crashing or showing a blank symbol. Never throws.
+- **Expected:** `currencySymbol` returns the ISO code itself when no symbol part is produced (`part?.value ?? currency`), so the amount reads e.g. `XAF 1,234` rather than crashing or showing a blank symbol. Never throws. (A row in such a code waiting in another budget currency always reads "XAF 1,234.00" via `formatForeign`.)
 - **Automated:** No
 
 ### CURR-016 - Lakh grouping only engages above 100,000 (INR)
@@ -266,70 +265,68 @@
 
 ---
 
-## D. Currency-label change, NO FX, and per-surface currency source
+## D. One budget currency: source, lock, NO FX
 
-### CURR-026 - Changing preferred currency relabels Jars + Allocation with NO conversion
+### CURR-026 - Once the household holds anything its currency can't change, so Jars and Allocation are never relabelled
 - **Priority:** P0
 - **Type:** Regression
-- **Origin:** JarsPage/AllocationPage format with the LIVE `preferredCurrency`; there is no FX applied to the display — same digits, new label.
-- **Preconditions:** U-EUR with a jar "Emergency" balance 500.00 and an allocation preview pool 2,000.00.
+- **Origin:** W08 (rules 42/85) — JarsPage/AllocationPage used to format with the LIVE `preferredCurrency`, so a preference change turned €500.00 into $500.00 (an implicit 1:1 conversion). They now use the active household's `budgetCurrency`, and the preference is locked once money is recorded.
+- **Preconditions:** U-EUR with a jar "Emergency" balance 500.00 and an allocation preview pool 2,000.00 (so `currencyLocked: true`).
 - **Steps:**
-  1. `/account` → Preferences, change **Currency** from Euro (€) to **US dollar ($)**, Save.
-  2. Visit `/jars` and `/allocation`.
-- **Expected:** Jars "Total saved" hero and the "Emergency" jar now read **$500.00** (was €500.00) — the number is **identical**, only the symbol changed. Allocation "Income to allocate" reads **$2,000.00**. No exchange-rate conversion happens on a preference change; the currency label is cosmetic for these surfaces.
-- **Automated:** No
+  1. `/account` → Preferences: read "Currency".
+  2. `PUT /auth/preferences` with `preferredCurrency: "USD"`.
+  3. Visit `/jars` and `/allocation`.
+- **Expected:** Step 1: a read-only "Euro (€)" with "Your budget currency is fixed once your budget has accounts, months or transactions." Step 2: 400 "Your budget is in EUR and already has accounts, months or transactions, so its currency can't be changed.". Step 3: "Emergency" and "Total saved" read **€500.00**; "Income to allocate" **€2,000.00** — unchanged symbol and number. (PREF-011/PREF-042.)
+- **Automated:** Partial (client/src/pages/AccountPage.test.tsx — read-only locked currency; ForeignAmountsTests — `The_budget_currency_is_fixed_once_the_household_holds_anything`)
 
-### CURR-027 - Currency change does NOT relabel dashboard budget or reports
+### CURR-027 - Every surface labels money in the same budget currency (no mixed-symbol app)
 - **Priority:** P0
 - **Type:** Regression
-- **Origin:** DashboardPage uses `month.currency` (frozen `BudgetMonth.BaseCurrency`); ReportsPage uses `breakdownMonth.baseCurrency ?? 'EUR'`. Neither reads `preferredCurrency`.
-- **Preconditions:** U-EUR whose current month has `BaseCurrency=EUR`; Rent line 1,100.00.
+- **Origin:** Before W08, DashboardPage/ReportsPage used the frozen month currency while Jars/Allocation/Accounts used the live preference, so a USD sign-up saw € on the budget and $ elsewhere. Now months are stamped in the budget currency and the client labels with `budgetCurrency`.
+- **Preconditions:** U-USD (preferredCurrency USD) after creating the first month, an account, a jar and a transaction.
 - **Steps:**
-  1. Change preferred currency EUR → USD (as CURR-026), Save.
-  2. Visit `/` (dashboard) and `/reports`.
-- **Expected:** Dashboard hero ("Remaining to budget"), the "Every {noun} has a job" badge noun, budget lines, and all Reports figures **stay in €** (the month's base currency), even though `/jars` now shows $. This intentional split (frozen month base vs live preference) means a currency change produces a **mixed-symbol app** — document as expected, not a bug to "fix" by relabelling the dashboard.
-- **Automated:** No
+  1. Visit `/`, `/reports`, `/jars`, `/allocation` (if shared), `/accounts`, `/transactions` and the user chip.
+- **Expected:** Every surface reads **$** (the month's `baseCurrency` is USD, CURR-028; `budgetCurrency` is USD): dashboard hero and lines, the "Every dollar has a job" badge, reports, jars, accounts hero and cards, register rows, and the chip "USD · …". No surface shows €.
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — `Create_FirstMonth_AdoptsTheUsersPreferredCurrency`; client/src/pages/AccountsPage.catalog.test.tsx — ACCT-018 hero labelled in the budget currency)
 
-### CURR-028 - A USD sign-up still gets a EUR-based first budget month
+### CURR-028 - A USD sign-up's first budget month is USD — the budget currency
 - **Priority:** P1
 - **Type:** Regression
-- **Origin:** `CreateBudgetMonthCommandHandler` sets `BaseCurrency = previous?.BaseCurrency ?? CurrencyCode.Eur` — never from `preferredCurrency`. There is no request field or endpoint to set a month's base currency.
-- **Preconditions:** U-USD (preferredCurrency USD), no months yet.
+- **Origin:** `CreateBudgetMonthCommandHandler` used to default the first month to EUR (later, the creating login's preference); since W08 it stamps `BudgetCurrency.ResolveAsync` — the earliest month's `BaseCurrency`, else the **owner's** preference, else EUR. There is no request field or endpoint to set a month's base currency.
+- **Preconditions:** U-USD (preferredCurrency USD), no months yet. Variant: a shared household whose owner chose GBP and a member (own preference EUR) creates the first month.
 - **Steps:**
   1. Create the first budget month (blank or template) from the dashboard.
-  2. Read the dashboard hero currency vs the sign-up tagline / Jars currency.
-- **Expected:** The month's `baseCurrency` is **EUR**; the dashboard budget renders in € while the tagline noun and Jars/Allocation render in $ (USD). A user who chose USD still plans their budget in EUR. Known limitation — budget base currency is decoupled from the display preference.
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — BaseCurrency default EUR / inherited)
+  2. Read the dashboard hero currency; `GET /budget/current`.
+- **Expected:** `baseCurrency` = **USD**; the dashboard renders in $ like every other surface. Variant: the month is **GBP** (the owner's choice), never the member's EUR.
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — `Create_FirstMonth_AdoptsTheUsersPreferredCurrency`; ForeignAmountsTests — `The_budget_currency_is_the_first_months_else_the_owners_choice`)
 
-### CURR-029 - Single-currency Accounts hero labels in the ACCOUNT currency, not the preference
+### CURR-029 - The Accounts hero is labelled in the budget currency and counts only budget-currency accounts
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** A household whose only account is GBP (balance 800.00); user preferredCurrency EUR.
+- **Preconditions:** Budget currency EUR; the household's only account is a **legacy** GBP one (balance 800.00).
 - **Steps:**
-  1. Open `/accounts`; read the "Total balance" hero and tiles.
-  2. Change preferred currency to USD; return to `/accounts`.
-- **Expected:** With one currency present, `heroCurrency` = that account's currency (GBP) → hero and tiles read **£800.00**, and there is **no** mixed-currency footnote. Changing the preference to USD does **not** relabel the account cards or the single-currency hero (still £). (Area coverage: ACCT-004.)
-- **Automated:** No
+  1. Open `/accounts`; read the "Total balance" hero, tiles and footnote.
+- **Expected:** Hero and tiles read **€0.00** — the GBP account is not counted and never converted — with the pill "1 account in another currency is not counted."; the card itself reads **£800.00**. (Before W08 the hero adopted the single account's currency, £800.00.) (Area coverage: ACCT-005, ACCT-080.)
+- **Automated:** Partial (client/src/pages/AccountsPage.catalog.test.tsx — ACCT-005)
 
-### CURR-030 - Transactions register formats each row in its own stamped currency
+### CURR-030 - Transactions register: counted rows in their currency, waiting rows as "{CODE} amount" with a tag
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** H-MIX with an EUR-stamped row and a GBP-stamped (imported) row.
+- **Preconditions:** H-MIX with a counted EUR row (12.50) and an imported GBP row (12.50, on no account) that is waiting.
 - **Steps:**
-  1. Open `/transactions`; read the two rows' amounts.
-  2. Change preferred currency; re-read.
-- **Expected:** Each amount uses the transaction's OWN `currency` stamp (`€…` vs `£…`), never the preference; a preference change doesn't relabel existing rows. (Area coverage: TX/ACCT-048, TRF-027.)
-- **Automated:** No
+  1. Open `/transactions`; read the two rows' amounts and the hero.
+- **Expected:** The EUR row reads `−€12.50` (`formatMoney` in its own `currency`); the GBP row reads **"GBP 12.50"** (never `£12.50`, so it can't pass for budget money) with **"Needs EUR amount"** and **Enter amount**; Money out is €12.50. After confirming €14.80 the row reads `−€14.80` with a grey "GBP 12.50" caption (title "Paid in GBP"). (Area coverage: TX-103/104, ACCT-048, TRF-027.)
+- **Automated:** Yes (client/src/pages/TransactionsPage.test.tsx — "flags a row waiting for its budget-currency amount and leaves it out of the totals", "Enter amount: Suggest fills an editable amount without saving; Confirm saves it")
 
-### CURR-031 - New months inherit the previous month's base currency (chain from EUR)
+### CURR-031 - Every new month takes the budget currency — next, copied or backfilled
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** U-EUR with a June month (BaseCurrency EUR); preferred currency later changed to USD.
+- **Preconditions:** A household whose June month is GBP; the owner's preference reads USD (legacy mismatch, or a member created the months).
 - **Steps:**
-  1. Create July via "Copy last month" (or blank).
-  2. Inspect July's base currency.
-- **Expected:** July `baseCurrency` = **EUR** (inherited from June), unaffected by the USD preference change. The base-currency chain propagates from the first month's default and never resynchronises to the current preference.
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — "july.BaseCurrency ... inherited")
+  1. Create July via "Copy last month"; create May (backfill, blank).
+  2. Inspect both months' base currency.
+- **Expected:** Both are **GBP** — the earliest month's currency — never the USD preference; the identity service isn't even consulted once a month exists. Existing months in another currency are never restamped (the `ForeignAmounts` migration leaves months alone).
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — `Create_AnyMonth_TakesTheBudgetCurrency_NotThePreference` [Theory: next month + backfill])
 
 ### CURR-032 - "Leave as is" — a name-only preferences save never resets currency/format
 - **Priority:** P1
@@ -341,68 +338,69 @@
 - **Expected:** Names update; `preferredCurrency` stays JPY and `numberFormat` stays lakh (not reset to EUR/comma-dot). 200 with the unchanged prefs echoed. (Note: the `/account` form always submits the selected values, so this guards direct/partial API callers.)
 - **Automated:** No
 
-### CURR-033 - Display preferences survive a household switch / leave
+### CURR-033 - A household switch changes the currency label, never the number format or the preference
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** A login in 2 households, preferredCurrency USD + numberFormat comma-dot.
+- **Preconditions:** A login (preferredCurrency USD, numberFormat comma-dot) in 2 households: its own (budget currency USD) and a joined one (budget currency GBP).
 - **Steps:**
-  1. Use the household switcher to switch to the other household (full re-bootstrap).
-  2. Then leave a joined household.
-- **Expected:** After each re-bootstrap, `/auth/me` → `applyPrefs` re-applies USD + comma-dot (preferences are per-login, not per-household). Money everywhere renders in the same style before and after the switch/leave. Currency preference is a user attribute, not a household attribute.
+  1. Use the household switcher to switch to the joined household (full re-bootstrap); then back.
+  2. Leave the joined household.
+- **Expected:** After each re-bootstrap `/auth/me` re-applies USD + comma-dot as the login's preferences (per-login), and `budgetCurrency` follows the ACTIVE household: money and the chip read £/"GBP · …" in the joined household and $/"USD · Your household" in the own one; grouping style is the same everywhere. `zbb.budgetCurrency` tracks the active household. (PREF-044.)
 - **Automated:** No
 
 ---
 
-## E. Mixed per-account currencies in one household
+## E. Legacy accounts kept in another currency (no new ones since W08)
 
-### CURR-034 - Mixed accounts show a raw cross-currency sum + footnote (deferred FX)
+### CURR-034 - A legacy account in another currency is left out of the totals (never a raw cross-currency sum)
 - **Priority:** P0
-- **Type:** Edge
-- **Preconditions:** H-MIX (EUR 1,250.00 + GBP 800.00), preferredCurrency EUR.
+- **Type:** Regression
+- **Origin:** Before W08 the hero showed the raw arithmetic sum `1250 + 800 = €2,050.00` with "Totals shown in EUR; some accounts hold another currency."
+- **Preconditions:** H-MIX (EUR 1,250.00 + legacy GBP 800.00), budget currency EUR.
 - **Steps:**
   1. Open `/accounts`; read the "Total balance" hero, "Available"/"Owed" tiles, and the footnote.
-- **Expected:** With >1 currency, `heroCurrency` falls back to `preferredCurrency` (EUR); the hero shows the **raw arithmetic sum** `1250 + 800 = 2050` labelled **€2,050.00** — a deliberately-uncoverted, technically-meaningless figure — plus the pill "**Totals shown in EUR; some accounts hold another currency.**". Per-account cards still render each in its own currency (€1,250.00, £800.00). (Area coverage: ACCT-005, ACCT-042.)
-- **Automated:** No
+- **Expected:** Hero **€1,250.00**, Available €1,250.00, Owed €0.00 — only budget-currency accounts count — plus the pill "**1 account in another currency is not counted.**". Per-account cards still render each in its own currency (€1,250.00, £800.00). (Area coverage: ACCT-005, ACCT-042.)
+- **Automated:** Yes (client/src/pages/AccountsPage.catalog.test.tsx — ACCT-005)
 
 ### CURR-035 - Cross-currency transfer is rejected and moves nothing
 - **Priority:** P0
 - **Type:** Negative
-- **Preconditions:** H-MIX; attempt to transfer 100 from EUR "Joint" to GBP "UK Savings".
+- **Preconditions:** H-MIX (legacy GBP account); attempt to transfer 100 from EUR "Joint" to GBP "UK Savings".
 - **Steps:**
   1. On `/transactions` (or the transfer entry), pick From = Joint (EUR), To = UK Savings (GBP), amount 100, submit.
-- **Expected:** Server rejects with 400 field error on `ToAccountId`: "**Both accounts must use the same currency to transfer between them.**". No transaction is created; both balances unchanged (€1,250.00 / £800.00). Blocks the money-vanish where €100 debited would credit £100. (Area coverage: TRF-017, TX-083.)
-- **Automated:** Yes (tests/AllotJar.Application.Tests/Transactions/TransfersTests.cs — `Transfer_BetweenDifferentCurrencies_IsRejected_AndMovesNothing`)
+- **Expected:** Server rejects with 400 field error on `ToAccountId`: "**Both accounts must use the same currency to transfer between them.**". No transaction is created; both balances unchanged (€1,250.00 / £800.00). Blocks the money-vanish where €100 debited would credit £100. Without legacy data the situation can't arise: the GBP account itself is refused (CURR-050, TRF-021).
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Transactions/TransfersTests.cs — `Transfer_BetweenDifferentCurrencies_IsRejected_AndMovesNothing`; client/e2e-journey/transfers-balances.spec.ts — the other-currency account is refused on the real stack)
 
 ### CURR-036 - Same-currency transfer stamps the source account's currency
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Two GBP accounts "UK A" and "UK B".
+- **Preconditions:** Two GBP accounts "UK A" and "UK B" (a GBP-budget household, or legacy accounts in an EUR one).
 - **Steps:**
   1. Transfer £50 from UK A to UK B.
   2. Inspect the stored transfer's currency and both registers.
-- **Expected:** The transfer is stamped `GBP` (from `from.Currency`, not a hardcoded EUR) with `ExchangeRate=1`; both account-detail registers render it as `£50.00` with direction-appropriate sign. (Area coverage: TRF-008, TRF-027.)
-- **Automated:** Yes (tests/AllotJar.Application.Tests/Transactions/TransfersTests.cs — `Transfer_StampsCurrencyFromSource_NotHardcodedEur`)
+- **Expected:** The transfer is stamped `GBP` (from `from.Currency`, not a hardcoded EUR) and is never `fxPending`, even in an EUR budget (transfers never wait); both account-detail registers render it as `£50.00` with direction-appropriate sign. (Area coverage: TRF-008, TRF-022, TRF-027.)
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Transactions/TransfersTests.cs — `Transfer_StampsCurrencyFromSource_NotHardcodedEur`; ForeignAmountsTests — `A_transfer_never_waits`)
 
-### CURR-037 - An account's currency is fixed at creation (immutable on edit)
+### CURR-037 - New accounts take the budget currency; an existing account's currency is fixed
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** H-MIX, GBP "UK Savings".
+- **Preconditions:** H-MIX, legacy GBP "UK Savings".
 - **Steps:**
-  1. On `/accounts`, add-account modal: confirm the note "**An account's currency is fixed once created.**".
+  1. On `/accounts`, open the add-account modal.
   2. Enter inline edit on "UK Savings".
-- **Expected:** The add modal offers a Currency select (multiCurrency ON); the edit card shows a read-only line "Currency **GBP** — fixed once created." with no editable control. `PUT /accounts/{id}` carries no currency field. (Area coverage: ACCT-024.)
-- **Automated:** No
+- **Expected:** The add modal has **no** Currency select; it reads "The account holds EUR, your budget currency." and posts `currency: "EUR"`. The edit card shows a read-only line "Currency **GBP** — fixed once created." with no editable control. `PUT /accounts/{id}` carries no currency field. (Area coverage: ACCT-018, ACCT-024.)
+- **Automated:** Yes (client/src/pages/AccountsPage.catalog.test.tsx — ACCT-018, ACCT-024)
 
-### CURR-038 - Manual entry on a foreign-currency account is stamped in the MONTH BASE, not the account
+### CURR-038 - A manual entry is always in the budget currency, so it is refused on a legacy account in another currency
 - **Priority:** P1
-- **Type:** Edge
-- **Origin:** `CreateTransactionCommandHandler` sets `currency = month?.BaseCurrency ?? EUR` (comment: "Manual entries are in the budget's base currency"); `AccountBalances` sums raw `Amount` "in the account's own currency".
-- **Preconditions:** H-MIX, GBP "UK Savings", current month `BaseCurrency=EUR`.
+- **Type:** Negative
+- **Origin:** Before #210/W08 a manual entry on a GBP account was stamped in the EUR month base and the GBP balance dropped by the raw number (a silent corruption). `CreateTransactionCommandHandler` now stamps the budget currency and `TransactionInvariants.EnsureAccountCurrency` rejects an account in another currency.
+- **Preconditions:** H-MIX, legacy GBP "UK Savings" (£800.00), budget currency EUR.
 - **Steps:**
-  1. On `/transactions`, add a manual £-intended expense of 100 with Account = UK Savings (GBP).
-  2. Read the register row's currency and the account card balance.
-- **Expected:** The stored transaction is stamped **EUR** (the month base), `ExchangeRate=1` — so the register row renders **€100.00** even though the account is GBP. The GBP account balance drops by the raw 100 (`AccountBalances` adds `Amount` with no FX/currency check), shown as **£700.00**. Cross-feature quirk/limitation: manual entries never adopt the account currency, and the balance mixes the numeric value across the currency label. Document; do not silently "fix" by converting.
-- **Automated:** No
+  1. On `/transactions`, add an expense of 100 with Account = UK Savings.
+  2. Add the same expense with Account = Joint and **Paid in another currency** GBP 100 (Amount 117.00).
+- **Expected:** Step 1: 400 `AccountId` → "This account is in GBP, but the transaction is in EUR. Record it in GBP, or choose an account in the transaction's currency."; nothing is created; UK Savings stays £800.00. Step 2: created in **EUR** 117.00 on Joint (Joint −€117.00) with `originalAmount 100`, `originalCurrency GBP` kept for reference only — the paid-abroad figure never touches a balance.
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/TTransactionsCoverageTests.cs — `Create_OnAnAccountOfADifferentCurrency_IsRejected`; ForeignAmountsTests — `A_manual_entry_paid_abroad_counts_the_confirmed_amount_and_keeps_what_was_paid`)
 
 ### CURR-039 - Reconciliation formats each account row in its own currency
 - **Priority:** P1
@@ -413,19 +411,18 @@
 - **Expected:** Each row's three money cells use `currencyById[accountId]` (the account's own currency) — EUR rows show €, GBP rows show £; the table never sums across currencies into one figure. Negative float renders rose. (Area coverage: ACCT-056, ACCT-054.)
 - **Automated:** No
 
-### CURR-040 - Currency picker visibility follows the multiCurrency flag
+### CURR-040 - The multiCurrency flag only hides the paid-abroad option and account currency labels
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Two builds: multiCurrency ON vs OFF.
+- **Preconditions:** Two builds: multiCurrency ON vs OFF (server `Features:MultiCurrency=false`); H-MIX with a waiting GBP row on no account.
 - **Steps:**
-  1. With the flag ON, open the add-account modal → Currency select present, defaults to `preferredCurrency`, resets to it after each add.
-  2. With the flag OFF (server `Features:MultiCurrency=false`), open the add-account modal.
-- **Expected:** ON: currency select + "fixed once created" note shown; new account uses the chosen currency; the per-card currency chip renders. OFF: no currency picker, no chip, no reconciliation currency mismatch — every new account silently takes `preferredCurrency`. (Area coverage: ACCT-018, ACCT-019.)
-- **Automated:** No
+  1. In each build open the add-account modal, the account cards, the add-transaction modal, and the waiting row.
+- **Expected:** Both: no account currency picker (every new account is EUR); the waiting row keeps "Needs EUR amount" + **Enter amount**. ON: every card has a currency chip and edit cards the "fixed once created" note; the add-transaction modal offers **Paid in another currency**. OFF: only the GBP card keeps its chip/note; no **Paid in another currency** option. (Area coverage: ACCT-018, ACCT-019, TX-111.)
+- **Automated:** Partial (client/src/pages/AccountsPage.catalog.test.tsx — ACCT-019)
 
 ---
 
-## F. Import with locale-formatted amounts & real FX
+## F. Import with locale-formatted amounts; rows in another currency wait (no FX)
 
 ### CURR-041 - Import number-format selector drives amount parsing
 - **Priority:** P0
@@ -445,34 +442,38 @@
 - **Expected:** `AutoNormalize` — when both separators present, right-most wins as decimal; a single separator is a decimal only with 1–2 trailing digits, else grouping. So `1.234` → 1234, `1.23` → 1.23, `2.500,00` → 2500.00, `1,234.56` → 1234.56. Consistent across the file.
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Imports/ParserToleranceTests.cs)
 
-### CURR-043 - Currency column maps per-row currency; "Use EUR for every row" → default EUR
+### CURR-043 - Currency column maps per-row currency; "Use EUR for every row" → the default currency
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** CSV with a Currency column containing EUR and GBP rows.
+- **Preconditions:** CSV with a Currency column containing EUR and GBP rows; budget currency EUR; no import account.
 - **Steps:**
   1. Import; confirm the currency column is mapped, then re-run mapping it to **"Use EUR for every row"** (null column).
-- **Expected:** Mapped column → each row stamped its own code (GBP rows → GBP transactions). Null column → `ResolveCurrency` falls back to `DefaultCurrency` (EUR) for every row. A cell whose value isn't a 3-letter code also falls back to the default. (Area coverage: IMP-021.)
-- **Automated:** Yes (tests/AllotJar.Application.Tests/Imports/GenericCsvImporterTests.cs — reads currency + default)
+- **Expected:** Mapped column → each row stamped its own code (GBP rows → GBP transactions, which arrive **waiting** — CURR-044). Null column → `ResolveCurrency` falls back to `DefaultCurrency` for every row — the client sends the import account's currency, else the budget currency (EUR). A cell whose value isn't a 3-letter code also falls back to the default. (Area coverage: IMP-021.)
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Imports/GenericCsvImporterTests.cs — reads currency + default; client/src/pages/ImportPage.test.tsx — the fallback is the import account's currency)
 
-### CURR-044 - A foreign-currency import row gets a real FX rate into the month base
+### CURR-044 - A foreign-currency import row waits; only the user's confirmed amount makes it count
 - **Priority:** P0
-- **Type:** Happy
-- **Origin/behaviour:** `FxRateResolver` sets rate 1 for same-currency, else resolves via the ECB/Frankfurter provider by booking date; `BudgetActuals` rolls up `Amount × ExchangeRate`.
-- **Preconditions:** EUR-based month; import a GBP row of 40.00 dated 2026-06-01, assigned to an expense line.
+- **Type:** Regression
+- **Origin/behaviour:** W08 (rules 42–44) replaced the automatic conversion (`FxRateResolver`: rate looked up by booking date, `BudgetActuals` rolled up `Amount × ExchangeRate`) with `ForeignAmounts.MarkWaiting`: no rate is applied by the app, ever.
+- **Preconditions:** EUR budget; import (no import account) a GBP row of 40.00 dated 2026-06-01, assigned to the expense line Groceries.
 - **Steps:**
-  1. Commit the import; open `/` and read the line's actual.
-- **Expected:** The GBP transaction stores an `ExchangeRate` from GBP→EUR for that date (e.g. 1.15) so its contribution to the EUR budget line is `40 × 1.15 = 46.00 €` (BaseAmount), while the register row still shows `£40.00`. Same-currency (EUR) rows keep rate 1 with no lookup. This is the ONLY path that resolves FX — manual entries do not (CURR-038).
-- **Automated:** Yes (tests/AllotJar.Application.Tests/Transactions/FxRateResolverTests.cs — `Apply_ConvertsForeignToBaseAndSetsRate` 40 GBP × 1.15 = 46.00; BudgetActualsTests)
+  1. Commit the import; open `/` (June 2026) and `/transactions`.
+  2. On the row, **Enter amount** → **Suggest** (rate e.g. 1.15) → **Confirm amount** with 46.00.
+  3. Re-open `/`.
+- **Expected:** Step 1: the row stores `amount 40.00, currency GBP, fxPending true` (no rate); Groceries' actual is **unchanged** and the dashboard notice says 1 transaction is waiting for its amount in EUR; the register shows "GBP 40.00" + "Needs EUR amount". Step 2: Suggest fills 46.00 (40 × 1.15, rounded to cents) but saves nothing; Confirm stores `amount 46.00, currency EUR, originalAmount 40.00, originalCurrency GBP`. Step 3: Groceries' actual rises by **€46.00** and the notice is gone. Same-currency (EUR) rows count at once with no lookup. Manual entries never wait (they are entered in EUR — CURR-038).
+- **Automated:** Yes (ForeignAmountsTests — `An_imported_row_in_another_currency_waits_and_nothing_converts_it`, `Confirming_makes_the_row_a_budget_currency_row_and_keeps_the_foreign_figure`; FxPendingAggregatesTests — `BudgetActuals_ExcludePendingRows_AndReportTheCount`, `A_confirmed_amount_counts_on_its_line_and_leaves_the_waiting_count`)
 
-### CURR-045 - FX-provider failure degrades to rate 1 so the import still completes
+### CURR-045 - Rate-provider failure never blocks anything: imports don't use it, and a missing suggestion means typing the amount
 - **Priority:** P1
 - **Type:** Negative
-- **Origin:** `FxRateResolver` keeps `ExchangeRate = 1m` when the provider returns null/≤0; `FrankfurterExchangeRateProvider` returns null on any network/parse error.
-- **Preconditions:** EUR-based month; import a foreign row when the rate is unavailable (unknown pair or provider offline).
+- **Origin:** Before W08 a provider failure left the row at `ExchangeRate = 1` (face value) until a background job (`FxReconciliationService`, deleted) retried. Now the provider (`FrankfurterExchangeRateProvider`, null on any network/parse error) only feeds **Suggest**.
+- **Preconditions:** EUR budget; Frankfurter unreachable (or an unknown pair / a date with no rate).
 - **Steps:**
-  1. Commit the import.
-- **Expected:** The import succeeds; the foreign transaction gets `ExchangeRate = 1`, so its actual counts at face value in its own currency (a known deferred-FX limitation) rather than blocking the import. No 500. FX "must never break an import."
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Transactions/FxRateResolverTests.cs; TestDoubles/FakeExchangeRateProvider.cs)
+  1. Import a statement with a GBP row; commit.
+  2. On the waiting row, **Enter amount** → **Suggest**.
+  3. Type 46.00 and **Confirm amount**.
+- **Expected:** Step 1: the import succeeds exactly as when the provider is up (no rate is looked up); no 500. Step 2: `GET /transactions/conversion-suggestion` → 200 with `rate: null, suggestedAmount: null`; the modal says "No suggestion is available for GBP on this date. Enter the amount in EUR yourself." Step 3: saved; the row counts at €46.00. Nothing ever counts a foreign figure at face value.
+- **Automated:** Yes (ForeignAmountsTests — `No_rate_means_no_suggestion_and_the_user_types_the_amount`; tests/AllotJar.Application.Tests/Imports/FrankfurterExchangeRateProviderTests.cs; client/src/pages/TransactionsPage.test.tsx — "Enter amount: says so when no suggestion is available and shows a refusal")
 
 ### CURR-046 - Mixed-currency import reports honest sums PER currency
 - **Priority:** P1
@@ -489,7 +490,7 @@
 - **Preconditions:** CSV with amounts `35.00-` (SAP/DATEV trailing sign) and `(35.00)` (accounting parens).
 - **Steps:**
   1. Import under Dot, Comma, and Auto styles.
-- **Expected:** Both parse to −35.00 (debit) regardless of the chosen decimal style — `TryParseSignedAmount` handles leading/trailing `-` and `(...)`. Currency stamping and FX proceed normally. (Area coverage: IMP-033.)
+- **Expected:** Both parse to −35.00 (debit) regardless of the chosen decimal style — `TryParseSignedAmount` handles leading/trailing `-` and `(...)`. Currency stamping proceeds normally (a row in another currency than the budget's waits). (Area coverage: IMP-033.)
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Imports/ParserToleranceTests.cs)
 
 ### CURR-048 - Currency symbols and separators in the amount cell are stripped before parsing
@@ -501,11 +502,70 @@
 - **Expected:** `TryParseSignedAmount` keeps only digits/`.`/`,`/sign, dropping symbols, spaces and letters, so `£1,234.56` → 1234.56. The stamped transaction currency comes from the currency column/default (CURR-043), NOT from the symbol in the amount cell.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Imports/ParserToleranceTests.cs)
 
-### CURR-049 - An off-list ISO currency in the CSV currency column is honoured and renders correctly
+### CURR-049 - An off-list ISO currency in the CSV currency column is honoured and shown by its code
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** CSV whose Currency column contains `KWD` (3-decimal, off the 24-code picker).
+- **Preconditions:** CSV whose Currency column contains `KWD` (3-decimal, off the 24-code picker); budget currency EUR; no import account.
 - **Steps:**
   1. Map the currency column and commit; view the row in `/transactions`.
-- **Expected:** `ResolveCurrency` accepts any `^[A-Za-z]{3}$` code (uppercased) → the transaction is stamped KWD even though the UI never offers KWD; the register renders it with three decimals (e.g. `KWD 1,234.567` / with symbol where Intl has one). If the row's currency ≠ the EUR month base, FX resolves per CURR-044/045.
+- **Expected:** `ResolveCurrency` accepts any `^[A-Za-z]{3}$` code (uppercased) → the transaction is stamped KWD even though the UI never offers KWD. Being in another currency than EUR it **waits**: the register reads "KWD 1,234.57" (`formatForeign` = code + the active format's 2-decimal plain number) with "Needs EUR amount", and it counts nowhere until confirmed (CURR-044). Three-decimal KWD rendering applies only to counted KWD money (CURR-011).
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Imports/GenericCsvImporterTests.cs — currency code parsing)
+
+---
+
+## G. One budget currency & money paid in another currency (W08)
+
+### CURR-050 - Accounts, months and manual entries all take the budget currency; another is refused
+- **Priority:** P0
+- **Type:** Negative
+- **Preconditions:** U-EUR (budget currency EUR, locked); a second login U-GB whose household has no month yet and whose owner chose GBP.
+- **Steps:**
+  1. As U-EUR: `POST /accounts` with `currency: "USD"`; open **+ Add account**.
+  2. As U-EUR: create a jar held in a legacy GBP account (seeded) — `POST /jars` with that `fundingAccountId`.
+  3. As U-GB: `POST /accounts` with `currency: "EUR"`, then `"GBP"`; create the first month.
+- **Expected:** 1: 400 `Currency` → "This budget is in EUR, so its accounts are too. A bank converts payments in other currencies into EUR itself."; the modal has no picker ("The account holds EUR, your budget currency."). 2: 400 `FundingAccountId` → "{name} is in GBP, but the budget is in EUR. Choose an account in EUR." 3: EUR refused ("This budget is in GBP, …"), GBP created; the first month is GBP.
+- **Automated:** Yes (ForeignAmountsTests — `A_new_account_must_be_in_the_budget_currency`, `A_jar_cannot_live_in_an_account_kept_in_another_currency`, `The_budget_currency_is_the_first_months_else_the_owners_choice`; client/src/pages/AccountsPage.catalog.test.tsx — ACCT-018)
+
+### CURR-051 - Suggest: the ECB reference rate for that date, rounded to cents half away from zero, saving nothing
+- **Priority:** P1
+- **Type:** Boundary
+- **Preconditions:** U-EUR; a rate provider returning GBP→EUR 1.17055 for 2026-06-03 (stub or a known historical date).
+- **Steps:**
+  1. `GET /api/transactions/conversion-suggestion?currency=gbp&amount=45.50&date=2026-06-03`.
+  2. Same with an amount whose product ends in exactly half a cent (e.g. rate 1.005, amount 1.00 → 1.005).
+  3. `…?currency=EUR&amount=10&date=…`; `…?currency=EURO…`; `…?currency=USD&amount=0…`.
+  4. Count transactions before and after.
+- **Expected:** 1: 200 `{currency: "GBP", amount: 45.5, budgetCurrency: "EUR", date: "2026-06-03", rate: 1.17055, suggestedAmount: 53.26, source: "European Central Bank reference rate"}` (45.50 × 1.17055 = 53.260025 → 53.26). 2: **1.01** (`MidpointRounding.AwayFromZero`, not banker's 1.00). 3: 400 `Currency` → "The budget is in EUR already; there is nothing to convert."; 400 "Currency must be a 3-letter ISO 4217 code."; 400 `Amount` → "Enter an amount greater than zero." — the provider is not called for any of them. 4: unchanged — a suggestion records nothing and infers no fee; the UI shows it as "Suggested from the European Central Bank reference rate: 1 GBP = 1.17055 EUR. Check it matches what you paid." (rate formatted up to 6 decimals in the user's number format).
+- **Automated:** Yes (ForeignAmountsTests — `A_suggestion_is_the_reference_rate_rounded_to_cents_and_records_nothing`, `A_suggestion_needs_another_currency_and_a_positive_amount` [Theory]; the half-cent midpoint is not asserted)
+
+### CURR-052 - A waiting row counts in no figure anywhere until its amount is confirmed
+- **Priority:** P0
+- **Type:** Regression
+- **Origin:** W08 (rule 44) — waiting rows used to count at face value (rate 1) until reconciled.
+- **Preconditions:** H-MIX, June 2026 month; a waiting GBP 30.00 expense "London Cab" (on no account) assigned to Groceries and attributed to Alex; a waiting GBP 200.00 income "Freelance" attributed to Robin; a jar with its own savings line.
+- **Steps:**
+  1. Read the dashboard (Groceries, hero, notice), `/reports` (June trend and breakdown), `/people` (Alex spent, Robin received), `/jars`, `/transactions` hero.
+  2. Confirm London Cab at €35.10 and Freelance at €233.00; re-read everything.
+- **Expected:** Step 1: neither row is in any figure — Groceries spent, Remaining, report totals, Alex's Spent, Robin's Received, jar balances and the Transactions hero all exclude them; each surface flags them instead: dashboard "2 transactions in another currency are waiting for their amount in EUR and aren’t counted until it’s entered. Enter them on Transactions"; People "+1 needs EUR amount" beside Alex and "+1 income row in another currency, not counted until its amount in EUR is entered."; reports carry the waiting count. Step 2: the confirmed EUR amounts (35.10 / 233.00) appear everywhere and the flags disappear — never the GBP figures.
+- **Automated:** Yes (FxPendingAggregatesTests — `BudgetActuals_ExcludePendingRows_AndReportTheCount`, `BudgetActuals_ExcludeSlicesOfAPendingParent`, `JarBalances_ExcludePendingSpending`, `A_confirmed_amount_counts_on_its_line_and_leaves_the_waiting_count`; ReportFiguresTests — `MonthReport_LeavesPendingFxRowsOut_AndCountsThem`; MemberFiguresRule28Tests — `GetMemberSpending_WithAMonth_CountsOnlyThatMonth_AndSkipsWaitingRows`, `GetMemberIncome_Received_CountsConfirmedAmounts_AndSkipsWaitingRows_CountingThem`; client DashboardPage.catalog.test.tsx and PeoplePage.catalog.test.tsx — PPL-082 notices)
+
+### CURR-053 - Migration "Keep counting": rows the old rate lookup converted are restated in the budget currency
+- **Priority:** P0
+- **Type:** Regression
+- **Origin:** W08 `ForeignAmounts` migration (Christopher's decision "Keep counting", 29 Sep 2026): `ExchangeRate` is dropped; figures that counted must keep counting exactly as before.
+- **Preconditions:** A database at the migration before `ForeignAmounts`, with household H (EUR first month): a GBP 100.00 expense on no account at rate 1.17 (not pending); a USD 10.00 expense at rate 1.123457 split into slices 3.33 / 3.33 / 3.34; an EUR 30.00 row on an EUR account. Household G (no month, owner chose GBP): a GBP 8.00 row.
+- **Steps:**
+  1. Deploy / run `dotnet ef database update` (or start the API, which migrates).
+  2. Read the rows, their slices, and the dashboard/reports for June.
+- **Expected:** GBP 100 row → `amount 117.0000 EUR`, `originalAmount 100 GBP`, not waiting (Amount × Rate at 4 decimals). USD row → `11.2346 EUR` (`originalAmount 10 USD`); slices restated at the same rate — 3.7411 / 3.7411 / 3.7524 — the largest absorbing the rounding so they still add up to 11.2346. EUR row unchanged. G's GBP row unchanged (GBP is G's budget currency: first month's, else owner's preference, else EUR). Every figure (line actuals, reports, People) is the same as before the deploy; the register now shows the restated EUR amount with a grey "GBP 100.00" caption. Existing months keep their `BaseCurrency` even if it differs.
+- **Automated:** Yes (tests/AllotJar.IntegrationTests/ForeignAmountsMigrationTests.cs — `Converted_rows_keep_counting_in_the_budget_currency_and_the_rest_wait_or_count_as_they_are`)
+
+### CURR-054 - Migration: rows on an account in another currency start waiting; waiting rows already in the budget currency now count
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** W08 `ForeignAmounts` migration — an account row is that account's money and can't be restated; a row "pending a rate" that needs no rate should never have waited.
+- **Preconditions:** As CURR-053 (household H, EUR), plus: a GBP 25.00 expense on a legacy **GBP account** at rate 1.2 (not pending); a USD 40.00 row pending a rate (`FxPending = 1`); an EUR 12.00 row wrongly pending; a transfer EUR 50.00.
+- **Steps:**
+  1. Run the migration; read the rows and `/transactions`.
+- **Expected:** GBP account row → still `25.00 GBP`, now **waiting** (no original figure; it counts nowhere and offers no Enter amount — its account balance is untouched). USD pending row → unchanged, still waiting (`40 USD`). EUR pending row → counts (`fxPending` cleared, 12.00 EUR). Transfer → untouched. `ExchangeRate` no longer exists; `Down` re-adds it at 1 and drops the original figures.
+- **Automated:** Yes (tests/AllotJar.IntegrationTests/ForeignAmountsMigrationTests.cs — same test)

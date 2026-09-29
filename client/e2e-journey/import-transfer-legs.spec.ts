@@ -35,7 +35,6 @@ async function addAccount(page: Page, name: string, opening: string) {
   await page.getByRole('button', { name: 'Add account', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Account name').fill(name)
-  await dialog.getByLabel('Account currency').selectOption({ label: 'Euro (€)' })
   await dialog.getByLabel('Opening balance').fill(opening)
   await dialog.getByLabel('Opening date').fill('2026-01-01')
   await dialog.getByRole('button', { name: 'Add account', exact: true }).click()

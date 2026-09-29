@@ -73,12 +73,13 @@ public class MemberFiguresRule28Tests
 
     private static async Task<Transaction> AddTransaction(
         ApplicationDbContext db, TransactionType type, DateOnly date, decimal amount, Guid? memberId,
-        CurrencyCode? currency = null, decimal rate = 1m, bool fxPending = false)
+        CurrencyCode? currency = null, bool fxPending = false, decimal? paidAbroad = null)
     {
         var t = new Transaction
         {
             OwnerId = Owner, Date = date, Payee = "x", Type = type, Amount = amount, MemberId = memberId,
-            Currency = currency ?? CurrencyCode.Eur, ExchangeRate = rate, FxPending = fxPending,
+            Currency = currency ?? CurrencyCode.Eur, FxPending = fxPending,
+            OriginalAmount = paidAbroad, OriginalCurrency = paidAbroad is null ? null : Gbp,
         };
         db.Transactions.Add(t);
         await db.SaveChangesAsync();
@@ -159,7 +160,7 @@ public class MemberFiguresRule28Tests
     // ---- GetMemberIncome ------------------------------------------------------------------
 
     [Fact]
-    public async Task GetMemberIncome_Received_ConvertsForeignRows_AndSkipsFxPendingRows_CountingThem()
+    public async Task GetMemberIncome_Received_CountsConfirmedAmounts_AndSkipsWaitingRows_CountingThem()
     {
         await using var db = NewContext();
         var alex = await SeedMember(db, "Alex", 0m, 0);
@@ -168,14 +169,14 @@ public class MemberFiguresRule28Tests
         await AddIncomeLine(db, income, "Alex — Salary", 3000m, alex.Id);
         await AddIncomeLine(db, income, "Child benefit", 100m, null);
 
-        // Alex: a GBP salary at 1.2 → 120 in base, a EUR row at face value, and a row whose rate
-        // is still pending — left out and counted.
-        await AddTransaction(db, TransactionType.Income, new DateOnly(2026, 7, 5), 100m, alex.Id, Gbp, rate: 1.2m);
+        // Alex: a salary paid as 100 GBP and confirmed as 120, a EUR row, and a GBP row still
+        // waiting for its amount — left out and counted.
+        await AddTransaction(db, TransactionType.Income, new DateOnly(2026, 7, 5), 120m, alex.Id, paidAbroad: 100m);
         await AddTransaction(db, TransactionType.Income, new DateOnly(2026, 7, 6), 50m, alex.Id);
-        await AddTransaction(db, TransactionType.Income, new DateOnly(2026, 7, 7), 999m, alex.Id, Gbp, rate: 1m, fxPending: true);
-        // Robin: a slice of a GBP split converts by the parent's rate.
-        var split = await AddTransaction(db, TransactionType.Income, new DateOnly(2026, 7, 8), 10m, null, Gbp, rate: 1.2m);
-        db.TransactionSplits.Add(new TransactionSplit { TransactionId = split.Id, MemberId = robin.Id, Amount = 10m });
+        await AddTransaction(db, TransactionType.Income, new DateOnly(2026, 7, 7), 999m, alex.Id, Gbp, fxPending: true);
+        // Robin: a slice of a split.
+        var split = await AddTransaction(db, TransactionType.Income, new DateOnly(2026, 7, 8), 12m, null);
+        db.TransactionSplits.Add(new TransactionSplit { TransactionId = split.Id, MemberId = robin.Id, Amount = 12m });
         await db.SaveChangesAsync();
 
         var dto = await new GetMemberIncomeQueryHandler(db, User)
@@ -186,8 +187,8 @@ public class MemberFiguresRule28Tests
         dto.UnattributedPlanned.Should().Be(100m);
         var alexItem = dto.Items.Single(i => i.MemberId == alex.Id);
         var robinItem = dto.Items.Single(i => i.MemberId == robin.Id);
-        alexItem.Received.Should().Be(170m, "120 (100 GBP × 1.2) + 50; the pending row is not summed");
-        robinItem.Received.Should().Be(12m, "10 GBP slice × 1.2");
+        alexItem.Received.Should().Be(170m, "the confirmed 120 (not the 100 GBP paid) + 50; the waiting row is not summed");
+        robinItem.Received.Should().Be(12m);
 
         // Income and share are the same figures SharesAsync gives — attributed + equal share of
         // the unattributed — so the People page and the allocation agree to the cent.
@@ -203,20 +204,20 @@ public class MemberFiguresRule28Tests
     // ---- GetMemberSpending ----------------------------------------------------------------
 
     [Fact]
-    public async Task GetMemberSpending_WithAMonth_CountsOnlyThatMonth_ConvertsByRate_AndSkipsFxPendingRows()
+    public async Task GetMemberSpending_WithAMonth_CountsOnlyThatMonth_AndSkipsWaitingRows()
     {
         await using var db = NewContext();
         var alex = await SeedMember(db, "Alex", 0m, 0);
         var robin = await SeedMember(db, "Robin", 0m, 1);
 
-        await AddTransaction(db, TransactionType.Expense, new DateOnly(2026, 6, 3), 100m, alex.Id, Gbp, rate: 1.2m); // 120
+        await AddTransaction(db, TransactionType.Expense, new DateOnly(2026, 6, 3), 120m, alex.Id, paidAbroad: 100m); // confirmed 120
         await AddTransaction(db, TransactionType.Expense, new DateOnly(2026, 6, 4), 30m, alex.Id);                 // 30
         await AddTransaction(db, TransactionType.Expense, new DateOnly(2026, 5, 30), 500m, alex.Id);               // May: out of the month
-        await AddTransaction(db, TransactionType.Expense, new DateOnly(2026, 6, 5), 77m, alex.Id, Gbp, rate: 1m, fxPending: true); // pending
-        // A GBP split in June: Robin's slice converts; a pending split counts once per slice.
-        var split = await AddTransaction(db, TransactionType.Expense, new DateOnly(2026, 6, 6), 20m, null, Gbp, rate: 1.2m);
-        db.TransactionSplits.Add(new TransactionSplit { TransactionId = split.Id, MemberId = robin.Id, Amount = 20m });
-        var pendingSplit = await AddTransaction(db, TransactionType.Expense, new DateOnly(2026, 6, 7), 40m, null, Gbp, rate: 1m, fxPending: true);
+        await AddTransaction(db, TransactionType.Expense, new DateOnly(2026, 6, 5), 77m, alex.Id, Gbp, fxPending: true); // waiting
+        // A split in June: Robin's slice counts; a waiting split counts once per slice.
+        var split = await AddTransaction(db, TransactionType.Expense, new DateOnly(2026, 6, 6), 24m, null);
+        db.TransactionSplits.Add(new TransactionSplit { TransactionId = split.Id, MemberId = robin.Id, Amount = 24m });
+        var pendingSplit = await AddTransaction(db, TransactionType.Expense, new DateOnly(2026, 6, 7), 40m, null, Gbp, fxPending: true);
         db.TransactionSplits.Add(new TransactionSplit { TransactionId = pendingSplit.Id, MemberId = robin.Id, Amount = 40m });
         await db.SaveChangesAsync();
 
@@ -224,13 +225,13 @@ public class MemberFiguresRule28Tests
 
         var june = await handler.Handle(new GetMemberSpendingQuery(2026, 6), CancellationToken.None);
         var alexJune = june.Single(m => m.MemberId == alex.Id);
-        alexJune.Spent.Should().Be(150m, "120 + 30; May is out of the month and the pending row is not summed");
+        alexJune.Spent.Should().Be(150m, "120 + 30; May is out of the month and the waiting row is not summed");
         alexJune.FxPendingCount.Should().Be(1);
         var robinJune = june.Single(m => m.MemberId == robin.Id);
-        robinJune.Spent.Should().Be(24m, "20 GBP slice × 1.2");
+        robinJune.Spent.Should().Be(24m);
         robinJune.FxPendingCount.Should().Be(1);
 
-        // Without a month the lens still sums all time (converted, pending still left out).
+        // Without a month the lens still sums all time (waiting rows still left out).
         var allTime = await handler.Handle(new GetMemberSpendingQuery(), CancellationToken.None);
         allTime.Single(m => m.MemberId == alex.Id).Spent.Should().Be(650m);
         allTime.Single(m => m.MemberId == alex.Id).FxPendingCount.Should().Be(1);

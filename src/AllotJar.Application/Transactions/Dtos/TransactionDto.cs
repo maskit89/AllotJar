@@ -10,14 +10,14 @@ public class TransactionDto
     public string Payee { get; set; } = string.Empty;
     public decimal Amount { get; set; }
     public string Currency { get; set; } = "EUR";
-    public decimal ExchangeRate { get; set; }
 
-    /// <summary>Amount in the budget base currency (Amount × ExchangeRate).</summary>
-    public decimal BaseAmount { get; set; }
-
-    /// <summary>True when this foreign row's exchange rate is unresolved (ExchangeRate is a
-    /// placeholder 1); it counts at face value until reconciled. Lets the UI flag it.</summary>
+    /// <summary>True when the row is in another currency and waits for the user to enter or
+    /// confirm its budget-currency amount; until then it counts nowhere (rule 44).</summary>
     public bool FxPending { get; set; }
+
+    /// <summary>What was paid in another currency, for reference; <see cref="Amount"/> is the money.</summary>
+    public decimal? OriginalAmount { get; set; }
+    public string? OriginalCurrency { get; set; }
 
     public TransactionType Type { get; set; }
     public string? BankReference { get; set; }
@@ -69,10 +69,10 @@ public class TransactionDto
     public string? RefundOfPayee { get; set; }
     public DateOnly? RefundOfDate { get; set; }
 
-    /// <summary>The purchase's amount in the budget base currency, so the client can offer only what remains.</summary>
+    /// <summary>The purchase's amount in the budget currency, so the client can offer only what remains.</summary>
     public decimal? RefundOfAmount { get; set; }
 
-    /// <summary>For a purchase: how many refunds point at it, and their base-currency total (0 when none).</summary>
+    /// <summary>For a purchase: how many refunds point at it, and the total of those that count (0 when none).</summary>
     public int RefundCount { get; set; }
     public decimal RefundedAmount { get; set; }
 
@@ -128,9 +128,9 @@ public static class TransactionMapping
         Payee = t.Payee,
         Amount = t.Amount,
         Currency = t.Currency.Value,
-        ExchangeRate = t.ExchangeRate,
-        BaseAmount = t.BaseAmount,
         FxPending = t.FxPending,
+        OriginalAmount = t.OriginalAmount,
+        OriginalCurrency = t.OriginalCurrency?.Value,
         Type = t.Type,
         BankReference = t.BankReference,
         BudgetItemId = t.BudgetItemId,
@@ -151,9 +151,9 @@ public static class TransactionMapping
         RefundOfTransactionId = t.RefundOfTransactionId,
         RefundOfPayee = t.RefundOf?.Payee,
         RefundOfDate = t.RefundOf?.Date,
-        RefundOfAmount = t.RefundOf?.BaseAmount,
+        RefundOfAmount = t.RefundOf?.Amount,
         RefundCount = t.Refunds.Count,
-        RefundedAmount = t.Refunds.Sum(r => r.BaseAmount),
+        RefundedAmount = t.Refunds.Where(r => !r.FxPending).Sum(r => r.Amount),
         MemberId = t.MemberId,
         MemberName = t.Member?.Name,
         IsSplit = t.Splits.Count > 0,

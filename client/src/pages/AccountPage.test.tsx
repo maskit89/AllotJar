@@ -51,7 +51,7 @@ function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
 
 // The Sharing card reads /members; everything else (/auth/me) returns the login.
 let membersData: HouseholdMemberDto[] = []
-let meData: typeof ownerMe = ownerMe
+let meData: typeof ownerMe & { preferredCurrency?: string; budgetCurrency?: string; currencyLocked?: boolean } = ownerMe
 
 function renderPage() {
   return render(
@@ -211,5 +211,45 @@ describe('AccountPage', () => {
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/households/leave', { ownerId: 'owner-1' }),
     )
+  })
+
+  // W08: the budget and all its accounts use one currency, fixed once the budget has accounts,
+  // months or transactions (the app never converts). The preference is then shown read-only.
+  it('shows the currency read-only with a note once the budget currency is locked', async () => {
+    meData = { ...ownerMe, preferredCurrency: 'GBP', budgetCurrency: 'GBP', currencyLocked: true }
+    mockPut.mockResolvedValue({
+      data: { firstName: 'Alex', lastName: null, displayName: 'Alex', preferredCurrency: 'GBP', numberFormat: 'comma-dot' },
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    const note = await screen.findByText(/budget currency is fixed once your budget has accounts, months or transactions/)
+    const currency = screen.getByLabelText('Currency') as HTMLInputElement
+    expect(currency.tagName).toBe('INPUT')
+    expect(currency).toHaveAttribute('readonly')
+    expect(currency.value).toBe('British pound (£)')
+    expect(currency).toHaveAttribute('aria-describedby', note.id)
+
+    await user.type(screen.getByLabelText('First name'), 'Alex')
+    await user.click(screen.getByRole('button', { name: 'Save preferences' }))
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith('/auth/preferences', expect.objectContaining({ preferredCurrency: 'GBP' })),
+    )
+  })
+
+  it('shows the server’s reason when a currency change is refused', async () => {
+    mockPut.mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 400, data: { error: 'The budget currency can’t change once the budget has accounts.' } },
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.selectOptions(await screen.findByLabelText('Currency'), 'USD')
+    await user.click(screen.getByRole('button', { name: 'Save preferences' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The budget currency can’t change once the budget has accounts.')
   })
 })

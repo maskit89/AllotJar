@@ -8,8 +8,10 @@ using AllotJar.Domain.Enums;
 namespace AllotJar.Application.Transactions.Commands.CreateTransaction;
 
 /// <summary>
-/// Creates a transaction the user entered by hand in the sheet (in the budget's
-/// base currency). Optionally assigns it to a budget line — whose Spent then
+/// Creates a transaction the user entered by hand in the sheet, in the household's budget
+/// currency (rule 85). When it was paid in another currency, <c>Amount</c> is still the
+/// budget-currency amount the user settled on (typed, or a suggestion they confirmed) and
+/// <c>OriginalAmount</c>/<c>OriginalCurrency</c> keep the foreign figure for reference. Optionally assigns it to a budget line — whose Spent then
 /// includes it — and/or to an account. When <c>Splits</c> is given (two or more
 /// slices summing exactly to <c>Amount</c>), the transaction is created already
 /// split; <c>BudgetItemId</c> and <c>MemberId</c> must then be null — the slices
@@ -36,4 +38,6 @@ public record CreateTransactionCommand(
     bool AcknowledgeCrossMonth = false,
     IReadOnlyList<JarAllocationInput>? JarAllocations = null,
     Guid? PaidFromJarId = null,
-    Guid? RefundOfTransactionId = null) : IRequest<TransactionDto>;
+    Guid? RefundOfTransactionId = null,
+    decimal? OriginalAmount = null,
+    string? OriginalCurrency = null) : IRequest<TransactionDto>;

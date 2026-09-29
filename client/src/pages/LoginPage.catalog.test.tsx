@@ -209,7 +209,7 @@ describe('LoginPage (REG catalog)', () => {
     expect(screen.getByLabelText('Currency')).toBeInTheDocument()
     expect(screen.getByLabelText('Number format')).toBeInTheDocument()
     expect(
-      screen.getByText('You can change your currency and number format anytime in account settings.'),
+      screen.getByText('Your budget and its accounts use this currency. You can change it in account settings until you add your first account, month or transaction; the number format any time.'),
     ).toBeInTheDocument()
     // No sample-figures opt-in (rule 81: the household starts empty).
     expect(screen.queryByRole('checkbox', { name: /sample figures/i })).not.toBeInTheDocument()

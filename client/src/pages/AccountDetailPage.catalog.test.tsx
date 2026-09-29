@@ -25,7 +25,7 @@ function account(over: Partial<AccountDto> = {}): AccountDto {
 
 function tx(over: Partial<TransactionDto> = {}): TransactionDto {
   return {
-    id: 't1', date: '2026-06-20', payee: 'Vodafone', amount: 40, currency: 'EUR', exchangeRate: 1, baseAmount: 40,
+    id: 't1', date: '2026-06-20', payee: 'Vodafone', amount: 40, currency: 'EUR',
     type: 0, bankReference: null, budgetItemId: null, budgetItemName: null, accountId: 'a1', accountName: 'Joint',
     transferAccountId: null, transferAccountName: null, memberId: null, memberName: null, isSplit: false, splits: [], ...over,
   }

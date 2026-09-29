@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 using AllotJar.Api.Contracts.Auth;
 using AllotJar.Application.Accounts;
 using AllotJar.Application.Auth.Commands.Login;
+using AllotJar.Application.Budgets;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.HouseholdAccess.Commands.AcceptInvite;
 using AllotJar.Domain.Enums;
@@ -36,6 +37,7 @@ public class AuthController : ControllerBase
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly EmailSettings _emailSettings;
     private readonly ILogger<AuthController> _logger;
+    private readonly IIdentityService _identity;
 
     public AuthController(
         UserManager<ApplicationUser> userManager,
@@ -47,7 +49,8 @@ public class AuthController : ControllerBase
         IWebHostEnvironment env,
         IServiceScopeFactory scopeFactory,
         IOptions<EmailSettings> emailSettings,
-        ILogger<AuthController> logger)
+        ILogger<AuthController> logger,
+        IIdentityService identity)
     {
         _userManager = userManager;
         _tokenGenerator = tokenGenerator;
@@ -59,6 +62,7 @@ public class AuthController : ControllerBase
         _scopeFactory = scopeFactory;
         _emailSettings = emailSettings.Value;
         _logger = logger;
+        _identity = identity;
     }
 
     /// <summary>Creates an account (owner membership + owner member, plus a sample budget only when
@@ -796,7 +800,11 @@ public class AuthController : ControllerBase
             // confirmed on creation; password/invite accounts confirm via the emailed link.
             EmailConfirmed: user.EmailConfirmed,
             // Rule 32: the app asks this login to review who sees the personal accounts it holds.
-            SharingReviewPending: await SharingReview.IsDueAsync(_db, _currentUser, HttpContext.RequestAborted)));
+            SharingReviewPending: await SharingReview.IsDueAsync(_db, _currentUser, HttpContext.RequestAborted),
+            // Rule 85: the active household's one currency labels all its money, whatever this
+            // login's own preference; the preference only seeds a household that has nothing yet.
+            BudgetCurrency: (await BudgetCurrency.ResolveAsync(_db, _identity, activeOwnerId, HttpContext.RequestAborted)).Value,
+            CurrencyLocked: await BudgetCurrency.IsFixedAsync(_db, userId, HttpContext.RequestAborted)));
     }
 
     private async Task<bool> HasGoogleLinkAsync(ApplicationUser user) =>
@@ -902,6 +910,18 @@ public class AuthController : ControllerBase
         if (currency is null)
         {
             return BadRequest(new { error = "That isn't a valid ISO 4217 currency code." });
+        }
+        // The preference is this login's own household's budget currency (rule 85). Once that
+        // household holds an account, a month or a transaction, changing it would relabel money
+        // already recorded — an implicit 1:1 conversion (rule 42).
+        if (!string.Equals(currency, user.PreferredCurrency, StringComparison.Ordinal)
+            && await BudgetCurrency.IsFixedAsync(_db, userId, HttpContext.RequestAborted))
+        {
+            var budgetCurrency = await BudgetCurrency.ResolveAsync(_db, _identity, userId, HttpContext.RequestAborted);
+            return BadRequest(new
+            {
+                error = $"Your budget is in {budgetCurrency.Value} and already has accounts, months or transactions, so its currency can't be changed.",
+            });
         }
 
         var numberFormat = UserPreferences.NormalizeNumberFormat(

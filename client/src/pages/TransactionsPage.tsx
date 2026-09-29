@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { Badge, Button, Card, EmptyState, ErrorBanner, Input, SegmentedControl, Select } from '../components/ui'
 import { FxPendingTag } from '../components/FxPendingTag'
+import { ConvertedAmountModal } from '../components/ConvertedAmountModal'
 import { Hero } from '../components/Hero'
 import { Modal } from '../components/Modal'
 import { ImportIcon, TransactionsIcon } from '../components/icons'
@@ -16,6 +17,7 @@ import type {
   AccountDto,
   BudgetMonthDto,
   ConfirmTransferLegsRequest,
+  ConversionSuggestionDto,
   CreateTransferRequest,
   HouseholdMemberDto,
   TransactionDto,
@@ -33,6 +35,7 @@ import { activeJars, incomingAllocationsOf, paidFromJarOf, useJarLedgers } from 
 import { fromJarAllocations, toJarAllocations } from '../lib/jarAllocationFields'
 import { serverErrors } from '../lib/serverErrors'
 import { PRIVATE_ACCOUNT } from '../lib/accountHolders'
+import { fetchConversionSuggestion, formatForeign, suggestionHint } from '../lib/conversion'
 
 function today(): string {
   return new Date().toISOString().slice(0, 10)
@@ -114,7 +117,7 @@ function jarSplitLabels(t: TransactionDto): string[] {
 export function TransactionsPage() {
   const features = useFeatures()
   // Recording/editing transactions is day-to-day entry (Limited+); importing needs Admin+.
-  const { canEnterData, canWrite } = useAuth()
+  const { canEnterData, canWrite, budgetCurrency } = useAuth()
   const [transactions, setTransactions] = useState<TransactionDto[]>([])
   const [month, setMonth] = useState<BudgetMonthDto | null>(null)
   const [accounts, setAccounts] = useState<AccountDto[]>([])
@@ -147,6 +150,16 @@ export function TransactionsPage() {
   // Add-modal split mode: the expense is divided across 2+ budget lines at creation.
   const [addSplit, setAddSplit] = useState(false)
   const [addRows, setAddRows] = useState<SplitRowDraft[]>(blankSplitRows)
+  // "Paid in another currency": the foreign figure is kept for reference; the Amount above stays
+  // the budget-currency amount the user confirms, and is the one that counts.
+  const [paidForeign, setPaidForeign] = useState(false)
+  const [fxCurrency, setFxCurrency] = useState('')
+  const [fxAmount, setFxAmount] = useState('')
+  const [fxSuggestion, setFxSuggestion] = useState<ConversionSuggestionDto | null>(null)
+  const [fxSuggesting, setFxSuggesting] = useState(false)
+
+  // The fxPending row whose amount in the budget currency is being entered.
+  const [convertingId, setConvertingId] = useState<string | null>(null)
 
   // Transfer form state (a completed bank transfer between two of the user's own accounts).
   // tDate is the departure the user confirms; tReceived is optional — left blank, the money is
@@ -343,6 +356,43 @@ export function TransactionsPage() {
     setAddRows((rows) => (rows.length > 2 ? rows.filter((_, i) => i !== index) : rows))
   }, [])
 
+  const resetAddForeign = useCallback(() => {
+    setPaidForeign(false)
+    setFxCurrency('')
+    setFxAmount('')
+    setFxSuggestion(null)
+  }, [])
+
+  /** The add form's foreign figure, or the reason it can't be used yet. */
+  const foreignFigure = useCallback((): { currency: string; amount: number } | string => {
+    const code = fxCurrency.trim().toUpperCase()
+    if (!/^[A-Z]{3}$/.test(code)) return 'Enter the three-letter code of the currency you paid in, like USD.'
+    if (code === budgetCurrency) return `${budgetCurrency} is your budget currency. Untick “Paid in another currency”.`
+    const minor = parseMinor(fxAmount)
+    if (minor === null || minor <= 0) return `Enter the amount you paid in ${code}, greater than zero.`
+    return { currency: code, amount: toAmount(minor) }
+  }, [fxCurrency, fxAmount, budgetCurrency])
+
+  /** Fill the Amount with a suggested budget-currency figure. Nothing is saved; it stays editable. */
+  const suggestAddAmount = useCallback(async () => {
+    const foreign = foreignFigure()
+    if (typeof foreign === 'string') {
+      setError(foreign)
+      return
+    }
+    setFxSuggesting(true)
+    setError(null)
+    try {
+      const s = await fetchConversionSuggestion(foreign.currency, foreign.amount, date)
+      setFxSuggestion(s)
+      if (s.suggestedAmount !== null) setAmount(toEditString(fromAmount(s.suggestedAmount)))
+    } catch (err) {
+      setError(serverErrors(err) ?? 'Could not get a suggestion. Enter the amount yourself.')
+    } finally {
+      setFxSuggesting(false)
+    }
+  }, [foreignFigure, date])
+
   const addTransaction = useCallback(async (acknowledgeCrossMonth = false) => {
     const minor = parseMinor(amount)
     if (minor === null || minor <= 0) {
@@ -351,6 +401,11 @@ export function TransactionsPage() {
     }
     if (addIsRefund && !refundOf) {
       setError('Choose the purchase this refund is for.')
+      return
+    }
+    const foreign = foreignFigure()
+    if (paidForeign && typeof foreign === 'string') {
+      setError(foreign)
       return
     }
     const splitting = addSplit && type === TransactionType.Expense
@@ -395,6 +450,11 @@ export function TransactionsPage() {
           ? { jarAllocations: toJarAllocations(addJarAlloc) }
           : {}),
         ...(addPaidFromApplies ? { paidFromJarId: addPaidFrom || null } : {}),
+        // Paid in another currency: the foreign figure rides along; `amount` is still the
+        // budget-currency amount the user confirmed.
+        ...(paidForeign && foreign && typeof foreign !== 'string'
+          ? { originalAmount: foreign.amount, originalCurrency: foreign.currency }
+          : {}),
       })
       setTransactions((prev) => [data, ...prev])
       reloadLedgers()
@@ -410,6 +470,7 @@ export function TransactionsPage() {
       setAssignTo('')
       resetAddSplit()
       resetAddJarPrompts()
+      resetAddForeign()
       setShowAdd(false)
       setCrossMonthPrompt(null)
     } catch (err) {
@@ -427,6 +488,7 @@ export function TransactionsPage() {
   }, [
     date, payee, amount, type, addIsRefund, addApiType, refundOf, assignTo, account, member, addSplit, addRows, resetAddSplit,
     addIncomeJarsApply, addJarAlloc, addPaidFromApplies, addPaidFrom, resetAddJarPrompts, reloadLedgers,
+    paidForeign, foreignFigure, resetAddForeign,
   ])
 
   const addTransfer = useCallback(async () => {
@@ -548,7 +610,7 @@ export function TransactionsPage() {
             if (t.id === id) return data
             // The purchase's own row carries its refund count; refresh the one that changed.
             if (t.id === refundOfTransactionId) {
-              return { ...t, refundCount: (t.refundCount ?? 0) + 1, refundedAmount: (t.refundedAmount ?? 0) + data.baseAmount }
+              return { ...t, refundCount: (t.refundCount ?? 0) + 1, refundedAmount: (t.refundedAmount ?? 0) + data.amount }
             }
             return t
           }),
@@ -732,7 +794,7 @@ export function TransactionsPage() {
   // Split rows only ever target expense/savings lines (the add modal offers splits for expenses).
   const expenseSplitOptions = buildItemOptions(month, TransactionType.Expense)
   const addRemainderMinor = (parseMinor(amount) ?? 0) - sumMinor(addRows.map((r) => parseMinor(r.amount) ?? 0))
-  const addCurrency = month?.baseCurrency ?? 'EUR'
+  const addCurrency = month?.baseCurrency ?? budgetCurrency
   // The prompts' "stays unallocated" line needs the arriving amount in major units (null while unparsable).
   const addMinor = parseMinor(amount)
   const addAmountMajor = addMinor === null ? null : toAmount(addMinor)
@@ -759,20 +821,22 @@ export function TransactionsPage() {
 
   // Hero totals — derived (never stored), like the budget's read-time actuals. A refund is
   // never money in (rule 41); it comes off money out in the month it was received (rules 38/39).
+  // A row still waiting for its amount in the budget currency (fxPending) counts nowhere.
+  const counted = useMemo(() => transactions.filter((t) => !t.fxPending), [transactions])
   const moneyInMinor = useMemo(
     () =>
       sumMinor(
-        transactions
+        counted
           .filter((t) => t.type === TransactionType.Income && !t.refundOfTransactionId)
           .map((t) => fromAmount(t.amount)),
       ),
-    [transactions],
+    [counted],
   )
   const moneyOutMinor = useMemo(
     () =>
-      sumMinor(transactions.filter((t) => t.type === TransactionType.Expense).map((t) => fromAmount(t.amount))) -
-      sumMinor(transactions.filter((t) => !!t.refundOfTransactionId).map((t) => fromAmount(t.amount))),
-    [transactions],
+      sumMinor(counted.filter((t) => t.type === TransactionType.Expense).map((t) => fromAmount(t.amount))) -
+      sumMinor(counted.filter((t) => !!t.refundOfTransactionId).map((t) => fromAmount(t.amount))),
+    [counted],
   )
   const purchases = useMemo(() => refundablePurchases(transactions), [transactions])
   const unassignedCount = useMemo(
@@ -783,7 +847,7 @@ export function TransactionsPage() {
     [transactions],
   )
   const { label: monthLabel } = useMonth()
-  const currency = month?.baseCurrency ?? 'EUR'
+  const currency = month?.baseCurrency ?? budgetCurrency
 
   // Budget lines that are bills (have a due day) — so an assigned transaction can
   // show the "Bill" tag, like the design's Vodafone → Internet row.
@@ -947,6 +1011,70 @@ export function TransactionsPage() {
                 </label>
               )}
             </div>
+            {/* Paid in another currency: the foreign figure is recorded for reference, and a
+                suggestion may fill the Amount, which stays the budget-currency amount that counts. */}
+            {features.multiCurrency && (
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={paidForeign}
+                    onChange={(e) => {
+                      if (e.target.checked) setPaidForeign(true)
+                      else resetAddForeign()
+                    }}
+                    className="h-4 w-4 rounded border-slate-400 text-brand-600 focus:ring-brand-500"
+                  />
+                  Paid in another currency
+                </label>
+                {paidForeign && (
+                  <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/60 p-3 dark:bg-white/[0.03]">
+                    <div className="grid grid-cols-[5.5rem_1fr_auto] items-end gap-2">
+                      <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                        Currency
+                        <Input
+                          type="text"
+                          value={fxCurrency}
+                          placeholder="USD"
+                          maxLength={3}
+                          autoComplete="off"
+                          aria-label="Currency paid in"
+                          onChange={(e) => {
+                            setFxCurrency(e.target.value.toUpperCase())
+                            setFxSuggestion(null)
+                          }}
+                          className="w-full uppercase"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                        Amount paid
+                        <Input
+                          type="text"
+                          inputMode="decimal"
+                          {...selectOnFocusProps}
+                          value={fxAmount}
+                          placeholder="0.00"
+                          aria-label="Amount paid in that currency"
+                          onChange={(e) => {
+                            setFxAmount(e.target.value)
+                            setFxSuggestion(null)
+                          }}
+                          className="w-full text-right tabular-nums"
+                        />
+                      </label>
+                      <Button variant="secondary" onClick={suggestAddAmount} disabled={fxSuggesting}>
+                        {fxSuggesting ? 'Suggesting…' : 'Suggest'}
+                      </Button>
+                    </div>
+                    <p role="status" className="text-xs text-slate-500">
+                      {fxSuggestion
+                        ? suggestionHint(fxSuggestion)
+                        : `The Amount above is what counts, in ${budgetCurrency}. Suggest fills it in for you to check.`}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
             {/* Rules 38/39: a refund names the purchase it comes back from. */}
             {addIsRefund && (
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
@@ -1299,6 +1427,25 @@ export function TransactionsPage() {
             )
           })()}
 
+        {/* Enter the amount in the budget currency for a row recorded in another currency. */}
+        {convertingId &&
+          (() => {
+            const t = transactions.find((x) => x.id === convertingId)
+            if (!t) return null
+            return (
+              <ConvertedAmountModal
+                transaction={t}
+                budgetCurrency={budgetCurrency}
+                onClose={() => setConvertingId(null)}
+                onConfirmed={(updated) => {
+                  setTransactions((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
+                  setConvertingId(null)
+                  reloadLedgers()
+                }}
+              />
+            )
+          })()}
+
         {loading && <p className="text-slate-500">Loading…</p>}
 
         {!loading && (
@@ -1337,6 +1484,7 @@ export function TransactionsPage() {
                       cancelSplit()
                       resetAddSplit()
                       resetAddJarPrompts()
+                      resetAddForeign()
                       setShowAdd(true)
                     }}
                     aria-label="Add transaction"
@@ -1750,9 +1898,35 @@ export function TransactionsPage() {
                                     : 'text-slate-900'
                               }`}
                             >
-                              {t.fxPending && <FxPendingTag />}
                               {isTransfer ? '' : isIncome ? '+' : '−'}
-                              {formatMoney(fromAmount(t.amount), t.currency)}
+                              {/* A row waiting for its budget-currency amount shows its own figure
+                                  labelled with the code, so it never reads as budget money. */}
+                              {t.fxPending ? formatForeign(t.amount, t.currency) : formatMoney(fromAmount(t.amount), t.currency)}
+                              {t.fxPending && (
+                                <span className="mt-1 flex flex-col items-end gap-1 font-normal">
+                                  <FxPendingTag budgetCurrency={budgetCurrency} />
+                                  {/* A row on an account is that account's money in its own currency; the
+                                      server refuses to restate it, so only unassigned rows get the button. */}
+                                  {rowEditable && !t.isSplit && !t.accountId && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setConvertingId(t.id)}
+                                      aria-label={`Enter amount in ${budgetCurrency}: ${t.payee || t.date}`}
+                                      className="text-[11px] font-semibold text-brand-700 hover:underline dark:text-brand-200"
+                                    >
+                                      Enter amount
+                                    </button>
+                                  )}
+                                </span>
+                              )}
+                              {!t.fxPending && t.originalCurrency && t.originalAmount != null && (
+                                <span
+                                  className="mt-0.5 block text-[11px] font-normal text-slate-500"
+                                  title={`Paid in ${t.originalCurrency}`}
+                                >
+                                  {formatForeign(t.originalAmount, t.originalCurrency)}
+                                </span>
+                              )}
                             </td>
                             <td className="px-4 py-3.5 text-right">
                               {rowEditable && (

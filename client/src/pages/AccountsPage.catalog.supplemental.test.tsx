@@ -107,8 +107,8 @@ describe('AccountsPage — catalog supplemental (ACCT)', () => {
     // caption shares the string but is slate, so pick the rose occurrence.
     const negs = await screen.findAllByText('-€75.00', {}, { timeout: 5000 })
     expect(negs.some((el) => el.className.includes('text-rose-600'))).toBe(true)
-    // Unanimous currency ⇒ no mixed-currency footnote.
-    expect(screen.queryByText(/some accounts hold another currency/i)).not.toBeInTheDocument()
+    // Every account in the budget currency ⇒ no "not counted" footnote.
+    expect(screen.queryByText(/in another currency/i)).not.toBeInTheDocument()
   })
 
   // --- Ordering & duplicate names -------------------------------------------

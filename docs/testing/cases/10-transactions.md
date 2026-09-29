@@ -1,6 +1,6 @@
 # Transactions
 
-**ID prefix:** TX | **Scope:** Recording and managing transactions on `TransactionsPage` (`/transactions`) and the behaviour their DTOs drive: the add modal in **Transaction** mode (Type Expense/Income/Refund, Date, Payee, Amount, Account, Category, Member) and its client + server validation; the register table rendering (Date · Payee · Category · Account · Amount · row actions), hero totals (Money in / Money out / Unassigned) and the "{n} transactions" count; the **All / Unassigned** filter; whole-transaction assignment to a budget line via the inline `+ Assign` / reassign picker (and the auto-categorizer payee inheritance that runs on create-without-a-line); **split** transactions (seed, add/remove slices, remainder chip, save/unsplit, kind filtering, exact-sum rule, no double-count in actuals); inline **edit** rows; **delete** and its effect on actuals & derived balances; **refunds** (rules 38/39, W12: the Refund type linked to a purchase, the ↩ mark/unmark control and `PUT /transactions/{id}/refund`, the Refund badge and "€X refunded" tag, the netted hero and line actuals, and the guards that keep a refund and its purchase coherent). Because the transfer form and transfer rows are physically part of `TransactionsPage`, this file also covers **recording a transfer** from the add modal (mode toggle, From/To/Note fields, client validation) and how transfer rows render in this register (Transfer badge, "{from} → {to}" account cell, unsigned amount, delete-only), plus the money-integrity guards that keep `Type=Transfer` out of the generic create/update endpoints. Money is `decimal(18,4)` server-side / integer minor units (scale 4) client-side; actuals and balances are always transaction-derived at read time. | **Out of scope:** The **dedicated transfer flow's** deeper semantics — its effect on both account balances, the `AccountDetailPage` direction-signed rows, currency-stamping detail and the ownership/role gates on `POST /transactions/transfer` → `11-transfers.md` (the transfer *form* and transfer *row rendering* are documented here only because they physically share the add modal and the mixed register on `TransactionsPage`; the two files intentionally overlap on that surface and cross-reference each other); Account CRUD, the full derived-balance formula, reconciliation and per-account currency display → `12-accounts-reconciliation.md`; category/line CRUD, kinds and the SavingsId jar link → `08-categories-budget-lines.md`; the **Bill** tag's source (marking a line a bill / due days) → `09-bills.md`; the Remaining-to-budget hero, "balanced / empty / over-budgeted" states and `IsBalanced` → `06-dashboard-budget-view.md` and `07-month-lifecycle.md`; the effect of category-level `ExcludeFromAllocation` on the income-split pool and savings pooling / the allocation waterfall → `14-allocation.md` (its *non-effect* on transaction actuals is pinned here in TX-095); statement-import-created transactions, the CAMT/HSBC/generic parsers and BankReference composition → `15-import.md`; the full role/permission matrix → `25-roles-permissions.md`, and cross-tab logout / silent-refresh behaviour → `03-session-auth-lifecycle.md` (only transaction-area-specific `canEnterData`/`canWrite` gating is included here); responsive / dark-mode / a11y sweeps → `26-ux-states.md`.
+**ID prefix:** TX | **Scope:** Recording and managing transactions on `TransactionsPage` (`/transactions`) and the behaviour their DTOs drive: the add modal in **Transaction** mode (Type Expense/Income/Refund, Date, Payee, Amount, Account, Category, Member) and its client + server validation; the register table rendering (Date · Payee · Category · Account · Amount · row actions), hero totals (Money in / Money out / Unassigned) and the "{n} transactions" count; the **All / Unassigned** filter; whole-transaction assignment to a budget line via the inline `+ Assign` / reassign picker (and the auto-categorizer payee inheritance that runs on create-without-a-line); **split** transactions (seed, add/remove slices, remainder chip, save/unsplit, kind filtering, exact-sum rule, no double-count in actuals); inline **edit** rows; **delete** and its effect on actuals & derived balances; **refunds** (rules 38/39, W12: the Refund type linked to a purchase, the ↩ mark/unmark control and `PUT /transactions/{id}/refund`, the Refund badge and "€X refunded" tag, the netted hero and line actuals, and the guards that keep a refund and its purchase coherent); **money in another currency** (W08, rules 42–44/85: the "Needs {X} amount" waiting rows, **Enter amount** with Suggest/Confirm and its refusals, and the add form's **Paid in another currency** option). Because the transfer form and transfer rows are physically part of `TransactionsPage`, this file also covers **recording a transfer** from the add modal (mode toggle, From/To/Note fields, client validation) and how transfer rows render in this register (Transfer badge, "{from} → {to}" account cell, unsigned amount, delete-only), plus the money-integrity guards that keep `Type=Transfer` out of the generic create/update endpoints. Money is `decimal(18,4)` server-side / integer minor units (scale 4) client-side; actuals and balances are always transaction-derived at read time. | **Out of scope:** The **dedicated transfer flow's** deeper semantics — its effect on both account balances, the `AccountDetailPage` direction-signed rows, currency-stamping detail and the ownership/role gates on `POST /transactions/transfer` → `11-transfers.md` (the transfer *form* and transfer *row rendering* are documented here only because they physically share the add modal and the mixed register on `TransactionsPage`; the two files intentionally overlap on that surface and cross-reference each other); Account CRUD, the full derived-balance formula, reconciliation and per-account currency display → `12-accounts-reconciliation.md`; category/line CRUD, kinds and the SavingsId jar link → `08-categories-budget-lines.md`; the **Bill** tag's source (marking a line a bill / due days) → `09-bills.md`; the Remaining-to-budget hero, "balanced / empty / over-budgeted" states and `IsBalanced` → `06-dashboard-budget-view.md` and `07-month-lifecycle.md`; the effect of category-level `ExcludeFromAllocation` on the income-split pool and savings pooling / the allocation waterfall → `14-allocation.md` (its *non-effect* on transaction actuals is pinned here in TX-095); statement-import-created transactions, the CAMT/HSBC/generic parsers and BankReference composition → `15-import.md`; the full role/permission matrix → `25-roles-permissions.md`, and cross-tab logout / silent-refresh behaviour → `03-session-auth-lifecycle.md` (only transaction-area-specific `canEnterData`/`canWrite` gating is included here); responsive / dark-mode / a11y sweeps → `26-ux-states.md`.
 
 **Test data setup:** Unless a case says otherwise, assume an authenticated **Owner** (`canEnterData = true`, `canWrite = true`) of a **shared EUR household "Home"** with **2 members** *Alex* and *Robin*. The app-wide viewed month is **July 2026** (`monthLabel` = "July 2026") and `GET /budget/current` returns month **2026-07** with: an **Income** group holding *Salary*; an **Expense** group *Everyday* holding *Groceries* and *Internet* (`DueDay = 20`, so *Internet* renders the **Bill** tag when assigned); and a **Savings** group *Emergency* holding one line backed by an Emergency jar. Two EUR accounts exist: **Joint** (opening 1,250.00) and **Rainy Day** (opening 500.00). "Solo variant" = the same Owner in a 1-member household (member selects hidden, transfer/account controls depend on account count). Money parsing: `parseMinor` accepts "." or "," decimals, strips spaces/apostrophes, treats the right-most of a mixed ",/." pair as the decimal separator, rounds HALF-UP beyond 4 dp, and rejects `''`/whitespace/negatives/`abc`/`1.2.3`/`1,2,3` → null. The client never surfaces server validation text — every API failure maps to a fixed generic string. Client wiring is exercised by `client/src/pages/TransactionsPage.test.tsx`; option grouping by `client/src/lib/transactions.test.ts`; money parsing/formatting by `client/src/lib/money.test.ts`; backend behaviour by the `tests/AllotJar.Application.Tests/Transactions/*` suite.
 
@@ -32,7 +32,7 @@
 - **Preconditions:** Transactions: Income 2,500.00; Expenses 40.00 + 6.30; one Transfer 100.00.
 - **Steps:**
   1. Open `/transactions` and read the hero.
-- **Expected:** Eyebrow **"Money in · July 2026"**; amount **+€2,500.00** (sum of all Income tx). Tile **Money out** = **€46.30** (sum of all Expense tx). The transfer is excluded from both totals. Both computed as integer-minor sums (`sumMinor`), formatted in the month base currency (EUR).
+- **Expected:** Eyebrow **"Money in · July 2026"**; amount **+€2,500.00** (sum of all Income tx). Tile **Money out** = **€46.30** (sum of all Expense tx). The transfer is excluded from both totals, and so is any row still waiting for its budget-currency amount (TX-103). Both computed as integer-minor sums (`sumMinor`), formatted in the month base currency (EUR; the household's `budgetCurrency` when there is no current month).
 - **Automated:** No
 
 ### TX-004 - Unassigned tile counts only external, non-split, unassigned transactions
@@ -59,7 +59,7 @@
 - **Preconditions:** One Income 2,500.00, one Expense 40.00, one Transfer 100.00 row.
 - **Steps:**
   1. Read the Amount column for each.
-- **Expected:** Income → **+€2,500.00** (brand-green). Expense → **−€40.00** (ink/slate-900). Transfer → **€100.00** with no sign (muted slate). Each formatted from `t.amount` in **`t.currency`** (the transaction's own stamped currency), not `baseAmount`.
+- **Expected:** Income → **+€2,500.00** (brand-green). Expense → **−€40.00** (ink/slate-900). Transfer → **€100.00** with no sign (muted slate). Each formatted from `t.amount` in **`t.currency`** (the transaction's own stamped currency; `baseAmount` no longer exists). A row waiting for its budget-currency amount is the exception: it shows "{CODE} {amount}" plain (TX-103).
 - **Automated:** Partial (lib/transactions.test.ts asserts signed amount by direction; row colour classes not asserted)
 
 ### TX-007 - Account cell renders account name, "—", or transfer "{from} → {to}"
@@ -279,7 +279,7 @@
 - **Preconditions:** Add modal open.
 - **Steps:**
   1. Set Date = 2026-01-31 and submit; then Date = 2024-02-29 (leap) and submit.
-- **Expected:** Both accepted (the Date is a plain `type="date"` input with no month clamping; the tx's month is independent of the viewed budget month). Currency is stamped from that date's `BudgetMonth.BaseCurrency`, else EUR when no budget exists for that month.
+- **Expected:** Both accepted (the Date is a plain `type="date"` input with no month clamping; the tx's month is independent of the viewed budget month). Currency is always the household's budget currency (`BudgetCurrency.ResolveAsync`: the earliest month's `BaseCurrency`, else the owner's preference, else EUR — W08), whatever month the date falls in and whether or not that month has a budget.
 - **Automated:** No
 
 ---
@@ -807,11 +807,11 @@
 ### TX-083 - Cross-currency transfer is refused (money-integrity guard)
 - **Priority:** P1
 - **Type:** Regression
-- **Origin:** PR #167 / cross-currency transfers silently changed net worth
-- **Preconditions:** A EUR account and a GBP account (needs `multiCurrency`); transfer form open.
+- **Origin:** PR #167 / cross-currency transfers silently changed net worth; W08 — accounts in another currency can no longer be created, so this needs legacy data
+- **Preconditions:** A EUR account and a **legacy** GBP account in an EUR budget (seeded directly; `POST /accounts` now refuses GBP — see TRF-021/ACCT-079); transfer form open.
 - **Steps:**
-  1. From EUR account to GBP account, amount 100, record.
-- **Expected:** The client sends the `POST`; the handler throws a ValidationException keyed `ToAccountId`: **"Both accounts must use the same currency to transfer between them."**, moving nothing. Client shows the generic **"Could not record that transfer."** (Deep balance/currency behaviour lives in the accounts sibling file; here only the block from this form is asserted.)
+  1. From EUR account to GBP account, amount 100, tick the completed confirmation, record.
+- **Expected:** The client sends the `POST`; the handler throws a ValidationException keyed `ToAccountId`: **"Both accounts must use the same currency to transfer between them."**, moving nothing. The client shows that server message in the modal banner (`serverErrors`; the generic "Could not record that transfer." only for non-400 failures). (Deep balance/currency behaviour lives in the accounts sibling file; here only the block from this form is asserted.)
 - **Automated:** Yes (TransfersTests "cross-currency transfer rejected and moves nothing")
 
 ### TX-084 - Transfer failure surfaces the generic error
@@ -880,7 +880,7 @@
 - **Preconditions:** `GET /budget/current` returns null/fails (no month, or an offline budget fetch).
 - **Steps:**
   1. Open an unassigned row's assign picker; open a split editor.
-- **Expected:** The assign picker offers only **"Unassigned"** (no optgroups). The split editor shows the "Add some … budget lines first." warning and cannot save. Bill tags and pill hues are absent; the hero currency falls back to **EUR**. The register itself still renders (only `/transactions` failing blocks it).
+- **Expected:** The assign picker offers only **"Unassigned"** (no optgroups). The split editor shows the "Add some … budget lines first." warning and cannot save. Bill tags and pill hues are absent; the hero currency falls back to the household's **budget currency** (`budgetCurrency` from `/auth/me`; was a hardcoded EUR before W08). The register itself still renders (only `/transactions` failing blocks it).
 - **Automated:** No
 
 ### TX-091 - Income transactions do not mark a month balanced
@@ -1011,3 +1011,104 @@
   3. Via the API: change the refund's type to Expense; change the purchase's type; set the purchase's amount below €10.00; date the purchase after the refund; `PUT /transactions/{refund}/splits`; `DELETE /transactions/{purchase}`; then `DELETE /transactions/{refund}`.
 - **Expected:** Step 1: the `Edit type` select is **disabled** on the refund (title "A refund is money received. Use “Not a refund” first to change its type.") and on the refunded purchase ("This purchase has refunds linked to it; unmark them first to change its type."). Step 2: ⑂ is **hidden** on a refund; the picker offers only expense/savings lines. Step 3, all 400: `Type` ("A refund is money received. To record it as a payment, first unmark it as a refund." / "This purchase has refunds linked to it. Unmark them as refunds before changing its type."), `Amount` (names the refunded figure), `Date` (the purchase can't be dated after its first refund), `Allocations` ("A refund follows one purchase and can't be split across lines."), `TransactionId` ("This purchase has a refund linked to it. Unlink or delete the refund first."). Deleting the **refund** itself succeeds and the purchase's line spending goes back up. The SQL foreign key is `Restrict` as well, so a hand-written delete of a refunded purchase fails at the database.
 - **Automated:** Full (client `TransactionsPage.catalog.test.tsx` TX-102; backend `RefundTests.Update_RefusesTurningARefundIntoAPayment_OrShrinkingARefundedPurchaseBelowItsRefunds`, `Delete_RefusesAPurchaseWithRefunds_ButDeletesARefund`, `Split_RefusesARefund`) — the SQL `Restrict` FK itself is not exercised (in-memory provider)
+
+## Money in another currency (W08)
+
+Every counted transaction is in the household's **budget currency** (rule 85; EUR in this file's fixture). A row recorded in another currency — only a statement import on no account (or on a legacy account kept in another currency) creates one — **waits** (`fxPending`) and counts in **no** figure until the user confirms its budget-currency amount; the app never converts on its own (no background reconciliation, no automatic rate, no inferred fee). Fixture for this section: a waiting import row **"London Cab"** dated 2026-06-10, `GBP 12.50`, on no account, unassigned; plus an EUR expense "Tesco" 12.50.
+
+### TX-103 - A waiting row is flagged, shows its own currency, and is left out of the hero totals
+- **Priority:** P0
+- **Type:** Happy
+- **Preconditions:** Section fixture (London Cab GBP 12.50 waiting; Tesco €12.50).
+- **Steps:**
+  1. Open `/transactions`; read London Cab's Amount cell and the hero.
+- **Expected:** London Cab's amount reads **"GBP 12.50"** (code + plain number, never `£`/`€`, so it can't read as budget money) with an amber tag **"Needs EUR amount"** (title "In another currency. Not counted anywhere until you enter the amount in EUR.") and an **Enter amount** button (aria "Enter amount in EUR: London Cab"). Only that row carries the tag. Hero **Money out** = **€12.50** (Tesco only — never €25.00); a waiting income row would likewise be missing from Money in. The dashboard, reports and People leave it out too (see DASH/RPT/PPL cases).
+- **Automated:** Yes (client/src/pages/TransactionsPage.test.tsx — "flags a row waiting for its budget-currency amount and leaves it out of the totals")
+
+### TX-104 - Enter amount: Suggest fills an editable figure without saving; Confirm makes the row count
+- **Priority:** P0
+- **Type:** Happy
+- **Preconditions:** Section fixture; the reference-rate provider (Frankfurter/ECB) is reachable.
+- **Steps:**
+  1. Click **Enter amount** on London Cab.
+  2. Read the modal, click **Suggest**.
+  3. Replace the suggested figure with **14.8**; click **Confirm amount**.
+- **Expected:** Step 1–2: modal "Amount in EUR" says "London Cab was GBP 12.50 on {10 Jun 2026, medium date style}. Enter what it cost in EUR. It isn’t counted anywhere until you confirm."; Suggest calls `GET /transactions/conversion-suggestion?currency=GBP&amount=12.5&date=2026-06-10`, fills **Amount in EUR** with the suggested amount (e.g. 14.79) and shows "Suggested from the European Central Bank reference rate: 1 GBP = {rate} EUR. Check it matches what you paid." — **nothing is saved** (no PUT). Step 3: `PUT /transactions/{id}/converted-amount {amount: 14.8}` → 200; the modal closes and the row now reads **−€14.80** with a grey caption **"GBP 12.50"** (title "Paid in GBP"), no tag, no Enter amount button. Server-side the row is `amount 14.80, currency EUR, fxPending false, originalAmount 12.50, originalCurrency GBP` — the user's figure stands whatever the rate says, and no fee or rate is stored. From now on it counts: hero Money out €27.30, and on its line/People/reports once assigned.
+- **Automated:** Yes (client/src/pages/TransactionsPage.test.tsx — "Enter amount: Suggest fills an editable amount without saving; Confirm saves it"; tests/AllotJar.Application.Tests/Transactions/ForeignAmountsTests.cs — `Confirming_makes_the_row_a_budget_currency_row_and_keeps_the_foreign_figure`; FxPendingAggregatesTests.cs — `A_confirmed_amount_counts_on_its_line_and_leaves_the_waiting_count`)
+
+### TX-105 - Enter amount without a suggestion: the user types it; refusals are shown in the modal
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Section fixture; the rate provider is down or has no rate for that date.
+- **Steps:**
+  1. Open Enter amount on London Cab; click **Suggest**.
+  2. Click **Confirm amount** with the field empty, then type "0" and confirm.
+  3. Type **15** and confirm while the server refuses (e.g. another tab confirmed the row first).
+  4. Click **Cancel**.
+- **Expected:** Step 1: "No suggestion is available for GBP on this date. Enter the amount in EUR yourself."; the field stays empty (a failed request shows "Could not get a suggestion. Enter the amount yourself." or the server's 400 text). Step 2: **Confirm amount** is disabled while blank; "0" → "Enter the amount in EUR, greater than zero." with no PUT. Step 3: the server's message shows in the modal (e.g. "This transaction already counts in the budget currency. Edit its amount instead."); fallback "Could not save that amount."; the modal stays open. Step 4: closes with no request; the row still waits.
+- **Automated:** Yes (client/src/pages/TransactionsPage.test.tsx — "Enter amount: says so when no suggestion is available and shows a refusal"; ForeignAmountsTests — `No_rate_means_no_suggestion_and_the_user_types_the_amount`)
+
+### TX-106 - Confirming an amount is refused for a row that isn't waiting, is on an account, or is split
+- **Priority:** P0
+- **Type:** Negative
+- **Preconditions:** Rows: Tesco (EUR, counts); a waiting GBP row on a legacy GBP account "UK card"; a waiting GBP row that was split into two slices (20.00 + 25.50 GBP).
+- **Steps:**
+  1. Look for the Enter amount button on the account row and the split row.
+  2. `PUT /api/transactions/{id}/converted-amount` `{amount: 50}` for each of the three rows; then `{amount: 0}` and `{amount: -5}` for London Cab; then as a Read-only member.
+- **Expected:** Step 1: no Enter amount button on either (only unsplit rows on no account get it; both still show "Needs EUR amount"). Step 2, all 400 keyed `Amount`: Tesco → "This transaction already counts in the budget currency. Edit its amount instead."; account row → "This transaction is on an account kept in GBP, not the budget currency. Its amount can't be converted without changing that account's balance."; split row → "This transaction is split. Remove the split, enter the amount, then split it again."; 0 / −5 → "Enter an amount greater than zero.". Read-only → 403 (the command is `[AllowLimited]`: Limited may confirm). Nothing changes; the rows keep waiting.
+- **Automated:** Yes (ForeignAmountsTests — `Only_a_waiting_row_on_no_account_and_not_split_can_be_given_an_amount`; client/src/pages/TransactionsPage.test.tsx — "offers no Enter amount on a waiting row that sits on an account (its balance would change)")
+
+### TX-107 - Refunds and waiting rows: a waiting row counts nothing until confirmed, and a confirmed refund must fit
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Purchase "Hotel" €100.00 (EUR, counts); a waiting USD 90.00 income row "Hotel refund" already linked as a refund of Hotel (imported before its amount was known); a waiting GBP expense "B&B"; a waiting GBP income "Deposit back".
+- **Steps:**
+  1. Read Hotel's "€X refunded" tag.
+  2. Confirm "Hotel refund" at **100.01**, then at **82.40**.
+  3. Mark "Deposit back" as a refund of Hotel (↩); link a new EUR refund to "B&B" (`POST /transactions` with `refundOfTransactionId` = B&B).
+- **Expected:** Step 1: no refunded tag — a waiting refund counts nothing (`refundedAmount` sums confirmed refunds only). Step 2: 100.01 → 400 keyed `RefundOfTransactionId` (a refund of 100.01 is more than the 100 paid); 82.40 → 200, Hotel now shows "€82.40 refunded" and, on the purchase's line, spending nets by €82.40. Step 3: 400 "This is in GBP and is waiting for its amount in the budget currency. Enter that amount before marking it as a refund."; 400 "This purchase is in GBP and is waiting for its amount in the budget currency. Enter that amount before linking a refund to it.". Confirming a purchase below what's already refunded against it is refused ("This purchase has {n} refunded against it; its amount can't be less than that.").
+- **Automated:** Partial (ForeignAmountsTests — `A_confirmed_refund_must_still_fit_its_purchase`; RefundTests — `Update_CountsARefundByItsConfirmedAmount_AndAWaitingRefundAsNothing`; the LinkRefund/waiting-purchase refusals are not asserted)
+
+### TX-108 - Editing a waiting row's amount corrects its foreign figure; it keeps waiting
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** W08 — the old edit cleared the pending flag, so correcting £100 to £90 then counted £90 as €90.
+- **Preconditions:** A waiting GBP 100.00 expense "London Cab" on no account.
+- **Steps:**
+  1. ✎ the row, change **Edit amount** to 90, **Save**.
+  2. Change only its payee and save again.
+- **Expected:** Step 1: `PUT /transactions/{id}` → 200 with `amount 90`, `currency "GBP"`, `fxPending true`; the row reads "GBP 90.00" with "Needs EUR amount" and still counts nowhere. Step 2: still waiting. Only Enter amount (TX-104) makes it count.
+- **Automated:** Yes (ForeignAmountsTests — `Editing_a_waiting_rows_amount_corrects_the_foreign_figure_and_it_keeps_waiting`; UpdateTransactionTests — `Update_NonAmountEdit_KeepsThePendingFlag`)
+
+### TX-109 - Add form "Paid in another currency": the budget-currency Amount counts, the foreign figure is kept
+- **Priority:** P0
+- **Type:** Happy
+- **Preconditions:** `multiCurrency` on; rate provider reachable.
+- **Steps:**
+  1. **+ Add transaction**: Date 2026-06-10, Payee "Diner", tick **Paid in another currency**.
+  2. Read the helper text; type Currency "usd" (aria "Currency paid in"), **Amount paid** 20 (aria "Amount paid in that currency"); click **Suggest**.
+  3. Click **Add transaction**.
+- **Expected:** Step 2: helper "The Amount above is what counts, in EUR. Suggest fills it in for you to check."; the currency upper-cases to USD; Suggest calls `GET /transactions/conversion-suggestion?currency=USD&amount=20&date=2026-06-10` and fills **Amount** (e.g. 18.4) — still editable, nothing saved; the hint names the ECB reference rate. Step 3: `POST /transactions` with `amount: 18.4, originalAmount: 20, originalCurrency: "USD"` → 201; the row is **−€18.40** with a grey caption "USD 20.00" (title "Paid in USD"), counts at once (never waits), currency EUR. Unticking the box clears the three fields; a plain add sends no `originalAmount`/`originalCurrency` at all.
+- **Automated:** Yes (client/src/pages/TransactionsPage.test.tsx — “add form: "Paid in another currency" suggests the Amount and sends the foreign figure”, "add form: a transaction paid in the budget currency carries no foreign figure"; ForeignAmountsTests — `A_manual_entry_paid_abroad_counts_the_confirmed_amount_and_keeps_what_was_paid`; client/e2e/a11y.spec.ts — "currency conversion (Enter amount + paid in another currency) has no WCAG A/AA violations")
+
+### TX-110 - "Paid in another currency" guards: code, budget currency, amount — client and server
+- **Priority:** P1
+- **Type:** Negative
+- **Preconditions:** Add modal with Payee "Diner", Amount 18.40, **Paid in another currency** ticked.
+- **Steps:**
+  1. Leave Currency empty (or "US"), Add / Suggest.
+  2. Currency "EUR", Add.
+  3. Currency "USD", Amount paid empty (then "0"), Add.
+  4. API: `POST /transactions` with `originalAmount: 20` and no `originalCurrency`; with `originalCurrency: "USD"` and no amount; with `originalCurrency: "POUNDS"`; with `originalAmount: -1`; with `originalCurrency: "EUR"`.
+- **Expected:** Client banner, no request: 1 → "Enter the three-letter code of the currency you paid in, like USD."; 2 → "EUR is your budget currency. Untick “Paid in another currency”."; 3 → "Enter the amount you paid in USD, greater than zero.". API, all 400: "Choose the currency that was paid."; "Enter the amount that was paid in that currency."; "Currency must be a 3-letter ISO 4217 code."; "Enter an amount greater than zero."; `OriginalCurrency` → "The budget is in EUR already; leave the other currency empty." Nothing is created.
+- **Automated:** Partial (ForeignAmountsTests — `A_manual_entry_cannot_name_the_budget_currency_as_the_other_currency`, `The_other_currency_needs_both_a_code_and_a_positive_amount`; the client guards are not asserted)
+
+### TX-111 - multiCurrency off hides only the add form's option; waiting rows can still be confirmed
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** Server flag `Features:MultiCurrency=false`; section fixture (London Cab waiting).
+- **Steps:**
+  1. Open **+ Add transaction**.
+  2. Click **Enter amount** on London Cab and confirm an amount.
+- **Expected:** The add form has no **Paid in another currency** checkbox (the flag only hides that option and the account currency labels). London Cab still shows "Needs EUR amount" and **Enter amount**; confirming works exactly as in TX-104 (the conversion endpoints are not feature-gated).
+- **Automated:** No

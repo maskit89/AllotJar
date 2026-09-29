@@ -129,9 +129,10 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
                     ["Type"] = new[] { "A refund is money received. To record it as a payment, first unmark it as a refund." },
                 });
             }
+            // A refund still waiting for its budget-currency amount counts nothing yet (rule 44).
             await RefundRules.ValidateOriginalAsync(
-                _db, userId, transaction.RefundOfTransactionId!.Value, transaction.Id, request.Date, request.Amount,
-                transaction.Currency, transaction.ExchangeRate, cancellationToken);
+                _db, userId, transaction.RefundOfTransactionId!.Value, transaction.Id, request.Date,
+                transaction.FxPending ? null : request.Amount, cancellationToken);
         }
 
         // A purchase with refunds linked to it stays a purchase that covers them: still an
@@ -147,12 +148,10 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             {
                 errors["Type"] = new[] { "This purchase has refunds linked to it. Unmark them as refunds before changing its type." };
             }
-            // The same scale RefundRules links on: recorded amounts in one currency, otherwise
-            // base-currency values, so a refund in another currency is neither under- nor over-counted.
-            var (paid, refunded, _) = RefundRules.Totals(
-                transaction.Currency, request.Amount, transaction.ExchangeRate,
-                refunds.Select(r => r.Leg).ToList());
-            if (paid < refunded)
+            // Budget-currency amounts on both sides; a row still waiting for its amount counts
+            // nothing, so a waiting purchase has nothing to compare yet (rule 44).
+            var refunded = RefundRules.Refunded(refunds);
+            if (!transaction.FxPending && request.Amount < refunded)
             {
                 errors["Amount"] = new[]
                 {
@@ -224,17 +223,10 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             }
         }
 
-        // A pending-FX row counts at face value (placeholder rate 1). If the user edits the
-        // amount they are correcting that face value by hand — clear the flag so a later
-        // reconcile pass can't stamp a real rate onto the corrected figure, which would
-        // double-convert it. (There is no endpoint for entering a rate manually.)
-        if (transaction.FxPending && request.Amount != transaction.Amount)
-        {
-            transaction.FxPending = false;
-        }
-
         transaction.Date = request.Date;
         transaction.Payee = request.Payee.Trim();
+        // The amount stays in the row's own currency: editing a row that waits for its
+        // budget-currency amount corrects the foreign figure and the row keeps waiting (rule 44).
         transaction.Amount = request.Amount;
         transaction.Type = request.Type;
         // Editing a transfer into a plain income/expense must drop the counterparty

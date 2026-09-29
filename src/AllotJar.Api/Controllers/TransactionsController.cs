@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using AllotJar.Application.Transactions.Commands.AssignTransaction;
+using AllotJar.Application.Transactions.Commands.ConfirmConvertedAmount;
 using AllotJar.Application.Transactions.Commands.ConfirmTransferLegs;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.CreateTransfer;
@@ -11,6 +12,7 @@ using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Application.Transactions.Commands.UpdateTransaction;
 using AllotJar.Application.Transactions.Dtos;
+using AllotJar.Application.Transactions.Queries.GetConversionSuggestion;
 using AllotJar.Application.Transactions.Queries.GetTransactions;
 using AllotJar.Domain.Enums;
 
@@ -59,9 +61,44 @@ public class TransactionsController : ControllerBase
                 request.AcknowledgeCrossMonth,
                 request.JarAllocations?.Select(a => new JarAllocationInput(a.JarId, a.Amount)).ToList(),
                 request.PaidFromJarId,
-                request.RefundOfTransactionId),
+                request.RefundOfTransactionId,
+                request.OriginalAmount,
+                request.OriginalCurrency),
             ct);
         return CreatedAtAction(nameof(List), new { }, result);
+    }
+
+    /// <summary>
+    /// Suggests the budget-currency amount for money paid in another currency, from the reference
+    /// rate for that date (rule 44). Records nothing; rate and amount are null when no rate is available.
+    /// </summary>
+    [HttpGet("conversion-suggestion")]
+    [ProducesResponseType(typeof(ConversionSuggestionDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ConversionSuggestionDto>> ConversionSuggestion(
+        [FromQuery] string currency,
+        [FromQuery] decimal amount,
+        [FromQuery] DateOnly date,
+        CancellationToken ct)
+    {
+        var result = await _mediator.Send(new GetConversionSuggestionQuery(currency, amount, date), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Gives a transaction recorded in another currency its amount in the budget currency, typed or
+    /// a confirmed suggestion; from then on it counts (rules 44/85). Returns the updated transaction.
+    /// </summary>
+    [HttpPut("{id:guid}/converted-amount")]
+    [ProducesResponseType(typeof(TransactionDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<TransactionDto>> ConfirmConvertedAmount(
+        Guid id, ConfirmConvertedAmountRequest request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new ConfirmConvertedAmountCommand(id, request.Amount), ct);
+        return Ok(result);
     }
 
     /// <summary>
@@ -225,7 +262,12 @@ public record CreateTransactionRequest(
     bool AcknowledgeCrossMonth = false,
     IReadOnlyList<JarAllocationRequest>? JarAllocations = null,
     Guid? PaidFromJarId = null,
-    Guid? RefundOfTransactionId = null);
+    Guid? RefundOfTransactionId = null,
+    decimal? OriginalAmount = null,
+    string? OriginalCurrency = null);
+
+/// <summary>Request body for giving a transaction in another currency its budget-currency amount.</summary>
+public record ConfirmConvertedAmountRequest(decimal Amount);
 
 /// <summary>
 /// Request body for recording a completed transfer between two accounts. <c>DepartedOn</c> is

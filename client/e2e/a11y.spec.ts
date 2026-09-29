@@ -87,6 +87,30 @@ for (const theme of ['light', 'dark'] as const) {
       await expectNoViolations(page)
     })
 
+    test('currency conversion (Enter amount + paid in another currency) has no WCAG A/AA violations', async ({ page }) => {
+      await authedSetup(page, theme)
+      await page.goto('/transactions')
+      await page.getByRole('heading', { level: 1 }).first().waitFor()
+
+      // W08: a row waiting for its budget-currency amount, with a suggestion filled in.
+      await page.getByRole('button', { name: 'Enter amount in EUR: London Cab' }).click()
+      const dialog = page.getByRole('dialog')
+      await dialog.getByRole('button', { name: 'Suggest' }).click()
+      await dialog.getByText(/ECB reference rate/).waitFor()
+      await expectNoViolations(page)
+      await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+      // The add form's "Paid in another currency" fields with a suggested Amount.
+      await page.getByRole('button', { name: 'Add transaction' }).click()
+      const add = page.getByRole('dialog')
+      await add.getByLabel('Paid in another currency').check()
+      await add.getByLabel('Currency paid in').fill('USD')
+      await add.getByLabel('Amount paid in that currency').fill('20')
+      await add.getByRole('button', { name: 'Suggest' }).click()
+      await add.getByText(/ECB reference rate/).waitFor()
+      await expectNoViolations(page)
+    })
+
     test('login has no WCAG A/AA violations', async ({ page }) => {
       // Signed out: no token, so the login page renders.
       await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)

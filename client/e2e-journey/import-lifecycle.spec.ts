@@ -37,8 +37,8 @@ async function upload(page: Page, statement: string, opts: { accountName?: strin
 
 /**
  * Add an account through the Accounts page modal (same pattern as transfers-balances.spec.ts).
- * The currency is chosen explicitly so the account matches the EUR statement rows regardless of
- * the locale-detected registration default. Account names avoid the type-chip labels
+ * Every account is in the budget currency (EUR — the helpers register in EUR), matching the
+ * statement rows. Account names avoid the type-chip labels
  * (Current/Savings/Cash/…) so strict-mode lookups never collide with a card's chip.
  */
 async function addAccount(page: Page, name: string, opening = '0') {
@@ -46,7 +46,6 @@ async function addAccount(page: Page, name: string, opening = '0') {
   await page.getByRole('button', { name: 'Add account', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Account name').fill(name)
-  await dialog.getByLabel('Account currency').selectOption({ label: 'Euro (€)' })
   await dialog.getByLabel('Opening balance').fill(opening)
   // Rule 40: the balance is tracked from the opening date; the statement rows are dated 2026.
   await dialog.getByLabel('Opening date').fill('2026-01-01')

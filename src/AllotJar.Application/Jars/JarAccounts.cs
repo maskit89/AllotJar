@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Budgets;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
@@ -6,11 +7,12 @@ using AllotJar.Domain.Enums;
 
 namespace AllotJar.Application.Jars;
 
-/// <summary>Shared checks for the account a jar's money lives in (rules 2, 73, 75).</summary>
+/// <summary>Shared checks for the account a jar's money lives in (rules 2, 63, 73, 75).</summary>
 public static class JarAccounts
 {
     public static async Task<Account> LoadDesignatedAsync(
-        IApplicationDbContext db, string userId, Guid accountId, string errorKey, CancellationToken cancellationToken)
+        IApplicationDbContext db, string userId, Guid accountId, string errorKey, CancellationToken cancellationToken,
+        IIdentityService? identity = null)
     {
         var account = await db.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, cancellationToken)
             ?? throw new NotFoundException($"Account {accountId} was not found.");
@@ -21,6 +23,15 @@ public static class JarAccounts
         if (account.Type == AccountType.CreditCard)
         {
             throw Validation(errorKey, "A credit card cannot hold a jar's money. Choose a current, savings or cash account.");
+        }
+        // A jar is budget money (rule 63): an account kept in another currency, which new accounts
+        // can no longer be, cannot back one without converting its money.
+        var budgetCurrency = await BudgetCurrency.ResolveAsync(db, identity, userId, cancellationToken);
+        if (account.Currency != budgetCurrency)
+        {
+            throw Validation(errorKey,
+                $"{account.Name} is in {account.Currency.Value}, but the budget is in {budgetCurrency.Value}. " +
+                $"Choose an account in {budgetCurrency.Value}.");
         }
         return account;
     }

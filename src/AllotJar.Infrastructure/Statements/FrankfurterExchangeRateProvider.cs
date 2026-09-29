@@ -11,10 +11,9 @@ namespace AllotJar.Infrastructure.Statements;
 /// reference rates, with historical lookups by date). Successful results are cached per
 /// (from, to, date) for the process lifetime — those rates never change. Failures are
 /// cached only for <see cref="FailureRetryInterval"/>: long enough that an outage doesn't
-/// hammer the API, short enough that FxPending reconciliation (which re-attempts
-/// unresolved rows on later imports) can actually succeed once the provider recovers —
-/// a permanently-cached failure would pin rows pending until an app restart. Any failure
-/// returns null so the caller falls back gracefully; FX must never break an import.
+/// hammer the API, short enough that asking for a suggestion again works once the provider
+/// recovers. Any failure returns null: the user is told no suggestion is available and types
+/// the amount. The rate only ever feeds a suggestion the user confirms (rule 44).
 /// </summary>
 public class FrankfurterExchangeRateProvider : IExchangeRateProvider
 {

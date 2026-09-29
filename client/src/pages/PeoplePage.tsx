@@ -62,15 +62,18 @@ function sharePct(share: number): string {
 const DEFAULT_INCOME_HINT =
   'Becomes this person’s income line when you start a blank month. Calculations use the income lines in the month’s budget.'
 
-/** "+N pending rate": rows left out of a month figure because their exchange rate is unresolved. */
-function FxPendingHint({ count, what }: { count: number; what: string }) {
+/**
+ * "+N need EUR amount": rows in another currency left out of a month figure because they still
+ * wait for their amount in the budget currency (the app never converts on its own).
+ */
+function FxPendingHint({ count, what, currency }: { count: number; what: string; currency: string }) {
   if (count <= 0) return null
   return (
     <span
-      title={`${count} ${what} ${count === 1 ? 'row is' : 'rows are'} awaiting an exchange rate and not counted yet`}
+      title={`${count} ${what} ${count === 1 ? 'row is' : 'rows are'} in another currency, waiting for the amount in ${currency}, and not counted yet`}
       className="block text-[11px] font-normal text-amber-700 dark:text-amber-400"
     >
-      +{count} pending rate
+      +{count} need{count === 1 ? 's' : ''} {currency} amount
     </span>
   )
 }
@@ -94,11 +97,11 @@ function initials(name: string): string {
  * is only a helper for filling in a new budget.
  */
 export function PeoplePage() {
-  const { canWrite, canManageHousehold, preferredCurrency } = useAuth()
+  const { canWrite, canManageHousehold, budgetCurrency } = useAuth()
   const { refresh: refreshHousehold } = useHousehold()
   const features = useFeatures()
   const { year, month, label: monthLabel } = useMonth()
-  const CURRENCY = preferredCurrency
+  const CURRENCY = budgetCurrency
 
   const [members, setMembers] = useState<HouseholdMemberDto[]>([])
   const [memberships, setMemberships] = useState<MembershipDto[]>([])
@@ -475,7 +478,8 @@ export function PeoplePage() {
             </p>
           ) : incomeFxPending > 0 ? (
             <p className="text-[13px] text-white/85">
-              +{incomeFxPending} income {incomeFxPending === 1 ? 'row' : 'rows'} pending rate — not counted yet.
+              +{incomeFxPending} income {incomeFxPending === 1 ? 'row' : 'rows'} in another currency, not counted
+              until {incomeFxPending === 1 ? 'its' : 'their'} amount in {CURRENCY} is entered.
             </p>
           ) : undefined
         }
@@ -579,7 +583,7 @@ export function PeoplePage() {
                       <td className="px-4 py-4 text-right tabular-nums text-slate-500">{sharePct(m.incomeSharePct)}</td>
                       <td className="px-4 py-4 text-right tabular-nums text-slate-700">
                         {formatMoney(fromAmount(memberSpending(m.id)?.spent ?? 0), CURRENCY)}
-                        <FxPendingHint count={memberSpending(m.id)?.fxPendingCount ?? 0} what="spending" />
+                        <FxPendingHint count={memberSpending(m.id)?.fxPendingCount ?? 0} what="spending" currency={CURRENCY} />
                       </td>
                       <td className="px-4 py-4 text-slate-500">
                         {editing ? (

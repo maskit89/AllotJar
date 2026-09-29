@@ -109,7 +109,7 @@ There is **no DELETE** for jars. 404 body message: `Sinking fund {id} was not fo
 Commit failure modes: no profile → 404 `There is no allocation profile to run.`; no source account → 400 ValidationException key `SourceAccountId`: `Set a source account on the allocation profile before committing.`; source account missing → 404 `Source account {id} was not found.`; source owned by someone else → 403.
 
 Commit writes one `Transaction` per member with `Residual > 0` **and** a valid `SavingsAccountId`:
-`Type=Transfer, Date = 1st of month, Payee = "Income allocation — {name}", Amount = residual, Currency = EUR (hardcoded), ExchangeRate = 1, AccountId = source, TransferAccountId = member savings, BankReference = "alloc:{year}-{month}:{memberId}"` (`AllocateIncomeCommandHandler.cs:56-79`). `TransfersCreated` in the response = number created (0 for preview).
+`Type=Transfer, Date = 1st of month, Payee = "Income allocation — {name}", Amount = residual, Currency = the source account's currency (the handler refuses a source account whose currency differs from the month's `BaseCurrency`), AccountId = source, TransferAccountId = member savings, BankReference = "alloc:{year}-{month}:{memberId}"` (`AllocateIncomeCommandHandler.cs:56-79`). `TransfersCreated` in the response = number created (0 for preview).
 
 ### Related endpoints feeding this subsystem
 - `POST /api/budget/{...}` month creation (`CreateBudgetMonthCommandHandler`) — seeds/append jar lines (§6).
@@ -181,7 +181,7 @@ AllocationPage:
 All jar planning in `src/AllotJar.Domain/Services/JarSchedule.cs` (pure) and `src/AllotJar.Application/Jars/JarPlanner.cs` (month seeding, replanting, the form's preview): an equal whole-cent split with the rounding remainder in the final month (rule 35), never half-away-from-zero rounding (W02, PR #271).
 
 **Jar current balance** (Jars page, reconciliation, `JarBalances.ComputeAsync`):
-`OpeningBalance + Σ over ALL months of linked Savings lines' PlannedAmount − Σ spends`, where spends = Expense transactions assigned to those lines + Expense split slices, each × `ExchangeRate`. Optional `asOf` (year,month) restricts to months **strictly before** it (used by month-creation seeding so back-filling an earlier month can't see later savings).
+`OpeningBalance + Σ over ALL months of linked Savings lines' PlannedAmount − Σ spends`, where spends = Expense transactions assigned to those lines + Expense split slices, at their recorded `Amount` (budget currency; rows still `FxPending` are left out — W08, no exchange rate exists). Optional `asOf` (year,month) restricts to months **strictly before** it (used by month-creation seeding so back-filling an earlier month can't see later savings).
 
 **Budget-grid `SavingsAvailable`** (`BudgetActuals.ApplySavingsBalancesAsync`): same planned−spent net but months **≤ viewed month** and **WITHOUT OpeningBalance**. So Jars page balance ≠ grid Available for jars with an opening balance or future-month lines — a known two-flavour design, only consistent on the current month with no opening.
 
@@ -229,7 +229,7 @@ All jar planning in `src/AllotJar.Domain/Services/JarSchedule.cs` (pure) and `sr
 9. **Rounding-cent placement differs**: `Split` → last member; `BalanceTiltSplit` → largest share. Tests should assert sum-exactness + invariants, not a specific member's cents.
 10. **Cancel-reverts (PR #163)**: settings modal Cancel/backdrop resync form from saved profile; committed banner cleared on profile save; commit idempotency wording "replaces them, never doubles up".
 11. **InfoHint placement**: the InfoHint `<button>` must NOT sit inside a `<label>` (it becomes the label's control); AllocationPage uses `div` + control `aria-label` (comment at AllocationPage.tsx:374-376), JarsPage uses `<label htmlFor>` sibling pattern.
-12. **Allocation commit currency hardcoded EUR** (`AllocateIncomeCommandHandler.cs:71`) — known systemic display-label limitation, deferred.
+12. ~~**Allocation commit currency hardcoded EUR**~~ — fixed: the transfer takes the source account's currency, the source must be in the month's base currency and each savings account in the source's currency. W08 also stops a jar being held in an account in another currency than the budget (`JarAccounts.LoadDesignatedAsync`: "{Account} is in {X}, but the budget is in {Y}. Choose an account in {Y}."; `ForeignAmountsTests.A_jar_cannot_live_in_an_account_kept_in_another_currency`).
 13. **Idempotency key**: `BankReference = "alloc:{year}-{month}:{memberId}"` — note month is NOT zero-padded; the prefix filter and the unique (Owner, BankReference) index depend on this exact composition.
 14. **Empty month ≠ balanced (PR #172)**: `IsBalanced` requires `TotalIncome > 0` (domain + client selector); empty-month hero prompts income planning; blank months for jar-owning households land over-budgeted via appended accrual-planned savings lines. Don't regress to bare `remaining == 0`.
 15. **PR #170**: sample budget (with its Emergency Fund jar) is OPT-IN at sign-up; default account is empty — jar/allocation tests must not assume a starter jar exists.

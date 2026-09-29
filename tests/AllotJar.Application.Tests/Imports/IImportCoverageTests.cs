@@ -64,7 +64,7 @@ public class IImportCoverageTests
             new GenericCsvImporter());
 
     private static CommitImportCommandHandler NewCommit(ApplicationDbContext db, string userId) =>
-        new(db, new CurrentUserStub(userId), new FakeExchangeRateProvider());
+        new(db, new CurrentUserStub(userId));
 
     private static List<CommitImportItem> ToCommitItems(ImportPreviewResult preview) =>
         preview.Items.Select(c => new CommitImportItem(

@@ -250,7 +250,7 @@ public class ReportFiguresTests
         db.Transactions.Add(new Transaction
         {
             OwnerId = "user-1", Date = new DateOnly(2026, 9, 6), Payee = "Abroad", Amount = 40m, Type = TransactionType.Expense,
-            Currency = CurrencyCode.From("GBP"), ExchangeRate = 1m, FxPending = true,
+            Currency = CurrencyCode.From("GBP"), FxPending = true,
         });
         db.SaveChanges();
 

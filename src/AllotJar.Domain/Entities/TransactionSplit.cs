@@ -7,9 +7,7 @@ namespace AllotJar.Domain.Entities;
 /// <see cref="Transaction"/>'s amount attributed to a single budget line.
 /// A transaction is "split" when it has two or more of these, and their
 /// amounts sum to the transaction's total. Amounts are in the parent
-/// transaction's own currency — the parent's
-/// <see cref="Transaction.ExchangeRate"/> converts each slice into the budget
-/// base currency for the actuals roll-up.
+/// transaction's currency, which is the budget currency whenever the parent counts.
 /// </summary>
 public class TransactionSplit : BaseEntity
 {

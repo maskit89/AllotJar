@@ -553,7 +553,7 @@ public class JarMovementsTests
     // ---- CommitImport -----------------------------------------------------------------------------
 
     private static CommitImportCommandHandler NewCommit(ApplicationDbContext db) =>
-        new(db, User, new FakeExchangeRateProvider());
+        new(db, User);
 
     private static CommitImportItem Row(string reference, DateOnly date, decimal amount, bool isCredit,
         IReadOnlyList<JarAllocationInput>? jarAllocations = null, Guid? paidFromJarId = null) =>

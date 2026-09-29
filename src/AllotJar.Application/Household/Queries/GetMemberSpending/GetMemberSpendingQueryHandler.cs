@@ -59,8 +59,8 @@ public class GetMemberSpendingQueryHandler
         }
         var expenses = await query.ToListAsync(cancellationToken);
 
-        // Base-currency amounts, like the budget grid; a row whose rate is still pending is
-        // counted separately rather than at face value (rules 41–44).
+        // Budget-currency amounts, like the budget grid; a row still waiting for its
+        // budget-currency amount is counted separately, never at face value (rules 42–44).
         var privateAccounts = await HouseholdMoney.PrivateAccountIdsAsync(_db, expenses, cancellationToken);
         var spentByMember = new Dictionary<Guid, decimal>();
         var pendingByMember = new Dictionary<Guid, int>();
@@ -78,7 +78,7 @@ public class GetMemberSpendingQueryHandler
                             pendingByMember[sliceMember] = pendingByMember.GetValueOrDefault(sliceMember) + 1;
                             continue;
                         }
-                        spentByMember[sliceMember] = spentByMember.GetValueOrDefault(sliceMember) + sign * slice.Amount * t.ExchangeRate;
+                        spentByMember[sliceMember] = spentByMember.GetValueOrDefault(sliceMember) + sign * slice.Amount;
                     }
                 }
             }
@@ -89,7 +89,7 @@ public class GetMemberSpendingQueryHandler
                     pendingByMember[wholeMember] = pendingByMember.GetValueOrDefault(wholeMember) + 1;
                     continue;
                 }
-                spentByMember[wholeMember] = spentByMember.GetValueOrDefault(wholeMember) + sign * t.BaseAmount;
+                spentByMember[wholeMember] = spentByMember.GetValueOrDefault(wholeMember) + sign * t.Amount;
             }
         }
 

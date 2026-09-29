@@ -98,7 +98,6 @@ function payment(over: Partial<JarPaymentDto> = {}): JarPaymentDto {
     payee: 'Transport Malta',
     amount: 580,
     currency: 'EUR',
-    baseAmount: 580,
     fxPending: false,
     accountId: 'acc1',
     accountName: 'Joint Current',

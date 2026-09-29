@@ -24,20 +24,20 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         builder.Property(t => t.Amount)
             .HasPrecision(18, 4);
 
-        // The transaction's own currency (may differ from the budget's base).
+        // The budget currency for every row that counts; another currency only while a row waits
+        // for its budget-currency amount (FxPending).
         builder.Property(t => t.Currency)
             .HasConversion(new CurrencyCodeConverter())
             .HasMaxLength(3)
             .IsRequired()
             .HasDefaultValue(CurrencyCode.Eur);
 
-        // FX rate into the budget base currency; 6 dp is standard for rates.
-        builder.Property(t => t.ExchangeRate)
-            .HasPrecision(18, 6)
-            .HasDefaultValue(1m);
-
-        // BaseAmount is computed (Amount × ExchangeRate) and not persisted.
-        builder.Ignore(t => t.BaseAmount);
+        // What was paid in another currency, for reference only; never counted.
+        builder.Property(t => t.OriginalAmount)
+            .HasPrecision(18, 4);
+        builder.Property(t => t.OriginalCurrency)
+            .HasConversion(new CurrencyCodeConverter())
+            .HasMaxLength(3);
 
         builder.Property(t => t.Payee)
             .HasMaxLength(200);
@@ -87,9 +87,9 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         builder.HasIndex(t => t.OwnerId);
         builder.HasIndex(t => t.MemberId);
 
-        // Every import runs the FxPending reconcile query; almost all rows have the flag off,
-        // so a filtered index makes the common "nothing pending" case a near-free seek instead
-        // of an owner-wide scan that grows with account age.
+        // Every budget, report and People read counts the rows still waiting for an amount; almost
+        // all rows have the flag off, so a filtered index makes the common "nothing waiting" case a
+        // near-free seek instead of an owner-wide scan that grows with account age.
         builder.HasIndex(t => new { t.OwnerId, t.FxPending })
             .HasFilter("[FxPending] = 1");
 

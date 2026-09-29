@@ -37,7 +37,7 @@ public class ImportHoldsTests
             .Options);
 
     private static CommitImportCommandHandler NewCommit(ApplicationDbContext db) =>
-        new(db, User, new FakeExchangeRateProvider());
+        new(db, User);
 
     private static CommitImportItem Debit(string reference, DateOnly date, decimal amount, Guid? transferAccountId = null) =>
         new(reference, date, "CARD PAYMENT " + reference, amount, "EUR", IsCredit: false, null, null, TransferAccountId: transferAccountId);

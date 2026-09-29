@@ -85,7 +85,6 @@ public class TTransfersCoverageTests
         dto.Type.Should().Be(TransactionType.Transfer);
         dto.Amount.Should().Be(300m);
         dto.Currency.Should().Be("EUR");
-        dto.ExchangeRate.Should().Be(1m);
         dto.AccountId.Should().Be(from.Id);
         dto.AccountName.Should().Be("Current");
         dto.TransferAccountId.Should().Be(to.Id);

@@ -25,6 +25,7 @@ AllotJar is a zero-based budgeting app crafted in Europe and at home anywhere: e
    - [Assigning to a budget line](#assigning-to-a-budget-line)
    - [Splitting a transaction](#splitting-a-transaction)
    - [Refunds](#refunds)
+   - [Paid in another currency](#paid-in-another-currency)
    - [Editing, deleting, finding](#editing-deleting-finding)
 5. [Accounts](#5-accounts)
 6. [Jars (savings goals)](#6-jars-savings-goals)
@@ -57,8 +58,8 @@ AllotJar's big banner tracks that goal live as you type.
 
 ### Registering and signing in
 
-- Open the app and you land on the sign-in card. New here? Switch to **Create account** and fill in your **name**, **email**, a **password of at least 8 characters**, your **preferred currency** and **number format**, and accept the **Terms**. Registration signs you in immediately. Your household starts empty — there is no sample data — and the Budget page shows a short **Set up your budget** checklist: add your accounts with their opening balances, create this month's budget, then add a jar from an account.
-- Your **preferred currency** and **number format** are display preferences — they control how amounts are shown and entered. They are *not* an exchange-rate conversion; AllotJar keeps your figures in one currency.
+- Open the app and you land on the sign-in card. New here? Switch to **Create account** and fill in your **name**, **email**, a **password of at least 8 characters**, your **currency** and **number format**, and accept the **Terms**. Registration signs you in immediately. Your household starts empty — there is no sample data — and the Budget page shows a short **Set up your budget** checklist: add your accounts with their opening balances, create this month's budget, then add a jar from an account.
+- The **currency** you pick is your budget's currency: the whole budget and all its accounts are kept in it. You can change it until your budget has its first account, month or transaction; after that it is fixed, because changing it would relabel money already recorded. The **number format** only controls how amounts are shown and entered.
 - Your data is private to your login. (You can deliberately share a household with other people — see [People & sharing](#8-people--sharing).)
 - Your session is kept alive securely in the background, so you stay signed in between visits without re-entering your password.
 - Forgot your password? Use the **Forgot password?** link on the sign-in card — we'll email you a reset link (valid for 2 hours). Setting a new password signs you out everywhere else and signs you straight in on the device you used.
@@ -218,6 +219,14 @@ Money that comes back from a purchase — a returned jumper, a cancelled booking
 
 The register shows a teal **Refund** badge with "Refund of {payee} · {date}" under the row, and the purchase itself shows "€X refunded". A refund can be partial, and several refunds can point at one purchase, but together they can never exceed what you paid, and a refund can't be dated before its purchase. A refund can't be split, a purchase with refunds can't be deleted until they are unlinked or removed, and a refund's type stays *money received* (use **Not a refund** first to change it).
 
+### Paid in another currency
+
+Your budget counts one currency. When you paid in another one (a meal abroad, an online order in dollars), AllotJar never converts it for you; the amount that counts is always the one you enter or confirm.
+
+- **Entering it yourself.** In the add form, tick **Paid in another currency**, fill in the currency code and the amount you paid, then enter the amount in your budget currency. **Suggest** fills that amount from the European Central Bank reference rate for the transaction's date, rounded to cents; you can change it before saving. The register shows the foreign figure in small print under the row ("USD 25.00").
+- **Rows waiting for their amount.** A statement row in another currency with no budget-currency amount is marked **Needs EUR amount** (your currency). It is not counted anywhere (budget lines, reports, People, jars) until you give it an amount: use **Enter amount** on the row, optionally **Suggest**, then **Confirm amount**. Suggest on its own saves nothing. The Budget page and People page say how many rows are waiting. A split row has to be unsplit first; a row on an account kept in another currency can't be restated, because that would change the account's balance.
+- **No invented fees.** AllotJar never adds a conversion fee or a spread. If your bank charged one, it is already in the amount the bank shows, or you record it yourself.
+
 ### Editing, deleting, finding
 
 - The edit control changes date, payee, amount and type in place (type is locked on a refund and on a purchase that has refunds — see *Refunds*); the delete control removes the transaction.
@@ -227,11 +236,11 @@ The register shows a teal **Refund** badge with "Refund of {payee} · {date}" un
 
 The **Accounts** page tracks *where your money sits* — current account, savings, cash, or a physical place such as a piggy bank. Credit cards are not accounts here: an account holds money, a card owes it.
 
-- **Add an account** with a name, a type, an **opening balance** (zero or more — an account never has a negative balance in AllotJar, even if your bank allows an overdraft) and an **opening date**. The opening balance is what the account held at the *start* of that date. Transactions dated before the opening date stay in your history but never change the balance again — the opening amount already includes them.
+- **Add an account** in your budget's currency (every account uses it) with a name, a type, an **opening balance** (zero or more — an account never has a negative balance in AllotJar, even if your bank allows an overdraft) and an **opening date**. The opening balance is what the account held at the *start* of that date. Transactions dated before the opening date stay in your history but never change the balance again — the opening amount already includes them.
 - Optionally record the bank's identifiers — **IBAN**, **BIC/SWIFT**, **sort code**, **account number** — so you can tell accounts apart. None is required; they are only checked for format when filled in.
 - Each transaction can be tagged with the account it happened on (in the add form or the edit row). The account's **current balance** is then: **opening balance + income − expenses − transfers out + transfers in**, counting only what has posted from the opening date up to today. A balance is shown as **Not available** rather than zero when the account has no opening date yet, or when you look at a date before it.
 - Transfers between your own accounts move money on each bank's own date: the source is debited on the day the money left, the destination is credited only once you confirm the receipt. In between, the amount is shown as **in transit** on both cards and belongs to neither balance. A receipt you've identified as a transfer but whose departure date isn't known yet is shown as **pending review** and is not posted to either account until you supply it (see *Transactions* and *Importing*).
-- The footer totals the balances that are available into a single **Net** across all accounts; accounts without an opening date are left out and counted separately.
+- The footer totals the balances that are available into a single **Net** across all accounts; accounts without an opening date, and any older account kept in another currency, are left out and counted separately.
 - Open an account to see its own transaction register on the **account detail** page.
 - Editing an account changes its name, type, opening balance, opening date and identifiers. Deleting an account keeps its income and expense transactions (they just lose the account tag), but an account that is a side of a recorded transfer, or that holds a jar's money, can't be deleted until those transfers are removed or those jars moved.
 - **Jar reconciliation** shows, for every account that holds jars, the account's balance, the total in its jars and the **Unallocated** remainder — the three always add up. If the positive jars ever add up to more than the account really holds (after a payment overdrew one jar, say), the row is flagged **Jars exceed account money** until you move money to cover it.
@@ -310,7 +319,7 @@ Two things keep the reports honest:
 - **Uncategorised spending is included.** Transactions you haven't placed on a line yet appear as their own **Uncategorised** row (with a *Review N transactions* link to the register), so the month's total is complete — categorising a transaction later moves money between rows without changing the total. Uncategorised income counts as received income.
 - **Refunds reduce spending, not income.** A refund lowers its category's spending in the month it was received, and the row says "after €X refunded". Received income and Variance never include refunds or transfers. A category whose refunds exceeded its spending stays on the list with a negative figure and no share.
 
-All report figures use the same derivations as the Budget page — categorised spending comes from your assigned transactions, so the reports always agree with the budget. Rows still waiting for an exchange rate are left out of every figure, as on the Budget page.
+All report figures use the same derivations as the Budget page — categorised spending comes from your assigned transactions, so the reports always agree with the budget. Rows still waiting for their budget-currency amount are left out of every figure, as on the Budget page.
 
 ## 8. People & sharing
 
@@ -331,7 +340,7 @@ Renaming a person renames their **Pocket Money** budget line in every month too 
 
 **Archiving** a person (the ✕ on their row) hides them from the People page and stops their pocket money from next month on: any pocket-money line already planned for a later month is cancelled. If this month still has pocket money planned beyond what has been paid, AllotJar asks first — **Keep this month** leaves this month's plan as it is, **Cancel remaining** lowers it to what has already been paid (a line nothing was paid against disappears), and **Don't archive** changes nothing. Whatever you choose, every recorded payment and every account balance stays exactly as it was; archiving never deletes transactions.
 
-A person's **Default income** is only a starting figure you keep on file: when you **start a blank month**, each person with a default gets an income line at that amount, attributed to them (a template or copied month keeps its own lines). Nothing is calculated from the default itself: the Allocation page, the shares and the People figures all read the month's budget lines. Amounts recorded in another currency are shown converted to your budget currency; a row whose rate is still pending is counted separately until it resolves.
+A person's **Default income** is only a starting figure you keep on file: when you **start a blank month**, each person with a default gets an income line at that amount, attributed to them (a template or copied month keeps its own lines). Nothing is calculated from the default itself: the Allocation page, the shares and the People figures all read the month's budget lines. Amounts paid in another currency count at the budget-currency amount you entered or confirmed; a row still waiting for that amount is left out and counted separately ("+N need EUR amount") until you enter it.
 
 ### Inviting someone to sign in
 
@@ -376,7 +385,7 @@ When a person's savings account holds jars, Allocate also asks **how much of tha
 Open the menu under your name and choose **Account settings** to manage:
 
 - **Display name** — how you appear in the app and to others in a shared household.
-- **Preferred currency** and **number format** — how amounts are shown and entered (a display preference, not a currency conversion).
+- **Currency** — your budget's currency, which you can change only until your budget has its first account, month or transaction (then it shows as fixed). **Number format** — how amounts are shown and entered.
 - **Change password** — set a new password for your login.
 
 If you belong to more than one household, you can also **switch households** from the same menu (see [Multiple households](#multiple-households)).
@@ -409,7 +418,7 @@ Everything beyond the classic budgeting core can be switched off, turning AllotJ
 | `Reports` | The Reports page and nav link disappear; report endpoints return 404. |
 | `HouseholdAllocation` | The People and Allocation pages and the income-allocation engine are hidden. |
 | `HouseholdAccess` | Multi-user logins/roles for a household are disabled. |
-| `MultiCurrency` | Reserved for future multi-currency support. The app is single-currency today, so this flag has no user-facing effect yet. |
+| `MultiCurrency` | The "Paid in another currency" option on the add-transaction form and the currency label on each account disappear. Transactions already waiting for their budget-currency amount can still be confirmed. |
 | `CamtImport` | Reserved for future bank-statement import (the parser is retained for an upcoming Open Banking integration). Gates the import API; there is no import UI today. |
 | `Analytics` | Off by default. When on (and a build-time measurement ID is present), privacy-safe, consent-gated usage analytics load. |
 

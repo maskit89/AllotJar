@@ -81,7 +81,7 @@
   2. Search localStorage and sessionStorage for the JWT value (copy a fragment from the `Authorization` header of any request in the Network tab).
   3. In the console run `document.cookie`.
 - **Expected:**
-  - localStorage holds only `zbb.email`, `zbb.role`, `zbb.displayName`, `zbb.currency`, `zbb.numberFormat` (plus unrelated theme/onboarding keys). The JWT appears NOWHERE in storage.
+  - localStorage holds only `zbb.email`, `zbb.role`, `zbb.displayName`, `zbb.currency`, `zbb.budgetCurrency`, `zbb.numberFormat` (plus unrelated theme/onboarding keys). The JWT appears NOWHERE in storage.
   - `document.cookie` does not include `zbb_rt` (HttpOnly).
   - Bonus check: on a brand-new tab before `/auth/me` resolves, chrome may briefly render from the stored role (fallback Owner) — the server still enforces the real role per request; UI corrects itself when `/auth/me` lands.
 - **Automated:** No
@@ -485,7 +485,7 @@
   4. Replay the OLD cookie against `/auth/refresh` via curl.
 - **Expected:**
   - Step 1: fire-and-forget `POST /auth/logout` → 204 with `Set-Cookie` deleting `zbb_rt`; client state clears instantly (no waiting on the response); `RequireAuth` bounces the tab to `/login?returnUrl=%2Ftransactions` (no `reason=expired` — this was a chosen sign-out); analytics `logout` event fires.
-  - Step 2: `zbb_rt` gone; `zbb.email`, `zbb.role`, `zbb.displayName` removed; `zbb.currency`/`zbb.numberFormat` reset to the defaults ("EUR"/"comma-dot") and the money format resets.
+  - Step 2: `zbb_rt` gone; `zbb.email`, `zbb.role`, `zbb.displayName` removed; `zbb.currency`/`zbb.numberFormat` reset to the defaults ("EUR"/"comma-dot"), `zbb.budgetCurrency` removed (and `currencyLocked` reset), and the money format resets.
   - Step 3: 401 — the security-stamp rotation killed the access token immediately, not after its remaining ≤15 min.
   - Step 4: 401 (revoked; and per SESS-032 this replay does NOT burn any future sessions).
 - **Automated:** Partial (client/e2e-journey/session-expiry.spec.ts exercises server logout semantics + revoked-tab behavior; the menu-driven client flow incl. localStorage wipe has no test)

@@ -234,11 +234,11 @@ public class DDashboardActualsCoverageTests
         rentDto.Remaining.Should().Be(800m); // untouched by the transfer
     }
 
-    // DASH-050 (split slices) — A split transaction's slices roll up to each of their lines
-    // at the PARENT's exchange rate; the split parent (BudgetItemId null) contributes nothing
-    // itself, so there is no double counting.
+    // DASH-050 (split slices) — A split transaction's slices roll up to each of their lines;
+    // the split parent (BudgetItemId null) contributes nothing itself, so there is no double
+    // counting, and what was paid in another currency is only a reference figure.
     [Fact]
-    public async Task SplitSlices_RollUpToEachLine_AtParentExchangeRate_NoDoubleCount()
+    public async Task SplitSlices_RollUpToEachLine_NoDoubleCount()
     {
         await using var db = NewContext();
 
@@ -257,28 +257,29 @@ public class DDashboardActualsCoverageTests
         });
         db.SaveChanges();
 
-        // A split parent: 100 GBP @ 1.20 → 120 EUR, split 60/40 in its own currency.
+        // A split parent: paid as 100 GBP, confirmed as 120 EUR and split 72/48.
         var parent = new Transaction
         {
             OwnerId = "user-1",
             BudgetItemId = null, // split → whole assignment cleared
-            Amount = 100m,
-            Currency = CurrencyCode.From("GBP"),
-            ExchangeRate = 1.20m,
+            Amount = 120m,
+            Currency = CurrencyCode.Eur,
+            OriginalAmount = 100m,
+            OriginalCurrency = CurrencyCode.From("GBP"),
             Type = TransactionType.Expense,
         };
         db.Transactions.Add(parent);
         db.SaveChanges();
         db.TransactionSplits.AddRange(
-            new TransactionSplit { TransactionId = parent.Id, BudgetItemId = groceries.Id, Amount = 60m },
-            new TransactionSplit { TransactionId = parent.Id, BudgetItemId = restaurants.Id, Amount = 40m });
+            new TransactionSplit { TransactionId = parent.Id, BudgetItemId = groceries.Id, Amount = 72m },
+            new TransactionSplit { TransactionId = parent.Id, BudgetItemId = restaurants.Id, Amount = 48m });
         db.SaveChanges();
 
         var dto = await ReadJul26(db);
         var food = dto.Categories.Single(c => c.Name == "Food");
 
-        food.Items.Single(i => i.Name == "Groceries").ActualAmount.Should().Be(72.00m);    // 60 × 1.20
-        food.Items.Single(i => i.Name == "Restaurants").ActualAmount.Should().Be(48.00m); // 40 × 1.20
+        food.Items.Single(i => i.Name == "Groceries").ActualAmount.Should().Be(72.00m);
+        food.Items.Single(i => i.Name == "Restaurants").ActualAmount.Should().Be(48.00m);
         food.TotalActual.Should().Be(120.00m); // the parent isn't counted twice
     }
 

@@ -58,8 +58,8 @@ public class GetMemberIncomeQueryHandler : IRequestHandler<GetMemberIncomeQuery,
                         && t.Date >= from && t.Date < to)
             .ToListAsync(cancellationToken);
 
-        // Base-currency amounts, like the budget grid; a row whose rate is still pending is
-        // counted separately rather than at face value (rules 41–44).
+        // Budget-currency amounts, like the budget grid; a row still waiting for its
+        // budget-currency amount is counted separately, never at face value (rules 42–44).
         var memberIdSet = memberIds.ToHashSet();
         var privateAccounts = await HouseholdMoney.PrivateAccountIdsAsync(_db, incomes, cancellationToken);
         var receivedByMember = new Dictionary<Guid, decimal>();
@@ -77,13 +77,13 @@ public class GetMemberIncomeQueryHandler : IRequestHandler<GetMemberIncomeQuery,
                 {
                     if (slice.MemberId is Guid sliceMember && memberIdSet.Contains(sliceMember))
                     {
-                        receivedByMember[sliceMember] = receivedByMember.GetValueOrDefault(sliceMember) + slice.Amount * t.ExchangeRate;
+                        receivedByMember[sliceMember] = receivedByMember.GetValueOrDefault(sliceMember) + slice.Amount;
                     }
                 }
             }
             else if (t.MemberId is Guid wholeMember && memberIdSet.Contains(wholeMember))
             {
-                receivedByMember[wholeMember] = receivedByMember.GetValueOrDefault(wholeMember) + t.BaseAmount;
+                receivedByMember[wholeMember] = receivedByMember.GetValueOrDefault(wholeMember) + t.Amount;
             }
         }
 

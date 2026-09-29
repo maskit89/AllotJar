@@ -14,7 +14,7 @@ namespace AllotJar.Application.Reports;
 /// come from <see cref="BudgetActuals"/> (planned, actual net of assigned refunds); the
 /// transaction-derived layer — uncategorised income and spending, refunds not on a line — is
 /// read by the transaction's own date so nothing a report shows depends on the user having
-/// categorised it yet. Pending-FX rows are left out and counted, exactly as the budget does.
+/// categorised it yet. Rows still waiting for a budget-currency amount are left out and counted, exactly as the budget does.
 /// </summary>
 public static class ReportFigures
 {
@@ -87,7 +87,7 @@ public static class ReportFigures
                         && !t.Splits.Any()
                         // P56: a private account's money off the budget is nobody's household total.
                         && !db.AccountPrivacies.Any(p => p.AccountId == t.AccountId))
-            .Select(t => new { t.Type, IsRefund = t.RefundOfTransactionId != null, Base = t.Amount * t.ExchangeRate })
+            .Select(t => new { t.Type, IsRefund = t.RefundOfTransactionId != null, Base = t.Amount })
             .ToListAsync(cancellationToken);
 
         // Slices whose line was removed (the FK sets them null) are uncategorised too.
@@ -101,7 +101,7 @@ public static class ReportFigures
                   && t.Date.Year == year
                   && t.Date.Month == month
                   && !db.AccountPrivacies.Any(p => p.AccountId == t.AccountId)
-            select new { t.Type, Base = s.Amount * t.ExchangeRate })
+            select new { t.Type, Base = s.Amount })
             .ToListAsync(cancellationToken);
 
         var incomeLoose = loose.Where(t => t.Type == TransactionType.Income && !t.IsRefund).Sum(t => t.Base)

@@ -14,11 +14,13 @@ public class CreateJarCommandHandler
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly IIdentityService? _identity;
 
-    public CreateJarCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public CreateJarCommandHandler(IApplicationDbContext db, ICurrentUser currentUser, IIdentityService? identity = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _identity = identity;
     }
 
     public async Task<JarDto> Handle(
@@ -27,7 +29,7 @@ public class CreateJarCommandHandler
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
-        var account = await JarAccounts.LoadDesignatedAsync(_db, userId, request.FundingAccountId, "FundingAccountId", cancellationToken);
+        var account = await JarAccounts.LoadDesignatedAsync(_db, userId, request.FundingAccountId, "FundingAccountId", cancellationToken, _identity);
         await JarAccounts.EnsureVisibleForJarAsync(_db, account, request.ShareAccount, cancellationToken);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 

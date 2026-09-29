@@ -48,7 +48,7 @@ function budget(): BudgetMonthDto {
 function tx(): TransactionDto {
   return {
     id: 't1', date: '2026-06-10', payee: 'Tesco', amount: 12.5, currency: 'EUR',
-    exchangeRate: 1, baseAmount: 12.5, type: 0, bankReference: null,
+    type: 0, bankReference: null,
     budgetItemId: null, budgetItemName: null, accountId: null, accountName: null,
     transferAccountId: null, transferAccountName: null,
     memberId: null, memberName: null,
@@ -368,7 +368,7 @@ describe('TransactionsPage manual sheet', () => {
 
   it('preserves an unchanged transaction amount with comma decimals', async () => {
     localStorage.setItem('zbb.numberFormat', 'dot-comma')
-    const transaction = { ...tx(), amount: 1.234, baseAmount: 1.234 }
+    const transaction = { ...tx(), amount: 1.234 }
     mockLoad([transaction])
     mockPut.mockResolvedValue({ data: transaction })
     const user = userEvent.setup()
@@ -385,7 +385,7 @@ describe('TransactionsPage manual sheet', () => {
   it('preserves existing split amounts and their total with comma decimals', async () => {
     localStorage.setItem('zbb.numberFormat', 'space-comma')
     const transaction = {
-      ...tx(), amount: 3.5796, baseAmount: 3.5796, isSplit: true,
+      ...tx(), amount: 3.5796, isSplit: true,
       splits: [
         { id: 's1', budgetItemId: 'i-rent', budgetItemName: 'Rent', amount: 1.234 },
         { id: 's2', budgetItemId: 'i-food', budgetItemName: 'Groceries', amount: 2.3456 },
@@ -580,26 +580,164 @@ describe('TransactionsPage manual sheet', () => {
   })
 })
 
-describe('TransactionsPage FX-pending flag', () => {
+describe('TransactionsPage currency conversion (W08)', () => {
   beforeEach(() => {
     mockGet.mockReset()
     mockPut.mockReset()
     mockPost.mockReset()
     mockDelete.mockReset()
+    setMoneyFormat('comma-dot')
   })
 
-  it('flags an FX-pending row next to its amount and leaves settled rows unmarked', { timeout: 15000 }, async () => {
-    // fxPending = the server resolved no exchange rate (amount counts at face value);
-    // the register must say so instead of presenting the figure as settled.
-    mockLoad([
-      { ...tx(), id: 't-fx', payee: 'London Cab', currency: 'GBP', fxPending: true },
-      tx(),
-    ])
+  const fxRow = (): TransactionDto => ({ ...tx(), id: 't-fx', payee: 'London Cab', currency: 'GBP', amount: 12.5, fxPending: true })
+
+  /** mockLoad plus an answer for the conversion-suggestion endpoint. */
+  function mockLoadWithSuggestion(transactions: TransactionDto[], suggestion: Record<string, unknown>) {
+    mockLoad(transactions)
+    const base = mockGet.getMockImplementation()!
+    mockGet.mockImplementation((url: string, config?: unknown) =>
+      url === '/transactions/conversion-suggestion' ? Promise.resolve({ data: suggestion }) : base(url, config),
+    )
+  }
+
+  it('flags a row waiting for its budget-currency amount and leaves it out of the totals', { timeout: 15000 }, async () => {
+    mockLoad([fxRow(), tx()])
 
     renderPage()
 
-    const tag = await screen.findByText('Rate pending', {}, { timeout: 5000 })
-    expect(tag).toHaveAttribute('title', expect.stringContaining('face value'))
-    expect(screen.getAllByText('Rate pending')).toHaveLength(1) // only the unresolved row
+    const tag = await screen.findByText('Needs EUR amount', {}, { timeout: 5000 })
+    expect(tag).toHaveAttribute('title', expect.stringContaining('Not counted anywhere until you enter the amount in EUR'))
+    expect(screen.getAllByText('Needs EUR amount')).toHaveLength(1) // only the waiting row
+    // Its own figure is labelled with its code, never as budget money.
+    expect(screen.getByText(/GBP 12\.50/)).toBeInTheDocument()
+    // Money out counts only the EUR row (12.50), not 25.00.
+    expect(screen.getByText('€12.50')).toBeInTheDocument()
+    expect(screen.queryByText('€25.00')).not.toBeInTheDocument()
+  })
+
+  it('offers no Enter amount on a waiting row that sits on an account (its balance would change)', { timeout: 15000 }, async () => {
+    mockLoad([{ ...fxRow(), accountId: 'acc-gbp', accountName: 'UK Current' }])
+
+    renderPage()
+
+    expect(await screen.findByText('Needs EUR amount', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Enter amount in EUR/ })).not.toBeInTheDocument()
+  })
+
+  it('Enter amount: Suggest fills an editable amount without saving; Confirm saves it', { timeout: 15000 }, async () => {
+    mockLoadWithSuggestion([fxRow()], {
+      currency: 'GBP', amount: 12.5, budgetCurrency: 'EUR', date: '2026-06-10',
+      rate: 1.1834, suggestedAmount: 14.79, source: 'ECB reference rate',
+    })
+    mockPut.mockResolvedValue({
+      data: { ...fxRow(), currency: 'EUR', amount: 14.8, fxPending: false, originalAmount: 12.5, originalCurrency: 'GBP' },
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Enter amount in EUR: London Cab' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByText(/GBP 12\.50 on/)).toBeInTheDocument()
+
+    await user.click(dialog.getByRole('button', { name: 'Suggest' }))
+    const field = dialog.getByLabelText('Amount in EUR') as HTMLInputElement
+    await waitFor(() => expect(field.value).toBe('14.79'))
+    expect(mockGet).toHaveBeenCalledWith('/transactions/conversion-suggestion', {
+      params: { currency: 'GBP', amount: 12.5, date: '2026-06-10' },
+    })
+    expect(dialog.getByText(/ECB reference rate: 1 GBP = 1\.1834 EUR/)).toBeInTheDocument()
+    // A suggestion alone has no monetary effect: nothing is saved.
+    expect(mockPut).not.toHaveBeenCalled()
+
+    // The user's own figure is kept as typed.
+    await user.clear(field)
+    await user.type(field, '14.8')
+    await user.click(dialog.getByRole('button', { name: 'Confirm amount' }))
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t-fx/converted-amount', { amount: 14.8 }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    // The row is replaced: counted in EUR, with a muted note of what was paid.
+    expect(screen.queryByText('Needs EUR amount')).not.toBeInTheDocument()
+    expect(screen.getByText('GBP 12.50')).toHaveAttribute('title', 'Paid in GBP')
+    expect(screen.getAllByText(/€14\.80/).length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('Enter amount: says so when no suggestion is available and shows a refusal', { timeout: 15000 }, async () => {
+    mockLoadWithSuggestion([fxRow()], {
+      currency: 'GBP', amount: 12.5, budgetCurrency: 'EUR', date: '2026-06-10',
+      rate: null, suggestedAmount: null, source: 'ECB reference rate',
+    })
+    mockPut.mockRejectedValue({ response: { status: 400, data: { errors: { Amount: ['This transaction is not waiting for an amount.'] } } } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Enter amount in EUR: London Cab' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.click(dialog.getByRole('button', { name: 'Suggest' }))
+    expect(await dialog.findByText(/No suggestion is available for GBP on this date/)).toBeInTheDocument()
+    expect((dialog.getByLabelText('Amount in EUR') as HTMLInputElement).value).toBe('')
+
+    await user.type(dialog.getByLabelText('Amount in EUR'), '15')
+    await user.click(dialog.getByRole('button', { name: 'Confirm amount' }))
+    expect(await dialog.findByText('This transaction is not waiting for an amount.')).toBeInTheDocument()
+  })
+
+  it('add form: "Paid in another currency" suggests the Amount and sends the foreign figure', { timeout: 15000 }, async () => {
+    mockLoadWithSuggestion([], {
+      currency: 'USD', amount: 20, budgetCurrency: 'EUR', date: '2026-06-10',
+      rate: 0.92, suggestedAmount: 18.4, source: 'ECB reference rate',
+    })
+    mockPost.mockResolvedValue({
+      data: { ...tx(), payee: 'Diner', amount: 18.4, originalAmount: 20, originalCurrency: 'USD' },
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.clear(dialog.getByLabelText('Transaction date'))
+    await user.type(dialog.getByLabelText('Transaction date'), '2026-06-10')
+    await user.type(dialog.getByLabelText('Transaction payee'), 'Diner')
+    await user.click(dialog.getByLabelText('Paid in another currency'))
+    await user.type(dialog.getByLabelText('Currency paid in'), 'usd')
+    await user.type(dialog.getByLabelText('Amount paid in that currency'), '20')
+    await user.click(dialog.getByRole('button', { name: 'Suggest' }))
+
+    const amount = dialog.getByLabelText('Transaction amount') as HTMLInputElement
+    await waitFor(() => expect(amount.value).toBe('18.4'))
+    expect(mockGet).toHaveBeenCalledWith('/transactions/conversion-suggestion', {
+      params: { currency: 'USD', amount: 20, date: '2026-06-10' },
+    })
+    expect(mockPost).not.toHaveBeenCalled()
+
+    await user.click(dialog.getByRole('button', { name: 'Add transaction' }))
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith(
+        '/transactions',
+        expect.objectContaining({ payee: 'Diner', amount: 18.4, originalAmount: 20, originalCurrency: 'USD' }),
+      ),
+    )
+  })
+
+  it('add form: a transaction paid in the budget currency carries no foreign figure', { timeout: 15000 }, async () => {
+    mockLoad([])
+    mockPost.mockResolvedValue({ data: { ...tx(), payee: 'Cafe' } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(dialog.getByLabelText('Transaction payee'), 'Cafe')
+    await user.type(dialog.getByLabelText('Transaction amount'), '4.5')
+    await user.click(dialog.getByRole('button', { name: 'Add transaction' }))
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalled())
+    const body = mockPost.mock.calls[0][1] as Record<string, unknown>
+    expect(body).not.toHaveProperty('originalAmount')
+    expect(body).not.toHaveProperty('originalCurrency')
   })
 })

@@ -21,13 +21,13 @@ Notes:
 
 ### AccountsPage (`client/src/pages/AccountsPage.tsx`)
 
-**Hero** (top): eyebrow "Total balance", big amount = net across all accounts; tiles "Available" (sum of positive balances) and "Owed" (−sum of negative balances, displayed positive). Optional footnote pill when currencies are mixed: "Totals shown in {heroCurrency}; some accounts hold another currency." (lines 194-211).
+**Hero** (top): eyebrow "Total balance", big amount = net across all accounts; tiles "Available" (sum of positive balances) and "Owed" (−sum of negative balances, displayed positive). All three are labelled in the household's **budget currency** (`useAuth().budgetCurrency`) and count **only accounts whose currency equals the budget currency** (`inBudgetCurrency`, W08). An older account kept in another currency is left out of every hero figure and called out by a footnote pill: "{N} account(s) in another currency is/are not counted.".
 
 **Section header**: "Your accounts" + button "+ Add account" (aria-label `Add account`) — rendered only when `canWrite` (Admin+; line 321).
 
 **Add-account modal** (title "Add an account", shown only when `canWrite`):
 - "Name" — text `Input`, placeholder "e.g. Everyday current", aria-label `Account name`.
-- "Currency" — `Select` of `CURRENCY_OPTIONS` (24 currencies, `client/src/lib/money.ts:69-94`), aria-label `Account currency`, **rendered only when `multiCurrency` feature flag is on**; helper text "An account’s currency is fixed once created." Defaults to the user's `preferredCurrency`; reset back to it after a successful add (line 106).
+- **No currency picker** (W08; removed whatever the `multiCurrency` flag says). A note reads "The account holds {budgetCurrency}, your budget currency." and the POST always sends `currency: budgetCurrency` (never the login's `preferredCurrency`).
 - "Type" — `Select` aria-label `Account type`, options from `ACCOUNT_TYPE_LABELS`: Current / Savings / Cash / Credit card / Other (numeric values 0–4, `client/src/types.ts:88-102`). Default Current.
 - "Opening balance" — text `Input` `inputMode=decimal`, placeholder "0.00", aria-label `Opening balance`; Enter submits.
 - Buttons: "Cancel" (ghost) and "Add account" (disabled while `adding`).
@@ -36,13 +36,13 @@ Notes:
 **Account card** (grid, `auto-fit minmax(240px,1fr)`):
 - Whole card is an overlay `Link` to `/accounts/{id}` (aria-label `View {name}`).
 - Type-hue icon tile (hue mapping: Savings→emerald, Cash→amber, CreditCard→rose, Current→indigo, other→teal — `client/src/lib/categoryColors.ts:34-46`).
-- Currency chip (e.g. "EUR") shown **only when `multiCurrency`**; type badge (label from `ACCOUNT_TYPE_LABELS`, fallback "Other").
+- Currency chip (e.g. "EUR") shown when `multiCurrency` is on, **or** whenever the account's currency differs from the budget currency (so a legacy other-currency account is always labelled); type badge (label from `ACCOUNT_TYPE_LABELS`, fallback "Other").
 - Name; balance formatted **in the account's own currency** (`formatMoney(balanceMinor, a.currency)`), rose text when negative; caption "Opening {formatted amount}" also in account currency (lines 396-402).
 - Hover/focus reveals (only when `canWrite`): "✎" button (aria `Edit {name}`, title "Edit account") and "✕" button (aria `Delete {name}`, title "Delete account"; disabled while that id is saving). Buttons are `opacity-0` until `group-hover`/`focus-within` — a QA target for keyboard access.
 
 **Inline edit card** (replaces the card when editing):
 - Name `Input` (aria `Name for {name}`), Type `Select` (aria `Type for {name}`), Opening `Input` (aria `Opening balance for {name}`; pre-filled via `toEditString(fromAmount(openingBalance))` — plain non-localized decimal).
-- When `multiCurrency`: read-only note "Currency {code} — fixed once created." — there is **no currency input on edit** (immutability surfaced in UI; server request body has no currency field).
+- When `multiCurrency` (or the account is in another currency than the budget): read-only note "Currency {code} — fixed once created." — there is **no currency input on edit** (immutability surfaced in UI; server request body has no currency field).
 - Buttons: "Save" (aria `Save {name}`, disabled while saving) and "Cancel" (ghost, aria `Cancel edit`).
 
 **Delete confirmation modal** (shown only when `canWrite`; opened by ✕):
@@ -56,7 +56,7 @@ Notes:
 
 **"Jar reconciliation" card** (bottom): rendered only when `reconciliation.some(r => r.backedJarCount > 0)` (line 434) — i.e. hidden for users with no jar backed by any account.
 - Header "Jar reconciliation", sub-text "Each account’s balance against the jars it holds — the float is what’s not yet earmarked."
-- Table columns: Account / Balance / In jars / Float. Rows filtered to `backedJarCount > 0`. All three money cells formatted in the account's own currency, looked up client-side via `currencyById[r.accountId] ?? heroCurrency` (the DTO carries no currency — PR #168). Negative float renders rose.
+- Table columns: Account / Balance / In jars / Float. Rows filtered to `backedJarCount > 0`. All three money cells formatted in the account's own currency, looked up client-side via `currencyById[r.accountId] ?? budgetCurrency` (the DTO carries no currency — PR #168). Negative float renders rose.
 - Reconciliation is re-fetched whenever the `accounts` state array changes (initial load + after add/edit/delete; effect at lines 72-81). Its fetch errors are silently swallowed (`.catch(() => {})`).
 
 **Read-only / Limited roles**: `canWrite = role <= HouseholdRole.Admin` (`client/src/auth/AuthContext.tsx:366`). Non-Admin members see the cards, hero and reconciliation but no "+ Add account", no ✎/✕, no modals — a read-only register.
@@ -91,10 +91,10 @@ Role enforcement is the MediatR `AuthorizationBehaviour` (`src/AllotJar.Applicat
 |---|---|---|---|
 | `GET /api/accounts` | `GetAccountsQueryHandler` | 200 `AccountDto[]` ordered by `DisplayOrder` then `Name`; balances derived via `AccountBalances.ApplyAsync` | 401 unauth; 404 flag off |
 | `GET /api/accounts/reconciliation` | `GetAccountReconciliationQueryHandler` | 200 `AccountReconciliationDto[]` (same ordering; empty array when no accounts) | 401; 404 flag off |
-| `POST /api/accounts` body `{name, type, currency, openingBalance}` | `CreateAccountCommandHandler` | 201 `AccountDto` (CreatedAtAction → List); `DisplayOrder` = max existing + 1 (0 for first); name trimmed; currency normalized upper-case via `CurrencyCode.From` | 400 validation; 403 role < Admin; 404 flag off |
+| `POST /api/accounts` body `{name, type, currency, openingBalance}` | `CreateAccountCommandHandler` | 201 `AccountDto` (CreatedAtAction → List); `DisplayOrder` = max existing + 1 (0 for first); name trimmed; currency normalized upper-case via `CurrencyCode.From` and **must equal the household's budget currency** (`BudgetCurrency.ResolveAsync`, W08) | 400 validation (incl. `Currency`: "This budget is in {X}, so its accounts are too. A bank converts payments in other currencies into {X} itself."); 403 role < Admin; 404 flag off |
 | `PUT /api/accounts/{id:guid}` body `{name, type, openingBalance}` — **no currency field: immutable by API shape** | `UpdateAccountCommandHandler` | 200 `AccountDto` with recomputed balance | 400 validation; 403 role or other household's account (`account.OwnerId != userId`); 404 "Account {id} was not found." |
 | `DELETE /api/accounts/{id:guid}` | `DeleteAccountCommandHandler` | 204; explicitly nulls `AccountId` on the account's transactions and `TransferAccountId` on transfers-in (that FK is Restrict) before removing — register survives | 403 role/ownership; 404 unknown id |
-| `POST /api/transactions/transfer` body `{date, amount, fromAccountId, toAccountId, payee?}` (TransactionsController; feature-gated on **Accounts**? — no: TransactionsController is not account-gated; command is `[AllowLimited]` so Limited may transfer) | `CreateTransferCommandHandler` | 201 `TransactionDto`; single Transfer row, `Currency` stamped from the source account, `ExchangeRate` 1 | 400 (see §4); 403 either account in another household; 404 "Account {fromId/toId} was not found." |
+| `POST /api/transactions/transfer` body `{date, amount, fromAccountId, toAccountId, payee?}` (TransactionsController; feature-gated on **Accounts**? — no: TransactionsController is not account-gated; command is `[AllowLimited]` so Limited may transfer) | `CreateTransferCommandHandler` | 201 `TransactionDto`; single Transfer row, `Currency` stamped from the source account; a transfer is never `FxPending` | 400 (see §4); 403 either account in another household; 404 "Account {fromId/toId} was not found." |
 
 Error payload shape (`src/AllotJar.Api/Middleware/ExceptionHandlingMiddleware.cs`): `ValidationException` → 400 `{status, title:"Validation failed", errors:{Field:[msg,...]}}`; `NotFoundException` → 404 `{status, title}`; `ForbiddenAccessException` → 403; anything else → 500 "An unexpected error occurred.".
 
@@ -105,7 +105,7 @@ Error payload shape (`src/AllotJar.Api/Middleware/ExceptionHandlingMiddleware.cs
 `CreateAccountCommandValidator` (`src/AllotJar.Application/Accounts/Commands/CreateAccount/CreateAccountCommandValidator.cs`):
 - Name: NotEmpty → "An account needs a name."; MaximumLength(120).
 - Type: `IsInEnum()` (0–4).
-- Currency: NotEmpty → "An account needs a currency."; regex `^[A-Za-z]{3}$` → "Currency must be a 3-letter ISO 4217 code." (case-insensitive input; stored upper-cased). Any 3-letter string passes — no ISO list check.
+- Currency: NotEmpty → "An account needs a currency."; regex `^[A-Za-z]{3}$` → "Currency must be a 3-letter ISO 4217 code." (case-insensitive input; stored upper-cased). Any 3-letter string passes the validator — but the **handler** then refuses any code other than the budget currency (W08, rules 63/85): `Currency` → "This budget is in {X}, so its accounts are too. A bank converts payments in other currencies into {X} itself." The budget currency is the household's earliest budget month's `BaseCurrency`, else the owner's `PreferredCurrency`, else EUR (`src/AllotJar.Application/Budgets/BudgetCurrency.cs`).
 - OpeningBalance: InclusiveBetween(−99 999 999 999 999.9999, +99 999 999 999 999.9999) → "Opening balance exceeds the supported range." **Negative opening balances are valid** (credit-card debt).
 
 `UpdateAccountCommandValidator`: Id NotEmpty; Name/Type/OpeningBalance same as create; no currency rule (field doesn't exist).
@@ -131,25 +131,25 @@ Handler-thrown messages: "No authenticated user on the request." (Forbidden, 403
 - **Empty**: AccountsPage `EmptyState` "No accounts yet"; detail register "No transactions on this account yet."; reconciliation card entirely absent until ≥1 account backs ≥1 active jar.
 - **Error**: page-level `ErrorBanner` (hidden while add-modal open — the modal shows its own copy); reconciliation fetch failure is silent (table just doesn't refresh/appear).
 - **Feature flag off** (`Features:Accounts=false` server config): nav item gone, routes unregistered (URL → redirect to `/`), API 404s. Client flag state comes from `GET /features` merged over an all-on default (`client/src/features/FeatureContext.tsx` — note: if `/features` fails, the client assumes all-on while the server still 404s → UI shows pages whose API calls fail; edge case worth a test).
-- **`multiCurrency` flag off**: currency select hidden on add (accounts silently created in `preferredCurrency`), currency chips and "fixed once created" notes hidden; per-account formatting still uses `a.currency`.
+- **`multiCurrency` flag off**: currency chips and "fixed once created" notes hidden **except on an account whose currency differs from the budget currency** (those keep both); per-account formatting still uses `a.currency`. The add form has no currency picker either way (always the budget currency).
 - **Solo vs shared household**: no difference on these pages (no member attribution on accounts). Role matters instead: Owner/Admin get full CRUD; Limited/Read-only get read-only UI (`canWrite`) and server 403s on account commands. Limited CAN record transfers (`[AllowLimited]` on `CreateTransferCommand`).
 - **Archived/deleted referents**:
   - Deleted account: its transactions survive with `AccountId=null` (unassigned); transfers referencing it as destination get `TransferAccountId=null`; register rows then render "(removed account)" in transfer direction text (detail + transactions pages, PR #168). Visiting a deleted account's stale URL → "Account not found" state.
   - Archived jars are **excluded** from reconciliation (`GetAccountReconciliationQueryHandler.cs:44` filters `!f.IsArchived && f.FundingAccountId != null`).
   - A jar whose funding account was deleted: `Jar.FundingAccountId` — check FK behavior in JarConfiguration if testing; reconciliation only shows jars with non-null FundingAccountId matched to existing accounts, so orphaned backings simply drop out.
-- **Mixed currencies**: hero shows raw sum labelled with `preferredCurrency` + footnote flag; unanimous currency → hero uses it (`AccountsPage.tsx:186-192`).
+- **Account in another currency** (legacy data only — create now refuses it): hero totals leave it out entirely and show the "{N} account(s) in another currency … not counted." pill; its own card still shows its balance in its own currency with the currency chip. No raw cross-currency sum is ever shown (W08).
 - **Negative balances**: rose-colored on card, hero "Owed" tile aggregates them.
 
 ## 6. Computed/derived values & money rules (as implemented)
 
 - **Account balance** (never stored; `Ignore(a => a.CurrentBalance)` in EF): `CurrentBalance = OpeningBalance + Σincome − Σexpense − ΣtransferOut(AccountId=this) + ΣtransferIn(TransferAccountId=this)` over the household's transactions assigned to the account (`src/AllotJar.Application/Accounts/AccountBalances.cs:65`). Income/expense legs are grouped server-side per (account, type); transfer rows are fetched for the whole owner (not filtered by account ids) and matched in memory.
-- **Raw amounts, no FX**: `AccountBalances` sums `t.Amount` verbatim — `ExchangeRate` is NOT applied (deliberate: amounts are assumed to be in the account's currency; FX deferred).
+- **Raw amounts, no FX**: `AccountBalances` sums `t.Amount` verbatim. There is no exchange rate anywhere any more (W08 dropped `Transaction.ExchangeRate`/`BaseAmount`): a row on an account is in that account's currency.
 - **Splits don't matter to balances**: split slices are budget-line attribution only; the whole transaction amount moves the account (class doc, `AccountBalances.cs:8-16`).
 - **Create**: balance short-circuits to `OpeningBalance` (no tx possible yet, `CreateAccountCommandHandler.cs:47`). Update re-runs the derivation and returns it.
-- **Reconciliation** (`GetAccountReconciliationQueryHandler`): for each account, `BackedJarsTotal = Σ over active jars backing it of (jar.OpeningBalance + trackedBalance)`, where trackedBalance = all-time `JarBalances.ComputeAsync` = Σ over savings-kind budget lines linked to the jar of `PlannedAmount − spent`, spent = assigned expense tx (`Amount × ExchangeRate`) + split slices (`src/AllotJar.Application/Jars/JarBalances.cs`). `Float = CurrentBalance − BackedJarsTotal` (positive = unallocated cash, negative = shortfall). `BackedJarCount` = number of active jars naming the account.
+- **Reconciliation** (`GetAccountReconciliationQueryHandler`): for each account, `BackedJarsTotal = Σ over active jars backing it of (jar.OpeningBalance + trackedBalance)`, where trackedBalance = all-time `JarBalances.ComputeAsync` = Σ over savings-kind budget lines linked to the jar of `PlannedAmount − spent`, spent = assigned expense tx (`Amount`, budget currency; rows still `FxPending` are excluded) + split slices (`src/AllotJar.Application/Jars/JarBalances.cs`). `Float = CurrentBalance − BackedJarsTotal` (positive = unallocated cash, negative = shortfall). `BackedJarCount` = number of active jars naming the account.
 - **As-of balance logic**: `JarBalances.ComputeAsync` takes an optional `(Year, Month)? asOf` — strictly-before month filter used by **month creation** to seed savings lines (PR #167); reconciliation and the jars page call it WITHOUT asOf (all-time). The EF-translatability trick (hoisted `hasAsOf`/`asOfYear`/`asOfMonth` locals, `JarBalances.cs:28-41`) is an invariant — do not inline a nullable-tuple check.
 - **Client money**: integer minor units at scale 4 (`FACTOR = 10_000`), converted at the API boundary (`fromAmount`/`toAmount`); sums are integer sums (`AccountsPage.tsx:168-179`); display via `Intl.NumberFormat` currency style with the user's `numberFormat` preference locale (per-currency fraction digits: JPY 0dp etc.). Server money is `decimal(18,4)` (`AccountConfiguration.cs:33-34`).
-- **Net footers / hero tiles**: `netMinor` = Σ all balances; `availableMinor` = Σ max(0, balance); `owedMinor` = Σ min(0, balance) (displayed negated). These are cross-currency raw sums when currencies are mixed.
+- **Net footers / hero tiles**: `netMinor` = Σ balances of budget-currency accounts with an available balance; `availableMinor` = Σ max(0, balance); `owedMinor` = Σ min(0, balance) (displayed negated). Accounts in another currency are excluded (never a cross-currency sum).
 - **DisplayOrder**: create assigns `max(existing)+1` (−1+1=0 for first); no reorder UI exists; list sort is DisplayOrder, then Name.
 - Duplicate account names are allowed (no uniqueness rule anywhere).
 
@@ -160,13 +160,13 @@ Handler-thrown messages: "No authenticated user on the request." (Forbidden, 403
 - **Transfers only via `POST /transactions/transfer`** (PR #167): generic transaction create/update reject `Type=Transfer`; destination-less transfers used to vanish money from derived balances. Editing a transfer via UpdateTransaction is blocked; UI has no edit affordance on transfer rows. Regression test: attempt `POST /api/transactions {type: Transfer}` → 400.
 - **Cross-currency transfers blocked** (PR #167): same-currency guard + transfer stamped in the source account's currency (was hardcoded EUR). Regression: EUR→GBP transfer must 400 with "Both accounts must use the same currency to transfer between them."
 - **Delete unlinks, never cascades** (explicit nulling in handler for provider parity; FK is SetNull for AccountId, Restrict for TransferAccountId — `DeleteAccountCommandHandler.cs:36-55`, `AccountConfiguration.cs:41-46`). Regression: deleting an account must not delete or fail on transfer rows pointing into it.
-- **Per-account currency display** (PR #168): cards, opening captions and reconciliation cells format in `a.currency` (NOT `preferredCurrency`); reconciliation currency looked up client-side by accountId. Hero uses the unanimous currency, else preferred + footnote. A preference change must never relabel account cards.
+- **Per-account currency display** (PR #168): cards, opening captions and reconciliation cells format in `a.currency` (NOT `preferredCurrency`); reconciliation currency looked up client-side by accountId. Hero is labelled in the budget currency and counts only budget-currency accounts (W08). A preference change must never relabel account cards (and once the household holds anything the preference can't change — see `maps/auth.md`).
 - **"(removed account)" fallback + signed transfer rows on the single-account register** (PR #168): − when source, + when destination.
 - **Category pills keyed by name with hash fallback** (PR #168): rows from non-current months must not render grey.
 - **Deferred / known-broken (do NOT report as new bugs, but don't let them regress silently either)** (memory `months-accounts-coherence-audit-2026-07.md`):
-  - `AccountBalances` and hero totals raw-sum across currencies; `ExchangeRate` is hardcoded 1 app-wide.
-  - Reconciliation `Float` mixes account-currency balance with base-currency jar totals (JarBalances applies ExchangeRate; AccountBalances doesn't).
-  - Manually-entered transaction currency is stamped from the month base, not the account — display-only mismatch on the detail register (row uses `t.currency`).
+  - ~~`AccountBalances` and hero totals raw-sum across currencies; `ExchangeRate` is hardcoded 1 app-wide.~~ Resolved by W08: hero counts only budget-currency accounts; `ExchangeRate` no longer exists.
+  - ~~Reconciliation `Float` mixes account-currency balance with base-currency jar totals.~~ Resolved by W08: a jar can only be held in a budget-currency account (`JarAccounts.LoadDesignatedAsync` refuses another currency: "{Account} is in {X}, but the budget is in {Y}. Choose an account in {Y}.").
+  - Manually-entered transactions are stamped in the household's budget currency (`BudgetCurrency.ResolveAsync`); since every new account is also in the budget currency, the mismatch only remains for legacy other-currency accounts.
 - **Role gating asymmetry**: account CRUD = Admin+; transfers = Limited+; reads = all roles incl. Read-only. Client `canWrite` mirrors the server default but the server is authoritative (`AuthorizationBehaviour.cs`).
 - **Feature-gate parity**: UI hides + API 404s must stay in sync; `FeatureGate` returns bare 404 (no body).
 - **Currency validator accepts any 3 letters** ("ZZZ" passes) — `Intl.NumberFormat` on the client will still render unknown ISO codes generically; not validated against a currency list by design (picker is a shortlist, engine accepts any code — `money.ts:63-68`).
@@ -189,7 +189,8 @@ Backend:
 - `src/AllotJar.Application/Accounts/Queries/GetAccounts/{GetAccountsQuery,GetAccountsQueryHandler}.cs`
 - `src/AllotJar.Application/Accounts/Queries/GetAccountReconciliation/{GetAccountReconciliationQuery,GetAccountReconciliationQueryHandler}.cs`
 - `src/AllotJar.Application/Transactions/Commands/CreateTransfer/{CreateTransferCommand,CreateTransferCommandHandler,CreateTransferCommandValidator}.cs`
-- `src/AllotJar.Application/Jars/JarBalances.cs`
+- `src/AllotJar.Application/Jars/JarBalances.cs`, `src/AllotJar.Application/Jars/JarAccounts.cs` (budget-currency check for a jar's account)
+- `src/AllotJar.Application/Budgets/BudgetCurrency.cs` (the household's one budget currency; W08)
 - `src/AllotJar.Application/Common/Behaviours/AuthorizationBehaviour.cs`
 - `src/AllotJar.Application/Common/Interfaces/ICurrentUser.cs`
 - `src/AllotJar.Domain/Entities/Account.cs`
@@ -205,7 +206,7 @@ Frontend:
 - `client/src/pages/TransactionsPage.tsx` (transfer form, partial)
 - `client/src/pages/JarsPage.tsx` ("Held in" funding-account select, partial)
 - `client/src/features/FeatureContext.tsx`
-- `client/src/auth/AuthContext.tsx` (canWrite/preferredCurrency, partial)
+- `client/src/auth/AuthContext.tsx` (canWrite/budgetCurrency, partial)
 - `client/src/lib/money.ts`
 - `client/src/lib/categoryColors.ts` (hueForAccountType, partial)
 - `client/src/types.ts` (AccountType/labels/AccountDto, partial)
@@ -213,6 +214,8 @@ Frontend:
 
 Tests:
 - `client/src/pages/AccountsPage.test.tsx`, `client/src/pages/AccountDetailPage.test.tsx`
+- `client/src/pages/AccountsPage.catalog.test.tsx` (ACCT-005 other-currency account left out of totals; ACCT-018 no currency picker, POST uses the budget currency; ACCT-019 chip only on an other-currency account when `multiCurrency` is off)
 - `tests/AllotJar.Application.Tests/Application/AccountsTests.cs`, `tests/AllotJar.Application.Tests/Application/AccountReconciliationTests.cs`
+- `tests/AllotJar.Application.Tests/Transactions/ForeignAmountsTests.cs` (`A_new_account_must_be_in_the_budget_currency`, `A_jar_cannot_live_in_an_account_kept_in_another_currency`)
 
 Memory notes consulted (verified against code): `<local>\.claude\projects\C--Users-Laptop-Documents-Projects\memory\months-accounts-coherence-audit-2026-07.md`

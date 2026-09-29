@@ -58,11 +58,11 @@
 - **Priority:** P2
 - **Type:** Happy
 - **Origin:** REVIEW P2 / rule 29 (the People page shows the same month and figures as the Budget)
-- **Preconditions:** Fixture B; Sam has attributed expense transactions of €120 in the selected month, €80 in a prior month, and a £100 row at 1.20 in the selected month plus a foreign row whose rate is still pending.
+- **Preconditions:** Fixture B; Sam has attributed expense transactions of €120 in the selected month, €80 in a prior month, and a row paid in GBP (£100) whose confirmed amount is €120.00 in the selected month, plus a GBP row still waiting for its EUR amount (`fxPending`).
 - **Steps:**
   1. Open `/people`; read the "Shared this month" tile and the per-row "Spent" column.
   2. Navigate the TopBar month to the prior month.
-- **Expected:** The page loads `GET /members/spending/{year}/{month}` for the selected month: Sam's Spent is €240.00 (120 + 100 × 1.20), the pending-rate row is left out and shown as a "+1 pending rate" hint; after step 2 the figures are the prior month's (€80.00). Split transactions attribute per-slice `MemberId`; unsplit via `t.MemberId`; unattributed count for no one. A **refund** attributed to a person (an income row linked to a purchase, rules 38/39, W12) counts **negative** in their Spent for the month it was received and never in their Received income. The all-time `GET /members/spending` remains for other consumers.
+- **Expected:** The page loads `GET /members/spending/{year}/{month}` for the selected month: Sam's Spent is €240.00 (120 + the confirmed 120; the £100 is only a caption, never multiplied by a rate), the waiting row is left out and shown as a "+1 needs EUR amount" hint under the Spent cell (PPL-082); after step 2 the figures are the prior month's (€80.00). Split transactions attribute per-slice `MemberId`; unsplit via `t.MemberId`; unattributed count for no one. A **refund** attributed to a person (an income row linked to a purchase, rules 38/39, W12) counts **negative** in their Spent for the month it was received and never in their Received income. The all-time `GET /members/spending` remains for other consumers.
 - **Automated:** Full (backend `MemberFiguresRule28Tests`, `MemberSpendingTests`, `RefundTests.MemberFigures_NetRefundsOutOfSpending_AndLeaveThemOutOfIncome`; client PPL-006)
 
 ---
@@ -834,7 +834,7 @@
 - **Preconditions:** The selected month's budget has income lines: Alex 3,000 attributed, Robin 1,000 attributed, 1,000 "Whole household"; saved defaults Alex 1,000 / Robin 1,000.
 - **Steps:**
   1. Open `/people`; read the hero, each person's Income cell and Share.
-- **Expected:** The page requests `GET /members?year=&month=`, `/members/income/{y}/{m}` and `/members/spending/{y}/{m}` for the TopBar month. Hero **"Income this month"** = 5,000.00. Alex's Income 3,500.00 (3,000 + half of the unattributed 1,000), Robin's 1,500.00; Shares 70% / 30% — from `incomeSharePct` of the month payload, never from the defaults. The "default €1,000.00" sub-line appears under each because the default differs. `Received` per member is base-currency and excludes pending-rate rows (`fxPendingCount`).
+- **Expected:** The page requests `GET /members?year=&month=`, `/members/income/{y}/{m}` and `/members/spending/{y}/{m}` for the TopBar month. Hero **"Income this month"** = 5,000.00. Alex's Income 3,500.00 (3,000 + half of the unattributed 1,000), Robin's 1,500.00; Shares 70% / 30% — from `incomeSharePct` of the month payload, never from the defaults. The "default €1,000.00" sub-line appears under each because the default differs. `Received` per member counts confirmed budget-currency amounts and excludes rows still waiting for their amount (`fxPendingCount`, shown under the hero as "+N income row(s) in another currency, not counted until its/their amount in EUR is entered." — PPL-082).
 - **Automated:** Full (client PPL-078; backend `MemberFiguresRule28Tests`, `AllocationIncomeFromBudgetTests`)
 
 ### PPL-079 - Without income lines (or without a budget) every figure is zero; the defaults never fill in
@@ -845,6 +845,17 @@
   1. Open `/people`.
 - **Expected:** Hero "Income this month" 0.00 with the note "No budget for {Month Year} yet" when there is none; every Income cell 0.00 and every Share 0%. The saved default is edited as **Default income for {name}** (add modal: "Default income") with the hint "Becomes this person's income line when you start a blank month. Calculations use the income lines in the month's budget." Nothing on the page or the Allocation page ever uses it as a pool (rule 28); its one use is seeding a blank month (BUDG-057).
 - **Automated:** Full (client PPL-079; backend `AllocationIncomeFromBudgetTests.NoBudget_YieldsAnEmptyPool_NotTheDefaults`)
+
+### PPL-082 - Rows waiting for their budget-currency amount are left out of People and say so
+- **Priority:** P2
+- **Type:** Edge
+- **Origin:** W08 (rules 28, 42–44). Replaces the pre-W08 "+N pending rate" hint for rows whose exchange rate had not been found.
+- **Preconditions:** Fixture B, budget currency EUR, a month with income lines; Alex has €120.00 of attributed spending plus two GBP expense rows and Sam one GBP income row, all imported and still waiting (`fxPending`); Sam has nothing else waiting.
+- **Steps:**
+  1. Open `/people` for that month; read Alex's and Sam's Spent cells and the hero.
+  2. Hover the hint; then on `/transactions` enter the EUR amount for one of Alex's rows and reload `/people`.
+- **Expected:** Step 1: Alex's Spent reads **€120.00** with an amber hint **"+2 need EUR amount"** under it (title "2 spending rows are in another currency, waiting for the amount in EUR, and not counted yet"); Sam's Spent has no hint (exactly one hint row on the page). The hero reads "+1 income row in another currency, not counted until its amount in EUR is entered." and Sam's Received leaves the row out. Step 2: Alex's Spent grows by the confirmed amount and the hint reads **"+1 needs EUR amount"**. The figures come from `fxPendingCount` on `GET /members/spending/{y}/{m}` and `/members/income/{y}/{m}`; nothing is converted by the app.
+- **Automated:** Yes (client `PeoplePage.catalog.test.tsx` — “PPL-082: FX-pending spending and income rows show a "+N need EUR amount" hint”; backend MemberFiguresRule28Tests — `GetMemberSpending_WithAMonth_CountsOnlyThatMonth_AndSkipsWaitingRows`, `GetMemberIncome_Received_CountsConfirmedAmounts_AndSkipsWaitingRows_CountingThem`)
 
 ## Pocket money and the person (rules 53–54)
 
