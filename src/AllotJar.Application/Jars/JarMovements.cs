@@ -147,13 +147,13 @@ public static class JarMovements
         var heldThen = existing?.Postings.Where(p => p.JarId is not null).Select(p => p.JarId!.Value).ToHashSet() ?? new HashSet<Guid>();
         var keepsHistory = false;
         var keptJars = new HashSet<Guid>();
-        Guid JarFor(Guid? lineId, IReadOnlyDictionary<Guid, (Guid JarId, Guid AccountId)> lineJars)
+        Guid JarFor(Guid? lineId, IReadOnlyDictionary<Guid, (Guid JarId, Guid AccountId, DateOnly? Since)> lineJars)
         {
             if (lineId is not Guid id || !lineJars.TryGetValue(id, out var line))
             {
                 return Guid.Empty;
             }
-            if (line.AccountId == account.Id)
+            if (JarLedgerReader.HeldOn(line.AccountId, line.Since, account.Id, transaction.Date))
             {
                 return line.JarId;
             }
@@ -378,19 +378,19 @@ public static class JarMovements
         return jars;
     }
 
-    /// <summary>Budget line → the jar whose savings line it is, and the account that holds the jar now (rule 79).</summary>
-    private static async Task<Dictionary<Guid, (Guid JarId, Guid AccountId)>> LineJarsAsync(
+    /// <summary>Budget line → the jar whose savings line it is, the account that holds the jar now and the day it moved there (rule 79).</summary>
+    private static async Task<Dictionary<Guid, (Guid JarId, Guid AccountId, DateOnly? Since)>> LineJarsAsync(
         IApplicationDbContext db, IReadOnlyCollection<Guid> lineIds, CancellationToken cancellationToken)
     {
         if (lineIds.Count == 0)
         {
-            return new Dictionary<Guid, (Guid, Guid)>();
+            return new Dictionary<Guid, (Guid, Guid, DateOnly?)>();
         }
         return await db.BudgetItems
             .AsNoTracking()
             .Where(i => lineIds.Contains(i.Id) && i.SavingsId != null && i.Jar != null)
-            .Select(i => new { i.Id, JarId = i.SavingsId!.Value, i.Jar!.FundingAccountId })
-            .ToDictionaryAsync(x => x.Id, x => (x.JarId, x.FundingAccountId), cancellationToken);
+            .Select(i => new { i.Id, JarId = i.SavingsId!.Value, i.Jar!.FundingAccountId, i.Jar.FundingAccountSince })
+            .ToDictionaryAsync(x => x.Id, x => (x.JarId, x.FundingAccountId, x.FundingAccountSince), cancellationToken);
     }
 
     private static ValidationException Validation(string key, string message) =>

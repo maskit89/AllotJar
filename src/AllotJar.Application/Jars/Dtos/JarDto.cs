@@ -49,16 +49,17 @@ public class JarDto
     public bool CanDelete { get; set; }
 
     /// <summary>
-    /// The jar's actual balance in its account as of <see cref="BalanceAsOf"/>: the allocations posted
-    /// against it, never planned contributions (rule 1). Null when the account's balance is
-    /// unavailable (rule 67), never zero.
+    /// The jar's actual balance as of <see cref="BalanceAsOf"/>: the allocations posted against it
+    /// in whichever account held it then (rule 80), never planned contributions (rule 1). Null when
+    /// no open account held it on that date (rule 67), never zero.
     /// </summary>
     public decimal? CurrentBalance { get; set; }
 
     public DateOnly BalanceAsOf { get; set; }
 
     /// <summary>
-    /// This month's planned contribution (rule 14): the month's savings line when the month exists,
+    /// This month's planned contribution (rule 14): the month's savings line when the month has
+    /// one; for a month that is over and has none, 0 (no plan is invented after the fact, rule 46);
     /// otherwise what the schedule plans from the balance at the month start (or today's, when
     /// money left the jar this month). It does not fall as contributions land. 0 when the balance
     /// is unavailable or nothing is planned.

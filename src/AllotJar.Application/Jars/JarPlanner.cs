@@ -64,8 +64,9 @@ public static class JarPlanner
             return result;
         }
 
-        var opening = await JarLedgerReader.ReadAsync(db, ownerId, current.AddDays(-1), cancellationToken);
-        var now = await JarLedgerReader.ReadAsync(db, ownerId, today, cancellationToken);
+        var ledger = await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken);
+        var opening = ledger.At(current.AddDays(-1));
+        var now = ledger.At(today);
         if (target == current)
         {
             foreach (var jar in scheduled)
@@ -112,12 +113,15 @@ public static class JarPlanner
         now + Math.Max(0m, plannedThisMonth - Math.Max(0m, now - planningBalance));
 
     /// <summary>The jar's balance entering the current month, today, and the one this month plans from, plus <paramref name="extraBalance"/> (money set aside at creation, not yet in the ledger).</summary>
+    /// <param name="ledger">The ledger the caller already loaded, when nothing it holds has changed since; null loads it.</param>
     public static async Task<(decimal Opening, decimal Now, decimal Planning)> BalancesAsync(
-        IApplicationDbContext db, string ownerId, Jar jar, DateOnly today, decimal extraBalance, CancellationToken cancellationToken)
+        IApplicationDbContext db, string ownerId, Jar jar, DateOnly today, decimal extraBalance, CancellationToken cancellationToken,
+        JarLedgerSource? ledger = null)
     {
         var current = new DateOnly(today.Year, today.Month, 1);
-        var opening = await JarLedgerReader.ReadAsync(db, ownerId, current.AddDays(-1), cancellationToken);
-        var now = await JarLedgerReader.ReadAsync(db, ownerId, today, cancellationToken);
+        ledger ??= await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken);
+        var opening = ledger.At(current.AddDays(-1));
+        var now = ledger.At(today);
         var openingBalance = opening.BalanceOf(jar.Id);
         var nowBalance = now.BalanceOf(jar.Id);
         return ((openingBalance ?? 0m) + extraBalance, (nowBalance ?? 0m) + extraBalance, PlanningBalance(openingBalance, nowBalance) + extraBalance);
@@ -153,8 +157,10 @@ public static class JarPlanner
     /// when a Recurring cycle closes (W03), when a month is skipped or planned again and when an
     /// archived jar is restored. The plan written is the one <see cref="ScheduleAsync"/> previews.
     /// </summary>
+    /// <param name="ledger">The ledger the caller already loaded, when nothing it holds has changed since; null loads it.</param>
     public static async Task ReplantAsync(
-        IApplicationDbContext db, string ownerId, Jar jar, DateOnly today, decimal extraBalance, CancellationToken cancellationToken)
+        IApplicationDbContext db, string ownerId, Jar jar, DateOnly today, decimal extraBalance, CancellationToken cancellationToken,
+        JarLedgerSource? ledger = null)
     {
         var months = await db.BudgetMonths
             .Include(m => m.Categories.Where(c => c.Kind == CategoryKind.Savings))
@@ -168,7 +174,7 @@ public static class JarPlanner
             return;
         }
 
-        var balances = await BalancesAsync(db, ownerId, jar, today, extraBalance, cancellationToken);
+        var balances = await BalancesAsync(db, ownerId, jar, today, extraBalance, cancellationToken, ledger);
         // The skipped months are read from the loaded lines (they may be mid-change, e.g. the
         // skip being applied), never from a second query.
         var skipped = months

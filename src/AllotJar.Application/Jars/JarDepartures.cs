@@ -87,6 +87,7 @@ public static class JarDepartures
             {
                 return null;
             }
+            // BackfillAsync records these at startup; this covers a residue it has not seen yet.
             var last = await db.JarAllocations
                 .Where(a => a.AccountId == accountId && a.Postings.Any(p => p.JarId == jarId))
                 .MaxAsync(a => (DateOnly?)a.Date, cancellationToken) ?? date;
@@ -119,11 +120,26 @@ public static class JarDepartures
             return;
         }
         var designated = await db.Jars.AsNoTracking().Where(j => jarIds.Contains(j.Id)).ToDictionaryAsync(j => j.Id, j => j.FundingAccountId, cancellationToken);
+        // The departures of these jars from this account, in one query: a jar still designated
+        // here that never left it has no kept history to settle, so the common write (a leg on a
+        // jar of its own account) costs no query per jar (P3-10).
+        await db.JarAllocations
+            .Include(a => a.Postings)
+            .Where(a => a.AccountId == accountId && a.Kind == JarAllocationKind.Departure
+                        && a.Postings.Any(p => p.JarId != null && jarIds.Contains(p.JarId.Value)))
+            .LoadAsync(cancellationToken);
+        var leftHere = db.JarAllocations.Local
+            .Where(a => a.AccountId == accountId && a.Kind == JarAllocationKind.Departure)
+            .SelectMany(a => a.Postings)
+            .Where(p => p.JarId is not null)
+            .Select(p => p.JarId!.Value)
+            .ToHashSet();
         foreach (var jarId in jarIds)
         {
             var was = before.Where(p => p.JarId == jarId).Sum(p => p.Amount);
             var now = after.Where(p => p.JarId == jarId).Sum(p => p.Amount);
-            if (was == now && beforeDate == afterDate)
+            if ((was == now && beforeDate == afterDate)
+                || (designated.GetValueOrDefault(jarId) == accountId && !leftHere.Contains(jarId)))
             {
                 continue;
             }
@@ -144,6 +160,47 @@ public static class JarDepartures
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// P3-8: records the departure every move made before departures were recorded still lacks —
+    /// for each jar with postings in an account it is no longer designated to and no departure
+    /// there, one dated on the last day that account's ledger touched the jar, settling what the
+    /// postings leave in it (S = their sum, as <see cref="CoveringAsync"/> records one lazily).
+    /// Such a residue (a kept payment corrected on the old code, which settled nothing) blocked the
+    /// jar's archive until a kept entry happened to be edited. Idempotent: a jar and account with
+    /// a departure are left alone. Saves; returns how many it recorded. Run at startup.
+    /// </summary>
+    public static async Task<int> BackfillAsync(IApplicationDbContext db, CancellationToken cancellationToken)
+    {
+        var postings = await db.JarAllocationPostings
+            .AsNoTracking()
+            .Where(p => p.JarId != null && p.Jar != null && p.JarAllocation.AccountId != p.Jar.FundingAccountId)
+            .Select(p => new
+            {
+                JarId = p.JarId!.Value,
+                p.JarAllocation.AccountId,
+                p.JarAllocation.OwnerId,
+                p.JarAllocation.Date,
+                p.JarAllocation.Kind,
+                p.Amount,
+            })
+            .ToListAsync(cancellationToken);
+        var recorded = 0;
+        foreach (var kept in postings.GroupBy(p => (p.JarId, p.AccountId)))
+        {
+            if (kept.Any(p => p.Kind == JarAllocationKind.Departure))
+            {
+                continue;
+            }
+            db.JarAllocations.Add(New(kept.First().OwnerId, kept.Key.AccountId, kept.Key.JarId, kept.Max(p => p.Date), kept.Sum(p => p.Amount)));
+            recorded++;
+        }
+        if (recorded > 0)
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        return recorded;
     }
 
     /// <summary>The day the jar last left the account.</summary>

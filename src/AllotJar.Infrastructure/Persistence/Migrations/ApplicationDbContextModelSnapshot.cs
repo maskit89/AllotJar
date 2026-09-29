@@ -382,6 +382,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("FundingAccountId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<DateOnly?>("FundingAccountSince")
+                        .HasColumnType("date");
+
                     b.Property<bool>("IncludeDeadlineMonth")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
@@ -476,6 +479,7 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Amount")
+                        .IsConcurrencyToken()
                         .HasPrecision(18, 4)
                         .HasColumnType("decimal(18,4)");
 
@@ -492,6 +496,28 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.HasIndex("JarId");
 
                     b.ToTable("JarAllocationPostings", (string)null);
+                });
+
+            modelBuilder.Entity("AllotJar.Domain.Entities.JarArchivePeriod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly>("ArchivedOn")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("JarId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly>("RestoredOn")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JarId", "ArchivedOn");
+
+                    b.ToTable("JarArchivePeriods", (string)null);
                 });
 
             modelBuilder.Entity("AllotJar.Domain.Entities.JarCycle", b =>
@@ -1093,6 +1119,17 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Navigation("Jar");
 
                     b.Navigation("JarAllocation");
+                });
+
+            modelBuilder.Entity("AllotJar.Domain.Entities.JarArchivePeriod", b =>
+                {
+                    b.HasOne("AllotJar.Domain.Entities.Jar", "Jar")
+                        .WithMany()
+                        .HasForeignKey("JarId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Jar");
                 });
 
             modelBuilder.Entity("AllotJar.Domain.Entities.JarCycle", b =>

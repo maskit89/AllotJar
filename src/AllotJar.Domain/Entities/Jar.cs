@@ -89,6 +89,15 @@ public class Jar : BaseEntity
     public Account? FundingAccount { get; set; }
 
     /// <summary>
+    /// The day the jar moved into <see cref="FundingAccountId"/> (rule 80); null when it has been
+    /// held there since it was created, or was moved before the day was recorded. A payment from
+    /// this account on the jar's line dated on or before it was made while the jar was held
+    /// elsewhere, so it drew from the account's unallocated money, not from the jar (P2-20; the
+    /// move day belongs to the account the jar left, as its departure does).
+    /// </summary>
+    public DateOnly? FundingAccountSince { get; set; }
+
+    /// <summary>
     /// Rule 55 (W04): the day the user marked this one-off jar's purpose completed. A completed jar
     /// plans no further contributions — its balance being spent (or reaching zero) never restarts
     /// a plan — and keeps whatever it still holds until the user reallocates it (rule 56).
@@ -111,7 +120,8 @@ public class Jar : BaseEntity
     /// <summary>
     /// The day the jar was archived (W05): a month that ended before it reads the jar as it was
     /// then, live, so archiving does not rewrite that month's status (rule 27, P49). Cleared on
-    /// restore. Null on a jar archived before the date was recorded: archived on every date.
+    /// restore, which records the stretch as a <see cref="JarArchivePeriod"/>. Null on a jar
+    /// archived before the date was recorded: archived on every date.
     /// </summary>
     public DateOnly? ArchivedOn { get; set; }
 

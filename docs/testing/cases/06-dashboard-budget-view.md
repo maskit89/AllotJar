@@ -440,6 +440,26 @@
 - **Expected:** The month's grid loads; the shelf is absent and a note reads "Could not load your jars for this month. Change month or reload to try again."; "Set up your budget" is not shown. A later successful read (another month, or a reload) clears the note.
 - **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-079)
 
+### DASH-080 - Typing an amount on a skipped jar line clears its Skipped tag
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** Adversarial review of PR #275 (W05, P2-16; pre-existing since W04): the server un-skips the month when a jar line gets an amount (rule 60) and the shelf re-read showed it planned, but the line kept "Skipped" and "Plan it again".
+- **Preconditions:** The current month with Holiday's contribution skipped (its line at €0.00 with the Skipped tag).
+- **Steps:**
+  1. Click Holiday's planned amount, type 200, and tab away.
+- **Expected:** `PUT /api/budget/items/{id}` with `plannedAmount: 200`; the line shows €200.00 with no Skipped tag and no "Plan it again"; the shelf re-reads to "+€200.00/mo". Typing 0 on a skipped line keeps it skipped (the server keeps it too).
+- **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-080)
+
+### DASH-081 - An answer that returns after the user changed month never repaints the month now viewed
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** Adversarial review of PR #275 (W05, P2-17; pre-existing): creating a month, "Plan it again", a save's reconcile or a failed save's rollback that returned after the user changed month put the old month's grid under the new month's label, and later edits went to the old month's lines.
+- **Preconditions:** The previous month has a budget (Holiday planned €100.00); the current month has none, or has Holiday's contribution skipped; `POST /api/budget` or `PUT /api/budget/items/{id}/skip` is slow.
+- **Steps:**
+  1. On the current month click "Start a blank budget" (or Holiday's "Plan it again"). 2. Before it returns, go to the previous month. 3. Let the request return.
+- **Expected:** 2: the previous month's grid loads (Holiday €100.00). 3: it stays; the current month's answer (Holiday €150.00) never shows under the previous month's label. Going back to the current month loads it from the server. The same guard covers every save's reconcile and rollback on the grid.
+- **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-081, both cases)
+
 ## Income card
 
 ### DASH-031 - Income header shows transaction-derived received of planned

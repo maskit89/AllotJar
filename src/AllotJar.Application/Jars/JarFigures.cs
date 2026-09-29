@@ -20,7 +20,7 @@ namespace AllotJar.Application.Jars;
 /// is over and has no line for the jar; a month that has not begun and has no line yet is planned
 /// from that month. A month that is over is judged against the definition the jar had at its end
 /// (<see cref="JarHistory.DefinitionOn"/>: the latest revision on or before it, and a Recurring
-/// cycle open then and closed since).
+/// cycle open then and closed since), archived or live as it was then (P2-19).
 /// </para>
 /// </summary>
 public static class JarFigures
@@ -31,7 +31,8 @@ public static class JarFigures
         IReadOnlyList<Jar> jars,
         DateOnly asOf,
         CancellationToken cancellationToken,
-        DateOnly? month = null)
+        DateOnly? month = null,
+        JarLedgerSource? ledger = null)
     {
         if (jars.Count == 0)
         {
@@ -54,9 +55,11 @@ public static class JarFigures
         }
 
         // Actual money only (rule 1): each jar's allocations in its account as of the date, and
-        // as the month began (the same snapshot when the month has not begun: nothing went in yet).
-        var now = await JarLedgerReader.ReadAsync(db, ownerId, balanceDate, cancellationToken);
-        var before = dayBefore == balanceDate ? now : await JarLedgerReader.ReadAsync(db, ownerId, dayBefore, cancellationToken);
+        // as the month began (the same snapshot when the month has not begun: nothing went in yet),
+        // from one load of the ledger (P3-6).
+        ledger ??= await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken);
+        var now = ledger.At(balanceDate);
+        var before = dayBefore == balanceDate ? now : ledger.At(dayBefore);
 
         var ids = jars.Select(j => j.Id).ToList();
         // This month's stored lines: the plan they carry, and whether the user skipped the month
@@ -109,8 +112,13 @@ public static class JarFigures
                 .GroupBy(r => r.JarId)
                 .ToDictionary(g => g.Key, g => g.MaxBy(r => r.EffectiveFrom)!)
             : new Dictionary<Guid, JarRevision>();
+        // ... and archived or live as it was then (P2-19: a jar restored since still reads the
+        // months it spent archived as archived).
+        var archivePeriods = isOver ? await ArchivePeriodsAsync(db, ids, cancellationToken) : null;
         Jar DefinitionOf(Jar jar) => isOver
-            ? JarHistory.DefinitionOn(jar, revisions.GetValueOrDefault(jar.Id), cycles.GetValueOrDefault(jar.Id), balanceDate)
+            ? JarHistory.ArchiveOn(
+                JarHistory.DefinitionOn(jar, revisions.GetValueOrDefault(jar.Id), cycles.GetValueOrDefault(jar.Id), balanceDate),
+                archivePeriods!.GetValueOrDefault(jar.Id), balanceDate)
             : jar;
 
         return jars
@@ -132,4 +140,14 @@ public static class JarFigures
     public static async Task<JarDto> ReadOneAsync(
         IApplicationDbContext db, string ownerId, Jar jar, DateOnly asOf, CancellationToken cancellationToken)
         => (await ReadAsync(db, ownerId, new[] { jar }, asOf, cancellationToken))[0];
+
+    /// <summary>The stretches each jar spent archived and was restored from (P2-19).</summary>
+    internal static async Task<Dictionary<Guid, List<JarArchivePeriod>>> ArchivePeriodsAsync(
+        IApplicationDbContext db, IReadOnlyCollection<Guid> jarIds, CancellationToken cancellationToken) =>
+        (await db.JarArchivePeriods
+            .AsNoTracking()
+            .Where(p => jarIds.Contains(p.JarId))
+            .ToListAsync(cancellationToken))
+        .GroupBy(p => p.JarId)
+        .ToDictionary(g => g.Key, g => g.ToList());
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 
 namespace AllotJar.Api.Middleware;
@@ -40,6 +41,13 @@ public class ExceptionHandlingMiddleware
         catch (StatementParseException ex)
         {
             await WriteProblem(context, StatusCodes.Status422UnprocessableEntity, ex.Message);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Two writes changed the same ledger row at once (a jar's departure, P3-9): the
+            // second is refused rather than overwriting the first, and can simply be made again.
+            await WriteProblem(context, StatusCodes.Status409Conflict,
+                "Something else changed this at the same moment. Reload and try again.");
         }
         catch (Exception ex)
         {

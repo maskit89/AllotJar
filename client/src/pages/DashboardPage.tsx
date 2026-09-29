@@ -100,6 +100,21 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // A month that has not begun: the jars shelf shows today's balances with nothing contributed yet.
   const isFutureMonth = year > today.getFullYear() || (year === today.getFullYear() && monthNum > today.getMonth() + 1)
 
+  // The month on screen, for answers that return after an await: a handler's answer belongs to
+  // the month it was made on, so one that lands after the user changed month (a create, a
+  // re-read, a save or its rollback) never paints that month's grid under the new month's label.
+  const viewedMonth = useRef(`${year}-${monthNum}`)
+  useLayoutEffect(() => {
+    viewedMonth.current = `${year}-${monthNum}`
+  }, [year, monthNum])
+  const isViewed = useCallback((y: number, m: number) => viewedMonth.current === `${y}-${m}`, [])
+  // Called when a handler starts: the returned check is true while the month it started on is
+  // still the one viewed.
+  const stillOn = useCallback(() => {
+    const started = viewedMonth.current
+    return () => viewedMonth.current === started
+  }, [])
+
   // Load the viewed month whenever it changes; a 404 means "no budget yet".
   useEffect(() => {
     let cancelled = false
@@ -138,12 +153,13 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   const refreshMonth = useCallback(async () => {
     try {
       const { data } = await api.get<BudgetMonthDto>(`/budget/${year}/${monthNum}`)
+      if (!isViewed(year, monthNum)) return
       setMonth(fromDto(data))
       setNotFound(false)
     } catch (err) {
-      if ((err as { response?: { status?: number } })?.response?.status === 404) setNotFound(true)
+      if (isViewed(year, monthNum) && (err as { response?: { status?: number } })?.response?.status === 404) setNotFound(true)
     }
-  }, [year, monthNum])
+  }, [year, monthNum, isViewed])
 
   const refreshMonths = useCallback(() => {
     api
@@ -170,10 +186,6 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // previous month can never overwrite the month now viewed. A refresh asked for by a handler
   // whose month is no longer viewed (a save that returns after the user changed month) reads
   // nothing: the viewed month's own read is already on its way.
-  const viewedMonth = useRef(`${year}-${monthNum}`)
-  useLayoutEffect(() => {
-    viewedMonth.current = `${year}-${monthNum}`
-  }, [year, monthNum])
   const jarsRead = useRef(0)
   const refreshJars = useCallback(() => {
     if (viewedMonth.current !== `${year}-${monthNum}`) return
@@ -235,9 +247,11 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           month: monthNum,
           copyFromPrevious,
         })
-        setMonth(fromDto(data))
-        setNotFound(false)
         refreshMonths()
+        if (isViewed(year, monthNum)) {
+          setMonth(fromDto(data))
+          setNotFound(false)
+        }
         refreshJars() // the month's seeded contribution lines are the shelf's plan (rule 14)
         track(EVENTS.budgetMonthCreated, { source: copyFromPrevious ? 'copy' : 'blank' })
       } catch {
@@ -246,7 +260,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         setCreating(false)
       }
     },
-    [year, monthNum, refreshMonths, refreshJars],
+    [year, monthNum, refreshMonths, refreshJars, isViewed],
   )
 
   // Create the viewed month from a quick-start template.
@@ -261,9 +275,11 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           copyFromPrevious: false,
           templateKey,
         })
-        setMonth(fromDto(data))
-        setNotFound(false)
         refreshMonths()
+        if (isViewed(year, monthNum)) {
+          setMonth(fromDto(data))
+          setNotFound(false)
+        }
         refreshJars()
         track(EVENTS.budgetMonthCreated, { source: 'template' })
       } catch {
@@ -272,7 +288,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         setCreating(false)
       }
     },
-    [year, monthNum, refreshMonths, refreshJars],
+    [year, monthNum, refreshMonths, refreshJars, isViewed],
   )
 
   // Optimistic commit: apply the edit locally and recompute the banner instantly
@@ -280,6 +296,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // so success keeps the optimistic state; a failure rolls back and explains why.
   const commitItem = useCallback(
     async (itemId: string, plannedMinor: Minor) => {
+      const onMonth = stillOn()
       if (!month) return
 
       const snapshot = month // captured synchronously for a clean rollback
@@ -294,18 +311,19 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         // typing one un-skips the month: re-read the shelf so it never goes stale (J6).
         if (findItem(month, itemId)?.savingsId) refreshJars()
       } catch {
-        setMonth(snapshot) // roll back to the pre-edit state
+        if (onMonth()) setMonth(snapshot) // roll back to the pre-edit state
         setError('Could not save that change — reverted to the previous value.')
       } finally {
         setSavingItemId(null)
       }
     },
-    [month, refreshJars],
+    [month, refreshJars, stillOn],
   )
 
   // Attribute an income line to the household member who earns it (or clear with null).
   const setItemMember = useCallback(
     async (itemId: string, memberId: string | null) => {
+      const onMonth = stillOn()
       if (!month) return
 
       const snapshot = month
@@ -316,18 +334,19 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       try {
         await api.put(`/budget/items/${itemId}/member`, { memberId })
       } catch {
-        setMonth(snapshot)
+        if (onMonth()) setMonth(snapshot)
         setError('Could not update who earns that income — reverted.')
       } finally {
         setSavingItemId(null)
       }
     },
-    [month],
+    [month, stillOn],
   )
 
   // Mark a line as a bill due on a day of the month (or clear it with null).
   const setBill = useCallback(
     async (itemId: string, dueDay: number | null) => {
+      const onMonth = stillOn()
       if (!month) return
 
       const snapshot = month
@@ -338,18 +357,19 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       try {
         await api.put(`/budget/items/${itemId}/bill`, { dueDay })
       } catch {
-        setMonth(snapshot)
+        if (onMonth()) setMonth(snapshot)
         setError('Could not update that bill — reverted.')
       } finally {
         setSavingItemId(null)
       }
     },
-    [month],
+    [month, stillOn],
   )
 
   // Toggle a bill line's paid status for this month.
   const setPaid = useCallback(
     async (itemId: string, isPaid: boolean) => {
+      const onMonth = stillOn()
       if (!month) return
 
       const snapshot = month
@@ -360,19 +380,20 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       try {
         await api.put(`/budget/items/${itemId}/paid`, { isPaid })
       } catch {
-        setMonth(snapshot)
+        if (onMonth()) setMonth(snapshot)
         setError('Could not update that bill — reverted.')
       } finally {
         setSavingItemId(null)
       }
     },
-    [month],
+    [month, stillOn],
   )
 
   // Rename a line. The update endpoint takes the planned amount too, so we send
   // the line's current planned value alongside the new name.
   const renameItem = useCallback(
     async (itemId: string, name: string) => {
+      const onMonth = stillOn()
       if (!month) return
       const current = findItem(month, itemId)
       if (!current) return
@@ -388,19 +409,20 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           name,
         })
       } catch {
-        setMonth(snapshot)
+        if (onMonth()) setMonth(snapshot)
         setError('Could not rename that line — reverted to the previous name.')
       } finally {
         setSavingItemId(null)
       }
     },
-    [month],
+    [month, stillOn],
   )
 
   // Add a line to a category. We show a temp row instantly, then reconcile from
   // the server response to pick up the real id and display order.
   const addItem = useCallback(
     async (categoryId: string, name: string) => {
+      const onMonth = stillOn()
       if (!month) return
 
       const snapshot = month
@@ -427,18 +449,19 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           `/budget/categories/${categoryId}/items`,
           { name, plannedAmount: 0 },
         )
-        setMonth(fromDto(data)) // reconcile temp row -> real server row
+        if (onMonth()) setMonth(fromDto(data)) // reconcile temp row -> real server row
       } catch {
-        setMonth(snapshot)
+        if (onMonth()) setMonth(snapshot)
         setError('Could not add that line — reverted.')
       }
     },
-    [month],
+    [month, stillOn],
   )
 
   // Delete a line. Optimistically remove it, then reconcile from the response.
   const deleteItem = useCallback(
     async (itemId: string) => {
+      const onMonth = stillOn()
       if (!month) return
 
       const snapshot = month
@@ -448,26 +471,27 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
 
       try {
         const { data } = await api.delete<BudgetMonthDto>(`/budget/items/${itemId}`)
-        setMonth(fromDto(data))
+        if (onMonth()) setMonth(fromDto(data))
       } catch {
-        setMonth(snapshot)
+        if (onMonth()) setMonth(snapshot)
         setError('Could not delete that line — reverted.')
       } finally {
         setSavingItemId(null)
       }
     },
-    [month],
+    [month, stillOn],
   )
 
   // Rule 60: a skipped jar contribution is planned again; the server replants the later
   // months and returns the month, and the jars shelf re-reads its figures.
   const restoreJarLine = useCallback(
     async (itemId: string) => {
+      const onMonth = stillOn()
       setError(null)
       setSavingItemId(itemId)
       try {
         const { data } = await api.put<BudgetMonthDto>(`/budget/items/${itemId}/skip`, { skipped: false })
-        setMonth(fromDto(data))
+        if (onMonth()) setMonth(fromDto(data))
         refreshJars()
       } catch {
         setError('Could not plan that contribution again.')
@@ -475,17 +499,17 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         setSavingItemId(null)
       }
     },
-    [refreshJars],
+    [refreshJars, stillOn],
   )
 
   // The skip-or-archive choice ended: skipping returns the month; archiving needs a re-read.
   const onJarLineSkipped = useCallback(
     (data: BudgetMonthDto) => {
       setRemovingJarLine(null)
-      setMonth(fromDto(data))
+      if (isViewed(data.year, data.month)) setMonth(fromDto(data))
       refreshJars()
     },
-    [refreshJars],
+    [refreshJars, isViewed],
   )
   const onJarArchivedFromLine = useCallback(() => {
     setRemovingJarLine(null)
@@ -496,6 +520,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // Add an expense or fund category group. Temp group shown instantly, then reconciled.
   const addCategory = useCallback(
     async (name: string, asSavings: boolean) => {
+      const onMonth = stillOn()
       if (!month) return
 
       const snapshot = month
@@ -518,17 +543,18 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           name,
           isSavings: asSavings,
         })
-        setMonth(fromDto(data)) // reconcile temp group -> real server group
+        if (onMonth()) setMonth(fromDto(data)) // reconcile temp group -> real server group
       } catch {
-        setMonth(snapshot)
+        if (onMonth()) setMonth(snapshot)
         setError(`Could not add that ${asSavings ? 'savings group' : 'group'} — reverted.`)
       }
     },
-    [month],
+    [month, stillOn],
   )
 
   const renameCategory = useCallback(
     async (categoryId: string, name: string) => {
+      const onMonth = stillOn()
       if (!month) return
 
       const snapshot = month
@@ -538,15 +564,16 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       try {
         await api.put(`/budget/categories/${categoryId}`, { name })
       } catch {
-        setMonth(snapshot)
+        if (onMonth()) setMonth(snapshot)
         setError('Could not rename that group — reverted to the previous name.')
       }
     },
-    [month],
+    [month, stillOn],
   )
 
   const deleteCategory = useCallback(
     async (categoryId: string) => {
+      const onMonth = stillOn()
       if (!month) return
 
       const snapshot = month
@@ -555,18 +582,19 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
 
       try {
         const { data } = await api.delete<BudgetMonthDto>(`/budget/categories/${categoryId}`)
-        setMonth(fromDto(data))
+        if (onMonth()) setMonth(fromDto(data))
       } catch (err) {
-        setMonth(snapshot)
+        if (onMonth()) setMonth(snapshot)
         setError(serverErrors(err) ?? 'Could not delete that group — reverted.')
       }
     },
-    [month],
+    [month, stillOn],
   )
 
   // Move an expense group up (-1) or down (+1) among the expense groups.
   const moveCategory = useCallback(
     async (categoryId: string, direction: -1 | 1) => {
+      const onMonth = stillOn()
       if (!month) return
 
       const expense = month.categories.filter((c) => c.kind === 'expense')
@@ -587,18 +615,19 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           budgetMonthId: month.id,
           orderedCategoryIds: orderedIds,
         })
-        setMonth(fromDto(data))
+        if (onMonth()) setMonth(fromDto(data))
       } catch {
-        setMonth(snapshot)
+        if (onMonth()) setMonth(snapshot)
         setError('Could not reorder the groups — reverted.')
       }
     },
-    [month],
+    [month, stillOn],
   )
 
   // Reorder the lines within a category (CategoryAccordion computes the new order).
   const reorderItems = useCallback(
     async (categoryId: string, orderedItemIds: string[]) => {
+      const onMonth = stillOn()
       if (!month) return
 
       const snapshot = month
@@ -610,13 +639,13 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           `/budget/categories/${categoryId}/items/order`,
           { orderedItemIds },
         )
-        setMonth(fromDto(data))
+        if (onMonth()) setMonth(fromDto(data))
       } catch {
-        setMonth(snapshot)
+        if (onMonth()) setMonth(snapshot)
         setError('Could not reorder the lines — reverted.')
       }
     },
-    [month],
+    [month, stillOn],
   )
 
   // The checklist's steps and their done state, or null once all three are done.

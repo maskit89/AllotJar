@@ -361,4 +361,107 @@ public class JarLedgerSqlTests
         (await new GetJarsQueryHandler(verify, new CurrentUserStub(owner)).Handle(new GetJarsQuery(), CancellationToken.None))
             .Single().CurrentBalance.Should().Be(0m);
     }
+
+    [Fact]
+    public async Task A_move_made_before_departures_were_recorded_is_backfilled_once()
+    {
+        // P3-8 on SQL Server (the backfill's query runs across owners): Holiday held 100 in A,
+        // 80 of it was spent, and it was re-designated to B with no departure, as the old code
+        // did. The backfill records one departure of 20, dated on A's last posting of the jar.
+        var owner = NewOwner();
+        Account a;
+        Jar jar;
+        await using (var seed = _fixture.CreateContext())
+        {
+            a = await SeedAccountAsync(seed, owner);
+            var b = await SeedAccountAsync(seed, owner);
+            jar = await SeedJarAsync(seed, a);
+            seed.JarAllocations.Add(Allocation(owner, a.Id, jar.Id, 100m));
+            var spent = Allocation(owner, a.Id, jar.Id, -80m, kind: JarAllocationKind.Reallocation);
+            spent.Date = new DateOnly(2026, 6, 20);
+            seed.JarAllocations.Add(spent);
+            await seed.SaveChangesAsync();
+            jar.FundingAccountId = b.Id;
+            await seed.SaveChangesAsync();
+        }
+
+        await using (var first = _fixture.CreateContext())
+        {
+            await AllotJar.Application.Jars.JarDepartures.BackfillAsync(first, CancellationToken.None);
+        }
+        await using (var second = _fixture.CreateContext())
+        {
+            await AllotJar.Application.Jars.JarDepartures.BackfillAsync(second, CancellationToken.None);
+        }
+
+        await using var verify = _fixture.CreateContext();
+        var departure = await verify.JarAllocations.AsNoTracking().Include(al => al.Postings)
+            .SingleAsync(al => al.AccountId == a.Id && al.Kind == JarAllocationKind.Departure);
+        departure.Date.Should().Be(new DateOnly(2026, 6, 20));
+        departure.Postings.Select(p => (p.JarId, p.Amount)).Should().BeEquivalentTo(new (Guid?, decimal)[] { (jar.Id, -20m), (null, 20m) });
+        (await new GetJarsQueryHandler(verify, new CurrentUserStub(owner)).Handle(new GetJarsQuery(), CancellationToken.None))
+            .Single().CurrentBalance.Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task Two_writers_shifting_the_same_departure_the_second_is_refused_not_lost()
+    {
+        // P3-9 on SQL Server: the posting's amount is the concurrency token, so a writer that read
+        // the departure before another one shifted it fails instead of overwriting that shift.
+        var owner = NewOwner();
+        Guid departureId;
+        await using (var seed = _fixture.CreateContext())
+        {
+            var a = await SeedAccountAsync(seed, owner);
+            var b = await SeedAccountAsync(seed, owner);
+            var jar = await SeedJarAsync(seed, b);
+            var departure = Allocation(owner, a.Id, jar.Id, 0m, kind: JarAllocationKind.Departure);
+            seed.JarAllocations.Add(departure);
+            await seed.SaveChangesAsync();
+            departureId = departure.Id;
+        }
+
+        await using var one = _fixture.CreateContext();
+        await using var two = _fixture.CreateContext();
+        var first = await one.JarAllocations.Include(al => al.Postings).SingleAsync(al => al.Id == departureId);
+        var second = await two.JarAllocations.Include(al => al.Postings).SingleAsync(al => al.Id == departureId);
+        foreach (var posting in first.Postings) posting.Amount += posting.JarId is null ? -20m : 20m;
+        foreach (var posting in second.Postings) posting.Amount += posting.JarId is null ? -30m : 30m;
+        await one.SaveChangesAsync();
+
+        var lost = () => two.SaveChangesAsync();
+
+        await lost.Should().ThrowAsync<DbUpdateConcurrencyException>();
+        await using var verify = _fixture.CreateContext();
+        (await verify.JarAllocationPostings.AsNoTracking().Where(p => p.JarAllocationId == departureId && p.JarId != null).SingleAsync())
+            .Amount.Should().Be(20m);
+    }
+
+    [Fact]
+    public async Task Restoring_a_jar_stores_the_stretch_it_spent_archived()
+    {
+        // P2-19 on SQL Server: the JarArchivePeriods table and its foreign key.
+        var owner = NewOwner();
+        Jar jar;
+        await using (var seed = _fixture.CreateContext())
+        {
+            var a = await SeedAccountAsync(seed, owner);
+            jar = await SeedJarAsync(seed, a);
+            jar.IsArchived = true;
+            jar.ArchivedOn = new DateOnly(2026, 6, 1);
+            await seed.SaveChangesAsync();
+        }
+
+        await using (var restore = _fixture.CreateContext())
+        {
+            await new AllotJar.Application.Jars.Commands.ArchiveJar.ArchiveJarCommandHandler(restore, new CurrentUserStub(owner))
+                .Handle(new AllotJar.Application.Jars.Commands.ArchiveJar.ArchiveJarCommand(jar.Id, Archived: false), CancellationToken.None);
+        }
+
+        await using var verify = _fixture.CreateContext();
+        var period = await verify.JarArchivePeriods.AsNoTracking().SingleAsync(p => p.JarId == jar.Id);
+        period.ArchivedOn.Should().Be(new DateOnly(2026, 6, 1));
+        period.RestoredOn.Should().Be(DateOnly.FromDateTime(DateTime.UtcNow));
+        (await verify.Jars.AsNoTracking().SingleAsync(j => j.Id == jar.Id)).ArchivedOn.Should().BeNull();
+    }
 }

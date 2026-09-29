@@ -31,6 +31,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<JarAllocationPosting> JarAllocationPostings => Set<JarAllocationPosting>();
     public DbSet<JarCycle> JarCycles => Set<JarCycle>();
     public DbSet<JarRevision> JarRevisions => Set<JarRevision>();
+    public DbSet<JarArchivePeriod> JarArchivePeriods => Set<JarArchivePeriod>();
     public DbSet<HouseholdMember> HouseholdMembers => Set<HouseholdMember>();
     public DbSet<HouseholdMembership> HouseholdMemberships => Set<HouseholdMembership>();
     public DbSet<AllocationProfile> AllocationProfiles => Set<AllocationProfile>();

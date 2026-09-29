@@ -1011,7 +1011,7 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
 - **Preconditions:** Owner; Goal "Sofa" holding 300 at 30 September, emptied and archived on 2 October; Goal "Bike" created in October (no September line).
 - **Steps:**
   1. View September on the Budget page. 2. View October.
-- **Expected:** 1: the shelf shows Sofa at 300 beside its Savings line (Available 300); Bike is on the shelf with no plan ("+€0.00/mo", nothing to go). 2: Sofa is gone (archived); Bike shows its October line. The Jars page shows no Sofa.
+- **Expected:** 1: the shelf shows Sofa at 300 beside its Savings line (Available 300); Bike is on the shelf with no plan ("+€0.00/mo"). 2: Sofa is gone (archived); Bike shows its October line. The Jars page shows no Sofa.
 - **Automated:** Yes (JarMonthViewW05Tests — `Rule27_AMonthThatIsOver_StillListsAJarArchivedSince_WhoseLineItCarries`, `Rule46_AMonthThatIsOver_WithNoLineForTheJar_PlansNothingForIt`)
 
 ### JAR-104 - A past month keeps the target and deadline it was judged against after the jar is edited
@@ -1093,3 +1093,52 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
   1. Edit Holiday → Held in "B" → Save. 2. Edit the income's payee, keeping the 200 in Holiday, and try again. 3. Edit the income so none of it goes into Holiday, and try again.
 - **Expected:** 1 and 2: 400 on `FundingAccountId`: "Holiday has an entry dated <payday> in A. Change or remove it first, then change the account."; Holiday stays in A. 3: Holiday moves to B; on payday A's 200 is unallocated and Holiday holds nothing in A. The same applies to any entry in A dated after today that moves money in or out of Holiday (a payment drawn from it, a reallocation).
 - **Automated:** Yes (JarDepartureTests — `UpdateJar_IsRefused_WhileTheOldAccountHasAJarEntryDatedAfterToday`)
+
+### JAR-112 - Restoring a jar keeps the months it spent archived
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** Re-review of PR #275 (W05, round 4, P2-19): restoring cleared the archive date, so every month the jar spent archived read it as live (a Recurring jar with no line there read "Deadline missed, short 300").
+- **Preconditions:** Owner; Recurring "Insurance", 300 due 15 August; 100 put in on 1 July and taken out on 20 July, when it was archived; July has its line, August has none.
+- **Steps:**
+  1. View August on the Budget page. 2. Restore Insurance on the Jars page. 3. View August and July again, then this month.
+- **Expected:** 1 and 3: August's shelf has no Insurance; July lists it (its line) and does not read Deadline missed. This month lists it, planning again. Archiving and restoring again keeps each stretch. An archive made before archives were dated has no stretch to keep (restored, it reads live on every month, as before).
+- **Automated:** Yes (JarW05FollowUpTests — `P2_19_RestoringAJar_KeepsTheMonthsItSpentArchived`, `P2_19_IsArchivedOn_ReadsTheArchivePeriods`)
+
+### JAR-113 - Moving a jar into an account leaves that account's earlier payments on its line where they were
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Re-review of PR #275 (W05, round 4, P2-20; pre-existing on `main`): the reader looked a line's jar up by today's account, so after the move an old payment from the new account on the jar's line was read as a draw from the jar (−50), and the jar could not be archived ("50 overdrawn").
+- **Preconditions:** Owner; accounts A and B with 1,000 each; Goal "Holiday" in A holding 0; a 50 payment from B on Holiday's August line dated 20 August.
+- **Steps:**
+  1. Edit Holiday → Held in "B" → Save. 2. Look at Holiday's balance and B's unallocated money today and on 25 August. 3. Edit the old payment's payee. 4. Record a payment from B on Holiday's line dated today, and one dated tomorrow. 5. Archive Holiday (after emptying it).
+- **Expected:** 2: Holiday 0 on both dates; B's unallocated 950. 3: unchanged. 4: the payment dated the move day stays on B's unallocated money (the move day belongs to A, as its departure does); the one dated tomorrow draws from Holiday. 5: allowed once Holiday holds 0.
+- **Automated:** Yes (JarW05FollowUpTests — `P2_20_MovingAJarIntoAnAccount_LeavesThatAccountsEarlierLinePaymentsWhereTheyWere`, `P2_20_APaymentOnTheJarsLineFromItsNewAccount_DrawsFromTheJarFromTheDayAfterTheMove`)
+
+### JAR-114 - A month before a moved jar's first entry in its old account reads 0, not Unavailable
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** Adversarial review of PR #275 (W05, round 3, P2-15): an old account counted as holding the jar only from its first posting there, so before it a jar whose current account opened later read Unavailable.
+- **Preconditions:** Owner; A open since 1 January holds Holiday: 100 in on 20 August, out on 10 September; Holiday moved to B, which opens on 1 October; July has a budget.
+- **Steps:**
+  1. View July on the Budget page.
+- **Expected:** Holiday reads 0 saved (not Unavailable) and the Savings line's Available is 0. A month before A opened still reads Unavailable (rule 67).
+- **Automated:** Yes (JarMonthViewW05Tests — `Rule80_AJarMovedToAnAccountOpenedLater_StillReadsWhatTheOldAccountHeld_ForTheEarlierMonth`)
+
+### JAR-115 - A jar move made before departures were recorded no longer blocks the archive
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** Re-review of PR #275 (W05, round 4, P3-8): a move made on the old code, whose kept payment was then corrected (100 → 80), left 20 of the jar in the old account; the card read 20, archive was refused and the 20 could not be moved from either account until a kept entry happened to be edited.
+- **Preconditions:** Such a jar (data from before PR #275).
+- **Steps:**
+  1. Start the API (deploy). 2. Open the Jars page and archive the jar.
+- **Expected:** 1: the startup log records one departure for it, dated on the last day the old account's ledger touched the jar; a second start records nothing. 2: the jar reads 0 and archives. The old account's months before that day read as before.
+- **Automated:** Yes (JarW05FollowUpTests — `P3_8_AMoveMadeBeforeDeparturesWereRecorded_IsSettledByTheBackfill_Once`)
+
+### JAR-116 - A jars read for a month outside 2000–2100 is a validation error
+- **Priority:** P3
+- **Type:** Negative
+- **Origin:** Adversarial review of PR #275 (W05, round 3, P3-5): `GET /api/jars?year=9999&month=12` (and `year=1&month=1`, or `asOf=9999-12-31`) passed the controller's check and failed with 500.
+- **Steps:**
+  1. `GET /api/jars?year=9999&month=12`. 2. `GET /api/jars?asOf=0001-01-01`. 3. `GET /api/jars?year=2026&month=9`.
+- **Expected:** 1 and 2: 400 with a validation error on Year / AsOf. 3: 200.
+- **Automated:** Yes (JarW05FollowUpTests — `P3_5_AMonthOrDateOutsideTheBudgetRange_IsAValidationError`, `P3_5_AnOrdinaryMonth_IsValid`)
