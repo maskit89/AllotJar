@@ -329,11 +329,12 @@ export function AccountPage() {
               </label>
               {currencyLocked ? (
                 // The budget already has accounts, months or transactions in this currency, and
-                // the app never converts amounts, so the currency is shown but can't be changed.
+                // the app never converts amounts, so the currency is shown but can't be changed. It
+                // reads the saved currency directly, as the save does, not the form's copy of it.
                 <Input
                   id="pf-currency"
                   readOnly
-                  value={CURRENCY_OPTIONS.find((o) => o.value === pfCurrency)?.label ?? pfCurrency}
+                  value={CURRENCY_OPTIONS.find((o) => o.value === preferredCurrency)?.label ?? preferredCurrency}
                   aria-describedby="pf-currency-note"
                   className="w-full bg-slate-50 text-slate-600"
                 />
