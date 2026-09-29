@@ -1,9 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    SQL Server integration tests. Deliberately NOT part of AllotJar.slnx (like
-    tools/AllotJar.Importer): the `backend` CI job runs `dotnet test AllotJar.slnx`
-    with no database, so it must not discover these. They are built and run only by
+    SQL Server integration tests. Deliberately NOT part of AllotJar.slnx: the
+    `backend` CI job runs `dotnet test AllotJar.slnx` with no database, so it must not discover these. They are built and run only by
     the dedicated `integration` job, which provides an mssql service container.
 
     These exist because the unit suite uses the EF in-memory provider, which does not

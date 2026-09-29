@@ -640,7 +640,7 @@
 - **Preconditions:** Owner; craft a `POST`/`PUT` jar carrying `coverStart`/`coverEnd` (any values) alongside a valid definition.
 - **Steps:**
   1. Submit the request; read the jar back.
-- **Expected:** The unknown properties are ignored by model binding; the jar is saved from its definition alone and the DTO has no cover fields. There is no "Cover end must be after cover start." rule any more. `tools/AllotJar.Importer`, which wrote those fields, is outside the solution and no longer compiles (HANDOVER O6).
+- **Expected:** The unknown properties are ignored by model binding; the jar is saved from its definition alone and the DTO has no cover fields. There is no "Cover end must be after cover start." rule any more. The old workbook importer that wrote those fields was removed in the final review.
 - **Automated:** Partial (JarsTests / JJarsCoverageTests validator cases without a window; the migration is exercised by CI's SQL integration job)
 
 ### JAR-065 - RecurMonths out of [1,120] is rejected
