@@ -58,7 +58,7 @@ export function budgetMonth(over: Partial<BudgetMonthDto> = {}): BudgetMonthDto 
     totalIncome,
     totalPlanned,
     remainingToBudget: totalIncome - totalPlanned,
-    isBalanced: totalIncome === totalPlanned,
+    isBalanced: totalIncome > 0 && totalIncome === totalPlanned, // the server's rule: no income, not balanced
     categories,
     ...over,
   }
