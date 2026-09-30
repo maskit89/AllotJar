@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, AllocationProfileDto, AllocationResultDto, HouseholdMemberDto, MemberAllocationDto } from '../types'
@@ -11,13 +11,10 @@ import type { AccountDto, AllocationProfileDto, AllocationResultDto, HouseholdMe
 // the amber stranded / nothing-to-save notes, the committed banner and the no-source gating) and
 // were previously marked Automated: No / Partial.
 //
-// The api mock, the importOriginal spread and the render helper deliberately mirror the sibling
+// The api mock, the pinned month and the render helper deliberately mirror the sibling
 // AllocationPage.test.tsx so both files share one convention.
 
-const { mockGet, mockPut, mockPost, monthState } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
+const { monthState } = vi.hoisted(() => ({
   // The app-wide selected month the page allocates (rule 29). Mutable so a case can move it
   // and rerender; reset to July 2026 in beforeEach.
   monthState: { year: 2026, month: 7, label: 'July 2026', goPrev: () => {}, goNext: () => {}, goToMonth: () => {} },
@@ -29,15 +26,10 @@ vi.mock('../features/MonthContext', async (importOriginal) => ({
   useMonth: () => monthState,
 }))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
+import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { AllocationPage } from './AllocationPage'
 import { AuthProvider } from '../auth/AuthContext'
 
@@ -148,15 +140,7 @@ function setupGet() {
 // AuthProvider only (no HouseholdProvider) — exactly as the sibling file's engine-render tests do:
 // the household default keeps `loading` true forever, so the solo "Add people first" gate never
 // triggers and the page renders the engine for these fixtures.
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <AllocationPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<AllocationPage />)
 
 /** "€5,000.00" → 5000, "-€500.00" → -500 (en-GB EUR: ',' grouping, '.' decimal). */
 function money(text: string | null | undefined): number {
@@ -184,9 +168,7 @@ async function openSetupModal(user: ReturnType<typeof userEvent.setup>) {
 
 describe('AllocationPage (catalog)', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
+    resetApiMocks()
     localStorage.clear() // role → Owner, currency → EUR, format → comma-dot (en-GB) by default
     profileData = null
     accountsData = defaultAccounts()

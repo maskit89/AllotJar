@@ -1,30 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, AccountReconciliationDto } from '../types'
 
-// Same api-control harness as AccountsPage.test.tsx and the other *.catalog.test.tsx
-// files: vi.hoisted so the mock factory can close over the fns, importOriginal spread
-// so the rest of api.ts (refreshSession, setSessionHandlers, isAccessTokenExpired, …)
-// keeps working — AuthProvider reaches into them on mount.
-const { mockGet, mockPut, mockPost, mockDelete } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-  mockDelete: vi.fn(),
-}))
+// Same shared api mock as AccountsPage.test.tsx and the other *.catalog.test.tsx files.
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost, delete: mockDelete },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { AccountsPage } from './AccountsPage'
-import { AuthProvider } from '../auth/AuthContext'
-import { FeatureProvider } from '../features/FeatureContext'
 // Real (unmocked) money module — pin the active display locale so every €/£ string
 // asserted below renders in the design's canonical en-GB comma-dot format
 // (€1,234.56), independent of test-execution order.
@@ -58,28 +42,10 @@ function mockLoads(s: ApiSetup = {}) {
   })
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <AccountsPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<AccountsPage />)
 
 // A variant with a real FeatureProvider so a mocked GET /features can toggle multiCurrency.
-function renderPageWithFeatures() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <FeatureProvider>
-          <AccountsPage />
-        </FeatureProvider>
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPageWithFeatures = () => renderWithProviders(<AccountsPage />, { features: true })
 
 // Open the Add-account modal and return a `within` scope bound to its dialog.
 async function openAddModal(user: ReturnType<typeof userEvent.setup>) {
@@ -89,10 +55,7 @@ async function openAddModal(user: ReturnType<typeof userEvent.setup>) {
 
 describe('AccountsPage — catalog (ACCT)', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     setMoneyFormat('comma-dot') // pin en-GB: €1,234.56 / £200.00
     mockLoads()
   })

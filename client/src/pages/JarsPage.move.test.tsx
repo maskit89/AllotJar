@@ -1,26 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, JarAccountLedgerDto, JarDto } from '../types'
 
-// Rule 80 — "Move money" across accounts. Mirrors JarsPage.test.tsx's harness: hoisted mock fns
-// + vi.mock('../lib/api') with the importOriginal spread, mockGet routed by URL.
-const { mockGet, mockPut, mockPost } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-}))
+// Rule 80 — "Move money" across accounts. Mirrors JarsPage.test.tsx's harness: the shared api
+// mock, mockGet routed by URL.
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
-import { AuthProvider } from '../auth/AuthContext'
 
 function jar(over: Partial<JarDto> = {}): JarDto {
   return {
@@ -90,15 +79,7 @@ const rainyDay = () =>
 let jarsData: JarDto[] = []
 let ledgerData: JarAccountLedgerDto[] = []
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <JarsPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<JarsPage />)
 
 const today = new Date().toISOString().slice(0, 10)
 
@@ -111,9 +92,7 @@ async function openMove(user: ReturnType<typeof userEvent.setup>) {
 
 describe('JarsPage — Move money across accounts (rule 80)', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
+    resetApiMocks()
     jarsData = [jar(), jar({ id: 'f2', name: 'Repairs', fundingAccountId: 'acc2', currentBalance: 200 })]
     ledgerData = [ledger(), rainyDay()]
     mockGet.mockImplementation((url: string) => {

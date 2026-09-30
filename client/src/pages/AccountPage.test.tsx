@@ -1,27 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { HouseholdMemberDto } from '../types'
 
-const { mockGet, mockPost, mockPut } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPost: vi.fn(),
-  mockPut: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, post: mockPost, put: mockPut },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { AccountPage } from './AccountPage'
-import { AuthProvider } from '../auth/AuthContext'
-import { HouseholdProvider } from '../features/HouseholdContext'
 
 // An owner viewing their own household (the common case).
 const ownerMe = {
@@ -53,23 +39,11 @@ function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
 let membersData: HouseholdMemberDto[] = []
 let meData: typeof ownerMe & { preferredCurrency?: string; budgetCurrency?: string; currencyLocked?: boolean } = ownerMe
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <HouseholdProvider>
-          <AccountPage />
-        </HouseholdProvider>
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<AccountPage />, { household: true })
 
 describe('AccountPage', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPost.mockReset()
-    mockPut.mockReset()
+    resetApiMocks()
     membersData = []
     meData = ownerMe
     mockGet.mockImplementation((url: string) => {

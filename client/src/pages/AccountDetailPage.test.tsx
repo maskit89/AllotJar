@@ -1,21 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { screen } from '@testing-library/react'
+import { Route, Routes } from 'react-router-dom'
 import type { AccountDto, TransactionDto } from '../types'
 
-const { mockGet } = vi.hoisted(() => ({ mockGet: vi.fn() }))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { AccountDetailPage } from './AccountDetailPage'
-import { AuthProvider } from '../auth/AuthContext'
 
 function account(): AccountDto {
   return { id: 'a1', name: 'Everyday Current', type: 0, currency: 'EUR', openingBalance: 2000, currentBalance: 2140, displayOrder: 0 }
@@ -30,14 +22,11 @@ function tx(over: Partial<TransactionDto> = {}): TransactionDto {
 }
 
 function renderPage() {
-  return render(
-    <MemoryRouter initialEntries={['/accounts/a1']}>
-      <AuthProvider>
-        <Routes>
-          <Route path="/accounts/:id" element={<AccountDetailPage />} />
-        </Routes>
-      </AuthProvider>
-    </MemoryRouter>,
+  return renderWithProviders(
+    <Routes>
+      <Route path="/accounts/:id" element={<AccountDetailPage />} />
+    </Routes>,
+    { route: '/accounts/a1' },
   )
 }
 

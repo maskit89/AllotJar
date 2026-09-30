@@ -1,24 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router-dom'
 
-const { mockGet, mockPost, envState } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPost: vi.fn(),
+const { envState } = vi.hoisted(() => ({
   envState: { isStaging: false },
 }))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, post: mockPost },
-  getToken: () => null,
-  setToken: vi.fn(),
-  // Signed-out cold-load bootstrap: no cookie session to restore, so the sign-in form renders.
-  refreshSession: () => Promise.resolve(null),
-}))
+vi.mock('../lib/api', async (importOriginal) =>
+  (await import('../test/apiMock')).apiModule(importOriginal, {
+    getToken: () => null,
+    // Signed-out cold-load bootstrap: no cookie session to restore, so the sign-in form renders.
+    refreshSession: () => Promise.resolve(null),
+  }),
+)
 
 // Build-time env flag — default off so the existing single-checkbox tests are unaffected.
 vi.mock('../lib/env', () => ({
@@ -30,25 +25,17 @@ vi.mock('../lib/env', () => ({
   },
 }))
 
+import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { LoginPage } from './LoginPage'
-import { AuthProvider } from '../auth/AuthContext'
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <LoginPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<LoginPage />)
 
 describe('LoginPage', () => {
   beforeEach(() => {
     localStorage.clear()
     envState.isStaging = false
-    mockGet.mockReset()
-    mockPost.mockReset()
+    resetApiMocks()
     mockGet.mockResolvedValue({
       data: { userId: 'u1', email: 'new@x.com', displayName: 'New User', role: 0, ownerId: 'u1', memberId: null },
     })
@@ -67,16 +54,13 @@ describe('LoginPage', () => {
     })
     const user = userEvent.setup()
 
-    render(
-      <MemoryRouter initialEntries={['/login?returnUrl=%2Faccept-invite%3Fcode%3DABC123']}>
-        <AuthProvider>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/accept-invite" element={<div>INVITE PROBE</div>} />
-            <Route path="*" element={<div>ELSEWHERE</div>} />
-          </Routes>
-        </AuthProvider>
-      </MemoryRouter>,
+    renderWithProviders(
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/accept-invite" element={<div>INVITE PROBE</div>} />
+        <Route path="*" element={<div>ELSEWHERE</div>} />
+      </Routes>,
+      { route: '/login?returnUrl=%2Faccept-invite%3Fcode%3DABC123' },
     )
 
     await user.type(screen.getByLabelText('Email'), 'sam@x.com')

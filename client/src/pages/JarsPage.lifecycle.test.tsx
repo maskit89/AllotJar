@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, JarDto } from '../types'
 
 // W04 — completing and deleting a jar on the Jars page (rules 27, 55–56): Mark completed for a
@@ -9,23 +8,12 @@ import type { AccountDto, JarDto } from '../types'
 // that has never held money and its absence otherwise (JAR-096, JAR-097), and the server's
 // refusals shown in its own words (JAR-098).
 //
-// Same api-control harness as the sibling *.catalog.test.tsx files.
-const { mockGet, mockPut, mockPost, mockDelete } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-  mockDelete: vi.fn(),
-}))
+// Same shared api mock as the sibling *.catalog.test.tsx files.
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost, delete: mockDelete },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
-import { AuthProvider } from '../auth/AuthContext'
 import { setMoneyFormat } from '../lib/money'
 
 // A Goal saving 1,000 by a deadline: it holds 400 and plans 100 this month.
@@ -86,15 +74,7 @@ function mockLoads(opts: { jars?: JarDto[]; meRole?: number } = {}) {
   })
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <JarsPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<JarsPage />)
 
 // An ASP.NET 400 with one field message, as axios surfaces it.
 function validation(field: string, message: string) {
@@ -104,10 +84,7 @@ function validation(field: string, message: string) {
 describe('JarsPage — completion and deletion (W04)', () => {
   beforeEach(() => {
     setMoneyFormat('en-GB')
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
   })
 
   afterEach(() => {

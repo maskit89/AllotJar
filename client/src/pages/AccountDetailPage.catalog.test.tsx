@@ -1,21 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { screen, within } from '@testing-library/react'
+import { Route, Routes } from 'react-router-dom'
 import type { AccountDto, BudgetMonthDto, TransactionDto } from '../types'
 
-// Same api-control harness as AccountDetailPage.test.tsx: a single mocked GET, the rest
-// of api.ts spread through so AuthProvider's mount-time reach-ins keep working.
-const { mockGet } = vi.hoisted(() => ({ mockGet: vi.fn() }))
+// Same harness as AccountDetailPage.test.tsx: a single mocked GET drives every load.
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { AccountDetailPage } from './AccountDetailPage'
-import { AuthProvider } from '../auth/AuthContext'
 // Real money module — pin en-GB so €/£ strings render in the canonical format.
 import { setMoneyFormat } from '../lib/money'
 
@@ -73,14 +66,11 @@ function mockLoads(s: DetailSetup = {}) {
 }
 
 function renderPage(id = 'a1') {
-  return render(
-    <MemoryRouter initialEntries={[`/accounts/${id}`]}>
-      <AuthProvider>
-        <Routes>
-          <Route path="/accounts/:id" element={<AccountDetailPage />} />
-        </Routes>
-      </AuthProvider>
-    </MemoryRouter>,
+  return renderWithProviders(
+    <Routes>
+      <Route path="/accounts/:id" element={<AccountDetailPage />} />
+    </Routes>,
+    { route: `/accounts/${id}` },
   )
 }
 
@@ -93,7 +83,7 @@ function txCountTileValue(): HTMLElement {
 
 describe('AccountDetailPage — catalog (ACCT)', () => {
   beforeEach(() => {
-    mockGet.mockReset()
+    resetApiMocks()
     setMoneyFormat('comma-dot') // pin en-GB: €1,234.56 / £200.00
     mockLoads()
   })

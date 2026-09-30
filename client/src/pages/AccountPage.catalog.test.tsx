@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { Routes, Route } from 'react-router-dom'
 import type { HouseholdMemberDto } from '../types'
 import { formatMoney, fromAmount, setMoneyFormat } from '../lib/money'
 
@@ -18,24 +18,11 @@ import { formatMoney, fromAmount, setMoneyFormat } from '../lib/money'
 //  - the money-format module locale is reset in beforeEach so the app-wide
 //    formatMoney assertions have a known baseline.
 
-const { mockGet, mockPost, mockPut } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPost: vi.fn(),
-  mockPut: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, post: mockPost, put: mockPut },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { AccountPage } from './AccountPage'
-import { AuthProvider } from '../auth/AuthContext'
-import { HouseholdProvider } from '../features/HouseholdContext'
 
 // An owner viewing their own household (the common case). /auth/me deliberately omits
 // firstName/lastName/preferredCurrency/numberFormat so the app falls back to its
@@ -77,29 +64,22 @@ let membersData: HouseholdMemberDto[] = []
 let meData: typeof ownerMe = ownerMe
 
 function renderPage(opts: { withPeopleRoute?: boolean } = {}) {
-  return render(
-    <MemoryRouter initialEntries={['/account']}>
-      <AuthProvider>
-        <HouseholdProvider>
-          {opts.withPeopleRoute ? (
-            <Routes>
-              <Route path="/account" element={<AccountPage />} />
-              <Route path="/people" element={<div>PEOPLE PAGE SENTINEL</div>} />
-            </Routes>
-          ) : (
-            <AccountPage />
-          )}
-        </HouseholdProvider>
-      </AuthProvider>
-    </MemoryRouter>,
+  return renderWithProviders(
+    opts.withPeopleRoute ? (
+      <Routes>
+        <Route path="/account" element={<AccountPage />} />
+        <Route path="/people" element={<div>PEOPLE PAGE SENTINEL</div>} />
+      </Routes>
+    ) : (
+      <AccountPage />
+    ),
+    { route: '/account', household: true },
   )
 }
 
 describe('AccountPage — preferences catalog (PREF)', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPost.mockReset()
-    mockPut.mockReset()
+    resetApiMocks()
     membersData = []
     meData = ownerMe
     mockGet.mockImplementation((url: string) => {

@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type {
   AccountDto,
   BudgetMonthDto,
@@ -10,29 +9,26 @@ import type {
   ImportStatementResult,
 } from '../types'
 
-// Mirror ImportPage.test.tsx + ImportPage.catalog.test.tsx harness exactly: hoisted mock fns +
-// vi.mock('../lib/api') with the importOriginal spread (load-bearing — new api.ts exports must keep
-// working under test), same AuthProvider/MemoryRouter tree. This file only ADDS the remaining
-// jsdom-observable catalog cases that neither sibling file already covers (the cheap P2 tail:
-// include-all header toggle, amount colour/direction, header-toggle re-scan, transfer undo, full
-// reset, and graceful reference-data degradation).
-const { mockGet, mockPreview, mockCommit } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
+// Mirror ImportPage.test.tsx + ImportPage.catalog.test.tsx harness exactly: the shared api mock
+// plus hoisted previewImport/commitImport spies, same AuthProvider/MemoryRouter tree. This file
+// only ADDS the remaining jsdom-observable catalog cases that neither sibling file already covers
+// (the cheap P2 tail: include-all header toggle, amount colour/direction, header-toggle re-scan,
+// transfer undo, full reset, and graceful reference-data degradation).
+const { mockPreview, mockCommit } = vi.hoisted(() => ({
   mockPreview: vi.fn(),
   mockCommit: vi.fn(),
 }))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: vi.fn(), post: vi.fn() },
-  previewImport: mockPreview,
-  commitImport: mockCommit,
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) =>
+  (await import('../test/apiMock')).apiModule(importOriginal, {
+    previewImport: mockPreview,
+    commitImport: mockCommit,
+  }),
+)
 
+import { mockGet, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { ImportPage } from './ImportPage'
-import { AuthProvider } from '../auth/AuthContext'
 
 const accounts: AccountDto[] = [
   { id: 'acc1', name: 'HSBC Current', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0 },
@@ -109,15 +105,7 @@ function committed(): ImportStatementResult {
   return { totalEntries: 2, imported: 2, skippedDuplicates: 0, credits: 0, debits: 2, iban: null, autoCategorized: 0, transfers: 0 }
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <ImportPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<ImportPage />)
 
 const csv = () => new File(['x'], 'tx.csv', { type: 'text/csv' })
 
@@ -131,7 +119,7 @@ describe('ImportPage (catalog supplemental)', () => {
   beforeEach(() => {
     // Keep the default Owner role — never let a stray zbb.role from another suite drop canWrite.
     localStorage.clear()
-    mockGet.mockReset()
+    resetApiMocks()
     mockPreview.mockReset()
     mockCommit.mockReset()
     mockGet.mockImplementation((url: string) => {

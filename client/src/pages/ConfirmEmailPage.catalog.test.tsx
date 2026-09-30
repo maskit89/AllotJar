@@ -3,19 +3,17 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 // Catalog: docs/testing/cases/02-registration-login.md — the confirm-email page (REG-092).
-// Harness matches the repo convention: hoisted api mock, vi.mock('../lib/api') spreading
-// importOriginal, page inside <MemoryRouter>.
+// Harness matches the repo convention: the shared api mock, page inside <MemoryRouter>.
 
-const { mockPost, markEmailConfirmed } = vi.hoisted(() => ({
-  mockPost: vi.fn(),
+const { markEmailConfirmed } = vi.hoisted(() => ({
   markEmailConfirmed: vi.fn(),
 }))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: vi.fn(), post: mockPost, put: vi.fn(), delete: vi.fn() },
-  getToken: () => null,
-}))
+vi.mock('../lib/api', async (importOriginal) =>
+  (await import('../test/apiMock')).apiModule(importOriginal, {
+    getToken: () => null,
+  }),
+)
 
 // The page only needs markEmailConfirmed from auth — stub it so we can assert the banner-clear
 // wiring fires exactly on a successful confirm (and never on a dead/incomplete link).
@@ -23,6 +21,7 @@ vi.mock('../auth/AuthContext', () => ({
   useAuth: () => ({ markEmailConfirmed }),
 }))
 
+import { mockPost } from '../test/apiMock'
 import { ConfirmEmailPage } from './ConfirmEmailPage'
 
 function renderAt(path: string) {

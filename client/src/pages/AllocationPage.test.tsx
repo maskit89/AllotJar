@@ -1,13 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, AllocationProfileDto, AllocationResultDto } from '../types'
 
-const { mockGet, mockPut, mockPost, monthState } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
+const { monthState } = vi.hoisted(() => ({
   // The app-wide selected month the page allocates (rule 29): June 2026 for this file.
   monthState: { year: 2026, month: 6, label: 'June 2026', goPrev: () => {}, goNext: () => {}, goToMonth: () => {} },
 }))
@@ -18,18 +14,11 @@ vi.mock('../features/MonthContext', async (importOriginal) => ({
   useMonth: () => monthState,
 }))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
+import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { AllocationPage } from './AllocationPage'
-import { AuthProvider } from '../auth/AuthContext'
-import { HouseholdProvider } from '../features/HouseholdContext'
 
 const accountsData: AccountDto[] = [
   { id: 'acc0', name: 'Joint Current', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0 },
@@ -84,34 +73,14 @@ function setupGet() {
   })
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <AllocationPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<AllocationPage />)
 
 // Wrapped in a real HouseholdProvider so the page can tell solo from shared.
-function renderWithHousehold() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <HouseholdProvider>
-          <AllocationPage />
-        </HouseholdProvider>
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderWithHousehold = () => renderWithProviders(<AllocationPage />, { household: true })
 
 describe('AllocationPage', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
+    resetApiMocks()
     profileData = null
     setupGet()
   })

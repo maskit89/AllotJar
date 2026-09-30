@@ -4,33 +4,19 @@
 // category cells, Bill tag), the add modal (field gating, client validation messages), the inline
 // assign picker, the split editor (seed/add/remove/remainder/guards/unsplit), inline edit, delete,
 // filters, the transfer form, and generic-error mapping. New FILE only — the existing
-// TransactionsPage.test.tsx is left untouched; conventions (vi.hoisted api mock spreading
-// importOriginal, MemoryRouter + AuthProvider, explicit async timeouts) mirror it exactly.
+// TransactionsPage.test.tsx is left untouched; conventions (the shared api mock,
+// MemoryRouter + AuthProvider, explicit async timeouts) mirror it exactly.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, BudgetMonthDto, HouseholdMemberDto, TransactionDto } from '../types'
 
-const { mockGet, mockPut, mockPost, mockDelete } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-  mockDelete: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls (PR #169 harness invariant).
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost, delete: mockDelete },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { TransactionsPage } from './TransactionsPage'
-import { AuthProvider } from '../auth/AuthContext'
 import { formatDate, monthYear, shortDate } from '../lib/dates'
 
 // --- Fixtures ---------------------------------------------------------------
@@ -127,15 +113,7 @@ function mockLoad(
   })
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <TransactionsPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<TransactionsPage />)
 
 /** The <tr> that renders a given payee (the register's main, non-editing row). */
 function rowFor(payee: string): HTMLElement {
@@ -157,10 +135,7 @@ function thisMonth(day = 10): string {
 }
 
 beforeEach(() => {
-  mockGet.mockReset()
-  mockPut.mockReset()
-  mockPost.mockReset()
-  mockDelete.mockReset()
+  resetApiMocks()
 })
 
 describe('TransactionsPage catalog — register load, hero & list rendering', () => {

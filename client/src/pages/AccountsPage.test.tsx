@@ -1,28 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto } from '../types'
 
-const { mockGet, mockPut, mockPost, mockDelete } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-  mockDelete: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost, delete: mockDelete },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { AccountsPage } from './AccountsPage'
-import { AuthProvider } from '../auth/AuthContext'
-import { HouseholdProvider } from '../features/HouseholdContext'
 import { setMoneyFormat } from '../lib/money'
 
 function accounts(): AccountDto[] {
@@ -32,24 +17,13 @@ function accounts(): AccountDto[] {
   ]
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <AccountsPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<AccountsPage />)
 
 describe('AccountsPage', () => {
   afterEach(() => setMoneyFormat('comma-dot'))
 
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
   })
 
   it('lists account cards with balances and a net total in the hero', { timeout: 15000 }, async () => {
@@ -139,15 +113,7 @@ describe('AccountsPage', () => {
     mockPost.mockResolvedValue({ data: { id: 'a9', name: 'Pocket', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0 } })
     const user = userEvent.setup()
 
-    render(
-      <MemoryRouter>
-        <AuthProvider>
-          <HouseholdProvider>
-            <AccountsPage />
-          </HouseholdProvider>
-        </AuthProvider>
-      </MemoryRouter>,
-    )
+    renderWithProviders(<AccountsPage />, { household: true })
 
     await user.click(await screen.findByRole('button', { name: 'Add account' }, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))

@@ -1,26 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, JarAccountLedgerDto, JarDto, JarScheduleDto, JarScheduleMonthDto } from '../types'
 
-const { mockGet, mockPut, mockPost } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
-import { AuthProvider } from '../auth/AuthContext'
 
 function fund(over: Partial<JarDto> = {}): JarDto {
   return {
@@ -100,21 +87,11 @@ function ledger(over: Partial<JarAccountLedgerDto> = {}): JarAccountLedgerDto {
   }
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <JarsPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<JarsPage />)
 
 describe('JarsPage', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
+    resetApiMocks()
     // The form asks the server for a schedule preview whenever a jar can be planned; answer
     // with nothing plannable unless a test cares about the preview.
     mockPost.mockResolvedValue({ data: {} })

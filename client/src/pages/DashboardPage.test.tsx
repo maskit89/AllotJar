@@ -1,26 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, BudgetMonthDto, BudgetTemplateDto, JarDto } from '../types'
 
-// Control the API from the tests. vi.hoisted lets the mock factory below
-// reference these before the module under test is imported.
-const { mockGet, mockPut, mockPost, mockDelete } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-  mockDelete: vi.fn(),
-}))
-
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost, delete: mockDelete },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
+// Control the API from the tests.
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
 // The household shape drives the income member picker; default = solo (hidden),
 // individual tests flip `household.current` to a shared fixture.
@@ -32,9 +16,9 @@ vi.mock('../features/HouseholdContext', async (importOriginal) => ({
   useHousehold: () => household.current,
 }))
 
+import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { DashboardPage } from './DashboardPage'
-import { AuthProvider } from '../auth/AuthContext'
-import { MonthProvider } from '../features/MonthContext'
 
 // Income(Take-home Pay 3000) at the top + Housing(Rent 1100). Remaining = 1900.
 function budget(): BudgetMonthDto {
@@ -75,24 +59,11 @@ function budget(): BudgetMonthDto {
   }
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <MonthProvider>
-          <DashboardPage />
-        </MonthProvider>
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<DashboardPage />, { month: true })
 
 describe('DashboardPage optimistic editing', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
   })
 
@@ -453,16 +424,8 @@ describe('DashboardPage optimistic editing', () => {
       url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: b }),
     )
 
-    // Render directly so we can pin "today" to the 20th — past Rent's due day (5th).
-    render(
-      <MemoryRouter>
-        <AuthProvider>
-          <MonthProvider>
-            <DashboardPage today={new Date(2026, 5, 20)} />
-          </MonthProvider>
-        </AuthProvider>
-      </MemoryRouter>,
-    )
+    // Pin "today" to the 20th — past Rent's due day (5th).
+    renderWithProviders(<DashboardPage today={new Date(2026, 5, 20)} />, { month: true })
 
     expect(await screen.findByText(/1 overdue/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByTitle(/Overdue/)).toBeInTheDocument()
@@ -501,10 +464,7 @@ describe('DashboardPage jars and first-run checklist', () => {
   }
 
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
   })
 
@@ -621,10 +581,7 @@ describe('DashboardPage jars and first-run checklist', () => {
 
 describe('DashboardPage month navigation', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
   })
 

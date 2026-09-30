@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 
 // Catalog coverage for docs/testing/cases/03-session-auth-lifecycle.md (SESS-*),
 // the pure session-lifecycle surfaces of the blocking ConsentModal. These
@@ -10,24 +9,18 @@ import { MemoryRouter } from 'react-router-dom'
 // and DO NOT duplicate them — here: the consent-POST-failure error banner
 // (SESS-041) and clicking "Sign out" as the logout exit (SESS-042).
 //
-// Harness matches ConsentModal.test.tsx: hoisted api mock fns, vi.mock('../lib/api')
-// spreading importOriginal, getToken → a live token so AuthProvider treats the
-// session as signed in and loads /auth/me.
+// Harness matches ConsentModal.test.tsx: the shared api mock with getToken → a live token so
+// AuthProvider treats the session as signed in and loads /auth/me.
 
-const { mockGet, mockPost } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPost: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) =>
+  (await import('../test/apiMock')).apiModule(importOriginal, {
+    getToken: () => 'tok',
+  }),
+)
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, post: mockPost },
-  getToken: () => 'tok',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { ConsentModal } from './ConsentModal'
-import { AuthProvider } from '../auth/AuthContext'
 
 function me(needsConsent: boolean) {
   return {
@@ -43,21 +36,12 @@ function me(needsConsent: boolean) {
   }
 }
 
-function renderModal(path = '/') {
-  return render(
-    <MemoryRouter initialEntries={[path]}>
-      <AuthProvider>
-        <ConsentModal />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderModal = (path = '/') => renderWithProviders(<ConsentModal />, { route: path })
 
 describe('SESS: ConsentModal session-side surfaces', () => {
   beforeEach(() => {
     localStorage.clear()
-    mockGet.mockReset()
-    mockPost.mockReset()
+    resetApiMocks()
     mockPost.mockResolvedValue({ data: {} })
   })
 

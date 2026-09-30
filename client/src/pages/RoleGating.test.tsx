@@ -1,28 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { screen, waitFor } from '@testing-library/react'
 import type { MeResponse, TransactionDto } from '../types'
 
-const { mockGet, mockPost, mockPut, mockDelete } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPost: vi.fn(),
-  mockPut: vi.fn(),
-  mockDelete: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, post: mockPost, put: mockPut, delete: mockDelete },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { TransactionsPage } from './TransactionsPage'
 import { AccountsPage } from './AccountsPage'
-import { AuthProvider } from '../auth/AuthContext'
-import { FeatureProvider } from '../features/FeatureContext'
 
 function me(role: number): MeResponse {
   return { userId: 'u1', email: 'alex@x.com', displayName: 'Alex', role, ownerId: 'u1', memberId: null }
@@ -38,22 +23,11 @@ function tx(): TransactionDto {
 
 let meRole = 0
 
-function renderPage(node: React.ReactNode) {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <FeatureProvider>{node}</FeatureProvider>
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = (node: React.ReactNode) => renderWithProviders(node, { features: true })
 
 describe('role gating', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPost.mockReset()
-    mockPut.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     meRole = 0
     mockGet.mockImplementation((url: string) => {
       if (url === '/auth/me') return Promise.resolve({ data: me(meRole) })

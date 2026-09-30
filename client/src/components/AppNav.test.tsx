@@ -1,37 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { screen, waitFor } from '@testing-library/react'
 import type { FeatureFlags, HouseholdMemberDto } from '../types'
 
-const { mockGet } = vi.hoisted(() => ({ mockGet: vi.fn() }))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { AppNav } from './AppNav'
-import { FeatureProvider } from '../features/FeatureContext'
-import { HouseholdProvider } from '../features/HouseholdContext'
-import { AuthProvider } from '../auth/AuthContext'
 
-function renderNav() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <FeatureProvider>
-          <HouseholdProvider>
-            <AppNav active="budget" />
-          </HouseholdProvider>
-        </FeatureProvider>
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderNav = () => renderWithProviders(<AppNav active="budget" />, { features: true, household: true })
 
 const flags = (over: Partial<FeatureFlags>): FeatureFlags => ({
   accounts: true, multiCurrency: true, camtImport: true, reports: true, jars: true, householdAllocation: true, householdAccess: true, ...over,
@@ -47,7 +24,7 @@ let membersData: HouseholdMemberDto[] = []
 
 describe('AppNav (feature flags)', () => {
   beforeEach(() => {
-    mockGet.mockReset()
+    resetApiMocks()
     flagsValue = flags({})
     membersData = []
     mockGet.mockImplementation((url: string) => {

@@ -1,27 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, BudgetMonthDto, HouseholdMemberDto, TransactionDto } from '../types'
 
-const { mockGet, mockPut, mockPost, mockDelete } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-  mockDelete: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost, delete: mockDelete },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { TransactionsPage } from './TransactionsPage'
-import { AuthProvider } from '../auth/AuthContext'
 import { setMoneyFormat } from '../lib/money'
 
 function budget(): BudgetMonthDto {
@@ -83,24 +69,13 @@ function mockLoad(
   })
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <TransactionsPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<TransactionsPage />)
 
 describe('TransactionsPage manual sheet', () => {
   afterEach(() => setMoneyFormat('comma-dot'))
 
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
   })
 
   it('adds a manual transaction assigned to a line', { timeout: 15000 }, async () => {
@@ -566,10 +541,7 @@ describe('TransactionsPage manual sheet', () => {
 
 describe('TransactionsPage currency conversion (W08)', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     setMoneyFormat('comma-dot')
   })
 

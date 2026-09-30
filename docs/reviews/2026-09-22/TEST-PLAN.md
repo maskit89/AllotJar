@@ -312,6 +312,8 @@ Merged where tests differed only in their inputs: `RemainingToBudgetTests` (seve
 
 **Shared helpers.** One `TestDb.NewContext()` replaces 76 private copies, one `CurrentUserStub` replaces 67 unit and 8 SQL copies, and unused `using` lines (including `using Xunit;`, which the project imports globally) are gone.
 
+**Screen-test harness (30 September, the follow-up PR).** `client/src/test/apiMock.ts` (the `api` spies, `resetApiMocks()`, `apiModule(importOriginal, overrides)`) and `client/src/test/render.tsx` (`renderWithProviders(ui, { route, features, household, month })`) replace the copies in the 46 screen test files that mock the API. A new screen test mocks the API with the one-line `vi.mock` from `apiMock.ts`'s header, imports the spies it drives, calls `resetApiMocks()` in `beforeEach`, and renders with `renderWithProviders`; what the file needs beyond that (a signed-out token, an extra api export, a pinned month) goes in the file. No test was added or removed (823 before and after); test bodies are unchanged. The DEVELOPMENT-LOG section names the fixture copies still left within page families and the type-check gap (`tsc` excludes the tests).
+
 ## Execution and completion criteria
 
 Run targeted regressions with the corresponding implementation, then the full affected suites once the change is coherent. Do not repeatedly rerun unchanged suites without a new reason.

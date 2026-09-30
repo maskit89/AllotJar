@@ -5,10 +5,10 @@
 // chips, role select, Remove, invited badge, orphan-login card), invite-modal client validation,
 // and the live solo<->shared gating flip driven by refreshHousehold().
 //
-// New file — does NOT touch PeoplePage.test.tsx. Conventions (vi.hoisted api mock with
-// importOriginal spread, MemoryRouter + AuthProvider, jest-dom matchers) mirror that file.
+// New file — does NOT touch PeoplePage.test.tsx. Conventions (the shared api mock,
+// MemoryRouter + AuthProvider, jest-dom matchers) mirror that file.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type {
@@ -21,11 +21,7 @@ import type {
 } from '../types'
 import { formatMoney, fromAmount } from '../lib/money'
 
-const { mockGet, mockPost, mockPut, mockDelete, monthState } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPost: vi.fn(),
-  mockPut: vi.fn(),
-  mockDelete: vi.fn(),
+const { monthState } = vi.hoisted(() => ({
   // The app-wide selected month the page reads (rule 29). Mutable so a case can move it and
   // rerender; reset to July 2026 in beforeEach.
   monthState: { year: 2026, month: 7, label: 'July 2026', goPrev: () => {}, goNext: () => {}, goToMonth: () => {} },
@@ -37,18 +33,12 @@ vi.mock('../features/MonthContext', async (importOriginal) => ({
   useMonth: () => monthState,
 }))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, post: mockPost, put: mockPut, delete: mockDelete },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
+import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { PeoplePage } from './PeoplePage'
 import { AuthProvider } from '../auth/AuthContext'
-import { HouseholdProvider } from '../features/HouseholdContext'
 
 function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
   return {
@@ -125,36 +115,15 @@ function setupGet() {
   })
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <PeoplePage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<PeoplePage />)
 
 // Wraps the page in a real HouseholdProvider so useHousehold().isShared reflects the
 // live member list — needed to observe the Allocation nav appearing/disappearing.
-function renderPageWithHousehold() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <HouseholdProvider>
-          <PeoplePage />
-        </HouseholdProvider>
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPageWithHousehold = () => renderWithProviders(<PeoplePage />, { household: true })
 
 describe('PeoplePage — catalog (PPL)', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPost.mockReset()
-    mockPut.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     mockPost.mockResolvedValue({ data: {} })
     mockPut.mockResolvedValue({ data: {} })
     mockDelete.mockResolvedValue({ data: {} })

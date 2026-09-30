@@ -1,28 +1,12 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { screen } from '@testing-library/react'
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: vi.fn(), put: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
+import { renderWithProviders } from '../test/render'
 import { HelpPage } from './HelpPage'
-import { AuthProvider } from '../auth/AuthContext'
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <HelpPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<HelpPage />)
 
 describe('HelpPage', () => {
   it('shows the guide sections and links to the full manual', () => {

@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, JarDto, JarScheduleDto, JarScheduleMonthDto, JarScheduleRequest, MeResponse } from '../types'
 
 // Supplements JarsPage.catalog.test.tsx (which already covers JAR-002/004/005/009/011/
@@ -14,25 +13,12 @@ import type { AccountDto, JarDto, JarScheduleDto, JarScheduleMonthDto, JarSchedu
 // (JAR-084), the ongoing / already-funded wording (JAR-085), the deadline-month option
 // (JAR-086) and the long-schedule summary (JAR-087).
 //
-// Same api-control harness as the sibling *.catalog.test.tsx files: vi.hoisted so the
-// mock factory can reference the fns, importOriginal spread so the rest of api.ts
-// (refreshSession, setSessionHandlers, …) keeps working under the mock — AuthProvider
-// reaches into them on mount.
-const { mockGet, mockPut, mockPost } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-}))
+// Same shared api mock as the sibling *.catalog.test.tsx files.
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
-import { AuthProvider } from '../auth/AuthContext'
 // Real (unmocked) money module — pin the active display locale so every €-string
 // asserted below renders in the design's canonical en-GB comma-dot format (€1,234.56),
 // independent of test-execution order.
@@ -123,15 +109,7 @@ function mockLoads(
   })
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <JarsPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<JarsPage />)
 
 async function openNewJar(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole('button', { name: 'New jar' }, { timeout: 5000 }))
@@ -146,9 +124,7 @@ async function describeRecurring(dialog: ReturnType<typeof within>, user: Return
 
 describe('JarsPage — catalog supplemental (JAR)', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
+    resetApiMocks()
     // The form asks the server for a schedule preview whenever a jar can be planned; answer
     // with nothing plannable unless a test cares about the preview.
     mockPost.mockResolvedValue({ data: {} })

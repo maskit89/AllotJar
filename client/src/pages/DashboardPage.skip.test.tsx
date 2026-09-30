@@ -1,26 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { BudgetMonthDto, JarScheduleDto } from '../types'
 
 // W04 — a jar's contribution line on the Budget page (rules 60–61): the ✕ opens the
 // skip-or-archive choice with the server's preview of the later months (BUDG-034, BUDG-059),
 // skipping keeps the line at €0 with a Skipped tag and Plan it again (BUDG-060), archiving from
 // the same dialog (BUDG-061), and a past month offers neither (BUDG-062).
-const { mockGet, mockPut, mockPost, mockDelete } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-  mockDelete: vi.fn(),
-}))
-
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost, delete: mockDelete },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
 const household = vi.hoisted(() => ({
   current: { members: [] as unknown[], isShared: false, loading: false, refreshHousehold: async () => {} },
@@ -30,9 +17,9 @@ vi.mock('../features/HouseholdContext', async (importOriginal) => ({
   useHousehold: () => household.current,
 }))
 
+import { mockGet, mockPut, mockDelete, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { DashboardPage } from './DashboardPage'
-import { AuthProvider } from '../auth/AuthContext'
-import { MonthProvider } from '../features/MonthContext'
 import { setMoneyFormat } from '../lib/money'
 
 // The viewed month is the app's current month (MonthProvider's default); the fixture is
@@ -106,22 +93,16 @@ function mockLoads(data: BudgetMonthDto, skipPreview: JarScheduleDto | { reject:
 }
 
 function renderPage(today?: Date) {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <MonthProvider>{today ? <DashboardPage today={today} /> : <DashboardPage />}</MonthProvider>
-      </AuthProvider>
-    </MemoryRouter>,
+  return renderWithProviders(
+    today ? <DashboardPage today={today} /> : <DashboardPage />,
+    { month: true },
   )
 }
 
 describe('DashboardPage — skipping a jar contribution (W04)', () => {
   beforeEach(() => {
     setMoneyFormat('en-GB')
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
   })
 

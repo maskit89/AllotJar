@@ -18,8 +18,7 @@ import type { BudgetMonthDto } from '../types'
 // 026/028/030/031 — start gating, PII redaction, whitelist, consent persistence at the
 // module level, not the DOM banner flow).
 //
-// Harness matches the repo convention (PR #169 gotcha): hoisted api mock fns,
-// vi.mock('../lib/api') spreading importOriginal, `../lib/env` mocked so a test can
+// Harness matches the repo convention: the shared api mock, `../lib/env` mocked so a test can
 // flip the build-time staging flag, `getToken` reading a mutable authState so a single
 // file can render the `/` branch signed out AND signed in. The analytics module is
 // left REAL — no measurement id exists under test, so isConfigured() is false and GA
@@ -38,26 +37,19 @@ import type { BudgetMonthDto } from '../types'
 //   - LAND-029 Case B (localStorage access throwing) — the polyfilled in-memory storage
 //     can't be made to throw without global surgery; Case A (garbage value) is covered.
 
-const { mockGet, mockPost, mockPut, mockDelete, envState, authState } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPost: vi.fn(),
-  mockPut: vi.fn(),
-  mockDelete: vi.fn(),
+const { envState, authState } = vi.hoisted(() => ({
   envState: { isStaging: false },
   authState: { token: null as string | null },
 }))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, post: mockPost, put: mockPut, delete: mockDelete },
-  getToken: () => authState.token,
-  setToken: vi.fn(),
-  // Anonymous cold-load bootstrap: no cookie session to restore (the signed-in cases
-  // pre-seed a token so this refresh is skipped entirely — see AuthContext bootstrap).
-  refreshSession: () => Promise.resolve(null),
-}))
+vi.mock('../lib/api', async (importOriginal) =>
+  (await import('../test/apiMock')).apiModule(importOriginal, {
+    getToken: () => authState.token,
+    // Anonymous cold-load bootstrap: no cookie session to restore (the signed-in cases
+    // pre-seed a token so this refresh is skipped entirely — see AuthContext bootstrap).
+    refreshSession: () => Promise.resolve(null),
+  }),
+)
 
 // Build-time env flag — default off (GA/default build) so the staging banner is absent
 // unless a test opts in.
@@ -70,6 +62,7 @@ vi.mock('../lib/env', () => ({
   },
 }))
 
+import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
 import App from '../App'
 import { LandingPage } from './LandingPage'
 import { PrivacyPage } from './PrivacyPage'
@@ -165,10 +158,7 @@ beforeEach(() => {
   envState.isStaging = false
   authState.token = null
   featuresData = {}
-  mockGet.mockReset()
-  mockPost.mockReset()
-  mockPut.mockReset()
-  mockDelete.mockReset()
+  resetApiMocks()
   mockPost.mockResolvedValue({ data: {} })
   mockPut.mockResolvedValue({ data: {} })
   mockDelete.mockResolvedValue({ data: {} })

@@ -12,9 +12,8 @@
 // with a categories[] array so the breakdown memo never dereferences undefined)
 // AND /reports/annual/{year}, plus a catch-all for /auth/me.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type {
   AnnualSummaryDto,
   BudgetTrendsDto,
@@ -23,14 +22,9 @@ import type {
   MonthReportDto,
 } from '../types'
 
-const { mockGet, mockTrack } = vi.hoisted(() => ({ mockGet: vi.fn(), mockTrack: vi.fn() }))
+const { mockTrack } = vi.hoisted(() => ({ mockTrack: vi.fn() }))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
 // Spy on analytics `track` while keeping the real EVENTS map (report_viewed etc.).
 vi.mock('../analytics', async (importOriginal) => ({
@@ -38,8 +32,9 @@ vi.mock('../analytics', async (importOriginal) => ({
   track: mockTrack,
 }))
 
+import { mockGet, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { ReportsPage } from './ReportsPage'
-import { AuthProvider } from '../auth/AuthContext'
 
 // --- fixtures ---------------------------------------------------------------
 
@@ -197,15 +192,7 @@ function wire(w: Wiring) {
   })
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <ReportsPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<ReportsPage />)
 
 const T = { timeout: 15000 }
 const W = { timeout: 5000 }
@@ -220,7 +207,7 @@ function rowFor(table: HTMLElement, monthLabel: string): HTMLElement {
 
 describe('ReportsPage — catalog (RPT)', () => {
   beforeEach(() => {
-    mockGet.mockReset()
+    resetApiMocks()
     mockTrack.mockReset()
   })
 

@@ -1,25 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, BudgetMonthDto, JarAccountLedgerDto, TransactionDto } from '../types'
 
-const { mockGet, mockPut, mockPost, mockDelete } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-  mockDelete: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost, delete: mockDelete },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { TransactionsPage } from './TransactionsPage'
-import { AuthProvider } from '../auth/AuthContext'
 
 // The jar prompts (rules 78/79/80) on the register: "Savings" backs the Holiday and Car jars,
 // "Everyday" backs none; "Holiday" is the Holiday jar's savings line, "Rent" is an ordinary line.
@@ -92,15 +80,7 @@ function mockLoad(transactions: TransactionDto[], ledgerData: JarAccountLedgerDt
   })
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <TransactionsPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<TransactionsPage />)
 
 async function openAddModal(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
@@ -109,10 +89,7 @@ async function openAddModal(user: ReturnType<typeof userEvent.setup>) {
 
 describe('TransactionsPage jar prompts', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
   })
 
   // Rule 78 — income into a jar-backed account asks how it is divided; other accounts never ask.
