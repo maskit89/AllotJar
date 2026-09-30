@@ -32,6 +32,7 @@ vi.mock('../lib/api', async (importOriginal) =>
 import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { AcceptInvitePage } from './AcceptInvitePage'
+import { axiosError } from '../test/fixtures/http'
 
 function LocationProbe() {
   const loc = useLocation()
@@ -61,11 +62,6 @@ function authResponse(overrides: Record<string, unknown> = {}) {
   }
 }
 
-/** A plain object axios treats as an AxiosError (isAxiosError flag) so the page's
- *  extractError() flattens/surfaces the server body exactly as in production. */
-function axiosError(data: unknown) {
-  return { isAxiosError: true, response: { data } }
-}
 
 describe('AcceptInvitePage (INV catalog)', () => {
   beforeEach(() => {

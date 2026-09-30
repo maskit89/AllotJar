@@ -70,6 +70,7 @@ import { TermsPage } from './TermsPage'
 import { AuthProvider } from '../auth/AuthContext'
 import { FeatureProvider } from '../features/FeatureContext'
 import { AnalyticsProvider } from '../analytics/AnalyticsProvider'
+import { budgetCategory, budgetItem, budgetMonth } from '../test/fixtures/budget'
 
 // ---- shared fixtures --------------------------------------------------------
 
@@ -77,41 +78,14 @@ import { AnalyticsProvider } from '../analytics/AnalyticsProvider'
  *  uses, so a signed-in `/` render surfaces the recognisable "Planned amount for Rent"
  *  control that proves the dashboard (not the landing) rendered. */
 function budget(): BudgetMonthDto {
-  return {
-    id: 'm1',
+  return budgetMonth({
     key: '2026-06',
-    year: 2026,
     month: 6,
-    baseCurrency: 'EUR',
-    totalIncome: 3000,
-    totalPlanned: 1100,
-    remainingToBudget: 1900,
-    isBalanced: false,
     categories: [
-      {
-        id: 'inc',
-        name: 'Income',
-        kind: 'Income',
-        displayOrder: 0,
-        totalPlanned: 3000,
-        totalActual: 0,
-        items: [
-          { id: 'i-pay', name: 'Take-home Pay', displayOrder: 0, plannedAmount: 3000, actualAmount: 0, remaining: 3000 },
-        ],
-      },
-      {
-        id: 'c1',
-        name: 'Housing',
-        kind: 'Expense',
-        displayOrder: 0,
-        totalPlanned: 1100,
-        totalActual: 0,
-        items: [
-          { id: 'i-rent', name: 'Rent', displayOrder: 0, plannedAmount: 1100, actualAmount: 0, remaining: 1100 },
-        ],
-      },
+      budgetCategory({ id: 'inc', name: 'Income', kind: 'Income', items: [budgetItem({ id: 'i-pay', name: 'Take-home Pay', plannedAmount: 3000 })] }),
+      budgetCategory({ id: 'c1', name: 'Housing', items: [budgetItem({ id: 'i-rent', name: 'Rent', plannedAmount: 1100 })] }),
     ],
-  }
+  })
 }
 
 /** The /auth/me body an authenticated `/` render loads (needsConsent false so the

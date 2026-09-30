@@ -44,8 +44,10 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
             .HasPrecision(18, 4);
         builder.Property(t => t.BudgetAmount)
             .HasPrecision(18, 4);
+        // The converter's type, not an instance: EF applies it to the nullable property itself
+        // (a null stays null), which a ValueConverter<CurrencyCode, string> instance can't say.
         builder.Property(t => t.OriginalCurrency)
-            .HasConversion(new CurrencyCodeConverter())
+            .HasConversion<CurrencyCodeConverter>()
             .HasMaxLength(3);
 
         builder.Property(t => t.Payee)

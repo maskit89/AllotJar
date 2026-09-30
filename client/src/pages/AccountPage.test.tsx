@@ -1,35 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { HouseholdMemberDto } from '../types'
+import type { HouseholdMemberDto, MeResponse } from '../types'
 
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
 import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { AccountPage } from './AccountPage'
+import { joinedMe as sharedJoinedMe, ownerMe } from '../test/fixtures/me'
 
-// An owner viewing their own household (the common case).
-const ownerMe = {
-  userId: 'u1',
-  email: 'alex@x.com',
-  displayName: 'Alex',
-  role: 0,
-  ownerId: 'u1',
-  memberId: null,
-  households: [{ ownerId: 'u1', label: 'Your household', role: 0, isActive: true, isOwn: true }],
-}
-
-// A member who only joined someone else's household (no own household of their own).
-const joinedMe = {
-  userId: 'u2',
-  email: 'sam@x.com',
-  displayName: 'Sam',
-  role: 2,
-  ownerId: 'owner-1',
-  memberId: null,
-  households: [{ ownerId: 'owner-1', label: 'Alex', role: 2, isActive: true, isOwn: false }],
-}
+// Sam, a member who only joined someone else's household (no household of their own).
+const joinedMe = sharedJoinedMe(2)
 
 function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
   return { id: 'm1', name: 'Alex', netMonthlyIncome: 6000, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1, ...over }
@@ -37,7 +19,7 @@ function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
 
 // The Sharing card reads /members; everything else (/auth/me) returns the login.
 let membersData: HouseholdMemberDto[] = []
-let meData: typeof ownerMe & { preferredCurrency?: string; budgetCurrency?: string; currencyLocked?: boolean; ownBudgetCurrency?: string } = ownerMe
+let meData: MeResponse = ownerMe
 
 const renderPage = () => renderWithProviders(<AccountPage />, { household: true })
 

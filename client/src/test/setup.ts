@@ -41,8 +41,10 @@ if (typeof globalThis.BroadcastChannel === 'undefined') {
 
   class MemoryBroadcastChannel {
     onmessage: ((event: { data: unknown }) => void) | null = null
+    readonly name: string
 
-    constructor(readonly name: string) {
+    constructor(name: string) {
+      this.name = name
       if (!channels.has(name)) channels.set(name, new Set())
       channels.get(name)!.add(this)
     }

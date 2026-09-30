@@ -24,6 +24,7 @@ vi.mock('../analytics', async (importOriginal) => ({
 import { mockGet, mockPost } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { ResetPasswordPage } from './ResetPasswordPage'
+import { axiosError } from '../test/fixtures/http'
 import { track, EVENTS } from '../analytics'
 
 const LINK = '/reset-password?email=owner%40example.com&token=tok%2Babc'
@@ -50,10 +51,6 @@ function authResponse() {
     role: 0,
     displayName: 'Owner',
   }
-}
-
-function axiosError(data: unknown, status = 400) {
-  return { isAxiosError: true, response: { status, data } }
 }
 
 async function fillPasswords(newPassword: string, confirm = newPassword) {

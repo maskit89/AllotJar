@@ -1,13 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type {
-  AccountDto,
-  BudgetMonthDto,
-  HouseholdMemberDto,
-  ImportPreviewResult,
-  ImportStatementResult,
-} from '../types'
 
 const { mockPreview, mockCommit } = vi.hoisted(() => ({
   mockPreview: vi.fn(),
@@ -24,70 +17,8 @@ vi.mock('../lib/api', async (importOriginal) =>
 import { mockGet, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { ImportPage } from './ImportPage'
+import { accounts, committed, csvPreview, members, month, preview, previewWithTransfer } from '../test/fixtures/import'
 import { formatDate } from '../lib/dates'
-
-const accounts: AccountDto[] = [
-  { id: 'acc1', name: 'HSBC Current', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0 },
-  { id: 'acc2', name: 'Joint Savings', type: 1, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 1 },
-]
-const members: HouseholdMemberDto[] = [
-  { id: 'm1', name: 'Alex', netMonthlyIncome: 0, personalSavingsAccountId: null, displayOrder: 0, isArchived: false, incomeSharePct: 1 } as unknown as HouseholdMemberDto,
-]
-const month = {
-  id: 'mo1', key: '2026-06', year: 2026, month: 6, baseCurrency: 'EUR',
-  totalIncome: 0, totalPlanned: 0, remainingToBudget: 0, isBalanced: false,
-  categories: [
-    { id: 'c1', name: 'Food', kind: 'Expense', displayOrder: 0, totalPlanned: 0, totalActual: 0,
-      items: [
-        { id: 'bi1', name: 'Groceries', displayOrder: 0, plannedAmount: 0, actualAmount: 0, remaining: 0, savingsId: null, savingsAvailable: null, dueDay: null, isPaid: false },
-        { id: 'bi2', name: 'Soap', displayOrder: 1, plannedAmount: 0, actualAmount: 0, remaining: 0, savingsId: null, savingsAvailable: null, dueDay: null, isPaid: false },
-      ] },
-  ],
-} as unknown as BudgetMonthDto
-
-function preview(): ImportPreviewResult {
-  return {
-    totalEntries: 3, newCount: 2, skippedDuplicates: 1, credits: 0, debits: 2,
-    items: [
-      { reference: 'hsbc:a#0', date: '2026-06-17', payee: 'AUTOMARKET', amount: 35, currency: 'EUR', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: 'Groceries', likelyTransfer: false },
-      { reference: 'hsbc:b#0', date: '2026-06-15', payee: 'WOLT', amount: 80.9, currency: 'EUR', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: null, likelyTransfer: false },
-    ],
-  }
-}
-
-// A preview that includes a credit flagged as a likely transfer (e.g. an e-banking top-up).
-function previewWithTransfer(): ImportPreviewResult {
-  return {
-    totalEntries: 2, newCount: 2, skippedDuplicates: 0, credits: 1, debits: 1,
-    items: [
-      { reference: 'hsbc:e#0', date: '2026-06-16', payee: 'E-BANKING PAYMENT', amount: 234.24, currency: 'EUR', isCredit: true, suggestedBudgetItemId: null, suggestedBudgetItemName: null, likelyTransfer: true },
-      { reference: 'hsbc:a#0', date: '2026-06-17', payee: 'AUTOMARKET', amount: 35, currency: 'EUR', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: 'Groceries', likelyTransfer: false },
-    ],
-  }
-}
-
-// A generic-CSV preview: carries the detected column layout so the mapping panel renders.
-function csvPreview(): ImportPreviewResult {
-  return {
-    totalEntries: 2, newCount: 2, skippedDuplicates: 0, credits: 1, debits: 1,
-    items: [
-      { reference: 'csv:a#0', date: '2026-06-20', payee: 'TESCO', amount: 42.5, currency: 'GBP', isCredit: false, suggestedBudgetItemId: null, suggestedBudgetItemName: null, likelyTransfer: false },
-      { reference: 'csv:b#0', date: '2026-06-21', payee: 'SALARY', amount: 2500, currency: 'GBP', isCredit: true, suggestedBudgetItemId: null, suggestedBudgetItemName: null, likelyTransfer: false },
-    ],
-    layout: {
-      columns: ['Date', 'Description', 'Amount', 'Currency'],
-      sampleRows: [['2026-06-20', 'TESCO', '-42.50', 'GBP']],
-      suggested: {
-        delimiter: ',', hasHeader: true, dateColumn: 0, amountColumn: 2, descriptionColumn: 1,
-        currencyColumn: 3, dateFormat: null, decimalStyle: 0, defaultCurrency: 'GBP',
-      },
-    },
-  }
-}
-
-function committed(): ImportStatementResult {
-  return { totalEntries: 2, imported: 2, skippedDuplicates: 0, credits: 0, debits: 2, iban: null, autoCategorized: 0, transfers: 0 }
-}
 
 const renderPage = () => renderWithProviders(<ImportPage />)
 

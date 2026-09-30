@@ -10,61 +10,18 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
+import { account, jar as sharedJar, ledger } from '../test/fixtures/jars'
 
-function jar(over: Partial<JarDto> = {}): JarDto {
-  return {
-    id: 'f1',
-    name: 'Home insurance',
-    kind: 0,
-    targetAmount: 300,
-    targetDate: '2026-12-01',
-    accrual: 0,
-    monthlyContribution: null,
-    includeDeadlineMonth: false,
-    recurMonths: 12,
-    fundingAccountId: 'acc1',
-    balanceAsOf: '2026-09-26',
-    isArchived: false,
-    currentBalance: 400,
-    plannedThisMonth: 25,
-    contributedThisMonth: 0,
-    remainingThisMonth: 25,
-    deadline: null,
-    fundingCompletesOn: '2026-11-01',
-    estimatedMonthsToTarget: null,
-    shortfall: null,
-    lastCycle: null,
-    completedOn: null,
-    canDelete: false,
-    skippedThisMonth: false,
-    status: 'OnTrack',
-    ...over,
-  }
-}
+// Home insurance holds 400 and accrues in one go, with no deadline yet.
+const jar = (over: Partial<JarDto> = {}) =>
+  sharedJar({ accrual: 0, currentBalance: 400, deadline: null, fundingCompletesOn: '2026-11-01', ...over })
 
 // Two jar-backed accounts plus one that backs no jars (so it appears as "Unallocated funds" only).
 const accountsData: AccountDto[] = [
-  { id: 'acc1', name: 'Joint Current', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 1000, displayOrder: 0 },
-  { id: 'acc2', name: 'Rainy Day', type: 1, currency: 'EUR', openingBalance: 0, currentBalance: 350, displayOrder: 1 },
-  { id: 'acc3', name: 'Cash Box', type: 2, currency: 'EUR', openingBalance: 0, currentBalance: 50, displayOrder: 2 },
+  account({ currentBalance: 1000 }),
+  account({ id: 'acc2', name: 'Rainy Day', type: 1, currentBalance: 350, displayOrder: 1 }),
+  account({ id: 'acc3', name: 'Cash Box', type: 2, currentBalance: 50, displayOrder: 2 }),
 ]
-
-function ledger(over: Partial<JarAccountLedgerDto> = {}): JarAccountLedgerDto {
-  return {
-    accountId: 'acc1',
-    accountName: 'Joint Current',
-    currency: 'EUR',
-    asOf: '2026-09-26',
-    accountBalance: 1000,
-    unallocated: 600,
-    positiveAllocations: 400,
-    hasBackingDeficit: false,
-    unreconciledAllocations: 0,
-    requiresReview: false,
-    jars: [{ jarId: 'f1', name: 'Home insurance', balance: 400, isArchived: false }],
-    ...over,
-  }
-}
 
 const rainyDay = () =>
   ledger({

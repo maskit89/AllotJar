@@ -1271,7 +1271,7 @@ describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
     const register = [purchase(), refundRow(), tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 })]
     mockLoad(register)
     // The server's register after each change: the purchase counts the refunds linked to it.
-    mockPut.mockImplementation((url: string, body: { refundOfTransactionId: string | null }) => {
+    mockPut.mockImplementation((_url: string, body: { refundOfTransactionId: string | null }) => {
       const data = body.refundOfTransactionId
         ? { ...tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 }), refundOfTransactionId: 't-tesco', refundOfPayee: 'Tesco', refundOfDate: '2026-07-10' }
         : { ...refundRow(), refundOfTransactionId: null, refundOfPayee: null, refundOfDate: null, budgetItemId: null, budgetItemName: null }

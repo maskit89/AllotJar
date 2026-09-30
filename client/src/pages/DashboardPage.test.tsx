@@ -19,44 +19,19 @@ vi.mock('../features/HouseholdContext', async (importOriginal) => ({
 import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { DashboardPage } from './DashboardPage'
+import { budgetCategory, budgetItem, budgetMonth } from '../test/fixtures/budget'
+import { jar } from '../test/fixtures/jars'
 
 // Income(Take-home Pay 3000) at the top + Housing(Rent 1100). Remaining = 1900.
 function budget(): BudgetMonthDto {
-  return {
-    id: 'm1',
+  return budgetMonth({
     key: '2026-06',
-    year: 2026,
     month: 6,
-    baseCurrency: 'EUR',
-    totalIncome: 3000,
-    totalPlanned: 1100,
-    remainingToBudget: 1900,
-    isBalanced: false,
     categories: [
-      {
-        id: 'inc',
-        name: 'Income',
-        kind: 'Income',
-        displayOrder: 0,
-        totalPlanned: 3000,
-        totalActual: 0,
-        items: [
-          { id: 'i-pay', name: 'Take-home Pay', displayOrder: 0, plannedAmount: 3000, actualAmount: 0, remaining: 3000 },
-        ],
-      },
-      {
-        id: 'c1',
-        name: 'Housing',
-        kind: 'Expense',
-        displayOrder: 0,
-        totalPlanned: 1100,
-        totalActual: 0,
-        items: [
-          { id: 'i-rent', name: 'Rent', displayOrder: 0, plannedAmount: 1100, actualAmount: 0, remaining: 1100 },
-        ],
-      },
+      budgetCategory({ id: 'inc', name: 'Income', kind: 'Income', items: [budgetItem({ id: 'i-pay', name: 'Take-home Pay', plannedAmount: 3000 })] }),
+      budgetCategory({ id: 'c1', name: 'Housing', items: [budgetItem({ id: 'i-rent', name: 'Rent', plannedAmount: 1100 })] }),
     ],
-  }
+  })
 }
 
 const renderPage = () => renderWithProviders(<DashboardPage />, { month: true })
@@ -159,9 +134,7 @@ describe('DashboardPage optimistic editing', () => {
       url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: budget() }),
     )
     const withFreelance = budget()
-    withFreelance.categories[0].items.push({
-      id: 'i-free', name: 'Freelance', displayOrder: 1, plannedAmount: 0, actualAmount: 0, remaining: 0,
-    })
+    withFreelance.categories[0].items.push(budgetItem({ id: 'i-free', name: 'Freelance', displayOrder: 1 }))
     mockPost.mockResolvedValue({ data: withFreelance })
     const user = userEvent.setup()
 
@@ -229,9 +202,7 @@ describe('DashboardPage optimistic editing', () => {
       url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: budget() }),
     )
     const withFuel = budget()
-    withFuel.categories[1].items.push({
-      id: 'i-fuel', name: 'Fuel', displayOrder: 1, plannedAmount: 0, actualAmount: 0, remaining: 0,
-    })
+    withFuel.categories[1].items.push(budgetItem({ id: 'i-fuel', name: 'Fuel', displayOrder: 1 }))
     mockPost.mockResolvedValue({ data: withFuel })
     const user = userEvent.setup()
 
@@ -289,10 +260,7 @@ describe('DashboardPage optimistic editing', () => {
 
   it('reorders lines within a group via the move buttons', { timeout: 15000 }, async () => {
     const b = budget()
-    b.categories[1].items.push({
-      id: 'i-util', name: 'Utilities', displayOrder: 1,
-      plannedAmount: 100, actualAmount: 0, remaining: 100,
-    })
+    b.categories[1].items.push(budgetItem({ id: 'i-util', name: 'Utilities', displayOrder: 1, plannedAmount: 100 }))
     mockGet.mockImplementation((url: string) =>
       url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: b }),
     )
@@ -312,15 +280,10 @@ describe('DashboardPage optimistic editing', () => {
 
   it('renders a fund group with its rolled-over Available balance', { timeout: 15000 }, async () => {
     const b = budget()
-    b.categories.push({
-      id: 'jars', name: 'Sinking Funds', kind: 'Savings', displayOrder: 0, totalPlanned: 100, totalActual: 0,
-      items: [
-        {
-          id: 'i-car', name: 'Car', displayOrder: 0, plannedAmount: 100, actualAmount: 30,
-          remaining: 70, savingsId: 'fund-car', savingsAvailable: 170,
-        },
-      ],
-    })
+    b.categories.push(budgetCategory({
+      id: 'jars', name: 'Sinking Funds', kind: 'Savings', totalActual: 0,
+      items: [budgetItem({ id: 'i-car', name: 'Car', plannedAmount: 100, actualAmount: 30, savingsId: 'fund-car', savingsAvailable: 170 })],
+    }))
     mockGet.mockImplementation((url: string) =>
       url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: b }),
     )
@@ -335,11 +298,11 @@ describe('DashboardPage optimistic editing', () => {
   it('CAT-023: a Savings group that holds a jar\'s line offers no delete; an empty one does (rule 60)', { timeout: 15000 }, async () => {
     const b = budget()
     b.categories.push(
-      {
-        id: 'jars', name: 'Sinking Funds', kind: 'Savings', displayOrder: 0, totalPlanned: 100, totalActual: 0,
-        items: [{ id: 'i-car', name: 'Car', displayOrder: 0, plannedAmount: 100, actualAmount: 0, remaining: 100, savingsId: 'fund-car', savingsAvailable: 100 }],
-      },
-      { id: 'later', name: 'Later', kind: 'Savings', displayOrder: 1, totalPlanned: 0, totalActual: 0, items: [] },
+      budgetCategory({
+        id: 'jars', name: 'Sinking Funds', kind: 'Savings',
+        items: [budgetItem({ id: 'i-car', name: 'Car', plannedAmount: 100, savingsId: 'fund-car', savingsAvailable: 100 })],
+      }),
+      budgetCategory({ id: 'later', name: 'Later', kind: 'Savings', displayOrder: 1 }),
     )
     mockGet.mockImplementation((url: string) =>
       url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: b }),
@@ -436,10 +399,10 @@ describe('DashboardPage optimistic editing', () => {
 // account); the Budget page shows a first-run checklist until accounts, month and a jar exist.
 describe('DashboardPage jars and first-run checklist', () => {
   const JOINT: AccountDto = { id: 'acc1', name: 'Joint Current', type: 0, currency: 'EUR', openingBalance: 500, openingDate: '2026-01-01', currentBalance: 500, displayOrder: 0 }
-  const HOLIDAY: JarDto = {
-    id: 'jar-holiday', name: 'Holiday', kind: 1, targetAmount: 1200, targetDate: null, accrual: 1, monthlyContribution: null, includeDeadlineMonth: false, recurMonths: null,
-    fundingAccountId: 'acc1', isArchived: false, currentBalance: 100, balanceAsOf: '2026-06-15', plannedThisMonth: 100, contributedThisMonth: 0, remainingThisMonth: 100, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, shortfall: null, lastCycle: null, completedOn: null, canDelete: false, skippedThisMonth: false, status: 'OnTrack',
-  }
+  const HOLIDAY: JarDto = jar({
+    id: 'jar-holiday', name: 'Holiday', kind: 1, targetAmount: 1200, targetDate: null, recurMonths: null,
+    currentBalance: 100, balanceAsOf: '2026-06-15', plannedThisMonth: 100, remainingThisMonth: 100, deadline: null, fundingCompletesOn: null,
+  })
 
   function mockLoads(opts: { month?: BudgetMonthDto | null; accounts?: AccountDto[]; jars?: JarDto[] } = {}) {
     const { month = budget(), accounts = [], jars = [] } = opts
@@ -456,10 +419,10 @@ describe('DashboardPage jars and first-run checklist', () => {
 
   function budgetWithSavings(available: number | null): BudgetMonthDto {
     const b = budget()
-    b.categories.push({
-      id: 'sav', name: 'Savings', kind: 'Savings', displayOrder: 0, totalPlanned: 100, totalActual: 0,
-      items: [{ id: 'i-holiday', name: 'Holiday', displayOrder: 0, plannedAmount: 100, actualAmount: 0, remaining: 100, savingsId: 'jar-holiday', savingsAvailable: available }],
-    })
+    b.categories.push(budgetCategory({
+      id: 'sav', name: 'Savings', kind: 'Savings',
+      items: [budgetItem({ id: 'i-holiday', name: 'Holiday', plannedAmount: 100, savingsId: 'jar-holiday', savingsAvailable: available })],
+    }))
     return b
   }
 
@@ -471,7 +434,7 @@ describe('DashboardPage jars and first-run checklist', () => {
   it('replaces the savings "add line" input with an Add jar button that opens the jar form and posts to /jars', { timeout: 15000 }, async () => {
     mockLoads({ month: budgetWithSavings(100), accounts: [JOINT], jars: [HOLIDAY] })
     const planted = budgetWithSavings(100)
-    planted.categories[2].items.push({ id: 'i-car', name: 'Car', displayOrder: 1, plannedAmount: 50, actualAmount: 0, remaining: 50, savingsId: 'jar-car', savingsAvailable: 0 })
+    planted.categories[2].items.push(budgetItem({ id: 'i-car', name: 'Car', displayOrder: 1, plannedAmount: 50, savingsId: 'jar-car', savingsAvailable: 0 }))
     mockPost.mockResolvedValue({ data: { ...HOLIDAY, id: 'jar-car', name: 'Car', targetAmount: 600, targetDate: '2027-03-01', deadline: '2027-03-01', currentBalance: 0, plannedThisMonth: 50, remainingThisMonth: 50 } })
     const user = userEvent.setup()
 
@@ -515,7 +478,7 @@ describe('DashboardPage jars and first-run checklist', () => {
 
     await screen.findByDisplayValue('Holiday', {}, { timeout: 5000 })
     // The line keeps the savings layout (avail. column) and says so, never €0.00.
-    const row = screen.getByDisplayValue('Holiday').closest('.group')!
+    const row = screen.getByDisplayValue('Holiday').closest('.group') as HTMLElement
     expect(within(row).getByText('Not available')).toBeInTheDocument()
     expect(within(row).getByText('avail.')).toBeInTheDocument()
   })

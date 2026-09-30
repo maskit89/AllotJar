@@ -12,40 +12,12 @@ import { DashboardPage } from './DashboardPage'
 // asserted below renders in the design's canonical en-GB comma-dot format,
 // independent of test-execution order.
 import { setMoneyFormat } from '../lib/money'
+import { budgetCategory, budgetItem, budgetMonth } from '../test/fixtures/budget'
 
 // --- Fixtures ---------------------------------------------------------------
 // The page recomputes every total from `categories` (budgetModel selectors), so
 // the DTO-level totals/isBalanced are cosmetic here — only the category tree drives
 // the render. Each builder returns a fresh object so tests never share mutable state.
-
-type Item = {
-  id: string
-  name: string
-  displayOrder: number
-  plannedAmount: number
-  actualAmount: number
-  remaining: number
-  savingsId?: string
-  savingsAvailable?: number
-  dueDay?: number
-  isPaid?: boolean
-}
-
-function monthShell(over: Partial<BudgetMonthDto>): BudgetMonthDto {
-  return {
-    id: 'm1',
-    key: '2026-07',
-    year: 2026,
-    month: 7,
-    baseCurrency: 'EUR',
-    totalIncome: 0,
-    totalPlanned: 0,
-    remainingToBudget: 0,
-    isBalanced: false,
-    categories: [],
-    ...over,
-  }
-}
 
 // JUL26 canonical fixture: Income 3,000 (Take-home Pay 2,600 received of 2,600
 // planned + Freelance 400), Housing (Rent 1,100 bill day 1, Utilities 180 bill
@@ -53,52 +25,44 @@ function monthShell(over: Partial<BudgetMonthDto>): BudgetMonthDto {
 // Savings (Holiday 150 planned, 0 spent, 450 rolled-over available).
 // Allotted = 1,920 · Income = 3,000 · Remaining = 1,080.
 function jul26(): BudgetMonthDto {
-  return monthShell({
+  return budgetMonth({
     categories: [
-      {
-        id: 'inc', name: 'Income', kind: 'Income', displayOrder: 0, totalPlanned: 3000, totalActual: 2600,
+      budgetCategory({
+        id: 'inc', name: 'Income', kind: 'Income',
         items: [
-          { id: 'i-pay', name: 'Take-home Pay', displayOrder: 0, plannedAmount: 2600, actualAmount: 2600, remaining: 0 },
-          { id: 'i-free', name: 'Freelance', displayOrder: 1, plannedAmount: 400, actualAmount: 0, remaining: 400 },
-        ] as Item[],
-      },
-      {
-        id: 'c-housing', name: 'Housing', kind: 'Expense', displayOrder: 0, totalPlanned: 1280, totalActual: 0,
+          budgetItem({ id: 'i-pay', name: 'Take-home Pay', plannedAmount: 2600, actualAmount: 2600 }),
+          budgetItem({ id: 'i-free', name: 'Freelance', displayOrder: 1, plannedAmount: 400 }),
+        ],
+      }),
+      budgetCategory({
+        id: 'c-housing', name: 'Housing',
         items: [
-          { id: 'i-rent', name: 'Rent', displayOrder: 0, plannedAmount: 1100, actualAmount: 0, remaining: 1100, dueDay: 1, isPaid: false },
-          { id: 'i-util', name: 'Utilities', displayOrder: 1, plannedAmount: 180, actualAmount: 0, remaining: 180, dueDay: 20, isPaid: false },
-        ] as Item[],
-      },
-      {
-        id: 'c-food', name: 'Food', kind: 'Expense', displayOrder: 1, totalPlanned: 490, totalActual: 370,
+          budgetItem({ id: 'i-rent', name: 'Rent', plannedAmount: 1100, dueDay: 1 }),
+          budgetItem({ id: 'i-util', name: 'Utilities', displayOrder: 1, plannedAmount: 180, dueDay: 20 }),
+        ],
+      }),
+      budgetCategory({
+        id: 'c-food', name: 'Food', displayOrder: 1,
         items: [
-          { id: 'i-groc', name: 'Groceries', displayOrder: 0, plannedAmount: 400, actualAmount: 250, remaining: 150 },
-          { id: 'i-rest', name: 'Restaurants', displayOrder: 1, plannedAmount: 90, actualAmount: 120, remaining: -30 },
-        ] as Item[],
-      },
-      {
-        id: 'c-sav', name: 'Savings', kind: 'Savings', displayOrder: 0, totalPlanned: 150, totalActual: 0,
-        items: [
-          { id: 'i-holiday', name: 'Holiday', displayOrder: 0, plannedAmount: 150, actualAmount: 0, remaining: 150, savingsId: 'jar-holiday', savingsAvailable: 450 },
-        ] as Item[],
-      },
+          budgetItem({ id: 'i-groc', name: 'Groceries', plannedAmount: 400, actualAmount: 250 }),
+          budgetItem({ id: 'i-rest', name: 'Restaurants', displayOrder: 1, plannedAmount: 90, actualAmount: 120 }),
+        ],
+      }),
+      budgetCategory({
+        id: 'c-sav', name: 'Savings', kind: 'Savings',
+        items: [budgetItem({ id: 'i-holiday', name: 'Holiday', plannedAmount: 150, savingsId: 'jar-holiday', savingsAvailable: 450 })],
+      }),
     ],
   })
 }
 
 // A balanced month: income 3,000 planned entirely against one expense line → remaining 0.
 function balancedMonth(baseCurrency = 'EUR'): BudgetMonthDto {
-  return monthShell({
+  return budgetMonth({
     baseCurrency,
     categories: [
-      {
-        id: 'inc', name: 'Income', kind: 'Income', displayOrder: 0, totalPlanned: 3000, totalActual: 3000,
-        items: [{ id: 'i-pay', name: 'Take-home Pay', displayOrder: 0, plannedAmount: 3000, actualAmount: 3000, remaining: 0 }] as Item[],
-      },
-      {
-        id: 'c-housing', name: 'Housing', kind: 'Expense', displayOrder: 0, totalPlanned: 3000, totalActual: 0,
-        items: [{ id: 'i-rent', name: 'Rent', displayOrder: 0, plannedAmount: 3000, actualAmount: 0, remaining: 3000 }] as Item[],
-      },
+      budgetCategory({ id: 'inc', name: 'Income', kind: 'Income', items: [budgetItem({ id: 'i-pay', name: 'Take-home Pay', plannedAmount: 3000, actualAmount: 3000 })] }),
+      budgetCategory({ id: 'c-housing', name: 'Housing', items: [budgetItem({ id: 'i-rent', name: 'Rent', plannedAmount: 3000 })] }),
     ],
   })
 }
@@ -106,21 +70,18 @@ function balancedMonth(baseCurrency = 'EUR'): BudgetMonthDto {
 // A truly empty month: an Income group with no lines, nothing planned. Remaining €0
 // but nothing budgeted — the plan-your-income prompt, never the balanced badge.
 function emptyMonth(baseCurrency = 'EUR'): BudgetMonthDto {
-  return monthShell({
+  return budgetMonth({
     baseCurrency,
-    categories: [{ id: 'inc', name: 'Income', kind: 'Income', displayOrder: 0, totalPlanned: 0, totalActual: 0, items: [] }],
+    categories: [budgetCategory({ id: 'inc', name: 'Income', kind: 'Income' })],
   })
 }
 
 // Income 0 but with a planned expense line — over-budgeted, NOT the empty prompt.
 function income0Planned(): BudgetMonthDto {
-  return monthShell({
+  return budgetMonth({
     categories: [
-      { id: 'inc', name: 'Income', kind: 'Income', displayOrder: 0, totalPlanned: 0, totalActual: 0, items: [] },
-      {
-        id: 'c-bills', name: 'Bills', kind: 'Expense', displayOrder: 0, totalPlanned: 500, totalActual: 0,
-        items: [{ id: 'i-rent', name: 'Rent', displayOrder: 0, plannedAmount: 500, actualAmount: 0, remaining: 500 }] as Item[],
-      },
+      budgetCategory({ id: 'inc', name: 'Income', kind: 'Income' }),
+      budgetCategory({ id: 'c-bills', name: 'Bills', items: [budgetItem({ id: 'i-rent', name: 'Rent', plannedAmount: 500 })] }),
     ],
   })
 }
@@ -338,7 +299,7 @@ describe('DashboardPage — income card & spending lines', () => {
   it('DASH-050: overspent and zero-planned lines render rose with a clamped, never-NaN bar', { timeout: 15000 }, async () => {
     const m = jul26()
     // Zero-planned line with spend: bar must be 0%, remaining rose "-€15.00".
-    m.categories[2].items.push({ id: 'i-coffee', name: 'Coffee', displayOrder: 2, plannedAmount: 0, actualAmount: 15, remaining: -15 })
+    m.categories[2].items.push(budgetItem({ id: 'i-coffee', name: 'Coffee', displayOrder: 2, actualAmount: 15 }))
     const { container } = (mockLoads({ month: m }), renderPage())
 
     // Restaurants: planned 90, spent 120 → "-€30.00" in rose, over "€120.00 of €90.00".

@@ -30,6 +30,8 @@ import { DashboardPage } from './DashboardPage'
 import { useMonth } from '../features/MonthContext'
 import { setMoneyFormat } from '../lib/money'
 import { formatDate } from '../lib/dates'
+import { budgetCategory, budgetItem, budgetMonth } from '../test/fixtures/budget'
+import { jar as sharedJar } from '../test/fixtures/jars'
 
 // The viewed month is the app's current month (MonthProvider's default); "today" is moved
 // around it to make the viewed month current, over, or not yet begun.
@@ -43,48 +45,31 @@ const previousMonth = new Date(MONTH === 1 ? YEAR - 1 : YEAR, MONTH === 1 ? 11 :
 
 function month(over: { planned?: number } = {}): BudgetMonthDto {
   const planned = over.planned ?? 150
-  return {
-    id: 'm1',
-    key: `${YEAR}-${String(MONTH).padStart(2, '0')}`,
+  return budgetMonth({
     year: YEAR,
     month: MONTH,
-    baseCurrency: 'EUR',
-    totalIncome: 3000,
-    totalPlanned: planned + 1100,
-    remainingToBudget: 3000 - planned - 1100,
-    isBalanced: false,
     categories: [
-      {
-        id: 'inc', name: 'Income', kind: 'Income', displayOrder: 0, totalPlanned: 3000, totalActual: 3000,
-        items: [{ id: 'i-pay', name: 'Take-home Pay', displayOrder: 0, plannedAmount: 3000, actualAmount: 3000, remaining: 0 }],
-      },
-      {
-        id: 'c-house', name: 'Housing', kind: 'Expense', displayOrder: 0, totalPlanned: 1100, totalActual: 0,
-        items: [{ id: 'i-rent', name: 'Rent', displayOrder: 0, plannedAmount: 1100, actualAmount: 0, remaining: 1100 }],
-      },
-      {
-        id: 'c-sav', name: 'Savings', kind: 'Savings', displayOrder: 1, totalPlanned: planned, totalActual: 0,
-        items: [
-          {
-            id: 'i-holiday', name: 'Holiday', displayOrder: 0, plannedAmount: planned, actualAmount: 0, remaining: planned,
-            savingsId: 'jar-holiday', savingsAvailable: 450, isSkipped: false,
-          },
-        ],
-      },
+      budgetCategory({
+        id: 'inc', name: 'Income', kind: 'Income',
+        items: [budgetItem({ id: 'i-pay', name: 'Take-home Pay', plannedAmount: 3000, actualAmount: 3000 })],
+      }),
+      budgetCategory({ id: 'c-house', name: 'Housing', items: [budgetItem({ id: 'i-rent', name: 'Rent', plannedAmount: 1100 })] }),
+      budgetCategory({
+        id: 'c-sav', name: 'Savings', kind: 'Savings', displayOrder: 1,
+        items: [budgetItem({ id: 'i-holiday', name: 'Holiday', plannedAmount: planned, savingsId: 'jar-holiday', savingsAvailable: 450, isSkipped: false })],
+      }),
     ],
-  }
+  })
 }
 
+// The Holiday jar: 450 of 1,200 set aside, 150 planned this month, its balance as of the month's end.
 function jar(over: Partial<JarDto> = {}): JarDto {
-  return {
-    id: 'jar-holiday', name: 'Holiday', kind: 0, targetAmount: 1200, targetDate: '2099-01-01', accrual: 0,
-    monthlyContribution: null, includeDeadlineMonth: false, recurMonths: null, fundingAccountId: 'acc1',
-    isArchived: false, completedOn: null, canDelete: false, currentBalance: 450, balanceAsOf: ISO(LAST_DAY),
-    plannedThisMonth: 150, contributedThisMonth: 0, remainingThisMonth: 150, skippedThisMonth: false,
-    deadline: '2099-01-01', shortfall: null, lastCycle: null, fundingCompletesOn: '2098-12-31',
-    estimatedMonthsToTarget: null, status: 'OnTrack',
+  return sharedJar({
+    id: 'jar-holiday', name: 'Holiday', targetAmount: 1200, targetDate: '2099-01-01', accrual: 0, recurMonths: null,
+    currentBalance: 450, balanceAsOf: ISO(LAST_DAY), plannedThisMonth: 150, remainingThisMonth: 150,
+    deadline: '2099-01-01', fundingCompletesOn: '2098-12-31',
     ...over,
-  }
+  })
 }
 
 function mockLoads(data: BudgetMonthDto | { notFound: true }, jars: JarDto[] = [jar()]) {
@@ -455,10 +440,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
   // #286 P3-3: a total that counted a missing jar as 0 would read as complete.
   it('shows only the plan in the group header when one line’s jar is missing from the read', { timeout: 15000 }, async () => {
     const m = month({ planned: 125 })
-    m.categories[2].items.push({
-      id: 'i-car', name: 'Car', displayOrder: 1, plannedAmount: 75, actualAmount: 0, remaining: 75,
-      savingsId: 'jar-car', savingsAvailable: 0, isSkipped: false,
-    })
+    m.categories[2].items.push(budgetItem({ id: 'i-car', name: 'Car', displayOrder: 1, plannedAmount: 75, savingsId: 'jar-car', savingsAvailable: 0, isSkipped: false }))
     mockLoads(m, [jar({ plannedThisMonth: 125, contributedThisMonth: 50, remainingThisMonth: 75 })])
     renderPage()
 

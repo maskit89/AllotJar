@@ -28,11 +28,10 @@ vi.mock('../lib/api', async (importOriginal) =>
 import { mockGet, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { ImportPage } from './ImportPage'
+import { account, committed as sharedCommitted } from '../test/fixtures/import'
 
-const accounts: AccountDto[] = [
-  { id: 'acc1', name: 'HSBC Current', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 550, displayOrder: 0 },
-  { id: 'acc2', name: 'Joint Savings', type: 1, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 1 },
-]
+// HSBC Current holds 550; Joint Savings is empty.
+const accounts: AccountDto[] = [account({ currentBalance: 550 }), account({ id: 'acc2', name: 'Joint Savings', type: 1, displayOrder: 1 })]
 const members: HouseholdMemberDto[] = []
 
 // HSBC Current backs two jars; Joint Savings backs none (so it is absent from the ledgers).
@@ -83,9 +82,9 @@ function preview(): ImportPreviewResult {
   }
 }
 
-function committed(over: Partial<ImportStatementResult> = {}): ImportStatementResult {
-  return { totalEntries: 4, imported: 4, skippedDuplicates: 0, credits: 1, debits: 3, iban: null, autoCategorized: 0, transfers: 0, ...over }
-}
+// The commit's answer to this file's preview: one credit and three debits.
+const committed = (over: Partial<ImportStatementResult> = {}) =>
+  sharedCommitted({ totalEntries: 4, imported: 4, credits: 1, debits: 3, ...over })
 
 const renderPage = () => renderWithProviders(<ImportPage />)
 

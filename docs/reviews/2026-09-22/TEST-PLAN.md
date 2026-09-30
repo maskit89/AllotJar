@@ -324,6 +324,14 @@ Merged where tests differed only in their inputs: `RemainingToBudgetTests` (seve
 - **Updated (docs):** AGREED-RULES rules 31 and 91, HANDOVER O1, P59 and P71, USER_GUIDE (private accounts nobody can reach), catalog IMP-099.
 - **Not covered by automation:** the import's ledger lock on the InMemory provider (no lock there; the SQL test covers it); `/auth/me`'s `ownBudgetCurrency` and lock for a login in two households (controller code, read against the preference save); the Transactions page's hero totals skipping a `counterpartyErased` row (the same filter as `fxPending`, one line; the server's report test covers the figure; its Unassigned filter is covered in `TransactionsPage.test.tsx`).
 
+### Follow-up pass, PR 3: the tests — 30 September 2026
+
+- **The tests are type-checked.** `client/tsconfig.test.json` covers `src` including every test and `src/test`; `npm run lint` runs it after ESLint, so CI's frontend job gates it. A new test that leaves a DTO field out of a fixture, or imports something that is not there, fails the lint step rather than Vitest.
+- **Fixture modules, `client/src/test/fixtures/`:** `budget.ts`, `jars.ts`, `import.ts`, `allocation.ts`, `me.ts`, `http.ts`. A new screen test builds its data from them (`budgetMonth({ categories: [budgetCategory({ items: [budgetItem({ ... })] })] })`, `jar({ name: ... })`, `me({ role })`, `axiosError(body)`) and passes explicitly any figure it asserts on that the builder would derive differently. A builder only one file needs stays in that file.
+- **`renderWithProviders`** wraps through Testing Library's `wrapper`, so a test that changes a pinned context and re-renders calls `view.rerender(<Page />)`.
+- **New (client), `DashboardPage.lateAnswers.test.tsx` (22, DASH-082):** one per late-answer guard in `DashboardPage.tsx` that DASH-081 leaves out (listed in the DEVELOPMENT-LOG). Each fails with its guard removed.
+- **Server:** no test change; CS8620 in `TransactionConfiguration` is fixed with the model snapshot unchanged (checked with `dotnet ef migrations has-pending-model-changes`).
+
 ## Execution and completion criteria
 
 Run targeted regressions with the corresponding implementation, then the full affected suites once the change is coherent. Do not repeatedly rerun unchanged suites without a new reason.
