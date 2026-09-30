@@ -29,6 +29,8 @@ import { activeJars, useJarLedgers } from '../lib/jarLedgers'
 import { jarAllocationsTotal, toJarAllocations } from '../lib/jarAllocationFields'
 import { JarAllocationFields } from '../components/jars/JarAllocationFields'
 import { PaidFromJarSelect } from '../components/jars/PaidFromJarSelect'
+import type { SplitRowDraft } from '../components/SplitLinesEditor'
+import { appendSplitRow, patchSplitRow, removeSplitRowAt, startSplitRows } from '../lib/splitRows'
 
 type Format = 'generic' | 'hsbc' | 'camt'
 type Phase = 'upload' | 'review' | 'done'
@@ -87,11 +89,8 @@ const DATE_FORMAT_OPTIONS: { value: string; label: string }[] = [
   { value: 'dd-MM-yy', label: 'DD-MM-YY' },
 ]
 
-interface SplitDraft {
-  budgetItemId: string
-  amount: string
-  memberId: string
-}
+/** One slice of a row's split; the same draft the Transactions page edits. */
+type SplitDraft = SplitRowDraft
 
 interface ReviewRow {
   reference: string
@@ -576,13 +575,7 @@ export function ImportPage() {
     setRows((rs) =>
       rs.map((r, i) =>
         i === index && !r.splits
-          ? {
-              ...r,
-              splits: [
-                { budgetItemId: r.budgetItemId, amount: '', memberId: r.memberId },
-                { budgetItemId: '', amount: '', memberId: '' },
-              ],
-            }
+          ? { ...r, splits: startSplitRows({ budgetItemId: r.budgetItemId, memberId: r.memberId }) }
           : r,
       ),
     )
@@ -595,25 +588,21 @@ export function ImportPage() {
   function updateSplitLine(index: number, li: number, patch: Partial<SplitDraft>) {
     setRows((rs) =>
       rs.map((r, i) =>
-        i === index && r.splits
-          ? { ...r, splits: r.splits.map((l, j) => (j === li ? { ...l, ...patch } : l)) }
-          : r,
+        i === index && r.splits ? { ...r, splits: patchSplitRow(r.splits, li, patch) } : r,
       ),
     )
   }
   function addSplitLine(index: number) {
     setRows((rs) =>
       rs.map((r, i) =>
-        i === index && r.splits ? { ...r, splits: [...r.splits, { budgetItemId: '', amount: '', memberId: '' }] } : r,
+        i === index && r.splits ? { ...r, splits: appendSplitRow(r.splits) } : r,
       ),
     )
   }
   function removeSplitLine(index: number, li: number) {
     setRows((rs) =>
       rs.map((r, i) =>
-        i === index && r.splits && r.splits.length > 2
-          ? { ...r, splits: r.splits.filter((_, j) => j !== li) }
-          : r,
+        i === index && r.splits ? { ...r, splits: removeSplitRowAt(r.splits, li) } : r,
       ),
     )
   }
@@ -625,8 +614,14 @@ export function ImportPage() {
     if (!month) return false
     const outsideMonth = (date: string) =>
       Number(date.slice(0, 4)) !== month.year || Number(date.slice(5, 7)) !== month.month
-    // A transfer's fee put on one of this month's lines is dated the departure.
-    if (r.isTransfer) return rowFeeMinor(r) !== null && !!r.feeBudgetItemId && outsideMonth(feeDateOf(r))
+    // A transfer's fee put on one of this month's lines is dated the departure. A fee left on
+    // the line the recorded transfer already gave it (a match) is in that line's own month, or
+    // was confirmed there when it was recorded, so it needs no question here (#279 P3-8).
+    if (r.isTransfer) {
+      if (rowFeeMinor(r) === null || !r.feeBudgetItemId) return false
+      if (r.feeBudgetItemId === (chosenMatch(r)?.feeBudgetItemId ?? null)) return false
+      return outsideMonth(feeDateOf(r))
+    }
     if (!r.budgetItemId && !r.splits) return false
     return outsideMonth(r.date)
   }
@@ -1712,13 +1707,19 @@ export function ImportPage() {
                 matched: t.matched + (r.matchedTransfers ?? 0),
                 pendingReview: t.pendingReview + (r.pendingReviewTransfers ?? 0),
                 returned: t.returned + (r.returned ?? 0),
+                awaitingAmount: t.awaitingAmount + (r.awaitingAmount ?? 0),
               }),
-              { imported: 0, skipped: 0, transfers: 0, matched: 0, pendingReview: 0, returned: 0 },
+              { imported: 0, skipped: 0, transfers: 0, matched: 0, pendingReview: 0, returned: 0, awaitingAmount: 0 },
             )
             // Money in/out are the actual sums of what was imported (the accepted rows are still
-            // in state), not transaction counts. Transfers are internal moves, so they stay a count.
-            const moneyIn = moneyByCurrency(committedRows, (r) => !r.isTransfer && r.isCredit)
-            const moneyOut = moneyByCurrency(committedRows, (r) => !r.isTransfer && !r.isCredit)
+            // in state), not transaction counts. A row the server skipped as already imported
+            // moved no money, so it is left out; a row in another currency is summed in that
+            // currency and shown apart, and the count of those still waiting for their amount in
+            // the budget currency is shown below. Transfers are internal moves, so they stay a count.
+            const skippedRefs = new Set(results.flatMap((r) => r.skippedReferences ?? []))
+            const importedRows = committedRows.filter((r) => !skippedRefs.has(r.reference))
+            const moneyIn = moneyByCurrency(importedRows, (r) => !r.isTransfer && r.isCredit)
+            const moneyOut = moneyByCurrency(importedRows, (r) => !r.isTransfer && !r.isCredit)
             const money = (groups: { currency: string; minor: number }[]) =>
               groups.length === 0
                 ? formatMoney(0, budgetCurrency)
@@ -1742,7 +1743,15 @@ export function ImportPage() {
                   {total.pendingReview > 0 && <Stat label="Pending review" value={total.pendingReview} />}
                   {total.returned > 0 && <Stat label="Returned" value={total.returned} />}
                   {heldEverCount > 0 && <Stat label="Held" value={heldEverCount} />}
+                  {total.awaitingAmount > 0 && <Stat label={`Waiting for ${budgetCurrency} amount`} value={total.awaitingAmount} />}
                 </dl>
+                {total.awaitingAmount > 0 && (
+                  <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
+                    {total.awaitingAmount} {total.awaitingAmount === 1 ? 'row is' : 'rows are'} in another currency and{' '}
+                    {total.awaitingAmount === 1 ? 'is' : 'are'} not counted anywhere until{' '}
+                    {total.awaitingAmount === 1 ? 'its' : 'their'} amount in {budgetCurrency} is entered on Transactions.
+                  </p>
+                )}
               </>
             )
           })()}

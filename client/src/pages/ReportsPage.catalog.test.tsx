@@ -897,4 +897,30 @@ describe('ReportsPage — catalog (RPT)', () => {
     expect(julCells[5]).toHaveTextContent('€0.00')
     expect(julCells[5]).toHaveClass('text-emerald-600')
   })
+
+  // Rows in another currency waiting for their budget-currency amount count in no figure; the
+  // report says how many it left out, for the window and for the chosen month, or nothing at all.
+  it('counts the rows waiting for a budget-currency amount, for the window and the chosen month', T, async () => {
+    const trends = h2Trends()
+    trends.points[0].fxPendingCount = 2
+    trends.points[1].fxPendingCount = 1
+    wire({ trends, months: { '2026-6': { ...juneBreakdown(), fxPendingCount: 1 } }, annuals: { 2026: annual2026() } })
+    renderPage()
+
+    await waitFor(() => expect(screen.getAllByRole('status')).toHaveLength(2), W)
+    const notes = screen.getAllByRole('status')
+    expect(notes.map((n) => n.textContent)).toEqual([
+      expect.stringContaining('3 transactions in these months are in another currency, waiting for their amount in EUR, and not counted in these figures.'),
+      expect.stringContaining('1 transaction this month is in another currency, waiting for its amount in EUR, and not counted in these figures.'),
+    ])
+    expect(screen.getAllByRole('link', { name: /Enter (it|them) on Transactions/ })[0]).toHaveAttribute('href', '/transactions')
+  })
+
+  it('says nothing about waiting rows when there are none', T, async () => {
+    wire({ trends: h2Trends(), months: { '2026-6': juneBreakdown() }, annuals: { 2026: annual2026() } })
+    renderPage()
+    await screen.findByText('Saved this month', {}, W)
+    await screen.findByText('Spending by category', {}, W)
+    expect(screen.queryByText(/waiting for/)).not.toBeInTheDocument()
+  })
 })

@@ -438,6 +438,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           displayOrder: Number.MAX_SAFE_INTEGER,
           plannedMinor: 0,
           actualMinor: 0,
+          refundedMinor: 0,
           memberId: null,
           savingsAvailableMinor: null,
           savingsId: null,
@@ -1062,6 +1063,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                   category={category}
                   currency={month.currency}
                   savingItemId={savingItemId}
+                  jars={jarsLoaded && !jarsFailed ? jars : null}
                   onCommitItem={isPastMonth ? undefined : commitItem}
                   onRenameItem={renameItem}
                   onRemoveJarLine={isPastMonth ? undefined : (item) => setRemovingJarLine(item)}

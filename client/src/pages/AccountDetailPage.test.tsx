@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import { Route, Routes } from 'react-router-dom'
 import type { AccountDto, TransactionDto } from '../types'
 
@@ -113,5 +113,25 @@ describe('AccountDetailPage', () => {
     const tag = await screen.findByText('Needs EUR amount', {}, { timeout: 5000 })
     expect(tag).toHaveAttribute('title', expect.stringContaining('Not counted anywhere until you enter the amount in EUR'))
     expect(screen.getAllByText('Needs EUR amount')).toHaveLength(1) // only the waiting row
+  })
+
+  // Rules 40/74: a row dated before the opening balance is history only; it never changes the
+  // balance, so it is marked and its amount is struck through rather than read as a movement.
+  it('marks rows dated before the opening date as history only', { timeout: 15000 }, async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/accounts') return Promise.resolve({ data: [{ ...account(), openingDate: '2026-06-01' }] })
+      if (url === '/transactions')
+        return Promise.resolve({ data: [tx(), tx({ id: 't0', date: '2026-05-20', payee: 'Old phone bill', amount: 25 })] })
+      return Promise.resolve({ data: {} })
+    })
+
+    renderPage()
+
+    const old = (await screen.findByText('Old phone bill', {}, { timeout: 5000 })).closest('tr')!
+    expect(within(old).getByText('Before opening')).toBeInTheDocument()
+    expect(within(old).getByText(/25\.00/).className).toContain('line-through')
+    const recent = screen.getByText('Vodafone').closest('tr')!
+    expect(within(recent).queryByText('Before opening')).not.toBeInTheDocument()
+    expect(within(recent).getByText(/40\.00/).className).not.toContain('line-through')
   })
 })

@@ -256,4 +256,24 @@ describe('JarsPage — Move money across accounts (rule 80)', () => {
     )
     expect(mockPost).not.toHaveBeenCalledWith('/transactions/transfer', expect.anything())
   })
+
+  // Rules 63/85: a jar's money stays in the budget currency, so an account kept in another
+  // currency is never offered as a destination (the server would refuse it); the jar's own
+  // account is always listed.
+  it('leaves an account in another currency out of the destinations', { timeout: 15000 }, async () => {
+    accountsData.push({ id: 'acc4', name: 'US Dollars', type: 1, currency: 'USD', openingBalance: 0, currentBalance: 120, displayOrder: 3 })
+    ledgerData = [ledger(), rainyDay(), ledger({ accountId: 'acc5', accountName: 'Swiss Pot', currency: 'CHF', jars: [{ jarId: 'f5', name: 'Skis', balance: 10, isArchived: false }] })]
+    try {
+      const user = userEvent.setup()
+      renderPage()
+      const dialog = await openMove(user)
+
+      const to = dialog.getByLabelText('Move to') as HTMLSelectElement
+      expect([...to.querySelectorAll('optgroup')].map((g) => g.label)).toEqual(['Joint Current', 'Rainy Day', 'Cash Box'])
+      expect([...to.querySelectorAll('option')].map((o) => o.value)).not.toContain('unallocated:acc4')
+      expect([...to.querySelectorAll('option')].map((o) => o.value)).not.toContain('f5')
+    } finally {
+      accountsData.pop()
+    }
+  })
 })

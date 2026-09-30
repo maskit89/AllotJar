@@ -432,4 +432,37 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     expect(screen.getByTestId('planned-Holiday').textContent).toContain('100')
     expect(screen.getByTestId('planned-Holiday').textContent).not.toContain('150')
   })
+
+  // Rule 14: a Savings line shows the plan, what went into the jar this month and what is still
+  // to go, read from the jar itself (as the Jars page does); never spending from the jar.
+  it('reads a savings line as contributed and still to go from the jar, not as spending (rule 14)', { timeout: 15000 }, async () => {
+    const m = month({ planned: 125 })
+    m.categories[2].items[0].actualAmount = 30 // a payment paid from the jar's line: not a contribution
+    mockLoads(m, [jar({ plannedThisMonth: 125, contributedThisMonth: 50, remainingThisMonth: 75 })])
+    renderPage()
+
+    const planned = await screen.findByLabelText('Planned amount for Holiday', {}, { timeout: 5000 })
+    const line = planned.closest('div')!
+    expect(line.textContent).toContain('€50.00 in of €125.00')
+    expect(line.textContent).toContain('€75.00 to go')
+    expect(line.textContent).not.toContain('€30.00')
+    // The group header adds up what went in, of what was planned.
+    const header = screen.getByLabelText('Rename group Savings').parentElement!.parentElement!
+    expect(header.textContent).toContain('€50.00 in')
+    expect(header.textContent).toContain('of €125.00')
+  })
+
+  it('shows only the plan on a savings line while the jars could not be read', { timeout: 15000 }, async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/budget/months' || url === '/budget/templates' || url === '/accounts') return Promise.resolve({ data: [] })
+      if (url === '/jars') return Promise.reject(new Error('boom'))
+      if (url === '/auth/me') return Promise.resolve({ data: {} })
+      return Promise.resolve({ data: month({ planned: 125 }) })
+    })
+    renderPage()
+
+    const planned = await screen.findByLabelText('Planned amount for Holiday', {}, { timeout: 5000 })
+    expect(planned.closest('div')!.textContent).toContain('plan €125.00')
+    expect(planned.closest('div')!.textContent).not.toContain('to go')
+  })
 })

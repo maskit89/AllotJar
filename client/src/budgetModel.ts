@@ -14,6 +14,8 @@ export interface ItemVM {
   plannedMinor: Minor
   /** Spent (or, for income, received) — always derived from the line's assigned transactions. */
   actualMinor: Minor
+  /** Refunds received against this expense or savings line (rules 38/39), already netted out of actualMinor; 0 on income lines. */
+  refundedMinor: Minor
   /** For a fund line, the rolled-over available balance (minor units); null otherwise. */
   savingsAvailableMinor: Minor | null
   /** The jar this line is the monthly contribution of (rule 73); null for any other line. */
@@ -70,6 +72,7 @@ export function fromDto(dto: BudgetMonthDto): MonthVM {
         displayOrder: i.displayOrder,
         plannedMinor: fromAmount(i.plannedAmount),
         actualMinor: fromAmount(i.actualAmount),
+        refundedMinor: fromAmount(i.refundedAmount ?? 0),
         savingsAvailableMinor: i.savingsAvailable == null ? null : fromAmount(i.savingsAvailable),
         savingsId: i.savingsId ?? null,
         isSkipped: i.isSkipped ?? false,

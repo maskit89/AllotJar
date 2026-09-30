@@ -92,8 +92,14 @@ export function MoveMoneyModal({ jar, currency, accounts = [], onClose, onMoved 
   // Every place money can sit, grouped by account: each jar-backed account's active jars plus
   // its unallocated funds, then any other account as unallocated funds only.
   const groups = useMemo(() => {
+    // Rules 63/85: a jar's money stays in the budget currency, so money moves only between
+    // accounts kept in it. The jar's own account is always listed (it is the source). The
+    // server refuses the rest anyway; leaving them out spares a refused save.
+    const inBudgetCurrency = (accountId: string, accountCurrency: string) =>
+      accountId === jar.fundingAccountId || !accountCurrency || accountCurrency === currency
     const result: { accountId: string; accountName: string; places: Place[] }[] = []
     for (const l of ledgers ?? []) {
+      if (!inBudgetCurrency(l.accountId, l.currency)) continue
       const places: Place[] = l.jars
         .filter((j) => !j.isArchived)
         .map((j) => ({
@@ -117,7 +123,7 @@ export function MoveMoneyModal({ jar, currency, accounts = [], onClose, onMoved 
       result.push({ accountId: l.accountId, accountName: l.accountName, places })
     }
     for (const a of accounts) {
-      if (result.some((g) => g.accountId === a.id)) continue
+      if (result.some((g) => g.accountId === a.id) || !inBudgetCurrency(a.id, a.currency)) continue
       result.push({
         accountId: a.id,
         accountName: a.name,
@@ -135,7 +141,7 @@ export function MoveMoneyModal({ jar, currency, accounts = [], onClose, onMoved 
       })
     }
     return result
-  }, [ledgers, accounts, currency])
+  }, [ledgers, accounts, currency, jar.fundingAccountId])
 
   const placeByValue = useMemo(() => new Map(groups.flatMap((g) => g.places).map((p) => [p.value, p])), [groups])
   // The source stays inside the jar's own account.

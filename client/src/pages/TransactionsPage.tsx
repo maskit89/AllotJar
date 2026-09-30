@@ -30,9 +30,21 @@ import { formatDate, monthYear, shortDate } from '../lib/dates'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { buildItemOptions, jarLinesOf, transactionTypeLabel } from '../lib/transactions'
 import { SplitLinesEditor, SplitRemainderChip, type SplitRowDraft } from '../components/SplitLinesEditor'
+import { appendSplitRow, patchSplitRow, removeSplitRowAt, startSplitRows } from '../lib/splitRows'
 import { JarAllocationFields } from '../components/jars/JarAllocationFields'
 import { PAID_FROM_UNALLOCATED, PaidFromJarSelect } from '../components/jars/PaidFromJarSelect'
-import { activeJars, archivedJarMessage, archivedJarNamed, incomingAllocationsOf, paidFromJarOf, useJarLedgers } from '../lib/jarLedgers'
+import {
+  activeJars,
+  archivedJarMessage,
+  archivedJarNamed,
+  archivedJarNewlyNamed,
+  incomingAllocationsOf,
+  jarsForAnswer,
+  namedJarIds,
+  paidFromJarOf,
+  storedSharesOf,
+  useJarLedgers,
+} from '../lib/jarLedgers'
 import { fromJarAllocations, jarAllocationsProblem, toJarAllocations } from '../lib/jarAllocationFields'
 import { serverErrors } from '../lib/serverErrors'
 import { PRIVATE_ACCOUNT } from '../lib/accountHolders'
@@ -69,18 +81,15 @@ function refundOfLabel(t: TransactionDto): string | null {
   return t.refundOfDate ? `Refund of ${who} · ${shortDate(t.refundOfDate)}` : `Refund of ${who}`
 }
 
-/** Purchases a refund can point at: the user's expenses that are not themselves refunds, newest first. */
+/**
+ * Purchases a refund can point at: the user's expenses that are not themselves refunds, newest
+ * first. A split purchase counts too, as on the server (the refund nets off the purchase's
+ * lines through its slices).
+ */
 function refundablePurchases(transactions: TransactionDto[]): TransactionDto[] {
   return transactions
-    .filter((t) => t.type === TransactionType.Expense && !t.refundOfTransactionId && !t.isSplit)
+    .filter((t) => t.type === TransactionType.Expense && !t.refundOfTransactionId)
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
-}
-
-function blankSplitRows(): SplitRowDraft[] {
-  return [
-    { budgetItemId: '', amount: '', memberId: '' },
-    { budgetItemId: '', amount: '', memberId: '' },
-  ]
 }
 
 /**
@@ -160,7 +169,7 @@ export function TransactionsPage() {
   const [adding, setAdding] = useState(false)
   // Add-modal split mode: the expense is divided across 2+ budget lines at creation.
   const [addSplit, setAddSplit] = useState(false)
-  const [addRows, setAddRows] = useState<SplitRowDraft[]>(blankSplitRows)
+  const [addRows, setAddRows] = useState<SplitRowDraft[]>(() => startSplitRows())
   // "Paid in another currency": the foreign figure is kept for reference; the Amount above stays
   // the budget-currency amount the user confirms, and is the one that counts.
   const [paidForeign, setPaidForeign] = useState(false)
@@ -301,10 +310,12 @@ export function TransactionsPage() {
     (addSplitting
       ? addRows.some((r) => !!r.budgetItemId && !isJarLineFor(r.budgetItemId, account))
       : !!assignTo && !isJarLineFor(assignTo, account))
+  // The jars each side offers: the active ones, plus an archived jar the stored answer of the
+  // transfer being edited still names, so that share can be seen and sent back unchanged.
   const tFromLedger = ledgerOf(tFrom)
-  const tFromJars = activeJars(tFromLedger)
+  const tFromJars = jarsForAnswer(tFromLedger, [tFromJar])
   const tToLedger = ledgerOf(tTo)
-  const tToJars = activeJars(tToLedger)
+  const tToJars = jarsForAnswer(tToLedger, namedJarIds(tJarAlloc))
   // The fee is dated the departure date, so its line picker offers that month's lines: the
   // loaded month when the date falls in it, otherwise that month fetched on demand (the loaded
   // month stands in while it loads or when it has no budget; the cross-month prompt covers it).
@@ -410,20 +421,16 @@ export function TransactionsPage() {
     [reloadLedgers],
   )
 
-  // Add-modal split-row helpers (mirror updateSplitRow/addSplitRow/removeSplitRow for the register editor).
+  // Add-modal split-row helpers; the register's editor below uses the same shared row functions.
   const resetAddSplit = useCallback(() => {
     setAddSplit(false)
-    setAddRows(blankSplitRows())
+    setAddRows(startSplitRows())
   }, [])
   const updateAddRow = useCallback((index: number, patch: Partial<SplitRowDraft>) => {
-    setAddRows((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)))
+    setAddRows((rows) => patchSplitRow(rows, index, patch))
   }, [])
-  const addAddRow = useCallback(() => {
-    setAddRows((rows) => [...rows, { budgetItemId: '', amount: '', memberId: '' }])
-  }, [])
-  const removeAddRow = useCallback((index: number) => {
-    setAddRows((rows) => (rows.length > 2 ? rows.filter((_, i) => i !== index) : rows))
-  }, [])
+  const addAddRow = useCallback(() => setAddRows(appendSplitRow), [])
+  const removeAddRow = useCallback((index: number) => setAddRows((rows) => removeSplitRowAt(rows, index)), [])
 
   const resetAddForeign = useCallback(() => {
     setPaidForeign(false)
@@ -682,11 +689,33 @@ export function TransactionsPage() {
       setError('Confirm that you’ve completed this transfer before recording it.')
       return
     }
-    // P3-10: an edit re-sends the stored jar answers, and the server refuses one naming a jar
-    // that has since been archived.
+    // P3-10: an edit re-sends the stored jar answers. The server accepts an archived jar's stored
+    // share sent back unchanged on a leg that keeps its date and has posted (#283); it refuses a
+    // jar newly named, a changed share, or one on a re-dated leg, so only those are stopped here.
+    const sourceUnchanged =
+      !!editing &&
+      tFrom === editing.accountId &&
+      tDate === (editing.departedOn ?? '') &&
+      !!editing.departedOn &&
+      minor === fromAmount(editing.amount) &&
+      (tHasFee ? toAmount(tFeeMinor as number) : null) === (editing.fee ?? null)
+    const destinationUnchanged =
+      !!editing && tTo === editing.transferAccountId && !!editing.receivedOn && tReceived === editing.receivedOn
     const archived = editing
-      ? archivedJarNamed(tFromLedger, [tFromJar]) ??
-        (incomingApplies ? archivedJarNamed(tToLedger, Object.keys(tJarAlloc).filter((id) => (parseMinor(tJarAlloc[id]) ?? 0) > 0)) : null)
+      ? archivedJarNewlyNamed(
+          tFromLedger,
+          [[tFromJar || null, toAmount(minor)] as const],
+          storedSharesOf(editing.jarAllocations, editing.accountId, 'out'),
+          sourceUnchanged,
+        ) ??
+        (incomingApplies
+          ? archivedJarNewlyNamed(
+              tToLedger,
+              toJarAllocations(tJarAlloc).map((a) => [a.jarId, a.amount] as const),
+              storedSharesOf(editing.jarAllocations, editing.transferAccountId, 'in'),
+              destinationUnchanged,
+            )
+          : null)
       : null
     if (archived) {
       setError(archivedJarMessage(archived))
@@ -903,8 +932,9 @@ export function TransactionsPage() {
       // Until the jar ledgers are known (still loading, or the read failed) the form can't tell
       // whether the account backs jars, so a stored answer is sent back unchanged rather than
       // left out, which would return the money to its default.
+      const answerJars = jarsForAnswer(ledgerOf(eAccount), eType === TransactionType.Income ? namedJarIds(eJarAlloc) : [ePaidFrom])
       const backsJars =
-        jarsOf(eAccount).length > 0 ||
+        answerJars.length > 0 ||
         (!ledgersLoaded && (eType === TransactionType.Income ? toJarAllocations(eJarAlloc).length > 0 : !!ePaidFrom))
       const jarProblem = backsJars && eType === TransactionType.Income ? jarAllocationsProblem(eJarAlloc, toAmount(minor)) : null
       if (jarProblem) {
@@ -914,14 +944,23 @@ export function TransactionsPage() {
       const paidFromApplies = eType === TransactionType.Expense && hasNonJarLine(t, eAccount || null)
       const sendsPaidFrom = backsJars && paidFromApplies
       // P3-10: the pre-filled jar answers are re-sent (or, once every jar there is archived, left
-      // out, which would return the money to unallocated), and the server refuses an archived jar.
-      const archived = archivedJarNamed(
+      // out, which would return the money to unallocated). The server accepts an archived jar's
+      // stored share sent back unchanged on an entry that keeps its date and account (#283) and
+      // refuses a jar newly named, a changed share, or one on a re-dated entry.
+      const unchanged = eDate === t.date && eAccount === (t.accountId ?? '')
+      // Rule 79: the paid-from answer covers the part of the payment on lines that are not jars.
+      const unlinedMinor = t.isSplit
+        ? sumMinor(t.splits.filter((s) => !isJarLineFor(s.budgetItemId, eAccount || null)).map((s) => fromAmount(s.amount)))
+        : minor
+      const archived = archivedJarNewlyNamed(
         ledgerOf(eAccount),
         eType === TransactionType.Income
-          ? Object.keys(eJarAlloc).filter((jarId) => (parseMinor(eJarAlloc[jarId]) ?? 0) > 0)
+          ? toJarAllocations(eJarAlloc).map((a) => [a.jarId, a.amount] as const)
           : paidFromApplies
-            ? [ePaidFrom]
+            ? [[ePaidFrom || null, toAmount(unlinedMinor)] as const]
             : [],
+        storedSharesOf(t.jarAllocations, t.accountId, eType === TransactionType.Income ? 'in' : 'out'),
+        unchanged,
       )
       if (archived) {
         setError(archivedJarMessage(archived))
@@ -961,7 +1000,7 @@ export function TransactionsPage() {
         setSavingId(null)
       }
     },
-    [eDate, ePayee, eAmount, eType, eAccount, eMember, eJarAlloc, ePaidFrom, jarsOf, ledgersLoaded, ledgerOf, hasNonJarLine, reloadLedgers],
+    [eDate, ePayee, eAmount, eType, eAccount, eMember, eJarAlloc, ePaidFrom, ledgersLoaded, ledgerOf, hasNonJarLine, isJarLineFor, reloadLedgers],
   )
 
   function startSplit(t: TransactionDto) {
@@ -977,10 +1016,7 @@ export function TransactionsPage() {
         })),
       )
     } else {
-      setSplitRows([
-        { budgetItemId: t.budgetItemId ?? '', amount: '', memberId: t.memberId ?? '' },
-        { budgetItemId: '', amount: '', memberId: '' },
-      ])
+      setSplitRows(startSplitRows({ budgetItemId: t.budgetItemId ?? '', memberId: t.memberId ?? '' }))
     }
   }
 
@@ -997,19 +1033,16 @@ export function TransactionsPage() {
     [assign],
   )
 
-  function updateSplitRow(
-    index: number,
-    patch: Partial<{ budgetItemId: string; amount: string; memberId: string }>,
-  ) {
-    setSplitRows((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)))
+  function updateSplitRow(index: number, patch: Partial<SplitRowDraft>) {
+    setSplitRows((rows) => patchSplitRow(rows, index, patch))
   }
 
   function addSplitRow() {
-    setSplitRows((rows) => [...rows, { budgetItemId: '', amount: '', memberId: '' }])
+    setSplitRows(appendSplitRow)
   }
 
   function removeSplitRow(index: number) {
-    setSplitRows((rows) => (rows.length > 2 ? rows.filter((_, i) => i !== index) : rows))
+    setSplitRows((rows) => removeSplitRowAt(rows, index))
   }
 
   const saveSplit = useCallback(
@@ -1030,9 +1063,19 @@ export function TransactionsPage() {
       }
       // Rule 79: the slices on lines that are not jars draw from the named jar (null = unallocated).
       const drawsUnlined = t.type === TransactionType.Expense && parsed.some((a) => !isJarLineFor(a.budgetItemId, t.accountId))
-      const paidFromApplies = drawsUnlined && jarsOf(t.accountId).length > 0
-      // P3-10: a pre-filled answer naming an archived jar is refused (or dropped with the account's last live jar).
-      const archived = drawsUnlined ? archivedJarNamed(ledgerOf(t.accountId), [splitPaidFrom]) : null
+      const paidFromApplies = drawsUnlined && jarsForAnswer(ledgerOf(t.accountId), [splitPaidFrom]).length > 0
+      // P3-10: a pre-filled answer naming an archived jar is refused (or dropped with the account's
+      // last live jar), unless it is the jar's stored share sent back unchanged (#283): the split
+      // keeps the entry's date, so only a changed draw from an archived jar is stopped here.
+      const unlinedMinor = sumMinor(parsed.filter((a) => !isJarLineFor(a.budgetItemId, t.accountId)).map((a) => a.minor as number))
+      const archived = drawsUnlined
+        ? archivedJarNewlyNamed(
+            ledgerOf(t.accountId),
+            [[splitPaidFrom || null, toAmount(unlinedMinor)] as const],
+            storedSharesOf(t.jarAllocations, t.accountId, 'out'),
+            true,
+          )
+        : null
       if (archived) {
         setError(archivedJarMessage(archived))
         return
@@ -1066,7 +1109,7 @@ export function TransactionsPage() {
         setSavingId(null)
       }
     },
-    [splitRows, splitPaidFrom, jarsOf, ledgerOf, isJarLineFor, reloadLedgers],
+    [splitRows, splitPaidFrom, ledgerOf, isJarLineFor, reloadLedgers],
   )
 
   // Split rows only ever target expense/savings lines (the add modal offers splits for expenses).
@@ -2036,7 +2079,7 @@ export function TransactionsPage() {
                               {/* The jar prompts, pre-filled from the stored split (rules 78/79). */}
                               {(() => {
                                 const ledger = ledgerOf(eAccount)
-                                const jars = activeJars(ledger)
+                                const jars = jarsForAnswer(ledger, eType === TransactionType.Income ? namedJarIds(eJarAlloc) : [ePaidFrom])
                                 if (!ledger || jars.length === 0) return null
                                 if (eType === TransactionType.Income) {
                                   return (
@@ -2558,7 +2601,7 @@ export function TransactionsPage() {
                               {/* Rule 79: the slices on lines that are not jars draw from one named jar. */}
                               {(() => {
                                 const ledger = ledgerOf(t.accountId)
-                                const jars = activeJars(ledger)
+                                const jars = jarsForAnswer(ledger, [splitPaidFrom])
                                 const applies =
                                   t.type === TransactionType.Expense &&
                                   !!ledger &&

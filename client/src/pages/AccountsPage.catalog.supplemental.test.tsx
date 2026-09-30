@@ -59,7 +59,7 @@ describe('AccountsPage — catalog supplemental (ACCT)', () => {
   // owedMinor) working *together* over a portfolio that mixes positive and
   // negative balances — an interaction no existing test asserts (the base test
   // checks only the net; the catalog ACCT-002 uses a single negative account).
-  it('ACCT-001/002: the hero splits a mixed-sign portfolio into Total / Available / Owed', { timeout: 15000 }, async () => {
+  it('ACCT-001/002: the hero shows the total and the available money, with no Owed tile (rule 74)', { timeout: 15000 }, async () => {
     // All EUR ⇒ the hero currency is unanimous (no footnote). Two positives + one debt.
     mockLoads({
       accounts: [
@@ -75,8 +75,10 @@ describe('AccountsPage — catalog supplemental (ACCT)', () => {
     expect(await screen.findByLabelText('Total balance: €1,675.00', {}, { timeout: 5000 })).toBeInTheDocument()
     // Available = Σ max(0, balance) = 1250 + 500 = 1,750.00 (the debt is excluded).
     expect(screen.getByText('€1,750.00')).toBeInTheDocument()
-    // Owed = −Σ min(0, balance) = 75.00 (the debt, displayed positive).
-    expect(screen.getByText('€75.00')).toBeInTheDocument()
+    // Rule 74: no account is ever below zero, so nothing is "owed" and the tile is gone; a
+    // legacy negative row still isn't summed into Available.
+    expect(screen.queryByText('Owed')).not.toBeInTheDocument()
+    expect(screen.queryByText('€75.00')).not.toBeInTheDocument()
     // The negative account's card balance renders rose; its "Opening −€75.00"
     // caption shares the string but is slate, so pick the rose occurrence.
     const negs = await screen.findAllByText('-€75.00', {}, { timeout: 5000 })

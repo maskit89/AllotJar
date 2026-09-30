@@ -1148,7 +1148,14 @@ describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
   // only expense/savings lines (defaulting to the purchase's category) and posts as Income with
   // the link; it never posts without a purchase.
   it('adds a refund linked to a purchase, on expense lines only (TX-099)', { timeout: 15000 }, async () => {
-    const register = [purchase(), tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 })]
+    const splitPurchase = tx({
+      id: 't-ikea', date: '2026-07-08', payee: 'Ikea', amount: 90, type: 0, isSplit: true,
+      splits: [
+        { id: 's1', budgetItemId: 'i-groceries', budgetItemName: 'Groceries', amount: 50, memberId: null, memberName: null },
+        { id: 's2', budgetItemId: 'i-rest', budgetItemName: 'Restaurants', amount: 40, memberId: null, memberName: null },
+      ],
+    })
+    const register = [purchase(), splitPurchase, tx({ id: 't-inc', payee: 'Payday', amount: 2500, type: 1 })]
     mockLoad(register)
     mockPost.mockImplementation(() => {
       register.unshift(refundRow())
@@ -1167,6 +1174,8 @@ describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
     expect(labels[0]).toBe('Choose the purchase')
     expect(labels.some((l) => l?.includes('Tesco') && l.includes('€40.00'))).toBe(true)
     expect(labels.some((l) => l?.includes('Payday'))).toBe(false)
+    // A split purchase can be refunded too, as on the server.
+    expect(labels.some((l) => l?.includes('Ikea') && l.includes('€90.00'))).toBe(true)
     // Category: expense and savings lines with the purchase's category as the default; no income line.
     const category = screen.getByLabelText('Assign transaction to') as HTMLSelectElement
     const lines = within(category).getAllByRole('option').map((o) => o.textContent)
@@ -1525,8 +1534,9 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     )
   })
 
-  it('explains, without sending, an edit whose jar answer names an archived jar (P3-10)', { timeout: 20000 }, async () => {
-    const t = transfer({ jarAllocations: [{ accountId: 'a-joint', jarId: 'jar-hol', jarName: 'Holiday', amount: -100 }] })
+  // P3-10, relaxed with #283: the server accepts an archived jar's stored share sent back
+  // unchanged on a leg that keeps its date, so only a changed answer is stopped on the screen.
+  function loadWithArchivedHoliday(t: TransactionDto) {
     mockLoad([t], accountsFixture())
     const load = mockGet.getMockImplementation()!
     mockGet.mockImplementation((url: string) =>
@@ -1542,12 +1552,39 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
           })
         : load(url),
     )
+  }
+
+  it('sends an edit that leaves an archived jar’s stored share unchanged (P3-10 relaxed after #283)', { timeout: 20000 }, async () => {
+    const t = transfer({ jarAllocations: [{ accountId: 'a-joint', jarId: 'jar-hol', jarName: 'Holiday', amount: -100 }] })
+    loadWithArchivedHoliday(t)
+    mockPut.mockResolvedValue({ data: { ...t, payee: 'Top up' } })
     const user = userEvent.setup()
     renderPage()
 
     await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/jars/ledger'))
     await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
     const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
+    await user.clear(within(dialog).getByLabelText('Transfer note'))
+    await user.type(within(dialog).getByLabelText('Transfer note'), 'Top up')
+    await user.click(within(dialog).getByRole('button', { name: 'Save transfer' }))
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith('/transactions/t-tr/transfer', expect.objectContaining({ payee: 'Top up', fromJarId: 'jar-hol' })),
+    )
+    expect(within(dialog).queryByText(/which is archived/)).not.toBeInTheDocument()
+  })
+
+  it('explains, without sending, an edit that changes the share drawn from an archived jar (P3-10)', { timeout: 20000 }, async () => {
+    const t = transfer({ jarAllocations: [{ accountId: 'a-joint', jarId: 'jar-hol', jarName: 'Holiday', amount: -100 }] })
+    loadWithArchivedHoliday(t)
+    const user = userEvent.setup()
+    renderPage()
+
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/jars/ledger'))
+    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
+    // A larger amount would draw 120 from Holiday, where 100 is stored: a new answer.
+    await user.clear(within(dialog).getByLabelText('Transfer amount'))
+    await user.type(within(dialog).getByLabelText('Transfer amount'), '120')
     await user.click(within(dialog).getByRole('button', { name: 'Save transfer' }))
     expect(
       await within(dialog).findByText(

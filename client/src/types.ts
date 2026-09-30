@@ -539,6 +539,10 @@ export interface ImportStatementResult {
   /** Rows not imported because they would take the account below zero on some date (rule 74); re-commit after fixing. */
   held?: ImportHeldRow[]
   heldCount?: number
+  /** New rows in another currency that wait for their amount in the budget currency (rules 42/44); they count nowhere yet. */
+  awaitingAmount?: number
+  /** The rows counted in skippedDuplicates, by the reference this client sent. */
+  skippedReferences?: string[]
 }
 
 export interface AccountReconciliationDto {

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { CategoryVM, ItemVM } from '../budgetModel'
-import { categoryActual, categoryPlanned } from '../budgetModel'
-import { formatMoney, type Minor } from '../lib/money'
+import { categoryPlanned } from '../budgetModel'
+import { formatMoney, fromAmount, sumMinor, type Minor } from '../lib/money'
+import type { JarDto } from '../types'
 import { BudgetItemRow } from './BudgetItemRow'
 import { Card } from './ui'
 import { useAuth } from '../auth/AuthContext'
@@ -10,6 +11,11 @@ interface Props {
   category: CategoryVM
   currency: string
   savingItemId: string | null
+  /**
+   * The month's jars (rule 14): each line reads what went into its jar this month and what is
+   * still to go from here. Null while they load or when they could not be read.
+   */
+  jars: JarDto[] | null
   /** Omitted on a past month: its jar plans are history (rule 46), changed only through the jar. */
   onCommitItem?: (itemId: string, plannedMinor: Minor) => void
   onRenameItem: (itemId: string, name: string) => void
@@ -31,7 +37,7 @@ interface Props {
 
 /**
  * A group of jars, in the same clean card style as the Income / Everyday spending
- * panels: a header (violet dot marks it as savings) with the spent / planned total,
+ * panels: a header (violet dot marks it as savings) with the contributed / planned total (rule 14),
  * then each jar as a name + funding bar with its actual **Available** balance and an
  * inline-editable monthly contribution. New lines come from the jar form (rule 73), and
  * a line leaves a month only by being skipped or by archiving its jar (rule 60).
@@ -40,6 +46,7 @@ export function SavingsGroup({
   category,
   currency,
   savingItemId,
+  jars,
   onCommitItem,
   onRenameItem,
   onRemoveJarLine,
@@ -55,6 +62,13 @@ export function SavingsGroup({
   // Rule 60: a jar's line leaves a month only by skipping it or archiving the jar, so a group
   // that still holds one cannot be deleted either (the server refuses it too).
   const holdsJarLines = category.items.some((i) => i.savingsId)
+  // Rule 14: the header and each line show contributed and still to go, never spending from the
+  // jar (that moves Available). A line whose jar is missing from the read shows only its plan.
+  const contributionOf = (item: ItemVM) => {
+    const jar = jars?.find((j) => j.id === item.savingsId)
+    return jar ? { contributedMinor: fromAmount(jar.contributedThisMonth), remainingMinor: fromAmount(jar.remainingThisMonth) } : null
+  }
+  const contributedTotal = jars ? sumMinor(category.items.map((i) => contributionOf(i)?.contributedMinor ?? 0)) : null
 
   useEffect(() => setName(category.name), [category.name])
 
@@ -124,8 +138,14 @@ export function SavingsGroup({
         </div>
 
         <div className="shrink-0 text-[13px] tabular-nums text-slate-700">
-          {formatMoney(categoryActual(category), currency)}{' '}
-          <span className="text-slate-500">of {formatMoney(categoryPlanned(category), currency)}</span>
+          {contributedTotal === null ? (
+            <span className="text-slate-500">plan {formatMoney(categoryPlanned(category), currency)}</span>
+          ) : (
+            <>
+              {formatMoney(contributedTotal, currency)} in{' '}
+              <span className="text-slate-500">of {formatMoney(categoryPlanned(category), currency)}</span>
+            </>
+          )}
         </div>
       </div>
 
@@ -141,6 +161,7 @@ export function SavingsGroup({
           onRestoreJarLine={onRestoreJarLine}
           availableMinor={item.savingsAvailableMinor}
           savingsLine
+          contribution={contributionOf(item)}
         />
       ))}
       {category.items.length === 0 && (
