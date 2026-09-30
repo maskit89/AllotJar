@@ -373,20 +373,24 @@ describe('ImportPage', () => {
     expect(await screen.findByText('Matched')).toBeInTheDocument()
   })
 
-  // #279 P3-8 on the import: a matched transfer's fee left on the line the recorded transfer
-  // already gave it is in that line's own month, so it needs no cross-month question even when
-  // the departure falls outside the loaded month; moving the fee to one of this month's lines does.
-  it('asks the cross-month question for a fee only when it moves to one of this month’s lines', { timeout: 15000 }, async () => {
-    const preview = previewWithTransfer()
-    const credit = preview.items.find((i: { payee: string }) => i.payee === 'E-BANKING PAYMENT') as { transferMatches?: unknown[] }
-    credit.transferMatches = [
-      {
-        transferId: 'tr-1', counterpartyAccountId: 'acc2', counterpartyAccountName: 'Pot',
-        amount: 240, currency: 'EUR', departedOn: '2026-05-28', receivedOn: null, payee: 'Transfer',
-        fee: 5.76, feeBudgetItemId: 'bi-may-fees',
-      },
-    ]
-    mockPreview.mockResolvedValue(preview)
+  // A matched transfer's fee is judged as the server judges it on every commit that carries a
+  // fee: the bank's departure date against the fee line's own month. A fee left on the May line
+  // the recorded transfer gave it, departed 28 May, needs no question (#279 P3-8); the same fee
+  // on a June line, or on a recorded line that is in June, does (#286 P2-1).
+  it('asks the cross-month question for a fee only when its date leaves its line’s month', { timeout: 20000 }, async () => {
+    const withCandidate = (feeBudgetItemId: string, feeBudgetItemMonth: string) => {
+      const preview = previewWithTransfer()
+      const credit = preview.items.find((i: { payee: string }) => i.payee === 'E-BANKING PAYMENT') as { transferMatches?: unknown[] }
+      credit.transferMatches = [
+        {
+          transferId: 'tr-1', counterpartyAccountId: 'acc2', counterpartyAccountName: 'Pot',
+          amount: 240, currency: 'EUR', departedOn: '2026-05-28', receivedOn: null, payee: 'Transfer',
+          fee: 5.76, feeBudgetItemId, feeBudgetItemMonth,
+        },
+      ]
+      return preview
+    }
+    mockPreview.mockResolvedValue(withCandidate('bi-may-fees', '2026-05-01'))
     mockCommit.mockResolvedValue({
       totalEntries: 2, imported: 1, skippedDuplicates: 0, credits: 0, debits: 1, iban: null,
       autoCategorized: 0, transfers: 1, matchedTransfers: 1, pendingReviewTransfers: 0,
@@ -394,12 +398,15 @@ describe('ImportPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
-    await user.upload(screen.getByLabelText('Statement file'), csv())
-    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
-    await screen.findByText('E-BANKING PAYMENT')
-    await user.click(screen.getByRole('button', { name: 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer' }))
-    await user.selectOptions(screen.getByLabelText('Match recorded transfer for E-BANKING PAYMENT on 2026-06-16'), 'tr-1')
+    const review = async () => {
+      await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
+      await user.upload(screen.getByLabelText('Statement file'), csv())
+      await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+      await screen.findByText('E-BANKING PAYMENT')
+      await user.click(screen.getByRole('button', { name: 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer' }))
+      await user.selectOptions(screen.getByLabelText('Match recorded transfer for E-BANKING PAYMENT on 2026-06-16'), 'tr-1')
+    }
+    await review()
     // The fee's line is pre-filled with the one the recorded transfer already has (May's line).
     expect(screen.getByLabelText('Fee category for E-BANKING PAYMENT on 2026-06-16')).toHaveValue('bi-may-fees')
 
@@ -414,16 +421,74 @@ describe('ImportPage', () => {
     // The same fee moved to a June line while dated 28 May asks the question.
     mockCommit.mockClear()
     await user.click(screen.getByRole('button', { name: 'Import another file' }))
-    await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
-    await user.upload(screen.getByLabelText('Statement file'), csv())
-    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
-    await screen.findByText('E-BANKING PAYMENT')
-    await user.click(screen.getByRole('button', { name: 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer' }))
-    await user.selectOptions(screen.getByLabelText('Match recorded transfer for E-BANKING PAYMENT on 2026-06-16'), 'tr-1')
+    await review()
     await user.selectOptions(screen.getByLabelText('Fee category for E-BANKING PAYMENT on 2026-06-16'), 'bi2')
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
     expect(await screen.findByText('Budget to a different month?')).toBeInTheDocument()
     expect(mockCommit).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Go back' }))
+
+    // A recorded fee whose line is in June (the transfer was entered by hand on 1 June) is
+    // refused by the server once the bank dates the departure 28 May, so the question is asked
+    // before sending, with the line left as it is.
+    mockPreview.mockResolvedValue(withCandidate('bi2', '2026-06-01'))
+    await user.click(screen.getByRole('button', { name: 'Choose a different file' }))
+    await review()
+    expect(screen.getByLabelText('Fee category for E-BANKING PAYMENT on 2026-06-16')).toHaveValue('bi2')
+    await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
+    expect(await screen.findByText('Budget to a different month?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Import anyway' }))
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
+    const [, acknowledged] = mockCommit.mock.calls[0]
+    expect(acknowledged.find((i: { payee: string }) => i.payee === 'E-BANKING PAYMENT')).toEqual(
+      expect.objectContaining({ feeBudgetItemId: 'bi2', acknowledgeCrossMonth: true }),
+    )
+    expect(await screen.findByText('Import complete')).toBeInTheDocument()
+
+    // A receipt credited on 16 June before a departure recorded on 2 July pulls the departure
+    // back to 16 June, and the fee with it: its July line is now a month away, so ask.
+    mockCommit.mockClear()
+    mockPreview.mockResolvedValue(withCandidate('bi-july-fees', '2026-07-01'))
+    const preview = mockPreview.mock.results.length ? await mockPreview() : null
+    if (preview) (preview.items[0] as { transferMatches: { departedOn: string }[] }).transferMatches[0].departedOn = '2026-07-02'
+    mockPreview.mockResolvedValue(preview)
+    await user.click(screen.getByRole('button', { name: 'Import another file' }))
+    await review()
+    await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
+    expect(await screen.findByText('Budget to a different month?')).toBeInTheDocument()
+    expect(mockCommit).not.toHaveBeenCalled()
+  })
+
+  // The server's own cross-month refusal (a case the screen did not foresee) is the same
+  // question, not a dead-end banner: "Import anyway" re-sends with the lines acknowledged.
+  it('turns the server’s cross-month refusal into the question and re-sends acknowledged', { timeout: 15000 }, async () => {
+    mockPreview.mockResolvedValue(previewWithTransfer())
+    mockCommit
+      .mockRejectedValueOnce({
+        isAxiosError: true,
+        response: {
+          status: 400,
+          data: { errors: { crossMonth: ['The fee is dated 2026-05 but that budget line is in 2026-06.'] } },
+        },
+      })
+      .mockResolvedValueOnce(committed())
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
+    await goToReview(user)
+    await user.selectOptions(screen.getByLabelText('Category for AUTOMARKET on 2026-06-17'), 'bi2')
+    await user.click(screen.getByRole('button', { name: /Import \d+ transactions?/ }))
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText('Budget to a different month?')).toBeInTheDocument()
+    expect(screen.getByText(/The fee is dated 2026-05 but that budget line is in 2026-06\./)).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Import anyway' }))
+    await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(2))
+    const [, items] = mockCommit.mock.calls[1]
+    expect(items.find((i: { payee: string }) => i.payee === 'AUTOMARKET')).toEqual(expect.objectContaining({ budgetItemId: 'bi2', acknowledgeCrossMonth: true }))
+    expect(await screen.findByText('Import complete')).toBeInTheDocument()
   })
 
   // Rule 71 — a debit marked as a transfer is a confirmed departure with the receipt still unknown.

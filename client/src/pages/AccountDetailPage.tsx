@@ -184,12 +184,19 @@ export function AccountDetailPage() {
                     const isTransfer = t.type === TransactionType.Transfer
                     const hue = hueForName(t.budgetItemName)
                     // Rules 40/74: a row dated before the opening date is history only; the
-                    // opening balance already includes it, so it never moves the balance.
-                    const beforeOpening = !!account.openingDate && t.date < account.openingDate
+                    // opening balance already includes it, so it never moves the balance. The
+                    // date that counts is the leg this account posts: a transfer leaves its source
+                    // on its departure and reaches its destination on its receipt (a receipt not
+                    // yet confirmed is pending, not history), and one that left before the opening
+                    // date but came back after it moved the balance on its return.
+                    const legDate = isTransfer ? (t.accountId === id ? (t.departedOn ?? t.date) : (t.receivedOn ?? null)) : t.date
+                    const returnedAfterOpening =
+                      isTransfer && t.accountId === id && !!t.returnedOn && !!account.openingDate && t.returnedOn >= account.openingDate
+                    const beforeOpening = !!account.openingDate && !!legDate && legDate < account.openingDate && !returnedAfterOpening
                     return (
                       <tr key={t.id} className={`hover:bg-slate-50 ${beforeOpening ? 'text-slate-400' : ''}`}>
                         <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-slate-500">
-                          {shortDate(t.date)}
+                          {shortDate(legDate ?? t.date)}
                           {beforeOpening && (
                             <span
                               className="ml-1.5 rounded-[5px] border border-slate-200 bg-slate-50 px-1.5 py-px text-[9.5px] font-semibold text-slate-500 dark:border-slate-600 dark:bg-slate-800"

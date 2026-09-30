@@ -10,7 +10,6 @@ import { ImportIcon, TransactionsIcon } from '../components/icons'
 import { useFeatures } from '../features/FeatureContext'
 import { useMonth } from '../features/MonthContext'
 import { useAuth } from '../auth/AuthContext'
-import axios from 'axios'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import type {
@@ -46,7 +45,7 @@ import {
   useJarLedgers,
 } from '../lib/jarLedgers'
 import { fromJarAllocations, jarAllocationsProblem, toJarAllocations } from '../lib/jarAllocationFields'
-import { serverErrors } from '../lib/serverErrors'
+import { crossMonthError, serverErrors } from '../lib/serverErrors'
 import { PRIVATE_ACCOUNT } from '../lib/accountHolders'
 import { fetchConversionSuggestion, formatForeign, suggestionHint } from '../lib/conversion'
 
@@ -82,27 +81,22 @@ function refundOfLabel(t: TransactionDto): string | null {
 }
 
 /**
+ * The jars a stored answer names on this account, so an archived jar it names stays offered
+ * while the edit is open (it can be picked back after moving off it), and is sent back unchanged.
+ */
+function storedJarIds(t: TransactionDto | null | undefined, accountId: string | null | undefined, direction: 'in' | 'out'): string[] {
+  return t && accountId ? [...storedSharesOf(t.jarAllocations, accountId, direction).keys()] : []
+}
+
+/**
  * Purchases a refund can point at: the user's expenses that are not themselves refunds, newest
- * first. A split purchase counts too, as on the server (the refund nets off the purchase's
- * lines through its slices).
+ * first. A split purchase counts too, as on the server, but it has no single line for the refund
+ * to follow: the user picks the refund's line (rule 39's netting shows on that line).
  */
 function refundablePurchases(transactions: TransactionDto[]): TransactionDto[] {
   return transactions
     .filter((t) => t.type === TransactionType.Expense && !t.refundOfTransactionId)
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
-}
-
-/**
- * The server's cross-month rejection message, if that is what this error is. Every attribution
- * write (assign, edit, split, add) can report it under the `crossMonth` key; the caller then
- * offers to re-send the same request acknowledged instead of showing a generic failure.
- */
-function crossMonthError(err: unknown): string | undefined {
-  const messages = axios.isAxiosError(err)
-    ? (err.response?.data as { errors?: Record<string, string[]> } | undefined)?.errors?.crossMonth
-    : undefined
-  if (!messages) return undefined
-  return messages[0] ?? 'This transaction is dated in a different month than that budget line.'
 }
 
 /**
@@ -313,9 +307,9 @@ export function TransactionsPage() {
   // The jars each side offers: the active ones, plus an archived jar the stored answer of the
   // transfer being edited still names, so that share can be seen and sent back unchanged.
   const tFromLedger = ledgerOf(tFrom)
-  const tFromJars = jarsForAnswer(tFromLedger, [tFromJar])
+  const tFromJars = jarsForAnswer(tFromLedger, [tFromJar, ...storedJarIds(editingTransfer, editingTransfer?.accountId, 'out')])
   const tToLedger = ledgerOf(tTo)
-  const tToJars = jarsForAnswer(tToLedger, namedJarIds(tJarAlloc))
+  const tToJars = jarsForAnswer(tToLedger, [...namedJarIds(tJarAlloc), ...storedJarIds(editingTransfer, editingTransfer?.transferAccountId, 'in')])
   // The fee is dated the departure date, so its line picker offers that month's lines: the
   // loaded month when the date falls in it, otherwise that month fetched on demand (the loaded
   // month stands in while it loads or when it has no budget; the cross-month prompt covers it).
@@ -488,6 +482,12 @@ export function TransactionsPage() {
       setError('Choose the purchase this refund is for.')
       return
     }
+    // A split purchase has no one line for the refund to follow (the server would record it
+    // unassigned): the refund's line is the user's to pick.
+    if (addIsRefund && !assignTo && transactions.some((t) => t.id === refundOf && t.isSplit)) {
+      setError('That purchase is split across several lines: choose the category the refund goes to.')
+      return
+    }
     const foreign = foreignFigure()
     if (paidForeign && typeof foreign === 'string') {
       setError(foreign)
@@ -573,7 +573,7 @@ export function TransactionsPage() {
       setAdding(false)
     }
   }, [
-    date, payee, amount, type, addIsRefund, addApiType, refundOf, assignTo, account, member, addSplit, addRows, resetAddSplit,
+    date, payee, amount, type, addIsRefund, addApiType, refundOf, assignTo, account, member, addSplit, addRows, resetAddSplit, transactions,
     addIncomeJarsApply, addJarAlloc, addPaidFromApplies, addPaidFrom, resetAddJarPrompts, reloadLedgers, reloadTransactions,
     paidForeign, foreignFigure, resetAddForeign,
   ])
@@ -932,7 +932,12 @@ export function TransactionsPage() {
       // Until the jar ledgers are known (still loading, or the read failed) the form can't tell
       // whether the account backs jars, so a stored answer is sent back unchanged rather than
       // left out, which would return the money to its default.
-      const answerJars = jarsForAnswer(ledgerOf(eAccount), eType === TransactionType.Income ? namedJarIds(eJarAlloc) : [ePaidFrom])
+      const answerJars = jarsForAnswer(
+        ledgerOf(eAccount),
+        eType === TransactionType.Income
+          ? [...namedJarIds(eJarAlloc), ...storedJarIds(t, t.accountId, 'in')]
+          : [ePaidFrom, ...storedJarIds(t, t.accountId, 'out')],
+      )
       const backsJars =
         answerJars.length > 0 ||
         (!ledgersLoaded && (eType === TransactionType.Income ? toJarAllocations(eJarAlloc).length > 0 : !!ePaidFrom))
@@ -1063,7 +1068,7 @@ export function TransactionsPage() {
       }
       // Rule 79: the slices on lines that are not jars draw from the named jar (null = unallocated).
       const drawsUnlined = t.type === TransactionType.Expense && parsed.some((a) => !isJarLineFor(a.budgetItemId, t.accountId))
-      const paidFromApplies = drawsUnlined && jarsForAnswer(ledgerOf(t.accountId), [splitPaidFrom]).length > 0
+      const paidFromApplies = drawsUnlined && jarsForAnswer(ledgerOf(t.accountId), [splitPaidFrom, ...storedJarIds(t, t.accountId, 'out')]).length > 0
       // P3-10: a pre-filled answer naming an archived jar is refused (or dropped with the account's
       // last live jar), unless it is the jar's stored share sent back unchanged (#283): the split
       // keeps the entry's date, so only a changed draw from an archived jar is stopped here.
@@ -1490,7 +1495,13 @@ export function TransactionsPage() {
                     }}
                     className="w-full"
                   >
-                    <option value="">{addIsRefund ? 'Same category as the purchase' : 'Unassigned'}</option>
+                    <option value="">
+                      {addIsRefund
+                        ? transactions.some((t) => t.id === refundOf && t.isSplit)
+                          ? 'Choose a category (the purchase is split)'
+                          : 'Same category as the purchase'
+                        : 'Unassigned'}
+                    </option>
                     {/* Income goes on income lines; an expense (or a refund, rule 38) on expense or savings lines. */}
                     {(addIsRefund ? expenseSplitOptions : buildItemOptions(month, addApiType)).map((g) => (
                       <optgroup key={g.category} label={g.category}>
@@ -2079,7 +2090,12 @@ export function TransactionsPage() {
                               {/* The jar prompts, pre-filled from the stored split (rules 78/79). */}
                               {(() => {
                                 const ledger = ledgerOf(eAccount)
-                                const jars = jarsForAnswer(ledger, eType === TransactionType.Income ? namedJarIds(eJarAlloc) : [ePaidFrom])
+                                const jars = jarsForAnswer(
+                                  ledger,
+                                  eType === TransactionType.Income
+                                    ? [...namedJarIds(eJarAlloc), ...storedJarIds(t, t.accountId, 'in')]
+                                    : [ePaidFrom, ...storedJarIds(t, t.accountId, 'out')],
+                                )
                                 if (!ledger || jars.length === 0) return null
                                 if (eType === TransactionType.Income) {
                                   return (
@@ -2513,7 +2529,9 @@ export function TransactionsPage() {
                                 ))}
                               </select>
                               <span className="text-xs text-slate-500">
-                                The refund moves to the purchase’s category and is not counted as income.
+                                {purchases.find((p) => p.id === refundPick)?.isSplit
+                                  ? 'That purchase is split across several lines: the refund is not counted as income, and you pick its category on the row afterwards.'
+                                  : 'The refund moves to the purchase’s category and is not counted as income.'}
                               </span>
                               <div className="ml-auto flex gap-1">
                                 <Button
@@ -2601,7 +2619,7 @@ export function TransactionsPage() {
                               {/* Rule 79: the slices on lines that are not jars draw from one named jar. */}
                               {(() => {
                                 const ledger = ledgerOf(t.accountId)
-                                const jars = jarsForAnswer(ledger, [splitPaidFrom])
+                                const jars = jarsForAnswer(ledger, [splitPaidFrom, ...storedJarIds(t, t.accountId, 'out')])
                                 const applies =
                                   t.type === TransactionType.Expense &&
                                   !!ledger &&

@@ -452,6 +452,24 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     expect(header.textContent).toContain('of €125.00')
   })
 
+  // #286 P3-3: a total that counted a missing jar as 0 would read as complete.
+  it('shows only the plan in the group header when one line’s jar is missing from the read', { timeout: 15000 }, async () => {
+    const m = month({ planned: 125 })
+    m.categories[2].items.push({
+      id: 'i-car', name: 'Car', displayOrder: 1, plannedAmount: 75, actualAmount: 0, remaining: 75,
+      savingsId: 'jar-car', savingsAvailable: 0, isSkipped: false,
+    })
+    mockLoads(m, [jar({ plannedThisMonth: 125, contributedThisMonth: 50, remainingThisMonth: 75 })])
+    renderPage()
+
+    const planned = await screen.findByLabelText('Planned amount for Holiday', {}, { timeout: 5000 })
+    expect(planned.closest('div')!.textContent).toContain('€50.00 in of €125.00')
+    expect((await screen.findByLabelText('Planned amount for Car')).closest('div')!.textContent).toContain('plan €75.00')
+    const header = screen.getByLabelText('Rename group Savings').parentElement!.parentElement!
+    expect(header.textContent).toContain('plan €200.00')
+    expect(header.textContent).not.toContain('in of')
+  })
+
   it('shows only the plan on a savings line while the jars could not be read', { timeout: 15000 }, async () => {
     mockGet.mockImplementation((url: string) => {
       if (url === '/budget/months' || url === '/budget/templates' || url === '/accounts') return Promise.resolve({ data: [] })

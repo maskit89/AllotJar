@@ -128,8 +128,10 @@ public static class SavingsLines
                 .ToListAsync(cancellationToken))
             .ToHashSet();
 
-        var balances = await JarPlanner.BalancesAsync(db, ownerId, jar, today, 0m, cancellationToken);
-        var contributed = Math.Max(0m, balances.Now - balances.Planning);
+        // Rule 14: what went into the jar since the month began — its postings, so money that
+        // left the jar this month is not netted off (the same figure the jar's card reads).
+        var ledger = await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken);
+        var contributed = ledger.ContributionsBetween(current, today).GetValueOrDefault(jar.Id);
         var currentSeen = false;
         foreach (var line in lines.OrderBy(l => l.BudgetCategory.BudgetMonth.Year).ThenBy(l => l.BudgetCategory.BudgetMonth.Month))
         {

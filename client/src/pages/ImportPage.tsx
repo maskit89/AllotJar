@@ -24,7 +24,7 @@ import { buildItemOptions, type ItemOptionGroup } from '../lib/transactions'
 import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { formatDate, monthYear } from '../lib/dates'
-import { serverErrors } from '../lib/serverErrors'
+import { crossMonthError, serverErrors } from '../lib/serverErrors'
 import { activeJars, useJarLedgers } from '../lib/jarLedgers'
 import { jarAllocationsTotal, toJarAllocations } from '../lib/jarAllocationFields'
 import { JarAllocationFields } from '../components/jars/JarAllocationFields'
@@ -227,9 +227,15 @@ function feeLineMissing(r: ReviewRow): boolean {
   return r.include && rowFeeMinor(r) !== null && !r.feeBudgetItemId
 }
 
-/** The date a row's fee is recorded on: the transfer's departure (the row's own date for a debit). */
+/**
+ * The date a row's fee is recorded on once committed: the transfer's departure — the row's own
+ * date for a debit; for a credit the recorded departure, unless the money is credited before it,
+ * which pulls the departure back to the credit's date (it cannot arrive before it left).
+ */
 function feeDateOf(r: ReviewRow): string {
-  return r.isCredit ? (chosenMatch(r)?.departedOn ?? r.date) : r.date
+  if (!r.isCredit) return r.date
+  const departed = chosenMatch(r)?.departedOn
+  return departed && departed <= r.date ? departed : r.date
 }
 
 /**
@@ -336,7 +342,8 @@ export function ImportPage() {
   const [heldResult, setHeldResult] = useState<ImportStatementResult | null>(null)
   // Count of categorised rows dated outside the loaded budget month — set when Import needs the
   // one-per-batch cross-month confirmation before committing.
-  const [crossMonthCount, setCrossMonthCount] = useState<number | null>(null)
+  // The batch's cross-month question: the rows the screen counted, or the server's own refusal.
+  const [crossMonthAsk, setCrossMonthAsk] = useState<{ count: number; message?: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // The jar-backed accounts (rules 78/79): the prompts only apply when the import account is one.
@@ -392,6 +399,8 @@ export function ImportPage() {
   // account's currency, else the budget currency.
   const fallbackCurrency = importAccount?.currency || budgetCurrency
   // The month's jar lines (a savings line names its jar), whose debits never ask for a jar.
+  /** Every line of the loaded month: a categorised row's line is one of them, a matched fee's may not be. */
+  const monthLineIds = useMemo(() => new Set((month?.categories ?? []).flatMap((c) => c.items).map((i) => i.id)), [month])
   const jarLineIds = useMemo(
     () => new Set((month?.categories ?? []).flatMap((c) => c.items).filter((i) => i.savingsId).map((i) => i.id)),
     [month],
@@ -612,15 +621,21 @@ export function ImportPage() {
    *  explicit confirmation (the categories on offer are always the current month's lines). */
   function isCrossMonthRow(r: ReviewRow): boolean {
     if (!month) return false
-    const outsideMonth = (date: string) =>
-      Number(date.slice(0, 4)) !== month.year || Number(date.slice(5, 7)) !== month.month
-    // A transfer's fee put on one of this month's lines is dated the departure. A fee left on
-    // the line the recorded transfer already gave it (a match) is in that line's own month, or
-    // was confirmed there when it was recorded, so it needs no question here (#279 P3-8).
+    const loadedMonth = `${month.year}-${String(month.month).padStart(2, '0')}`
+    const outsideMonth = (date: string) => date.slice(0, 7) !== loadedMonth
+    // A transfer's fee is dated the departure (the bank's, once matched) and judged against its
+    // line's own month, as the server judges it on every commit that carries a fee: one of this
+    // month's lines, or the line the recorded transfer already gave it, whose month the candidate
+    // carries (#279 P3-8 asked for every matched fee; #286 P2-1 asked for none of them).
     if (r.isTransfer) {
       if (rowFeeMinor(r) === null || !r.feeBudgetItemId) return false
-      if (r.feeBudgetItemId === (chosenMatch(r)?.feeBudgetItemId ?? null)) return false
-      return outsideMonth(feeDateOf(r))
+      const match = chosenMatch(r)
+      const lineMonth = monthLineIds.has(r.feeBudgetItemId)
+        ? loadedMonth
+        : match && r.feeBudgetItemId === match.feeBudgetItemId
+          ? (match.feeBudgetItemMonth?.slice(0, 7) ?? loadedMonth)
+          : loadedMonth
+      return feeDateOf(r).slice(0, 7) !== lineMonth
     }
     if (!r.budgetItemId && !r.splits) return false
     return outsideMonth(r.date)
@@ -642,8 +657,14 @@ export function ImportPage() {
     return { paidFromJarId: paidFromApplies(r, jarLineIds) ? r.paidFromJarId || null : null }
   }
 
-  async function onCommit(acknowledgeCrossMonth = false) {
+  /**
+   * Posts the included rows. `acknowledgeCrossMonth` re-sends after the batch question was
+   * answered: the rows the screen judged cross-month are flagged, or every row that names a
+   * line when the server raised the question itself (a case the screen did not foresee).
+   */
+  async function onCommit(acknowledgeCrossMonth = false, acknowledgeEveryLine = false) {
     const sent = rows.filter((r) => r.include)
+    const namesALine = (r: ReviewRow) => (r.isTransfer ? !!r.feeBudgetItemId && rowFeeMinor(r) !== null : !!r.budgetItemId || !!r.splits)
     const items: CommitImportItem[] = sent.map((r) => {
       const base = {
         reference: r.reference,
@@ -654,7 +675,8 @@ export function ImportPage() {
         isCredit: r.isCredit,
         ...jarAnswer(r),
       }
-      const acknowledged = acknowledgeCrossMonth && isCrossMonthRow(r) ? { acknowledgeCrossMonth: true } : {}
+      const acknowledged =
+        acknowledgeCrossMonth && (isCrossMonthRow(r) || (acknowledgeEveryLine && namesALine(r))) ? { acknowledgeCrossMonth: true } : {}
       if (isReturnRow(r)) {
         // The transfer coming back names only that transfer: no counterparty, line, member or jars.
         return { ...base, budgetItemId: null, memberId: null, transferAccountId: null, matchTransferId: null, returnOfTransferId: r.matchTransferId }
@@ -706,7 +728,7 @@ export function ImportPage() {
     // batch, then re-run with the affected rows acknowledged (the server rejects them otherwise).
     const affected = rows.filter((r) => r.include && isCrossMonthRow(r)).length
     if (affected > 0 && !acknowledgeCrossMonth) {
-      setCrossMonthCount(affected)
+      setCrossMonthAsk({ count: affected })
       return
     }
 
@@ -715,7 +737,7 @@ export function ImportPage() {
     try {
       const result = await commitImport(accountId || null, items)
       setResults((prev) => [...prev, result])
-      setCrossMonthCount(null)
+      setCrossMonthAsk(null)
       track(EVENTS.importCommitted, { row_bucket: bucketCount(items.length) })
       // Rule 74: the rows the account could not take on their date were held, not posted.
       // Everything else went in; the review stays open for just the held rows, each with the
@@ -731,7 +753,15 @@ export function ImportPage() {
         setPhase('done')
       }
     } catch (err) {
-      setError(serverErrors(err) ?? errorMessage(err))
+      // The server's own cross-month refusal (a matched fee's line, say) is the same question,
+      // asked once with its reason; "Import anyway" re-sends with every line acknowledged.
+      const crossMonth = !acknowledgeEveryLine ? crossMonthError(err) : undefined
+      if (crossMonth) {
+        setCrossMonthAsk({ count: 0, message: crossMonth })
+      } else {
+        setCrossMonthAsk(null)
+        setError(serverErrors(err) ?? errorMessage(err))
+      }
     } finally {
       setBusy(false)
     }
@@ -752,7 +782,7 @@ export function ImportPage() {
     setError(null)
     setBulkMember('')
     setBulkCategory('')
-    setCrossMonthCount(null)
+    setCrossMonthAsk(null)
   }
 
   return (
@@ -1672,20 +1702,27 @@ export function ImportPage() {
 
           {/* Cross-month confirm: categorised rows dated outside the loaded budget month get
               budgeted to this month's lines — a deliberate choice, confirmed once per batch. */}
-          {crossMonthCount !== null && (
-            <Modal title="Budget to a different month?" onClose={() => setCrossMonthCount(null)}>
-              <p className="text-sm text-slate-600">
-                {crossMonthCount} transaction{crossMonthCount === 1 ? ' is' : 's are'} dated outside{' '}
-                {month ? monthYear(`${month.year}-${String(month.month).padStart(2, '0')}-01`) : 'this month'} but
-                assigned to its budget lines. Importing will count {crossMonthCount === 1 ? 'it' : 'them'} toward{' '}
-                {month ? monthYear(`${month.year}-${String(month.month).padStart(2, '0')}-01`) : 'this month'}
-                {'’'}s budget rather than the month {crossMonthCount === 1 ? 'it was' : 'they were'} spent.
-              </p>
+          {crossMonthAsk !== null && (
+            <Modal title="Budget to a different month?" onClose={() => setCrossMonthAsk(null)}>
+              {crossMonthAsk.message ? (
+                <p className="text-sm text-slate-600">
+                  {crossMonthAsk.message} Importing will count it toward that line{'’'}s month rather than the month it was
+                  spent.
+                </p>
+              ) : (
+                <p className="text-sm text-slate-600">
+                  {crossMonthAsk.count} transaction{crossMonthAsk.count === 1 ? ' is' : 's are'} dated outside{' '}
+                  {month ? monthYear(`${month.year}-${String(month.month).padStart(2, '0')}-01`) : 'this month'} but
+                  assigned to its budget lines. Importing will count {crossMonthAsk.count === 1 ? 'it' : 'them'} toward{' '}
+                  {month ? monthYear(`${month.year}-${String(month.month).padStart(2, '0')}-01`) : 'this month'}
+                  {'’'}s budget rather than the month {crossMonthAsk.count === 1 ? 'it was' : 'they were'} spent.
+                </p>
+              )}
               <div className="mt-5 flex justify-end gap-2">
-                <Button variant="secondary" size="sm" onClick={() => setCrossMonthCount(null)}>
+                <Button variant="secondary" size="sm" onClick={() => setCrossMonthAsk(null)}>
                   Go back
                 </Button>
-                <Button size="sm" onClick={() => onCommit(true)} disabled={busy}>
+                <Button size="sm" onClick={() => onCommit(true, !!crossMonthAsk.message)} disabled={busy}>
                   Import anyway
                 </Button>
               </div>

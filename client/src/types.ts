@@ -413,6 +413,11 @@ export interface TransferMatchCandidate {
   fee?: number | null
   /** The budget line the transfer's current fee is on (pre-fills the fee line); null when none. */
   feeBudgetItemId?: string | null
+  /**
+   * The first day of that line's budget month. The commit judges the fee's date (the bank's
+   * departure date, once matched) against it, so the review asks the cross-month question first.
+   */
+  feeBudgetItemMonth?: string | null
   /** The leg was recorded in the app on this date (no bank reference yet); the statement's date replaces it. */
   recordedDate?: string | null
   /** The other bank printed the same reference. */

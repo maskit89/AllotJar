@@ -1144,6 +1144,45 @@ describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
       refundOfTransactionId: 't-tesco', refundOfPayee: 'Tesco', refundOfDate: '2026-07-10', refundOfAmount: 40,
     })
 
+  // #286 P3-1: a split purchase has no one line for the refund to follow, so the refund's line
+  // is the user's to pick; the default option says so and the save waits for it.
+  it('needs a category for a refund of a split purchase', { timeout: 15000 }, async () => {
+    const splitPurchase = tx({
+      id: 't-ikea', date: '2026-07-08', payee: 'Ikea', amount: 90, type: 0, isSplit: true,
+      splits: [
+        { id: 's1', budgetItemId: 'i-groceries', budgetItemName: 'Groceries', amount: 50, memberId: null, memberName: null },
+        { id: 's2', budgetItemId: 'i-rest', budgetItemName: 'Restaurants', amount: 40, memberId: null, memberName: null },
+      ],
+    })
+    mockLoad([purchase(), splitPurchase])
+    mockPost.mockResolvedValue({ data: refundRow() })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    await screen.findByRole('dialog', {}, { timeout: 5000 })
+    await user.selectOptions(screen.getByLabelText('Transaction type'), '-1')
+    await user.type(screen.getByLabelText('Transaction payee'), 'Ikea refund')
+    await user.type(screen.getByLabelText('Transaction amount'), '10')
+    await user.selectOptions(screen.getByLabelText('Refund of'), 't-ikea')
+    const category = screen.getByLabelText('Assign transaction to') as HTMLSelectElement
+    expect(within(category).getAllByRole('option')[0].textContent).toBe('Choose a category (the purchase is split)')
+
+    const submit = within(screen.getByRole('dialog')).getByRole('button', { name: 'Add transaction' })
+    await user.click(submit)
+    expect(await screen.findByText('That purchase is split across several lines: choose the category the refund goes to.')).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+
+    await user.selectOptions(category, 'i-groceries')
+    await user.click(submit)
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith(
+        '/transactions',
+        expect.objectContaining({ type: 1, refundOfTransactionId: 't-ikea', budgetItemId: 'i-groceries' }),
+      ),
+    )
+  })
+
   // TX-099 — the Add modal's third type: a refund names the purchase it comes back from, offers
   // only expense/savings lines (defaulting to the purchase's category) and posts as Income with
   // the link; it never posts without a purchase.
@@ -1592,6 +1631,45 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
       ),
     ).toBeInTheDocument()
     expect(mockPut).not.toHaveBeenCalled()
+  })
+
+  // #286 P3-2: moving off the archived jar must not drop it from the list; the stored answer can
+  // be picked back and is sent unchanged.
+  it('keeps an archived jar’s stored option offered after moving off it', { timeout: 20000 }, async () => {
+    const t = transfer({ jarAllocations: [{ accountId: 'a-joint', jarId: 'jar-hol', jarName: 'Holiday', amount: -100 }] })
+    mockLoad([t], accountsFixture())
+    const load = mockGet.getMockImplementation()!
+    mockGet.mockImplementation((url: string) =>
+      url === '/jars/ledger'
+        ? Promise.resolve({
+            data: [
+              {
+                accountId: 'a-joint', accountName: 'Joint', currency: 'EUR', asOf: '2026-07-20', accountBalance: 1250,
+                unallocated: 1050, positiveAllocations: 200, hasBackingDeficit: false, unreconciledAllocations: 0,
+                requiresReview: false,
+                jars: [
+                  { jarId: 'jar-hol', name: 'Holiday', balance: 0, isArchived: true },
+                  { jarId: 'jar-car', name: 'Car', balance: 200, isArchived: false },
+                ],
+              },
+            ],
+          })
+        : load(url),
+    )
+    mockPut.mockResolvedValue({ data: t })
+    const user = userEvent.setup()
+    renderPage()
+
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/jars/ledger'))
+    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
+    const fromJar = within(dialog).getByLabelText('From jar') as HTMLSelectElement
+    expect(fromJar).toHaveValue('jar-hol')
+    await user.selectOptions(fromJar, 'jar-car')
+    expect(within(fromJar).getByRole('option', { name: 'Holiday (archived)' })).toBeInTheDocument()
+    await user.selectOptions(fromJar, 'jar-hol')
+    await user.click(within(dialog).getByRole('button', { name: 'Save transfer' }))
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t-tr/transfer', expect.objectContaining({ fromJarId: 'jar-hol' })))
   })
 
   it('needs a budget line for a fee (rule 91)', { timeout: 15000 }, async () => {

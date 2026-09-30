@@ -290,9 +290,9 @@ export function BudgetItemRow({
             <span>{availableKnown ? formatMoney(availableMinor as Minor, currency) : 'Not available'}</span>{' '}
             <span className="text-[11.5px] font-medium text-slate-500">avail.</span>
           </div>
-          {/* Rule 14: the plan stays as planned; what went in and what is still to go are shown
-              beside it, as the Jars page reads them. Spending from the jar moves Available, not
-              this line. */}
+          {/* Rule 14: the plan stays as planned; what went into the jar this month and what is
+              still to go are shown beside it, as the Jars page reads them from the jar's postings.
+              Spending from the jar moves Available and the plan, not what went in. */}
           <div className="mt-0.5 text-[11.5px] tabular-nums text-slate-500">
             {!contribution ? (
               <>plan {plannedEditor}</>

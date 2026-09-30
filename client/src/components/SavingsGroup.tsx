@@ -62,13 +62,16 @@ export function SavingsGroup({
   // Rule 60: a jar's line leaves a month only by skipping it or archiving the jar, so a group
   // that still holds one cannot be deleted either (the server refuses it too).
   const holdsJarLines = category.items.some((i) => i.savingsId)
-  // Rule 14: the header and each line show contributed and still to go, never spending from the
-  // jar (that moves Available). A line whose jar is missing from the read shows only its plan.
+  // Rule 14: the header and each line show what went into the jar this month and what is still
+  // to go, as the server reads them from the jar's postings (spending from the jar moves
+  // Available, not these). A line whose jar is missing from the read shows only its plan, and so
+  // does the header then: a total that counted the missing jar as 0 would read as complete.
   const contributionOf = (item: ItemVM) => {
     const jar = jars?.find((j) => j.id === item.savingsId)
     return jar ? { contributedMinor: fromAmount(jar.contributedThisMonth), remainingMinor: fromAmount(jar.remainingThisMonth) } : null
   }
-  const contributedTotal = jars ? sumMinor(category.items.map((i) => contributionOf(i)?.contributedMinor ?? 0)) : null
+  const everyJarRead = category.items.every((i) => !i.savingsId || contributionOf(i) !== null)
+  const contributedTotal = jars && everyJarRead ? sumMinor(category.items.map((i) => contributionOf(i)?.contributedMinor ?? 0)) : null
 
   useEffect(() => setName(category.name), [category.name])
 
