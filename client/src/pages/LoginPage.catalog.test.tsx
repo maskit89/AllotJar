@@ -73,6 +73,7 @@ vi.mock('../lib/googleAuth', () => ({
 import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { LoginPage } from './LoginPage'
+import { axiosError } from '../test/fixtures/http'
 import { track, EVENTS } from '../analytics'
 import { detectLocaleDefaults } from '../lib/money'
 
@@ -111,11 +112,6 @@ function authResponse(overrides: Record<string, unknown> = {}) {
   }
 }
 
-/** A plain object axios treats as an AxiosError so the page's catch surfaces the
- *  server body exactly as in production (axios.isAxiosError checks isAxiosError). */
-function axiosError(data: unknown, status = 400) {
-  return { isAxiosError: true, response: { status, data } }
-}
 
 /** All values currently held in the in-memory localStorage (setup.ts polyfill). */
 function allStoredValues(): string[] {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { AccountDto, JarDto, JarScheduleDto, JarScheduleMonthDto, JarScheduleRequest, MeResponse } from '../types'
+import type { AccountDto, JarDto, JarScheduleDto, JarScheduleRequest } from '../types'
 
 // Same shared api mock as JarsPage.test.tsx / the other *.catalog.test.tsx files.
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
@@ -9,63 +9,16 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
+import { account, jar, schedule as sharedSchedule, scheduleMonth } from '../test/fixtures/jars'
+import { me } from '../test/fixtures/me'
 // Real (unmocked) money module — pin the active display locale so every €-string
 // asserted below renders in the design's canonical en-GB comma-dot format
 // (€1,234.56), independent of test-execution order.
 import { setMoneyFormat } from '../lib/money'
 
-// A fully-populated JarDto: a recurring jar saving 300 by 1 Dec, planned 25 this month.
-function jar(over: Partial<JarDto> = {}): JarDto {
-  return {
-    id: 'f1',
-    name: 'Home insurance',
-    kind: 0,
-    targetAmount: 300,
-    targetDate: '2026-12-01',
-    accrual: 1,
-    monthlyContribution: null,
-    includeDeadlineMonth: false,
-    recurMonths: 12,
-    fundingAccountId: 'acc1',
-    balanceAsOf: '2026-09-26',
-    isArchived: false,
-    currentBalance: 120,
-    plannedThisMonth: 25,
-    contributedThisMonth: 0,
-    remainingThisMonth: 25,
-    deadline: '2026-12-01',
-    fundingCompletesOn: '2026-11-30',
-    estimatedMonthsToTarget: null,
-    shortfall: null,
-    lastCycle: null,
-    completedOn: null,
-    canDelete: false,
-    skippedThisMonth: false,
-    status: 'OnTrack',
-    ...over,
-  }
-}
-
-// The server's answer to POST /jars/schedule: the months the planner would seed.
-function month(year: number, month: number, planned: number, over: Partial<JarScheduleMonthDto> = {}): JarScheduleMonthDto {
-  return { year, month, planned, hasBudget: false, shortfall: null, ...over }
-}
-
-function schedule(over: Partial<JarScheduleDto> = {}): JarScheduleDto {
-  return {
-    accrual: 1,
-    isOngoing: false,
-    hasSchedule: true,
-    balance: 120,
-    remaining: 180,
-    months: [month(2026, 9, 60), month(2026, 10, 60), month(2026, 11, 60)],
-    total: 180,
-    deadline: '2026-12-01',
-    fundingCompletesOn: '2026-11-30',
-    estimatedMonths: null,
-    ...over,
-  }
-}
+// The planner's answer for this file's jar: it already holds 120, so 60 a month covers the rest.
+const schedule = (over: Partial<JarScheduleDto> = {}) =>
+  sharedSchedule({ balance: 120, remaining: 180, months: [scheduleMonth(2026, 9, 60), scheduleMonth(2026, 10, 60), scheduleMonth(2026, 11, 60)], total: 180, ...over })
 
 /** Answer /jars/schedule from `plan` (given the request) and every other POST with `data`. */
 function mockPosts(plan: (request: JarScheduleRequest) => JarScheduleDto, data: unknown = {}) {
@@ -74,16 +27,7 @@ function mockPosts(plan: (request: JarScheduleRequest) => JarScheduleDto, data: 
   )
 }
 
-/** The body of the one POST /jars a test expects. */
-// Account name deliberately doesn't collide with any jar name so its <option> never
-// creates a duplicate text match.
-const JOINT: AccountDto = {
-  id: 'acc1', name: 'Joint Current', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0,
-}
-
-function me(role: number): MeResponse {
-  return { userId: 'u1', email: 'alex@x.com', displayName: 'Alex', role, ownerId: 'u1', memberId: null }
-}
+const JOINT = account()
 
 // Route the endpoints JarsPage + AuthProvider hit on mount: /jars, /jars/ledger, /accounts
 // and /auth/me. A non-numeric /auth/me role leaves the AuthContext at its Owner default
@@ -95,7 +39,7 @@ function mockLoads(opts: { jars?: JarDto[]; accounts?: AccountDto[]; meRole?: nu
     if (url.startsWith('/jars/ledger')) return Promise.resolve({ data: [] })
     if (url === '/jars') return jarsError ? Promise.reject(new Error('boom')) : Promise.resolve({ data: jars })
     if (url === '/accounts') return Promise.resolve({ data: accounts })
-    if (url === '/auth/me') return Promise.resolve({ data: meRole === undefined ? {} : me(meRole) })
+    if (url === '/auth/me') return Promise.resolve({ data: meRole === undefined ? {} : me({ role: meRole }) })
     return Promise.resolve({ data: {} })
   })
 }
@@ -519,7 +463,7 @@ describe('JarsPage — catalog (JAR)', () => {
     mockLoads({ jars: [jar({ targetAmount: 300, currentBalance: 120 })] })
     mockPosts((request) =>
       request.targetAmount === 900
-        ? schedule({ remaining: 780, months: [month(2026, 9, 260), month(2026, 10, 260), month(2026, 11, 260)], total: 780 })
+        ? schedule({ remaining: 780, months: [scheduleMonth(2026, 9, 260), scheduleMonth(2026, 10, 260), scheduleMonth(2026, 11, 260)], total: 780 })
         : schedule(),
     )
     const user = userEvent.setup()
@@ -543,8 +487,8 @@ describe('JarsPage — catalog (JAR)', () => {
     // Target 1,200 with 600 already set aside: the server folds the allocation into the balance.
     mockPosts((request) =>
       request.initialAllocation === 600
-        ? schedule({ balance: 600, remaining: 600, months: [month(2026, 9, 200), month(2026, 10, 200), month(2026, 11, 200)], total: 600 })
-        : schedule({ balance: 0, remaining: 1200, months: [month(2026, 9, 400), month(2026, 10, 400), month(2026, 11, 400)], total: 1200 }),
+        ? schedule({ balance: 600, remaining: 600, months: [scheduleMonth(2026, 9, 200), scheduleMonth(2026, 10, 200), scheduleMonth(2026, 11, 200)], total: 600 })
+        : schedule({ balance: 0, remaining: 1200, months: [scheduleMonth(2026, 9, 400), scheduleMonth(2026, 10, 400), scheduleMonth(2026, 11, 400)], total: 1200 }),
     )
     const user = userEvent.setup()
 
@@ -583,7 +527,7 @@ describe('JarsPage — catalog (JAR)', () => {
     mockLoads({ jars: [jar({ kind: 1, recurMonths: null, targetAmount: 300, targetDate: null, deadline: null, fundingCompletesOn: null, plannedThisMonth: 0, remainingThisMonth: 0, status: 'Unscheduled' })] })
     mockPosts((request) =>
       request.accrual === 2
-        ? schedule({ accrual: 2, months: [month(2026, 9, 50), month(2026, 10, 50), month(2026, 11, 50), month(2026, 12, 30)], total: 180, deadline: null, fundingCompletesOn: null, estimatedMonths: 4 })
+        ? schedule({ accrual: 2, months: [scheduleMonth(2026, 9, 50), scheduleMonth(2026, 10, 50), scheduleMonth(2026, 11, 50), scheduleMonth(2026, 12, 30)], total: 180, deadline: null, fundingCompletesOn: null, estimatedMonths: 4 })
         : schedule(),
     )
     const user = userEvent.setup()

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { AccountDto, JarDto } from '../types'
+import type { JarDto } from '../types'
 
 // W04 — completing and deleting a jar on the Jars page (rules 27, 55–56): Mark completed for a
 // Goal and what the completed card says (JAR-094, JAR-095), Delete in the edit form for a jar
@@ -14,48 +14,34 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 import { mockGet, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
+import { account, jar } from '../test/fixtures/jars'
+import { me } from '../test/fixtures/me'
 import { setMoneyFormat } from '../lib/money'
 
 // A Goal saving 1,000 by a deadline: it holds 400 and plans 100 this month.
-function goal(over: Partial<JarDto> = {}): JarDto {
-  return {
+const goal = (over: Partial<JarDto> = {}) =>
+  jar({
     id: 'g1',
     name: 'New laptop',
     kind: 1,
     targetAmount: 1000,
     targetDate: '2027-03-01',
-    accrual: 1,
-    monthlyContribution: null,
-    includeDeadlineMonth: false,
     recurMonths: null,
-    fundingAccountId: 'acc1',
     balanceAsOf: '2026-09-27',
-    isArchived: false,
     currentBalance: 400,
     plannedThisMonth: 100,
-    contributedThisMonth: 0,
     remainingThisMonth: 100,
     deadline: '2027-03-01',
     fundingCompletesOn: '2027-02-28',
-    estimatedMonthsToTarget: null,
-    shortfall: null,
-    lastCycle: null,
-    completedOn: null,
-    canDelete: false,
-    skippedThisMonth: false,
-    status: 'OnTrack',
     ...over,
-  }
-}
+  })
 
 // The same goal once the server has completed it: plans nothing, keeps its 400.
 function completed(over: Partial<JarDto> = {}): JarDto {
   return goal({ completedOn: '2026-09-27', plannedThisMonth: 0, remainingThisMonth: 0, fundingCompletesOn: null, status: 'Completed', ...over })
 }
 
-const JOINT: AccountDto = {
-  id: 'acc1', name: 'Joint Current', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0,
-}
+const JOINT = account()
 
 let jarsData: JarDto[] = []
 
@@ -66,9 +52,7 @@ function mockLoads(opts: { jars?: JarDto[]; meRole?: number } = {}) {
     if (url === '/jars') return Promise.resolve({ data: jarsData })
     if (url === '/accounts') return Promise.resolve({ data: [JOINT] })
     if (url === '/auth/me') {
-      return Promise.resolve({
-        data: opts.meRole === undefined ? {} : { userId: 'u1', email: 'alex@x.com', displayName: 'Alex', role: opts.meRole, ownerId: 'u1', memberId: null },
-      })
+      return Promise.resolve({ data: opts.meRole === undefined ? {} : me({ role: opts.meRole }) })
     }
     return Promise.resolve({ data: {} })
   })

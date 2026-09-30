@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Routes, Route } from 'react-router-dom'
-import type { HouseholdMemberDto } from '../types'
+import type { HouseholdMemberDto, MeResponse } from '../types'
 import { formatMoney, fromAmount, setMoneyFormat } from '../lib/money'
 
 // Catalog: docs/testing/cases/04-account-preferences.md (prefix PREF).
@@ -23,36 +23,13 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { AccountPage } from './AccountPage'
+import { axiosError } from '../test/fixtures/http'
+import { joinedMe, ownerMe } from '../test/fixtures/me'
 
-// An owner viewing their own household (the common case). /auth/me deliberately omits
-// firstName/lastName/preferredCurrency/numberFormat so the app falls back to its
-// defaults (EUR / comma-dot) — matching a login that has never customised them.
-const ownerMe = {
-  userId: 'u1',
-  email: 'alex@x.com',
-  displayName: 'Alex',
-  role: 0,
-  ownerId: 'u1',
-  memberId: null,
-  households: [{ ownerId: 'u1', label: 'Your household', role: 0, isActive: true, isOwn: true }],
-}
-
-// A Read-only member (role 3) viewing a household they only joined.
-const readOnlyMe = {
-  userId: 'u3',
-  email: 'sam@x.com',
-  displayName: 'Sam',
-  role: 3,
-  ownerId: 'owner-1',
-  memberId: null,
-  households: [{ ownerId: 'owner-1', label: 'Alex', role: 3, isActive: true, isOwn: false }],
-}
-
-/** A plain object axios treats as an AxiosError (isAxiosError flag) so the page's catch
- *  surfaces the server body verbatim, exactly as in production. */
-function axiosError(data: unknown, status = 400) {
-  return { isAxiosError: true, response: { status, data } }
-}
+// ownerMe deliberately omits firstName/lastName/preferredCurrency/numberFormat so the app falls
+// back to its defaults (EUR / comma-dot), matching a login that has never customised them.
+// readOnlyMe is a Read-only member (role 3) viewing a household they only joined.
+const readOnlyMe = joinedMe(3, { userId: 'u3' })
 
 /** Matches the user-chip's "<CURRENCY> · <household>" second line without depending on
  *  the middot glyph — asserts the currency code re-labels alongside the household name. */
@@ -61,7 +38,7 @@ function chipShows(currency: string) {
 }
 
 let membersData: HouseholdMemberDto[] = []
-let meData: typeof ownerMe = ownerMe
+let meData: MeResponse = ownerMe
 
 function renderPage(opts: { withPeopleRoute?: boolean } = {}) {
   return renderWithProviders(
@@ -497,7 +474,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     renderPage()
 
     // The card retitles and the form is gone.
-    expect(await screen.findByRole('heading', { name: 'Password' }, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Password' }, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Change password' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Current password')).not.toBeInTheDocument()
 
@@ -513,7 +490,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
 
     renderPage()
 
-    expect(await screen.findByRole('heading', { name: 'Change password' }, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Change password' }, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByLabelText('Current password')).toBeInTheDocument()
   })
 
@@ -559,7 +536,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
 
     renderPage()
 
-    await screen.findByRole('heading', { name: 'Change password' }, {}, { timeout: 5000 })
+    await screen.findByRole('heading', { name: 'Change password' }, { timeout: 5000 })
     expect(screen.queryByRole('heading', { name: 'Connected accounts' })).not.toBeInTheDocument()
   })
 })

@@ -1,91 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { AccountDto, JarAccountLedgerDto, JarDto, JarScheduleDto, JarScheduleMonthDto } from '../types'
+import type { AccountDto, JarAccountLedgerDto, JarDto } from '../types'
 
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
 import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
+import { account, jar, ledger, schedule } from '../test/fixtures/jars'
 
-function fund(over: Partial<JarDto> = {}): JarDto {
-  return {
-    id: 'f1',
-    name: 'Home insurance',
-    kind: 0,
-    targetAmount: 300,
-    targetDate: '2026-12-01',
-    accrual: 1,
-    monthlyContribution: null,
-    includeDeadlineMonth: false,
-    recurMonths: 12,
-    fundingAccountId: 'acc1',
-    balanceAsOf: '2026-09-26',
-    isArchived: false,
-    currentBalance: 120,
-    plannedThisMonth: 25,
-    contributedThisMonth: 0,
-    remainingThisMonth: 25,
-    deadline: '2026-12-01',
-    fundingCompletesOn: '2026-11-30',
-    estimatedMonthsToTarget: null,
-    shortfall: null,
-    lastCycle: null,
-    completedOn: null,
-    canDelete: false,
-    skippedThisMonth: false,
-    status: 'OnTrack',
-    ...over,
-  }
-}
-
-// The server's answer to POST /jars/schedule (the same planner that seeds the Savings lines).
-function month(year: number, month: number, planned: number, over: Partial<JarScheduleMonthDto> = {}): JarScheduleMonthDto {
-  return { year, month, planned, hasBudget: false, shortfall: null, ...over }
-}
-
-function schedule(over: Partial<JarScheduleDto> = {}): JarScheduleDto {
-  return {
-    accrual: 1,
-    isOngoing: false,
-    hasSchedule: true,
-    balance: 0,
-    remaining: 300,
-    months: [month(2026, 9, 100), month(2026, 10, 100), month(2026, 11, 100)],
-    total: 300,
-    deadline: '2026-12-01',
-    fundingCompletesOn: '2026-11-30',
-    estimatedMonths: null,
-    ...over,
-  }
-}
-
-// Account names deliberately don't collide with fund names so the funding-account
-// <option>s don't create duplicate text matches.
-const accountsData: AccountDto[] = [
-  { id: 'acc1', name: 'Joint Current', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0 },
-]
+const accountsData = [account()]
 
 let fundsData: JarDto[] = []
 let ledgerData: JarAccountLedgerDto[] = []
-
-function ledger(over: Partial<JarAccountLedgerDto> = {}): JarAccountLedgerDto {
-  return {
-    accountId: 'acc1',
-    accountName: 'Joint Current',
-    currency: 'EUR',
-    asOf: '2026-09-26',
-    accountBalance: 1000,
-    unallocated: 600,
-    positiveAllocations: 400,
-    hasBackingDeficit: false,
-    unreconciledAllocations: 0,
-    requiresReview: false,
-    jars: [{ jarId: 'f1', name: 'Home insurance', balance: 400, isArchived: false }],
-    ...over,
-  }
-}
 
 const renderPage = () => renderWithProviders(<JarsPage />)
 
@@ -107,8 +35,8 @@ describe('JarsPage', () => {
 
   it('lists funds as jars with their balances and funded percentage', { timeout: 15000 }, async () => {
     fundsData = [
-      fund(),
-      fund({ id: 'f2', name: 'Holiday', kind: 1, recurMonths: null, targetAmount: 1000, currentBalance: -40, plannedThisMonth: 0, remainingThisMonth: 0, status: 'Overspent', targetDate: null, deadline: null, fundingCompletesOn: null }),
+      jar(),
+      jar({ id: 'f2', name: 'Holiday', kind: 1, recurMonths: null, targetAmount: 1000, currentBalance: -40, plannedThisMonth: 0, remainingThisMonth: 0, status: 'Overspent', targetDate: null, deadline: null, fundingCompletesOn: null }),
     ]
 
     renderPage()
@@ -124,11 +52,11 @@ describe('JarsPage', () => {
     fundsData = [
       // OnTrack: no chip; the month line carries plan · in · to go (rule 14) and the horizon
       // says when funding completes against the deadline it serves (rule 36).
-      fund({ plannedThisMonth: 25, contributedThisMonth: 10, remainingThisMonth: 15, status: 'OnTrack' }),
-      fund({ id: 'f2', name: 'Roof', kind: 1, recurMonths: null, status: 'Behind', targetDate: '2026-01-01', deadline: '2026-01-01', fundingCompletesOn: null }),
-      fund({ id: 'f3', name: 'Sofa', kind: 1, recurMonths: null, status: 'FullyFunded', currentBalance: 300, plannedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null }),
+      jar({ plannedThisMonth: 25, contributedThisMonth: 10, remainingThisMonth: 15, status: 'OnTrack' }),
+      jar({ id: 'f2', name: 'Roof', kind: 1, recurMonths: null, status: 'Behind', targetDate: '2026-01-01', deadline: '2026-01-01', fundingCompletesOn: null }),
+      jar({ id: 'f3', name: 'Sofa', kind: 1, recurMonths: null, status: 'FullyFunded', currentBalance: 300, plannedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null }),
       // A goal with neither a deadline nor a monthly amount plans nothing and says so (rule 17).
-      fund({ id: 'f4', name: 'Someday', kind: 1, recurMonths: null, targetAmount: 0, targetDate: null, status: 'Unscheduled', plannedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null }),
+      jar({ id: 'f4', name: 'Someday', kind: 1, recurMonths: null, targetAmount: 0, targetDate: null, status: 'Unscheduled', plannedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null }),
     ]
 
     renderPage()
@@ -155,7 +83,7 @@ describe('JarsPage', () => {
       jarPosts.push(body)
       return jarPosts.length === 1
         ? Promise.reject({ response: { status: 400, data: { errors: { accountPrivate: [warning] } } } })
-        : Promise.resolve({ data: fund({ id: 'f9', name: 'Vacation' }) })
+        : Promise.resolve({ data: jar({ id: 'f9', name: 'Vacation' }) })
     })
     const user = userEvent.setup()
 
@@ -194,7 +122,7 @@ describe('JarsPage', () => {
       jarPosts.push(body)
       return jarPosts.length === 1
         ? Promise.reject({ response: { status: 400, data: { errors: { accountPrivate: [warning] } } } })
-        : Promise.resolve({ data: fund({ id: 'f9', name: 'Vacation', fundingAccountId: 'acc2' }) })
+        : Promise.resolve({ data: jar({ id: 'f9', name: 'Vacation', fundingAccountId: 'acc2' }) })
     })
     const user = userEvent.setup()
 
@@ -221,7 +149,7 @@ describe('JarsPage', () => {
 
   it('adds a fund from the New jar modal', { timeout: 15000 }, async () => {
     fundsData = []
-    mockPost.mockResolvedValue({ data: fund({ id: 'f9', name: 'Vacation', kind: 0, targetAmount: 1200, status: 'OnTrack' }) })
+    mockPost.mockResolvedValue({ data: jar({ id: 'f9', name: 'Vacation', kind: 0, targetAmount: 1200, status: 'OnTrack' }) })
     const user = userEvent.setup()
 
     renderPage()
@@ -339,7 +267,7 @@ describe('JarsPage', () => {
     // An ongoing pot: no target, a fixed monthly amount. The form must open on that method,
     // show the amount, and send it back (with no deadline) on save.
     fundsData = [
-      fund({ kind: 1, accrual: 2, targetAmount: 0, targetDate: null, recurMonths: null, monthlyContribution: 50, plannedThisMonth: 50, remainingThisMonth: 50, deadline: null, fundingCompletesOn: null, status: 'Ongoing' }),
+      jar({ kind: 1, accrual: 2, targetAmount: 0, targetDate: null, recurMonths: null, monthlyContribution: 50, plannedThisMonth: 50, remainingThisMonth: 50, deadline: null, fundingCompletesOn: null, status: 'Ongoing' }),
     ]
     mockPut.mockResolvedValue({ data: fundsData[0] })
     const user = userEvent.setup()
@@ -374,7 +302,7 @@ describe('JarsPage', () => {
   it('echoes the stored deadline-month option and account when editing (rule 36)', { timeout: 15000 }, async () => {
     // The plan finishes the month before the deadline unless the jar opted into the deadline
     // month; an unrelated save must carry that choice back, not silently reset it.
-    fundsData = [fund({ targetDate: '2026-12-15', deadline: '2026-12-15', includeDeadlineMonth: true, fundingCompletesOn: '2026-12-31' })]
+    fundsData = [jar({ targetDate: '2026-12-15', deadline: '2026-12-15', includeDeadlineMonth: true, fundingCompletesOn: '2026-12-31' })]
     mockPut.mockResolvedValue({ data: fundsData[0] })
     const user = userEvent.setup()
 
@@ -399,7 +327,7 @@ describe('JarsPage', () => {
   })
 
   it('offers "Already set aside" + "Set aside on" on create only — no allocation field on edit', { timeout: 15000 }, async () => {
-    fundsData = [fund()]
+    fundsData = [jar()]
     const user = userEvent.setup()
 
     renderPage()
@@ -427,7 +355,7 @@ describe('JarsPage', () => {
   })
 
   it('sends the initial allocation and its date with the create payload (rule 77)', { timeout: 15000 }, async () => {
-    mockPost.mockResolvedValue({ data: fund({ id: 'f9', name: 'Holiday', kind: 1, targetAmount: 1000, currentBalance: 400 }) })
+    mockPost.mockResolvedValue({ data: jar({ id: 'f9', name: 'Holiday', kind: 1, targetAmount: 1000, currentBalance: 400 }) })
     const user = userEvent.setup()
 
     renderPage()
@@ -477,7 +405,7 @@ describe('JarsPage', () => {
   })
 
   it('shows "Not available" with an Unavailable chip when the jar\'s balance is null, and the account it is held in', { timeout: 15000 }, async () => {
-    fundsData = [fund({ currentBalance: null, plannedThisMonth: 0, contributedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, status: 'Unavailable' })]
+    fundsData = [jar({ currentBalance: null, plannedThisMonth: 0, contributedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, status: 'Unavailable' })]
 
     renderPage()
 
@@ -490,7 +418,7 @@ describe('JarsPage', () => {
   })
 
   it('summarises each jar-backed account\'s unallocated money and flags a backing deficit (rule 70)', { timeout: 15000 }, async () => {
-    fundsData = [fund()]
+    fundsData = [jar()]
     ledgerData = [
       ledger(),
       ledger({ accountId: 'acc2', accountName: 'Rainy Day', accountBalance: 350, unallocated: 0, positiveAllocations: 400, hasBackingDeficit: true, jars: [{ jarId: 'f2', name: 'Repairs', balance: 400, isArchived: false }] }),
@@ -505,7 +433,7 @@ describe('JarsPage', () => {
   })
 
   it('moves money from unallocated funds into the jar and refreshes the list', { timeout: 15000 }, async () => {
-    fundsData = [fund({ currentBalance: 400 })]
+    fundsData = [jar({ currentBalance: 400 })]
     ledgerData = [ledger()]
     const moved = ledger({ unallocated: 500, jars: [{ jarId: 'f1', name: 'Home insurance', balance: 500, isArchived: false }] })
     mockPost.mockResolvedValue({ data: moved })
@@ -529,7 +457,7 @@ describe('JarsPage', () => {
     await user.type(dialog.getByLabelText('Move amount'), '100')
     fireEvent.change(dialog.getByLabelText('Move date'), { target: { value: '2026-09-20' } })
     await user.type(dialog.getByLabelText('Move note'), 'Top up')
-    fundsData = [fund({ currentBalance: 500 })]
+    fundsData = [jar({ currentBalance: 500 })]
     await user.click(dialog.getByRole('button', { name: 'Confirm move' }))
 
     await waitFor(() =>
@@ -549,7 +477,7 @@ describe('JarsPage', () => {
   })
 
   it('shows the server\'s message when a move is refused (rule 68)', { timeout: 15000 }, async () => {
-    fundsData = [fund({ currentBalance: 100 })]
+    fundsData = [jar({ currentBalance: 100 })]
     ledgerData = [ledger()]
     mockPost.mockRejectedValue({
       response: { status: 400, data: { errors: { Amount: ['Home insurance holds 100; it cannot supply 150.'] } } },
@@ -569,7 +497,7 @@ describe('JarsPage', () => {
   })
 
   it('refuses a move whose source and destination are the same, without a request', { timeout: 15000 }, async () => {
-    fundsData = [fund()]
+    fundsData = [jar()]
     ledgerData = [ledger()]
     const user = userEvent.setup()
 
@@ -588,8 +516,8 @@ describe('JarsPage', () => {
 
   it('archives a fund from its edit modal', { timeout: 15000 }, async () => {
     fundsData = [
-      fund(),
-      fund({ id: 'f2', name: 'Holiday', kind: 0 }),
+      jar(),
+      jar({ id: 'f2', name: 'Holiday', kind: 0 }),
     ]
     mockPut.mockResolvedValue({ data: null })
     const user = userEvent.setup()
@@ -610,7 +538,7 @@ describe('JarsPage', () => {
   })
 
   it('shows the server\'s reason when archiving is refused while the jar holds money (rule 26)', { timeout: 15000 }, async () => {
-    fundsData = [fund({ currentBalance: 350 })]
+    fundsData = [jar({ currentBalance: 350 })]
     mockPut.mockRejectedValue({
       response: { status: 400, data: { errors: { Id: ['Home insurance still holds 350. Move it to another jar or to unallocated funds before archiving.'] } } },
     })

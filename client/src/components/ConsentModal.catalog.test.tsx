@@ -21,20 +21,10 @@ vi.mock('../lib/api', async (importOriginal) =>
 import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { ConsentModal } from './ConsentModal'
+import { joinedMe } from '../test/fixtures/me'
 
-function me(needsConsent: boolean) {
-  return {
-    data: {
-      userId: 'u2',
-      email: 'sam@x.com',
-      displayName: 'Sam',
-      role: 1,
-      ownerId: 'owner-1',
-      memberId: null,
-      needsConsent,
-    },
-  }
-}
+// Sam, an admin of Alex's household, as /auth/me answers.
+const me = (needsConsent: boolean) => ({ data: joinedMe(1, { needsConsent }) })
 
 const renderModal = (path = '/') => renderWithProviders(<ConsentModal />, { route: path })
 

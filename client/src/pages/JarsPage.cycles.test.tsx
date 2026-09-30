@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { AccountDto, JarCycleDto, JarDto, JarPaymentDto } from '../types'
+import type { JarCycleDto, JarDto, JarPaymentDto } from '../types'
 
 // W03 — the Recurring jar's cycle lifecycle on the Jars page (rules 19–24, 57, 83): the
 // Deadline missed / Funded late states and what they say (JAR-088), marking a cycle paid by
@@ -15,40 +15,27 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
+import { account, jar as sharedJar } from '../test/fixtures/jars'
+import { me } from '../test/fixtures/me'
 import { setMoneyFormat } from '../lib/money'
 
 // A recurring jar (target 600 due 1 Sep, repeating yearly) whose cycle has been missed: it
 // holds 450, so it is 150 short, and the whole remainder is planned now (rule 20).
-function jar(over: Partial<JarDto> = {}): JarDto {
-  return {
-    id: 'f1',
+const jar = (over: Partial<JarDto> = {}) =>
+  sharedJar({
     name: 'Road tax',
-    kind: 0,
     targetAmount: 600,
     targetDate: '2026-09-01',
-    accrual: 1,
-    monthlyContribution: null,
-    includeDeadlineMonth: false,
-    recurMonths: 12,
-    fundingAccountId: 'acc1',
     balanceAsOf: '2026-09-27',
-    isArchived: false,
     currentBalance: 450,
     plannedThisMonth: 150,
-    contributedThisMonth: 0,
     remainingThisMonth: 150,
     deadline: '2026-09-01',
     fundingCompletesOn: null,
-    estimatedMonthsToTarget: null,
     shortfall: 150,
-    lastCycle: null,
-    completedOn: null,
-    canDelete: false,
-    skippedThisMonth: false,
     status: 'DeadlineMissed',
     ...over,
-  }
-}
+  })
 
 // The same jar once the server has moved it on to the next cycle (1 Sep 2027).
 function advanced(over: Partial<JarDto> = {}): JarDto {
@@ -96,9 +83,7 @@ function payment(over: Partial<JarPaymentDto> = {}): JarPaymentDto {
   }
 }
 
-const JOINT: AccountDto = {
-  id: 'acc1', name: 'Joint Current', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0,
-}
+const JOINT = account()
 
 let jarsData: JarDto[] = []
 let paymentsData: Record<string, JarPaymentDto[]> = {}
@@ -112,9 +97,7 @@ function mockLoads(opts: { jars?: JarDto[]; meRole?: number; payments?: Record<s
     if (url.startsWith('/jars/f1/payments')) return Promise.resolve({ data: paymentsData[url] ?? [] })
     if (url === '/accounts') return Promise.resolve({ data: [JOINT] })
     if (url === '/auth/me') {
-      return Promise.resolve({
-        data: opts.meRole === undefined ? {} : { userId: 'u1', email: 'alex@x.com', displayName: 'Alex', role: opts.meRole, ownerId: 'u1', memberId: null },
-      })
+      return Promise.resolve({ data: opts.meRole === undefined ? {} : me({ role: opts.meRole }) })
     }
     return Promise.resolve({ data: {} })
   })

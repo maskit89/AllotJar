@@ -30,6 +30,7 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { AllocationPage } from './AllocationPage'
+import { profile as sharedProfile } from '../test/fixtures/allocation'
 
 // Two owned accounts so the source-account select has more than one real option (ALLOC-011).
 // Mutable so the savings-link tests can add savings-type accounts; reset in beforeEach.
@@ -43,21 +44,12 @@ let accountsData: AccountDto[] = defaultAccounts()
 
 // The standard profile the client always writes: source Joint, pocket 0, split Equally,
 // send-savings-to Balance, lean 25, four rules FundEnvelopes/FundJars/FixedPerMember/SplitRemainder.
-function profile(overrides: Partial<AllocationProfileDto> = {}): AllocationProfileDto {
-  return {
-    id: 'p1',
-    name: 'Household allocation',
+const profile = (overrides: Partial<AllocationProfileDto> = {}) =>
+  sharedProfile({
     sourceAccountId: 'accJoint',
-    balanceLeanPercent: 25,
-    rules: [
-      { id: 'r0', order: 0, type: 0, split: 0, fixedAmountPerMember: 0 },
-      { id: 'r1', order: 1, type: 1, split: 0, fixedAmountPerMember: 0 },
-      { id: 'r2', order: 2, type: 2, split: 0, fixedAmountPerMember: 0 },
-      { id: 'r3', order: 3, type: 3, split: 2, fixedAmountPerMember: 0 },
-    ],
+    rules: sharedProfile().rules.map((r) => ({ ...r, fixedAmountPerMember: 0 })),
     ...overrides,
-  }
-}
+  })
 
 // A preview builder. DTO amounts are major-unit decimals (the client converts to minor units for
 // display), matching the worked-example July budget in the catalog.

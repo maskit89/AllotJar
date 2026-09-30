@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { AccountDto, JarDto, JarScheduleDto, JarScheduleMonthDto, JarScheduleRequest, MeResponse } from '../types'
+import type { AccountDto, JarDto, JarScheduleDto, JarScheduleRequest } from '../types'
 
 // Supplements JarsPage.catalog.test.tsx (which already covers JAR-002/004/005/009/011/
 // 013/015/020/021/023/024/025/027/028/031/035/037/039/041/042/043/046/049) and
@@ -19,63 +19,12 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
+import { account, jar, schedule, scheduleMonth } from '../test/fixtures/jars'
+import { me } from '../test/fixtures/me'
 // Real (unmocked) money module — pin the active display locale so every €-string
 // asserted below renders in the design's canonical en-GB comma-dot format (€1,234.56),
 // independent of test-execution order.
 import { setMoneyFormat } from '../lib/money'
-
-// A recurring jar saving 300 by 1 Dec, planned 25 this month.
-function jar(over: Partial<JarDto> = {}): JarDto {
-  return {
-    id: 'f1',
-    name: 'Home insurance',
-    kind: 0,
-    targetAmount: 300,
-    targetDate: '2026-12-01',
-    accrual: 1,
-    monthlyContribution: null,
-    includeDeadlineMonth: false,
-    recurMonths: 12,
-    fundingAccountId: 'acc1',
-    balanceAsOf: '2026-09-26',
-    isArchived: false,
-    currentBalance: 120,
-    plannedThisMonth: 25,
-    contributedThisMonth: 0,
-    remainingThisMonth: 25,
-    deadline: '2026-12-01',
-    fundingCompletesOn: '2026-11-30',
-    estimatedMonthsToTarget: null,
-    shortfall: null,
-    lastCycle: null,
-    completedOn: null,
-    canDelete: false,
-    skippedThisMonth: false,
-    status: 'OnTrack',
-    ...over,
-  }
-}
-
-// The server's answer to POST /jars/schedule: the months the planner would seed.
-function month(year: number, month: number, planned: number, over: Partial<JarScheduleMonthDto> = {}): JarScheduleMonthDto {
-  return { year, month, planned, hasBudget: false, shortfall: null, ...over }
-}
-
-function schedule(over: Partial<JarScheduleDto> = {}): JarScheduleDto {
-  return {
-    accrual: 1,
-    isOngoing: false,
-    hasSchedule: true,
-    balance: 0,
-    remaining: 300,
-    months: [month(2026, 9, 100), month(2026, 10, 100), month(2026, 11, 100)],
-    total: 300,
-    deadline: '2026-12-01',
-    fundingCompletesOn: '2026-11-30',
-    estimatedMonths: null,
-    ...over,
-  }
-}
 
 /** Answer /jars/schedule from `plan` (given the request) and every other POST with `data`. */
 function mockPosts(plan: (request: JarScheduleRequest) => JarScheduleDto, data: unknown = {}) {
@@ -84,17 +33,11 @@ function mockPosts(plan: (request: JarScheduleRequest) => JarScheduleDto, data: 
   )
 }
 
-function me(role: number): MeResponse {
-  return { userId: 'u1', email: 'alex@x.com', displayName: 'Alex', role, ownerId: 'u1', memberId: null }
-}
-
 // Route the three endpoints JarsPage + AuthProvider hit on mount: /jars, /accounts and
 // /auth/me. `jarsPending` leaves the /jars request unresolved (the loading-state case);
 // a non-numeric /auth/me role leaves the AuthContext at its Owner default (canWrite).
 // Accounts default to one account because a jar can't be created without one (rule 73).
-const JOINT: AccountDto = {
-  id: 'acc1', name: 'Joint Current', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0,
-}
+const JOINT = account()
 
 function mockLoads(
   opts: { jars?: JarDto[]; accounts?: AccountDto[]; meRole?: number; jarsPending?: boolean } = {},
@@ -104,7 +47,7 @@ function mockLoads(
     if (url.startsWith('/jars/ledger')) return Promise.resolve({ data: [] })
     if (url === '/jars') return jarsPending ? new Promise<never>(() => {}) : Promise.resolve({ data: jars })
     if (url === '/accounts') return Promise.resolve({ data: accounts })
-    if (url === '/auth/me') return Promise.resolve({ data: meRole === undefined ? {} : me(meRole) })
+    if (url === '/auth/me') return Promise.resolve({ data: meRole === undefined ? {} : me({ role: meRole }) })
     return Promise.resolve({ data: {} })
   })
 }
@@ -210,7 +153,7 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
 
   it('JAR-083: the preview lists each month\'s amount, the rounding remainder visibly in the last (rule 35)', { timeout: 15000 }, async () => {
     // 100 over three months: 33.33, 33.33 and 33.34 — never 33.33 × 3 = 99.99.
-    mockPosts(() => schedule({ remaining: 100, months: [month(2026, 9, 33.33), month(2026, 10, 33.33), month(2026, 11, 33.34)], total: 100 }))
+    mockPosts(() => schedule({ remaining: 100, months: [scheduleMonth(2026, 9, 33.33), scheduleMonth(2026, 10, 33.33), scheduleMonth(2026, 11, 33.34)], total: 100 }))
     const user = userEvent.setup()
 
     renderPage()
@@ -227,7 +170,7 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
   it('JAR-084: the preview flags the months whose budget the contribution would push over its income (rule 59)', { timeout: 15000 }, async () => {
     // October already has a budget; planting 100 there leaves it 20 over its income.
     mockPosts(() =>
-      schedule({ months: [month(2026, 9, 100, { hasBudget: true, shortfall: 0 }), month(2026, 10, 100, { hasBudget: true, shortfall: 20 }), month(2026, 11, 100)] }),
+      schedule({ months: [scheduleMonth(2026, 9, 100, { hasBudget: true, shortfall: 0 }), scheduleMonth(2026, 10, 100, { hasBudget: true, shortfall: 20 }), scheduleMonth(2026, 11, 100)] }),
     )
     const user = userEvent.setup()
 
@@ -249,7 +192,7 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
   it('JAR-085: an ongoing pot reads "every month, ongoing"; a funded jar reads "Already funded"', { timeout: 15000 }, async () => {
     mockPosts((request) =>
       request.accrual === 2
-        ? schedule({ accrual: 2, isOngoing: true, remaining: 0, months: [month(2026, 9, 50)], total: 50, deadline: null, fundingCompletesOn: null })
+        ? schedule({ accrual: 2, isOngoing: true, remaining: 0, months: [scheduleMonth(2026, 9, 50)], total: 50, deadline: null, fundingCompletesOn: null })
         : schedule({ remaining: 0, months: [], total: 0 }),
     )
     const user = userEvent.setup()
@@ -277,7 +220,7 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
   it('JAR-086: "Include the deadline month" is offered only when the deadline is not the 1st, and is sent when ticked (rule 36)', { timeout: 15000 }, async () => {
     mockPosts((request) =>
       request.includeDeadlineMonth
-        ? schedule({ months: [month(2026, 9, 75), month(2026, 10, 75), month(2026, 11, 75), month(2026, 12, 75)], deadline: '2026-12-15', fundingCompletesOn: '2026-12-31' })
+        ? schedule({ months: [scheduleMonth(2026, 9, 75), scheduleMonth(2026, 10, 75), scheduleMonth(2026, 11, 75), scheduleMonth(2026, 12, 75)], deadline: '2026-12-15', fundingCompletesOn: '2026-12-31' })
         : schedule({ deadline: '2026-12-15' }),
     )
     const user = userEvent.setup()
@@ -314,8 +257,8 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
   })
 
   it('JAR-087: a long uneven schedule lists twelve months and counts the rest; a long even one is summarised only', { timeout: 15000 }, async () => {
-    const uneven = Array.from({ length: 14 }, (_, i) => month(2026 + Math.floor((8 + i) / 12), ((8 + i) % 12) + 1, i === 13 ? 10.1 : 10))
-    const even = Array.from({ length: 14 }, (_, i) => month(2026 + Math.floor((8 + i) / 12), ((8 + i) % 12) + 1, 10))
+    const uneven = Array.from({ length: 14 }, (_, i) => scheduleMonth(2026 + Math.floor((8 + i) / 12), ((8 + i) % 12) + 1, i === 13 ? 10.1 : 10))
+    const even = Array.from({ length: 14 }, (_, i) => scheduleMonth(2026 + Math.floor((8 + i) / 12), ((8 + i) % 12) + 1, 10))
     mockPosts((request) =>
       request.targetAmount === 140.1
         ? schedule({ remaining: 140.1, months: uneven, total: 140.1, deadline: '2027-11-01', fundingCompletesOn: '2027-10-31' })
