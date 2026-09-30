@@ -105,7 +105,7 @@
 - **Preconditions:** Register loaded; transactions in June and July.
 - **Steps:**
   1. Change the app-wide month (via the month switcher elsewhere) from July to June.
-- **Expected:** Only the hero **eyebrow** relabels to "Money in · June 2026". The list and the hero totals do **not** change or refilter — they always span all transactions ever loaded. This label/data mismatch is a known, intentional-for-now quirk to probe.
+- **Expected:** The hero relabels to "Money in · June 2026" and its totals count June's transactions only. The list does **not** refilter or refetch: it always spans all transactions ever loaded.
 - **Automated:** No
 
 ---

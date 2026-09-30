@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -16,7 +16,9 @@ const FOCUSABLE =
  */
 export function useDialogA11y(ref: RefObject<HTMLElement | null>, onClose: () => void) {
   const onCloseRef = useRef(onClose)
-  onCloseRef.current = onClose
+  useLayoutEffect(() => {
+    onCloseRef.current = onClose
+  })
 
   useEffect(() => {
     const node = ref.current
@@ -62,8 +64,7 @@ export function useDialogA11y(ref: RefObject<HTMLElement | null>, onClose: () =>
       node.removeEventListener('keydown', onKeyDown)
       previouslyFocused?.focus?.()
     }
-    // Intentionally only `ref`: onClose is read via the ref above so typing in a
-    // dialog form field doesn't re-run this effect and steal focus.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Only `ref`: onClose is read via the ref above so typing in a dialog form
+    // field doesn't re-run this effect and steal focus.
   }, [ref])
 }

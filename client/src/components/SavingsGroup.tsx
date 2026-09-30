@@ -10,7 +10,8 @@ interface Props {
   category: CategoryVM
   currency: string
   savingItemId: string | null
-  onCommitItem: (itemId: string, plannedMinor: Minor) => void
+  /** Omitted on a past month: its jar plans are history (rule 46), changed only through the jar. */
+  onCommitItem?: (itemId: string, plannedMinor: Minor) => void
   onRenameItem: (itemId: string, name: string) => void
   /**
    * Rule 60: a jar's line cannot be deleted from a month. The ✕ opens the skip-or-archive

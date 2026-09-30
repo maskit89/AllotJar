@@ -670,6 +670,67 @@ Migration `JarArchivePeriodsAndArrival` (09:49:38) is older than `ForeignAmounts
 
 **Deploy.** Nothing changes for users: no application code, migration or backfill.
 
+**Release of [PR #281](https://github.com/maskit89/AllotJar/pull/281).** Christopher merged it at 22:45 UTC on 29 September (`b502a09`). Neither its CI run ([36641411563](https://github.com/maskit89/AllotJar/actions/runs/36641411563)) nor Deploy ([36641411497](https://github.com/maskit89/AllotJar/actions/runs/36641411497)) ran any step: from about 20:57 UTC on 29 September GitHub Actions gave this repository's jobs no runner, and a re-run at 08:29 UTC on 30 September failed the same way. #281 changed tests and docs only, so production is unaffected; the next Deploy that runs ships `main` with it.
+
+**Release of [PR #284](https://github.com/maskit89/AllotJar/pull/284).** Christopher merged it at 08:35 UTC on 30 September (`1cb2b31`); it changes the CI and Deploy workflow files, the journey Playwright config and this log, no application code. No CI or Deploy ran for it: GitHub Actions gave this repository's jobs no runner (see #281's record above). Production is unaffected.
+
+## Final review: the app's screens (client) — 29 September 2026
+
+Christopher asked for a full review and clean-up once the HANDOVER work was done (27 September). The review was split three ways: server, screens and tests. This section is the screens part. Each screen was read against AGREED-RULES, the HANDOVER decisions, and the server code that decides the same thing. Only client code changed here. Server-side findings went to the server thread. The test-suite thread (#281) owns removing and consolidating tests; this PR changes tests only where the behaviour changed.
+
+**Logged follow-ups closed.**
+- **#279 P3-7:** a departure the bank confirmed fixes only amount plus fee. The edit form now lets the amount move and fills the fee with the rest of the bank's total. It refuses an amount above that total. The amount is still locked once a statement confirms the receipt or the return, as the server keeps it.
+- **#279 P3-8:** a fee left on the line and date it already had re-saves without the cross-month question.
+- **#279 P3-10:** an edit whose stored jar answer names an archived jar is no longer sent. It says: "This entry moved money in or out of Holiday, which is archived. Restore Holiday on the Jars page to change this entry." Sending would have been refused, or, once every jar in the account was archived, the answer would have been left out and the money returned to unallocated. This covers transactions, splits, transfer edits and confirming a transfer's missing departure or receipt, where a receipt can still be pledged to a jar archived while the money was in transit (review of #282, P2-1; with every jar in the account archived, sending no answer would have let the server keep the pledge). The server half, refusing to archive a jar an in-transit receipt names or dropping its share at the receipt, went to the server thread.
+- **#277 P3-5 (client half):** People shows "—", not "Private account", for a savings id when the accounts could not be read. A deleted account's dangling id needs the server to clear it; that went to the server thread.
+- **R2-P3-1 (client half):** the transfer form requires a budget line for a fee (rule 91), as the import already did.
+
+**Money shown wrong.**
+- The Transactions hero counted every month under the viewed month's label. It now counts the month the top bar shows. The register still lists every month and doesn't refetch; TX-011 is updated.
+- A jar in an account whose balance is unavailable read €0.00 in the jar prompts and in Move money. It now reads "balance not available" (rule 67). `readLedgers` nulls these balances where the ledger is read.
+- Reports: money labels use the budget currency while the month breakdown loads. "Saved this month" takes the latest month up to today, not a budget already made for next month. A month with no budget shows its Variance, which the year's total already counted (rule 41).
+- Allocation's projected balance no longer drops for a share of zero or less (nothing moves for it).
+- A purchase's refunded total is re-read after a refund is added, linked, unlinked, deleted or its converted amount confirmed.
+- The jar form's schedule no longer reads €0.00 a month when the current month is skipped. It shows no schedule for a completed goal (rule 55). The skip dialog says a fixed-monthly jar keeps its amount and finishes a month later, and no longer claims €0.00 is left unplanned.
+- The new-month note counts only jars still planning.
+
+**Money entered wrong.**
+- Editing an in-transit transfer dropped the destination's jar answer: the €100 moved into Holiday landed unallocated on arrival. The answer is now kept and editable while in transit, and new transfers can give it too.
+- "Confirm receipt" and "Add departure date" start from the stored jar answers instead of showing "stays unallocated".
+- An edit saved before the jar ledgers loaded dropped the stored answer. It is now sent back unchanged, as the transfer edit already did.
+- Jar amounts that don't parse, or that add up to more than the amount, are refused instead of left out silently.
+- A transfer whose two statements put the receipt before the departure can be edited. Only a changed date is checked, as on the server.
+- Category pickers offer only the lines the server accepts for the direction (income on income lines; an expense or a refund on expense or savings lines).
+- A past month's jar line is read-only. Typing an amount there cleared its skip and rewrote a finished month's plan (rule 46). Past and current months are decided in UTC, as on the server.
+- The jar form offers only accounts in the budget currency (rules 63/85); a jar's existing account stays listed.
+- An empty date is refused with a message instead of the server's conversion error.
+- Allocation and People show the server's reason when a save is refused.
+
+**Dead code and lint.** Removed: the unused household switcher and its test, five unused icons, the allocation-rule and split-method label maps, a never-called amount helper and its test, and the Vite starter assets. `useJarLedgers` now has one fetch path. `eslint` had 34 errors; it is clean now (one warning in `AuthContext`), and CI's frontend job runs `npm run lint`. The React Compiler rule `set-state-in-effect` is off because the app doesn't use the compiler. `only-export-components` is off for the context files, which keep a provider and its hook together.
+
+**Sent to the server thread.**
+- #277 P3-5: clear `PersonalSavingsAccountId` and the allocation source when an account is deleted.
+- #277 P3-6: a prior in-transit transfer to an account that has since gone private hits the 403 guard during Allocate.
+- Rules 52/64: `MemberIncome` splits unattributed income at 4 dp with the remainder to the last member.
+- `UpdateBudgetItem` un-skips a jar line without re-planning.
+- The jar ledger sends 0 for an unavailable balance.
+- Import results count skipped and awaiting rows.
+- Accepting an unchanged archived-jar answer.
+- New jar lines always land in the first Savings group.
+
+**Follow-ups (not in this PR).**
+- A Savings line on the Budget page shows spending from the jar as "€X of €planned" progress. Rule 14 wants contributed and still-to-go, which the Jars page reads from `/jars`.
+- Budget lines don't show the server's `RefundedAmount`.
+- A split purchase can't be picked as a refund's purchase, though the server allows it.
+- The import's "done" totals include skipped rows (needs the server change above).
+- The import asks the cross-month question for a fee on its own month's line.
+- Move money's destination list offers accounts in another currency (the server refuses them clearly).
+- Account detail rows dated before the opening date look like movements.
+- Reports don't show how many rows are waiting for a converted amount.
+- The Accounts "Owed" tile can't be non-zero under rule 74.
+- Duplicate split-row helpers in TransactionsPage and ImportPage.
+- Once the server accepts an unchanged stored jar answer that names an archived jar (the server final review, #283), the P3-10 check above is stricter than the server on an edit that leaves the jar answer alone; relax it to refuse only a changed answer. (Done in this PR instead if #283 reaches `main` first.)
+
 ## CI minutes (PR #284) — 29 September 2026
 
 - Pull-request CI runs are cancelled when a newer push supersedes them; runs on main are never cancelled and never share a group. Every job has a timeout (journey 15, backend/integration/frontend/a11y 10, security-scan 8, deploy-scripts 5, deploy and provision jobs 15). Journey's Playwright `globalTimeout` is 11 minutes so a hang still leaves a report. Release zips for staging are kept 1 day, journey failure reports 3.

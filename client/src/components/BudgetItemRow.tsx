@@ -10,7 +10,8 @@ interface Props {
   item: ItemVM
   currency: string
   saving: boolean
-  onCommit: (itemId: string, plannedMinor: Minor) => void
+  /** Omitted when the planned amount can't be changed here (a past month's jar line). */
+  onCommit?: (itemId: string, plannedMinor: Minor) => void
   /** When provided, the line name is inline-editable. */
   onRename?: (itemId: string, name: string) => void
   /** When provided, a delete affordance is shown. */
@@ -125,7 +126,7 @@ export function BudgetItemRow({
       setDraft(toEditString(item.plannedMinor)) // revert invalid input
       return
     }
-    if (parsed !== item.plannedMinor) onCommit(item.id, parsed)
+    if (parsed !== item.plannedMinor) onCommit?.(item.id, parsed)
   }
 
   const remaining = itemRemaining(item)
@@ -193,7 +194,7 @@ export function BudgetItemRow({
 
   // The planned amount — clean "€X" text that turns into an input on click. Shared
   // by the expense and fund line layouts so they read the same.
-  const plannedEditor = canWrite ? (
+  const plannedEditor = canWrite && onCommit ? (
     editingPlanned ? (
       <span className="inline-flex items-center">
         <span className="text-slate-500">{currencySymbol(currency)}</span>
@@ -234,7 +235,7 @@ export function BudgetItemRow({
       </button>
     )
   ) : (
-    formatMoney(item.plannedMinor, currency)
+    <span data-testid={`planned-${item.name}`}>{formatMoney(item.plannedMinor, currency)}</span>
   )
 
   // ---- Fund line: name + funding bar, with the rolled-over Available balance ----

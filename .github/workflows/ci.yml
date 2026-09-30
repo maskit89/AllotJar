@@ -178,6 +178,10 @@ jobs:
       - name: Install
         run: npm ci
 
+      # ESLint over the client, its tests and the e2e specs.
+      - name: Lint
+        run: npm run lint
+
       # Vitest unit + React Testing Library tests.
       - name: Test
         run: npm run test

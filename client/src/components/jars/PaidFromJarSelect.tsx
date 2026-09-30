@@ -33,7 +33,7 @@ export function PaidFromJarSelect({ jars, accountName, currency, value, onChange
         <option value={PAID_FROM_UNALLOCATED}>Unallocated money</option>
         {jars.map((jar) => (
           <option key={jar.jarId} value={jar.jarId}>
-            {jar.name} ({formatMoney(fromAmount(jar.balance), currency)})
+            {jar.name} ({jar.balance === null ? 'balance not available' : formatMoney(fromAmount(jar.balance), currency)})
           </option>
         ))}
       </Select>
