@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import { Route, Routes } from 'react-router-dom'
 import type { AccountDto, TransactionDto } from '../types'
 
@@ -113,5 +113,59 @@ describe('AccountDetailPage', () => {
     const tag = await screen.findByText('Needs EUR amount', {}, { timeout: 5000 })
     expect(tag).toHaveAttribute('title', expect.stringContaining('Not counted anywhere until you enter the amount in EUR'))
     expect(screen.getAllByText('Needs EUR amount')).toHaveLength(1) // only the waiting row
+  })
+
+  // Rules 40/74: a row dated before the opening balance is history only; it never changes the
+  // balance, so it is marked and its amount is struck through rather than read as a movement.
+  it('marks rows dated before the opening date as history only', { timeout: 15000 }, async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/accounts') return Promise.resolve({ data: [{ ...account(), openingDate: '2026-06-01' }] })
+      if (url === '/transactions')
+        return Promise.resolve({ data: [tx(), tx({ id: 't0', date: '2026-05-20', payee: 'Old phone bill', amount: 25 })] })
+      return Promise.resolve({ data: {} })
+    })
+
+    renderPage()
+
+    const old = (await screen.findByText('Old phone bill', {}, { timeout: 5000 })).closest('tr')!
+    expect(within(old).getByText('Before opening')).toBeInTheDocument()
+    expect(within(old).getByText(/25\.00/).className).toContain('line-through')
+    const recent = screen.getByText('Vodafone').closest('tr')!
+    expect(within(recent).queryByText('Before opening')).not.toBeInTheDocument()
+    expect(within(recent).getByText(/40\.00/).className).not.toContain('line-through')
+  })
+
+  // The leg this account posts decides (#286 P2-2): a transfer departed before the opening date
+  // but received after it moved this balance on its receipt; one that left before the opening
+  // date is history here unless it came back after it; a receipt not yet confirmed is pending.
+  it('judges a transfer against the opening date by this account’s own leg', { timeout: 15000 }, async () => {
+    const leg = (over: Partial<TransactionDto>) =>
+      tx({ type: 2, accountName: 'Everyday Current', transferAccountName: 'Rainy Day', ...over })
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/accounts') return Promise.resolve({ data: [{ ...account(), openingDate: '2026-06-01' }] })
+      if (url === '/transactions')
+        return Promise.resolve({
+          data: [
+            leg({ id: 't-in', date: '2026-05-30', payee: 'Top up', amount: 200, accountId: 'a2', accountName: 'Rainy Day', transferAccountId: 'a1', transferAccountName: 'Everyday Current', departedOn: '2026-05-30', receivedOn: '2026-06-02' }),
+            leg({ id: 't-out', date: '2026-05-20', payee: 'Old move', amount: 60, transferAccountId: 'a2', departedOn: '2026-05-20', receivedOn: '2026-05-21' }),
+            leg({ id: 't-back', date: '2026-05-25', payee: 'Bounced', amount: 75, transferAccountId: 'a2', departedOn: '2026-05-25', receivedOn: null, returnedOn: '2026-06-03', transferStatus: 'Returned' }),
+            leg({ id: 't-pending', date: '2026-05-31', payee: 'On its way', amount: 30, accountId: 'a2', accountName: 'Rainy Day', transferAccountId: 'a1', transferAccountName: 'Everyday Current', departedOn: '2026-05-31', receivedOn: null, transferStatus: 'InTransit' }),
+          ],
+        })
+      return Promise.resolve({ data: {} })
+    })
+
+    renderPage()
+
+    const received = (await screen.findByText('Top up', {}, { timeout: 5000 })).closest('tr')!
+    expect(within(received).queryByText('Before opening')).not.toBeInTheDocument()
+    expect(within(received).getByText(/200\.00/).className).not.toContain('line-through')
+    expect(within(received).getByText(/Jun 2/)).toBeInTheDocument()
+    const left = screen.getByText('Old move').closest('tr')!
+    expect(within(left).getByText('Before opening')).toBeInTheDocument()
+    const returned = screen.getByText('Bounced').closest('tr')!
+    expect(within(returned).queryByText('Before opening')).not.toBeInTheDocument()
+    const pending = screen.getByText('On its way').closest('tr')!
+    expect(within(pending).queryByText('Before opening')).not.toBeInTheDocument()
   })
 })

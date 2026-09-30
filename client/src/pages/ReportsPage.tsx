@@ -158,6 +158,9 @@ export function ReportsPage() {
   const latest = trends?.points.filter((p) => p.key <= thisMonthKey).at(-1)
   const savedThisMonthMinor = latest ? fromAmount(latest.incomeReceived) - fromAmount(latest.spent) : 0
   const avgSpendMinor = trends && trends.points.length > 0 ? Math.round(totalSpentMinor / trends.points.length) : 0
+  // Rows in another currency still waiting for their amount in the budget currency count in no
+  // figure here; say how many, or a total silently leaves them out.
+  const waitingInWindow = trends?.points.reduce((n, p) => n + (p.fxPendingCount ?? 0), 0) ?? 0
   const latestReceivedMinor = latest ? fromAmount(latest.incomeReceived) : 0
   const savingsRate = latestReceivedMinor > 0 ? Math.round((savedThisMonthMinor / latestReceivedMinor) * 100) : 0
 
@@ -189,6 +192,9 @@ export function ReportsPage() {
                 { label: 'Savings rate', value: `${savingsRate}%` },
               ]}
             />
+            {waitingInWindow > 0 && (
+              <WaitingRowsNote count={waitingInWindow} currency={currency} what="in these months" />
+            )}
 
             {/* Income vs spending — a column per month (income solid, spent ghost). */}
             <Card as="section" className="px-6 py-[22px]">
@@ -414,6 +420,9 @@ export function ReportsPage() {
                   ))}
                 </select>
               </div>
+              {breakdown && breakdown.fxPendingCount > 0 && (
+                <WaitingRowsNote count={breakdown.fxPendingCount} currency={currency} what="this month" />
+              )}
               {categorySpend.length === 0 ? (
                 <p className="text-sm text-slate-500">No spending recorded for this month yet.</p>
               ) : (
@@ -469,6 +478,24 @@ export function ReportsPage() {
           </>
         )}
     </AppShell>
+  )
+}
+
+/**
+ * The rows a report leaves out: transactions in another currency whose amount in the budget
+ * currency hasn't been entered yet (the app never converts on its own). Every figure above it
+ * is complete except for these, so the count says how many, and where to enter them.
+ */
+function WaitingRowsNote({ count, currency, what }: { count: number; currency: string; what: string }) {
+  return (
+    <p role="status" className="mb-3 text-xs text-amber-700 dark:text-amber-400">
+      {count} {count === 1 ? 'transaction' : 'transactions'} {what} {count === 1 ? 'is' : 'are'} in another currency,
+      waiting for {count === 1 ? 'its' : 'their'} amount in {currency}, and not counted in these figures.{' '}
+      <Link to="/transactions" className="font-semibold underline">
+        Enter {count === 1 ? 'it' : 'them'} on Transactions
+      </Link>
+      .
+    </p>
   )
 }
 

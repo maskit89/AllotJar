@@ -6,7 +6,7 @@ import { selectOnFocusProps } from '../../lib/selectOnFocus'
 import { jarAllocationsTotal } from '../../lib/jarAllocationFields'
 
 export interface JarAllocationFieldsProps {
-  /** The active jars of the account the money reaches. */
+  /** The jars of the account the money reaches: its active jars, plus an archived one the stored answer names. */
   jars: JarLedgerLineDto[]
   accountName: string
   currency: string
@@ -48,7 +48,9 @@ export function JarAllocationFields({
               <span className="min-w-0 truncate text-slate-800">
                 {jar.name}
                 <span className="ml-1 text-xs text-slate-500">
-                  ({jar.balance === null ? 'balance not available' : formatMoney(fromAmount(jar.balance), currency)})
+                  {jar.isArchived
+                    ? '(archived)'
+                    : `(${jar.balance === null ? 'balance not available' : formatMoney(fromAmount(jar.balance), currency)})`}
                 </span>
               </span>
               <Input

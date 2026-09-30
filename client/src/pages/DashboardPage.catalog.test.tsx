@@ -319,6 +319,22 @@ describe('DashboardPage — income card & spending lines', () => {
     expect(screen.queryByLabelText('Received for Take-home Pay')).not.toBeInTheDocument()
   })
 
+  // Rule 39: a refund nets off its line in the month it arrives; the line says how much, so a
+  // spent figure below the purchases reads as a refund, not a mistake.
+  it('says how much was refunded against an expense line (rule 39)', { timeout: 15000 }, async () => {
+    const m = jul26()
+    m.categories[2].items[1] = { ...m.categories[2].items[1], actualAmount: 100, remaining: -10, refundedAmount: 20 }
+    mockLoads({ month: m })
+    renderPage()
+
+    const planned = await screen.findByLabelText('Planned amount for Restaurants', {}, { timeout: 5000 })
+    expect(planned.closest('div')!.textContent).toContain('€100.00 of €90.00')
+    expect(planned.closest('div')!.textContent).toContain('€20.00 refunded')
+    // A line with nothing refunded says nothing about refunds.
+    const rent = screen.getByLabelText('Planned amount for Rent')
+    expect(rent.closest('div')!.textContent).not.toContain('refunded')
+  })
+
   it('DASH-050: overspent and zero-planned lines render rose with a clamped, never-NaN bar', { timeout: 15000 }, async () => {
     const m = jul26()
     // Zero-planned line with spend: bar must be 0%, remaining rose "-€15.00".

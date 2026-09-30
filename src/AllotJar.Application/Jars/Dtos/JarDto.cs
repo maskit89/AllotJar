@@ -136,10 +136,14 @@ public static class JarMapping
     /// <paramref name="f"/> is the definition the month is judged against: the jar as it is today, or
     /// for a month that is over the jar as it was defined at its end, with the Recurring cycle open
     /// then (<see cref="JarHistory.DefinitionOn"/>, P49).
+    /// <paramref name="contributedThisMonth"/> is what went into the jar in the month
+    /// (<see cref="JarLedgerSource.ContributionsBetween"/>): rule 14's figure, which what left the
+    /// jar never reduces. Left null, the figure is derived from the two balances — net of any
+    /// money that left the jar in the month — for callers that hold only those.
     /// </summary>
     public static JarDto ToDto(this Jar f, decimal? currentBalance, decimal? balanceAtMonthStart, decimal? storedPlanThisMonth, DateOnly asOf,
         JarCycle? lastCycle = null, bool skippedThisMonth = false, bool canDelete = false, IReadOnlySet<DateOnly>? skippedMonths = null,
-        DateOnly? month = null)
+        DateOnly? month = null, decimal? contributedThisMonth = null)
     {
         var balance = currentBalance ?? 0m;
         var target = f.TargetAmount;
@@ -214,7 +218,9 @@ public static class JarMapping
         }
 
         var planned = currentBalance is null ? 0m : storedPlanThisMonth ?? plan.First;
-        var contributed = currentBalance is null ? 0m : Math.Max(0m, balance - startBalance);
+        // Rule 14: what went in this month, whatever left it since (a bill paid from the jar moves
+        // its balance and its plan, never what was contributed).
+        var contributed = currentBalance is null ? 0m : contributedThisMonth ?? Math.Max(0m, balance - startBalance);
 
         return new JarDto
         {

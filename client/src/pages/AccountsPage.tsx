@@ -203,7 +203,8 @@ export function AccountsPage() {
         holderIds,
         ...(ownPersonal ? { isPrivate: keepPrivate } : {}),
       })
-      setAccounts((prev) => [...prev, data])
+      // A row with this id (a save answered twice) is replaced, never listed twice.
+      setAccounts((prev) => (prev.some((a) => a.id === data.id) ? prev.map((a) => (a.id === data.id ? data : a)) : [...prev, data]))
       track(EVENTS.accountCreated, { kind: ACCOUNT_TYPE_LABELS[type] ?? 'unknown' })
       setName('')
       setOpening('')
@@ -317,10 +318,6 @@ export function AccountsPage() {
     () => known.reduce((sum, a) => sum + Math.max(0, fromAmount(a.currentBalance ?? 0)), 0),
     [known],
   )
-  const owedMinor = useMemo(
-    () => known.reduce((sum, a) => sum + Math.min(0, fromAmount(a.currentBalance ?? 0)), 0),
-    [known],
-  )
   const pendingReviewCount = useMemo(
     () => accounts.reduce((n, a) => n + (a.pendingReceiptCount ?? 0), 0),
     [accounts],
@@ -337,10 +334,9 @@ export function AccountsPage() {
         eyebrow="Total balance"
         amount={formatMoney(netMinor, budgetCurrency)}
         amountLabel={`Total balance: ${formatMoney(netMinor, budgetCurrency)}`}
-        tiles={[
-          { label: 'Available', value: formatMoney(availableMinor, budgetCurrency) },
-          { label: 'Owed', value: formatMoney(-owedMinor, budgetCurrency) },
-        ]}
+        // Rule 74: no account is ever below zero, so there is nothing "owed" to show; the one
+        // tile is the money the counted accounts hold.
+        tiles={[{ label: 'Available', value: formatMoney(availableMinor, budgetCurrency) }]}
         footnote={
           otherCurrencyCount > 0 || unavailableCount > 0 || pendingReviewCount > 0 ? (
             <span className="inline-flex flex-wrap items-center gap-2">

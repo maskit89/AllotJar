@@ -62,7 +62,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
   // --- List & balance hero -------------------------------------------------
 
-  it('ACCT-002: a negative balance colours its card rose and feeds the Owed tile', { timeout: 15000 }, async () => {
+  it('ACCT-002: a negative balance colours its card rose and is left out of Available; there is no Owed tile (rule 74)', { timeout: 15000 }, async () => {
     // Single all-EUR CreditCard with opening −450, so the hero is unanimous.
     mockLoads({ accounts: [acct({ id: 'v1', name: 'Visa', type: 3, openingBalance: -450, currentBalance: -450 })] })
 
@@ -73,10 +73,11 @@ describe('AccountsPage — catalog (ACCT)', () => {
     const negs = await screen.findAllByText('-€450.00', {}, { timeout: 5000 })
     expect(negs.some((el) => el.className.includes('text-rose-600'))).toBe(true)
 
-    // Hero: Total −450, Available 0 (Σ max(0,bal)), Owed 450 (−Σ min(0,bal)).
+    // Hero: Total −450, Available 0 (Σ max(0,bal)); no Owed tile (rule 74 keeps every account at or above zero).
     expect(screen.getByLabelText('Total balance: -€450.00')).toBeInTheDocument()
     expect(screen.getByText('€0.00')).toBeInTheDocument() // Available
-    expect(screen.getByText('€450.00')).toBeInTheDocument() // Owed
+    expect(screen.queryByText('Owed')).not.toBeInTheDocument()
+    expect(screen.queryByText('€450.00')).not.toBeInTheDocument()
     // Every account is in the budget currency ⇒ no "not counted" footnote.
     expect(screen.queryByText(/in another currency/i)).not.toBeInTheDocument()
   })

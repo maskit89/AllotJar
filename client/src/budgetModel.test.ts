@@ -134,7 +134,7 @@ describe('budgetModel selectors', () => {
       name: 'Freelance',
       displayOrder: 1,
       plannedMinor: fromAmount(500),
-      actualMinor: 0,
+      actualMinor: 0, refundedMinor: 0,
     })
 
     expect(totalIncome(next)).toBe(fromAmount(3500))
@@ -261,7 +261,7 @@ describe('budgetModel selectors', () => {
 
 describe('bill reminders', () => {
   const item = (dueDay: number | null, isPaid = false): ItemVM => ({
-    id: 'x', name: 'Rent', displayOrder: 0, plannedMinor: 0, actualMinor: 0,
+    id: 'x', name: 'Rent', displayOrder: 0, plannedMinor: 0, actualMinor: 0, refundedMinor: 0,
     savingsAvailableMinor: null, savingsId: null, isSkipped: false, dueDay, isPaid, memberId: null,
   })
   // Mid-June 2026 — the month under test is 2026-06.

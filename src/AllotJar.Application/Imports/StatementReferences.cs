@@ -172,6 +172,9 @@ public static class StatementReferences
             .Include(t => t.Account)
             .Include(t => t.TransferAccount)
             .Include(t => t.Fee)
+                .ThenInclude(f => f!.BudgetItem)
+                    .ThenInclude(i => i!.BudgetCategory)
+                        .ThenInclude(c => c.BudgetMonth)
             .Where(t => t.OwnerId == ownerId && t.Type == TransactionType.Transfer
                         && t.AccountId != null && t.TransferAccountId != null
                         && ((t.TransferAccountId == accountId
@@ -295,6 +298,9 @@ public static class StatementReferences
             Kind = kind,
             Fee = fee,
             FeeBudgetItemId = transfer.Fee?.BudgetItemId,
+            FeeBudgetItemMonth = transfer.Fee?.BudgetItem?.BudgetCategory.BudgetMonth is { } feeMonth
+                ? new DateOnly(feeMonth.Year, feeMonth.Month, 1)
+                : null,
             RecordedDate = recorded,
             SameReference = sameReference,
         };

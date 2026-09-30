@@ -428,6 +428,11 @@ export interface TransferMatchCandidate {
   fee?: number | null
   /** The budget line the transfer's current fee is on (pre-fills the fee line); null when none. */
   feeBudgetItemId?: string | null
+  /**
+   * The first day of that line's budget month. The commit judges the fee's date (the bank's
+   * departure date, once matched) against it, so the review asks the cross-month question first.
+   */
+  feeBudgetItemMonth?: string | null
   /** The leg was recorded in the app on this date (no bank reference yet); the statement's date replaces it. */
   recordedDate?: string | null
   /** The other bank printed the same reference. */
@@ -554,6 +559,10 @@ export interface ImportStatementResult {
   /** Rows not imported because they would take the account below zero on some date (rule 74); re-commit after fixing. */
   held?: ImportHeldRow[]
   heldCount?: number
+  /** New rows in another currency that wait for their amount in the budget currency (rules 42/44); they count nowhere yet. */
+  awaitingAmount?: number
+  /** The rows counted in skippedDuplicates, by the reference this client sent. */
+  skippedReferences?: string[]
 }
 
 export interface AccountReconciliationDto {
