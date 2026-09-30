@@ -658,12 +658,6 @@ Migration `JarArchivePeriodsAndArrival` (09:49:38) is older than `ForeignAmounts
 
 **Validation (this machine: .NET SDK 10.0, SQL Server 2022 in Docker).** `dotnet build AllotJar.slnx`: no errors; the one warning is W08's CS8620 in `TransactionConfiguration.cs`. On the first head the unit suite had **1247 passed** (1237 on `main` and 10 new). Reverting each piece fails a test: the stretch branch in `ApplyOutgoingAsync` (5 tests), its opening-date bound, the no-opening-date refusal, the stretch's start (either comparison), the import's and the create's call to `ApplyOutgoingAsync`, the payments list's clause, and the refusal that names the account. After review round 1 and the merge of #279 the unit suite had **1293 passed** (1277 on `main` and 16 new) and the SQL integration suite **96 passed** (95 on `main` and 1 new). After round 2: unit **1294 passed**; the R2-N2 test fails with either of its two guards removed. Each round-1 and merge change fails a test when reverted: the stretch-start refusal (P2-1), naming only a recorded stretch start and the unnamed message (P3-1, two tests each), a return's share in an earlier stretch (two), the kept return's arrival check, and the date following for the departure and for the fee.
 
-## CI minutes (PR #284) — 29 September 2026
-
-- Pull-request CI runs are cancelled when a newer push supersedes them; runs on main are never cancelled and never share a group. Every job has a timeout (journey 15, backend/integration/frontend/a11y 10, security-scan 8, deploy-scripts 5, deploy and provision jobs 15). Journey's Playwright `globalTimeout` is 11 minutes so a hang still leaves a report. Release zips for staging are kept 1 day, journey failure reports 3.
-- Deploy no longer runs for a push that changes only `docs/**` or `*.md`. **A release record for a docs-only merge must say "no Deploy run" (CI still runs on main).** Run Deploy by hand (`workflow_dispatch`) to force one.
-- Decided against skipping CI jobs for docs-only pull requests: a job-level check costs a billed minute on every run and only 1 of 33 September merges was docs-only; a workflow-level `paths-ignore` would leave any required status check pending on such a PR.
-
 **CI and release of [PR #280](https://github.com/maskit89/AllotJar/pull/280).** Round 3 of its review was clean on `69dc78f` (19:53 UTC), and PR CI [run 36622030131](https://github.com/maskit89/AllotJar/actions/runs/36622030131) was green on it (all seven jobs). Christopher ran nothing before merging: there is no migration or backfill. **Released.** PR #280 was squash-merged by Christopher as `5e36d91dc28e87b73c73f8ce81db888598d8978e` on 29 September 2026 at 20:01:21 UTC. The push to `main` ran CI [run 36623371416](https://github.com/maskit89/AllotJar/actions/runs/36623371416), green (all seven jobs, 20:01:25–20:08:18 UTC), and Deploy [run 36623371422](https://github.com/maskit89/AllotJar/actions/runs/36623371422), green: staging 20:02:52–20:03:25 and production 20:03:28–20:03:58 UTC, and the production `/health` check passed.
 
 ## Final review: test suites (W14; Christopher's 27 September request) — 29 September 2026
@@ -676,3 +670,8 @@ Migration `JarArchivePeriodsAndArrival` (09:49:38) is older than `ForeignAmounts
 
 **Deploy.** Nothing changes for users: no application code, migration or backfill.
 
+## CI minutes (PR #284) — 29 September 2026
+
+- Pull-request CI runs are cancelled when a newer push supersedes them; runs on main are never cancelled and never share a group. Every job has a timeout (journey 15, backend/integration/frontend/a11y 10, security-scan 8, deploy-scripts 5, deploy and provision jobs 15). Journey's Playwright `globalTimeout` is 11 minutes so a hang still leaves a report. Release zips for staging are kept 1 day, journey failure reports 3.
+- Deploy no longer runs for a push that changes only `docs/**` or `*.md`. **A release record for a docs-only merge must say "no Deploy run" (CI still runs on main).** Run Deploy by hand (`workflow_dispatch`) to force one.
+- Decided against skipping CI jobs for docs-only pull requests: a job-level check costs a billed minute on every run and only 1 of 33 September merges was docs-only; a workflow-level `paths-ignore` would leave any required status check pending on such a PR.
