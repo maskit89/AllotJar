@@ -670,3 +670,8 @@ Migration `JarArchivePeriodsAndArrival` (09:49:38) is older than `ForeignAmounts
 
 **Deploy.** Nothing changes for users: no application code, migration or backfill.
 
+## CI minutes (PR #284) — 29 September 2026
+
+- Pull-request CI runs are cancelled when a newer push supersedes them; runs on main are never cancelled and never share a group. Every job has a timeout (journey 15, backend/integration/frontend/a11y 10, security-scan 8, deploy-scripts 5, deploy and provision jobs 15). Journey's Playwright `globalTimeout` is 11 minutes so a hang still leaves a report. Release zips for staging are kept 1 day, journey failure reports 3.
+- Deploy no longer runs for a push that changes only `docs/**` or `*.md`. **A release record for a docs-only merge must say "no Deploy run" (CI still runs on main).** Run Deploy by hand (`workflow_dispatch`) to force one.
+- Decided against skipping CI jobs for docs-only pull requests: a job-level check costs a billed minute on every run and only 1 of 33 September merges was docs-only; a workflow-level `paths-ignore` would leave any required status check pending on such a PR.
