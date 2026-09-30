@@ -5,6 +5,7 @@ using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.Services;
 
 namespace AllotJar.Application.Accounts.Commands.EraseUnreachableAccount;
 
@@ -22,6 +23,7 @@ public class EraseUnreachableAccountCommandHandler : IRequestHandler<EraseUnreac
 {
     public const string ErasedSourcePayee = "Transfer from an erased account";
     public const string ErasedDestinationPayee = "Transfer to an erased account";
+    public const string ErasedReturnPayee = "Transfer to an erased account, returned";
 
     private readonly IApplicationDbContext _db;
     private readonly IIdentityService _identity;
@@ -94,10 +96,12 @@ public class EraseUnreachableAccountCommandHandler : IRequestHandler<EraseUnreac
         {
             var privateIsSource = row.AccountId == account.Id;
             var otherId = privateIsSource ? row.TransferAccountId : row.AccountId;
-            // Posted on the shared side: the departure left it, or the receipt arrived. A transfer
-            // still to depart, or one that came back before arriving, posted nothing there.
-            var posted = otherId is Guid other && sharedIds.Contains(other) && row.ReturnedOn is null
-                         && (privateIsSource ? row.ReceivedOn is not null : row.DepartedOn is not null);
+            // Posted on the shared side: a shared source posted its departure the moment it was
+            // confirmed (and a return posts a second movement, kept below); a shared destination
+            // posted only once the receipt arrived. A transfer still to depart, or one from the
+            // erased account that came back before arriving, posted nothing there.
+            var posted = otherId is Guid other && sharedIds.Contains(other)
+                         && (privateIsSource ? row.ReceivedOn is not null && row.ReturnedOn is null : row.DepartedOn is not null);
             if (posted)
             {
                 keptOnSharedSide.Add((row, privateIsSource));
@@ -186,7 +190,7 @@ public class EraseUnreachableAccountCommandHandler : IRequestHandler<EraseUnreac
         }
         foreach (var (row, privateIsSource) in keptOnSharedSide)
         {
-            KeepSharedSide(row, privateIsSource);
+            await KeepSharedSideAsync(row, privateIsSource, cancellationToken);
         }
         foreach (var row in keptWithoutAccount)
         {
@@ -234,15 +238,21 @@ public class EraseUnreachableAccountCommandHandler : IRequestHandler<EraseUnreac
     /// The shared side of a posted transfer as a plain entry on the shared account: a receipt
     /// becomes income dated the receipt with the bank's reference for it, a departure an expense
     /// dated the departure with its reference. Its jar postings on that account stay keyed to it.
+    /// A departure that came back keeps its return too, as an income dated the return with the
+    /// return's reference (the identity the ledger gave that movement), and the jar shares the
+    /// return gave back stay with it. Both are marked as the shared side of an erased account, so
+    /// the reports and the register's totals skip them as they skipped the transfer.
     /// </summary>
-    private static void KeepSharedSide(Transaction row, bool privateIsSource)
+    private async Task KeepSharedSideAsync(Transaction row, bool privateIsSource, CancellationToken cancellationToken)
     {
         if (privateIsSource)
         {
             row.AccountId = row.TransferAccountId;
             row.Type = TransactionType.Income;
             row.Date = row.ReceivedOn!.Value;
-            row.BankReference = row.ReceiptBankReference;
+            // A row from before receipt references was known to the destination by the source's
+            // reference (the migration's marker); that is the reference it keeps.
+            row.BankReference = row.ReceiptBankReference ?? (row.ReceiptKnownBySourceReference ? row.BankReference : null);
             row.Payee = ErasedSourcePayee;
         }
         else
@@ -250,6 +260,49 @@ public class EraseUnreachableAccountCommandHandler : IRequestHandler<EraseUnreac
             row.Type = TransactionType.Expense;
             row.Date = row.DepartedOn!.Value;
             row.Payee = ErasedDestinationPayee;
+            if (row.ReturnedOn is DateOnly returnedOn)
+            {
+                var back = new Transaction
+                {
+                    Id = TransferLedger.ReturnLegId(row.Id),
+                    OwnerId = row.OwnerId,
+                    AccountId = row.AccountId,
+                    Type = TransactionType.Income,
+                    Date = returnedOn,
+                    Amount = row.Amount,
+                    Currency = row.Currency,
+                    FxPending = row.FxPending,
+                    OriginalAmount = row.OriginalAmount,
+                    OriginalCurrency = row.OriginalCurrency,
+                    BudgetAmount = row.BudgetAmount,
+                    BankReference = row.ReturnBankReference,
+                    Payee = ErasedReturnPayee,
+                    Notes = row.Notes,
+                    CounterpartyErased = true,
+                };
+                _db.Transactions.Add(back);
+                // The return's stored operation (jar +S, unallocated −S, dated the return) becomes
+                // the income's own leg: jar +S, unallocated +(amount − S), which sums to it.
+                foreach (var op in await _db.JarAllocations.Include(a => a.Postings)
+                             .Where(a => a.ReturnOfTransferId == row.Id).ToListAsync(cancellationToken))
+                {
+                    var shares = op.Postings.Where(p => p.JarId is not null).Sum(p => p.Amount);
+                    foreach (var unallocated in op.Postings.Where(p => p.JarId is null).ToList())
+                    {
+                        op.Postings.Remove(unallocated);
+                        _db.JarAllocationPostings.Remove(unallocated);
+                    }
+                    if (row.Amount - shares != 0m)
+                    {
+                        op.Postings.Add(new JarAllocationPosting { JarId = null, Amount = row.Amount - shares });
+                    }
+                    op.Kind = JarAllocationKind.Movement;
+                    op.TransactionId = back.Id;
+                    op.Transaction = back;
+                    op.ReturnOfTransferId = null;
+                    op.Date = returnedOn;
+                }
+            }
         }
         row.TransferAccountId = null;
         row.TransferAccount = null;
@@ -260,6 +313,7 @@ public class EraseUnreachableAccountCommandHandler : IRequestHandler<EraseUnreac
         row.ReturnBankReference = null;
         row.ReceiptKnownBySourceReference = false;
         row.AllocationKey = null;
+        row.CounterpartyErased = true;
     }
 
     private static ValidationException Refuse(string key, string message) =>

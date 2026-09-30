@@ -738,6 +738,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("BudgetItemId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<bool>("CounterpartyErased")
+                        .HasColumnType("bit");
+
                     b.Property<string>("Currency")
                         .IsRequired()
                         .ValueGeneratedOnAdd()

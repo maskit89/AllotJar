@@ -147,6 +147,15 @@ public class Transaction : BaseEntity
     public bool ReceiptKnownBySourceReference { get; set; }
 
     /// <summary>
+    /// The other side of this movement was a private account nobody could reach that the budget
+    /// owner erased (P59, "Keep shared"): a transfer's shared side kept as a plain income or
+    /// expense so the account's history and statements stay whole. It counts in the account's
+    /// ledger and nowhere else, as the transfer it was: the reports and the register's totals
+    /// skip it, like a transfer.
+    /// </summary>
+    public bool CounterpartyErased { get; set; }
+
+    /// <summary>
     /// For a transfer the source bank sent back (O1 answer 4): the date the money was credited
     /// back to the source account. Only for a transfer that departed and was never received; the
     /// destination never receives it and nothing is in transit from this date.

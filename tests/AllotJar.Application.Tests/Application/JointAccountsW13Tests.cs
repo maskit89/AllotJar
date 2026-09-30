@@ -36,6 +36,10 @@ using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Application.Transactions.Commands.UpdateTransaction;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Application.Transactions.Queries.GetTransactions;
+using AllotJar.Application.Jars.Queries.GetJars;
+using AllotJar.Application.Reports.Dtos;
+using AllotJar.Application.Transactions.Commands.UpdateTransfer;
+using AllotJar.Domain.Services;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -1243,6 +1247,158 @@ public class JointAccountsW13Tests
         kept.AccountId.Should().BeNull();
         kept.RefundOfTransactionId.Should().Be(purchase);
         kept.Amount.Should().Be(30m);
+    }
+
+    // #287 review round 2, R2-P2-1 (probe N1): the joint account's 200 to Sam's account bounced;
+    // the joint statement confirmed the departure. The household saw it leave and come back, so
+    // both movements stay as plain rows with their references and the fee stays on its line.
+    [Fact]
+    public async Task Erasing_KeepsAReturnedDepartureFromTheJointAccount_AsAnExpenseAndAnIncome_KeepShared()
+    {
+        var feeLine = SeedLine("Bank fees");
+        var joint = await CreateAccountAsync(Chris, "Joint", holders: null, opening: 1000m);
+        var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam }, opening: 0m);
+        Guid transfer;
+        await using (var db = As(Sam))
+        {
+            transfer = (await new CreateTransferCommandHandler(db, Sam).Handle(
+                new CreateTransferCommand(June10, 200m, joint, mine, Fee: 2m, FeeBudgetItemId: feeLine), CancellationToken.None)).Id;
+            await new UpdateTransferCommandHandler(db, Sam).Handle(
+                new UpdateTransferCommand(transfer, joint, mine, 200m, June10, null, ReturnedOn: June10.AddDays(2), Fee: 2m, FeeBudgetItemId: feeLine), CancellationToken.None);
+        }
+        await using (var db = As(Chris))
+        {
+            await new ConfirmTransferLegsCommandHandler(db, Chris).Handle(
+                new ConfirmTransferLegsCommand(transfer, June10, null, "JOINT-OUT-1", null), CancellationToken.None);
+        }
+        await RemoveSamsLoginAsync();
+        await EraseAsync(mine, "Sam's current");
+
+        await using (var db = As(Chris))
+        {
+            var known = await StatementReferences.KnownAsync(db, Household, joint, CancellationToken.None);
+            known.Contains("JOINT-OUT-1").Should().BeTrue();
+            (await db.Transactions.Where(t => t.BudgetItemId == feeLine).SumAsync(t => t.Amount)).Should().Be(2m);
+            var departure = await db.Transactions.SingleAsync(t => t.Id == transfer);
+            departure.Type.Should().Be(TransactionType.Expense);
+            departure.Date.Should().Be(June10);
+            departure.CounterpartyErased.Should().BeTrue();
+            var back = await db.Transactions.SingleAsync(t => t.Id == TransferLedger.ReturnLegId(transfer));
+            back.Type.Should().Be(TransactionType.Income);
+            back.AccountId.Should().Be(joint);
+            back.Date.Should().Be(June10.AddDays(2));
+            back.Amount.Should().Be(200m);
+            back.CounterpartyErased.Should().BeTrue();
+            var accounts = new GetAccountsQueryHandler(db, Chris);
+            (await accounts.Handle(new GetAccountsQuery(June10.AddDays(1)), CancellationToken.None)).Single(a => a.Id == joint).CurrentBalance.Should().Be(798m, "the money was away on 11 June");
+            (await accounts.Handle(new GetAccountsQuery(June10.AddDays(2)), CancellationToken.None)).Single(a => a.Id == joint).CurrentBalance.Should().Be(998m, "and back on 12 June, less the fee");
+        }
+    }
+
+    // The return's jar shares stay with the kept income: Holiday paid the transfer and got its
+    // money back on the return, before and after the erase.
+    [Fact]
+    public async Task Erasing_KeepsTheJarShareAReturnGaveBack_KeepShared()
+    {
+        var joint = await CreateAccountAsync(Chris, "Joint", holders: null, opening: 1000m);
+        var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam }, opening: 0m);
+        Guid holiday;
+        await using (var db = As(Chris))
+        {
+            holiday = (await new CreateJarCommandHandler(db, Chris).Handle(
+                new CreateJarCommand("Holiday", JarKind.Goal, 1000m, null, AccrualMethod.FixedMonthly, joint, InitialAllocation: 300m, InitialAllocationDate: June10.AddDays(-5), MonthlyContribution: 100m),
+                CancellationToken.None)).Id;
+        }
+        // Only Sam sees both accounts; the jar is the joint account's and Sam may draw from it.
+        Guid transfer;
+        await using (var db = As(Sam))
+        {
+            transfer = (await new CreateTransferCommandHandler(db, Sam).Handle(
+                new CreateTransferCommand(June10, 100m, joint, mine, FromJarId: holiday), CancellationToken.None)).Id;
+            await new UpdateTransferCommandHandler(db, Sam).Handle(
+                new UpdateTransferCommand(transfer, joint, mine, 100m, June10, null, ReturnedOn: June10.AddDays(2), FromJarId: holiday), CancellationToken.None);
+        }
+        async Task<decimal> HolidayOn(DateOnly date)
+        {
+            await using var db = As(Chris);
+            var jars = await new GetJarsQueryHandler(db, Chris).Handle(new GetJarsQuery(AsOf: date), CancellationToken.None);
+            return jars.Single(j => j.Id == holiday).CurrentBalance ?? -1m;
+        }
+        (await HolidayOn(June10.AddDays(1))).Should().Be(200m);
+        (await HolidayOn(June10.AddDays(2))).Should().Be(300m);
+
+        await RemoveSamsLoginAsync();
+        await EraseAsync(mine, "Sam's current");
+
+        (await HolidayOn(June10.AddDays(1))).Should().Be(200m, "the departure still drew from the jar");
+        (await HolidayOn(June10.AddDays(2))).Should().Be(300m, "and the return still gave it back");
+        using var check = Seed();
+        check.JarAllocations.Should().NotContain(a => a.ReturnOfTransferId != null);
+        var leg = check.JarAllocations.Include(a => a.Postings).Single(a => a.TransactionId == TransferLedger.ReturnLegId(transfer));
+        leg.Kind.Should().Be(JarAllocationKind.Movement);
+        leg.Postings.Sum(p => p.Amount).Should().Be(100m);
+    }
+
+    // R2-P2-2 (probe N2): a kept shared side is still a transfer to the household, so the month
+    // report and the register's totals read as before.
+    [Fact]
+    public async Task Erasing_LeavesTheMonthReportAsItWas_KeepShared()
+    {
+        SeedLine();
+        var joint = await CreateAccountAsync(Chris, "Joint", holders: null, opening: 1000m);
+        var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam }, opening: 500m);
+        await using (var db = As(Sam))
+        {
+            await new CreateTransferCommandHandler(db, Sam).Handle(new CreateTransferCommand(June10, 200m, joint, mine, ReceivedOn: June10), CancellationToken.None);
+            await new CreateTransferCommandHandler(db, Sam).Handle(new CreateTransferCommand(June10.AddDays(1), 50m, mine, joint, ReceivedOn: June10.AddDays(1)), CancellationToken.None);
+        }
+        await RemoveSamsLoginAsync();
+        MonthReportDto before;
+        await using (var db = As(Chris))
+        {
+            before = await new GetMonthReportQueryHandler(db, Chris).Handle(new GetMonthReportQuery(2026, 6), CancellationToken.None);
+        }
+        await EraseAsync(mine, "Sam's current");
+        await using (var db = As(Chris))
+        {
+            var after = await new GetMonthReportQueryHandler(db, Chris).Handle(new GetMonthReportQuery(2026, 6), CancellationToken.None);
+            after.IncomeReceived.Should().Be(before.IncomeReceived);
+            after.Spent.Should().Be(before.Spent);
+            after.UncategorisedCount.Should().Be(before.UncategorisedCount);
+            after.UncategorisedIncomeCount.Should().Be(before.UncategorisedIncomeCount);
+            var rows = await new GetTransactionsQueryHandler(db, Chris).Handle(new GetTransactionsQuery(), CancellationToken.None);
+            rows.Where(r => r.CounterpartyErased).Should().HaveCount(2, "the register shows both kept sides, marked for its totals to skip");
+        }
+    }
+
+    // R2-P3-1 (probe N3): a row from before receipt references was known to the joint account by
+    // the source's reference; the kept receipt keeps it.
+    [Fact]
+    public async Task Erasing_KeepsTheReferenceALegacyReceiptWasKnownBy_KeepShared()
+    {
+        var joint = await CreateAccountAsync(Chris, "Joint", holders: null, opening: 1000m);
+        var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam }, opening: 500m);
+        Guid transfer;
+        await using (var db = As(Sam))
+        {
+            transfer = (await new CreateTransferCommandHandler(db, Sam).Handle(new CreateTransferCommand(June10, 100m, mine, joint, ReceivedOn: June10), CancellationToken.None)).Id;
+        }
+        using (var db = Seed())
+        {
+            var row = db.Transactions.Single(t => t.Id == transfer);
+            row.BankReference = "LEGACY-REF";
+            row.ReceiptKnownBySourceReference = true;
+            db.SaveChanges();
+        }
+        await RemoveSamsLoginAsync();
+        await EraseAsync(mine, "Sam's current");
+        await using (var db = As(Chris))
+        {
+            (await StatementReferences.KnownAsync(db, Household, joint, CancellationToken.None)).Contains("LEGACY-REF").Should().BeTrue();
+            var kept = await db.Transactions.SingleAsync(t => t.Id == transfer);
+            kept.BankReference.Should().Be("LEGACY-REF");
+            kept.ReceiptKnownBySourceReference.Should().BeFalse();
+        }
     }
 
     // #287 review P3-1 (probe E2): the person's savings pointer and the allocation's source are

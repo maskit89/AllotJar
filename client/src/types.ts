@@ -165,6 +165,9 @@ export interface TransactionDto {
   refundOfAmount?: number | null
   /** For a purchase: how many refunds point at it, and their base-currency total (0 when none). */
   refundCount?: number
+  /** The other side of this movement was an erased private account: a transfer's shared side kept
+   *  as a plain entry. The hero totals skip it like a transfer, and it isn't waiting for a line. */
+  counterpartyErased?: boolean
   refundedAmount?: number
   /** Household member this whole transaction is attributed to, if any. */
   memberId: string | null
