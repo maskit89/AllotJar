@@ -144,13 +144,9 @@ export function AccountsPage() {
       setEraseId(null)
       setEraseName('')
       // The erase can drop movements the shared accounts counted (a transfer that never
-      // arrived), so their balances and reconciliation are read again.
-      const [accountsRes, reconciliationRes] = await Promise.all([
-        api.get<AccountDto[]>('/accounts'),
-        api.get<AccountReconciliationDto[]>('/accounts/reconciliation'),
-      ])
-      setAccounts(accountsRes.data)
-      setReconciliation(Array.isArray(reconciliationRes.data) ? reconciliationRes.data : [])
+      // arrived), so the accounts are read again (the reconciliation follows the account set).
+      const { data } = await api.get<AccountDto[]>('/accounts')
+      setAccounts(data)
     } catch (err) {
       // A refused erase (the name doesn't match, a refund elsewhere names a purchase in it, a
       // shared account would go below zero without a transfer from it) carries the reason.

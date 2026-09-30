@@ -135,7 +135,7 @@ describe('AccountsPage', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     // The shared accounts are read again: the erase may have dropped a movement they counted.
     await waitFor(() => expect(mockGet.mock.calls.filter(([url]) => url === '/accounts')).toHaveLength(2))
-    expect(mockGet.mock.calls.filter(([url]) => url === '/accounts/reconciliation')).toHaveLength(2)
+    await waitFor(() => expect(mockGet.mock.calls.filter(([url]) => url === '/accounts/reconciliation').length).toBeGreaterThanOrEqual(2))
   })
 
   it('shows the server’s reason when an erase is refused', { timeout: 15000 }, async () => {
