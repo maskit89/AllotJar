@@ -819,11 +819,13 @@ Christopher approved the follow-up pass on 30 September ("go", 12:29 UTC) after 
 
 **Tidy.** The three copies of the split-row helpers (the register editor, the add modal and the import review each rebuilt "two blank slices", "patch a slice", "add a slice", "remove a slice, keep two") are one module, `client/src/lib/splitRows.ts` (`startSplitRows`, `patchSplitRow`, `appendSplitRow`, `removeSplitRowAt`, with `splitRows.test.ts`); the import's `SplitDraft` is the shared `SplitRowDraft`. The duplicate key "a9" the #285 run once logged came from the test posting the same id twice; the Accounts list now replaces a row that answers with an id it already holds instead of listing it twice, and the test gives its second account its own id.
 
+**Follow-ups.** The contributed figure nets only reallocation postings (money moved back out within the account), so a jar emptied by a *transfer* to another account and refilled by a reallocation at its new account reads its whole refill as contributed that month, while the same move within one account reads 0 (review round 2, P3). Telling the refill of a moved jar from a contribution needs the move itself recorded (rule 80's Departure carries no amount), so it is left for the jar-move work.
+
 **Left as it was.** The annual overview's waiting-row count (above). The Available tile now repeats the hero's figure whenever every account is in the budget currency; it still differs when a legacy account in another currency or below zero exists, so it stays.
 
 **Deploy.** Client code, two additive fields (the import result's skipped references, the match candidate's fee-line month) and the contributed figure's new reading; no migration or backfill. Visible once deployed: the Savings line's wording, the refunded note, the Reports and import counts, the "Before opening" tag, no Owed tile, and the edit prompts listing an archived jar the entry still names.
 
-**Review round 1** (on `ff20bdb`, write-up in the project's `reviews/pr-286/`): no P1; P2-1 (the fee question), P2-2 (the leg date) and P2-3 (the contributed figure) fixed above; P3-1, P3-2 and P3-3 fixed above.
+**Review round 1** (on `ff20bdb`, write-up in the project's `reviews/pr-286/`): no P1; P2-1 (the fee question), P2-2 (the leg date) and P2-3 (the contributed figure) fixed above; P3-1, P3-2 and P3-3 fixed above. **Round 2** (on `28e97f0`): clean, one P3 logged under Follow-ups.
 
 **Validation (this machine).** From `main` at `e1e9984` (#285): `npx vitest run` **843 passed** (65 files; 823 on `main`, 20 added, none removed); `npx eslint .` clean apart from the pre-existing `AuthContext` warning; `npx tsc -b` clean; `dotnet build` clean; `dotnet test tests/AllotJar.Application.Tests` **1,292 passed**. The SQL integration tests need SQL Server and were not run here (they don't cover the changed code). No CI run, per Christopher's "Ignore CI jobs for now" (30 September).
 
