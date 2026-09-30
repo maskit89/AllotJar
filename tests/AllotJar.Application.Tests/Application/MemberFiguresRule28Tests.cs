@@ -104,6 +104,28 @@ public class MemberFiguresRule28Tests
         members.Should().OnlyContain(m => m.HasBudget && m.IncomeYear == 2026 && m.IncomeMonth == 7);
     }
 
+    [Theory]
+    [InlineData("0.02", "0.01", "0.01", "0", "0")]
+    [InlineData("100", "25", "25", "25", "25")]
+    [InlineData("100.01", "25.01", "25", "25", "25")]
+    public async Task TheUnattributedIncome_IsSharedInWholeCents_LeftoversToTheFirstInDisplayOrder_Rules52And64(
+        string unattributed, string first, string second, string third, string fourth)
+    {
+        await using var db = NewContext();
+        var people = new List<HouseholdMember>();
+        foreach (var (name, order) in new[] { ("Alex", 0), ("Robin", 1), ("Sam", 2), ("Kim", 3) })
+        {
+            people.Add(await SeedMember(db, name, 1m, order));
+        }
+        var income = await SeedMonth(db, 2026, 7);
+        await AddIncomeLine(db, income, "Child benefit", decimal.Parse(unattributed, System.Globalization.CultureInfo.InvariantCulture), null);
+
+        var shares = await MemberIncome.SharesAsync(db, Owner, 2026, 7, people, CancellationToken.None);
+
+        people.Select(p => shares.Income[p.Id]).Should().Equal(
+            new[] { first, second, third, fourth }.Select(v => decimal.Parse(v, System.Globalization.CultureInfo.InvariantCulture)));
+    }
+
     [Fact]
     public async Task GetHouseholdMembers_AMonthWithoutABudget_HasBudgetFalse_AndZeroFigures()
     {

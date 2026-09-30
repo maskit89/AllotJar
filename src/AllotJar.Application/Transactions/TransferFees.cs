@@ -11,7 +11,7 @@ namespace AllotJar.Application.Transactions;
 /// <summary>
 /// A transfer's explicit fee (O1 answer 5): what left the source account beyond what arrived,
 /// supplied by the user, never inferred (rule 44). It is one expense row on the source account,
-/// dated the departure, on the budget line the user picks (or none: uncategorised spending), and
+/// dated the departure, on the budget line the user picks (rule 91), and
 /// linked to the transfer. The source is debited the transfer's amount plus the fee; the
 /// destination receives the transfer's amount. The row counts in budgets and reports like any
 /// payment and is changed only through its transfer.
@@ -47,12 +47,13 @@ public static class TransferFees
             throw Validation(errorKey, "Add the departure date before recording a fee: the fee leaves the account when the money does.");
         }
 
-        BudgetItem? line = null;
-        if (lineId is Guid id)
+        // Rule 91: a fee is spent from the budget line the user picks, on every path (#279 R2-P3-1).
+        if (lineId is not Guid id)
         {
-            line = await TransactionInvariants.ValidateWholeLineAsync(
-                db, ownerId, TransactionType.Expense, id, departedOn, acknowledgeCrossMonth, errorKey, cancellationToken, source.Id);
+            throw Validation(errorKey, "Choose the budget line the fee is spent from.");
         }
+        var line = await TransactionInvariants.ValidateWholeLineAsync(
+            db, ownerId, TransactionType.Expense, id, departedOn, acknowledgeCrossMonth, errorKey, cancellationToken, source.Id);
 
         var row = transfer.Fee;
         if (row is null)
@@ -91,11 +92,11 @@ public static class TransferFees
         row.Currency = transfer.Currency;
         row.Date = departedOn;
         row.Payee = PayeeFor(transfer);
-        row.BudgetItemId = line?.Id;
+        row.BudgetItemId = line.Id;
         row.BudgetItem = line;
         row.MemberId = null;
 
-        var drawsFromLineJar = line?.SavingsId is not null;
+        var drawsFromLineJar = line.SavingsId is not null;
         await JarMovements.ApplyOutgoingAsync(
             db, ownerId, row, source, drawsFromLineJar ? null : paidFromJarId, errorKey, cancellationToken);
         return row;

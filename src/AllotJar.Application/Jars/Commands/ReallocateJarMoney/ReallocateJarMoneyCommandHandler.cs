@@ -41,6 +41,13 @@ public class ReallocateJarMoneyCommandHandler : IRequestHandler<ReallocateJarMon
         // source may be archived only in the sense that an archived jar holds nothing (rule 26).
         var source = await JarOnAccountAsync(request.SourceJarId, account.Id, userId, "SourceJarId", cancellationToken);
         var destination = await JarOnAccountAsync(request.DestinationJarId, account.Id, userId, "DestinationJarId", cancellationToken);
+        foreach (var (jar, key) in new[] { (source, "SourceJarId"), (destination, "DestinationJarId") })
+        {
+            if (jar is not null && !JarLedgerReader.HeldOn(jar.FundingAccountId, jar.FundingAccountSince, account.Id, date))
+            {
+                throw JarAccounts.Validation(key, JarMovements.ArrivedLater(jar, account));
+            }
+        }
         if (destination is { IsArchived: true })
         {
             throw JarAccounts.Validation("DestinationJarId", $"{destination.Name} is archived. Restore it before moving money into it.");

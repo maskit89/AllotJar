@@ -28,7 +28,8 @@ public static class JarMovements
     /// </summary>
     public static async Task ApplyIncomingAsync(
         IApplicationDbContext db, string ownerId, Transaction transaction, Account account, DateOnly date,
-        decimal amount, IReadOnlyList<JarAllocationInput>? inputs, string errorKey, CancellationToken cancellationToken)
+        decimal amount, IReadOnlyList<JarAllocationInput>? inputs, string errorKey, CancellationToken cancellationToken,
+        bool postsNow = false)
     {
         var existing = await FindAsync(db, transaction.Id, account.Id, cancellationToken);
         // Shares this leg put into jars that have since left the account (rule 80): history kept
@@ -42,7 +43,15 @@ public static class JarMovements
         var answers = inputs?.Where(i => !kept.ContainsKey(i.JarId)).ToList();
         if (answers is { Count: > 0 })
         {
-            var jars = await OwnJarsAsync(db, ownerId, account, answers.Select(i => i.JarId), errorKey, cancellationToken);
+            // An answer the edit form echoes back unchanged (same jar, amount and date) is the leg's
+            // own history and is not judged again; a new answer, a changed one, one on a re-dated
+            // leg, or a pledge whose receipt posts only now (#283 review P2-1) is.
+            var echoed = !postsNow && existing is not null && existing.Date == date
+                ? answers.GroupBy(i => i.JarId)
+                    .Where(g => StoredShare(existing, g.Key) is var stored && stored > 0m && stored == g.Sum(i => i.Amount))
+                    .Select(g => g.Key).ToHashSet()
+                : new HashSet<Guid>();
+            var jars = await OwnJarsAsync(db, ownerId, account, answers.Select(i => i.JarId), date, echoed, errorKey, cancellationToken);
             foreach (var group in answers.Where(i => i.Amount != 0m).GroupBy(i => i.JarId))
             {
                 var jar = jars[group.Key];
@@ -51,7 +60,9 @@ public static class JarMovements
                 {
                     throw Validation(errorKey, $"The amount for {jar.Name} must be zero or more.");
                 }
-                if (jar.IsArchived)
+                // An archived jar holds nothing (rule 26); its stored share sent back unchanged is
+                // history, not money put in now (W07 P3-10).
+                if (jar.IsArchived && !echoed.Contains(jar.Id))
                 {
                     throw Validation(errorKey, $"{jar.Name} is archived. Restore it before putting money into it.");
                 }
@@ -259,13 +270,16 @@ public static class JarMovements
             {
                 throw Validation(errorKey, "This payment is already on a jar's line; it draws from that jar.");
             }
-            var jar = (await OwnJarsAsync(db, ownerId, account, new[] { fromId }, errorKey, cancellationToken))[fromId];
-            if (jar.IsArchived)
+            portions.Remove(Guid.Empty);
+            portions[fromId] = portions.GetValueOrDefault(fromId) + unlined;
+            var echoed = existing is not null && existing.Date == transaction.Date && StoredShare(existing, fromId) == -portions[fromId]
+                ? heldThen.Where(id => id == fromId).ToHashSet()
+                : new HashSet<Guid>();
+            var jar = (await OwnJarsAsync(db, ownerId, account, new[] { fromId }, transaction.Date, echoed, errorKey, cancellationToken))[fromId];
+            if (jar.IsArchived && !echoed.Contains(fromId))
             {
                 throw Validation(errorKey, $"{jar.Name} is archived and holds nothing.");
             }
-            portions.Remove(Guid.Empty);
-            portions[fromId] = portions.GetValueOrDefault(fromId) + unlined;
             postings.AddRange(portions.Select(p => new JarAllocationPosting { JarId = p.Key, Amount = -p.Value }));
         }
         await ReplaceAsync(db, ownerId, transaction, account.Id, transaction.Date, postings, cancellationToken, existing);
@@ -398,13 +412,62 @@ public static class JarMovements
         await ReplaceAsync(db, ownerId, transaction, accountId, date, postings, cancellationToken, existing);
     }
 
+    /// <summary>
+    /// The day <paramref name="transaction"/>'s leg on <paramref name="accountId"/> posts there; null
+    /// while it has none: a receipt still in transit, sent back, or held for its departure.
+    /// </summary>
+    public static DateOnly? PostsOn(Transaction transaction, Guid accountId) =>
+        transaction.Type != TransactionType.Transfer ? transaction.Date
+        : transaction.DepartedOn is null ? null
+        : transaction.AccountId == accountId ? transaction.DepartedOn
+        : transaction.ReturnedOn is null ? transaction.ReceivedOn : null;
+
+    /// <summary>
+    /// For a receipt on <paramref name="accountId"/> that a confirmation or a statement posts on
+    /// <paramref name="date"/> while keeping its stored answer: a share that answer gives a jar of
+    /// the account that is archived (rule 26: it holds nothing), or that only arrived in the
+    /// account after <paramref name="date"/> (rule 80, #276 R2-P2-4), goes to the account's
+    /// unallocated funds instead. Archiving is refused while
+    /// money is on its way to a jar, so an archived jar is named here only by an answer stored
+    /// before that refusal (#282 review P2-1, #283 review P2-2).
+    /// </summary>
+    public static async Task FollowReceiptAsync(
+        IApplicationDbContext db, Transaction transaction, Guid accountId, DateOnly date, CancellationToken cancellationToken)
+    {
+        var existing = await FindAsync(db, transaction.Id, accountId, cancellationToken);
+        // Not there, or removed earlier in this request.
+        if (existing is null || !db.JarAllocations.Local.Contains(existing))
+        {
+            return;
+        }
+        var ids = existing.Postings.Where(p => p.JarId is not null && p.Amount > 0m).Select(p => p.JarId!.Value).ToList();
+        var jars = await db.Jars.AsNoTracking()
+            .Where(j => ids.Contains(j.Id) && j.FundingAccountId == accountId)
+            .ToListAsync(cancellationToken);
+        var released = jars
+            .Where(j => j.IsArchived || !JarLedgerReader.HeldOn(j.FundingAccountId, j.FundingAccountSince, accountId, date))
+            .Select(j => j.Id)
+            .ToHashSet();
+        if (released.Count == 0)
+        {
+            return;
+        }
+        var postings = existing.Postings
+            .Where(p => p.JarId is Guid jarId && !released.Contains(jarId))
+            .Select(p => new JarAllocationPosting { JarId = p.JarId, Amount = p.Amount })
+            .ToList();
+        // All of it unallocated is what the reader derives on its own, so nothing is stored then.
+        var unallocated = existing.Postings.Sum(p => p.Amount) - postings.Sum(p => p.Amount);
+        if (postings.Count > 0 && unallocated != 0m)
+        {
+            postings.Add(new JarAllocationPosting { JarId = null, Amount = unallocated });
+        }
+        await ReplaceAsync(db, transaction.OwnerId, transaction, accountId, existing.Date, postings, cancellationToken, existing);
+    }
+
     /// <summary>Drops the stored split of one leg, so the reader falls back to its derived attribution.</summary>
     public static Task ClearAsync(IApplicationDbContext db, Transaction transaction, Guid accountId, CancellationToken cancellationToken) =>
         ReplaceAsync(db, transaction.OwnerId, transaction, accountId, transaction.Date, new List<JarAllocationPosting>(), cancellationToken);
-
-    /// <summary>True when the account backs at least one jar (the prompts only apply there).</summary>
-    public static Task<bool> BacksJarsAsync(IApplicationDbContext db, string ownerId, Guid accountId, CancellationToken cancellationToken) =>
-        db.Jars.AnyAsync(j => j.OwnerId == ownerId && j.FundingAccountId == accountId && !j.IsArchived, cancellationToken);
 
     private static Task<JarAllocation?> FindAsync(IApplicationDbContext db, Guid transactionId, Guid accountId, CancellationToken cancellationToken) =>
         db.JarAllocations
@@ -463,9 +526,14 @@ public static class JarMovements
         }
     }
 
+    /// <summary>
+    /// The jars an answer names, each held in <paramref name="account"/> on <paramref name="date"/>
+    /// (rule 80: from the day it moved there, <see cref="JarLedgerReader.HeldOn"/>; #276 review
+    /// R2-P2-4). A jar in <paramref name="echoed"/> is the leg's stored answer sent back unchanged.
+    /// </summary>
     private static async Task<Dictionary<Guid, Jar>> OwnJarsAsync(
-        IApplicationDbContext db, string ownerId, Account account, IEnumerable<Guid> jarIds, string errorKey,
-        CancellationToken cancellationToken)
+        IApplicationDbContext db, string ownerId, Account account, IEnumerable<Guid> jarIds, DateOnly date,
+        IReadOnlySet<Guid> echoed, string errorKey, CancellationToken cancellationToken)
     {
         var ids = jarIds.Distinct().ToList();
         var jars = await db.Jars.AsNoTracking().Where(j => ids.Contains(j.Id)).ToDictionaryAsync(j => j.Id, cancellationToken);
@@ -482,6 +550,10 @@ public static class JarMovements
             if (jar.FundingAccountId != account.Id)
             {
                 throw Validation(errorKey, $"{jar.Name}'s money is not held in {account.Name}.");
+            }
+            if (!echoed.Contains(id) && !JarLedgerReader.HeldOn(jar.FundingAccountId, jar.FundingAccountSince, account.Id, date))
+            {
+                throw Validation(errorKey, ArrivedLater(jar, account));
             }
         }
         return jars;
@@ -501,6 +573,15 @@ public static class JarMovements
             .Select(i => new { i.Id, JarId = i.SavingsId!.Value, i.Jar!.FundingAccountId, i.Jar.FundingAccountSince })
             .ToDictionaryAsync(x => x.Id, x => (x.JarId, x.FundingAccountId, x.FundingAccountSince), cancellationToken);
     }
+
+    /// <summary>What <paramref name="existing"/> stored for the jar (a draw is negative).</summary>
+    private static decimal StoredShare(JarAllocation? existing, Guid jarId) =>
+        existing?.Postings.Where(p => p.JarId == jarId).Sum(p => p.Amount) ?? 0m;
+
+    /// <summary>The refusal for money dated before a jar arrived in the account.</summary>
+    internal static string ArrivedLater(Jar jar, Account account) =>
+        $"{jar.Name} has been in {account.Name} only since {jar.FundingAccountSince:d MMM yyyy}, so money dated before then can't go into or come out of it there. "
+        + $"To put earlier money in {jar.Name}, record it without the jar and use Move money dated {jar.FundingAccountSince:d MMM yyyy} or later.";
 
     private static ValidationException Validation(string key, string message) =>
         new(new Dictionary<string, string[]> { [key] = new[] { message } });

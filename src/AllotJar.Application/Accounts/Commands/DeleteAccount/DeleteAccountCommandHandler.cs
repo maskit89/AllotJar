@@ -109,6 +109,18 @@ public class DeleteAccountCommandHandler : IRequestHandler<DeleteAccountCommand>
             t.AccountId = null;
         }
 
+        // A person's savings account and the allocation's source account are ids with no foreign
+        // key: cleared here, so a deleted account never reads as someone's "Private account"
+        // (#277 review P3-5).
+        foreach (var member in await _db.HouseholdMembers.Where(m => m.PersonalSavingsAccountId == account.Id).ToListAsync(cancellationToken))
+        {
+            member.PersonalSavingsAccountId = null;
+        }
+        foreach (var profile in await _db.AllocationProfiles.Where(p => p.SourceAccountId == account.Id).ToListAsync(cancellationToken))
+        {
+            profile.SourceAccountId = null;
+        }
+
         _db.Accounts.Remove(account);
         await _db.SaveChangesAsync(cancellationToken);
     }

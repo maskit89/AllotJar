@@ -69,6 +69,7 @@ public class ConfirmTransferLegsCommandHandler : IRequestHandler<ConfirmTransfer
                 "The receipt date can't be before the departure date.");
         }
 
+        var receiptPosted = transfer.TransferAccountId is Guid destination && JarMovements.PostsOn(transfer, destination) is not null;
         var departureNowKnown = transfer.DepartedOn is null && departedOn is not null;
         var receiptNowKnown = transfer.ReceivedOn is null && receivedOn is not null;
 
@@ -106,7 +107,12 @@ public class ConfirmTransferLegsCommandHandler : IRequestHandler<ConfirmTransfer
             }
             await JarMovements.ApplyIncomingAsync(
                 _db, userId, transfer, transfer.TransferAccount, receivedDate, transfer.Amount, request.JarAllocations,
-                nameof(request.JarAllocations), cancellationToken);
+                nameof(request.JarAllocations), cancellationToken, postsNow: !receiptPosted);
+        }
+        else if (!receiptPosted && transfer.TransferAccountId is Guid to && JarMovements.PostsOn(transfer, to) is DateOnly posts)
+        {
+            // The answer given while the money was in transit, kept (the command's doc).
+            await JarMovements.FollowReceiptAsync(_db, transfer, to, posts, cancellationToken);
         }
 
         await _db.SaveChangesAsync(cancellationToken);

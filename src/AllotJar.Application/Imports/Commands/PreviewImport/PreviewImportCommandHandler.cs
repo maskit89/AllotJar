@@ -132,6 +132,11 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
             .ToList();
         var suggestions = await AutoCategorizer.ResolveLinesAsync(
             _db, userId, new HashSet<Guid>(), requests, cancellationToken);
+        var fits = await AutoCategorizer.JarLinesFitAsync(_db, suggestions.Values, cancellationToken);
+        // A jar's line is suggested only for a row from the account that holds the jar that day.
+        suggestions = suggestions
+            .Where(s => fits(s.Value, accountId, s.Key.Date))
+            .ToDictionary(s => s.Key, s => s.Value);
 
         var suggestedIds = suggestions.Values.ToHashSet();
         var nameById = suggestedIds.Count == 0
