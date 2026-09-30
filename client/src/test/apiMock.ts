@@ -7,7 +7,8 @@
 //
 // The factory imports this module lazily because vi.mock is hoisted above the file's imports.
 // Vitest gives every test file its own module registry, so the spies below belong to that file
-// alone; `resetApiMocks()` in a beforeEach wipes their queued answers and call logs between tests.
+// alone; `resetApiMocks()` in a beforeEach wipes their queued answers and call logs between tests
+// (the `setToken` spy included).
 import { vi } from 'vitest'
 
 type ApiModule = typeof import('../lib/api')
@@ -16,6 +17,8 @@ export const mockGet = vi.fn()
 export const mockPut = vi.fn()
 export const mockPost = vi.fn()
 export const mockDelete = vi.fn()
+/** `setToken` under test; a sign-in test can assert on it. */
+export const mockSetToken = vi.fn()
 
 /** What `api` (the axios instance) becomes under test. */
 export const mockApi = { get: mockGet, put: mockPut, post: mockPost, delete: mockDelete }
@@ -25,6 +28,7 @@ export function resetApiMocks() {
   mockPut.mockReset()
   mockPost.mockReset()
   mockDelete.mockReset()
+  mockSetToken.mockReset()
 }
 
 /**
@@ -42,7 +46,7 @@ export async function apiModule(
     ...((await importOriginal()) as ApiModule),
     api: mockApi as unknown as ApiModule['api'],
     getToken: () => 'test-token',
-    setToken: vi.fn(),
+    setToken: mockSetToken,
     ...over,
   }
 }

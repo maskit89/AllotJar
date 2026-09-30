@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto } from '../types'
 
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
@@ -9,8 +8,6 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { AccountsPage } from './AccountsPage'
-import { AuthProvider } from '../auth/AuthContext'
-import { HouseholdProvider } from '../features/HouseholdContext'
 import { setMoneyFormat } from '../lib/money'
 
 function accounts(): AccountDto[] {
@@ -116,15 +113,7 @@ describe('AccountsPage', () => {
     mockPost.mockResolvedValue({ data: { id: 'a9', name: 'Pocket', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0 } })
     const user = userEvent.setup()
 
-    render(
-      <MemoryRouter>
-        <AuthProvider>
-          <HouseholdProvider>
-            <AccountsPage />
-          </HouseholdProvider>
-        </AuthProvider>
-      </MemoryRouter>,
-    )
+    renderWithProviders(<AccountsPage />, { household: true })
 
     await user.click(await screen.findByRole('button', { name: 'Add account' }, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))

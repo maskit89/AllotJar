@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, BudgetMonthDto, BudgetTemplateDto, JarDto } from '../types'
 
 // Control the API from the tests.
@@ -20,8 +19,6 @@ vi.mock('../features/HouseholdContext', async (importOriginal) => ({
 import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { DashboardPage } from './DashboardPage'
-import { AuthProvider } from '../auth/AuthContext'
-import { MonthProvider } from '../features/MonthContext'
 
 // Income(Take-home Pay 3000) at the top + Housing(Rent 1100). Remaining = 1900.
 function budget(): BudgetMonthDto {
@@ -427,16 +424,8 @@ describe('DashboardPage optimistic editing', () => {
       url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: b }),
     )
 
-    // Render directly so we can pin "today" to the 20th — past Rent's due day (5th).
-    render(
-      <MemoryRouter>
-        <AuthProvider>
-          <MonthProvider>
-            <DashboardPage today={new Date(2026, 5, 20)} />
-          </MonthProvider>
-        </AuthProvider>
-      </MemoryRouter>,
-    )
+    // Pin "today" to the 20th — past Rent's due day (5th).
+    renderWithProviders(<DashboardPage today={new Date(2026, 5, 20)} />, { month: true })
 
     expect(await screen.findByText(/1 overdue/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByTitle(/Overdue/)).toBeInTheDocument()

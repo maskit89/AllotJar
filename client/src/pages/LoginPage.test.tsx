@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router-dom'
 
 const { envState } = vi.hoisted(() => ({
   envState: { isStaging: false },
@@ -28,7 +28,6 @@ vi.mock('../lib/env', () => ({
 import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { LoginPage } from './LoginPage'
-import { AuthProvider } from '../auth/AuthContext'
 
 const renderPage = () => renderWithProviders(<LoginPage />)
 
@@ -55,16 +54,13 @@ describe('LoginPage', () => {
     })
     const user = userEvent.setup()
 
-    render(
-      <MemoryRouter initialEntries={['/login?returnUrl=%2Faccept-invite%3Fcode%3DABC123']}>
-        <AuthProvider>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/accept-invite" element={<div>INVITE PROBE</div>} />
-            <Route path="*" element={<div>ELSEWHERE</div>} />
-          </Routes>
-        </AuthProvider>
-      </MemoryRouter>,
+    renderWithProviders(
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/accept-invite" element={<div>INVITE PROBE</div>} />
+        <Route path="*" element={<div>ELSEWHERE</div>} />
+      </Routes>,
+      { route: '/login?returnUrl=%2Faccept-invite%3Fcode%3DABC123' },
     )
 
     await user.type(screen.getByLabelText('Email'), 'sam@x.com')
