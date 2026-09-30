@@ -2,7 +2,6 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 
 namespace AllotJar.IntegrationTests;
 
@@ -20,11 +19,6 @@ public class BudgetMonthConcurrencyTests
     private readonly SqlServerFixture _fixture;
 
     public BudgetMonthConcurrencyTests(SqlServerFixture fixture) => _fixture = fixture;
-
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
 
     private static string NewOwner() => $"user-{Guid.NewGuid():N}";
 

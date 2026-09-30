@@ -14,18 +14,10 @@ import { firstOfMonthAhead, register } from './helpers'
  * debited on departure; pots are credited only when a receipt is confirmed), and the
  * stranded-surplus / nothing-to-save notes with real data.
  *
- * KNOWN BUG (worked around here, documented in the skipped test at the bottom):
- * against the real API a fresh household CANNOT open the "Set up allocation" modal.
- * GET /api/allocation/profile returns 204 No Content (not the JSON null the client
- * and its unit-test stubs assume), axios maps 204 → data '', and `'' ?? null` keeps
- * the empty string — so `profile` becomes `''`. That renders the no-profile empty
- * state fine, but `openSettings → syncFormFromProfile` evaluates `''?.rules.find`
- * (optional chaining does not short-circuit on ''), throwing a TypeError before
- * `setShowSettings(true)` runs. First-time setup is therefore impossible through
- * the UI. These journeys seed the profile via the raw PUT /api/allocation/profile
- * with EXACTLY the body the client's `standardRules` would send, then drive every
- * later step (settings edits against the existing profile, preview, commit) through
- * the real UI — the Settings modal works once a real profile object exists.
+ * The first-run "Set up allocation" modal is covered by the last test. The other journeys
+ * seed the profile through the raw PUT /api/allocation/profile with EXACTLY the body the
+ * client's `standardRules` would send (a short-cut, not a work-around), then drive every later
+ * step (settings edits, preview, commit) through the real UI.
  *
  * Money assertions are symbol-agnostic ("2,500.00", not "€2,500.00") because the
  * registration form pre-selects the currency from the browser locale, while the
@@ -42,7 +34,7 @@ const MONTH_NAMES = [
 /** The app's viewed month is the real current month (browser clock = server clock). */
 function currentPeriod() {
   const now = new Date()
-  return { year: now.getFullYear(), month: now.getMonth() + 1, name: MONTH_NAMES[now.getMonth()] }
+  return { name: MONTH_NAMES[now.getMonth()] }
 }
 
 /**
@@ -66,7 +58,7 @@ async function committed(
   page: Page,
   method: 'POST' | 'PUT' | 'DELETE',
   url: string | ((u: string) => boolean),
-  action: () => Promise<void>,
+  action: () => Promise<unknown>,
 ): Promise<void> {
   const matches = typeof url === 'string' ? (u: string) => u.includes(url) : url
   const done = page.waitForResponse(
@@ -232,8 +224,8 @@ const SPLIT = { Equal: 0, ByIncomeRatio: 1, BalanceTilt: 2 }
 /**
  * Seed the allocation profile via the raw PUT — byte-for-byte the body the client's
  * `standardRules(costSplit, pocket, savingsSplit)` would send from the Set up modal.
- * Needed because the modal cannot open for a profile-less household (the 204-null
- * bug this spec's skipped test documents); every later step still runs through the UI.
+ * The modal itself is exercised by the first-run test at the bottom; every later step still runs
+ * through the UI.
  */
 async function seedStandardProfile(
   page: Page,
@@ -334,7 +326,7 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   page,
 }) => {
   test.slow() // one long linear journey: full household fixture + two commits
-  const { year, month, name: monthName } = currentPeriod()
+  const { name: monthName } = currentPeriod()
   const auth = captureAuth(page)
 
   await register(page)
@@ -384,10 +376,10 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   await page.getByRole('link', { name: 'Allocation' }).click()
 
   // --- ALLOC-063 + ALLOC-008: a fresh opt-out account has no starter profile — the
-  // no-profile empty state renders with the Owner's Set up button. (Clicking it is
-  // the 204-null BUG documented in the skipped test below, so the profile is seeded
-  // through the raw API with the exact standard four-rule body instead: ALLOC-018's
-  // payload, savings split Equally, NO source account yet.)
+  // no-profile empty state renders with the Owner's Set up button. (The modal is covered
+  // by the first-run test at the bottom; here the profile is seeded through the raw API
+  // with the exact standard four-rule body: ALLOC-018's payload, savings split Equally,
+  // NO source account yet.)
   await expect(page.getByText('No allocation set up yet')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Set up allocation', exact: true })).toBeVisible()
   await seedStandardProfile(page, auth, { savingsSplit: SPLIT.Equal })
@@ -567,8 +559,7 @@ test('a member without a savings account strands their share; over-committing th
   await addAttributedIncome(page, { name: 'Alex salary', amount: '3000', formatted: '3,000.00', person: 'Alex' })
   await addAttributedIncome(page, { name: 'Robin salary', amount: '2000', formatted: '2,000.00', person: 'Robin' })
 
-  // Profile: source Joint, pocket 50.00 each, savings sent Equally (raw-API seed —
-  // the first-run modal cannot open, see the skipped BUG test).
+  // Profile: source Joint, pocket 50.00 each, savings sent Equally (raw-API seed).
   await seedStandardProfile(page, auth, { sourceName: 'Joint', pocket: 50, savingsSplit: SPLIT.Equal })
   await page.goto('/allocation')
 
@@ -683,7 +674,7 @@ test('a new couple with equal zero balances previews and commits under the defau
   await addAttributedIncome(page, { name: 'Sam salary', amount: '2500', formatted: '2,500.00', person: 'Sam' })
 
   // The DEFAULT profile — savings split Balance (BalanceTilt), lean 25 — seeded via
-  // the raw API (the first-run modal cannot open, see the skipped BUG test).
+  // the raw API.
   await seedStandardProfile(page, auth, { sourceName: 'Joint' })
   await page.goto('/allocation')
 
@@ -734,11 +725,9 @@ test('a new couple with equal zero balances previews and commits under the defau
 test('the first-run Set up allocation modal opens from the no-profile empty state', async ({
   page,
 }) => {
-  // FIXED (ALLOC-010/ALLOC-018): GET /api/allocation/profile now returns a JSON `null` body
-  // (200, via JsonResult) for a profile-less household instead of 204 No Content, so axios no
-  // longer hands the client an empty string. The client also hardens `prof?.data || null` so any
-  // falsy body normalises to null. `profile` is therefore a real null, openSettings →
-  // syncFormFromProfile short-circuits on `profile?.rules`, and the Set up allocation modal opens.
+  // ALLOC-010/ALLOC-018 regression: GET /api/allocation/profile returns a JSON `null` body
+  // (200, via JsonResult) for a profile-less household, not 204 No Content (which axios turned
+  // into an empty string that crashed openSettings), so the Set up allocation modal opens.
   await register(page)
   await page.getByRole('link', { name: 'People' }).click()
   await addPerson(page, { name: 'Robin', income: '2000' })

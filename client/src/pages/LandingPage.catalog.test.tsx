@@ -11,9 +11,7 @@ import type { BudgetMonthDto } from '../types'
 // public legal pages + LegalLayout title lifecycle, the analytics consent banner and
 // its accept/decline persistence, and the staging banner on the landing surface.
 //
-// These COMPLEMENT (do not duplicate) the assertions already living in
-// LandingPage.test.tsx (single H1 shape, primary CTA -> register tab, one sign-in
-// link, two FAQ items), LegalPages.test.tsx (Privacy H1/contact/controller/GDPR
+// These complement the assertions in LegalPages.test.tsx (Privacy H1/contact/controller/GDPR
 // rights; Terms H1/Malta law/privacy link), StagingBanner.test.tsx (production build
 // renders nothing; staging build warns of data loss in isolation), ConsentModal.test.tsx
 // (LAND-015 — modal suppressed on /privacy + /terms) and analytics.test.ts (LAND-025/

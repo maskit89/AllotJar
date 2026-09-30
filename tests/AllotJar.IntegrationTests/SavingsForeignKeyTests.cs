@@ -1,9 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using AllotJar.Application.Budgets.Commands.AddBudgetItem;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
-using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -18,8 +15,10 @@ namespace AllotJar.IntegrationTests;
 /// foreign keys, so a bare <c>Guid.NewGuid()</c> passes there but throws
 /// <c>DbUpdateException</c> against real SQL Server (the production crash PR #142 fixed).
 /// Since rule 73 the only writer is CreateJar (with its designated account, itself an
-/// enforced FK to <c>Accounts.Id</c>); AddBudgetItem refuses savings lines, templates carry
-/// none (rule 81) and registration seeds nothing. These run the handlers against SQL Server.
+/// enforced FK to <c>Accounts.Id</c>); templates carry none (rule 81) and registration seeds
+/// nothing. These run the writing handlers against SQL Server. Refusals that stop in the
+/// handler before any write (a line in a Savings group, a jar on an unknown account) are
+/// covered by the unit suite; the jar-account FK itself by <c>JarLedgerSqlTests</c>.
 /// </summary>
 [Collection(nameof(SqlServerCollection))]
 public class SavingsForeignKeyTests
@@ -27,11 +26,6 @@ public class SavingsForeignKeyTests
     private readonly SqlServerFixture _fixture;
 
     public SavingsForeignKeyTests(SqlServerFixture fixture) => _fixture = fixture;
-
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
 
     // A fresh household per test keeps them isolated on the shared database.
     private static string NewOwner() => $"user-{Guid.NewGuid():N}";
@@ -84,46 +78,7 @@ public class SavingsForeignKeyTests
         return account;
     }
 
-    private async Task AssertEverySavingsLineHasItsJarAsync(string ownerId, BudgetMonth month)
-    {
-        await using var verify = _fixture.CreateContext();
-        var jarIds = (await verify.Jars
-                .AsNoTracking()
-                .Where(j => j.OwnerId == ownerId)
-                .Select(j => j.Id)
-                .ToListAsync())
-            .ToHashSet();
-
-        var savingsLines = month.Categories
-            .SelectMany(c => c.Items)
-            .Where(i => i.SavingsId != null)
-            .ToList();
-
-        savingsLines.Should().NotBeEmpty();
-        savingsLines.Should().OnlyContain(l => jarIds.Contains(l.SavingsId!.Value));
-    }
-
-    // ---- Former crash path 1: a line in a Savings group is refused (rule 73) --------------
-
-    [Fact]
-    public async Task AddBudgetItem_ToSavingsGroup_IsRefused_AndWritesNothing()
-    {
-        var owner = NewOwner();
-        await using var db = _fixture.CreateContext();
-        var month = await SeedMonthAsync(db, owner, 2026, 6, withSavingsGroup: true);
-        var savings = month.Categories.Single(c => c.Kind == CategoryKind.Savings);
-
-        var handler = new AddBudgetItemCommandHandler(db, new CurrentUserStub(owner));
-        var act = () => handler.Handle(new AddBudgetItemCommand(savings.Id, "Holiday", 100m), CancellationToken.None);
-
-        await act.Should().ThrowAsync<ValidationException>();
-        var reloaded = await LoadMonthGraphAsync(owner);
-        reloaded.Categories.SelectMany(c => c.Items).Should().BeEmpty();
-        await using var verify = _fixture.CreateContext();
-        (await verify.Jars.AnyAsync(j => j.OwnerId == owner)).Should().BeFalse();
-    }
-
-    // ---- Former crash path 2: templates carry no savings lines (rule 81) ------------------
+    // ---- Templates carry no savings lines (rule 81) ----------------------------------------
 
     [Theory]
     [InlineData("essentials")]
@@ -146,7 +101,7 @@ public class SavingsForeignKeyTests
         (await verify.Jars.AnyAsync(j => j.OwnerId == owner)).Should().BeFalse();
     }
 
-    // ---- Crash path 3: create a jar ------------------------------------------
+    // ---- Create a jar ------------------------------------------------------------------------
 
     [Fact]
     public async Task CreateJar_PlantsSavingsLineInTheCurrentMonth()
@@ -177,25 +132,6 @@ public class SavingsForeignKeyTests
         var reloaded = await LoadMonthGraphAsync(owner);
         var line = reloaded.Categories.SelectMany(c => c.Items).Single(i => i.SavingsId == dto.Id);
         line.Name.Should().Be("New Sofa");
-    }
-
-    // ---- Rule 73 on the database: a jar cannot be written without a real account ----------
-
-    [Fact]
-    public async Task CreateJar_WithAnUnknownAccount_NeverReachesTheDatabase()
-    {
-        var owner = NewOwner();
-        await using var db = _fixture.CreateContext();
-
-        var handler = new CreateJarCommandHandler(db, new CurrentUserStub(owner));
-        var act = () => handler.Handle(
-            new CreateJarCommand("Orphan", JarKind.Goal, 100m, null,
-                AccrualMethod.TargetByDate, Guid.NewGuid()),
-            CancellationToken.None);
-
-        await act.Should().ThrowAsync<NotFoundException>();
-        await using var verify = _fixture.CreateContext();
-        (await verify.Jars.AnyAsync(j => j.OwnerId == owner)).Should().BeFalse();
     }
 
     // ---- Registration seeds nothing (rule 81) --------------------------------------------

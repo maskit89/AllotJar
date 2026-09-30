@@ -1,9 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Domain.Entities;
@@ -20,16 +18,6 @@ namespace AllotJar.Application.Tests.Transactions;
 /// </summary>
 public class CreateTransactionWithSplitsTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-create-split-{Guid.NewGuid()}")
-            .Options);
-
     private sealed record Seeded(
         BudgetMonth Month, BudgetItem Groceries, BudgetItem Household, BudgetItem Salary);
 

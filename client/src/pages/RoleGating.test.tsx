@@ -107,7 +107,7 @@ describe('role gating', () => {
     // The account is listed…
     expect(await screen.findByText('Everyday', {}, { timeout: 5000 })).toBeInTheDocument()
     // …but the add form and per-row actions are gone for a non-admin.
-    await waitFor(() => expect(screen.queryByLabelText('Account name')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Add account' })).not.toBeInTheDocument())
     expect(screen.queryByLabelText('Edit Everyday')).not.toBeInTheDocument()
   })
 

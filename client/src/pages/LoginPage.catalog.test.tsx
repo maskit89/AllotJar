@@ -664,16 +664,10 @@ describe('LoginPage (REG catalog)', () => {
     expect(screen.queryByText(/Your session has expired/)).not.toBeInTheDocument()
   })
 
-  // REG-027 — BUG (confirmed): when the server returns the ASP.NET
-  // ValidationProblemDetails shape — `errors` as an OBJECT (`{errors:{FirstName:[…]}}`),
-  // which is what fires for whitespace-only names the client trims to "" — LoginPage's
-  // `data?.errors?.join(' ')` throws `TypeError: …join is not a function`. The throw
-  // escapes the catch, so NO alert renders and `finally` re-enables the submit button:
-  // the user is left with a re-enabled "Create account" button and no explanation.
-  // Catalog REG-027 Expected: "The form must surface a visible error and stay usable."
-  // Skipped (not weakened) until LoginPage handles the errors-object shape (e.g. flatten
-  // Object.values(errors).flat(), or guard Array.isArray(errors) before .join).
-  it('REG-027 BUG: a ValidationProblemDetails errors-object body must surface a visible error, not a TypeError', async () => {
+  // REG-027 — the server's ValidationProblemDetails shape (`errors` as an OBJECT,
+  // `{errors:{FirstName:[…]}}`, which fires for whitespace-only names the client trims to "")
+  // must surface a visible error and leave the form usable, not throw on `errors.join`.
+  it('REG-027: a ValidationProblemDetails errors-object body must surface a visible error, not a TypeError', async () => {
     mockPost.mockRejectedValue(
       axiosError({ errors: { FirstName: ['The FirstName field is required.'] } }),
     )

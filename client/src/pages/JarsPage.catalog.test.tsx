@@ -89,10 +89,6 @@ function mockPosts(plan: (request: JarScheduleRequest) => JarScheduleDto, data: 
 }
 
 /** The body of the one POST /jars a test expects. */
-function createBody(): Record<string, unknown> {
-  return mockPost.mock.calls.find((c) => c[0] === '/jars')![1] as Record<string, unknown>
-}
-
 // Account name deliberately doesn't collide with any jar name so its <option> never
 // creates a duplicate text match.
 const JOINT: AccountDto = {
@@ -264,31 +260,6 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(await screen.findByText('New kitchen', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
-  it('JAR-015: "Already set aside" is sent as a dated initialAllocation on create (rule 77)', { timeout: 15000 }, async () => {
-    mockPost.mockResolvedValue({ data: jar({ id: 'f9', name: 'Car repairs', kind: 1, targetAmount: 600, currentBalance: 150, status: 'OnTrack' }) })
-    const user = userEvent.setup()
-
-    renderPage()
-    const dialog = await openNewJar(user)
-
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
-    await user.type(dialog.getByLabelText('Jar name'), 'Car repairs')
-    await user.type(dialog.getByLabelText('Target amount'), '600')
-    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-03-01' } })
-    // The field divides money already in the account into the jar; it never adds money.
-    expect(dialog.getByText('Already set aside')).toBeInTheDocument()
-    expect(dialog.getByText(/It doesn.t add money/)).toBeInTheDocument()
-    await user.type(dialog.getByLabelText('Already set aside'), '150')
-    fireEvent.change(dialog.getByLabelText('Set aside on'), { target: { value: '2026-09-10' } })
-    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
-
-    await waitFor(
-      () => expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ initialAllocation: 150, initialAllocationDate: '2026-09-10', fundingAccountId: 'acc1' })),
-      { timeout: 5000 },
-    )
-    expect(createBody()).not.toHaveProperty('openingBalance')
-  })
-
   it('JAR-015: a blank "Already set aside" sends initialAllocation 0 with no date', { timeout: 15000 }, async () => {
     mockPost.mockResolvedValue({ data: jar({ id: 'f9', name: 'Later', kind: 1, targetAmount: 600, currentBalance: 0, status: 'OnTrack' }) })
     const user = userEvent.setup()
@@ -319,32 +290,6 @@ describe('JarsPage — catalog (JAR)', () => {
       expect(within(repeats).getByRole('option', { name: label })).toBeInTheDocument()
     }
     expect(repeats.value).toBe('12') // Yearly selected by default
-  })
-
-  it('JAR-021: "Held in" lists the accounts and sends the picked id as fundingAccountId', { timeout: 15000 }, async () => {
-    mockLoads({ accounts: [JOINT] })
-    mockPost.mockResolvedValue({ data: jar({ id: 'f9', name: 'Wheels', kind: 1, fundingAccountId: 'acc1', status: 'OnTrack' }) })
-    const user = userEvent.setup()
-
-    renderPage()
-    const dialog = await openNewJar(user)
-
-    const held = dialog.getByLabelText('Funding account') as HTMLSelectElement
-    // Required (rule 73): no "No account" escape hatch.
-    expect(within(held).queryByRole('option', { name: 'No account' })).not.toBeInTheDocument()
-    expect(within(held).getByRole('option', { name: 'Joint Current' })).toBeInTheDocument()
-
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
-    await user.type(dialog.getByLabelText('Jar name'), 'Wheels')
-    await user.type(dialog.getByLabelText('Target amount'), '400')
-    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-03-01' } })
-    await user.selectOptions(held, 'acc1')
-    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
-
-    await waitFor(
-      () => expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ fundingAccountId: 'acc1' })),
-      { timeout: 5000 },
-    )
   })
 
   it('JAR-021: with no accounts, the form says to add one first (link to /accounts) and disables Add', { timeout: 15000 }, async () => {

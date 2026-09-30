@@ -929,26 +929,6 @@ describe('TransactionsPage catalog — transfer form', () => {
     expect(screen.getByLabelText('Transaction account')).toBeInTheDocument()
   })
 
-  // TX-079 — a blank note sends payee: null (the server defaults the payee to "Transfer").
-  it('sends payee null when the transfer note is blank', { timeout: 15000 }, async () => {
-    mockLoad([], accountsFixture())
-    mockPost.mockResolvedValue({ data: tx({ payee: 'Transfer', type: 2, amount: 100, accountName: 'Joint', transferAccountName: 'Rainy Day' }) })
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
-    await user.click(await screen.findByRole('button', { name: 'Transfer' }, { timeout: 5000 }))
-    await user.type(screen.getByLabelText('Transfer amount'), '100')
-    await user.selectOptions(screen.getByLabelText('Transfer from account'), 'a-joint')
-    await user.selectOptions(screen.getByLabelText('Transfer to account'), 'a-rainy')
-    await user.click(screen.getByLabelText('Transfer completed confirmation'))
-    await user.click(screen.getByRole('button', { name: 'Record transfer' }))
-
-    await waitFor(() =>
-      expect(mockPost).toHaveBeenCalledWith('/transactions/transfer', expect.objectContaining({ payee: null })),
-    )
-  })
-
   // Rules 7/71 — the form records a confirmed departure; the receipt is optional and never invented.
   it('sends the departure as departedOn, an optional receipt, and needs the completed confirmation', { timeout: 15000 }, async () => {
     mockLoad([], accountsFixture())

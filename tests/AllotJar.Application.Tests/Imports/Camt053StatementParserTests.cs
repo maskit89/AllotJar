@@ -1,4 +1,3 @@
-using Xunit;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Infrastructure.Statements;
 

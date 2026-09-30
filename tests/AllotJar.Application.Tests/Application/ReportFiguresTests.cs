@@ -1,15 +1,12 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Reports;
 using AllotJar.Application.Reports.Dtos;
 using AllotJar.Application.Reports.Queries.GetAnnualSummary;
 using AllotJar.Application.Reports.Queries.GetBudgetTrends;
 using AllotJar.Application.Reports.Queries.GetMonthReport;
 using AllotJar.Application.Transactions.Commands.AssignTransaction;
-using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -26,17 +23,7 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class ReportFiguresTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static readonly CurrentUserStub User = new("user-1");
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-report-figures-{Guid.NewGuid()}")
-            .Options);
 
     /// <summary>Income/Salary (planned 3000) and Household/Groceries (planned 400) + Clothes (planned 100).</summary>
     private static Dictionary<string, BudgetItem> SeedMonth(ApplicationDbContext db, int year, int month, decimal incomePlanned = 3000m)

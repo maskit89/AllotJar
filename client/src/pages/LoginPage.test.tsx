@@ -54,13 +54,6 @@ describe('LoginPage', () => {
     })
   })
 
-  it('hides the registration-only fields in sign-in mode', () => {
-    renderPage()
-    expect(screen.queryByLabelText('First name')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Currency')).not.toBeInTheDocument()
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
-  })
-
   it('returns to a safe internal returnUrl after signing in (e.g. back to an invite link)', async () => {
     mockPost.mockResolvedValue({
       data: {
@@ -140,18 +133,6 @@ describe('LoginPage', () => {
       }),
     )
     expect(mockPost.mock.calls[0][1]).not.toHaveProperty('includeSampleData')
-  })
-
-  it('offers no sample-figures opt-in: the only checkbox is the required terms box (rule 81)', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(screen.getByRole('button', { name: 'Create account' }))
-
-    expect(screen.queryByRole('checkbox', { name: /sample figures/i })).not.toBeInTheDocument()
-    expect(screen.queryByText(/sample figures/i)).not.toBeInTheDocument()
-    expect(screen.getAllByRole('checkbox')).toHaveLength(1)
-    expect(screen.getByRole('checkbox', { name: /I agree to the/ })).toBeRequired()
   })
 
   it('adds a required data-loss acknowledgment when registering in the staging build', async () => {

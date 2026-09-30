@@ -1,12 +1,10 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Auth.Commands.Login;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
-using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Application;
 
@@ -46,11 +44,6 @@ public class LoginTests
         public (string Token, DateTime ExpiresAtUtc) Generate(string userId, string email, string? securityStamp) =>
             ($"token-for-{userId}", DateTime.UtcNow.AddMinutes(30));
     }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-login-{Guid.NewGuid()}")
-            .Options);
 
     [Fact]
     public async Task Locked_out_returns_locked_and_never_issues_a_token()

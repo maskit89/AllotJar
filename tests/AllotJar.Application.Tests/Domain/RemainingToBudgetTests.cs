@@ -1,4 +1,3 @@
-using Xunit;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 
@@ -39,89 +38,24 @@ public class RemainingToBudgetTests
         };
     }
 
-    [Fact]
-    public void RemainingToBudget_IsPositive_WhenIncomeExceedsPlanned()
-    {
-        var month = BuildMonth(income: 3000m, 1000m, 500m);
-
-        Assert.Equal(1500m, month.RemainingToBudget);
-        Assert.False(month.IsBalanced);
-    }
-
-    [Fact]
-    public void RemainingToBudget_IsZero_WhenEveryEuroIsAssigned()
-    {
-        var month = BuildMonth(income: 2000m, 1200m, 800m);
-
-        Assert.Equal(0m, month.RemainingToBudget);
-        Assert.True(month.IsBalanced);
-    }
-
-    [Fact]
-    public void RemainingToBudget_IsNegative_WhenOverBudgeted()
-    {
-        var month = BuildMonth(income: 1000m, 700m, 600m);
-
-        Assert.Equal(-300m, month.RemainingToBudget);
-        Assert.False(month.IsBalanced);
-    }
-
-    [Fact]
-    public void RemainingToBudget_EqualsIncome_WhenNothingIsPlanned()
-    {
-        var month = BuildMonth(income: 2500m); // no items
-
-        Assert.Equal(0m, month.TotalPlanned);
-        Assert.Equal(2500m, month.RemainingToBudget);
-    }
-
-    [Fact]
-    public void RemainingToBudget_HandlesZeroIncomeGracefully()
-    {
-        // Edge case: no income but planned spending -> fully over-budgeted, no throw.
-        var month = BuildMonth(income: 0m, 100m, 50m);
-
-        Assert.Equal(-150m, month.RemainingToBudget);
-        Assert.False(month.IsBalanced);
-    }
-
-    [Fact]
-    public void RemainingToBudget_IsZero_WhenIncomeAndPlannedAreBothZero()
-    {
-        var month = BuildMonth(income: 0m);
-
-        // Remaining is 0, but an empty month is NOT balanced — there is no income
-        // to give a job. The UI prompts for income instead of celebrating.
-        Assert.Equal(0m, month.RemainingToBudget);
-        Assert.False(month.IsBalanced);
-    }
-
-    [Fact]
-    public void IsBalanced_RequiresIncome_NotJustZeroRemaining()
-    {
-        Assert.False(BuildMonth(income: 0m).IsBalanced);          // empty month
-        Assert.False(BuildMonth(income: 1000m, 500m).IsBalanced); // money left to assign
-        Assert.True(BuildMonth(income: 1000m, 1000m).IsBalanced); // every euro has a job
-    }
-
-    [Fact]
-    public void RemainingToBudget_PreservesFourDecimalPrecision()
-    {
-        // Proves no rounding error creeps in for sub-cent Euro amounts.
-        var month = BuildMonth(income: 100.0000m, 33.3333m, 33.3333m, 33.3333m);
-
-        Assert.Equal(0.0001m, month.RemainingToBudget);
-    }
-
+    // A month is balanced only when every euro of a non-zero income has a job: an empty month
+    // (remaining 0, no income) is NOT balanced, so the UI prompts for income instead.
     [Theory]
-    [InlineData(5000, 4999.99, 0.01)]
-    [InlineData(1234.5678, 1234.5678, 0)]
-    [InlineData(0, 0.0001, -0.0001)]
-    public void RemainingToBudget_ComputesAcrossRanges(decimal income, decimal planned, decimal expected)
+    [InlineData(3000, new[] { 1000.0, 500.0 }, 1500, false)]              // income exceeds planned
+    [InlineData(2000, new[] { 1200.0, 800.0 }, 0, true)]                  // every euro assigned
+    [InlineData(1000, new[] { 700.0, 600.0 }, -300, false)]               // over-budgeted
+    [InlineData(2500, new double[0], 2500, false)]                        // nothing planned yet
+    [InlineData(0, new[] { 100.0, 50.0 }, -150, false)]                   // no income, no throw
+    [InlineData(0, new double[0], 0, false)]                              // empty month
+    [InlineData(5000, new[] { 4999.99 }, 0.01, false)]
+    [InlineData(0, new[] { 0.0001 }, -0.0001, false)]
+    [InlineData(100, new[] { 33.3333, 33.3333, 33.3333 }, 0.0001, false)] // four decimals, no rounding
+    public void RemainingToBudget_IsIncomeMinusPlanned(double income, double[] planned, double remaining, bool balanced)
     {
-        var month = BuildMonth(income, planned);
+        var month = BuildMonth((decimal)income, planned.Select(p => (decimal)p).ToArray());
 
-        Assert.Equal(expected, month.RemainingToBudget);
+        Assert.Equal((decimal)remaining, month.RemainingToBudget);
+        Assert.Equal(balanced, month.IsBalanced);
     }
 
     [Fact]

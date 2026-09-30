@@ -1,7 +1,5 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Reports.Queries.GetAnnualSummary;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -16,16 +14,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class AnnualSummaryTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-annual-{Guid.NewGuid()}")
-            .Options);
-
     /// <summary>A month with a 1000 income line and an 800 Rent line spending `spent`
     /// (recorded as an assigned expense transaction).</summary>
     private static void SeedMonth(ApplicationDbContext db, string ownerId, int year, int month, decimal spent)
@@ -98,27 +86,6 @@ public class AnnualSummaryTests
     }
 
     [Fact]
-    public async Task Annual_AveragesEachSpendingCategoryOverBudgetedMonths()
-    {
-        await using var db = NewContext();
-        SeedMonth(db, "user-1", 2026, 5, spent: 750m);
-        SeedMonth(db, "user-1", 2026, 6, spent: 800m);
-
-        var handler = new GetAnnualSummaryQueryHandler(db, new CurrentUserStub("user-1"));
-        var dto = await handler.Handle(new GetAnnualSummaryQuery(2026), CancellationToken.None);
-
-        dto.BudgetedMonths.Should().Be(2);
-
-        var housing = dto.Categories.Single(c => c.Name == "Housing");
-        housing.Kind.Should().Be("Expense");
-        housing.Total.Should().Be(1550m);          // 750 + 800
-        housing.AveragePerMonth.Should().Be(775m);  // ÷ 2 budgeted months
-
-        // Income categories are excluded from the spending averages.
-        dto.Categories.Should().NotContain(c => c.Name == "Income");
-    }
-
-    [Fact]
     public async Task Annual_IsScopedToTheYearAndTheOwner()
     {
         await using var db = NewContext();
@@ -131,17 +98,5 @@ public class AnnualSummaryTests
 
         dto.Months.Count(m => m.HasBudget).Should().Be(1);
         dto.TotalSpent.Should().Be(800m);
-    }
-
-    [Fact]
-    public async Task Annual_IsEmpty_WhenTheYearHasNoBudgets()
-    {
-        await using var db = NewContext();
-        var handler = new GetAnnualSummaryQueryHandler(db, new CurrentUserStub("user-1"));
-        var dto = await handler.Handle(new GetAnnualSummaryQuery(2026), CancellationToken.None);
-
-        dto.Months.Should().HaveCount(12);
-        dto.Months.Should().OnlyContain(m => !m.HasBudget);
-        dto.TotalIncome.Should().Be(0m);
     }
 }

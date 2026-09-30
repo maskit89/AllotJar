@@ -1,8 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Queries.GetJars;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Application.Transactions.Commands.ConfirmConvertedAmount;
@@ -20,16 +18,6 @@ namespace AllotJar.Application.Tests.Transactions;
 /// </summary>
 public class FxPendingAggregatesTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-fxagg-{Guid.NewGuid()}")
-            .Options);
-
     /// <summary>June 2026 (EUR) with one expense line; returns the line.</summary>
     private static BudgetItem SeedJune(ApplicationDbContext db, string ownerId)
     {
@@ -75,7 +63,7 @@ public class FxPendingAggregatesTests
         var month = await new GetBudgetMonthQueryHandler(db, new CurrentUserStub("user-1"))
             .Handle(new GetBudgetMonthQuery(2026, 6), CancellationToken.None);
 
-        // The pending 40 (face value at placeholder rate 1) is NOT presented as base-currency money.
+        // The pending 40 (its foreign face value, not yet confirmed) is NOT presented as base-currency money.
         month.Categories.Single().Items.Single().ActualAmount.Should().Be(100m);
         month.FxPendingCount.Should().Be(1);
     }
@@ -104,7 +92,7 @@ public class FxPendingAggregatesTests
         // A jar's balance is its account ledger (rule 79): the resolved EUR spend on the jar line
         // from the jar's account draws from it; the pending foreign-currency row is not an
         // account movement (it has no account leg in the account's currency) and never touches
-        // the jar at its placeholder face value. The planned 200 is a plan and counts nowhere.
+        // the jar at its unconfirmed face value. The planned 200 is a plan and counts nowhere.
         await using var db = NewContext();
         var account = LedgerFixtures.SeedAccount(db, "user-1");
         var jarId = Guid.NewGuid();

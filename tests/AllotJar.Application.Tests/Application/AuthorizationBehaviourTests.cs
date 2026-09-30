@@ -1,6 +1,5 @@
 using FluentAssertions;
 using MediatR;
-using Xunit;
 using AllotJar.Application.Common.Behaviours;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;

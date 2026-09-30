@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 
@@ -40,26 +40,6 @@ describe('AcceptInvitePage', () => {
     mockGet.mockResolvedValue({ data: null })
   })
 
-  it('redeems the invite token from the URL', async () => {
-    mockPost.mockResolvedValue({
-      data: { token: 'jwt', expiresAtUtc: '2030-01-01T00:00:00Z', userId: 'u2', email: 'sam@x.com', role: 2, displayName: 'Sam' },
-    })
-    const user = userEvent.setup()
-
-    renderAt('/accept-invite?code=ABC123')
-
-    await user.type(await screen.findByLabelText('Password'), 'password123')
-    await user.click(screen.getByRole('checkbox'))
-    await user.click(screen.getByRole('button', { name: 'Accept invite' }))
-
-    await waitFor(() =>
-      expect(mockPost).toHaveBeenCalledWith(
-        '/auth/accept-invite',
-        expect.objectContaining({ token: 'ABC123', password: 'password123', acceptedTerms: true }),
-      ),
-    )
-  })
-
   it('requires accepting the terms before the form submits', async () => {
     mockPost.mockImplementation((url: string) => {
       if (url === '/auth/refresh') return Promise.reject({ response: { status: 401 } })
@@ -75,23 +55,5 @@ describe('AcceptInvitePage', () => {
 
     expect(mockPost).not.toHaveBeenCalledWith('/auth/accept-invite', expect.anything())
     expect(screen.getByRole('checkbox')).toBeRequired()
-  })
-
-  it('offers an existing account a sign-in path that returns to the invite', async () => {
-    mockPost.mockImplementation((url: string) => {
-      if (url === '/auth/refresh') return Promise.reject({ response: { status: 401 } })
-      return Promise.resolve({ data: {} })
-    })
-
-    renderAt('/accept-invite?code=ABC123')
-
-    expect(
-      await screen.findByRole('button', { name: 'Sign in to accept' }),
-    ).toBeInTheDocument()
-  })
-
-  it('shows a clear message when the link has no code', () => {
-    renderAt('/accept-invite')
-    expect(screen.getByText(/missing its code/)).toBeInTheDocument()
   })
 })

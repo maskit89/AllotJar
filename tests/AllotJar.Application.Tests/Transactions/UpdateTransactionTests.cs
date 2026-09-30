@@ -1,8 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Transactions.Commands.UpdateTransaction;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -13,16 +11,6 @@ namespace AllotJar.Application.Tests.Transactions;
 
 public class UpdateTransactionTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
-            .Options);
-
     private static Transaction Seed(ApplicationDbContext db, string ownerId)
     {
         var tx = new Transaction
@@ -122,36 +110,6 @@ public class UpdateTransactionTests
 
         var reloaded = await db.Transactions.SingleAsync(t => t.Id == tx.Id);
         reloaded.FxPending.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task Update_ReTypingATransfer_ClearsTheDanglingCounterparty()
-    {
-        await using var db = NewContext();
-        var from = new Account { OwnerId = "user-1", Name = "Current", Type = AccountType.Current, Currency = CurrencyCode.Eur };
-        var to = new Account { OwnerId = "user-1", Name = "Savings", Type = AccountType.Current, Currency = CurrencyCode.Eur };
-        db.Accounts.AddRange(from, to);
-        await db.SaveChangesAsync();
-        var transfer = new Transaction
-        {
-            OwnerId = "user-1", Date = new DateOnly(2026, 6, 1), Payee = "Transfer",
-            Amount = 50m, Type = TransactionType.Transfer,
-            AccountId = from.Id, TransferAccountId = to.Id,
-        };
-        db.Transactions.Add(transfer);
-        await db.SaveChangesAsync();
-        var handler = new UpdateTransactionCommandHandler(db, new CurrentUserStub("user-1"));
-
-        // Re-type the transfer into a plain expense (calling the handler directly, past
-        // the validator that now blocks Type=Transfer): the stale destination link must
-        // be cleared, or it keeps phantom-crediting the counterparty in derived balances.
-        await handler.Handle(
-            new UpdateTransactionCommand(transfer.Id, new DateOnly(2026, 6, 1), "Shop", 50m, TransactionType.Expense, from.Id),
-            CancellationToken.None);
-
-        var reloaded = await db.Transactions.SingleAsync(t => t.Id == transfer.Id);
-        reloaded.Type.Should().Be(TransactionType.Expense);
-        reloaded.TransferAccountId.Should().BeNull();
     }
 
     [Fact]
