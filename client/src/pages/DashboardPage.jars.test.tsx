@@ -413,13 +413,13 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     await waitFor(() => expect(mockPost).toHaveBeenCalled())
     await user.click(screen.getByText('go-prev'))
     expect(await screen.findByText('€300.00 saved', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByLabelText('Planned amount for Holiday').textContent).toContain('100')
+    expect(screen.getByTestId('planned-Holiday').textContent).toContain('100')
 
     await act(async () => { create.release({ data: month() }) })
     await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
 
-    expect(screen.getByLabelText('Planned amount for Holiday').textContent).toContain('100')
-    expect(screen.getByLabelText('Planned amount for Holiday').textContent).not.toContain('150')
+    expect(screen.getByTestId('planned-Holiday').textContent).toContain('100')
+    expect(screen.getByTestId('planned-Holiday').textContent).not.toContain('150')
   })
 
   it('DASH-081: planning a skipped line again, answered after the user moved on, leaves the viewed month\'s grid alone', { timeout: 15000 }, async () => {
@@ -450,7 +450,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     await act(async () => { restore.release({ data: month() }) })
     await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
 
-    expect(screen.getByLabelText('Planned amount for Holiday').textContent).toContain('100')
-    expect(screen.getByLabelText('Planned amount for Holiday').textContent).not.toContain('150')
+    expect(screen.getByTestId('planned-Holiday').textContent).toContain('100')
+    expect(screen.getByTestId('planned-Holiday').textContent).not.toContain('150')
   })
 })

@@ -49,7 +49,7 @@ import { JarFormModal } from '../components/JarFormModal'
 import { CheckIcon } from '../components/icons'
 import { hueForIndex } from '../lib/categoryColors'
 import { monthIso } from '../lib/jarForm'
-import { formatDate } from '../lib/dates'
+import { formatDate, todayIso } from '../lib/dates'
 import { CategoryAccordion } from '../components/CategoryAccordion'
 import { SavingsGroup } from '../components/SavingsGroup'
 import { RemoveJarLineModal } from '../components/jars/RemoveJarLineModal'
@@ -95,10 +95,13 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   const [jarFormOpen, setJarFormOpen] = useState(false)
   // W04 (rule 60): the jar line whose ✕ was clicked — skip this month or archive the jar.
   const [removingJarLine, setRemovingJarLine] = useState<ItemVM | null>(null)
-  // A past month's contributions are history (rule 60): nothing in it can be skipped.
-  const isPastMonth = year < today.getFullYear() || (year === today.getFullYear() && monthNum < today.getMonth() + 1)
+  // A past month's contributions are history (rule 60): nothing in it can be skipped. The server
+  // dates months in UTC, so the screen does too.
+  const viewKey = `${year}-${String(monthNum).padStart(2, '0')}`
+  const todayKey = todayIso(today).slice(0, 7)
+  const isPastMonth = viewKey < todayKey
   // A month that has not begun: the jars shelf shows today's balances with nothing contributed yet.
-  const isFutureMonth = year > today.getFullYear() || (year === today.getFullYear() && monthNum > today.getMonth() + 1)
+  const isFutureMonth = viewKey > todayKey
 
   // The month on screen, for answers that return after an await: a handler's answer belongs to
   // the month it was made on, so one that lands after the user changed month (a create, a
@@ -788,12 +791,18 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
               </button>
             </div>
 
-            {jars.length > 0 && (
-              <p className="mt-3 text-xs text-slate-400">
-                Your {jars.length} existing {jars.length === 1 ? 'jar is' : 'jars are'} added to any new
-                budget automatically, so it will have a few more lines than a template lists.
-              </p>
-            )}
+            {(() => {
+              // Only a jar still planning gets a line: not an archived jar or a completed goal (rules 27, 55).
+              const planning = jars.filter((j) => !j.isArchived && !j.completedOn).length
+              return (
+                planning > 0 && (
+                  <p className="mt-3 text-xs text-slate-400">
+                    Your {planning} existing {planning === 1 ? 'jar is' : 'jars are'} added to any new
+                    budget automatically, so it will have a few more lines than a template lists.
+                  </p>
+                )
+              )
+            })()}
 
             {templates.length > 0 && (
               <div className="mt-8 border-t border-slate-100 pt-6">
@@ -1053,7 +1062,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                   category={category}
                   currency={month.currency}
                   savingItemId={savingItemId}
-                  onCommitItem={commitItem}
+                  onCommitItem={isPastMonth ? undefined : commitItem}
                   onRenameItem={renameItem}
                   onRemoveJarLine={isPastMonth ? undefined : (item) => setRemovingJarLine(item)}
                   onRestoreJarLine={isPastMonth ? undefined : restoreJarLine}

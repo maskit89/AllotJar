@@ -1,4 +1,4 @@
-import type { BudgetMonthDto, TransactionDto } from '../types'
+import type { BudgetMonthDto } from '../types'
 import { TransactionType } from '../types'
 
 export interface ItemOptionGroup {
@@ -32,12 +32,6 @@ export function buildItemOptions(
 
 export function transactionTypeLabel(type: number): 'Income' | 'Expense' {
   return type === TransactionType.Income ? 'Income' : 'Expense'
-}
-
-/** Income should read as a positive inflow, an expense as a negative outflow. */
-export function signedAmountMinorFromAmount(t: Pick<TransactionDto, 'amount' | 'type'>): number {
-  const magnitude = Math.round(t.amount * 10_000)
-  return t.type === TransactionType.Income ? magnitude : -magnitude
 }
 
 /**

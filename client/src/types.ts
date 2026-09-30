@@ -878,7 +878,8 @@ export interface JarScheduleRequest {
 export interface JarLedgerLineDto {
   jarId: string
   name: string
-  balance: number
+  /** Null when the account's balance is unavailable (rule 67); see readLedgers. */
+  balance: number | null
   isArchived: boolean
 }
 
@@ -967,21 +968,8 @@ export const AllocationRuleType = {
   SplitRemainderToMembers: 3,
 } as const
 
-export const ALLOCATION_RULE_LABELS: Record<number, string> = {
-  0: 'Living costs',
-  1: 'Jars',
-  2: 'Pocket money',
-  3: 'To savings',
-}
-
 // Matches Domain.Enums.SplitMethod (serialized as a number).
 export const SplitMethod = { Equal: 0, ByIncomeRatio: 1, BalanceTilt: 2 } as const
-
-export const SPLIT_METHOD_LABELS: Record<number, string> = {
-  0: 'Split equally',
-  1: 'By income',
-  2: 'Balance-aware',
-}
 
 export interface AllocationRuleDto {
   id: string

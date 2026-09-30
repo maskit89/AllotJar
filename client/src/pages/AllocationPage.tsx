@@ -170,8 +170,8 @@ export function AllocationPage() {
       track(EVENTS.allocationPreviewed, { split })
       await loadPreview(period.year, period.month)
       setShowSettings(false)
-    } catch {
-      setError('Could not save the allocation profile.')
+    } catch (err) {
+      setError(serverErrors(err) ?? 'Could not save the allocation profile.')
     } finally {
       setBusy(false)
     }
@@ -191,8 +191,8 @@ export function AllocationPage() {
       setCommitted(null)
       await loadPreview(period.year, period.month)
       setSyncedMsg(`Pocket money added to ${new Date(period.year, period.month - 1, 1).toLocaleDateString(undefined, { month: 'long' })}’s budget.`)
-    } catch {
-      setError('Could not add the pocket-money lines to the budget.')
+    } catch (err) {
+      setError(serverErrors(err) ?? 'Could not add the pocket-money lines to the budget.')
     } finally {
       setBusy(false)
     }
@@ -218,8 +218,8 @@ export function AllocationPage() {
         // The balance-tilt figures change once the link lands; a prior banner is stale.
         setCommitted(null)
         await loadPreview(period.year, period.month)
-      } catch {
-        setError(`Could not link a savings account for ${m.name}.`)
+      } catch (err) {
+        setError(serverErrors(err) ?? `Could not link a savings account for ${m.name}.`)
       } finally {
         setLinkingId(null)
       }
@@ -315,7 +315,7 @@ export function AllocationPage() {
 
   // What will actually transfer on commit vs. what's stranded because a member has no savings
   // account (a positive share with nowhere to go stays in the source account).
-  const members = preview?.members ?? []
+  const members = useMemo(() => preview?.members ?? [], [preview])
   const strandedMembers = members.filter((m) => !m.savingsAccountId && !m.savingsPrivate && m.residual > 0)
   const strandedMinor = fromAmount(strandedMembers.reduce((sum, m) => sum + m.residual, 0))
   const strandedNames = formatNames(strandedMembers.map((m) => m.name))
@@ -634,9 +634,10 @@ export function AllocationPage() {
                 >
                   {formatMoney(fromAmount(m.residual), CURRENCY)}
                 </p>
+                {/* Nothing moves for a share of zero or less (the commit skips it). */}
                 {m.savingsBalance !== null && (
                   <p className="text-xs tabular-nums text-slate-500">
-                    Projected balance {formatMoney(fromAmount(m.savingsBalance + m.residual), CURRENCY)}
+                    Projected balance {formatMoney(fromAmount(m.savingsBalance + Math.max(0, m.residual)), CURRENCY)}
                   </p>
                 )}
                 {m.savingsPrivate && m.residual > 0 && (

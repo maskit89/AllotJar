@@ -252,7 +252,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function applyPrefs(currency: string | null | undefined, format: string | null | undefined) {

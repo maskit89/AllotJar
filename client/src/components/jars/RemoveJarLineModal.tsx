@@ -4,7 +4,7 @@ import { Modal } from '../Modal'
 import { api } from '../../lib/api'
 import { EVENTS, track } from '../../analytics'
 import type { ItemVM } from '../../budgetModel'
-import type { BudgetMonthDto, JarScheduleDto } from '../../types'
+import { AccrualMethod, type BudgetMonthDto, type JarScheduleDto } from '../../types'
 import { formatMoney, fromAmount } from '../../lib/money'
 import { monthYear } from '../../lib/dates'
 import { monthIso } from '../../lib/jarForm'
@@ -112,14 +112,17 @@ export function RemoveJarLineModal({ item, month, currency, onClose, onSkipped, 
           <p className="text-slate-900">Skipping {thisMonth} sets nothing aside this month; the jar carries on from next month.</p>
         ) : later.length === 0 ? (
           <p className="text-slate-900">
-            Skipping {thisMonth} leaves {money(preview.unplanned)} unplanned: no month is left to spread it over
-            {preview.deadline ? ' before the deadline' : ''}.
+            {preview.unplanned > 0
+              ? `Skipping ${thisMonth} leaves ${money(preview.unplanned)} unplanned: no month is left to spread it over${preview.deadline ? ' before the deadline' : ''}.`
+              : `Skipping ${thisMonth} sets nothing aside this month; nothing more is planned for the jar.`}
           </p>
         ) : (
           <>
             <p className="text-slate-900">
-              Skipping {thisMonth} spreads this month&rsquo;s {formatMoney(item.plannedMinor, currency)} over the
-              months that are left:
+              {preview.accrual === AccrualMethod.FixedMonthly
+                ? // A fixed monthly amount stays as it is; the goal is reached a month later (rules 16, 18).
+                  `Skipping ${thisMonth} keeps the monthly amount and adds about one more month to reach the target:`
+                : `Skipping ${thisMonth} spreads this month’s ${formatMoney(item.plannedMinor, currency)} over the months that are left:`}
             </p>
             <ul className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 sm:grid-cols-3">
               {later.slice(0, LISTED).map((m) => (

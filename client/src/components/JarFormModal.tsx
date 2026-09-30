@@ -148,7 +148,7 @@ export interface JarFormModalProps {
  */
 export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArchived, onDeleted }: JarFormModalProps) {
   const editing = jar !== null
-  const eligible = useMemo(() => jarAccounts(accounts), [accounts])
+  const eligible = useMemo(() => jarAccounts(accounts, currency, jar?.fundingAccountId), [accounts, currency, jar])
   const [form, setForm] = useState<FormState>(() => initialForm(jar, eligible))
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -187,7 +187,9 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
   // typing stops. Hidden while it can't (blank/invalid target, no deadline or monthly amount)
   // and while the edited jar's balance is unavailable (rule 67: nothing to plan from).
   const request = useMemo(() => definition(form, jar, editing), [form, jar, editing])
-  const requestKey = request && !(jar && jar.currentBalance === null) ? JSON.stringify(request) : null
+  // A completed goal plans nothing (rule 55), whatever the definition says, so it has no preview.
+  const completed = !!jar?.completedOn
+  const requestKey = request && !completed && !(jar && jar.currentBalance === null) ? JSON.stringify(request) : null
   useEffect(() => {
     if (!requestKey) return
     let cancelled = false
@@ -569,6 +571,7 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
             </p>
           </div>
         )}
+        {completed && <p className="text-xs text-slate-500">Completed, so nothing more is planned for it.</p>}
         {schedule && <SchedulePreview schedule={schedule} currency={currency} recurring={form.kind === JarKind.Recurring} recurMonths={form.recurMonths} />}
         <div className="flex items-center justify-between gap-2 pt-1">
           {jar && (onArchived || (onDeleted && jar.canDelete)) ? (
@@ -646,6 +649,8 @@ function SchedulePreview({
 }) {
   const money = (amount: number) => formatMoney(fromAmount(amount), currency)
   const months = schedule.months
+  // A skipped current month is listed first at nothing; the monthly amount is the next month's.
+  const monthly = months.find((m) => !m.skipped)?.planned ?? 0
   const uniform = months.length > 0 && months.every((m) => m.planned === months[0].planned)
   const over = months.filter((m) => m.shortfall !== null && m.shortfall > 0)
   const skipped = months.filter((m) => m.skipped)
@@ -654,7 +659,7 @@ function SchedulePreview({
   if (!schedule.hasSchedule) {
     summary = 'Add a deadline or a monthly amount to plan contributions.'
   } else if (schedule.isOngoing) {
-    summary = `Sets aside ${money(months[0]?.planned ?? 0)} every month, ongoing.`
+    summary = `Sets aside ${money(monthly)} every month, ongoing.`
   } else if (months.length === 0 || months.every((m) => m.skipped || m.planned === 0)) {
     summary =
       schedule.unplanned > 0
@@ -662,7 +667,7 @@ function SchedulePreview({
         : 'Already funded — nothing more to set aside.'
   } else if (schedule.accrual === AccrualMethod.FixedMonthly) {
     const n = schedule.estimatedMonths ?? months.length
-    summary = `Sets aside ${money(months[0].planned)} a month — about ${n} more month${n === 1 ? '' : 's'} to reach the target (an estimate, not a deadline).`
+    summary = `Sets aside ${money(monthly)} a month — about ${n} more month${n === 1 ? '' : 's'} to reach the target (an estimate, not a deadline).`
   } else {
     const span =
       months.length === 1

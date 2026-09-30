@@ -12,41 +12,47 @@ export function useJarLedgers(enabled = true) {
   // True once a read has succeeded (and false again after one fails): until then an empty list
   // means "not known", not "no jar-backed accounts", so a form must not clear stored jar answers.
   const [loaded, setLoaded] = useState(false)
-  const reload = useCallback(() => {
-    if (!enabled) return Promise.resolve()
-    return api
-      .get<JarAccountLedgerDto[]>('/jars/ledger')
-      .then(({ data }) => {
-        setLedgers(Array.isArray(data) ? data : [])
-        setLoaded(true)
-      })
-      // A failed read only hides the prompts; the server still applies its defaults.
-      .catch(() => {
-        setLedgers([])
-        setLoaded(false)
-      })
-  }, [enabled])
+  const read = useCallback(
+    (isCurrent: () => boolean = () => true) => {
+      if (!enabled) return Promise.resolve()
+      return api
+        .get<JarAccountLedgerDto[]>('/jars/ledger')
+        .then(({ data }) => {
+          if (!isCurrent()) return
+          setLedgers(readLedgers(data))
+          setLoaded(true)
+        })
+        // A failed read only hides the prompts; the server still applies its defaults.
+        .catch(() => {
+          if (!isCurrent()) return
+          setLedgers([])
+          setLoaded(false)
+        })
+    },
+    [enabled],
+  )
+  const reload = useCallback(() => read(), [read])
   useEffect(() => {
     let cancelled = false
-    if (!enabled) return
-    api
-      .get<JarAccountLedgerDto[]>('/jars/ledger')
-      .then(({ data }) => {
-        if (cancelled) return
-        setLedgers(Array.isArray(data) ? data : [])
-        setLoaded(true)
-      })
-      .catch(() => {
-        if (cancelled) return
-        setLedgers([])
-        setLoaded(false)
-      })
+    read(() => !cancelled)
     return () => {
       cancelled = true
     }
-  }, [enabled])
+  }, [read])
   const byAccount = new Map(ledgers.map((l) => [l.accountId, l]))
   return { ledgers, byAccount, reload, loaded }
+}
+
+/**
+ * The well-formed ledgers of a GET /jars/ledger answer. A jar in an account whose balance is
+ * unavailable (before its opening date) has no balance either: the server sends 0 for it, and
+ * rule 67 says an unavailable balance never reads as zero.
+ */
+export function readLedgers(data: unknown): JarAccountLedgerDto[] {
+  if (!Array.isArray(data)) return []
+  return (data as JarAccountLedgerDto[])
+    .filter((l) => l && typeof l.accountId === 'string' && Array.isArray(l.jars))
+    .map((l) => (l.accountBalance === null ? { ...l, jars: l.jars.map((j) => ({ ...j, balance: null })) } : l))
 }
 
 /** The active jars of one account's ledger, in display order. */
@@ -77,4 +83,20 @@ export function paidFromJarOf(
   if (!allocations || !accountId) return null
   const fromJar = allocations.find((a) => a.accountId === accountId && a.jarId && a.amount < 0 && !lineJarIds.has(a.jarId))
   return fromJar?.jarId ?? null
+}
+
+/**
+ * The archived jar a pre-filled jar answer still names in this account, or null (P3-10). The
+ * server won't put money into, or draw from, an archived jar, so an edit that re-sends such an
+ * answer can't be saved until the jar is restored.
+ */
+export function archivedJarNamed(ledger: JarAccountLedgerDto | undefined, jarIds: Iterable<string | null>): JarLedgerLineDto | null {
+  if (!ledger) return null
+  const ids = new Set(jarIds)
+  return ledger.jars.find((j) => j.isArchived && ids.has(j.jarId)) ?? null
+}
+
+/** Why an edit naming an archived jar can't be saved (see {@link archivedJarNamed}). */
+export function archivedJarMessage(jar: JarLedgerLineDto): string {
+  return `This entry moved money in or out of ${jar.name}, which is archived. Restore ${jar.name} on the Jars page to change this entry.`
 }
