@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 
 // Catalog coverage for docs/testing/cases/17-invites.md (INV-*) — the public
 // /accept-invite landing page (AcceptInvitePage.test.tsx keeps only INV-034,
@@ -11,33 +11,27 @@ import { MemoryRouter, useLocation } from 'react-router-dom'
 // by PeoplePage.catalog.test.tsx (PPL-044/045/049/038/040) + invite.spec.ts, so
 // they are intentionally not re-tested here.
 //
-// Harness matches the repo convention: hoisted api mock fns, vi.mock('../lib/api')
-// spreading importOriginal (load-bearing per PR #169), page rendered inside
+// Harness matches the repo convention: the shared api mock, page rendered inside
 // <MemoryRouter><AuthProvider>. getToken/refreshSession are hoisted so a test can
 // choose the signed-out invitee (default) or the already-signed-in variant.
 
-const { mockGet, mockPost, mockPut, mockGetToken, mockRefresh } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPost: vi.fn(),
-  mockPut: vi.fn(),
+const { mockGetToken, mockRefresh } = vi.hoisted(() => ({
   mockGetToken: vi.fn(),
   mockRefresh: vi.fn(),
 }))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under
-  // test; the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, post: mockPost, put: mockPut },
-  getToken: () => mockGetToken(),
-  setToken: vi.fn(),
-  // Controls the cookie-bootstrap: null => signed-out invitee (the accept form);
-  // a token via getToken() => the "already signed in" join variant.
-  refreshSession: () => mockRefresh(),
-}))
+vi.mock('../lib/api', async (importOriginal) =>
+  (await import('../test/apiMock')).apiModule(importOriginal, {
+    getToken: () => mockGetToken(),
+    // Controls the cookie-bootstrap: null => signed-out invitee (the accept form);
+    // a token via getToken() => the "already signed in" join variant.
+    refreshSession: () => mockRefresh(),
+  }),
+)
 
+import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { AcceptInvitePage } from './AcceptInvitePage'
-import { AuthProvider } from '../auth/AuthContext'
 
 function LocationProbe() {
   const loc = useLocation()
@@ -45,13 +39,12 @@ function LocationProbe() {
 }
 
 function renderAt(path: string) {
-  return render(
-    <MemoryRouter initialEntries={[path]}>
-      <AuthProvider>
-        <AcceptInvitePage />
-        <LocationProbe />
-      </AuthProvider>
-    </MemoryRouter>,
+  return renderWithProviders(
+    <>
+      <AcceptInvitePage />
+      <LocationProbe />
+    </>,
+    { route: path },
   )
 }
 
@@ -76,9 +69,7 @@ function axiosError(data: unknown) {
 
 describe('AcceptInvitePage (INV catalog)', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPost.mockReset()
-    mockPut.mockReset()
+    resetApiMocks()
     mockGetToken.mockReset()
     mockRefresh.mockReset()
     // Default: signed-out invitee. No stored token, cookie-bootstrap yields no

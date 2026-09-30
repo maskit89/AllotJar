@@ -1,25 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 
-const { mockGet, mockPost } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPost: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) =>
+  (await import('../test/apiMock')).apiModule(importOriginal, {
+    // A live in-memory token, so AuthProvider treats the session as signed in and loads /auth/me.
+    getToken: () => 'tok',
+  }),
+)
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, post: mockPost },
-  // A live in-memory token, so AuthProvider treats the session as signed in and loads /auth/me.
-  getToken: () => 'tok',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { ConsentModal } from './ConsentModal'
-import { AuthProvider } from '../auth/AuthContext'
 
 function me(needsConsent: boolean) {
   return {
@@ -35,21 +27,12 @@ function me(needsConsent: boolean) {
   }
 }
 
-function renderModal(path = '/') {
-  return render(
-    <MemoryRouter initialEntries={[path]}>
-      <AuthProvider>
-        <ConsentModal />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderModal = (path = '/') => renderWithProviders(<ConsentModal />, { route: path })
 
 describe('ConsentModal', () => {
   beforeEach(() => {
     localStorage.clear()
-    mockGet.mockReset()
-    mockPost.mockReset()
+    resetApiMocks()
     mockPost.mockResolvedValue({ data: {} })
   })
 

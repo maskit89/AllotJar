@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type {
   AccountDto,
   BudgetMonthDto,
@@ -10,25 +9,21 @@ import type {
   ImportStatementResult,
 } from '../types'
 
-const { mockGet, mockPreview, mockCommit } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
+const { mockPreview, mockCommit } = vi.hoisted(() => ({
   mockPreview: vi.fn(),
   mockCommit: vi.fn(),
 }))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: vi.fn(), post: vi.fn() },
-  previewImport: mockPreview,
-  commitImport: mockCommit,
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) =>
+  (await import('../test/apiMock')).apiModule(importOriginal, {
+    previewImport: mockPreview,
+    commitImport: mockCommit,
+  }),
+)
 
+import { mockGet, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { ImportPage } from './ImportPage'
-import { AuthProvider } from '../auth/AuthContext'
 import { formatDate } from '../lib/dates'
 
 const accounts: AccountDto[] = [
@@ -94,15 +89,7 @@ function committed(): ImportStatementResult {
   return { totalEntries: 2, imported: 2, skippedDuplicates: 0, credits: 0, debits: 2, iban: null, autoCategorized: 0, transfers: 0 }
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <ImportPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<ImportPage />)
 
 const csv = () => new File(['x'], 'tx.csv', { type: 'text/csv' })
 
@@ -114,7 +101,7 @@ async function goToReview(user: ReturnType<typeof userEvent.setup>) {
 
 describe('ImportPage', () => {
   beforeEach(() => {
-    mockGet.mockReset()
+    resetApiMocks()
     mockPreview.mockReset()
     mockCommit.mockReset()
     mockGet.mockImplementation((url: string) => {
@@ -563,7 +550,7 @@ describe('ImportPage', () => {
 // W07 — returns, transfer fees and reused bank references on the review grid.
 describe('ImportPage transfer returns, fees and reused references', () => {
   beforeEach(() => {
-    mockGet.mockReset()
+    resetApiMocks()
     mockPreview.mockReset()
     mockCommit.mockReset()
     mockGet.mockImplementation((url: string) => {

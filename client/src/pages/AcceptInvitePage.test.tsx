@@ -1,42 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 
-const { mockGet, mockPost } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPost: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) =>
+  (await import('../test/apiMock')).apiModule(importOriginal, {
+    getToken: () => null,
+    // The cookie-bootstrap refresh fails for a signed-out invitee, so the invite form (not the
+    // "already signed in" variant) renders.
+    refreshSession: () => Promise.resolve(null),
+  }),
+)
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, post: mockPost },
-  getToken: () => null,
-  setToken: vi.fn(),
-  // The cookie-bootstrap refresh fails for a signed-out invitee, so the invite form (not the
-  // "already signed in" variant) renders.
-  refreshSession: () => Promise.resolve(null),
-}))
-
+import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { AcceptInvitePage } from './AcceptInvitePage'
-import { AuthProvider } from '../auth/AuthContext'
 
-function renderAt(path: string) {
-  return render(
-    <MemoryRouter initialEntries={[path]}>
-      <AuthProvider>
-        <AcceptInvitePage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderAt = (path: string) => renderWithProviders(<AcceptInvitePage />, { route: path })
 
 describe('AcceptInvitePage', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPost.mockReset()
+    resetApiMocks()
     mockGet.mockResolvedValue({ data: null })
   })
 

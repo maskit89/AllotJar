@@ -1,13 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, AllocationProfileDto, AllocationResultDto, JarAccountLedgerDto } from '../types'
 
-const { mockGet, mockPut, mockPost, monthState } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
+const { monthState } = vi.hoisted(() => ({
   // The app-wide selected month the page allocates (rule 29): June 2026 for this file.
   monthState: { year: 2026, month: 6, label: 'June 2026', goPrev: () => {}, goNext: () => {}, goToMonth: () => {} },
 }))
@@ -18,15 +14,11 @@ vi.mock('../features/MonthContext', async (importOriginal) => ({
   useMonth: () => monthState,
 }))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
+import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { AllocationPage } from './AllocationPage'
-import { AuthProvider } from '../auth/AuthContext'
 
 // Rule 78 on the allocation commit: Alex's savings account backs the Holiday jar, Sam's backs
 // none, so only Alex's transfer asks how it is divided.
@@ -91,21 +83,11 @@ function setupGet() {
   })
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <AllocationPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<AllocationPage />)
 
 describe('AllocationPage jar prompt on commit', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
+    resetApiMocks()
     setupGet()
   })
 

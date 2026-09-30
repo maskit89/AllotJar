@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type {
   AccountDto,
   BudgetMonthDto,
@@ -13,24 +12,22 @@ import type {
 
 // Rules 74/78/79 on the import review: the jar prompts for money into/out of a jar-backed
 // account, and rows held because the account would go below zero. Mirrors ImportPage.test.tsx's
-// harness (hoisted mock fns + vi.mock('../lib/api') with the importOriginal spread).
-const { mockGet, mockPreview, mockCommit } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
+// harness (the shared api mock plus hoisted previewImport/commitImport spies).
+const { mockPreview, mockCommit } = vi.hoisted(() => ({
   mockPreview: vi.fn(),
   mockCommit: vi.fn(),
 }))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: vi.fn(), post: vi.fn() },
-  previewImport: mockPreview,
-  commitImport: mockCommit,
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) =>
+  (await import('../test/apiMock')).apiModule(importOriginal, {
+    previewImport: mockPreview,
+    commitImport: mockCommit,
+  }),
+)
 
+import { mockGet, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { ImportPage } from './ImportPage'
-import { AuthProvider } from '../auth/AuthContext'
 
 const accounts: AccountDto[] = [
   { id: 'acc1', name: 'HSBC Current', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 550, displayOrder: 0 },
@@ -90,15 +87,7 @@ function committed(over: Partial<ImportStatementResult> = {}): ImportStatementRe
   return { totalEntries: 4, imported: 4, skippedDuplicates: 0, credits: 1, debits: 3, iban: null, autoCategorized: 0, transfers: 0, ...over }
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <ImportPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<ImportPage />)
 
 const csv = () => new File(['x'], 'tx.csv', { type: 'text/csv' })
 
@@ -118,7 +107,7 @@ type SentItem = { reference: string; payee: string; jarAllocations?: unknown; pa
 
 describe('ImportPage — jars (rules 78/79) and held rows (rule 74)', () => {
   beforeEach(() => {
-    mockGet.mockReset()
+    resetApiMocks()
     mockPreview.mockReset()
     mockCommit.mockReset()
     mockGet.mockImplementation((url: string) => {

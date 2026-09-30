@@ -1,32 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, AccountReconciliationDto } from '../types'
 
 // Supplemental catalog cases for the ACCOUNTS area — the jsdom-observable ACCT
 // behaviours NOT already locked down by AccountsPage.catalog.test.tsx /
 // AccountDetailPage.catalog.test.tsx (which this file deliberately does not
-// duplicate). Same api-control harness as those files: vi.hoisted so the mock
-// factory can close over the fns, importOriginal spread so the rest of api.ts
-// (refreshSession, setSessionHandlers, isAccessTokenExpired, …) keeps working —
-// AuthProvider reaches into them on mount.
-const { mockGet, mockPut, mockPost, mockDelete } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-  mockDelete: vi.fn(),
-}))
+// duplicate). Same shared api mock as those files.
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost, delete: mockDelete },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { AccountsPage } from './AccountsPage'
-import { AuthProvider } from '../auth/AuthContext'
 // Real (unmocked) money module — pin the active display locale so every €/£ string
 // asserted below renders in the design's canonical en-GB comma-dot format
 // (€1,234.56), independent of test-execution order.
@@ -54,15 +39,7 @@ function mockLoads(s: ApiSetup = {}) {
   })
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <AccountsPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<AccountsPage />)
 
 async function openAddModal(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole('button', { name: 'Add account' }, { timeout: 5000 }))
@@ -71,10 +48,7 @@ async function openAddModal(user: ReturnType<typeof userEvent.setup>) {
 
 describe('AccountsPage — catalog supplemental (ACCT)', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     setMoneyFormat('comma-dot') // pin en-GB: €1,234.56 / £75.00
     mockLoads()
   })

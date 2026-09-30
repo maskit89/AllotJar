@@ -3,15 +3,9 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AccountDto } from '../types'
 
-const { mockGet, mockPost } = vi.hoisted(() => ({ mockGet: vi.fn(), mockPost: vi.fn() }))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, post: mockPost },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
 import { SharingReviewBanner } from './SharingReviewBanner'
 import { AuthProvider } from '../auth/AuthContext'
 
@@ -50,8 +44,7 @@ function renderBanner(pending: boolean) {
 // them the household sees; nothing changes until they answer.
 describe('SharingReviewBanner', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPost.mockReset()
+    resetApiMocks()
   })
 
   it('stays hidden when no review is due', async () => {

@@ -1,43 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { screen, fireEvent, waitFor } from '@testing-library/react'
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: {
-    get: vi.fn((url: string) => {
-      if (url === '/budget/months') return Promise.resolve({ data: [] })
-      if (url === '/transactions') return Promise.resolve({ data: [] })
-      return Promise.reject({ response: { status: 404 } }) // current month → none yet
-    }),
-    put: vi.fn(),
-    post: vi.fn(),
-    delete: vi.fn(),
-  },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-import { AuthProvider } from '../auth/AuthContext'
+import { mockGet } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { OnboardingProvider } from './OnboardingContext'
 import { Onboarding } from './Onboarding'
 
 function renderApp() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <OnboardingProvider>
-          <Onboarding />
-        </OnboardingProvider>
-      </AuthProvider>
-    </MemoryRouter>,
+  return renderWithProviders(
+    <OnboardingProvider>
+      <Onboarding />
+    </OnboardingProvider>,
   )
 }
 
 describe('Onboarding', () => {
   beforeEach(() => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/budget/months') return Promise.resolve({ data: [] })
+      if (url === '/transactions') return Promise.resolve({ data: [] })
+      return Promise.reject({ response: { status: 404 } }) // current month → none yet
+    })
     localStorage.setItem('zbb.email', 'me@test.app')
   })
 

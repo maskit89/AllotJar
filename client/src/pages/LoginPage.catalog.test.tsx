@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { Route, Routes, useLocation } from 'react-router-dom'
 
 // Catalog coverage for docs/testing/cases/02-registration-login.md (REG-*), the
 // `/login` page in both modes. These COMPLEMENT the five cases already in
@@ -9,9 +9,8 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 // internal returnUrl round-trip; full profile+prefs submit; no sample-data opt-in
 // only when ticked; staging required data-loss ack) and DO NOT duplicate them.
 //
-// Harness matches the repo convention (PR #169 gotcha): hoisted api mock fns,
-// vi.mock('../lib/api') spreading importOriginal, page rendered inside
-// <MemoryRouter><AuthProvider>. `../lib/env` is mocked so a test can flip the
+// Harness matches the repo convention: the shared api mock (signed out), page rendered
+// inside <MemoryRouter><AuthProvider>. `../lib/env` is mocked so a test can flip the
 // staging build flag; `../analytics` is mocked so the LoginPage -> track() wiring
 // (REG-050) is assertable without the real GA bridge (which is inert under test
 // anyway).
@@ -23,24 +22,17 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 // (REG-013 step 1, REG-040 short-password) can only be asserted at the attribute
 // level here — the runtime block belongs to the Playwright a11y/journey layer.
 
-const { mockGet, mockPost, mockPut, mockDelete, envState } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPost: vi.fn(),
-  mockPut: vi.fn(),
-  mockDelete: vi.fn(),
+const { envState } = vi.hoisted(() => ({
   envState: { isStaging: false },
 }))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under
-  // test; the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, post: mockPost, put: mockPut, delete: mockDelete },
-  getToken: () => null,
-  setToken: vi.fn(),
-  // Signed-out cold-load bootstrap: no cookie session to restore, so the form renders.
-  refreshSession: () => Promise.resolve(null),
-}))
+vi.mock('../lib/api', async (importOriginal) =>
+  (await import('../test/apiMock')).apiModule(importOriginal, {
+    getToken: () => null,
+    // Signed-out cold-load bootstrap: no cookie session to restore, so the form renders.
+    refreshSession: () => Promise.resolve(null),
+  }),
+)
 
 // Build-time env flag — default off (GA/default build) so the staging banner and the
 // staging data-loss checkbox are absent unless a test opts in.
@@ -78,8 +70,9 @@ vi.mock('../lib/googleAuth', () => ({
   },
 }))
 
+import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { LoginPage } from './LoginPage'
-import { AuthProvider } from '../auth/AuthContext'
 import { track, EVENTS } from '../analytics'
 import { detectLocaleDefaults } from '../lib/money'
 
@@ -91,18 +84,17 @@ function LocationProbe() {
 /** Render the page at a route, with stub destinations so a post-auth navigate()
  *  is observable (a "/" landing renders HOME instead of the real Dashboard). */
 function renderAt(path: string) {
-  return render(
-    <MemoryRouter initialEntries={[path]}>
-      <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/" element={<div>HOME</div>} />
-          <Route path="/transactions" element={<div>TRANSACTIONS</div>} />
-          <Route path="*" element={<div>ELSEWHERE</div>} />
-        </Routes>
-        <LocationProbe />
-      </AuthProvider>
-    </MemoryRouter>,
+  return renderWithProviders(
+    <>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/" element={<div>HOME</div>} />
+        <Route path="/transactions" element={<div>TRANSACTIONS</div>} />
+        <Route path="*" element={<div>ELSEWHERE</div>} />
+      </Routes>
+      <LocationProbe />
+    </>,
+    { route: path },
   )
 }
 
@@ -150,10 +142,7 @@ describe('LoginPage (REG catalog)', () => {
   beforeEach(() => {
     localStorage.clear()
     envState.isStaging = false
-    mockGet.mockReset()
-    mockPost.mockReset()
-    mockPut.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     vi.mocked(track).mockClear()
     // /auth/me fires from AuthContext once a token exists; keep it resolvable.
     mockGet.mockResolvedValue({

@@ -8,35 +8,24 @@
 // refresh (no stuck high-water mark), collapse-vs-dismiss, owner-only visibility, replay from Help,
 // currency-noun threading, and malformed/partial persistence records degrading to defaults.
 //
-// New file — does NOT touch onboarding/Onboarding.test.tsx. Conventions (vi.hoisted api mock with
-// importOriginal spread, MemoryRouter + AuthProvider + OnboardingProvider, jest-dom matchers,
-// per-test GET fixtures) mirror the existing onboarding + page catalog tests.
+// New file — does NOT touch onboarding/Onboarding.test.tsx. Conventions (the shared api mock,
+// MemoryRouter + AuthProvider + OnboardingProvider, jest-dom matchers, per-test GET fixtures)
+// mirror the existing onboarding + page catalog tests.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { screen, fireEvent, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import type { BudgetCategoryDto, BudgetItemDto, BudgetMonthDto, BudgetMonthSummaryDto, HouseholdSummary } from '../types'
 
-const { mockGet, mockPost, mockPut, mockDelete } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPost: vi.fn(),
-  mockPut: vi.fn(),
-  mockDelete: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) =>
+  (await import('../test/apiMock')).apiModule(importOriginal, {
+    // Belt-and-braces: keep AuthProvider's on-focus revalidation inert under test so a dispatched
+    // focus/route change never triggers a real /auth/refresh network call.
+    isAccessTokenExpired: () => false,
+  }),
+)
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, post: mockPost, put: mockPut, delete: mockDelete },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-  // Belt-and-braces: keep AuthProvider's on-focus revalidation inert under test so a dispatched
-  // focus/route change never triggers a real /auth/refresh network call.
-  isAccessTokenExpired: () => false,
-}))
-
-import { AuthProvider } from '../auth/AuthContext'
+import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { OnboardingProvider, useOnboarding } from './OnboardingContext'
 import { Onboarding } from './Onboarding'
 
@@ -106,15 +95,11 @@ function setupGet() {
 }
 
 function renderOnboarding(extra?: ReactNode) {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <OnboardingProvider>
-          {extra}
-          <Onboarding />
-        </OnboardingProvider>
-      </AuthProvider>
-    </MemoryRouter>,
+  return renderWithProviders(
+    <OnboardingProvider>
+      {extra}
+      <Onboarding />
+    </OnboardingProvider>,
   )
 }
 
@@ -133,10 +118,7 @@ const readRecord = () => JSON.parse(localStorage.getItem(KEY) || '{}')
 
 describe('Onboarding — catalog (ONBD)', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPost.mockReset()
-    mockPut.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     mockPost.mockResolvedValue({ data: {} })
     mockPut.mockResolvedValue({ data: {} })
     mockDelete.mockResolvedValue({ data: {} })

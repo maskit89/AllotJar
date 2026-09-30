@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, act } from '@testing-library/react'
+import { screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, BudgetMonthDto, JarDto } from '../types'
 
 // W05 — the "Your jars" shelf is the viewed month's view of the jars (rule 48): it is read for
@@ -15,19 +14,7 @@ import type { AccountDto, BudgetMonthDto, JarDto } from '../types'
 // jar line clears the line's Skipped tag as the server does (DASH-080), and a month created, or a
 // line planned again, whose answer returns after the user moved on never repaints the grid of
 // the month now viewed (DASH-081).
-const { mockGet, mockPut, mockPost, mockDelete } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-  mockDelete: vi.fn(),
-}))
-
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost, delete: mockDelete },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
 const household = vi.hoisted(() => ({
   current: { members: [] as unknown[], isShared: false, loading: false, refreshHousehold: async () => {} },
@@ -37,9 +24,10 @@ vi.mock('../features/HouseholdContext', async (importOriginal) => ({
   useHousehold: () => household.current,
 }))
 
+import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { DashboardPage } from './DashboardPage'
-import { AuthProvider } from '../auth/AuthContext'
-import { MonthProvider, useMonth } from '../features/MonthContext'
+import { useMonth } from '../features/MonthContext'
 import { setMoneyFormat } from '../lib/money'
 import { formatDate } from '../lib/dates'
 
@@ -112,12 +100,9 @@ function mockLoads(data: BudgetMonthDto | { notFound: true }, jars: JarDto[] = [
 const jarReads = () => mockGet.mock.calls.filter(([url]) => url === '/jars')
 
 function renderPage(today?: Date) {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <MonthProvider>{today ? <DashboardPage today={today} /> : <DashboardPage />}</MonthProvider>
-      </AuthProvider>
-    </MemoryRouter>,
+  return renderWithProviders(
+    today ? <DashboardPage today={today} /> : <DashboardPage />,
+    { month: true },
   )
 }
 
@@ -165,25 +150,19 @@ function Nav() {
 }
 
 function renderWithNav() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <MonthProvider>
-          <Nav />
-          <DashboardPage />
-        </MonthProvider>
-      </AuthProvider>
-    </MemoryRouter>,
+  return renderWithProviders(
+    <>
+      <Nav />
+      <DashboardPage />
+    </>,
+    { month: true },
   )
 }
 
 describe('DashboardPage — the jars shelf follows the viewed month (W05)', () => {
   beforeEach(() => {
     setMoneyFormat('en-GB')
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
   })
 

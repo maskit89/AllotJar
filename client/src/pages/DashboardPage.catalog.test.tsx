@@ -1,28 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { BudgetMonthDto, BudgetTemplateDto, JarDto } from '../types'
 
-// Same api-control pattern as DashboardPage.test.tsx: vi.hoisted so the mock
-// factory can reference the fns, importOriginal spread so other api.ts exports
-// keep working under the mock.
-const { mockGet, mockPut, mockPost, mockDelete } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-  mockDelete: vi.fn(),
-}))
+// Same shared api mock as DashboardPage.test.tsx.
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost, delete: mockDelete },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPut, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { DashboardPage } from './DashboardPage'
-import { AuthProvider } from '../auth/AuthContext'
-import { MonthProvider } from '../features/MonthContext'
 // Real (unmocked) money module — pin the active display locale so every €-string
 // asserted below renders in the design's canonical en-GB comma-dot format,
 // independent of test-execution order.
@@ -160,14 +145,9 @@ function mockLoads(opts: {
 }
 
 function renderPage(today?: Date) {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <MonthProvider>
-          {today ? <DashboardPage today={today} /> : <DashboardPage />}
-        </MonthProvider>
-      </AuthProvider>
-    </MemoryRouter>,
+  return renderWithProviders(
+    today ? <DashboardPage today={today} /> : <DashboardPage />,
+    { month: true },
   )
 }
 
@@ -178,10 +158,7 @@ function precedes(a: Element, b: Element) {
 
 describe('DashboardPage — hero footnote states (PR #172) & render', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     setMoneyFormat('comma-dot') // pin en-GB: €1,234.56
   })
 
@@ -323,10 +300,7 @@ describe('DashboardPage — hero footnote states (PR #172) & render', () => {
 
 describe('DashboardPage — income card & spending lines', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     setMoneyFormat('comma-dot')
   })
 
@@ -398,10 +372,7 @@ describe('DashboardPage — income card & spending lines', () => {
 
 describe('DashboardPage — planned-amount parsing in-row (parseMinor seam)', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     setMoneyFormat('comma-dot')
   })
 
@@ -452,10 +423,7 @@ describe('DashboardPage — planned-amount parsing in-row (parseMinor seam)', ()
 
 describe('DashboardPage — bills strip summary & tones', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     setMoneyFormat('comma-dot')
   })
 
@@ -503,10 +471,7 @@ describe('DashboardPage — bills strip summary & tones', () => {
 
 describe('DashboardPage — reorder gating, templates & jars shelf', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     setMoneyFormat('comma-dot')
   })
 

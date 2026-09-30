@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, JarCycleDto, JarDto, JarPaymentDto } from '../types'
 
 // W03 — the Recurring jar's cycle lifecycle on the Jars page (rules 19–24, 57, 83): the
@@ -10,22 +9,12 @@ import type { AccountDto, JarCycleDto, JarDto, JarPaymentDto } from '../types'
 // last-cycle line and its "Paid it?" link for a cycle that rolled forward unpaid (JAR-092),
 // and the write gating of the new actions (JAR-093).
 //
-// Same api-control harness as the sibling *.catalog.test.tsx files.
-const { mockGet, mockPut, mockPost } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-}))
+// Same shared api mock as the sibling *.catalog.test.tsx files.
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
-
+import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
-import { AuthProvider } from '../auth/AuthContext'
 import { setMoneyFormat } from '../lib/money'
 
 // A recurring jar (target 600 due 1 Sep, repeating yearly) whose cycle has been missed: it
@@ -131,22 +120,12 @@ function mockLoads(opts: { jars?: JarDto[]; meRole?: number; payments?: Record<s
   })
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <JarsPage />
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<JarsPage />)
 
 describe('JarsPage — recurring cycles (W03)', () => {
   beforeEach(() => {
     setMoneyFormat('en-GB')
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
+    resetApiMocks()
     mockPost.mockResolvedValue({ data: {} })
   })
 

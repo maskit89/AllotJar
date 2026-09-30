@@ -4,23 +4,8 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, BudgetMonthDto, BudgetTemplateDto, JarDto } from '../types'
 
-// Control the API from the tests. vi.hoisted lets the mock factory below
-// reference these before the module under test is imported.
-const { mockGet, mockPut, mockPost, mockDelete } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPut: vi.fn(),
-  mockPost: vi.fn(),
-  mockDelete: vi.fn(),
-}))
-
-vi.mock('../lib/api', async (importOriginal) => ({
-  // Spread the real module first so newly added api.ts exports keep working under test;
-  // the stubs below override only what this file controls.
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, put: mockPut, post: mockPost, delete: mockDelete },
-  getToken: () => 'test-token',
-  setToken: vi.fn(),
-}))
+// Control the API from the tests.
+vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
 // The household shape drives the income member picker; default = solo (hidden),
 // individual tests flip `household.current` to a shared fixture.
@@ -32,6 +17,8 @@ vi.mock('../features/HouseholdContext', async (importOriginal) => ({
   useHousehold: () => household.current,
 }))
 
+import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { DashboardPage } from './DashboardPage'
 import { AuthProvider } from '../auth/AuthContext'
 import { MonthProvider } from '../features/MonthContext'
@@ -75,24 +62,11 @@ function budget(): BudgetMonthDto {
   }
 }
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <MonthProvider>
-          <DashboardPage />
-        </MonthProvider>
-      </AuthProvider>
-    </MemoryRouter>,
-  )
-}
+const renderPage = () => renderWithProviders(<DashboardPage />, { month: true })
 
 describe('DashboardPage optimistic editing', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
   })
 
@@ -501,10 +475,7 @@ describe('DashboardPage jars and first-run checklist', () => {
   }
 
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
   })
 
@@ -621,10 +592,7 @@ describe('DashboardPage jars and first-run checklist', () => {
 
 describe('DashboardPage month navigation', () => {
   beforeEach(() => {
-    mockGet.mockReset()
-    mockPut.mockReset()
-    mockPost.mockReset()
-    mockDelete.mockReset()
+    resetApiMocks()
     household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
   })
 

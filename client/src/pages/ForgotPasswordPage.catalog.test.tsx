@@ -1,45 +1,37 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router-dom'
 
 // Catalog coverage for docs/testing/cases/02-registration-login.md — the forgot-password
 // page (REG-052): request a reset link, non-enumerating confirmation, transport-failure
-// handling. Harness matches the repo convention (PR #169 gotcha): hoisted api mock fns,
-// vi.mock('../lib/api') spreading importOriginal, page inside <MemoryRouter><AuthProvider>.
+// handling. Harness matches the repo convention: the shared api mock (signed out), page inside
+// <MemoryRouter><AuthProvider>.
 
-const { mockGet, mockPost } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPost: vi.fn(),
-}))
-
-vi.mock('../lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/api')>()),
-  api: { get: mockGet, post: mockPost, put: vi.fn(), delete: vi.fn() },
-  getToken: () => null,
-  setToken: vi.fn(),
-  refreshSession: () => Promise.resolve(null),
-}))
+vi.mock('../lib/api', async (importOriginal) =>
+  (await import('../test/apiMock')).apiModule(importOriginal, {
+    getToken: () => null,
+    refreshSession: () => Promise.resolve(null),
+  }),
+)
 
 vi.mock('../analytics', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../analytics')>()),
   track: vi.fn(),
 }))
 
+import { mockPost } from '../test/apiMock'
+import { renderWithProviders } from '../test/render'
 import { ForgotPasswordPage } from './ForgotPasswordPage'
-import { AuthProvider } from '../auth/AuthContext'
 import { track, EVENTS } from '../analytics'
 
 function renderPage() {
-  return render(
-    <MemoryRouter initialEntries={['/forgot-password']}>
-      <AuthProvider>
-        <Routes>
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="/login" element={<div>LOGIN</div>} />
-        </Routes>
-      </AuthProvider>
-    </MemoryRouter>,
+  return renderWithProviders(
+    <Routes>
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/login" element={<div>LOGIN</div>} />
+    </Routes>,
+    { route: '/forgot-password' },
   )
 }
 
