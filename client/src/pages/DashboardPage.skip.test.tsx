@@ -21,6 +21,7 @@ import { mockGet, mockPut, mockDelete, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { DashboardPage } from './DashboardPage'
 import { setMoneyFormat } from '../lib/money'
+import { budgetCategory, budgetItem, budgetMonth } from '../test/fixtures/budget'
 
 // The viewed month is the app's current month (MonthProvider's default); the fixture is
 // keyed to it so the Savings group renders for "this month".
@@ -31,32 +32,20 @@ const MONTH = NOW.getMonth() + 1
 // Income 3,000; one Savings group with the Holiday jar's line: 150 planned, nothing in yet.
 function month(over: { planned?: number; isSkipped?: boolean } = {}): BudgetMonthDto {
   const planned = over.planned ?? 150
-  return {
-    id: 'm1',
-    key: `${YEAR}-${String(MONTH).padStart(2, '0')}`,
+  return budgetMonth({
     year: YEAR,
     month: MONTH,
-    baseCurrency: 'EUR',
-    totalIncome: 3000,
-    totalPlanned: planned,
-    remainingToBudget: 3000 - planned,
-    isBalanced: false,
     categories: [
-      {
-        id: 'inc', name: 'Income', kind: 'Income', displayOrder: 0, totalPlanned: 3000, totalActual: 3000,
-        items: [{ id: 'i-pay', name: 'Take-home Pay', displayOrder: 0, plannedAmount: 3000, actualAmount: 3000, remaining: 0 }],
-      },
-      {
-        id: 'c-sav', name: 'Savings', kind: 'Savings', displayOrder: 0, totalPlanned: planned, totalActual: 0,
-        items: [
-          {
-            id: 'i-holiday', name: 'Holiday', displayOrder: 0, plannedAmount: planned, actualAmount: 0, remaining: planned,
-            savingsId: 'jar-holiday', savingsAvailable: 450, isSkipped: over.isSkipped ?? false,
-          },
-        ],
-      },
+      budgetCategory({
+        id: 'inc', name: 'Income', kind: 'Income',
+        items: [budgetItem({ id: 'i-pay', name: 'Take-home Pay', plannedAmount: 3000, actualAmount: 3000 })],
+      }),
+      budgetCategory({
+        id: 'c-sav', name: 'Savings', kind: 'Savings',
+        items: [budgetItem({ id: 'i-holiday', name: 'Holiday', plannedAmount: planned, savingsId: 'jar-holiday', savingsAvailable: 450, isSkipped: over.isSkipped ?? false })],
+      }),
     ],
-  }
+  })
 }
 
 // What the server says skipping this month does: the 150 is spread over the two months left.
@@ -142,7 +131,7 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
 
   it('BUDG-060: Skip this month puts the skip, shows the line at €0 with a Skipped tag, and Plan it again restores it', { timeout: 15000 }, async () => {
     mockLoads(month())
-    mockPut.mockImplementation((url: string, body: { skipped: boolean }) =>
+    mockPut.mockImplementation((_url: string, body: { skipped: boolean }) =>
       Promise.resolve({ data: body.skipped ? month({ planned: 0, isSkipped: true }) : month() }),
     )
     const user = userEvent.setup()

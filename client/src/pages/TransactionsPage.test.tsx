@@ -9,26 +9,17 @@ import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/a
 import { renderWithProviders } from '../test/render'
 import { TransactionsPage } from './TransactionsPage'
 import { setMoneyFormat } from '../lib/money'
+import { budgetCategory, budgetItem, budgetMonth } from '../test/fixtures/budget'
 
+// Housing(Rent 1000) + Food(Groceries 0) against 3000 of income with no income line.
 function budget(): BudgetMonthDto {
-  return {
-    id: 'm1', key: '2026-06', year: 2026, month: 6, baseCurrency: 'EUR',
-    totalIncome: 3000, totalPlanned: 1000, remainingToBudget: 2000, isBalanced: false,
+  return budgetMonth({
+    key: '2026-06', month: 6, totalIncome: 3000,
     categories: [
-      {
-        id: 'c1', name: 'Housing', kind: 'Expense', displayOrder: 0, totalPlanned: 1000, totalActual: 0,
-        items: [
-          { id: 'i-rent', name: 'Rent', displayOrder: 0, plannedAmount: 1000, actualAmount: 0, remaining: 1000},
-        ],
-      },
-      {
-        id: 'c2', name: 'Food', kind: 'Expense', displayOrder: 1, totalPlanned: 0, totalActual: 0,
-        items: [
-          { id: 'i-food', name: 'Groceries', displayOrder: 0, plannedAmount: 0, actualAmount: 0, remaining: 0},
-        ],
-      },
+      budgetCategory({ id: 'c1', name: 'Housing', items: [budgetItem({ id: 'i-rent', name: 'Rent', plannedAmount: 1000 })] }),
+      budgetCategory({ id: 'c2', name: 'Food', displayOrder: 1, items: [budgetItem({ id: 'i-food', name: 'Groceries' })] }),
     ],
-  }
+  })
 }
 
 function tx(): TransactionDto {
@@ -362,8 +353,8 @@ describe('TransactionsPage manual sheet', () => {
     const transaction = {
       ...tx(), amount: 3.5796, isSplit: true,
       splits: [
-        { id: 's1', budgetItemId: 'i-rent', budgetItemName: 'Rent', amount: 1.234 },
-        { id: 's2', budgetItemId: 'i-food', budgetItemName: 'Groceries', amount: 2.3456 },
+        { id: 's1', budgetItemId: 'i-rent', budgetItemName: 'Rent', memberId: null, memberName: null, amount: 1.234 },
+        { id: 's2', budgetItemId: 'i-food', budgetItemName: 'Groceries', memberId: null, memberName: null, amount: 2.3456 },
       ],
     }
     mockLoad([transaction])

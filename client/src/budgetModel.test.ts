@@ -25,54 +25,36 @@ import {
 } from './budgetModel'
 import { fromAmount } from './lib/money'
 import type { BudgetMonthDto } from './types'
+import { budgetCategory, budgetItem, budgetMonth } from './test/fixtures/budget'
 
 // Income(Take-home Pay 3000) + Housing(Rent 1100) + Food(Groceries 200).
 function dto(): BudgetMonthDto {
-  return {
-    id: 'm1',
+  return budgetMonth({
     key: '2026-06',
-    year: 2026,
     month: 6,
-    baseCurrency: 'EUR',
-    totalIncome: 3000,
-    totalPlanned: 1300,
-    remainingToBudget: 1700,
-    isBalanced: false,
     categories: [
-      {
-        id: 'inc',
-        name: 'Income',
-        kind: 'Income',
-        displayOrder: 0,
-        totalPlanned: 3000,
-        totalActual: 0,
-        items: [
-          { id: 'pay', name: 'Take-home Pay', displayOrder: 0, plannedAmount: 3000, actualAmount: 0, remaining: 3000},
-        ],
-      },
-      {
-        id: 'c1',
-        name: 'Housing',
-        kind: 'Expense',
-        displayOrder: 0,
-        totalPlanned: 1100,
-        totalActual: 0,
-        items: [
-          { id: 'i1', name: 'Rent', displayOrder: 0, plannedAmount: 1100, actualAmount: 200, remaining: 900},
-        ],
-      },
-      {
-        id: 'c2',
-        name: 'Food',
-        kind: 'Expense',
-        displayOrder: 1,
-        totalPlanned: 200,
-        totalActual: 0,
-        items: [
-          { id: 'i2', name: 'Groceries', displayOrder: 0, plannedAmount: 200, actualAmount: 0, remaining: 200},
-        ],
-      },
+      budgetCategory({
+        id: 'inc', name: 'Income', kind: 'Income',
+        items: [budgetItem({ id: 'pay', name: 'Take-home Pay', plannedAmount: 3000 })],
+      }),
+      budgetCategory({
+        id: 'c1', name: 'Housing', totalActual: 0,
+        items: [budgetItem({ id: 'i1', name: 'Rent', plannedAmount: 1100, actualAmount: 200 })],
+      }),
+      budgetCategory({
+        id: 'c2', name: 'Food', displayOrder: 1,
+        items: [budgetItem({ id: 'i2', name: 'Groceries', plannedAmount: 200 })],
+      }),
     ],
+  })
+}
+
+// A view-model line: an ordinary expense line with nothing planned unless told otherwise.
+function itemVM(over: Partial<ItemVM> = {}): ItemVM {
+  return {
+    id: 'x', name: 'Rent', displayOrder: 0, plannedMinor: 0, actualMinor: 0, refundedMinor: 0,
+    savingsAvailableMinor: null, savingsId: null, isSkipped: false, dueDay: null, isPaid: false, memberId: null,
+    ...over,
   }
 }
 
@@ -129,13 +111,12 @@ describe('budgetModel selectors', () => {
 
   it('adding an income line raises the pool but never the planned total', () => {
     const vm = fromDto(dto())
-    const next = withNewItem(vm, 'inc', {
+    const next = withNewItem(vm, 'inc', itemVM({
       id: 'temp',
       name: 'Freelance',
       displayOrder: 1,
       plannedMinor: fromAmount(500),
-      actualMinor: 0, refundedMinor: 0,
-    })
+    }))
 
     expect(totalIncome(next)).toBe(fromAmount(3500))
     expect(monthPlanned(next)).toBe(fromAmount(1300)) // unchanged
@@ -165,6 +146,7 @@ describe('budgetModel selectors', () => {
       name: 'Subscriptions',
       kind: 'expense',
       displayOrder: 9,
+      excludeFromAllocation: false,
       items: [],
     })
 
@@ -193,20 +175,10 @@ describe('budgetModel selectors', () => {
 
   it('maps a fund group and counts its contribution as budgeted money', () => {
     const d = dto()
-    d.categories.push({
-      id: 'f1',
-      name: 'Jars',
-      kind: 'Savings',
-      displayOrder: 0,
-      totalPlanned: 100,
-      totalActual: 0,
-      items: [
-        {
-          id: 'car', name: 'Car', displayOrder: 0, plannedAmount: 100, actualAmount: 30,
-          remaining: 70, savingsId: 'fund-car', savingsAvailable: 170,
-        },
-      ],
-    })
+    d.categories.push(budgetCategory({
+      id: 'f1', name: 'Jars', kind: 'Savings', totalActual: 0,
+      items: [budgetItem({ id: 'car', name: 'Car', plannedAmount: 100, actualAmount: 30, savingsId: 'fund-car', savingsAvailable: 170 })],
+    }))
     const vm = fromDto(d)
 
     const fund = vm.categories.find(isSavings)!
@@ -220,10 +192,10 @@ describe('budgetModel selectors', () => {
   it('keeps a savings line whose available balance is unavailable (null) as null, never zero', () => {
     // Rule 67: the jar's account balance can't be calculated → the server sends null.
     const d = dto()
-    d.categories.push({
-      id: 'f1', name: 'Jars', kind: 'Savings', displayOrder: 0, totalPlanned: 100, totalActual: 0,
-      items: [{ id: 'car', name: 'Car', displayOrder: 0, plannedAmount: 100, actualAmount: 0, remaining: 100, savingsId: 'fund-car', savingsAvailable: null }],
-    })
+    d.categories.push(budgetCategory({
+      id: 'f1', name: 'Jars', kind: 'Savings',
+      items: [budgetItem({ id: 'car', name: 'Car', plannedAmount: 100, savingsId: 'fund-car', savingsAvailable: null })],
+    }))
     const vm = fromDto(d)
     expect(vm.categories.find(isSavings)!.items[0].savingsAvailableMinor).toBeNull()
     // The planned contribution still counts toward the month's plan.
@@ -260,10 +232,7 @@ describe('budgetModel selectors', () => {
 })
 
 describe('bill reminders', () => {
-  const item = (dueDay: number | null, isPaid = false): ItemVM => ({
-    id: 'x', name: 'Rent', displayOrder: 0, plannedMinor: 0, actualMinor: 0, refundedMinor: 0,
-    savingsAvailableMinor: null, savingsId: null, isSkipped: false, dueDay, isPaid, memberId: null,
-  })
+  const item = (dueDay: number | null, isPaid = false): ItemVM => itemVM({ dueDay, isPaid })
   // Mid-June 2026 — the month under test is 2026-06.
   const today = new Date(2026, 5, 15)
 
@@ -291,10 +260,10 @@ describe('bill reminders', () => {
 
   it('billAlerts counts overdue and due-soon unpaid bills', () => {
     const month: MonthVM = {
-      id: 'm', key: '2026-06', year: 2026, month: 6, currency: 'EUR',
+      id: 'm', key: '2026-06', year: 2026, month: 6, currency: 'EUR', fxPendingCount: 0,
       categories: [
         {
-          id: 'c', name: 'Housing', kind: 'expense', displayOrder: 0,
+          id: 'c', name: 'Housing', kind: 'expense', displayOrder: 0, excludeFromAllocation: false,
           items: [item(8), item(10), item(20), item(25), item(5, true)],
         },
       ],

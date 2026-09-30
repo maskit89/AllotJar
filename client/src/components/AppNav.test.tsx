@@ -11,7 +11,7 @@ import { AppNav } from './AppNav'
 const renderNav = () => renderWithProviders(<AppNav active="budget" />, { features: true, household: true })
 
 const flags = (over: Partial<FeatureFlags>): FeatureFlags => ({
-  accounts: true, multiCurrency: true, camtImport: true, reports: true, jars: true, householdAllocation: true, householdAccess: true, ...over,
+  accounts: true, multiCurrency: true, camtImport: true, reports: true, jars: true, householdAllocation: true, analytics: false, householdAccess: true, ...over,
 })
 
 function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
