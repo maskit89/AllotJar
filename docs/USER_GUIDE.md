@@ -69,7 +69,7 @@ AllotJar's big banner tracks that goal live as you type.
 
 Every signed-in page shares the same chrome:
 
-- **The sidebar** (left on desktop; a scrollable row of pills along the top on a narrow screen) is the primary navigation: **Budget · Transactions · Accounts · Jars · Reports · People · Help**. An **Allocation** item joins them once you share your household with someone.
+- **The sidebar** (left on desktop; a scrollable row of pills along the top on a narrow screen) is the primary navigation: **Dashboard · Transactions · Accounts · Jars · Reports · People · Help**. An **Allocation** item joins them once you share your household with someone.
 - **The top bar** opens every data screen with a **month picker** (`‹ June 2026 ›`), the signature **Zero-based** pill, and the **light/dark** theme toggle.
 - **Your account menu** is the chip with your initials at the bottom of the sidebar (top-right on mobile). It holds **Account settings**, **switching households** (if you belong to more than one), and **Sign out**.
 
@@ -81,7 +81,7 @@ This is the home page — your plan for one calendar month.
 
 ### Choosing a month
 
-Use the **‹ / ›** arrows in the top bar to move between months. Every month-scoped screen (Budget, Reports, allocation) follows the month you pick here, so they always agree.
+Use the **‹ / ›** arrows in the top bar to move between months. Every month-scoped screen (Dashboard, Reports, allocation) follows the month you pick here, so they always agree.
 
 ### Creating a month
 

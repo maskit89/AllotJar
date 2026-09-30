@@ -477,7 +477,7 @@ export function PeoplePage() {
             <p className="text-[13px] text-white/85">
               No budget for {monthLabel} yet.{' '}
               <Link to="/" className="font-semibold underline underline-offset-2 hover:text-white">
-                Open the Budget
+                Open the Dashboard
               </Link>
             </p>
           ) : incomeFxPending > 0 ? (

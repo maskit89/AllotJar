@@ -480,14 +480,14 @@ export function AllocationPage() {
               role="status"
               className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-200"
             >
-              No income in {monthLabel}’s budget yet. Add income lines to the Budget (attribute them to
+              No income in {monthLabel}’s budget yet. Add income lines to the Dashboard (attribute them to
               people for a by-income split) and come back.{' '}
               <button
                 type="button"
                 onClick={() => navigate('/')}
                 className="font-semibold text-brand-700 underline underline-offset-2 hover:text-brand-800 dark:text-brand-200"
               >
-                Open the Budget
+                Open the Dashboard
               </button>
             </div>
           )}

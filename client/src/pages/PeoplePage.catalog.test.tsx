@@ -910,7 +910,7 @@ describe('PeoplePage — catalog (PPL)', () => {
     expect(screen.queryByText('Combined income')).not.toBeInTheDocument()
     expect(screen.queryByText('€4,000.00')).not.toBeInTheDocument()
     expect(screen.getByText(/No budget for July 2026 yet/)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Open the Budget' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open the Dashboard' })).toBeInTheDocument()
     // The defaults still show as the sub-line, so the user knows what a new budget would start from.
     expect(screen.getByText(/default\s+€3,000\.00/)).toBeInTheDocument()
   })
