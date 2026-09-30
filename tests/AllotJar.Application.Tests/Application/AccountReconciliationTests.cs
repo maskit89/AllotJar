@@ -1,13 +1,10 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Accounts.Queries.GetAccountReconciliation;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
-using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Application;
 
@@ -18,16 +15,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class AccountReconciliationTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-recon-{Guid.NewGuid()}")
-            .Options);
-
     [Fact]
     public async Task Reconciles_AccountBalance_AgainstBackedJarBalances()
     {

@@ -1,9 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Accounts.Commands.UpdateAccount;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.ArchiveJar;
@@ -38,20 +36,10 @@ public class JarMoveAcceptAndSettleTests
 {
     private const string Owner = "user-1";
 
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static readonly CurrentUserStub User = new(Owner);
     private static readonly CancellationToken Ct = CancellationToken.None;
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
     private static readonly DateOnly August = new(2026, 8, 1);
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-r2-d1-{Guid.NewGuid()}")
-            .Options);
 
     private static Jar SeedGoal(ApplicationDbContext db, Account account, string name = "Holiday")
     {

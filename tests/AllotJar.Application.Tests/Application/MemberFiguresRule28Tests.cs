@@ -1,8 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Allocation;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Household.Commands.ArchiveHouseholdMember;
 using AllotJar.Application.Household.Commands.CreateHouseholdMember;
 using AllotJar.Application.Household.Commands.UpdateHouseholdMember;
@@ -21,24 +19,15 @@ namespace AllotJar.Application.Tests.Application;
 /// selected month's budget — their attributed income lines plus an equal share of the
 /// unattributed ones — and the saved per-person default (NetMonthlyIncome) is only a helper
 /// for filling in a new budget, never a figure any calculation reads. Received income and
-/// attributed spending are in the budget's base currency (rules 41–44): foreign rows convert
-/// by their exchange rate and rows whose rate is still pending are counted, not summed.
+/// attributed spending are in the budget's base currency (rules 41–44 and 85): a row in another
+/// currency counts at its confirmed budget-currency amount, and rows still waiting for one are
+/// counted, not summed.
 /// </summary>
 public class MemberFiguresRule28Tests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private const string Owner = "user-1";
     private static readonly CurrentUserStub User = new(Owner);
     private static readonly CurrencyCode Gbp = CurrencyCode.From("GBP");
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-member-figures-{Guid.NewGuid()}")
-            .Options);
 
     private static async Task<HouseholdMember> SeedMember(
         ApplicationDbContext db, string name, decimal savedDefault, int order, bool archived = false)

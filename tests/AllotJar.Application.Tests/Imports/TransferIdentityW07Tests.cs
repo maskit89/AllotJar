@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
@@ -32,11 +31,6 @@ namespace AllotJar.Application.Tests.Imports;
 /// </summary>
 public class TransferIdentityW07Tests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private const string Owner = "user-1";
     private static readonly CurrentUserStub User = new(Owner);
     private static readonly DateOnly Opening = new(2026, 9, 1);
@@ -70,11 +64,6 @@ public class TransferIdentityW07Tests
     private const string ReturnStatement = """
         03/10/2026,RETURNED PAYMENT        * 03/10/2026 •••• •••• •••• 4242 100.00 EUR,100.00
         """;
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-w07-{Guid.NewGuid()}")
-            .Options);
 
     private static Account SeedAccount(ApplicationDbContext db, string name, decimal opening) =>
         LedgerFixtures.SeedAccount(db, Owner, name, opening, Opening, AccountType.Current);

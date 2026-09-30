@@ -1,8 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Tests.TestDoubles;
@@ -30,22 +28,12 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class JarMovementsTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private const string Owner = "user-1";
     private static readonly CurrentUserStub User = new(Owner);
     private static readonly DateOnly June5 = new(2026, 6, 5);
     private static readonly DateOnly June6 = new(2026, 6, 6);
     private static readonly DateOnly June8 = new(2026, 6, 8);
     private static readonly DateOnly AsOf = new(2026, 6, 30);
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-jar-movements-{Guid.NewGuid()}")
-            .Options);
 
     private static Jar SeedJar(ApplicationDbContext db, Account account, string name, decimal allocated = 0m)
     {

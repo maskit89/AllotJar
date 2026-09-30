@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Reports.Queries.GetAnnualSummary;
@@ -28,11 +27,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class RReportsCoverageTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     /// <summary>A login whose id differs from the household partition key it reads — e.g. a
     /// Read-only member of someone else's household. Reports scope by <see cref="OwnerId"/>.</summary>
     private sealed class MemberStub(string userId, string ownerId, HouseholdRole role) : ICurrentUser
@@ -41,11 +35,6 @@ public class RReportsCoverageTests
         public string? OwnerId { get; } = ownerId;
         public HouseholdRole? Role { get; } = role;
     }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-reports-cov-{Guid.NewGuid()}")
-            .Options);
 
     /// <summary>
     /// Seeds one budget month. When <paramref name="incomePlanned"/>/<paramref name="incomeReceived"/>

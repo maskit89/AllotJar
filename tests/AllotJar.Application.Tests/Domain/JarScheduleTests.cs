@@ -2,7 +2,6 @@ using FluentAssertions;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.Services;
-using Xunit;
 
 namespace AllotJar.Application.Tests.Domain;
 

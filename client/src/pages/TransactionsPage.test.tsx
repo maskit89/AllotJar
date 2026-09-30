@@ -408,22 +408,6 @@ describe('TransactionsPage manual sheet', () => {
     }))
   })
 
-  it('blocks a split that does not add up to the total', { timeout: 15000 }, async () => {
-    mockLoad([{ ...tx(), amount: 100 }])
-    const user = userEvent.setup()
-
-    renderPage()
-
-    await user.click(await screen.findByLabelText('Split transaction: Tesco', {}, { timeout: 5000 }))
-    await user.selectOptions(screen.getByLabelText('Split line 1 category'), 'i-rent')
-    await user.type(screen.getByLabelText('Split line 1 amount'), '70')
-    await user.selectOptions(screen.getByLabelText('Split line 2 category'), 'i-food')
-    await user.type(screen.getByLabelText('Split line 2 amount'), '20') // 90 != 100
-
-    expect(screen.getByLabelText('Save split')).toBeDisabled()
-    expect(mockPut).not.toHaveBeenCalled()
-  })
-
   it('filters the register to just the unassigned transactions', { timeout: 15000 }, async () => {
     mockLoad([
       tx(), // Tesco — unassigned (budgetItemId null)

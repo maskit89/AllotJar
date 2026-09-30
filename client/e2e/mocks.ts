@@ -1,9 +1,9 @@
 import type { Page, Route } from '@playwright/test'
 
 /**
- * Shared API stubs + auth setup for the end-to-end specs, so every page renders
- * without a backend. Used by both the accessibility scan (a11y.spec) and the
- * mobile-layout guard (mobile-layout.spec).
+ * Shared API stubs + auth setup for the mocked Playwright specs in e2e/, so every
+ * page renders without a backend. Any path not routed here answers [] — an endpoint
+ * the client calls that expects an object must be added below.
  */
 
 // Every feature flag on, so role/flag-gated UI renders for the scans.
@@ -47,7 +47,7 @@ function householdMembers() {
 }
 
 function memberSpending() {
-  return [{ memberId: 'm1', spent: 1234 }, { memberId: 'm2', spent: 980 }]
+  return [{ memberId: 'm1', name: 'Alex', spent: 1234 }, { memberId: 'm2', name: 'Sam', spent: 980 }]
 }
 
 // A couple of sinking funds so the /funds page renders cards, badges and progress
@@ -379,11 +379,9 @@ export async function mockApi(route: Route) {
   if (/^\/jars\/[^/]+$/.test(path) && route.request().method() === 'DELETE') return route.fulfill({ status: 204 })
   if (/^\/jars\/[^/]+\/payments$/.test(path)) return json(jarPayments())
   if (path === '/members') return json(householdMembers())
-  if (path === '/members/spending') return json(memberSpending())
+  if (/^\/members\/spending\/\d+\/\d+$/.test(path)) return json(memberSpending())
   if (path === '/allocation/profile') return json(allocationProfile())
   if (/^\/allocation\/preview\/\d+\/\d+$/.test(path)) return json(allocationPreview())
-  if (path === '/budget/months') return json([])
-  if (path === '/budget/templates') return json([])
   if (path === '/reports/trends') return json(budgetTrends())
   if (/^\/reports\/annual\/\d+$/.test(path)) {
     const year = Number(path.split('/').pop())

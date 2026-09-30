@@ -189,6 +189,8 @@ test.describe('responsive — data tables scroll inside their own container (375
       .getByRole('table')
       .filter({ has: page.getByRole('columnheader', { name: 'Share' }) })
     await table.waitFor()
+    // Alex's spending comes from the /members/spending/{y}/{m} mock, so the sweep sees real figures.
+    await expect(table).toContainText('1,234.00')
     await expectInnerScroller(table, '/people household table', true)
   })
 

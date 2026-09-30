@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
@@ -8,7 +7,6 @@ using AllotJar.Application.Imports;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Imports.Commands.PreviewImport;
 using AllotJar.Application.Imports.Models;
-using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Application.Transactions.Commands.CreateTransfer;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -27,11 +25,6 @@ namespace AllotJar.Application.Tests.Imports;
 /// </summary>
 public class ImportTransferLegsTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static readonly CurrentUserStub User = new("user-1");
     private static readonly DateOnly Opening = new(2026, 9, 1);
     private static readonly DateOnly Departure = new(2026, 9, 30);
@@ -47,11 +40,6 @@ public class ImportTransferLegsTests
     private const string DestinationStatement = """
         01/10/2026,TRANSFER FROM CURRENT   * 01/10/2026 •••• •••• •••• 4242 100.00 EUR,100.00
         """;
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-import-legs-{Guid.NewGuid()}")
-            .Options);
 
     private static PreviewImportCommandHandler NewPreview(ApplicationDbContext db, string userId = "user-1") =>
         new(db, new CurrentUserStub(userId),

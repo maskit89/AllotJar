@@ -1,9 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Allocation.Commands.UpsertAllocationProfile;
 using AllotJar.Application.Allocation.Queries.PreviewIncomeAllocation;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Household.Queries.GetMemberIncome;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -20,16 +18,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class AllocationIncomeFromBudgetTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-income-budget-{Guid.NewGuid()}")
-            .Options);
-
     private sealed record Seeded(HouseholdMember Alex, HouseholdMember Robin, BudgetCategory Income);
 
     private static Seeded Seed(ApplicationDbContext db, string owner = "user-1")

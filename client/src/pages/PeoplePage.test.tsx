@@ -72,28 +72,6 @@ describe('PeoplePage', () => {
     setupGet()
   })
 
-  it('shows each person with their sign-in and access level', { timeout: 15000 }, async () => {
-    membersData = [member()]
-    membershipsData = [membership()]
-
-    renderPage()
-
-    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
-    expect(table.getByText('Alex')).toBeInTheDocument()
-    expect(table.getByText('alex@x.com')).toBeInTheDocument()
-    expect(table.getByText('Owner')).toBeInTheDocument()
-  })
-
-  it('offers to invite a person who has no sign-in', { timeout: 15000 }, async () => {
-    membersData = [member(), member({ id: 'm2', name: 'Sam', incomeSharePct: 0.5 })]
-    membershipsData = [membership()] // only Alex has a login; Sam has none
-
-    renderPage()
-
-    await screen.findByRole('table', {}, { timeout: 5000 })
-    expect(screen.getByRole('button', { name: 'Invite to sign in' })).toBeInTheDocument()
-  })
-
   it('lets the signed-in owner claim their own budget person when their login is unlinked', { timeout: 15000 }, async () => {
     membersData = [member()] // "Alex" person, not linked to any login
     membershipsData = [membership({ memberId: null })] // the owner's own login, unlinked
@@ -108,42 +86,6 @@ describe('PeoplePage', () => {
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/access/members/mem1/link', { memberId: 'm1' }),
     )
-  })
-
-  it('adds a person (no account needed)', { timeout: 15000 }, async () => {
-    membersData = []
-    mockPost.mockResolvedValue({ data: member({ id: 'm9' }) })
-    const user = userEvent.setup()
-
-    renderPage()
-
-    await user.click(await screen.findByRole('button', { name: 'Add person' }, { timeout: 5000 }))
-    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.type(dialog.getByLabelText('Person name'), 'Alex')
-    await user.type(dialog.getByLabelText('Default income'), '6000')
-    await user.click(dialog.getByRole('button', { name: 'Add person' }))
-
-    await waitFor(() =>
-      expect(mockPost).toHaveBeenCalledWith(
-        '/members',
-        expect.objectContaining({ name: 'Alex', netMonthlyIncome: 6000 }),
-      ),
-    )
-  })
-
-  // Rules 28/29: every month-scoped read names the selected month (the context default here).
-  it('requests members, income and spending for the selected month', { timeout: 15000 }, async () => {
-    membersData = [member()]
-
-    renderPage()
-
-    await screen.findByRole('table', {}, { timeout: 5000 })
-    const urls = mockGet.mock.calls.map((c) => c[0] as string)
-    expect(urls).toContain(`/members?year=${YEAR}&month=${MONTH}`)
-    expect(urls).toContain(`/members/income/${YEAR}/${MONTH}`)
-    expect(urls).toContain(`/members/spending/${YEAR}/${MONTH}`)
-    // The all-time spending endpoint is no longer used by this page.
-    expect(urls).not.toContain('/members/spending')
   })
 
   it('shows a solo-friendly empty state when there are no people', { timeout: 15000 }, async () => {

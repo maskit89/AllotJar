@@ -1,12 +1,9 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
-using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Transactions;
 
@@ -16,16 +13,6 @@ namespace AllotJar.Application.Tests.Transactions;
 /// </summary>
 public class BudgetActualsTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-actuals-{Guid.NewGuid()}")
-            .Options);
-
     [Fact]
     public async Task ActualAmount_SumsOnlyAssignedExpensesForTheOwner()
     {

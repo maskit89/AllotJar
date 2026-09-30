@@ -1,5 +1,4 @@
 using FluentAssertions;
-using Xunit;
 using AllotJar.Application.Common.Households;
 using AllotJar.Domain.Enums;
 

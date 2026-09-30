@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Accounts.Commands.CompleteSharingReview;
 using AllotJar.Application.Accounts.Commands.CreateAccount;
 using AllotJar.Application.Accounts.Commands.DeleteAccount;
@@ -23,7 +22,6 @@ using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Jars.Commands.UpdateJar;
 using AllotJar.Application.Reports.Queries.GetMonthReport;
-using AllotJar.Application.Tests.Imports;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Application.Transactions.Commands.AssignTransaction;
 using AllotJar.Application.Transactions.Commands.ConfirmTransferLegs;
@@ -37,7 +35,6 @@ using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
 using AllotJar.Infrastructure.Persistence;
-using AllotJar.Infrastructure.Statements;
 
 namespace AllotJar.Application.Tests.Application;
 

@@ -1,8 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Jars.Queries.GetJarSchedule;
@@ -21,16 +19,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class JarPlannerTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-planner-{Guid.NewGuid()}")
-            .Options);
-
     private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
     private static readonly DateOnly Current = new(Today.Year, Today.Month, 1);
 

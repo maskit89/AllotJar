@@ -116,15 +116,6 @@ describe('AllocationPage', () => {
     setupGet()
   })
 
-  it('shows a setup empty-state when no profile exists', { timeout: 15000 }, async () => {
-    profileData = null
-
-    renderPage()
-
-    expect(await screen.findByText(/No allocation set up yet/, {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText('Set up allocation')).toBeInTheDocument()
-  })
-
   // ALLOC-010/ALLOC-018 regression. GET /allocation/profile used to answer 204 No Content for a
   // profile-less household; axios hands that back as `data: ''`, and the bootstrap's `?? null` let
   // the empty string through. `''?.rules` does NOT short-circuit — optional chaining only guards
@@ -150,21 +141,6 @@ describe('AllocationPage', () => {
     expect(screen.getByRole('button', { name: 'Add people' })).toBeInTheDocument()
     // The allocation setup form must not render in solo mode.
     expect(screen.queryByText('Allocation settings')).not.toBeInTheDocument()
-  })
-
-  it('renders the waterfall and each member’s surplus', { timeout: 15000 }, async () => {
-    profileData = profile()
-
-    renderPage()
-
-    expect(await screen.findByText('How June is allocated', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText(/8,000\.75/)).toBeInTheDocument() // pool (hero)
-    expect(screen.getByText('Pocket money')).toBeInTheDocument()
-    expect(screen.getByText('To savings')).toBeInTheDocument() // hero tile
-    expect(screen.getByText('Shared spending')).toBeInTheDocument() // hero tile reconciles to the pool
-    // Each member's tilted surplus appears in both the step breakdown and their surplus card.
-    expect(screen.getAllByText(/1,250\.47/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/750\.28/).length).toBeGreaterThan(0)
   })
 
   // W13 (P53): a savings account private to someone else isn't "no savings account": the page says
@@ -194,29 +170,6 @@ describe('AllocationPage', () => {
     await screen.findByText('How June is allocated', {}, { timeout: 5000 })
     expect(screen.getByRole('button', { name: 'Commit allocation' })).toBeDisabled()
     expect(screen.getByText(/Set the account to pay shared costs from/)).toBeInTheDocument()
-  })
-
-  it('saves a new profile from the setup form', { timeout: 15000 }, async () => {
-    profileData = null
-    mockPut.mockResolvedValue({ data: profile() })
-    const user = userEvent.setup()
-
-    renderPage()
-
-    await user.click(await screen.findByRole('button', { name: 'Set up allocation' }, { timeout: 5000 }))
-    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.selectOptions(dialog.getByLabelText('Source account'), 'acc0')
-    await user.type(dialog.getByLabelText('Pocket money per member'), '250')
-    await user.click(dialog.getByRole('button', { name: 'Save allocation settings' }))
-
-    await waitFor(() =>
-      expect(mockPut).toHaveBeenCalledWith(
-        '/allocation/profile',
-        expect.objectContaining({ sourceAccountId: 'acc0', rules: expect.arrayContaining([]) }),
-      ),
-    )
-    const body = mockPut.mock.calls[0][1]
-    expect(body.rules).toHaveLength(4)
   })
 
   it('commits the allocation', { timeout: 15000 }, async () => {

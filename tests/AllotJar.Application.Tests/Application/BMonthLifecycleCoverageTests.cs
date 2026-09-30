@@ -1,7 +1,6 @@
 using FluentAssertions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Budgets.Dtos;
 using AllotJar.Application.Common.Behaviours;
@@ -11,7 +10,6 @@ using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
-using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Application;
 
@@ -26,11 +24,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class BMonthLifecycleCoverageTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     /// <summary>A stub that also varies the household role, for the create-command gate.</summary>
     private sealed class RoleUserStub(HouseholdRole? role) : ICurrentUser
     {
@@ -39,11 +32,6 @@ public class BMonthLifecycleCoverageTests
         public HouseholdRole? Role { get; } = role;
         public Guid? MemberId => null;
     }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-budg-{Guid.NewGuid()}")
-            .Options);
 
     // BUDG-028 / BUDG-056: a blank (or first-ever) month for a household that already owns
     // an active, seedable jar is born OVER-BUDGETED — the jar-append step adds an

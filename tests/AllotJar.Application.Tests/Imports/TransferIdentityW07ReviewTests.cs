@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using Xunit.Abstractions;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
@@ -50,9 +49,6 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
     private static readonly DateOnly Sep12 = new(2026, 9, 12);
     private static readonly DateOnly Sep15 = new(2026, 9, 15);
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>().UseInMemoryDatabase($"w07-review-{Guid.NewGuid()}").Options);
 
     private static Jar SeedGoal(ApplicationDbContext db, Account account, string name = "Holiday")
     {

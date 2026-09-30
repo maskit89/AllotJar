@@ -2,7 +2,6 @@ using System.Net;
 using System.Text;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using Xunit;
 using AllotJar.Domain.ValueObjects;
 using AllotJar.Infrastructure.Statements;
 

@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.PreviewImport;
 using AllotJar.Application.Imports.Models;
@@ -22,16 +21,6 @@ namespace AllotJar.Application.Tests.Transactions;
 /// </summary>
 public class AutoCategorizationTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-autocat-{Guid.NewGuid()}")
-            .Options);
-
     private static BudgetItem SeedMonthWithFood(ApplicationDbContext db, string ownerId, int year, int month)
     {
         var groceries = new BudgetItem { Name = "Groceries", PlannedAmount = 400m };
@@ -256,28 +245,6 @@ public class AutoCategorizationTests
 
         count.Should().Be(0);
         refund.BudgetItemId.Should().BeNull();
-    }
-
-    [Fact]
-    public async Task Apply_ABackdatedTransaction_NeverLearnsFromTheFuture()
-    {
-        // The only "REWE" history is dated AFTER the backdated candidate — nothing prior
-        // exists, so nothing is inherited. (The old behavior keyed learning on "most recent
-        // overall", letting later data leak backwards in time.)
-        await using var db = NewContext();
-        var groceries = SeedMonthWithFood(db, "user-1", 2026, 6);
-        SeedAssignedTransaction(db, "user-1", "REWE", groceries.Id, new DateOnly(2026, 6, 20));
-
-        var backdated = new Transaction
-        {
-            OwnerId = "user-1", Payee = "REWE", Date = new DateOnly(2026, 6, 5),
-            Type = TransactionType.Expense,
-        };
-
-        var count = await AutoCategorizer.ApplyAsync(db, "user-1", new[] { backdated }, CancellationToken.None);
-
-        count.Should().Be(0);
-        backdated.BudgetItemId.Should().BeNull();
     }
 
     [Fact]

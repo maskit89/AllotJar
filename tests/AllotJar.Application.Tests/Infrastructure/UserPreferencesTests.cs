@@ -1,4 +1,3 @@
-using Xunit;
 using AllotJar.Infrastructure.Identity;
 
 namespace AllotJar.Application.Tests.Infrastructure;
