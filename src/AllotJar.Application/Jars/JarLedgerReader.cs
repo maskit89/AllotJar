@@ -314,68 +314,142 @@ public sealed class JarLedgerSource
                 continue;
             }
 
-            var entries = ActualAccountLedger.Entries(account, openingDate, asOf, _readable, _postingDates);
-            var operations = new List<JarLedgerOperation>();
-            var attributed = new HashSet<Guid>();
-            var unreconciled = 0;
-
-            foreach (var op in _stored.Where(a => a.AccountId == account.Id))
-            {
-                if (op.TransactionId is Guid transactionId)
-                {
-                    // The transaction's own posting date and amount govern; a stored operation
-                    // that no longer matches its transaction is set aside (counted for review)
-                    // and the movement falls back to its budget-line attribution.
-                    if (!entries.Movements.TryGetValue(transactionId, out var movement))
-                    {
-                        continue;
-                    }
-                    if (op.Postings.Sum(p => p.Amount) != movement.Amount || !attributed.Add(transactionId))
-                    {
-                        unreconciled++;
-                        continue;
-                    }
-                    operations.Add(new JarLedgerOperation(op.Id, op.OwnerId, op.AccountId, movement.Date, transactionId,
-                        op.Postings.Select(p => new JarLedgerPosting(p.JarId, p.Amount)).ToList()));
-                }
-                else
-                {
-                    if (op.Date < openingDate || op.Date > asOf)
-                    {
-                        continue;
-                    }
-                    operations.Add(new JarLedgerOperation(op.Id, op.OwnerId, op.AccountId, op.Date, null,
-                        op.Postings.Select(p => new JarLedgerPosting(p.JarId, p.Amount)).ToList()));
-                }
-            }
-
-            foreach (var (transactionId, movement) in entries.Movements)
-            {
-                if (attributed.Contains(transactionId) || _returnLegs.ContainsKey(transactionId))
-                {
-                    continue;
-                }
-                operations.Add(new JarLedgerOperation(
-                    Guid.NewGuid(), _ownerId, account.Id, movement.Date, transactionId,
-                    JarLedgerReader.Derive(_byId[transactionId], account, movement.Amount, _lineJars, _jarsById)));
-            }
-
-            // A returned transfer's money comes back as unallocated money; its stored Return
-            // operation (TransferReturns) puts each jar's share back, as decided when the return
-            // was recorded.
-            foreach (var (legId, movement) in entries.Movements)
-            {
-                if (_returnLegs.ContainsKey(legId))
-                {
-                    operations.Add(new JarLedgerOperation(Guid.NewGuid(), _ownerId, account.Id, movement.Date, legId,
-                        new[] { new JarLedgerPosting(null, movement.Amount) }));
-                }
-            }
-
+            var (operations, unreconciled, _) = OperationsOf(account, openingDate, asOf);
             var ledger = ActualSavingsLedger.Calculate(account, openingDate, asOf, _jars, _readable, operations, _postingDates);
             views[account.Id] = new JarLedgerView(asOf, account, ledger, false, unreconciled) { CarriedJars = carried };
         }
 
         return new JarLedgerSnapshot(asOf, views, _jarsById, _isComplete);
+    }
+
+    /// <summary>
+    /// What was put into each jar between <paramref name="from"/> and <paramref name="to"/>
+    /// (both inclusive), in every account, from the operations the ledger reads on those dates:
+    /// the money allocated or moved into the jar, net of what was moved back out of it to
+    /// unallocated money or another jar in the same period (a move undone, or the jar emptied
+    /// to travel between accounts, put nothing new in), plus what a receipt's or income's jar
+    /// share brought in. What left the jar as spending or a transfer is never netted off: rule
+    /// 14's "contributed this month" is what went in, not the change in balance, so a bill paid
+    /// from the jar moves its balance and its plan but not this figure. A returned transfer's
+    /// share going back to its jar (<see cref="JarAllocationKind.Return"/>) and a jar's departure
+    /// from an account (rule 80, zero-sum) put nothing new in either. A jar with nothing in, or
+    /// less than left it by a move, is absent.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, decimal> ContributionsBetween(DateOnly from, DateOnly to)
+    {
+        var net = new Dictionary<Guid, decimal>();
+        if (to < from)
+        {
+            return net;
+        }
+        foreach (var account in _accounts)
+        {
+            if (account.OpeningDate is not DateOnly openingDate || to < openingDate)
+            {
+                continue;
+            }
+            var (operations, _, kinds) = OperationsOf(account, openingDate, to);
+            foreach (var op in operations)
+            {
+                if (op.Date < from || op.Date < openingDate)
+                {
+                    continue;
+                }
+                // A movement's jar split, or the budget-line attribution derived for it, when the
+                // operation was not stored.
+                var kind = kinds.TryGetValue(op.Id, out var stored) ? stored : JarAllocationKind.Movement;
+                if (kind is JarAllocationKind.Return or JarAllocationKind.Departure)
+                {
+                    continue;
+                }
+                foreach (var posting in op.Postings)
+                {
+                    if (posting.JarId is not Guid jarId)
+                    {
+                        continue;
+                    }
+                    var counts = kind is JarAllocationKind.InitialAllocation or JarAllocationKind.Reallocation || posting.Amount > 0m;
+                    if (counts)
+                    {
+                        net[jarId] = net.GetValueOrDefault(jarId) + posting.Amount;
+                    }
+                }
+            }
+        }
+        return net.Where(e => e.Value > 0m).ToDictionary(e => e.Key, e => e.Value);
+    }
+
+    /// <summary>
+    /// The account's ledger operations up to <paramref name="asOf"/>: its stored allocations
+    /// (each transaction's own posting date and amount govern; one that no longer matches its
+    /// transaction is set aside and counted as unreconciled), the budget-line attribution of
+    /// every other movement, and a returned transfer's leg as unallocated money.
+    /// <c>Kinds</c> is each stored operation's <see cref="JarAllocationKind"/> by operation id
+    /// (a derived operation has none), for <see cref="ContributionsBetween"/>.
+    /// </summary>
+    private (List<JarLedgerOperation> Operations, int Unreconciled, Dictionary<Guid, JarAllocationKind> Kinds) OperationsOf(
+        Account account, DateOnly openingDate, DateOnly asOf)
+    {
+        var entries = ActualAccountLedger.Entries(account, openingDate, asOf, _readable, _postingDates);
+        var operations = new List<JarLedgerOperation>();
+        var attributed = new HashSet<Guid>();
+        var kinds = new Dictionary<Guid, JarAllocationKind>();
+        var unreconciled = 0;
+
+        foreach (var op in _stored.Where(a => a.AccountId == account.Id))
+        {
+            if (op.TransactionId is Guid transactionId)
+            {
+                // The transaction's own posting date and amount govern; a stored operation
+                // that no longer matches its transaction is set aside (counted for review)
+                // and the movement falls back to its budget-line attribution.
+                if (!entries.Movements.TryGetValue(transactionId, out var movement))
+                {
+                    continue;
+                }
+                if (op.Postings.Sum(p => p.Amount) != movement.Amount || !attributed.Add(transactionId))
+                {
+                    unreconciled++;
+                    continue;
+                }
+                operations.Add(new JarLedgerOperation(op.Id, op.OwnerId, op.AccountId, movement.Date, transactionId,
+                    op.Postings.Select(p => new JarLedgerPosting(p.JarId, p.Amount)).ToList()));
+            }
+            else
+            {
+                if (op.Date < openingDate || op.Date > asOf)
+                {
+                    continue;
+                }
+                operations.Add(new JarLedgerOperation(op.Id, op.OwnerId, op.AccountId, op.Date, null,
+                    op.Postings.Select(p => new JarLedgerPosting(p.JarId, p.Amount)).ToList()));
+            }
+            kinds[op.Id] = op.Kind;
+        }
+
+        foreach (var (transactionId, movement) in entries.Movements)
+        {
+            if (attributed.Contains(transactionId) || _returnLegs.ContainsKey(transactionId))
+            {
+                continue;
+            }
+            operations.Add(new JarLedgerOperation(
+                Guid.NewGuid(), _ownerId, account.Id, movement.Date, transactionId,
+                JarLedgerReader.Derive(_byId[transactionId], account, movement.Amount, _lineJars, _jarsById)));
+        }
+
+        // A returned transfer's money comes back as unallocated money; its stored Return
+        // operation (TransferReturns) puts each jar's share back, as decided when the return
+        // was recorded.
+        foreach (var (legId, movement) in entries.Movements)
+        {
+            if (_returnLegs.ContainsKey(legId))
+            {
+                operations.Add(new JarLedgerOperation(Guid.NewGuid(), _ownerId, account.Id, movement.Date, legId,
+                    new[] { new JarLedgerPosting(null, movement.Amount) }));
+            }
+        }
+
+        return (operations, unreconciled, kinds);
     }
 }

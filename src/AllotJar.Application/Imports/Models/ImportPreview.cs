@@ -21,7 +21,10 @@ public static class TransferMatchKinds
 /// that leg, which the statement's date replaces. <see cref="SameReference"/> marks a transfer
 /// whose other bank printed this row's reference. <see cref="CounterpartyAccountId"/> is null and
 /// the name "Private account" when the other side is private to another login (P57);
-/// <see cref="FeeBudgetItemId"/> is the line the transfer's current fee is on, to pre-fill.
+/// <see cref="FeeBudgetItemId"/> is the line the transfer's current fee is on, to pre-fill, and
+/// <see cref="FeeBudgetItemMonth"/> the first day of that line's budget month: the commit judges
+/// the fee's date against it (the bank's departure date, once matched), so the review can ask the
+/// cross-month question before sending rather than be refused.
 /// </summary>
 public record TransferMatchCandidate(
     Guid TransferId,
@@ -36,6 +39,7 @@ public record TransferMatchCandidate(
     public string Kind { get; init; } = TransferMatchKinds.Match;
     public decimal? Fee { get; init; }
     public Guid? FeeBudgetItemId { get; init; }
+    public DateOnly? FeeBudgetItemMonth { get; init; }
     public DateOnly? RecordedDate { get; init; }
     public bool SameReference { get; init; }
 }

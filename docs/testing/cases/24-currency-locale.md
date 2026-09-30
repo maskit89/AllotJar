@@ -358,8 +358,8 @@
 - **Origin:** Before W08 the hero showed the raw arithmetic sum `1250 + 800 = €2,050.00` with "Totals shown in EUR; some accounts hold another currency."
 - **Preconditions:** H-MIX (EUR 1,250.00 + legacy GBP 800.00), budget currency EUR.
 - **Steps:**
-  1. Open `/accounts`; read the "Total balance" hero, "Available"/"Owed" tiles, and the footnote.
-- **Expected:** Hero **€1,250.00**, Available €1,250.00, Owed €0.00 — only budget-currency accounts count — plus the pill "**1 account in another currency is not counted.**". Per-account cards still render each in its own currency (€1,250.00, £800.00). The GBP account's rows still count in the budget by their confirmed figure, never their pounds (CURR-057). (Area coverage: ACCT-005, ACCT-042.)
+  1. Open `/accounts`; read the "Total balance" hero, the "Available" tile, and the footnote.
+- **Expected:** Hero **€1,250.00**, Available €1,250.00 (no Owed tile since rule 74) — only budget-currency accounts count — plus the pill "**1 account in another currency is not counted.**". Per-account cards still render each in its own currency (€1,250.00, £800.00). The GBP account's rows still count in the budget by their confirmed figure, never their pounds (CURR-057). (Area coverage: ACCT-005, ACCT-042.)
 - **Automated:** Yes (client/src/pages/AccountsPage.catalog.test.tsx — ACCT-005)
 
 ### CURR-035 - Cross-currency transfer is rejected and moves nothing

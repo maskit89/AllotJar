@@ -9,6 +9,8 @@ namespace AllotJar.Application.Imports.Models;
 /// lists the rows not imported because posting them would take the statement account below
 /// zero on some date (rules 11/74): each names the reason, so the user records the missing
 /// deposit and re-commits it, corrects it, or discards it; nothing is posted "anyway".
+/// <paramref name="SkippedReferences"/> names the rows counted in <paramref name="SkippedDuplicates"/>
+/// by the reference the request sent, so the screen's money totals can leave them out.
 /// </summary>
 public record ImportStatementResult(
     int TotalEntries,
@@ -23,9 +25,11 @@ public record ImportStatementResult(
     int PendingReviewTransfers = 0,
     IReadOnlyList<ImportHeldRow>? Held = null,
     int Returned = 0,
-    int AwaitingAmount = 0)
+    int AwaitingAmount = 0,
+    IReadOnlyList<string>? SkippedReferences = null)
 {
     public IReadOnlyList<ImportHeldRow> Held { get; init; } = Held ?? [];
+    public IReadOnlyList<string> SkippedReferences { get; init; } = SkippedReferences ?? [];
     public int HeldCount => Held.Count;
 }
 

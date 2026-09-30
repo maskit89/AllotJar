@@ -126,6 +126,7 @@ describe('AccountsPage', () => {
     )
 
     mockPost.mockClear()
+    mockPost.mockResolvedValue({ data: { id: 'a10', name: 'Joint', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 1 } })
     await user.click(await screen.findByRole('button', { name: 'Add account' }))
     const again = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.type(again.getByLabelText('Account name'), 'Joint')

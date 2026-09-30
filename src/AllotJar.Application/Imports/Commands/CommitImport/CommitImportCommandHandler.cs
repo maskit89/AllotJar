@@ -121,6 +121,10 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         int imported = 0, skipped = 0, credits = 0, debits = 0, transfers = 0, matched = 0, pendingReview = 0, returned = 0;
         var created = new List<Transaction>();
         var fees = new List<Transaction>();
+        // The rows skipped as duplicates, by the reference the request sent (a created row may
+        // carry a derived reference), so the screen can leave them out of its money totals.
+        var skippedReferences = new List<string>();
+        var sentReference = new Dictionary<Transaction, string>(ReferenceEqualityComparer.Instance);
         // The legs rows of this import confirm: a transfer's departure and its return can be on
         // one statement (a bounced transfer), but no leg is confirmed twice.
         var matchedIds = new HashSet<(Guid TransferId, TransferLeg Leg)>();
@@ -206,6 +210,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 || (resolution.Reference is string taken && !known.Add(taken, item.Date, item.Amount, item.IsCredit)))
             {
                 skipped++;
+                skippedReferences.Add(item.Reference);
                 continue;
             }
             var reference = resolution.Reference;
@@ -456,6 +461,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 }
                 _db.Transactions.Add(transfer);
                 created.Add(transfer);
+                sentReference[transfer] = item.Reference;
                 AddToCandidate(transfer);
                 if (rowFee > 0m)
                 {
@@ -545,6 +551,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
 
             _db.Transactions.Add(transaction);
             created.Add(transaction);
+            sentReference[transaction] = item.Reference;
             AddToCandidate(transaction);
 
             if (importAccount is not null)
@@ -602,6 +609,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                         created.Remove(row);
                         imported--;
                         skipped++;
+                        skippedReferences.Add(sentReference.TryGetValue(row, out var sent) ? sent : row.BankReference ?? string.Empty);
                         if (row.Type == TransactionType.Transfer)
                         {
                             transfers--;
@@ -632,7 +640,8 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             PendingReviewTransfers: pendingReview,
             Held: held,
             Returned: returned,
-            AwaitingAmount: created.Concat(fees).Count(t => t.FxPending));
+            AwaitingAmount: created.Concat(fees).Count(t => t.FxPending),
+            SkippedReferences: skippedReferences);
     }
 
     /// <summary>

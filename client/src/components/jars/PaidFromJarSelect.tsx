@@ -5,7 +5,7 @@ import { formatMoney, fromAmount } from '../../lib/money'
 export const PAID_FROM_UNALLOCATED = ''
 
 export interface PaidFromJarSelectProps {
-  /** The active jars of the account the payment leaves. */
+  /** The jars of the account the payment leaves: its active jars, plus an archived one the stored answer names. */
   jars: JarLedgerLineDto[]
   accountName: string
   currency: string
@@ -33,7 +33,10 @@ export function PaidFromJarSelect({ jars, accountName, currency, value, onChange
         <option value={PAID_FROM_UNALLOCATED}>Unallocated money</option>
         {jars.map((jar) => (
           <option key={jar.jarId} value={jar.jarId}>
-            {jar.name} ({jar.balance === null ? 'balance not available' : formatMoney(fromAmount(jar.balance), currency)})
+            {jar.name}
+            {jar.isArchived
+              ? ' (archived)'
+              : ` (${jar.balance === null ? 'balance not available' : formatMoney(fromAmount(jar.balance), currency)})`}
           </option>
         ))}
       </Select>

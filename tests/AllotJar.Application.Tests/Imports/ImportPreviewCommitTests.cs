@@ -444,8 +444,12 @@ public class ImportPreviewCommitTests
         var second = await handler.Handle(new CommitImportCommand(null, items), CancellationToken.None);
 
         first.Imported.Should().Be(6);
+        first.SkippedReferences.Should().BeEmpty();
         second.Imported.Should().Be(0);
         second.SkippedDuplicates.Should().Be(6);
+        // The skipped rows are named by the reference the request sent, so the screen's money
+        // totals can leave them out.
+        second.SkippedReferences.Should().BeEquivalentTo(items.Select(i => i.Reference));
         (await db.Transactions.CountAsync()).Should().Be(6);
     }
 

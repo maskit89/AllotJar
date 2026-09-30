@@ -252,6 +252,8 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
         var candidate = row.TransferMatches.Should().ContainSingle().Subject;
         candidate.Fee.Should().Be(2m);
         candidate.FeeBudgetItemId.Should().Be(line);
+        // ... and that line's month, so the review asks the cross-month question the commit would (#286 P2-1).
+        candidate.FeeBudgetItemMonth.Should().Be(Sep1);
 
         var item = new CommitImportItem(row.Reference, row.Date, row.Payee, row.Amount, row.Currency, false, null, null,
             TransferAccountId: b.Id, MatchTransferId: transfer.Id, Fee: 2m);

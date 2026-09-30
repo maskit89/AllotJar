@@ -46,6 +46,12 @@ interface Props {
    * calculated, rule 67) rather than falling back to the expense layout.
    */
   savingsLine?: boolean
+  /**
+   * Savings lines only (rule 14): what went into the jar this month and what is still to go,
+   * read from the jar itself. Null or omitted while the jars are loading or could not be read:
+   * the line then shows only its plan.
+   */
+  contribution?: { contributedMinor: Minor; remainingMinor: Minor } | null
   /** The category hue — colours the spent/planned bar, the dot and the Bill tag. */
   hue?: CategoryHue
 }
@@ -74,6 +80,7 @@ export function BudgetItemRow({
   isLast = false,
   availableMinor,
   savingsLine = false,
+  contribution,
   billStatus,
   dueDayEffective,
   hue = 'indigo',
@@ -134,9 +141,11 @@ export function BudgetItemRow({
   const showAvailable = savingsLine || (availableMinor !== undefined && availableMinor !== null)
   const availableKnown = availableMinor !== undefined && availableMinor !== null
   const fundOverdrawn = availableKnown && (availableMinor as Minor) < 0
-  // The progress bar fills to spent / planned for this line.
+  // The progress bar fills to spent / planned for this line; a savings line fills to what
+  // went into the jar this month against its plan (rule 14), never to what was spent from it.
+  const barNumerator = savingsLine ? (contribution?.contributedMinor ?? 0) : item.actualMinor
   const barPct =
-    item.plannedMinor > 0 ? Math.min(100, Math.max(0, Math.round((item.actualMinor / item.plannedMinor) * 100))) : 0
+    item.plannedMinor > 0 ? Math.min(100, Math.max(0, Math.round((barNumerator / item.plannedMinor) * 100))) : 0
 
   const savingDot = saving && (
     <span
@@ -265,7 +274,7 @@ export function BudgetItemRow({
             )}
             {savingDot}
           </div>
-          {/* Funding bar: spent of this month's contribution (violet marks a fund). */}
+          {/* Funding bar: what went in of this month's contribution (violet marks a fund). */}
           <div className="ml-1.5 mt-2 h-1.5 overflow-hidden rounded-full bg-violet-100 dark:bg-violet-500/20" aria-hidden>
             <div className="h-full rounded-full bg-violet-500" style={{ width: `${barPct}%` }} />
           </div>
@@ -281,8 +290,18 @@ export function BudgetItemRow({
             <span>{availableKnown ? formatMoney(availableMinor as Minor, currency) : 'Not available'}</span>{' '}
             <span className="text-[11.5px] font-medium text-slate-500">avail.</span>
           </div>
+          {/* Rule 14: the plan stays as planned; what went into the jar this month and what is
+              still to go are shown beside it, as the Jars page reads them from the jar's postings.
+              Spending from the jar moves Available and the plan, not what went in. */}
           <div className="mt-0.5 text-[11.5px] tabular-nums text-slate-500">
-            {formatMoney(item.actualMinor, currency)} of {plannedEditor}
+            {!contribution ? (
+              <>plan {plannedEditor}</>
+            ) : (
+              <>
+                {formatMoney(contribution.contributedMinor, currency)} in of {plannedEditor} ·{' '}
+                {formatMoney(contribution.remainingMinor, currency)} to go
+              </>
+            )}
           </div>
         </div>
 
@@ -452,6 +471,14 @@ export function BudgetItemRow({
         </div>
         <div className="mt-0.5 text-[11.5px] tabular-nums text-slate-500">
           {formatMoney(item.actualMinor, currency)} of {plannedEditor}
+          {/* Rule 39: a refund nets off the line in the month it arrives; say so, or a net figure
+              below the purchases reads as a mistake. */}
+          {item.refundedMinor > 0 && (
+            <span title="Refunds received against this line this month, already taken off the spent figure">
+              {' '}
+              · {formatMoney(item.refundedMinor, currency)} refunded
+            </span>
+          )}
         </div>
       </div>
 

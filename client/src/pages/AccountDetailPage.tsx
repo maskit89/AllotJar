@@ -11,7 +11,7 @@ import { formatForeign } from '../lib/conversion'
 import type { AccountDto, BudgetMonthDto, TransactionDto } from '../types'
 import { ACCOUNT_TYPE_LABELS, TransactionType } from '../types'
 import { formatMoney, fromAmount } from '../lib/money'
-import { shortDate } from '../lib/dates'
+import { formatDate, shortDate } from '../lib/dates'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { transactionTypeLabel } from '../lib/transactions'
 
@@ -183,9 +183,29 @@ export function AccountDetailPage() {
                     const isIncome = transactionTypeLabel(t.type) === 'Income'
                     const isTransfer = t.type === TransactionType.Transfer
                     const hue = hueForName(t.budgetItemName)
+                    // Rules 40/74: a row dated before the opening date is history only; the
+                    // opening balance already includes it, so it never moves the balance. The
+                    // date that counts is the leg this account posts: a transfer leaves its source
+                    // on its departure and reaches its destination on its receipt (a receipt not
+                    // yet confirmed is pending, not history), and one that left before the opening
+                    // date but came back after it moved the balance on its return.
+                    const legDate = isTransfer ? (t.accountId === id ? (t.departedOn ?? t.date) : (t.receivedOn ?? null)) : t.date
+                    const returnedAfterOpening =
+                      isTransfer && t.accountId === id && !!t.returnedOn && !!account.openingDate && t.returnedOn >= account.openingDate
+                    const beforeOpening = !!account.openingDate && !!legDate && legDate < account.openingDate && !returnedAfterOpening
                     return (
-                      <tr key={t.id} className="hover:bg-slate-50">
-                        <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-slate-500">{shortDate(t.date)}</td>
+                      <tr key={t.id} className={`hover:bg-slate-50 ${beforeOpening ? 'text-slate-400' : ''}`}>
+                        <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-slate-500">
+                          {shortDate(legDate ?? t.date)}
+                          {beforeOpening && (
+                            <span
+                              className="ml-1.5 rounded-[5px] border border-slate-200 bg-slate-50 px-1.5 py-px text-[9.5px] font-semibold text-slate-500 dark:border-slate-600 dark:bg-slate-800"
+                              title={`Dated before the opening balance of ${formatDate(account.openingDate!)}, which already includes it: kept as history, it doesn’t change the balance.`}
+                            >
+                              Before opening
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-3.5">
                           <span className="block truncate font-semibold text-slate-900">
                             {t.payee || (isTransfer ? 'Transfer' : '—')}
@@ -225,7 +245,13 @@ export function AccountDetailPage() {
                         </td>
                         <td
                           className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold tabular-nums ${
-                            isTransfer ? 'text-slate-500' : isIncome ? 'text-brand-700 dark:text-brand-200' : 'text-slate-900'
+                            beforeOpening
+                              ? 'text-slate-400 line-through decoration-slate-300'
+                              : isTransfer
+                                ? 'text-slate-500'
+                                : isIncome
+                                  ? 'text-brand-700 dark:text-brand-200'
+                                  : 'text-slate-900'
                           }`}
                         >
                           {t.fxPending && <FxPendingTag budgetCurrency={budgetCurrency} className="mr-1.5" />}

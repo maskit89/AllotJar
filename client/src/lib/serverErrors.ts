@@ -9,3 +9,16 @@ export function serverErrors(err: unknown): string | null {
   const messages = Object.values(e.response.data?.errors ?? {}).flat()
   return messages.length > 0 ? messages.join(' ') : null
 }
+
+/**
+ * The server's cross-month refusal, if that is what this 400 is: every attribution write can
+ * report it under the `crossMonth` key, and the caller then offers to re-send the same request
+ * acknowledged instead of showing a generic failure.
+ */
+export function crossMonthError(err: unknown): string | undefined {
+  const e = err as { response?: { status?: number; data?: { errors?: Record<string, string[]> } } }
+  if (e?.response?.status !== 400) return undefined
+  const messages = e.response.data?.errors?.crossMonth
+  if (!messages) return undefined
+  return messages[0] ?? 'This transaction is dated in a different month than that budget line.'
+}

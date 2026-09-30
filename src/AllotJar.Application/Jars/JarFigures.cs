@@ -60,6 +60,10 @@ public static class JarFigures
         ledger ??= await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken);
         var now = ledger.At(balanceDate);
         var before = dayBefore == balanceDate ? now : ledger.At(dayBefore);
+        // Rule 14: what went into each jar from the month's first day to the balance date — the
+        // postings themselves, so money that left the jar in the month (a bill paid from it) is
+        // not netted off what was contributed. Nothing yet, for a month that has not begun.
+        var contributed = ledger.ContributionsBetween(monthStart, balanceDate);
 
         var ids = jars.Select(j => j.Id).ToList();
         // This month's stored lines: the plan they carry, and whether the user skipped the month
@@ -133,7 +137,8 @@ public static class JarFigures
                 month: monthStart,
                 skippedThisMonth: storedLines.TryGetValue(j.Id, out var flags) && flags.Skipped,
                 canDelete: !heldMoney.Contains(j.Id),
-                skippedMonths: skippedMonths.GetValueOrDefault(j.Id)))
+                skippedMonths: skippedMonths.GetValueOrDefault(j.Id),
+                contributedThisMonth: contributed.GetValueOrDefault(j.Id)))
             .ToList();
     }
 
