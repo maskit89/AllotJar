@@ -137,6 +137,16 @@ public class Transaction : BaseEntity
     public string? ReceiptBankReference { get; set; }
 
     /// <summary>
+    /// For a transfer: the destination account knows this receipt under the source leg's
+    /// <see cref="BankReference"/>. Set once, by migration, on transfers recorded before receipt
+    /// references existed, when an inbound transfer's reference was stored on the source leg;
+    /// never on a receipt confirmed by hand since, so a destination statement that prints the
+    /// same reference as the source's confirms that receipt instead of being skipped (rule 51).
+    /// Cleared when the receipt gets a reference of its own.
+    /// </summary>
+    public bool ReceiptKnownBySourceReference { get; set; }
+
+    /// <summary>
     /// For a transfer the source bank sent back (O1 answer 4): the date the money was credited
     /// back to the source account. Only for a transfer that departed and was never received; the
     /// destination never receives it and nothing is in transit from this date.

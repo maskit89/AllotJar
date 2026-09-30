@@ -351,6 +351,21 @@ export interface SharingReviewDto {
   accounts: AccountDto[]
 }
 
+/**
+ * GET /accounts/unreachable — an account private to a login no longer in the household (P59):
+ * nobody can see, change or share it. The owner sees its name, holder and entry count, never
+ * its entries, and may erase it for good (POST /accounts/{id}/erase with the name typed).
+ */
+export interface UnreachableAccountDto {
+  id: string
+  name: string
+  currency: string
+  holderName?: string | null
+  privateSinceUtc: string
+  /** Entries the erase removes: the account's own rows and every transfer touching it, with their fees. */
+  entryCount: number
+}
+
 /** A not-yet-imported transaction returned by the import preview, for review before commit. */
 export interface ImportCandidate {
   /** Stable idempotency key from the parser; echoed back on commit. */

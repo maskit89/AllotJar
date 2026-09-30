@@ -344,6 +344,19 @@ public sealed class JarLedgerSource
                     {
                         continue;
                     }
+                    // A Return operation stands only while its transfer is still returned from this
+                    // account, on or after the operation's date (a share kept at the day the return
+                    // was marked by hand, R4-P3-1). Otherwise it is set aside, counted for review,
+                    // and the money the return leg brought back stays unallocated (R3-P3-1).
+                    if (op.ReturnOfTransferId is Guid returnOf
+                        && (!_byId.TryGetValue(returnOf, out var returned)
+                            || returned.ReturnedOn is not DateOnly returnedOn
+                            || returned.AccountId != account.Id
+                            || op.Date > returnedOn))
+                    {
+                        unreconciled++;
+                        continue;
+                    }
                     operations.Add(new JarLedgerOperation(op.Id, op.OwnerId, op.AccountId, op.Date, null,
                         op.Postings.Select(p => new JarLedgerPosting(p.JarId, p.Amount)).ToList()));
                 }

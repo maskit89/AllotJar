@@ -368,6 +368,8 @@ export async function mockApi(route: Route) {
   // W13: the rule 32 sharing review (only fetched when /auth/me reports it pending) and the
   // holder's share/private toggle, which answers with the account.
   if (path === '/accounts/sharing-review') return json({ pending: false, accounts: [] })
+  // P59: accounts private to a login no longer in the household (owner only); none in the mocks.
+  if (path === '/accounts/unreachable') return json([])
   if (/^\/accounts\/[^/]+\/sharing$/.test(path)) return json(accountsList()[0])
   if (path === '/jars') return json(jars())
   if (path === '/jars/schedule') return json(jarSchedule())

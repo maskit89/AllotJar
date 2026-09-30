@@ -53,8 +53,11 @@ public static class TransferReturns
     /// in the account: past the day it left (rule 80), or before it arrived (P2-20). With
     /// <paramref name="refuseKey"/> (a date the user typed) that date is refused, as for any entry
     /// of the jar's stretch there; without it (a bank's date) the return is decided again as of
-    /// its date, when the jar was not there. Every write that can
-    /// change a returned transfer's departure split calls this.
+    /// its date, when the jar was not there. A share given back to a jar that was since emptied
+    /// and archived stays at the day the return was marked, when the new date passes the archive
+    /// day (Christopher, 30 September 2026, "Keep"): moving it would read the jar below zero on
+    /// the days between. Every write that can change a returned transfer's departure split
+    /// calls this.
     /// </summary>
     public static async Task SyncAsync(
         IApplicationDbContext db, Transaction transfer, Guid sourceId, Basis before, CancellationToken cancellationToken,
@@ -64,10 +67,18 @@ public static class TransferReturns
         if (after.ReturnedOn is DateOnly returnedOn && after.SameDecisionAs(before))
         {
             var kept = await OperationsAsync(db, transfer.Id, cancellationToken);
-            if (kept.All(op => AgreesWith(op, sourceId, after.Departure))
-                && await StaysInItsStretchesAsync(db, kept, returnedOn, refuseKey, cancellationToken))
+            var moving = new List<JarAllocation>();
+            foreach (var op in kept.Where(op => op.Date != returnedOn))
             {
-                foreach (var op in kept.Where(op => op.Date != returnedOn))
+                if (!await KeepsItsDateAsync(db, op, returnedOn, cancellationToken))
+                {
+                    moving.Add(op);
+                }
+            }
+            if (kept.All(op => AgreesWith(op, sourceId, after.Departure))
+                && await StaysInItsStretchesAsync(db, moving, returnedOn, refuseKey, cancellationToken))
+            {
+                foreach (var op in moving)
                 {
                     var shares = Shares(op);
                     await JarDepartures.SettleAsync(db, op.OwnerId, op.AccountId, op.Date, shares, returnedOn, shares, cancellationToken);
@@ -136,6 +147,24 @@ public static class TransferReturns
             }
         }
         return true;
+    }
+
+    /// <summary>
+    /// Whether a kept return operation stays dated as it is when the return moves to
+    /// <paramref name="returnedOn"/>: a later date that passes the day a jar it gives money back to
+    /// was archived (R4-P3-1, "Keep").
+    /// </summary>
+    private static async Task<bool> KeepsItsDateAsync(
+        IApplicationDbContext db, JarAllocation op, DateOnly returnedOn, CancellationToken cancellationToken)
+    {
+        if (returnedOn <= op.Date)
+        {
+            return false;
+        }
+        var jarIds = op.Postings.Where(p => p.JarId is not null && p.Amount > 0m).Select(p => p.JarId!.Value).ToList();
+        return jarIds.Count > 0
+            && await db.Jars.AsNoTracking().AnyAsync(
+                j => jarIds.Contains(j.Id) && j.IsArchived && j.ArchivedOn != null && j.ArchivedOn < returnedOn, cancellationToken);
     }
 
     private static ValidationException Refusal(string key, string jarName, DateOnly left) =>

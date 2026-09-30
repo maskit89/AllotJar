@@ -4,12 +4,14 @@ using Microsoft.AspNetCore.Mvc;
 using AllotJar.Application.Accounts.Commands.CompleteSharingReview;
 using AllotJar.Application.Accounts.Commands.CreateAccount;
 using AllotJar.Application.Accounts.Commands.DeleteAccount;
+using AllotJar.Application.Accounts.Commands.EraseUnreachableAccount;
 using AllotJar.Application.Accounts.Commands.SetAccountSharing;
 using AllotJar.Application.Accounts.Commands.UpdateAccount;
 using AllotJar.Application.Accounts.Dtos;
 using AllotJar.Application.Accounts.Queries.GetAccountReconciliation;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Accounts.Queries.GetSharingReview;
+using AllotJar.Application.Accounts.Queries.GetUnreachableAccounts;
 using AllotJar.Api.Features;
 using AllotJar.Domain.Enums;
 
@@ -127,7 +129,37 @@ public class AccountsController : ControllerBase
         await _mediator.Send(new DeleteAccountCommand(id), ct);
         return NoContent();
     }
+
+    /// <summary>
+    /// The accounts private to a login no longer in the household (P59): nobody can reach them.
+    /// The owner sees each one's name, holder and entry count, never its entries. Empty for
+    /// every other role.
+    /// </summary>
+    [HttpGet("unreachable")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<UnreachableAccountDto>>> Unreachable(CancellationToken ct) =>
+        Ok(await _mediator.Send(new GetUnreachableAccountsQuery(), ct));
+
+    /// <summary>
+    /// Erases for good an account nobody can reach, with every entry in it and every transfer
+    /// touching it. The body must carry the account's name, typed. Owner only; 400 when the name
+    /// doesn't match, when a refund elsewhere names a purchase in it, or when a shared account
+    /// would go below zero without a transfer from it (rule 74).
+    /// </summary>
+    [HttpPost("{id:guid}/erase")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Erase(Guid id, EraseUnreachableAccountRequest request, CancellationToken ct)
+    {
+        await _mediator.Send(new EraseUnreachableAccountCommand(id, request.ConfirmName ?? string.Empty), ct);
+        return NoContent();
+    }
 }
+
+/// <summary>Request body for erasing an account nobody can reach: the account's name, typed to confirm.</summary>
+public record EraseUnreachableAccountRequest(string? ConfirmName);
 
 /// <summary>Request body for creating an account. The opening balance applies from the start of <c>OpeningDate</c>.</summary>
 public record CreateAccountRequest(

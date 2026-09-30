@@ -39,18 +39,18 @@ public static class JarDepartures
     }
 
     /// <summary>
-    /// Rule 80's in-transit clause, as far as the old account's history needs it: a stored jar
-    /// split naming the jar on a transfer leg of <paramref name="accountId"/> that has not posted
-    /// yet would post there after the jar left.
+    /// Rule 80's in-transit clause: a stored jar split naming the jar on a transfer leg that has
+    /// not posted yet would post after the jar changed account. Every account the jar has history
+    /// in is read, not only its current one: a leg still open in an account the jar has since
+    /// left would post there too.
     /// </summary>
     public static Task<bool> HasUnpostedLegAsync(
-        IApplicationDbContext db, Guid jarId, Guid accountId, CancellationToken cancellationToken) =>
-        db.JarAllocations.AnyAsync(a => a.AccountId == accountId
-                                        && a.TransactionId != null
+        IApplicationDbContext db, Guid jarId, CancellationToken cancellationToken) =>
+        db.JarAllocations.AnyAsync(a => a.TransactionId != null
                                         && a.Postings.Any(p => p.JarId == jarId)
                                         && a.Transaction!.Type == TransactionType.Transfer
-                                        && ((a.Transaction.AccountId == accountId && a.Transaction.DepartedOn == null)
-                                            || (a.Transaction.TransferAccountId == accountId && a.Transaction.ReceivedOn == null)),
+                                        && ((a.Transaction.AccountId == a.AccountId && a.Transaction.DepartedOn == null)
+                                            || (a.Transaction.TransferAccountId == a.AccountId && a.Transaction.ReceivedOn == null)),
             cancellationToken);
 
     /// <summary>

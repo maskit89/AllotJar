@@ -4,6 +4,7 @@ using AllotJar.Application.Allocation.Commands.AllocateIncome;
 using AllotJar.Application.Allocation.Commands.UpsertAllocationProfile;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Transactions.Commands.ConfirmTransferLegs;
+using AllotJar.Application.Transactions.Commands.UpdateTransfer;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -204,5 +205,61 @@ public class AllocationCommitConfirmationTests
 
         rerun.TransfersCreated.Should().Be(0);
         (await db.Transactions.CountAsync()).Should().Be(0, "an in-transit suggestion that no longer applies is withdrawn");
+    }
+
+    // #279 P3-4: a transfer that came back (rule 90) funded nothing, so a re-run records the
+    // member's movement again beside it; the returned one stays as bank history.
+    [Fact]
+    public async Task ReRun_KeepsAReturnedTransfer_AndRecordsTheMembersMovementAgainBesideIt()
+    {
+        await using var db = NewContext();
+        var (source, savings, _) = await SoloHouseholdAsync(db);
+        var handler = new AllocateIncomeCommandHandler(db, User);
+        await handler.Handle(Confirmed(), CancellationToken.None);
+        var first = await db.Transactions.SingleAsync();
+        await new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(first.Id, source.Id, savings.Id, 1250m, Departure, null, ReturnedOn: Departure.AddDays(2)), CancellationToken.None);
+
+        var rerun = await handler.Handle(
+            new AllocateIncomeCommand(2026, 6, DepartedOn: Departure.AddDays(3), ConfirmedCompleted: true), CancellationToken.None);
+
+        rerun.TransfersCreated.Should().Be(1);
+        rerun.TransfersRetained.Should().Be(0);
+        var rows = await db.Transactions.OrderBy(t => t.DepartedOn).ToListAsync();
+        rows.Should().HaveCount(2);
+        rows[0].Id.Should().Be(first.Id);
+        rows[0].ReturnedOn.Should().Be(Departure.AddDays(2), "the returned transfer is history, left as it was");
+        rows[1].Amount.Should().Be(1250m);
+        rows[1].DepartedOn.Should().Be(Departure.AddDays(3));
+        rows[1].ReturnedOn.Should().BeNull();
+        rows[1].TransferAccountId.Should().Be(savings.Id);
+        AllocateIncomeCommandHandler.MemberKeyOf(rows[1].AllocationKey!).Should().Be(rows[0].AllocationKey);
+        rows[1].AllocationKey.Should().NotBe(rows[0].AllocationKey);
+
+        // Running it once more finds the live transfer unchanged and leaves both alone.
+        var again = await handler.Handle(
+            new AllocateIncomeCommand(2026, 6, DepartedOn: Departure.AddDays(3), ConfirmedCompleted: true), CancellationToken.None);
+        again.TransfersCreated.Should().Be(0);
+        again.TransfersRetained.Should().Be(1);
+        (await db.Transactions.CountAsync()).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task ReRun_WhenTheMemberNoLongerReceivesOne_LeavesTheReturnedTransferAlone()
+    {
+        await using var db = NewContext();
+        var (source, savings, alex) = await SoloHouseholdAsync(db);
+        var handler = new AllocateIncomeCommandHandler(db, User);
+        await handler.Handle(Confirmed(), CancellationToken.None);
+        var first = await db.Transactions.SingleAsync();
+        await new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(first.Id, source.Id, savings.Id, 1250m, Departure, null, ReturnedOn: Departure.AddDays(2)), CancellationToken.None);
+
+        alex.PersonalSavingsAccountId = null;
+        await db.SaveChangesAsync();
+        var rerun = await handler.Handle(Confirmed(), CancellationToken.None);
+
+        rerun.TransfersCreated.Should().Be(0);
+        (await db.Transactions.SingleAsync()).Id.Should().Be(first.Id, "a transfer that left and came back is bank history");
     }
 }

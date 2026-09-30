@@ -148,6 +148,8 @@ public class ImportPreviewCommitTests
             AccountId = accountId, TransferAccountId = transferAccountId,
             DepartedOn = transferAccountId is null ? null : new DateOnly(2026, 6, 15),
             ReceivedOn = transferAccountId is null ? null : new DateOnly(2026, 6, 15),
+            // ...and marked as known to the destination by that reference (ReceiptKnownBySourceReference).
+            ReceiptKnownBySourceReference = transferAccountId is not null,
         };
 
         db.Transactions.AddRange(

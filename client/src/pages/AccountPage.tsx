@@ -17,6 +17,7 @@ export function AccountPage() {
     firstName,
     lastName,
     preferredCurrency,
+    budgetCurrency,
     currencyLocked,
     numberFormat,
     households,
@@ -330,11 +331,12 @@ export function AccountPage() {
               {currencyLocked ? (
                 // The budget already has accounts, months or transactions in this currency, and
                 // the app never converts amounts, so the currency is shown but can't be changed. It
-                // reads the saved currency directly, as the save does, not the form's copy of it.
+                // shows the household's budget currency (its first month's, rule 85), which the note
+                // names; on older data that can differ from the login's saved preference.
                 <Input
                   id="pf-currency"
                   readOnly
-                  value={CURRENCY_OPTIONS.find((o) => o.value === preferredCurrency)?.label ?? preferredCurrency}
+                  value={CURRENCY_OPTIONS.find((o) => o.value === budgetCurrency)?.label ?? budgetCurrency}
                   aria-describedby="pf-currency-note"
                   className="w-full bg-slate-50 text-slate-600"
                 />

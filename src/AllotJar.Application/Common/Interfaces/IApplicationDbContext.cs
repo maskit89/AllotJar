@@ -32,6 +32,14 @@ public interface IApplicationDbContext
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Lets this context's next saves remove <paramref name="accountId"/> and the rows that move
+    /// money in it although it is private to another login: the owner-side erase of an account
+    /// nobody can reach (P59). Only <c>EraseUnreachableAccount</c> calls this, after proving
+    /// that no login in the household can see the account.
+    /// </summary>
+    void AllowErasing(Guid accountId);
+
+    /// <summary>
     /// Begins a serialised write on <paramref name="accountId"/>'s ledger (see <see cref="ILedgerWrite"/>).
     /// Read the account's position only after this returns; commit after SaveChanges.
     /// </summary>

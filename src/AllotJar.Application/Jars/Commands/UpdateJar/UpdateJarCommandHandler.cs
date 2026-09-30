@@ -65,10 +65,10 @@ public class UpdateJarCommandHandler
                     $"{jar.Name} holds {balance:0.##} in {current.AccountOf(jar.Id)?.Account.Name}. " +
                     "Move that money first (a transfer to the new account, or a reallocation to another jar), then change the account.");
             }
-            if (await JarDepartures.HasUnpostedLegAsync(_db, jar.Id, jar.FundingAccountId, cancellationToken))
+            if (await JarDepartures.HasUnpostedLegAsync(_db, jar.Id, cancellationToken))
             {
                 throw JarAccounts.Validation("FundingAccountId",
-                    $"{jar.Name} has a transfer in transit in {current.AccountOf(jar.Id)?.Account.Name}. Confirm it first, then change the account.");
+                    $"{jar.Name} has a transfer in transit. Confirm it first, then change the account.");
             }
             if (await JarDepartures.EntryDatedAfterAsync(_db, jar.Id, jar.FundingAccountId, today, cancellationToken) is { } later)
             {

@@ -786,6 +786,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasMaxLength(140)
                         .HasColumnType("nvarchar(140)");
 
+                    b.Property<bool>("ReceiptKnownBySourceReference")
+                        .HasColumnType("bit");
+
                     b.Property<DateOnly?>("ReceivedOn")
                         .HasColumnType("date");
 

@@ -239,8 +239,9 @@ public class TransferIdentitySqlTests
                 a, b, owner, allocation, statement, income);
 
             await migrator.MigrateAsync(w07);
-            var rows = await db.Transactions.IgnoreQueryFilters().AsNoTracking()
-                .Where(t => t.OwnerId == owner)
+            // Raw SQL: the entity carries columns later migrations add, and this database stops at W07.
+            var rows = await db.Database
+                .SqlQueryRaw<KeyRow>("SELECT [Id], [BankReference], [AllocationKey] FROM [Transactions] WHERE [OwnerId] = {0}", owner)
                 .ToDictionaryAsync(t => t.Id, t => new { t.BankReference, t.AllocationKey });
             rows[allocation].Should().Be(new { BankReference = (string?)null, AllocationKey = (string?)"alloc:2026-09:member" });
             rows[statement].Should().Be(new { BankReference = (string?)"STATEMENT-1", AllocationKey = (string?)null });
@@ -258,4 +259,6 @@ public class TransferIdentitySqlTests
             await db.Database.EnsureDeletedAsync();
         }
     }
+
+    private sealed record KeyRow(Guid Id, string? BankReference, string? AllocationKey);
 }

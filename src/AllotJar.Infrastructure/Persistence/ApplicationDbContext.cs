@@ -294,6 +294,11 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     /// entry in it — even with the id in hand. The one exception is the visible side's bank leg of
     /// a transfer between a shared and a private account.
     /// </summary>
+    private readonly HashSet<Guid> _erasing = new();
+
+    /// <inheritdoc />
+    public void AllowErasing(Guid accountId) => _erasing.Add(accountId);
+
     private async Task GuardPrivateAccountsAsync(CancellationToken cancellationToken)
     {
         var viewer = ViewerId;
@@ -310,10 +315,11 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
             return;
         }
 
-        foreach (var privacy in entries.Where(e => e.Entity is AccountPrivacy))
+        foreach (var privacy in entries.Where(e => e.Entity is AccountPrivacy && !_erasing.Contains(((AccountPrivacy)e.Entity).AccountId)))
         {
             // Only the login a privacy row names may create, change or remove it (P59: no one can
-            // hand it to another login, whoever is linked to the account's holder).
+            // hand it to another login, whoever is linked to the account's holder). The row of an
+            // account the owner is erasing goes with the account.
             var owner = privacy.State == EntityState.Added
                 ? ((AccountPrivacy)privacy.Entity).UserId
                 : (string?)privacy.OriginalValues[nameof(AccountPrivacy.UserId)];
@@ -348,6 +354,9 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
                 .Select(p => p.AccountId)
                 .ToListAsync(cancellationToken))
             .ToHashSet();
+        // An account being erased by the owner (P59) is removed with everything in it; nothing in
+        // it is read or changed, so the guard has nothing to keep from the viewer there.
+        hidden.ExceptWith(_erasing);
         if (hidden.Count == 0)
         {
             return;

@@ -497,21 +497,22 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
         bOn11.Should().Be(50m, "rule 74: the second match would leave B below zero on 11 September");
     }
 
-    // Christopher, 29 September: a fee is offered up to the larger of 10% of the transfer and 10,
-    // so a bank's fixed charge on a small transfer is still offered (R2-D1).
+    // Christopher, 29 September ("10% or 10"), then 30 September ("10% only"): a fee is offered
+    // only up to 10% of the transfer, so a bank's fixed charge on a small transfer is entered by
+    // hand on the transfer rather than proposed (R2-D1, R3-P3-2).
     [Fact]
-    public async Task ASmallTransferWithAFixedBankFee_IsStillOffered()
+    public async Task ASmallTransferWithAFixedBankFee_IsNotOffered_TheFeeIsEnteredByHand()
     {
         await using var db = NewContext();
         var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
         var b = LedgerFixtures.SeedAccount(db, Owner, "B", 0m, Sep1, AccountType.Current, order: 1);
         var transfer = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(Sep10, 20m, a.Id, b.Id), Ct);
 
-        var within = (await PreviewAsync(db, User, Camt("INTL-1", Sep10, 30m, false, "International transfer"), a.Id)).Items.Single();
-        var beyond = (await PreviewAsync(db, User, Camt("INTL-2", Sep10, 30.01m, false, "International transfer"), a.Id)).Items.Single();
+        var within = (await PreviewAsync(db, User, Camt("INTL-1", Sep10, 22m, false, "International transfer"), a.Id)).Items.Single();
+        var beyond = (await PreviewAsync(db, User, Camt("INTL-2", Sep10, 30m, false, "International transfer"), a.Id)).Items.Single();
 
-        within.TransferMatches.Should().ContainSingle(m => m.TransferId == transfer.Id && m.Fee == 10m);
-        beyond.TransferMatches.Should().BeEmpty("a 10.01 fee is more than both 10 and 10% of 20");
+        within.TransferMatches.Should().ContainSingle(m => m.TransferId == transfer.Id && m.Fee == 2m);
+        beyond.TransferMatches.Should().BeEmpty("a fee of 10 is more than 10% of 20; the user enters it on the transfer");
     }
 
     // Rule 87: every candidate is listed nearest date first, a fee candidate included; an exact
@@ -567,11 +568,11 @@ public class TransferIdentityW07ReviewTests(ITestOutputHelper output)
     }
 
     [Theory]
-    [InlineData(20, 30, true)]
-    [InlineData(20, 30.01, false)]
+    [InlineData(20, 22, true)]
+    [InlineData(20, 22.01, false)]
     [InlineData(1000, 1100, true)]
     [InlineData(1000, 1100.01, false)]
-    public async Task TheFeeBound_IsTheLargerOfTenPercentAndTen(decimal sent, decimal debit, bool offered)
+    public async Task TheFeeBound_IsTenPercentOfTheTransfer(decimal sent, decimal debit, bool offered)
     {
         await using var db = NewContext();
         var a = LedgerFixtures.SeedAccount(db, Owner, "A", 5000m, Sep1, AccountType.Current);
