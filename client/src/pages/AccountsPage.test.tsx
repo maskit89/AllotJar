@@ -133,6 +133,9 @@ describe('AccountsPage', () => {
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/accounts/u1/erase', { confirmName: 'Sam’s wallet' }))
     await waitFor(() => expect(screen.queryByTestId('unreachable-accounts')).not.toBeInTheDocument())
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    // The shared accounts are read again: the erase may have dropped a movement they counted.
+    await waitFor(() => expect(mockGet.mock.calls.filter(([url]) => url === '/accounts')).toHaveLength(2))
+    expect(mockGet.mock.calls.filter(([url]) => url === '/accounts/reconciliation')).toHaveLength(2)
   })
 
   it('shows the server’s reason when an erase is refused', { timeout: 15000 }, async () => {

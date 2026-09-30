@@ -29,6 +29,12 @@ public class FrankfurterExchangeRateProvider : IExchangeRateProvider
     /// <summary>The most (from, to, date) entries the cache holds before the oldest are dropped.</summary>
     public const int MaxCachedRates = 10_000;
 
+    /// <summary>
+    /// A day this many days or more in the past that has no rate of its own never gets one (the
+    /// ECB publishes on working days, by the evening), so its stand-in is cached for good.
+    /// </summary>
+    public const int StandInSettlesAfterDays = 2;
+
     // A published day's rate is immutable, so caching it process-wide is safe (Final). Failures
     // and stand-in rates carry their timestamp so they expire after FailureRetryInterval.
     private static readonly ConcurrentDictionary<(string, string, DateOnly), (decimal? Rate, DateTimeOffset At, bool Final)> Cache = new();
@@ -86,8 +92,11 @@ public class FrankfurterExchangeRateProvider : IExchangeRateProvider
         }
 
         // The day the rate is for is final; the day asked for is, only when they are the same day
-        // (an answer that names no day is taken as the day asked for, as before).
-        var final = rate is not null && (publishedFor is null || publishedFor == date);
+        // (an answer that names no day is taken as the day asked for, as before), or when it is
+        // long enough past that the ECB will never publish it (a weekend or holiday): a stand-in
+        // for such a day is what the day will always get (#287 review P3-3).
+        var today = DateOnly.FromDateTime(now.UtcDateTime);
+        var final = rate is not null && (publishedFor is null || publishedFor == date || date <= today.AddDays(-StandInSettlesAfterDays));
         if (rate is not null && publishedFor is DateOnly published && published != date)
         {
             Cache[(from.Value, to.Value, published)] = (rate, now, true);

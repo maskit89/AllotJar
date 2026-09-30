@@ -1154,6 +1154,8 @@ export interface MeResponse {
   budgetCurrency?: string
   /** True once the login's OWN household has accounts, months or transactions (currency is fixed). */
   currencyLocked?: boolean
+  /** The login's OWN household's budget currency: what the preference is locked to once fixed. */
+  ownBudgetCurrency?: string
   numberFormat?: string
   households?: HouseholdSummary[]
   /** True for invite-created logins that haven't accepted the terms yet (blocking consent prompt). */

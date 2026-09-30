@@ -9,11 +9,13 @@ namespace AllotJar.Application.Accounts.Queries.GetUnreachableAccounts;
 public class GetUnreachableAccountsQueryHandler : IRequestHandler<GetUnreachableAccountsQuery, IReadOnlyList<UnreachableAccountDto>>
 {
     private readonly IApplicationDbContext _db;
+    private readonly IIdentityService _identity;
     private readonly ICurrentUser _currentUser;
 
-    public GetUnreachableAccountsQueryHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public GetUnreachableAccountsQueryHandler(IApplicationDbContext db, IIdentityService identity, ICurrentUser currentUser)
     {
         _db = db;
+        _identity = identity;
         _currentUser = currentUser;
     }
 
@@ -26,6 +28,6 @@ public class GetUnreachableAccountsQueryHandler : IRequestHandler<GetUnreachable
         {
             return Array.Empty<UnreachableAccountDto>();
         }
-        return await UnreachableAccounts.ListAsync(_db, ownerId, cancellationToken);
+        return await UnreachableAccounts.ListAsync(_db, _identity, ownerId, cancellationToken);
     }
 }

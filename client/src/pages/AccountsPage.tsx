@@ -143,6 +143,14 @@ export function AccountsPage() {
       setUnreachable((prev) => prev.filter((a) => a.id !== id))
       setEraseId(null)
       setEraseName('')
+      // The erase can drop movements the shared accounts counted (a transfer that never
+      // arrived), so their balances and reconciliation are read again.
+      const [accountsRes, reconciliationRes] = await Promise.all([
+        api.get<AccountDto[]>('/accounts'),
+        api.get<AccountReconciliationDto[]>('/accounts/reconciliation'),
+      ])
+      setAccounts(accountsRes.data)
+      setReconciliation(Array.isArray(reconciliationRes.data) ? reconciliationRes.data : [])
     } catch (err) {
       // A refused erase (the name doesn't match, a refund elsewhere names a purchase in it, a
       // shared account would go below zero without a transfer from it) carries the reason.
@@ -499,10 +507,11 @@ export function AccountsPage() {
           >
             <p className="text-sm text-slate-600">
               This account is private to a login that is no longer in the household, so nobody can
-              see it, change it or share it. Erasing removes the account and its{' '}
-              {acct.entryCount === 1 ? 'one entry' : `${acct.entryCount} entries`} for good — every
-              transaction in it and every transfer between it and another account, with their fees.
-              Nothing in it is shown to you. This can’t be undone.
+              see it, change it or share it. Erasing removes the account and what only its holder could
+              see for good ({acct.entryCount === 1 ? 'one entry' : `${acct.entryCount} entries`} touch it).
+              Anything the household already saw stays and keeps counting without the account: an entry
+              on a budget line, a refund of a shared purchase, and a shared account’s side of a transfer
+              with it, with its bank reference and fee. Nothing in it is shown to you. This can’t be undone.
             </p>
             <label htmlFor="erase-name" className="mt-4 block text-sm font-medium text-slate-600">
               Type <span className="font-semibold text-slate-800">{acct.name}</span> to confirm

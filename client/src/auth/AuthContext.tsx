@@ -46,6 +46,9 @@ interface AuthState {
   /** True once the login's own household has accounts, months or transactions, so its budget
    *  currency can no longer be changed. */
   currencyLocked: boolean
+  /** The login's own household's budget currency: the one the preference is locked to once
+   *  fixed. Falls back to preferredCurrency until /auth/me says otherwise. */
+  ownBudgetCurrency: string
   /** The user's money-format preference key (e.g. "dot-comma"). */
   numberFormat: string
   /** Numeric HouseholdRole for the current login (defaults to Owner until resolved). */
@@ -149,6 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.getItem(BUDGET_CURRENCY_KEY),
   )
   const [currencyLocked, setCurrencyLocked] = useState(false)
+  const [ownBudgetCurrencyState, setOwnBudgetCurrencyState] = useState<string | null>(null)
   const [role, setRole] = useState<number>(storedRole())
   const [households, setHouseholds] = useState<HouseholdSummary[]>([])
   const [activeOwnerId, setActiveOwnerId] = useState<string | null>(null)
@@ -314,6 +318,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         applyPrefs(data.preferredCurrency, data.numberFormat)
         applyBudgetCurrency(data.budgetCurrency)
         setCurrencyLocked(data.currencyLocked === true)
+        setOwnBudgetCurrencyState(typeof data.ownBudgetCurrency === 'string' && data.ownBudgetCurrency ? data.ownBudgetCurrency : null)
         localStorage.setItem(ROLE_KEY, String(data.role))
       })
       .catch(() => {})
@@ -497,6 +502,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       preferredCurrency,
       budgetCurrency: budgetCurrencyState || preferredCurrency,
       currencyLocked,
+      ownBudgetCurrency: ownBudgetCurrencyState ?? preferredCurrency,
       numberFormat,
       role,
       isAuthenticated: !!token,
@@ -532,7 +538,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updatePreferences,
       logout,
     }),
-    [token, email, displayName, firstName, lastName, preferredCurrency, budgetCurrencyState, currencyLocked, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, memberId, sharingReviewPending, hasPassword, hasGoogle, emailConfirmed],
+    [token, email, displayName, firstName, lastName, preferredCurrency, budgetCurrencyState, currencyLocked, ownBudgetCurrencyState, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, memberId, sharingReviewPending, hasPassword, hasGoogle, emailConfirmed],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

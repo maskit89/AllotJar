@@ -13,9 +13,9 @@ namespace AllotJar.Application.Accounts;
 public static class UnreachableAccounts
 {
     public static async Task<List<UnreachableAccountDto>> ListAsync(
-        IApplicationDbContext db, string ownerId, CancellationToken cancellationToken)
+        IApplicationDbContext db, IIdentityService identity, string ownerId, CancellationToken cancellationToken)
     {
-        var ids = await UnreachableIdsAsync(db, ownerId, cancellationToken);
+        var ids = await UnreachableIdsAsync(db, identity, ownerId, cancellationToken);
         if (ids.Count == 0)
         {
             return new List<UnreachableAccountDto>();
@@ -42,17 +42,40 @@ public static class UnreachableAccounts
 
     /// <summary>
     /// The ids of <paramref name="ownerId"/>'s accounts private to a login with no membership in
-    /// the household. The owner's own private accounts are reachable by the owner.
+    /// the household. The owner's own private accounts are reachable by the owner, and so is an
+    /// account whose login has an open invitation back into the household (the same email; once
+    /// accepted, the login sees the account again by P59).
     /// </summary>
     public static async Task<HashSet<Guid>> UnreachableIdsAsync(
-        IApplicationDbContext db, string ownerId, CancellationToken cancellationToken)
+        IApplicationDbContext db, IIdentityService identity, string ownerId, CancellationToken cancellationToken)
     {
         var rows = await db.AccountPrivacies.AsNoTracking()
             .Where(p => p.UserId != ownerId
                         && db.Accounts.IgnoreQueryFilters().Any(a => a.Id == p.AccountId && a.OwnerId == ownerId)
                         && !db.HouseholdMemberships.Any(m => m.OwnerId == ownerId && m.UserId == p.UserId))
-            .Select(p => p.AccountId)
+            .Select(p => new { p.AccountId, p.UserId })
             .ToListAsync(cancellationToken);
-        return rows.ToHashSet();
+        if (rows.Count == 0)
+        {
+            return new HashSet<Guid>();
+        }
+        var invited = (await db.HouseholdMemberships.AsNoTracking()
+                .Where(m => m.OwnerId == ownerId && m.Status == MembershipStatus.Invited && m.UserId == null)
+                .Select(m => m.InvitedEmail)
+                .ToListAsync(cancellationToken))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var onTheirWayBack = new HashSet<string>();
+        if (invited.Count > 0)
+        {
+            foreach (var userId in rows.Select(r => r.UserId).Distinct())
+            {
+                var login = await identity.FindByIdAsync(userId);
+                if (login is not null && invited.Contains(login.Email))
+                {
+                    onTheirWayBack.Add(userId);
+                }
+            }
+        }
+        return rows.Where(r => !onTheirWayBack.Contains(r.UserId)).Select(r => r.AccountId).ToHashSet();
     }
 }

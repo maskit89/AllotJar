@@ -114,7 +114,8 @@ public record MeResponse(
     bool EmailConfirmed,
     bool SharingReviewPending = false,
     string BudgetCurrency = "EUR",
-    bool CurrencyLocked = false);
+    bool CurrencyLocked = false,
+    string OwnBudgetCurrency = "EUR");
 
 /// <summary>One household the login can act in, for the household switcher. The active one has <see cref="IsActive"/>.</summary>
 public record HouseholdSummary(string OwnerId, string Label, HouseholdRole Role, bool IsActive, bool IsOwn);

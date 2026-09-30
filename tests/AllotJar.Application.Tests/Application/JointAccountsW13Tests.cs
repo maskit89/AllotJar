@@ -6,6 +6,7 @@ using AllotJar.Application.Accounts.Commands.DeleteAccount;
 using AllotJar.Application.Accounts.Commands.EraseUnreachableAccount;
 using AllotJar.Application.Accounts.Commands.SetAccountSharing;
 using AllotJar.Application.Accounts.Commands.UpdateAccount;
+using AllotJar.Application.Accounts.Dtos;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Accounts.Queries.GetSharingReview;
 using AllotJar.Application.Accounts.Queries.GetUnreachableAccounts;
@@ -17,6 +18,7 @@ using AllotJar.Application.Budgets.Commands.DeleteBudgetItem;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Household.Commands.UpdateHouseholdMember;
+using AllotJar.Application.Imports;
 using AllotJar.Application.Household.Queries.GetMemberSpending;
 using AllotJar.Application.HouseholdAccess.Commands.LinkMembershipMember;
 using AllotJar.Application.HouseholdAccess.Commands.RevokeMember;
@@ -921,7 +923,7 @@ public class JointAccountsW13Tests
         check.Jars.Should().BeEmpty();
     }
 
-    // ── P59 owner-side erase (Christopher's "Add", 30 September 2026) ──
+    // ── P59 owner-side erase (Christopher's "Add" and "Keep shared", 30 September 2026) ──
 
     private sealed class OwnerAs(string userId, Guid? memberId, HouseholdRole role) : ICurrentUser
     {
@@ -929,6 +931,34 @@ public class JointAccountsW13Tests
         public string? OwnerId => Household;
         public HouseholdRole? Role => role;
         public Guid? MemberId { get; } = memberId;
+    }
+
+    /// <summary>Knows Sam's login by id (its email is what a re-invite names); nothing else is asked of it here.</summary>
+    private sealed class LoginsById : IIdentityService
+    {
+        public Task<UserAccount?> FindByIdAsync(string userId) =>
+            Task.FromResult<UserAccount?>(userId == SamLogin ? new UserAccount(SamLogin, "sam@example.com", "Sam") : null);
+        public Task<bool> EmailExistsAsync(string email) => throw new NotSupportedException();
+        public Task<UserAccount?> FindByEmailAsync(string email) => throw new NotSupportedException();
+        public Task<CurrencyCode?> GetPreferredCurrencyAsync(string userId) => Task.FromResult<CurrencyCode?>(null);
+        public Task<CreateUserResult> CreateUserAsync(string email, string password, string? displayName, bool consented = false) => throw new NotSupportedException();
+        public Task SetActiveHouseholdAsync(string userId, string? ownerId) => throw new NotSupportedException();
+        public Task<IReadOnlyList<string>> ChangePasswordAsync(string userId, string currentPassword, string newPassword) => throw new NotSupportedException();
+        public Task<CredentialCheckResult> CheckCredentialsAsync(string email, string password) => throw new NotSupportedException();
+    }
+
+    private static readonly LoginsById Logins = new();
+
+    private async Task<IReadOnlyList<UnreachableAccountDto>> UnreachableAsync(ICurrentUser viewer)
+    {
+        await using var db = As(viewer);
+        return await new GetUnreachableAccountsQueryHandler(db, Logins, viewer).Handle(new GetUnreachableAccountsQuery(), CancellationToken.None);
+    }
+
+    private async Task EraseAsync(Guid id, string name)
+    {
+        await using var db = As(Chris);
+        await new EraseUnreachableAccountCommandHandler(db, Logins, Chris).Handle(new EraseUnreachableAccountCommand(id, name), CancellationToken.None);
     }
 
     /// <summary>Sam's private account with an entry off the budget, one on the budget and a transfer in from the joint account.</summary>
@@ -950,24 +980,22 @@ public class JointAccountsW13Tests
     }
 
     [Fact]
-    public async Task TheOwnerCanEraseAnAccountNobodyCanReach_WithEverythingInIt_P59()
+    public async Task TheOwnerCanEraseAnAccountNobodyCanReach_KeepingWhatTheHouseholdSaw_P59()
     {
         var (joint, mine, transfer) = await SeedSamsPrivateMoneyAsync();
         await RemoveSamsLoginAsync();
 
+        var only = (await UnreachableAsync(Chris)).Should().ContainSingle().Subject;
+        only.Id.Should().Be(mine);
+        only.Name.Should().Be("Sam's current");
+        only.HolderName.Should().Be("Sam");
+        only.EntryCount.Should().Be(3, "two entries in it and the transfer into it");
+
         await using (var db = As(Chris))
         {
-            var listed = await new GetUnreachableAccountsQueryHandler(db, Chris).Handle(new GetUnreachableAccountsQuery(), CancellationToken.None);
-            var only = listed.Should().ContainSingle().Subject;
-            only.Id.Should().Be(mine);
-            only.Name.Should().Be("Sam's current");
-            only.HolderName.Should().Be("Sam");
-            only.EntryCount.Should().Be(3, "two entries in it and the transfer into it");
-
-            var erase = new EraseUnreachableAccountCommandHandler(db, Chris);
+            var erase = new EraseUnreachableAccountCommandHandler(db, Logins, Chris);
             var wrongName = () => erase.Handle(new EraseUnreachableAccountCommand(mine, "Sams current"), CancellationToken.None);
             (await wrongName.Should().ThrowAsync<ValidationException>()).Which.Errors.Should().ContainKey("ConfirmName");
-
             await erase.Handle(new EraseUnreachableAccountCommand(mine, " sam's CURRENT "), CancellationToken.None);
         }
 
@@ -976,10 +1004,26 @@ public class JointAccountsW13Tests
         check.AccountPrivacies.Should().NotContain(p => p.AccountId == mine);
         check.AccountHolders.Should().NotContain(h => h.AccountId == mine);
         check.Transactions.Should().NotContain(t => t.AccountId == mine || t.TransferAccountId == mine);
-        check.Transactions.Should().NotContain(t => t.Id == transfer, "the transfer into the account went with it");
+        check.Transactions.Should().NotContain(t => t.Payee == "Pharmacy", "off the budget, nobody but Sam ever saw it");
+        var groceries = check.Transactions.Single(t => t.Payee == "Groceries");
+        groceries.AccountId.Should().BeNull("it counted on the household's line and still does, with no account");
+        groceries.BudgetItemId.Should().NotBeNull();
+        // The joint account's side of the transfer stays as what it was to the household: 200 left it on 10 June.
+        var departure = check.Transactions.Single(t => t.Id == transfer);
+        departure.Type.Should().Be(TransactionType.Expense);
+        departure.AccountId.Should().Be(joint);
+        departure.TransferAccountId.Should().BeNull();
+        departure.Date.Should().Be(June10);
+        departure.Amount.Should().Be(200m);
+        departure.Payee.Should().Be(EraseUnreachableAccountCommandHandler.ErasedDestinationPayee);
+        departure.DepartedOn.Should().BeNull();
         check.Accounts.Should().Contain(a => a.Id == joint);
         (await AccountNamesAsync(Chris)).Should().Contain("Joint").And.NotContain("Sam's current");
-        (await new GetUnreachableAccountsQueryHandler(As(Chris), Chris).Handle(new GetUnreachableAccountsQuery(), CancellationToken.None)).Should().BeEmpty();
+        (await UnreachableAsync(Chris)).Should().BeEmpty();
+        // Joint reads 800 as before the erase.
+        await using var read = As(Chris);
+        (await new GetAccountsQueryHandler(read, Chris).Handle(new GetAccountsQuery(June10), CancellationToken.None))
+            .Single(a => a.Id == joint).CurrentBalance.Should().Be(800m);
     }
 
     [Fact]
@@ -987,9 +1031,8 @@ public class JointAccountsW13Tests
     {
         var (_, mine, _) = await SeedSamsPrivateMoneyAsync();
 
-        await using var db = As(Chris);
-        (await new GetUnreachableAccountsQueryHandler(db, Chris).Handle(new GetUnreachableAccountsQuery(), CancellationToken.None)).Should().BeEmpty();
-        var erase = () => new EraseUnreachableAccountCommandHandler(db, Chris).Handle(new EraseUnreachableAccountCommand(mine, "Sam's current"), CancellationToken.None);
+        (await UnreachableAsync(Chris)).Should().BeEmpty();
+        var erase = () => EraseAsync(mine, "Sam's current");
         await erase.Should().ThrowAsync<NotFoundException>();
         (await AccountNamesAsync(Sam)).Should().Contain("Sam's current");
     }
@@ -1001,17 +1044,41 @@ public class JointAccountsW13Tests
         await RemoveSamsLoginAsync();
         var admin = new OwnerAs("admin-login", null, HouseholdRole.Admin);
 
-        await using var db = As(admin);
-        (await new GetUnreachableAccountsQueryHandler(db, admin).Handle(new GetUnreachableAccountsQuery(), CancellationToken.None)).Should().BeEmpty();
+        (await UnreachableAsync(admin)).Should().BeEmpty();
         using var check = Seed();
         check.Accounts.Should().Contain(a => a.Id == mine);
     }
 
+    // #287 review E5 / P3-2: an open invitation back for the same email keeps the account off the
+    // list until it lapses or is accepted (then the login sees the account again, P59).
     [Fact]
-    public async Task ErasingIsRefused_WhileTheSharedSideWouldGoBelowZero_Rule74()
+    public async Task AnAccountWhoseLoginIsInvitedBack_IsNotOfferedForErasing_P59()
+    {
+        var (_, mine, _) = await SeedSamsPrivateMoneyAsync();
+        await RemoveSamsLoginAsync();
+        (await UnreachableAsync(Chris)).Should().ContainSingle();
+        using (var db = Seed())
+        {
+            db.HouseholdMemberships.Add(new HouseholdMembership
+            {
+                OwnerId = Household, UserId = null, Role = HouseholdRole.Admin, Status = MembershipStatus.Invited,
+                InvitedEmail = "Sam@Example.com", MemberId = _sam,
+            });
+            db.SaveChanges();
+        }
+        (await UnreachableAsync(Chris)).Should().BeEmpty("Sam is on the way back");
+        var erase = () => EraseAsync(mine, "Sam's current");
+        await erase.Should().ThrowAsync<NotFoundException>();
+    }
+
+    // Rule 74 can't be broken by an erase: a posted side stays with its date and amount, and an
+    // unposted movement never counted on the shared account. The guard stays as a safety net.
+    [Fact]
+    public async Task Erasing_LeavesTheSharedAccountsBalanceAsItWas_Rule74()
     {
         var (joint, mine, _) = await SeedSamsPrivateMoneyAsync();
-        // The joint account spent what came back from Sam's account: without that transfer it dips below zero.
+        // The joint account spent what Sam's account sent it while it was still in transit: without
+        // that unposted movement it dips below zero, and nothing the household saw is kept for it.
         await using (var db = As(Sam))
         {
             await new CreateTransferCommandHandler(db, Sam).Handle(
@@ -1019,18 +1086,181 @@ public class JointAccountsW13Tests
         }
         using (var db = Seed())
         {
-            // Joint: 1,000 − 200 + 400 − 1,100 = 100 today; without the two transfers it would read −100.
+            // Joint: 1,000 − 200 + 400 − 1,100 = 100 today. The 200 departure stays as an expense
+            // and the 400 receipt as income, so the erase changes nothing there…
             LedgerFixtures.Expense(db, Household, joint, 1100m, June10.AddDays(2));
         }
         await RemoveSamsLoginAsync();
+        await EraseAsync(mine, "Sam's current");
+        await using (var read = As(Chris))
+        {
+            (await new GetAccountsQueryHandler(read, Chris).Handle(new GetAccountsQuery(June10.AddDays(2)), CancellationToken.None))
+                .Single(a => a.Id == joint).CurrentBalance.Should().Be(100m);
+        }
+
+        // …and a receipt that had not arrived posted nothing on the joint account, so it goes
+        // with the erased account and the joint account reads the same.
+        var other = await CreateAccountAsync(Sam, "Sam's other", new[] { _sam }, opening: 1000m);
+        Guid inTransit;
+        await using (var db = As(Sam))
+        {
+            inTransit = (await new CreateTransferCommandHandler(db, Sam).Handle(
+                new CreateTransferCommand(June10.AddDays(3), 500m, other, joint, ReceivedOn: null), CancellationToken.None)).Id;
+        }
+        await EraseAsync(other, "Sam's other");
+        using var check = Seed();
+        check.Transactions.Should().NotContain(t => t.Id == inTransit);
+        await using (var read = As(Chris))
+        {
+            var dto = (await new GetAccountsQueryHandler(read, Chris).Handle(new GetAccountsQuery(June10.AddDays(4)), CancellationToken.None)).Single(a => a.Id == joint);
+            dto.CurrentBalance.Should().Be(100m);
+            dto.InTransitIn.Should().Be(0m);
+        }
+    }
+
+    // #287 review P1-1 (probe E1): Sam moved money between two private accounts; once Sam's login
+    // is gone both are nobody's, and erasing one takes their common movement with it.
+    [Fact]
+    public async Task ErasingAnAccount_WithATransferToTheSameLoginsOtherPrivateAccount_Succeeds_P59()
+    {
+        var current = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam });
+        var savings = await CreateAccountAsync(Sam, "Sam's savings", new[] { _sam }, opening: 0m);
+        await using (var db = As(Sam))
+        {
+            await new CreateTransferCommandHandler(db, Sam).Handle(
+                new CreateTransferCommand(June10, 300m, current, savings, ReceivedOn: June10), CancellationToken.None);
+        }
+        await RemoveSamsLoginAsync();
+        (await UnreachableAsync(Chris)).Select(a => a.Name).Should().BeEquivalentTo("Sam's current", "Sam's savings");
+
+        await EraseAsync(current, "Sam's current");
+
+        using var check = Seed();
+        check.Accounts.Should().NotContain(a => a.Id == current);
+        check.Transactions.Should().NotContain(t => t.AccountId == current || t.TransferAccountId == current);
+        (await UnreachableAsync(Chris)).Select(a => a.Name).Should().BeEquivalentTo("Sam's savings");
+        await EraseAsync(savings, "Sam's savings");
+        (await UnreachableAsync(Chris)).Should().BeEmpty();
+    }
+
+    // The counterpart of P1-1: a transfer with an account a member still here keeps private is
+    // theirs to remove, so the erase says so instead of the guard's 403.
+    [Fact]
+    public async Task ErasingIsRefused_WhileATransferNamesAnAccountPrivateToAMemberStillHere_P59()
+    {
+        var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam });
+        // The kid has a login too; their account is shared when the transfer is recorded and made private afterwards.
+        var kid = new Viewer("kid-login", _kid);
+        using (var db = Seed())
+        {
+            db.HouseholdMemberships.Add(new HouseholdMembership { OwnerId = Household, UserId = "kid-login", Role = HouseholdRole.Admin, MemberId = _kid, InvitedEmail = "kid@example.com" });
+            db.SaveChanges();
+        }
+        var kids = await CreateAccountAsync(kid, "Kid's wallet", new[] { _kid }, isPrivate: false, opening: 100m);
+        await using (var db = As(Sam))
+        {
+            await new CreateTransferCommandHandler(db, Sam).Handle(
+                new CreateTransferCommand(June10, 50m, mine, kids, ReceivedOn: June10), CancellationToken.None);
+        }
+        await using (var db = As(kid))
+        {
+            await new SetAccountSharingCommandHandler(db, kid).Handle(new SetAccountSharingCommand(kids, IsPrivate: true), CancellationToken.None);
+        }
+        await RemoveSamsLoginAsync();
+
+        var erase = () => EraseAsync(mine, "Sam's current");
+        (await erase.Should().ThrowAsync<ValidationException>()).Which.Errors["Id"].Single()
+            .Should().Contain("1 transfer with an account that is private to a member");
+        using var check = Seed();
+        check.Accounts.Should().Contain(a => a.Id == mine);
+    }
+
+    // #287 review P2-1 (probe E3): the joint statement confirmed the departure to Sam's account,
+    // with a 2 fee on "Bank fees". Both are the household's history and stay: the joint account
+    // still knows the bank's reference, and June's line still carries the fee.
+    [Fact]
+    public async Task Erasing_KeepsTheSharedSidesStatementConfirmedDeparture_AndItsFeeOnTheLine_KeepShared()
+    {
+        var feeLine = SeedLine("Bank fees");
+        var joint = await CreateAccountAsync(Chris, "Joint", holders: null, opening: 1000m);
+        var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam }, opening: 0m);
+        Guid transfer;
+        await using (var db = As(Sam))
+        {
+            transfer = (await new CreateTransferCommandHandler(db, Sam).Handle(
+                new CreateTransferCommand(June10, 200m, joint, mine, ReceivedOn: June10, Fee: 2m, FeeBudgetItemId: feeLine), CancellationToken.None)).Id;
+        }
+        await using (var db = As(Chris))
+        {
+            await new ConfirmTransferLegsCommandHandler(db, Chris).Handle(
+                new ConfirmTransferLegsCommand(transfer, June10, null, "JOINT-REF-1", null), CancellationToken.None);
+        }
+        await RemoveSamsLoginAsync();
+
+        await EraseAsync(mine, "Sam's current");
 
         await using (var db = As(Chris))
         {
-            var erase = () => new EraseUnreachableAccountCommandHandler(db, Chris).Handle(new EraseUnreachableAccountCommand(mine, "Sam's current"), CancellationToken.None);
-            (await erase.Should().ThrowAsync<ValidationException>()).Which.Errors["Id"].Single().Should().Contain("Joint");
+            (await StatementReferences.KnownAsync(db, Household, joint, CancellationToken.None)).Contains("JOINT-REF-1").Should().BeTrue();
+            (await db.Transactions.Where(t => t.BudgetItemId == feeLine).SumAsync(t => t.Amount)).Should().Be(2m);
+            var fee = await db.Transactions.SingleAsync(t => t.BudgetItemId == feeLine);
+            fee.FeeForTransferId.Should().BeNull("a plain expense on its line now");
+            fee.AccountId.Should().Be(joint);
+            var departure = await db.Transactions.SingleAsync(t => t.Id == transfer);
+            departure.Type.Should().Be(TransactionType.Expense);
+            departure.BankReference.Should().Be("JOINT-REF-1");
+            (await new GetAccountsQueryHandler(db, Chris).Handle(new GetAccountsQuery(June10), CancellationToken.None))
+                .Single(a => a.Id == joint).CurrentBalance.Should().Be(798m);
         }
+    }
+
+    // #287 review P2-2 (probe E4): a refund in Sam's account of a purchase on the joint account
+    // netted that purchase for everyone (P20) and keeps doing so, with no account.
+    [Fact]
+    public async Task Erasing_KeepsARefundThatNetsASharedPurchase_KeepShared()
+    {
+        var line = SeedLine();
+        var joint = await CreateAccountAsync(Chris, "Joint", holders: null, opening: 1000m);
+        var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam });
+        Guid purchase, refund;
+        await using (var db = As(Chris))
+        {
+            purchase = (await new CreateTransactionCommandHandler(db, Chris).Handle(
+                new CreateTransactionCommand(June10, "Shop", 100m, TransactionType.Expense, line, AccountId: joint), CancellationToken.None)).Id;
+        }
+        await using (var db = As(Sam))
+        {
+            refund = (await new CreateTransactionCommandHandler(db, Sam).Handle(
+                new CreateTransactionCommand(June10.AddDays(1), "Shop refund", 30m, TransactionType.Income, null, AccountId: mine,
+                    RefundOfTransactionId: purchase), CancellationToken.None)).Id;
+        }
+        await RemoveSamsLoginAsync();
+
+        await EraseAsync(mine, "Sam's current");
+
         using var check = Seed();
-        check.Accounts.Should().Contain(a => a.Id == mine);
+        var kept = check.Transactions.Single(t => t.Id == refund);
+        kept.AccountId.Should().BeNull();
+        kept.RefundOfTransactionId.Should().Be(purchase);
+        kept.Amount.Should().Be(30m);
+    }
+
+    // #287 review P3-1 (probe E2): the person's savings pointer and the allocation's source are
+    // cleared, as DeleteAccount clears them.
+    [Fact]
+    public async Task Erasing_ClearsThePersonsSavingsPointer_LikeDeleteAccountDoes_P59()
+    {
+        var mine = await CreateAccountAsync(Sam, "Sam savings", new[] { _sam });
+        using (var db = Seed())
+        {
+            db.HouseholdMembers.Single(m => m.Id == _sam).PersonalSavingsAccountId = mine;
+            db.SaveChanges();
+        }
+        await RemoveSamsLoginAsync();
+        await EraseAsync(mine, "Sam savings");
+
+        using var check = Seed();
+        check.HouseholdMembers.Single(m => m.Id == _sam).PersonalSavingsAccountId.Should().BeNull();
     }
 
     // #277 P3-6: an earlier run's transfer into a private account this caller can't remove is

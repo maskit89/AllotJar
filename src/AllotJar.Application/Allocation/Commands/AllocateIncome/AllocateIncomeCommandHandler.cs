@@ -282,10 +282,11 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
         }
 
         // Every live prior row not retained is superseded: the member's movement changed (its
-        // replacement was added above) or the member has no surplus this time. Only an
-        // in-transit row may be dropped; a confirmed receipt is bank history, and so is a
-        // transfer that came back.
-        foreach (var stale in live.Values)
+        // replacement was added above), the member has no surplus this time, or it is a second
+        // live transfer for one member (a return un-marked after a re-run recorded the next one:
+        // #287 review P2-3). Only an in-transit row may be dropped; a confirmed receipt is bank
+        // history, and so is a transfer that came back.
+        foreach (var stale in prior.Where(t => t.ReturnedOn is null).OrderBy(t => t.AllocationKey!.Length).ThenBy(t => t.AllocationKey))
         {
             if (retained.Contains(stale.AllocationKey!))
             {

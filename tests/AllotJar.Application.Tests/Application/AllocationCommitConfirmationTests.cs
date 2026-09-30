@@ -244,6 +244,30 @@ public class AllocationCommitConfirmationTests
         (await db.Transactions.CountAsync()).Should().Be(2);
     }
 
+    // #287 review P2-3: the user un-marks the return after a re-run recorded the next transfer,
+    // so two live transfers fund one member; the next run withdraws the later in-transit one.
+    [Fact]
+    public async Task ReRun_WithTwoLiveTransfersForOneMember_WithdrawsTheLaterInTransitOne()
+    {
+        await using var db = NewContext();
+        var (source, savings, _) = await SoloHouseholdAsync(db);
+        var handler = new AllocateIncomeCommandHandler(db, User);
+        await handler.Handle(Confirmed(), CancellationToken.None);
+        var first = await db.Transactions.SingleAsync();
+        var edit = new UpdateTransferCommandHandler(db, User);
+        await edit.Handle(new UpdateTransferCommand(first.Id, source.Id, savings.Id, 1250m, Departure, null, ReturnedOn: Departure.AddDays(2)), CancellationToken.None);
+        await handler.Handle(new AllocateIncomeCommand(2026, 6, DepartedOn: Departure.AddDays(3), ConfirmedCompleted: true), CancellationToken.None);
+        (await db.Transactions.CountAsync()).Should().Be(2);
+        await edit.Handle(new UpdateTransferCommand(first.Id, source.Id, savings.Id, 1250m, Departure, null, ReturnedOn: null), CancellationToken.None);
+
+        var third = await handler.Handle(new AllocateIncomeCommand(2026, 6, DepartedOn: Departure.AddDays(3), ConfirmedCompleted: true), CancellationToken.None);
+
+        third.TransfersCreated.Should().Be(0);
+        third.TransfersRetained.Should().Be(1);
+        var live = await db.Transactions.Where(t => t.ReturnedOn == null).ToListAsync();
+        live.Should().ContainSingle().Which.Id.Should().Be(first.Id, "the first transfer is the member's; the later one was still in transit and goes");
+    }
+
     [Fact]
     public async Task ReRun_WhenTheMemberNoLongerReceivesOne_LeavesTheReturnedTransferAlone()
     {
