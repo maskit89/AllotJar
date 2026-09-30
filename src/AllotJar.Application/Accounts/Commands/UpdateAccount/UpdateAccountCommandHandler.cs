@@ -51,14 +51,20 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
             });
         }
 
-        account.Name = request.Name.Trim();
-        account.Type = request.Type;
-        account.OpeningBalance = request.OpeningBalance;
-        account.OpeningDate = request.OpeningDate
+        var openingDate = request.OpeningDate
             ?? throw new ValidationException(new Dictionary<string, string[]>
             {
                 [nameof(request.OpeningDate)] = new[] { "Enter the date the opening balance applies from." },
             });
+        if (account.OpeningDate is { } previousOpening && previousOpening != openingDate)
+        {
+            await EnsureJarsKeepTheirMoneyAsync(account, openingDate, userId, cancellationToken);
+        }
+
+        account.Name = request.Name.Trim();
+        account.Type = request.Type;
+        account.OpeningBalance = request.OpeningBalance;
+        account.OpeningDate = openingDate;
 
         account.Iban = BankIdentifiers.NormalizeIban(request.Iban);
         account.Bic = BankIdentifiers.NormalizeBic(request.Bic);
@@ -82,6 +88,47 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
         var dto = account.ToDto(views[account.Id]);
         await AccountSharing.DecorateAsync(_db, _currentUser, new[] { (account, dto) }, cancellationToken);
         return dto;
+    }
+
+    /// <summary>
+    /// A new opening date changes which entries the account's ledger counts, and with them what its
+    /// jars hold: moved later, it drops a jar's money put in before it but keeps the payments taken
+    /// out after it (or the departure that settled them when the jar moved away), so the jar reads
+    /// below zero (rule 2; #280 review P3-3). The opening balance is the account's money, not any
+    /// jar's, so the date may move only while no jar's balance in the account changes; the jar
+    /// entries in between are changed or removed first.
+    /// </summary>
+    private async Task EnsureJarsKeepTheirMoneyAsync(Account account, DateOnly openingDate, string ownerId, CancellationToken ct)
+    {
+        var source = await Jars.JarLedgerReader.LoadAsync(_db, ownerId, ct, new[] { account.Id });
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        if (!source.At(today).Accounts.TryGetValue(account.Id, out var before))
+        {
+            return; // The account carries no jar.
+        }
+        // The loaded account is an untracked copy, read again with the new date.
+        before.Account.OpeningDate = openingDate;
+        var after = source.At(today).Accounts[account.Id];
+        var changed = before.JarBalances.Keys.Union(after.JarBalances.Keys)
+            .Where(j => before.JarBalances.GetValueOrDefault(j) != after.JarBalances.GetValueOrDefault(j))
+            .ToList();
+        if (changed.Count == 0)
+        {
+            return;
+        }
+        var names = await _db.Jars.AsNoTracking()
+            .Where(j => changed.Contains(j.Id))
+            .OrderBy(j => j.Name)
+            .Select(j => j.Name)
+            .ToListAsync(ct);
+        throw new ValidationException(new Dictionary<string, string[]>
+        {
+            ["OpeningDate"] = new[]
+            {
+                $"{string.Join(", ", names)} would change: the jar entries between the old and new opening date "
+                + $"would no longer count in {account.Name}. Change or remove those entries first, or keep the opening date.",
+            },
+        });
     }
 
     // Rule 30: the holders are who the account belongs to; its balance and history are untouched.

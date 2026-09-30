@@ -61,8 +61,8 @@ public static class MemberIncome
     /// <summary>
     /// Each active member's income for the month, the way every People and Allocation figure
     /// must see it (rules 28/29): the member's attributed lines plus an equal share of the
-    /// unattributed lines (the last member in <paramref name="members"/> absorbs the rounding
-    /// remainder, the IncomeAllocator.Split convention). A month with no budget yields zero for
+    /// unattributed lines, in whole cents with the leftover cents to the first members in
+    /// <paramref name="members"/>' display order (<see cref="EqualShares"/>). A month with no budget yields zero for
     /// everyone — never the saved defaults.
     /// </summary>
     public static async Task<MemberIncomeShares> SharesAsync(
@@ -77,19 +77,40 @@ public static class MemberIncome
         var breakdown = await ForMonthAsync(db, ownerId, year, month, active.Select(m => m.Id).ToList(), ct);
 
         var income = new Dictionary<Guid, decimal>();
-        var equalShare = active.Count > 0 ? Math.Round(breakdown.Unattributed / active.Count, 4) : 0m;
+        var shares = EqualShares(breakdown.Unattributed, active.Count);
         for (var i = 0; i < active.Count; i++)
         {
-            var share = i == active.Count - 1
-                ? breakdown.Unattributed - equalShare * (active.Count - 1)
-                : equalShare;
-            income[active[i].Id] = breakdown.ByMember.GetValueOrDefault(active[i].Id) + share;
+            income[active[i].Id] = breakdown.ByMember.GetValueOrDefault(active[i].Id) + shares[i];
         }
         foreach (var archived in members.Where(m => m.IsArchived))
         {
             income[archived.Id] = 0m;
         }
         return new MemberIncomeShares(income, breakdown.Unattributed, breakdown.HasBudget);
+    }
+    /// <summary>
+    /// <paramref name="total"/> split equally in whole cents, the leftover cents going one each
+    /// to the first people in display order (rules 52/64: 0.02 across four is 0.01, 0.01, 0, 0).
+    /// The shares always add up to the total; a total with fractions of a cent gives the fraction
+    /// to the first person.
+    /// </summary>
+    internal static decimal[] EqualShares(decimal total, int count)
+    {
+        var shares = new decimal[count];
+        if (count == 0)
+        {
+            return shares;
+        }
+        var each = Math.Floor(total * 100m / count) / 100m;
+        var leftover = total - each * count;
+        for (var i = 0; i < count; i++)
+        {
+            var extra = leftover >= 0.01m ? 0.01m : 0m;
+            shares[i] = each + extra;
+            leftover -= extra;
+        }
+        shares[0] += leftover;
+        return shares;
     }
 }
 

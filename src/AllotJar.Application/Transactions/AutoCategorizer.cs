@@ -77,10 +77,12 @@ public static partial class AutoCategorizer
             return 0;
         }
 
+        var fits = await JarLinesFitAsync(db, resolved.Values, cancellationToken);
         var assigned = 0;
         foreach (var tx in candidates)
         {
-            if (resolved.TryGetValue((NormalizeDescription(tx.Payee), tx.Type, tx.Date), out var itemId))
+            if (resolved.TryGetValue((NormalizeDescription(tx.Payee), tx.Type, tx.Date), out var itemId)
+                && fits(itemId, tx.AccountId, tx.Date))
             {
                 tx.BudgetItemId = itemId;
                 assigned++;
@@ -229,6 +231,30 @@ public static partial class AutoCategorizer
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Whether a learned line may be given to an entry from <c>accountId</c> dated <c>date</c>: a
+    /// line that names a jar only when that account holds the jar on the date (rule 79,
+    /// <see cref="Jars.JarLedgerReader.HeldOn"/>), so a payment from another account, or from
+    /// the jar's account dated before the jar arrived there, is never put on its line unasked
+    /// (#276 review P2-E, R2-P3-9). A late payment from an account the jar has left is put on its
+    /// line only by the user (R2-D1). Any other line fits.
+    /// </summary>
+    public static async Task<Func<Guid, Guid?, DateOnly, bool>> JarLinesFitAsync(
+        IApplicationDbContext db, IEnumerable<Guid> itemIds, CancellationToken cancellationToken)
+    {
+        var ids = itemIds.Distinct().ToList();
+        var homes = ids.Count == 0
+            ? new Dictionary<Guid, (Guid Account, DateOnly? Since)>()
+            : await db.BudgetItems
+                .AsNoTracking()
+                .Where(i => ids.Contains(i.Id) && i.SavingsId != null)
+                .Join(db.Jars, i => i.SavingsId, j => (Guid?)j.Id, (i, j) => new { i.Id, j.FundingAccountId, j.FundingAccountSince })
+                .ToDictionaryAsync(x => x.Id, x => (Account: x.FundingAccountId, Since: x.FundingAccountSince), cancellationToken);
+        return (itemId, accountId, date) =>
+            !homes.TryGetValue(itemId, out var home)
+            || (accountId is Guid paying && Jars.JarLedgerReader.HeldOn(home.Account, home.Since, paying, date));
     }
 
     /// <summary>

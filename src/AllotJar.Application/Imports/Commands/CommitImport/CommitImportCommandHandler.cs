@@ -376,7 +376,13 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                         if (item.JarAllocations is { Count: > 0 } || target.Amount != before.Amount)
                         {
                             await JarMovements.ApplyIncomingAsync(
-                                _db, userId, target, importAccount, item.Date, target.Amount, item.JarAllocations, "Items", cancellationToken);
+                                _db, userId, target, importAccount, item.Date, target.Amount, item.JarAllocations, "Items", cancellationToken,
+                                postsNow: before.ReceivedOn is null);
+                        }
+                        else if (target.ReceivedOn is DateOnly received && received != before.ReceivedOn && target.DepartedOn is not null)
+                        {
+                            // The answer kept from before the statement, on the bank's date.
+                            await JarMovements.FollowReceiptAsync(_db, target, importAccount.Id, received, cancellationToken);
                         }
                         if (target.Amount != before.Amount && target.DepartedOn is not null)
                         {
@@ -386,6 +392,11 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     else if (item.PaidFromJarId is not null)
                     {
                         await JarMovements.ApplyOutgoingAsync(_db, userId, target, importAccount, item.PaidFromJarId, "Items", cancellationToken);
+                    }
+                    // A receipt held for its departure posts now, keeping the answer it was imported with.
+                    if (!item.IsCredit && before.DepartedOn is null && target.ReceivedOn is DateOnly heldReceipt && target.TransferAccountId is Guid heldIn)
+                    {
+                        await JarMovements.FollowReceiptAsync(_db, target, heldIn, heldReceipt, cancellationToken);
                     }
                     // Otherwise the departure keeps its jar answer, and its draws follow a date
                     // the statement moved, as the fee's do.

@@ -99,6 +99,25 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         // is back-filled); a later month is projected from the current one (JarPlanner). An
         // unavailable balance (rule 67) plans from nothing saved rather than inventing money.
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        // A month that is over, created after a jar was restored, reads the jar as it was then
+        // (P2-19): one archived all through that month planned nothing in it, so it is neither
+        // planted nor copied there (#276 review P2-D).
+        var monthStart = new DateOnly(request.Year, request.Month, 1);
+        var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+        if (monthEnd < today && activeJars.Count > 0)
+        {
+            var periods = await JarFigures.ArchivePeriodsAsync(_db, activeJars.Keys.ToList(), cancellationToken);
+            foreach (var (jarId, stretches) in periods)
+            {
+                if (stretches.Any(p => p.ArchivedOn <= monthStart && p.RestoredOn > monthEnd))
+                {
+                    activeJars.Remove(jarId);
+                    stoppedJarIds.Add(jarId);
+                }
+            }
+        }
+
         IReadOnlyDictionary<Guid, decimal>? plans = null;
         async Task<IReadOnlyDictionary<Guid, decimal>> PlansAsync() =>
             plans ??= await JarPlanner.PlanMonthAsync(_db, userId, activeJars.Values, request.Year, request.Month, today, cancellationToken);

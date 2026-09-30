@@ -353,16 +353,25 @@ public class TransferIdentityW07Tests
         await using var db = NewContext();
         var a = SeedAccount(db, "A", 1000m);
         var b = SeedAccount(db, "B", 200m);
+        var (septemberFees, _) = SeedFeeLines(db);
         var transfer = await Transfers(db).Handle(new CreateTransferCommand(Departure, 100m, a.Id, b.Id), CancellationToken.None);
 
         var row = (await PreviewAsync(db, DestinationStatementLessFee, b.Id)).Items.Single();
         row.TransferMatches.Single().Fee.Should().Be(2m);
-        await CommitAsync(db, b.Id, Row(row) with { TransferAccountId = a.Id, MatchTransferId = transfer.Id, Fee = 2m });
+        // Rule 91: the fee is confirmed with its line, on every path.
+        (await Assert.ThrowsAsync<ValidationException>(() =>
+            CommitAsync(db, b.Id, Row(row) with { TransferAccountId = a.Id, MatchTransferId = transfer.Id, Fee = 2m })))
+            .Errors.Values.SelectMany(v => v).Should().Contain("Choose the budget line the fee is spent from.");
+        (await Assert.ThrowsAsync<ValidationException>(() => Transfers(db).Handle(
+            new CreateTransferCommand(Departure, 100m, a.Id, b.Id, Fee: 2m), CancellationToken.None)))
+            .Errors.Should().ContainKey("Fee");
+        db.ChangeTracker.Clear(); // a refused request saves nothing
+        await CommitAsync(db, b.Id, Row(row) with { TransferAccountId = a.Id, MatchTransferId = transfer.Id, Fee = 2m, FeeBudgetItemId = septemberFees.Id });
 
         var stored = await ReloadAsync(db, transfer.Id);
         stored.Amount.Should().Be(98m);
         stored.Fee!.Amount.Should().Be(2m);
-        stored.Fee.BudgetItemId.Should().BeNull("left uncategorised when no line is chosen");
+        stored.Fee.BudgetItemId.Should().Be(septemberFees.Id);
         var views = await AccountsAsOf(db, Later);
         views[a.Id].CurrentBalance.Should().Be(900m);
         views[b.Id].CurrentBalance.Should().Be(298m);
@@ -422,6 +431,7 @@ public class TransferIdentityW07Tests
         await using var db = NewContext();
         var a = SeedAccount(db, "A", 1000m);
         var b = SeedAccount(db, "B", 200m);
+        var (septemberFees, _) = SeedFeeLines(db);
         var transfer = await Transfers(db).Handle(new CreateTransferCommand(Recorded, 100m, a.Id, b.Id), CancellationToken.None);
         var row = (await PreviewAsync(db, SourceStatement, a.Id)).Items.Single();
         await CommitAsync(db, a.Id, Row(row) with { TransferAccountId = b.Id, MatchTransferId = transfer.Id });
@@ -439,9 +449,9 @@ public class TransferIdentityW07Tests
 
         // A fee may be added only if what left A stays the 100 its statement shows.
         (await Assert.ThrowsAsync<ValidationException>(() =>
-            edit.Handle(new UpdateTransferCommand(transfer.Id, a.Id, b.Id, 100m, Departure, Later, Fee: 2m), CancellationToken.None)))
+            edit.Handle(new UpdateTransferCommand(transfer.Id, a.Id, b.Id, 100m, Departure, Later, Fee: 2m, FeeBudgetItemId: septemberFees.Id), CancellationToken.None)))
             .Errors.Should().ContainKey("Amount");
-        var withFee = await edit.Handle(new UpdateTransferCommand(transfer.Id, a.Id, b.Id, 98m, Departure, Later, Fee: 2m), CancellationToken.None);
+        var withFee = await edit.Handle(new UpdateTransferCommand(transfer.Id, a.Id, b.Id, 98m, Departure, Later, Fee: 2m, FeeBudgetItemId: septemberFees.Id), CancellationToken.None);
         withFee.Fee.Should().Be(2m);
         (await AccountsAsOf(db, Later))[b.Id].CurrentBalance.Should().Be(298m);
     }
