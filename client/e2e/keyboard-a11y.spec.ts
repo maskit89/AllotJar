@@ -88,10 +88,10 @@ test('focus-visible ring appears on Tab for the skip link and the first nav link
   expect(skipRing?.name).toBe('Skip to main content')
   expectVisibleRing(skipRing)
 
-  // Tab 2 → the first primary-nav link ("Budget").
+  // Tab 2 → the first primary-nav link ("Dashboard").
   await page.keyboard.press('Tab')
   const navRing = await ringOf()
-  expect(navRing?.name).toBe('Budget')
+  expect(navRing?.name).toBe('Dashboard')
   expectVisibleRing(navRing)
 })
 
@@ -153,7 +153,7 @@ test('primary nav is a landmark labelled "Primary" with a current-page marker (U
   await expect(nav).toHaveCount(1)
 
   // On "/" the Budget item is active and marks itself for assistive tech.
-  const budget = nav.getByRole('link', { name: 'Budget' })
+  const budget = nav.getByRole('link', { name: 'Dashboard' })
   await expect(budget).toHaveAttribute('aria-current', 'page')
   // A non-active item does not carry the marker.
   await expect(nav.getByRole('link', { name: 'Transactions' })).not.toHaveAttribute('aria-current', 'page')

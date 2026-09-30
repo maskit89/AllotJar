@@ -193,7 +193,7 @@ describe('DashboardPage — hero footnote states (PR #172) & render', () => {
     expect(precedes(screen.getByLabelText('Rename group Housing'), screen.getByLabelText('Rename group Food'))).toBe(true)
 
     // The one visually-hidden page heading, and no error strip.
-    expect(screen.getByRole('heading', { level: 1, name: 'Budget' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeInTheDocument()
     expect(screen.queryByText(/Could not load your budget/)).not.toBeInTheDocument()
   })
 

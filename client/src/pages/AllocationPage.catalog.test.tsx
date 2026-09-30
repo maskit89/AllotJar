@@ -1161,7 +1161,7 @@ describe('AllocationPage (catalog)', () => {
     await screen.findByText('How July is allocated', {}, { timeout: 5000 })
 
     expect(screen.getByText(/€350\.00 of July’s income isn’t assigned to a person/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Assign income lines on the Budget page' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Assign income lines on the Dashboard' })).toBeInTheDocument()
     // A month with income is quiet about missing income, and nothing mentions People-page defaults.
     expect(screen.queryByText(/No income in July 2026’s budget yet/)).not.toBeInTheDocument()
     expect(screen.queryByText(/default incomes from the People page/)).not.toBeInTheDocument()
