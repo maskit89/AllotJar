@@ -23,6 +23,7 @@ using AllotJar.Application.Household.Queries.GetMemberSpending;
 using AllotJar.Application.HouseholdAccess.Commands.LinkMembershipMember;
 using AllotJar.Application.HouseholdAccess.Commands.RevokeMember;
 using AllotJar.Application.Jars;
+using AllotJar.Application.Jars.Commands.ArchiveJar;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Jars.Commands.UpdateJar;
 using AllotJar.Application.Reports.Queries.GetMonthReport;
@@ -1368,6 +1369,84 @@ public class JointAccountsW13Tests
             after.UncategorisedIncomeCount.Should().Be(before.UncategorisedIncomeCount);
             var rows = await new GetTransactionsQueryHandler(db, Chris).Handle(new GetTransactionsQuery(), CancellationToken.None);
             rows.Where(r => r.CounterpartyErased).Should().HaveCount(2, "the register shows both kept sides, marked for its totals to skip");
+        }
+    }
+
+    // R3-P3-1 (probe N4): Christopher's "Keep" (R4-P3-1) survives the erase. Sam marked a return
+    // from the joint account's Holiday jar by hand on 12 June; Holiday was emptied and archived on
+    // the 13th; the bank later dated the return the 15th. The jar's share stays at the 12th, so the
+    // archived jar reads zero from its archive day on, before and after Sam's account is erased.
+    [Fact]
+    public async Task Erasing_KeepsAHandMarkedReturnShare_AtItsDate_Keep()
+    {
+        var joint = await CreateAccountAsync(Chris, "Joint", holders: null, opening: 1000m);
+        var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam }, opening: 0m);
+        Guid holiday;
+        await using (var db = As(Chris))
+        {
+            holiday = (await new CreateJarCommandHandler(db, Chris).Handle(
+                new CreateJarCommand("Holiday", JarKind.Goal, 1000m, null, AccrualMethod.FixedMonthly, joint, InitialAllocation: 300m, InitialAllocationDate: June10.AddDays(-5), MonthlyContribution: 100m),
+                CancellationToken.None)).Id;
+        }
+        Guid transfer;
+        await using (var db = As(Sam))
+        {
+            transfer = (await new CreateTransferCommandHandler(db, Sam).Handle(
+                new CreateTransferCommand(June10, 100m, joint, mine, FromJarId: holiday), CancellationToken.None)).Id;
+            await new UpdateTransferCommandHandler(db, Sam).Handle(
+                new UpdateTransferCommand(transfer, joint, mine, 100m, June10, null, ReturnedOn: June10.AddDays(2), FromJarId: holiday), CancellationToken.None);
+        }
+        await using (var db = As(Chris))
+        {
+            LedgerFixtures.Allocate(db, Household, joint, holiday, -300m, June10.AddDays(2), JarAllocationKind.Reallocation);
+            await new ArchiveJarCommandHandler(db, Chris).Handle(new ArchiveJarCommand(holiday), CancellationToken.None);
+        }
+        using (var db = Seed())
+        {
+            db.Jars.Single(j => j.Id == holiday).ArchivedOn = June10.AddDays(3);
+            db.Transactions.Single(t => t.Id == transfer).ReturnedOn = June10.AddDays(5); // the bank's date; the Return operation keeps the 12th (Keep)
+            db.SaveChanges();
+        }
+        async Task<(decimal jar, int unreconciled)> HolidayOn(DateOnly day)
+        {
+            await using var db = As(Chris);
+            var view = (await JarLedgerReader.ReadAsync(db, Household, day, CancellationToken.None)).Accounts[joint];
+            return (view.JarBalances.GetValueOrDefault(holiday), view.UnreconciledAllocations);
+        }
+        (await HolidayOn(June10.AddDays(6))).Should().Be((0m, 0), "Keep: the archived jar reads zero after its archive day");
+
+        await RemoveSamsLoginAsync();
+        await EraseAsync(mine, "Sam's current");
+
+        (await HolidayOn(June10.AddDays(2))).jar.Should().Be(0m, "the hand-marked return still gave the share back on the 12th, before the reallocation emptied the jar");
+        (await HolidayOn(June10.AddDays(6))).Should().Be((0m, 0), "erasing the other account must not move the share to the bank's date, after the archive");
+        using var check = Seed();
+        check.JarAllocations.Should().NotContain(a => a.ReturnOfTransferId != null);
+        check.JarAllocations.Should().NotContain(a => a.TransactionId == TransferLedger.ReturnLegId(transfer), "the income posts unallocated on the bank's date by the reader's default");
+    }
+
+    // R3-P3-3: a kept shared side the owner puts on a budget line counts everywhere from then on
+    // (the mark is cleared), so the line and the totals agree.
+    [Fact]
+    public async Task AssigningAKeptSharedSideToALine_ClearsItsMark_KeepShared()
+    {
+        var line = SeedLine();
+        var joint = await CreateAccountAsync(Chris, "Joint", holders: null, opening: 1000m);
+        var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam }, opening: 500m);
+        await using (var db = As(Sam))
+        {
+            await new CreateTransferCommandHandler(db, Sam).Handle(new CreateTransferCommand(June10, 200m, joint, mine, ReceivedOn: June10), CancellationToken.None);
+        }
+        await RemoveSamsLoginAsync();
+        await EraseAsync(mine, "Sam's current");
+        await using (var db = As(Chris))
+        {
+            var kept = (await new GetTransactionsQueryHandler(db, Chris).Handle(new GetTransactionsQuery(), CancellationToken.None)).Single(t => t.CounterpartyErased);
+            (await new GetTransactionsQueryHandler(db, Chris).Handle(new GetTransactionsQuery(UnassignedOnly: true), CancellationToken.None))
+                .Should().NotContain(t => t.Id == kept.Id, "a kept side is not waiting for a line (R3-P3-2)");
+            var assigned = await new AssignTransactionCommandHandler(db, Chris).Handle(new AssignTransactionCommand(kept.Id, line), CancellationToken.None);
+            assigned.BudgetItemId.Should().Be(line);
+            assigned.CounterpartyErased.Should().BeFalse();
         }
     }
 

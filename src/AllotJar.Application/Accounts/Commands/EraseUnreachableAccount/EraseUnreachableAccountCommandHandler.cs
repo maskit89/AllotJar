@@ -283,9 +283,18 @@ public class EraseUnreachableAccountCommandHandler : IRequestHandler<EraseUnreac
                 _db.Transactions.Add(back);
                 // The return's stored operation (jar +S, unallocated −S, dated the return) becomes
                 // the income's own leg: jar +S, unallocated +(amount − S), which sums to it.
+                // A share kept at the day the return was marked by hand, before the bank's date
+                // (Christopher's "Keep", R4-P3-1), stays a dated operation as it is; the income
+                // then lands unallocated on the bank's date, as the transfer read before (R3-P3-1).
                 foreach (var op in await _db.JarAllocations.Include(a => a.Postings)
                              .Where(a => a.ReturnOfTransferId == row.Id).ToListAsync(cancellationToken))
                 {
+                    if (op.Date < returnedOn)
+                    {
+                        op.Kind = JarAllocationKind.Movement;
+                        op.ReturnOfTransferId = null;
+                        continue;
+                    }
                     var shares = op.Postings.Where(p => p.JarId is not null).Sum(p => p.Amount);
                     foreach (var unallocated in op.Postings.Where(p => p.JarId is null).ToList())
                     {

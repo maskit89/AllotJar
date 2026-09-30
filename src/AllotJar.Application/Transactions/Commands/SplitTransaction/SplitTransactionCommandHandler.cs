@@ -74,6 +74,8 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
         transaction.BudgetItemId = null;
         transaction.Member = null;
         transaction.MemberId = null;
+        // Slices put the row on lines, so a kept shared side of an erased transfer counts everywhere.
+        transaction.CounterpartyErased = false;
 
         var slices = new List<TransactionSplit>();
         foreach (var allocation in request.Allocations)

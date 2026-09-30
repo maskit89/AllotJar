@@ -1207,7 +1207,8 @@ export function TransactionsPage() {
     if (filter === 'all') return transactions
     // "Unassigned": external (non-transfer) transactions not yet given a budget line.
     return transactions.filter(
-      (t) => t.type !== TransactionType.Transfer && !t.isSplit && t.budgetItemId === null,
+      (t) =>
+        t.type !== TransactionType.Transfer && !t.counterpartyErased && !t.isSplit && t.budgetItemId === null,
     )
   }, [transactions, filter])
 

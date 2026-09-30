@@ -612,6 +612,12 @@ public class TTransactionsCoverageTests
         };
         splitParent.Splits.Add(new TransactionSplit { BudgetItemId = f.GroceriesId, Amount = 40m });
         db.Transactions.Add(splitParent);
+        // The kept shared side of an erased transfer is not waiting for a line (R3-P3-2).
+        db.Transactions.Add(new Transaction
+        {
+            OwnerId = "user-1", Payee = "Kept side", Amount = 50m,
+            Type = TransactionType.Expense, BudgetItemId = null, CounterpartyErased = true,
+        });
         await db.SaveChangesAsync();
 
         var result = await new GetTransactionsQueryHandler(db, user)
