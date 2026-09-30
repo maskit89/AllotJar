@@ -165,6 +165,9 @@ export interface TransactionDto {
   refundOfAmount?: number | null
   /** For a purchase: how many refunds point at it, and their base-currency total (0 when none). */
   refundCount?: number
+  /** The other side of this movement was an erased private account: a transfer's shared side kept
+   *  as a plain entry. The hero totals skip it like a transfer, and it isn't waiting for a line. */
+  counterpartyErased?: boolean
   refundedAmount?: number
   /** Household member this whole transaction is attributed to, if any. */
   memberId: string | null
@@ -349,6 +352,21 @@ export interface AccountHolderDto {
 export interface SharingReviewDto {
   pending: boolean
   accounts: AccountDto[]
+}
+
+/**
+ * GET /accounts/unreachable — an account private to a login no longer in the household (P59):
+ * nobody can see, change or share it. The owner sees its name, holder and entry count, never
+ * its entries, and may erase it for good (POST /accounts/{id}/erase with the name typed).
+ */
+export interface UnreachableAccountDto {
+  id: string
+  name: string
+  currency: string
+  holderName?: string | null
+  privateSinceUtc: string
+  /** Entries the erase removes: the account's own rows and every transfer touching it, with their fees. */
+  entryCount: number
 }
 
 /** A not-yet-imported transaction returned by the import preview, for review before commit. */
@@ -1148,6 +1166,8 @@ export interface MeResponse {
   budgetCurrency?: string
   /** True once the login's OWN household has accounts, months or transactions (currency is fixed). */
   currencyLocked?: boolean
+  /** The login's OWN household's budget currency: what the preference is locked to once fixed. */
+  ownBudgetCurrency?: string
   numberFormat?: string
   households?: HouseholdSummary[]
   /** True for invite-created logins that haven't accepted the terms yet (blocking consent prompt). */

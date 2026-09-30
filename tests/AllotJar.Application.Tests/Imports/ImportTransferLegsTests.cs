@@ -296,8 +296,9 @@ public class ImportTransferLegsTests
     public async Task ALegacyInboundTransfer_ReceivedWithoutAReceiptReference_IsStillKnownToTheDestination_BySourceReference()
     {
         // Rows recorded before receipt references existed kept B's statement reference on the
-        // source leg and were marked received on their date by the migration; only those, not a
-        // transfer still in transit, lend their source reference to the destination.
+        // source leg and were marked received on their date by the migration, and marked
+        // ReceiptKnownBySourceReference by a later one; only those, not a transfer still in
+        // transit nor a receipt confirmed by hand, lend their source reference to the destination.
         await using var db = NewContext();
         var a = SeedAccount(db, "A", 1000m);
         var b = SeedAccount(db, "B", 200m);
@@ -306,6 +307,12 @@ public class ImportTransferLegsTests
             {
                 OwnerId = "user-1", Type = TransactionType.Transfer, Amount = 100m, Currency = CurrencyCode.Eur, Date = Departure, Payee = "Legacy",
                 AccountId = a.Id, TransferAccountId = b.Id, DepartedOn = Departure, ReceivedOn = Departure, BankReference = "LEGACY-1",
+                ReceiptKnownBySourceReference = true,
+            },
+            new Transaction
+            {
+                OwnerId = "user-1", Type = TransactionType.Transfer, Amount = 70m, Currency = CurrencyCode.Eur, Date = Departure, Payee = "By hand",
+                AccountId = a.Id, TransferAccountId = b.Id, DepartedOn = Departure, ReceivedOn = Departure, BankReference = "HAND-1",
             },
             new Transaction
             {
@@ -319,8 +326,10 @@ public class ImportTransferLegsTests
 
         knownToA.Contains("LEGACY-1").Should().BeTrue();
         knownToA.Contains("OPEN-1").Should().BeTrue();
+        knownToA.Contains("HAND-1").Should().BeTrue();
         knownToB.Contains("LEGACY-1").Should().BeTrue();
         knownToB.Contains("OPEN-1").Should().BeFalse();
+        knownToB.Contains("HAND-1").Should().BeFalse("a receipt confirmed by hand is confirmed, not skipped, by B's statement (#279 P3-3)");
     }
 
     // ── Rule 50: two recorded transfers of 100 could match one statement entry of 100.

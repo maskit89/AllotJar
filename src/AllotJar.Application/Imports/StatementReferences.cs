@@ -80,12 +80,14 @@ public sealed class KnownReferences
 /// transfer's destination leg keeps it in <see cref="Transaction.ReceiptBankReference"/> on
 /// <see cref="Transaction.TransferAccountId"/> (rule 51). Rows recorded before receipt
 /// references existed stored an inbound transfer's reference on the source leg (the migration
-/// marked them received on their date), so a transfer whose receipt is recorded without a
-/// reference of its own is still honoured on the destination side by its source reference. A
-/// transfer whose receipt is still unknown carries nothing for the destination: its source
-/// reference is the other bank's, and the receipt row that shares it is the very row the
-/// destination statement has yet to confirm. Case-insensitive to agree with the unique indexes'
-/// CI collation.
+/// marked them received on their date): those, and only those, are marked
+/// <see cref="Transaction.ReceiptKnownBySourceReference"/> and still honoured on the destination
+/// side by their source reference. A receipt confirmed by hand carries nothing for the
+/// destination, so when both banks print one reference the destination's credit confirms the
+/// receipt instead of being skipped; neither does a transfer whose receipt is still unknown:
+/// its source reference is the other bank's, and the receipt row that shares it is the very row
+/// the destination statement has yet to confirm. Case-insensitive to agree with the unique
+/// indexes' CI collation.
 /// </summary>
 public static class StatementReferences
 {
@@ -103,7 +105,7 @@ public static class StatementReferences
                             || (accountId != null && t.Type == TransactionType.Transfer
                                 && t.TransferAccountId == accountId
                                 && (t.ReceiptBankReference != null
-                                    || (t.ReceivedOn != null && t.BankReference != null)))))
+                                    || (t.ReceiptKnownBySourceReference && t.BankReference != null)))))
             .Select(t => new
             {
                 t.Type, t.AccountId, t.Amount, t.Date, t.DepartedOn, t.ReceivedOn, t.ReturnedOn,
@@ -184,18 +186,13 @@ public static class StatementReferences
             .ToListAsync(cancellationToken);
 
     /// <summary>
-    /// The largest fee a statement row can propose is the larger of this share of what arrives and
-    /// <see cref="MaxProposedFeeFloor"/> (Christopher, 29 September 2026): a larger difference is
-    /// another payment, not this transfer (a 1,100 rent debit is not last month's 100 transfer
-    /// with a fee of 1,000), while a bank's fixed charge on a small transfer is still offered.
+    /// The largest fee a statement row can propose is this share of what arrives (Christopher,
+    /// 30 September 2026, "10% only"): a larger difference is another payment, not this transfer
+    /// (a 1,100 rent debit is not last month's 100 transfer with a fee of 1,000). A bank's fixed
+    /// charge on a small transfer is beyond it and is entered by hand on the transfer; no flat
+    /// floor is offered, so nothing depends on which currency it would be in (rule 91).
     /// </summary>
     public const decimal MaxProposedFeeShare = 0.10m;
-
-    /// <summary>
-    /// The fee a statement row can always propose, whatever the transfer's size: 10 in the
-    /// transfer's currency, which is the budget currency for every account kept in it.
-    /// </summary>
-    public const decimal MaxProposedFeeFloor = 10m;
 
     /// <summary>
     /// How a statement row on <paramref name="accountId"/> can confirm a leg of
@@ -204,7 +201,7 @@ public static class StatementReferences
     /// difference that the user must accept (O1 answer 5). A credit confirms the receipt: a
     /// smaller credit means the difference was a fee taken on the way, when the departure is
     /// known. A fee is proposed only while it is small against what arrives
-    /// (<see cref="MaxProposedFeeShare"/>, <see cref="MaxProposedFeeFloor"/>). A credit on the source of a transfer that departed and
+    /// (<see cref="MaxProposedFeeShare"/>). A credit on the source of a transfer that departed and
     /// whose receipt no statement confirmed confirms the money coming back (O1 answer 4). A leg
     /// recorded in the app without a statement reference can be confirmed too: the bank's date
     /// replaces the recorded one (rule 69) and no money moves again (rules 8/71). A leg a
@@ -227,7 +224,7 @@ public static class StatementReferences
         bool SameAs(string? other) =>
             reference is not null && other is not null && string.Equals(reference, other, StringComparison.OrdinalIgnoreCase);
         bool Proposable(decimal proposed, decimal arriving) =>
-            proposed <= Math.Max(arriving * MaxProposedFeeShare, MaxProposedFeeFloor);
+            proposed <= arriving * MaxProposedFeeShare;
 
         if (!isCredit)
         {

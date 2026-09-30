@@ -307,6 +307,7 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             transaction.DepartedOn = null;
             transaction.ReceivedOn = null;
             transaction.ReceiptBankReference = null;
+            transaction.ReceiptKnownBySourceReference = false;
             transaction.ReturnedOn = null;
             transaction.ReturnBankReference = null;
             await TransferReturns.ClearAsync(_db, transaction.Id, cancellationToken);

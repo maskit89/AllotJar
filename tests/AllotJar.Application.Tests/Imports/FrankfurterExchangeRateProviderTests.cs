@@ -75,4 +75,86 @@ public class FrankfurterExchangeRateProviderTests
         (await provider.GetRateAsync(CurrencyCode.From("GBP"), CurrencyCode.Eur, date, CancellationToken.None)).Should().Be(1.20m);
         handler.Requests.Should().Be(1); // rates for a past date are immutable
     }
+
+    private static HttpResponseMessage OkFor(string eurRate, DateOnly publishedFor) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent($"{{\"date\":\"{publishedFor:yyyy-MM-dd}\",\"rates\":{{\"EUR\":{eurRate}}}}}", Encoding.UTF8, "application/json"),
+    };
+
+    // #278 P3-2: for a day the ECB has not published yet, Frankfurter answers with the latest
+    // published day's rate and names that day. It is cached under that day for good, and under
+    // the day asked for only briefly, so today's rate is picked up once it is out.
+    [Fact]
+    public async Task ANotYetPublishedDay_TakesTheLatestRate_ButIsAskedAgain_OnceTheIntervalPasses()
+    {
+        var clock = new FakeClock();
+        // Today by the clock: a day whose rate may still come (a day long past keeps its stand-in for good).
+        var asked = DateOnly.FromDateTime(clock.Now.UtcDateTime);
+        var published = asked.AddDays(-1);
+        var handler = new StubHandler { Respond = () => OkFor("1.30", published) };
+        var provider = NewProvider(handler, clock);
+
+        (await provider.GetRateAsync(CurrencyCode.From("GBP"), CurrencyCode.Eur, asked, CancellationToken.None)).Should().Be(1.30m);
+        (await provider.GetRateAsync(CurrencyCode.From("GBP"), CurrencyCode.Eur, asked, CancellationToken.None)).Should().Be(1.30m);
+        handler.Requests.Should().Be(1, "the stand-in rate is cached for the interval");
+        // The day the rate is actually for is known for good without another call.
+        (await provider.GetRateAsync(CurrencyCode.From("GBP"), CurrencyCode.Eur, published, CancellationToken.None)).Should().Be(1.30m);
+        handler.Requests.Should().Be(1);
+
+        handler.Respond = () => OkFor("1.35", asked);
+        clock.Now += FrankfurterExchangeRateProvider.FailureRetryInterval + TimeSpan.FromSeconds(1);
+        (await provider.GetRateAsync(CurrencyCode.From("GBP"), CurrencyCode.Eur, asked, CancellationToken.None)).Should().Be(1.35m, "the day's own rate is out now");
+        handler.Requests.Should().Be(2);
+        clock.Now += TimeSpan.FromDays(30);
+        (await provider.GetRateAsync(CurrencyCode.From("GBP"), CurrencyCode.Eur, asked, CancellationToken.None)).Should().Be(1.35m);
+        handler.Requests.Should().Be(2, "a published day's rate is final");
+    }
+
+    // #287 review P3-3: a Saturday years ago never gets a rate of its own, so its stand-in
+    // (the Friday's) is final rather than asked for again every interval.
+    [Fact]
+    public async Task APastWeekendDay_KeepsItsStandIn_ForGood()
+    {
+        var saturday = new DateOnly(1998, 5, 9);
+        var friday = new DateOnly(1998, 5, 8);
+        var handler = new StubHandler { Respond = () => OkFor("1.40", friday) };
+        var clock = new FakeClock { Now = new DateTimeOffset(2027, 1, 13, 12, 0, 0, TimeSpan.Zero) }; // its own days, the cache being process-wide
+        var provider = NewProvider(handler, clock);
+
+        for (var i = 0; i < 6; i++)
+        {
+            (await provider.GetRateAsync(CurrencyCode.From("GBP"), CurrencyCode.Eur, saturday, CancellationToken.None)).Should().Be(1.40m);
+            clock.Now += FrankfurterExchangeRateProvider.FailureRetryInterval + TimeSpan.FromSeconds(1);
+        }
+        handler.Requests.Should().Be(1);
+
+        // Yesterday's stand-in is still asked again: the day's own rate may be out by now.
+        var yesterday = DateOnly.FromDateTime(clock.Now.UtcDateTime).AddDays(-1);
+        handler.Respond = () => OkFor("1.41", yesterday.AddDays(-1));
+        (await provider.GetRateAsync(CurrencyCode.From("GBP"), CurrencyCode.Eur, yesterday, CancellationToken.None)).Should().Be(1.41m);
+        clock.Now += FrankfurterExchangeRateProvider.FailureRetryInterval + TimeSpan.FromSeconds(1);
+        await provider.GetRateAsync(CurrencyCode.From("GBP"), CurrencyCode.Eur, yesterday, CancellationToken.None);
+        handler.Requests.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task TheCache_IsBounded()
+    {
+        var handler = new StubHandler { Respond = () => Ok("1.10") };
+        var clock = new FakeClock();
+        var provider = NewProvider(handler, clock);
+        FrankfurterExchangeRateProvider.ClearCache();
+        var start = new DateOnly(1980, 1, 1);
+        for (var i = 0; i <= FrankfurterExchangeRateProvider.MaxCachedRates; i++)
+        {
+            clock.Now += TimeSpan.FromSeconds(1);
+            await provider.GetRateAsync(CurrencyCode.From("GBP"), CurrencyCode.Eur, start.AddDays(i), CancellationToken.None);
+        }
+        var before = handler.Requests;
+        // The first day asked was the oldest entry, so it went; the last one is still there.
+        await provider.GetRateAsync(CurrencyCode.From("GBP"), CurrencyCode.Eur, start, CancellationToken.None);
+        handler.Requests.Should().Be(before + 1);
+        await provider.GetRateAsync(CurrencyCode.From("GBP"), CurrencyCode.Eur, start.AddDays(FrankfurterExchangeRateProvider.MaxCachedRates), CancellationToken.None);
+        handler.Requests.Should().Be(before + 1);
+    }
 }

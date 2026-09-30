@@ -104,12 +104,21 @@ public static class TransferFees
 
     /// <summary>
     /// The fee row follows its transfer's departure date (a statement supplied the bank's date),
-    /// and so does its jar draw (<see cref="JarMovements.FollowDateAsync"/>).
+    /// and so does its jar draw (<see cref="JarMovements.FollowDateAsync"/>). A date that leaves
+    /// the month of the fee's budget line meets the same cross-month question as any entry
+    /// budgeted to another month, unless <paramref name="acknowledgeCrossMonth"/> answers it.
     /// </summary>
-    public static async Task FollowDepartureAsync(IApplicationDbContext db, string ownerId, Transaction transfer, CancellationToken cancellationToken)
+    public static async Task FollowDepartureAsync(
+        IApplicationDbContext db, string ownerId, Transaction transfer, bool acknowledgeCrossMonth, string errorKey,
+        CancellationToken cancellationToken)
     {
         if (transfer.Fee is Transaction row && transfer.DepartedOn is DateOnly departedOn)
         {
+            if (row.BudgetItemId is Guid lineId && (row.Date.Year, row.Date.Month) != (departedOn.Year, departedOn.Month))
+            {
+                await TransactionInvariants.ValidateWholeLineAsync(
+                    db, ownerId, TransactionType.Expense, lineId, departedOn, acknowledgeCrossMonth, errorKey, cancellationToken, row.AccountId);
+            }
             row.Date = departedOn;
             if (row.AccountId is Guid accountId)
             {

@@ -1152,8 +1152,10 @@ export function TransactionsPage() {
   // The register lists every month; the hero counts only the month the top bar shows.
   const { year: viewYear, month: viewMonth, label: monthLabel } = useMonth()
   const viewKey = `${viewYear}-${String(viewMonth).padStart(2, '0')}`
+  // A transfer's shared side kept after its other account was erased is still a transfer to the
+  // household, so it counts in neither total.
   const counted = useMemo(
-    () => transactions.filter((t) => !t.fxPending && t.date.startsWith(viewKey)),
+    () => transactions.filter((t) => !t.fxPending && !t.counterpartyErased && t.date.startsWith(viewKey)),
     [transactions, viewKey],
   )
   const moneyInMinor = useMemo(
@@ -1175,7 +1177,7 @@ export function TransactionsPage() {
   const unassignedCount = useMemo(
     () =>
       transactions.filter(
-        (t) => t.type !== TransactionType.Transfer && !t.isSplit && t.budgetItemId === null,
+        (t) => t.type !== TransactionType.Transfer && !t.counterpartyErased && !t.isSplit && t.budgetItemId === null,
       ).length,
     [transactions],
   )
@@ -1205,7 +1207,8 @@ export function TransactionsPage() {
     if (filter === 'all') return transactions
     // "Unassigned": external (non-transfer) transactions not yet given a budget line.
     return transactions.filter(
-      (t) => t.type !== TransactionType.Transfer && !t.isSplit && t.budgetItemId === null,
+      (t) =>
+        t.type !== TransactionType.Transfer && !t.counterpartyErased && !t.isSplit && t.budgetItemId === null,
     )
   }, [transactions, filter])
 

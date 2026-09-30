@@ -57,7 +57,8 @@ public class GetTransactionsQueryHandler
         }
         if (request.UnassignedOnly)
         {
-            query = query.Where(t => t.BudgetItemId == null);
+            // A kept shared side of an erased transfer is not waiting for a line (rule 31).
+            query = query.Where(t => t.BudgetItemId == null && !t.CounterpartyErased);
         }
 
         var transactions = await query

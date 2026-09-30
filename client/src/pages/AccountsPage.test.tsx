@@ -27,7 +27,7 @@ describe('AccountsPage', () => {
   })
 
   it('lists account cards with balances and a net total in the hero', { timeout: 15000 }, async () => {
-    mockGet.mockResolvedValue({ data: accounts() })
+    mockGet.mockImplementation((url: string) => Promise.resolve({ data: url === '/accounts' ? accounts() : [] }))
 
     renderPage()
 
@@ -100,6 +100,81 @@ describe('AccountsPage', () => {
     expect(await screen.findByRole('button', { name: 'Make Pocket private' })).toBeInTheDocument()
   })
 
+  // P59 (Christopher, 30 September 2026): the owner sees accounts private to a login that left
+  // the household by name and entry count only, and erases one behind its typed name.
+  it('lets the owner erase a private account nobody can reach, after typing its name', { timeout: 15000 }, async () => {
+    const gone = { id: 'u1', name: 'Sam’s wallet', currency: 'EUR', holderName: 'Sam', privateSinceUtc: '2026-06-01T00:00:00Z', entryCount: 3 }
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/auth/me') return Promise.resolve({ data: { role: 0, memberId: 'm1', email: 'chris@example.com' } })
+      if (url === '/accounts') return Promise.resolve({ data: accounts() })
+      if (url === '/accounts/unreachable') return Promise.resolve({ data: [gone] })
+      return Promise.resolve({ data: [] })
+    })
+    mockPost.mockResolvedValue({ status: 204 })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    const section = within(await screen.findByTestId('unreachable-accounts', {}, { timeout: 5000 }))
+    expect(section.getByText('Private accounts nobody can reach')).toBeInTheDocument()
+    expect(section.getByText('Sam’s wallet')).toBeInTheDocument()
+    expect(section.getByText(/Sam · 3 entries · EUR/)).toBeInTheDocument()
+
+    await user.click(section.getByRole('button', { name: 'Erase Sam’s wallet' }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    const confirm = dialog.getByRole('button', { name: 'Confirm erase Sam’s wallet' })
+    expect(confirm).toBeDisabled()
+    await user.type(dialog.getByLabelText(/Type .* to confirm/), 'Sam’s wal')
+    expect(confirm).toBeDisabled()
+    await user.type(dialog.getByLabelText(/Type .* to confirm/), 'let')
+    expect(confirm).toBeEnabled()
+    await user.click(confirm)
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/accounts/u1/erase', { confirmName: 'Sam’s wallet' }))
+    await waitFor(() => expect(screen.queryByTestId('unreachable-accounts')).not.toBeInTheDocument())
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    // The shared accounts are read again: the erase may have dropped a movement they counted.
+    await waitFor(() => expect(mockGet.mock.calls.filter(([url]) => url === '/accounts')).toHaveLength(2))
+    await waitFor(() => expect(mockGet.mock.calls.filter(([url]) => url === '/accounts/reconciliation').length).toBeGreaterThanOrEqual(2))
+  })
+
+  it('shows the server’s reason when an erase is refused', { timeout: 15000 }, async () => {
+    const gone = { id: 'u1', name: 'Wallet', currency: 'EUR', holderName: 'Sam', privateSinceUtc: '2026-06-01T00:00:00Z', entryCount: 1 }
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/auth/me') return Promise.resolve({ data: { role: 0, memberId: 'm1', email: 'chris@example.com' } })
+      if (url === '/accounts') return Promise.resolve({ data: accounts() })
+      if (url === '/accounts/unreachable') return Promise.resolve({ data: [gone] })
+      return Promise.resolve({ data: [] })
+    })
+    mockPost.mockRejectedValue({ response: { status: 400, data: { errors: { Id: ["1 refund in another account is linked to a purchase in 'Wallet'. Unlink or delete them on the Transactions page first."] } } } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Erase Wallet' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(dialog.getByLabelText(/Type .* to confirm/), 'wallet')
+    await user.click(dialog.getByRole('button', { name: 'Confirm erase Wallet' }))
+
+    expect(await dialog.findByText(/1 refund in another account is linked/)).toBeInTheDocument()
+    expect(screen.getByTestId('unreachable-accounts')).toBeInTheDocument()
+  })
+
+  it('shows no unreachable-accounts section to a login that is not the owner', { timeout: 15000 }, async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/auth/me') return Promise.resolve({ data: { role: 1, memberId: 'm1', email: 'sam@example.com' } })
+      if (url === '/accounts') return Promise.resolve({ data: accounts() })
+      return Promise.resolve({ data: [] })
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('Everyday', {}, { timeout: 5000 })).toBeInTheDocument()
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/auth/me'))
+    // The server answers a non-owner with an empty list, and an empty list shows nothing.
+    expect(screen.queryByTestId('unreachable-accounts')).not.toBeInTheDocument()
+  })
+
   // Rule 31: an account you add that only you hold starts private unless you untick it.
   it('adds an account you hold alone as private, and a joint one as shared', { timeout: 15000 }, async () => {
     mockGet.mockImplementation((url: string) => {
@@ -141,7 +216,7 @@ describe('AccountsPage', () => {
   })
 
   it('deletes an account after confirming', { timeout: 15000 }, async () => {
-    mockGet.mockResolvedValue({ data: accounts() })
+    mockGet.mockImplementation((url: string) => Promise.resolve({ data: url === '/accounts' ? accounts() : [] }))
     mockDelete.mockResolvedValue({ data: null })
     const user = userEvent.setup()
 
@@ -280,7 +355,7 @@ describe('AccountsPage', () => {
   })
 
   it('does not delete when the confirmation is cancelled', { timeout: 15000 }, async () => {
-    mockGet.mockResolvedValue({ data: accounts() })
+    mockGet.mockImplementation((url: string) => Promise.resolve({ data: url === '/accounts' ? accounts() : [] }))
     mockDelete.mockResolvedValue({ data: null })
     const user = userEvent.setup()
 

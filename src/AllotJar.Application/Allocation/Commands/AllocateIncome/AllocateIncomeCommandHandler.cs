@@ -98,20 +98,36 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
 
         // This month's previously recorded allocation transfers, keyed by member. A re-run is
         // reconciled against them rather than blindly replaced: a recorded bank transfer is
-        // evidence, not a plan line.
+        // evidence, not a plan line. A transfer that came back (rule 90) is bank history too, and
+        // it funded nothing: it is left as it is, and the member's movement is judged against
+        // their live transfer, the one not returned, recorded beside it under the next key.
         var prefix = $"alloc:{request.Year}-{request.Month}:";
-        var prior = (await _db.Transactions
-                .Include(t => t.Fee)
-                .Where(t => t.OwnerId == userId && t.AllocationKey != null && t.AllocationKey.StartsWith(prefix))
-                .ToListAsync(cancellationToken))
-            .ToDictionary(t => t.AllocationKey!, StringComparer.OrdinalIgnoreCase);
+        var prior = await _db.Transactions
+            .Include(t => t.Fee)
+            .Where(t => t.OwnerId == userId && t.AllocationKey != null && t.AllocationKey.StartsWith(prefix))
+            .ToListAsync(cancellationToken);
+        var live = prior
+            .Where(t => t.ReturnedOn is null)
+            .GroupBy(t => MemberKeyOf(t.AllocationKey!), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.OrderBy(t => t.AllocationKey!.Length).ThenBy(t => t.AllocationKey).First(), StringComparer.OrdinalIgnoreCase);
+        var keysTaken = prior.Select(t => t.AllocationKey!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        string NextKey(Guid memberId)
+        {
+            var key = prefix + memberId;
+            for (var n = 2; keysTaken.Contains(key); n++)
+            {
+                key = $"{prefix}{memberId}#{n}";
+            }
+            keysTaken.Add(key);
+            return key;
+        }
 
         // P53: a share bound for a savings account private to another login can't be recorded by
         // this caller, and neither can the removal of an earlier run's transfer into it. Refuse
         // before planning any movement, rather than skipping that person or failing halfway.
         var blocked = plan.Result.Members
             .Where(m => plan.PrivateSavings?.Contains(m.MemberId) == true
-                        && (m.Residual > 0m || prior.ContainsKey(prefix + m.MemberId)))
+                        && (m.Residual > 0m || live.ContainsKey(prefix + m.MemberId)))
             .Select(m => m.Name)
             .ToList();
         if (blocked.Count > 0)
@@ -123,6 +139,34 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                 {
                     $"{who}'s savings account is private, so only {who} can record a transfer into it. " +
                     $"{who} can share it, or point their savings at a shared account on the People page.",
+                },
+            });
+        }
+        // The same for an earlier run's transfer into an account since made private to another
+        // login, or into the private account of a person whose savings now point elsewhere: this
+        // caller can't remove it, so the refusal names the person rather than the privacy guard
+        // refusing the save (#277 P3-6).
+        foreach (var earlier in live.Values)
+        {
+            if (earlier.TransferAccountId is not Guid into
+                || await _db.Accounts.AnyAsync(a => a.Id == into, cancellationToken)
+                || !await _db.AccountPrivacies.AnyAsync(p => p.AccountId == into, cancellationToken))
+            {
+                continue;
+            }
+            var memberId = MemberIdOf(earlier.AllocationKey!, prefix);
+            var member = plan.Result.Members.FirstOrDefault(m => m.MemberId == memberId);
+            if (member is not null && member.Residual == earlier.Amount && member.SavingsAccountId == into)
+            {
+                continue; // unchanged: retained below, nothing to remove
+            }
+            var who = member?.Name ?? earlier.Payee;
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["Allocation"] = new[]
+                {
+                    $"{who}'s allocation transfer for this month went into an account that is private to {who}, " +
+                    $"so only {who} can change or remove it. Ask {who} to delete it on the Transactions page, or to share the account, before re-running.",
                 },
             });
         }
@@ -186,13 +230,13 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                 });
             }
 
-            var reference = prefix + m.MemberId;
-            if (prior.TryGetValue(reference, out var existing))
+            var memberKey = prefix + m.MemberId;
+            if (live.TryGetValue(memberKey, out var existing))
             {
                 // Unchanged movement: keep the recorded legs, including a receipt confirmed since.
                 if (existing.Amount == m.Residual && existing.AccountId == sourceId && existing.TransferAccountId == savingsId)
                 {
-                    retained.Add(reference);
+                    retained.Add(existing.AllocationKey!);
                     transfersByMember[m.MemberId] = (existing, savings);
                     continue;
                 }
@@ -229,7 +273,7 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
                 Type = TransactionType.Transfer,
                 AccountId = sourceId,
                 TransferAccountId = savingsId,
-                AllocationKey = reference,
+                AllocationKey = NextKey(m.MemberId),
             };
             _db.Transactions.Add(transfer);
             added.Add(transfer);
@@ -237,12 +281,14 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
             created++;
         }
 
-        // Every prior row not retained is superseded: the member's movement changed (its
-        // replacement was added above) or the member has no surplus this time. Only an
-        // in-transit row may be dropped; a confirmed receipt is bank history.
-        foreach (var (reference, stale) in prior)
+        // Every live prior row not retained is superseded: the member's movement changed (its
+        // replacement was added above), the member has no surplus this time, or it is a second
+        // live transfer for one member (a return un-marked after a re-run recorded the next one:
+        // #287 review P2-3). Only an in-transit row may be dropped; a confirmed receipt is bank
+        // history, and so is a transfer that came back.
+        foreach (var stale in prior.Where(t => t.ReturnedOn is null).OrderBy(t => t.AllocationKey!.Length).ThenBy(t => t.AllocationKey))
         {
-            if (retained.Contains(reference))
+            if (retained.Contains(stale.AllocationKey!))
             {
                 continue;
             }
@@ -303,6 +349,22 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
             plan.EnvelopesTotal, plan.JarsTotal, created,
             unattributedIncome: plan.UnattributedIncome, incomeFromBudget: plan.IncomeFromBudget,
             transfersRetained: retained.Count, privateSavings: plan.PrivateSavings);
+    }
+
+    /// <summary>
+    /// The key every transfer for one member this month shares: <c>alloc:{year}-{month}:{member}</c>.
+    /// A transfer recorded beside a returned one carries a <c>#n</c> suffix after it.
+    /// </summary>
+    public static string MemberKeyOf(string allocationKey)
+    {
+        var hash = allocationKey.IndexOf('#');
+        return hash < 0 ? allocationKey : allocationKey[..hash];
+    }
+
+    private static Guid? MemberIdOf(string allocationKey, string prefix)
+    {
+        var memberKey = MemberKeyOf(allocationKey);
+        return memberKey.Length > prefix.Length && Guid.TryParse(memberKey[prefix.Length..], out var id) ? id : null;
     }
 
     private static ValidationException ConfirmedByStatement(Transaction transfer) =>

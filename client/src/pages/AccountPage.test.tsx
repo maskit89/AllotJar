@@ -37,7 +37,7 @@ function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
 
 // The Sharing card reads /members; everything else (/auth/me) returns the login.
 let membersData: HouseholdMemberDto[] = []
-let meData: typeof ownerMe & { preferredCurrency?: string; budgetCurrency?: string; currencyLocked?: boolean } = ownerMe
+let meData: typeof ownerMe & { preferredCurrency?: string; budgetCurrency?: string; currencyLocked?: boolean; ownBudgetCurrency?: string } = ownerMe
 
 const renderPage = () => renderWithProviders(<AccountPage />, { household: true })
 
@@ -139,7 +139,10 @@ describe('AccountPage', () => {
   // W08: the budget and all its accounts use one currency, fixed once the budget has accounts,
   // months or transactions (the app never converts). The preference is then shown read-only.
   it('shows the currency read-only with a note once the budget currency is locked', async () => {
-    meData = { ...ownerMe, preferredCurrency: 'GBP', budgetCurrency: 'GBP', currencyLocked: true }
+    // The login's saved preference and its own household's budget currency differ on older data
+    // (#278 P3-5): the locked field shows the own household's, which its note names, not the
+    // household being viewed (#287 review P2-4).
+    meData = { ...ownerMe, preferredCurrency: 'EUR', budgetCurrency: 'CHF', currencyLocked: true, ownBudgetCurrency: 'GBP' }
     mockPut.mockResolvedValue({
       data: { firstName: 'Alex', lastName: null, displayName: 'Alex', preferredCurrency: 'GBP', numberFormat: 'comma-dot' },
     })
@@ -156,8 +159,9 @@ describe('AccountPage', () => {
 
     await user.type(screen.getByLabelText('First name'), 'Alex')
     await user.click(screen.getByRole('button', { name: 'Save preferences' }))
+    // The save sends the login's saved preference unchanged; the field only displays the budget's.
     await waitFor(() =>
-      expect(mockPut).toHaveBeenCalledWith('/auth/preferences', expect.objectContaining({ preferredCurrency: 'GBP' })),
+      expect(mockPut).toHaveBeenCalledWith('/auth/preferences', expect.objectContaining({ preferredCurrency: 'EUR' })),
     )
   })
 

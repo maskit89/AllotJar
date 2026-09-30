@@ -81,6 +81,9 @@ public static class ReportFigures
             .Where(t => t.OwnerId == userId
                         && !t.FxPending
                         && t.Type != TransactionType.Transfer
+                        // A transfer's shared side kept after its other account was erased is
+                        // still a transfer to the household (P59 "Keep shared").
+                        && !t.CounterpartyErased
                         && t.Date.Year == year
                         && t.Date.Month == month
                         && t.BudgetItemId == null
@@ -97,6 +100,7 @@ public static class ReportFigures
             where t.OwnerId == userId
                   && !t.FxPending
                   && t.Type != TransactionType.Transfer
+                  && !t.CounterpartyErased
                   && s.BudgetItemId == null
                   && t.Date.Year == year
                   && t.Date.Month == month

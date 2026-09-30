@@ -12,7 +12,7 @@ import { HolderPicker, PrivateCheckbox } from '../components/AccountHolders'
 import { holderNames } from '../lib/accountHolders'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
-import type { AccountDto, AccountReconciliationDto } from '../types'
+import type { AccountDto, AccountReconciliationDto, UnreachableAccountDto } from '../types'
 import { ACCOUNT_TYPE_LABELS, ACCOUNT_TYPE_OPTIONS, AccountType } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
 import { formatDate, todayIso } from '../lib/dates'
@@ -70,7 +70,7 @@ const ID_FIELDS: Array<{ key: keyof Identifiers; label: string; placeholder: str
 
 export function AccountsPage() {
   // Managing accounts needs Admin+ (canWrite); others get a read-only register.
-  const { canWrite, budgetCurrency, memberId } = useAuth()
+  const { canWrite, canManageHousehold, budgetCurrency, memberId } = useAuth()
   const { multiCurrency } = useFeatures()
   // W13: the people who can hold an account (rule 30).
   const { members } = useHousehold()
@@ -80,6 +80,13 @@ export function AccountsPage() {
   const [error, setError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  // P59: accounts private to a login no longer in the household. Only the owner sees them, by
+  // name and entry count, and may erase one for good behind its typed name.
+  const [unreachable, setUnreachable] = useState<UnreachableAccountDto[]>([])
+  const [eraseId, setEraseId] = useState<string | null>(null)
+  const [eraseName, setEraseName] = useState('')
+  const [eraseError, setEraseError] = useState<string | null>(null)
+  const [erasing, setErasing] = useState(false)
 
   // Add-account modal.
   const [showAdd, setShowAdd] = useState(false)
@@ -113,6 +120,39 @@ export function AccountsPage() {
       .finally(() => !cancelled && setLoading(false))
     return () => {
       cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!canManageHousehold) return
+    let cancelled = false
+    api
+      .get<UnreachableAccountDto[]>('/accounts/unreachable')
+      .then(({ data }) => !cancelled && setUnreachable(Array.isArray(data) ? data : []))
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [canManageHousehold])
+
+  const erase = useCallback(async (id: string, confirmName: string) => {
+    setErasing(true)
+    setEraseError(null)
+    try {
+      await api.post(`/accounts/${id}/erase`, { confirmName })
+      setUnreachable((prev) => prev.filter((a) => a.id !== id))
+      setEraseId(null)
+      setEraseName('')
+      // The erase can drop movements the shared accounts counted (a transfer that never
+      // arrived), so the accounts are read again (the reconciliation follows the account set).
+      const { data } = await api.get<AccountDto[]>('/accounts')
+      setAccounts(data)
+    } catch (err) {
+      // A refused erase (the name doesn't match, a refund elsewhere names a purchase in it, a
+      // shared account would go below zero without a transfer from it) carries the reason.
+      setEraseError(serverErrors(err) ?? 'Could not erase that account.')
+    } finally {
+      setErasing(false)
     }
   }, [])
 
@@ -444,6 +484,63 @@ export function AccountsPage() {
         )
       })()}
 
+      {eraseId && canManageHousehold && (() => {
+        const acct = unreachable.find((a) => a.id === eraseId)
+        if (!acct) return null
+        const matches = eraseName.trim().toLowerCase() === acct.name.trim().toLowerCase()
+        return (
+          <Modal
+            title={`Erase ${acct.name}?`}
+            onClose={() => {
+              setEraseId(null)
+              setEraseName('')
+              setEraseError(null)
+            }}
+          >
+            <p className="text-sm text-slate-600">
+              This account is private to a login that is no longer in the household, so nobody can
+              see it, change it or share it. Erasing removes the account and what only its holder could
+              see for good ({acct.entryCount === 1 ? 'one entry' : `${acct.entryCount} entries`} touch it).
+              Anything the household already saw stays and keeps counting without the account: an entry
+              on a budget line, a refund of a shared purchase, and a shared account’s side of a transfer
+              with it, with its bank reference and fee. Nothing in it is shown to you. This can’t be undone.
+            </p>
+            <label htmlFor="erase-name" className="mt-4 block text-sm font-medium text-slate-600">
+              Type <span className="font-semibold text-slate-800">{acct.name}</span> to confirm
+            </label>
+            <Input
+              id="erase-name"
+              type="text"
+              value={eraseName}
+              autoComplete="off"
+              onChange={(e) => setEraseName(e.target.value)}
+              className="mt-1 w-full"
+            />
+            {eraseError && <ErrorBanner className="mt-3">{eraseError}</ErrorBanner>}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setEraseId(null)
+                  setEraseName('')
+                  setEraseError(null)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => erase(acct.id, eraseName)}
+                disabled={!matches || erasing}
+                aria-label={`Confirm erase ${acct.name}`}
+              >
+                {erasing ? 'Erasing…' : 'Erase for good'}
+              </Button>
+            </div>
+          </Modal>
+        )
+      })()}
+
       {loading && <p className="text-slate-500">Loading…</p>}
 
       {!loading && (
@@ -632,6 +729,43 @@ export function AccountsPage() {
             </div>
           )}
         </section>
+      )}
+
+      {!loading && canManageHousehold && unreachable.length > 0 && (
+        <Card className="overflow-hidden" data-testid="unreachable-accounts">
+          <div className="border-b border-slate-100 bg-slate-50 px-4 py-2.5">
+            <h2 className="text-sm font-semibold text-slate-700">Private accounts nobody can reach</h2>
+            <p className="text-xs text-slate-500">
+              Each is private to a login that is no longer in the household. Nobody can see or change
+              them. If that person won’t be back, you can erase one for good; you never see what is in it.
+            </p>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {unreachable.map((a) => (
+              <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                <div>
+                  <span className="font-medium text-slate-700">{a.name}</span>
+                  <span className="ml-2 text-xs text-slate-500">
+                    {a.holderName ? `${a.holderName} · ` : ''}
+                    {a.entryCount === 1 ? '1 entry' : `${a.entryCount} entries`} · {a.currency}
+                  </span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  onClick={() => {
+                    setEraseError(null)
+                    setEraseName('')
+                    setEraseId(a.id)
+                  }}
+                  aria-label={`Erase ${a.name}`}
+                >
+                  Erase…
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </Card>
       )}
 
       {reconciliation.some((r) => r.backedJarCount > 0) && (

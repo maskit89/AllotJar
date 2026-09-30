@@ -77,6 +77,10 @@ public class ConfirmTransferLegsCommandHandler : IRequestHandler<ConfirmTransfer
         transfer.ReceivedOn = receivedOn;
         transfer.BankReference = bankReference;
         transfer.ReceiptBankReference = receiptBankReference;
+        if (receiptBankReference is not null)
+        {
+            transfer.ReceiptKnownBySourceReference = false;
+        }
 
         // Keep the register's display date on the confirmed departure once it is known, so a
         // resolved receipt-first row sorts by the date the money actually left.

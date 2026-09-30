@@ -738,6 +738,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("BudgetItemId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<bool>("CounterpartyErased")
+                        .HasColumnType("bit");
+
                     b.Property<string>("Currency")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -785,6 +788,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<string>("ReceiptBankReference")
                         .HasMaxLength(140)
                         .HasColumnType("nvarchar(140)");
+
+                    b.Property<bool>("ReceiptKnownBySourceReference")
+                        .HasColumnType("bit");
 
                     b.Property<DateOnly?>("ReceivedOn")
                         .HasColumnType("date");

@@ -387,6 +387,8 @@ describe('TransactionsPage manual sheet', () => {
     mockLoad([
       tx(), // Tesco — unassigned (budgetItemId null)
       { ...tx(), id: 't2', payee: 'Rent payment', budgetItemId: 'i-rent', budgetItemName: 'Rent' },
+      // The kept side of a transfer with an erased account is not waiting for a line (R3-P3-2).
+      { ...tx(), id: 't3', payee: 'Transfer from an erased account', counterpartyErased: true },
     ])
     const user = userEvent.setup()
 
@@ -399,6 +401,7 @@ describe('TransactionsPage manual sheet', () => {
     await user.click(screen.getByRole('button', { name: 'Unassigned' }))
     await waitFor(() => expect(screen.queryByText('Rent payment')).not.toBeInTheDocument())
     expect(screen.getByText('Tesco')).toBeInTheDocument()
+    expect(screen.queryByText('Transfer from an erased account')).not.toBeInTheDocument()
 
     // Back to All — both return.
     await user.click(screen.getByRole('button', { name: 'All' }))

@@ -97,6 +97,13 @@ public class TransactionDto
     public decimal? RefundOfAmount { get; set; }
 
     /// <summary>For a purchase: how many refunds point at it, and the total of those that count (0 when none).</summary>
+    /// <summary>
+    /// The other side of this movement was an erased private account (P59 "Keep shared"): the row
+    /// is a transfer's shared side kept as a plain entry. The register's totals skip it as they
+    /// skip transfers, and it isn't waiting for a budget line.
+    /// </summary>
+    public bool CounterpartyErased { get; set; }
+
     public int RefundCount { get; set; }
     public decimal RefundedAmount { get; set; }
 
@@ -158,6 +165,7 @@ public static class TransactionMapping
         BudgetAmount = t.BudgetAmount,
         Type = t.Type,
         BankReference = t.BankReference,
+        CounterpartyErased = t.CounterpartyErased,
         BudgetItemId = t.BudgetItemId,
         BudgetItemName = t.BudgetItem?.Name,
         // Null-safe through the whole chain: stays null if any nav (or the month) isn't loaded.

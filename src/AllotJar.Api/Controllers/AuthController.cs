@@ -804,7 +804,12 @@ public class AuthController : ControllerBase
             // Rule 85: the active household's one currency labels all its money, whatever this
             // login's own preference; the preference only seeds a household that has nothing yet.
             BudgetCurrency: (await BudgetCurrency.ResolveAsync(_db, _identity, activeOwnerId, HttpContext.RequestAborted)).Value,
-            CurrencyLocked: await BudgetCurrency.IsFixedAsync(_db, userId, HttpContext.RequestAborted)));
+            // The preference is about the login's OWN household (the one it seeds), so the lock
+            // and the currency it is locked to are judged there, as the preference save is; a
+            // member viewing another household sees that household's label above and their own
+            // lock here (#278 P3-5, #287 review P2-4).
+            CurrencyLocked: await BudgetCurrency.IsFixedAsync(_db, userId, HttpContext.RequestAborted),
+            OwnBudgetCurrency: (await BudgetCurrency.ResolveAsync(_db, _identity, userId, HttpContext.RequestAborted)).Value));
     }
 
     private async Task<bool> HasGoogleLinkAsync(ApplicationUser user) =>

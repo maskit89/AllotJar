@@ -58,6 +58,29 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             });
         }
 
+        // Serialise against every other writer of the accounts this import can move money in:
+        // the statement account, the counterparties of new transfers, and both sides of every
+        // transfer a row confirms a leg of. A second commit of the same statement (a double
+        // submit, another device) then waits here and reads the first one's rows as already
+        // imported, and an edit of a transfer being matched can't interleave with the match
+        // (#279 P3-2). Taken before anything below is read, so nothing is judged on a stale read.
+        var targetIds = request.Items.Select(i => i.MatchTransferId).Concat(request.Items.Select(i => i.ReturnOfTransferId))
+            .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+        var targetSides = targetIds.Count == 0
+            ? new List<Guid?>()
+            : (await _db.Transactions.IgnoreQueryFilters().AsNoTracking()
+                .Where(t => targetIds.Contains(t.Id) && t.OwnerId == userId)
+                .Select(t => new { t.AccountId, t.TransferAccountId })
+                .ToListAsync(cancellationToken))
+                .SelectMany(t => new[] { t.AccountId, t.TransferAccountId }).ToList();
+        var lockedAccountIds = new[] { request.AccountId }
+            .Concat(counterpartyAccounts.Keys.Select(id => (Guid?)id))
+            .Concat(targetSides)
+            .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+        await using var write = lockedAccountIds.Count == 0
+            ? null
+            : await _db.BeginLedgerWriteAsync(lockedAccountIds, cancellationToken);
+
         // Transfers the user chose to confirm the other side of. Loaded tracked: matching writes
         // the statement's date and reference onto the open leg instead of inserting a row.
         var matchTargets = await LoadMatchTargetsAsync(
@@ -304,6 +327,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     {
                         target.ReceivedOn = item.Date;
                         target.ReceiptBankReference = reference;
+                        target.ReceiptKnownBySourceReference = false;
                         target.Amount = item.Amount;
                     }
                     else
@@ -373,7 +397,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     }
                     else
                     {
-                        await TransferFees.FollowDepartureAsync(_db, userId, target, cancellationToken);
+                        await TransferFees.FollowDepartureAsync(_db, userId, target, item.AcknowledgeCrossMonth, "Items", cancellationToken);
                     }
 
                     if (item.IsCredit)
@@ -625,6 +649,10 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     }
                 }
             }
+        }
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
         }
 
         return new ImportStatementResult(

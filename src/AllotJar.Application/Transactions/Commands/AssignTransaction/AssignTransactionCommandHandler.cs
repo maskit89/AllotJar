@@ -58,6 +58,9 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
 
             transaction.BudgetItem = item;
             transaction.BudgetItemId = item.Id;
+            // Putting a kept shared side of an erased transfer on a line makes it an entry the
+            // budget counts everywhere, as the owner asked (rule 31).
+            transaction.CounterpartyErased = false;
         }
         else
         {
