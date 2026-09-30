@@ -10,7 +10,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type {
   AccountDto,
   HouseholdMemberDto,
@@ -38,7 +37,6 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { PeoplePage } from './PeoplePage'
-import { AuthProvider } from '../auth/AuthContext'
 
 function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
   return {
@@ -932,13 +930,7 @@ describe('PeoplePage — catalog (PPL)', () => {
     monthState.year = 2026
     monthState.month = 8
     monthState.label = 'August 2026'
-    view.rerender(
-      <MemoryRouter>
-        <AuthProvider>
-          <PeoplePage />
-        </AuthProvider>
-      </MemoryRouter>,
-    )
+    view.rerender(<PeoplePage />)
 
     await waitFor(() => {
       urls = mockGet.mock.calls.map((c) => c[0] as string)

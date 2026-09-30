@@ -1,0 +1,11 @@
+{
+  // Type-checks the tests and the test helpers, which tsconfig.app.json leaves out of the build.
+  // `npm run lint` runs it, so a fixture missing a DTO field or a stale import fails the check
+  // before Vitest runs the file.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo"
+  },
+  "include": ["src"],
+  "exclude": []
+}

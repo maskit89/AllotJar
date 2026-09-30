@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
 import type { AccountDto, AllocationProfileDto, AllocationResultDto, HouseholdMemberDto, MemberAllocationDto } from '../types'
 
 // Colocated catalog tests for the Allocation screen (docs/testing/cases/14-allocation.md, prefix ALLOC).
@@ -31,7 +30,6 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { AllocationPage } from './AllocationPage'
-import { AuthProvider } from '../auth/AuthContext'
 
 // Two owned accounts so the source-account select has more than one real option (ALLOC-011).
 // Mutable so the savings-link tests can add savings-type accounts; reset in beforeEach.
@@ -222,13 +220,7 @@ describe('AllocationPage (catalog)', () => {
     monthState.year = 2026
     monthState.month = 8
     monthState.label = 'August 2026'
-    view.rerender(
-      <MemoryRouter>
-        <AuthProvider>
-          <AllocationPage />
-        </AuthProvider>
-      </MemoryRouter>,
-    )
+    view.rerender(<AllocationPage />)
 
     expect(await screen.findByText('How August is allocated', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Commit allocation' })).toHaveTextContent('Allocate August')
