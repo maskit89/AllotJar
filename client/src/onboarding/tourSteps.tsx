@@ -30,7 +30,7 @@ export function buildTourSteps(noun: string): TourStep[] {
     title: 'Find your way around',
     body: (
       <>
-        Every section lives in this sidebar — your monthly <strong>Budget</strong>, the{' '}
+        Every section lives in this sidebar — your monthly <strong>Dashboard</strong>, the{' '}
         <strong>Transactions</strong> register, <strong>Accounts</strong>, savings{' '}
         <strong>Jars</strong>, <strong>Reports</strong> and <strong>People</strong>. The chip at the
         bottom is where <strong>account settings</strong>, switching household and{' '}
@@ -94,7 +94,7 @@ export function buildTourSteps(noun: string): TourStep[] {
       <>
         <strong>Jars</strong> are for big or irregular costs — car, holiday, Christmas. Give a jar a
         target and a date and we’ll work out what to set aside each month, then watch it fill up. Budget
-        that monthly amount in your <strong>Savings</strong> group on the Budget page.
+        that monthly amount in your <strong>Savings</strong> group on the Dashboard.
       </>
     ),
   },

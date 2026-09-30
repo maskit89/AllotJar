@@ -831,6 +831,12 @@ Christopher approved the follow-up pass on 30 September ("go", 12:29 UTC) after 
 
 **Release of [PR #285](https://github.com/maskit89/AllotJar/pull/285)** (the screen-test harness, recorded here as the next PR to merge). Christopher merged it as `e1e9984` at 10:30:59 UTC on 30 September. **No CI or Deploy ran for it:** GitHub Actions has refused every job for the account since about 20:57 UTC on 29 September, so the push's runs failed before any job started. #285 changed tests and docs only. Production still runs #280; the next Deploy that runs ships `main` with #281 to #285 and whatever merges after them.
 
+## Rename the Budget tab to Dashboard (handwritten note 1; HANDOVER O10) — 30 September 2026
+
+Christopher confirmed on 30 September that the first handwritten note means the label only ("yes tab and page label"). The sidebar item and the home page's title now read **Dashboard** instead of **Budget**; the route stays `/`, the page's content is unchanged, and nothing else moves. The welcome tour, the People and Allocation pages' "Open the Dashboard" links and wording, and the user guide's sidebar list and section 3 use the new name; the keyboard-navigation journey and the screen tests look for it. O10 is closed in the HANDOVER.
+
+**Validation (this machine).** From `main` at `b2aa319` (#286): `npx tsc -p tsconfig.app.json --noEmit` clean; `npx eslint` on the changed files clean; `npx vitest run` **843 passed** (65 files, unchanged from `main`); the mocked keyboard-navigation journey `e2e/keyboard-a11y.spec.ts` **21 passed**. No CI run, per Christopher's "Ignore CI jobs for now" (30 September). The release of #286 is recorded by #287.
+
 ## Follow-up pass, PR 2: transfers and import (rules 74, 80, 87–91; HANDOVER O1, P59, P71; the #277, #278 and #279 reviews' P3s) — 30 September 2026
 
 **Scope.** The second of the three follow-up PRs Christopher approved on 30 September ("go", 12:29 UTC; the plan is `plans/2026-09-30-next-steps.md` in the project files): the transfer and import findings the reviews of #277, #278 and #279 logged, and his four answers of 12:22–12:28 UTC. Built beside PR 1 (screens); whichever merges second merges `main` in and records the other's release.
@@ -867,3 +873,7 @@ Christopher approved the follow-up pass on 30 September ("go", 12:29 UTC) after 
 **Merged with `main` after #286.** `main` (`b2aa319`) was merged with a merge commit. `JarLedgerReader` conflicted: #286 moved the per-account operations into `OperationsOf`, and this PR's Return check (R3-P3-1) now lives there; this log kept both sections, #286's first. #286's import page asks the fee's cross-month question for both of the server's cases (a fee sent with the row, and a fee the transfer already had that follows the departure), so the server check stays as it is.
 
 **Release of [PR #286](https://github.com/maskit89/AllotJar/pull/286)** (the screens' figures, recorded here as the next PR to merge). Christopher merged it as `b2aa319` at 14:04:37 UTC on 30 September. **No CI or Deploy ran for it:** GitHub Actions has refused every job for the account since about 20:57 UTC on 29 September. Production still runs #280; the next Deploy that runs ships `main` with #281 to #286.
+
+**Release of [PR #288](https://github.com/maskit89/AllotJar/pull/288)** (the Budget to Dashboard label rename, recorded here alongside #286's). Christopher merged it as `515749b` at 14:37:40 UTC on 30 September. **No CI or Deploy ran for it:** GitHub Actions has refused every job since 29 September, per his "Ignore CI jobs for now"; production still runs #280. The next Deploy ships `main` with #281 to #288 at once.
+
+**Merged with `main` after #288.** `main` (`515749b`) was merged with a merge commit; only this log conflicted (both PRs added a section at the same place), and #288's section now sits before this one.

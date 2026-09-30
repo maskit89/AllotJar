@@ -10,7 +10,7 @@ AllotJar is a zero-based budgeting app crafted in Europe and at home anywhere: e
 2. [Signing in & getting around](#2-signing-in--getting-around)
    - [Registering and signing in](#registering-and-signing-in)
    - [The layout: sidebar, top bar and your account menu](#the-layout-sidebar-top-bar-and-your-account-menu)
-3. [The Budget page](#3-the-budget-page)
+3. [The Dashboard](#3-the-dashboard)
    - [Choosing a month](#choosing-a-month)
    - [Creating a month](#creating-a-month)
    - [The Remaining-to-Budget banner](#the-remaining-to-budget-banner)
@@ -58,7 +58,7 @@ AllotJar's big banner tracks that goal live as you type.
 
 ### Registering and signing in
 
-- Open the app and you land on the sign-in card. New here? Switch to **Create account** and fill in your **name**, **email**, a **password of at least 8 characters**, your **currency** and **number format**, and accept the **Terms**. Registration signs you in immediately. Your household starts empty — there is no sample data — and the Budget page shows a short **Set up your budget** checklist: add your accounts with their opening balances, create this month's budget, then add a jar from an account.
+- Open the app and you land on the sign-in card. New here? Switch to **Create account** and fill in your **name**, **email**, a **password of at least 8 characters**, your **currency** and **number format**, and accept the **Terms**. Registration signs you in immediately. Your household starts empty — there is no sample data — and the Dashboard shows a short **Set up your budget** checklist: add your accounts with their opening balances, create this month's budget, then add a jar from an account.
 - The **currency** you pick is your budget's currency: the whole budget and all its accounts are kept in it. You can change it until your budget has its first account, month or transaction; after that it is fixed, because changing it would relabel money already recorded. The **number format** only controls how amounts are shown and entered.
 - Your data is private to your login. (You can deliberately share a household with other people — see [People & sharing](#8-people--sharing).)
 - Your session is kept alive securely in the background, so you stay signed in between visits without re-entering your password.
@@ -69,19 +69,19 @@ AllotJar's big banner tracks that goal live as you type.
 
 Every signed-in page shares the same chrome:
 
-- **The sidebar** (left on desktop; a scrollable row of pills along the top on a narrow screen) is the primary navigation: **Budget · Transactions · Accounts · Jars · Reports · People · Help**. An **Allocation** item joins them once you share your household with someone.
+- **The sidebar** (left on desktop; a scrollable row of pills along the top on a narrow screen) is the primary navigation: **Dashboard · Transactions · Accounts · Jars · Reports · People · Help**. An **Allocation** item joins them once you share your household with someone.
 - **The top bar** opens every data screen with a **month picker** (`‹ June 2026 ›`), the signature **Zero-based** pill, and the **light/dark** theme toggle.
 - **Your account menu** is the chip with your initials at the bottom of the sidebar (top-right on mobile). It holds **Account settings**, **switching households** (if you belong to more than one), and **Sign out**.
 
 The **Help** page is a quick reference to everything below, with a button to replay the welcome tour.
 
-## 3. The Budget page
+## 3. The Dashboard
 
 This is the home page — your plan for one calendar month.
 
 ### Choosing a month
 
-Use the **‹ / ›** arrows in the top bar to move between months. Every month-scoped screen (Budget, Reports, allocation) follows the month you pick here, so they always agree.
+Use the **‹ / ›** arrows in the top bar to move between months. Every month-scoped screen (Dashboard, Reports, allocation) follows the month you pick here, so they always agree.
 
 ### Creating a month
 
@@ -224,7 +224,7 @@ The register shows a teal **Refund** badge with "Refund of {payee} · {date}" un
 Your budget counts one currency. When you paid in another one (a meal abroad, an online order in dollars), AllotJar never converts it for you; the amount that counts is always the one you enter or confirm.
 
 - **Entering it yourself.** In the add form, tick **Paid in another currency**, fill in the currency code and the amount you paid, then enter the amount in your budget currency. **Suggest** fills that amount from the European Central Bank reference rate for the transaction's date, rounded to cents; you can change it before saving. The register shows the foreign figure in small print under the row ("USD 25.00").
-- **Rows waiting for their amount.** A statement row in another currency with no budget-currency amount is marked **Needs EUR amount** (your currency). It is not counted anywhere (budget lines, reports, People, jars) until you give it an amount: use **Enter amount** on the row, optionally **Suggest**, then **Confirm amount**. Suggest on its own saves nothing. The Budget page and People page say how many rows are waiting. A split row has to be unsplit first. On a row from an older account kept in another currency, the account keeps its own amount and the budget counts the amount you enter ("Counts as €14.80" under the row); if you later change that row's amount it waits again for a new one. A payment still waiting for its amount can't be chosen when marking a jar cycle paid.
+- **Rows waiting for their amount.** A statement row in another currency with no budget-currency amount is marked **Needs EUR amount** (your currency). It is not counted anywhere (budget lines, reports, People, jars) until you give it an amount: use **Enter amount** on the row, optionally **Suggest**, then **Confirm amount**. Suggest on its own saves nothing. The Dashboard and People page say how many rows are waiting. A split row has to be unsplit first. On a row from an older account kept in another currency, the account keeps its own amount and the budget counts the amount you enter ("Counts as €14.80" under the row); if you later change that row's amount it waits again for a new one. A payment still waiting for its amount can't be chosen when marking a jar cycle paid.
 - **No invented fees.** AllotJar never adds a conversion fee or a spread. If your bank charged one, it is already in the amount the bank shows, or you record it yourself.
 
 ### Editing, deleting, finding
@@ -288,7 +288,7 @@ Each jar card shows its **actual balance** and the account it is held in, a **pr
 
 The card's *Last cycle* line always shows how the previous cycle ended — paid (with the date and amount), funded on time, funded late or missed. Editing a recurring jar shows its current due date; saving it unchanged keeps the cycle, while a new date starts the cycle from that date.
 
-**What counts as saved:** only real money. A jar's balance is what you have actually allocated to it in its account, minus what you have spent from it; the planned contribution on the Budget page is a plan until the money is there. Money reaches a jar when you set it aside at creation, when you **Move money** into it from another jar or from the account's unallocated funds, or (later) when you allocate a deposit that arrives in the account. Money leaves a jar when you record an expense **from the jar's account** and assign it to the jar's Savings line — a payment can overdraw a jar (it shows **Overspent**), but never the account itself.
+**What counts as saved:** only real money. A jar's balance is what you have actually allocated to it in its account, minus what you have spent from it; the planned contribution on the Dashboard is a plan until the money is there. Money reaches a jar when you set it aside at creation, when you **Move money** into it from another jar or from the account's unallocated funds, or (later) when you allocate a deposit that arrives in the account. Money leaves a jar when you record an expense **from the jar's account** and assign it to the jar's Savings line — a payment can overdraw a jar (it shows **Overspent**), but never the account itself.
 
 **Move money** rearranges money: pick where it comes from (a jar or the account's unallocated money), where it goes, the amount and the date. A jar can give at most what it holds, and the move must leave every jar backed by real money.
 
@@ -297,7 +297,7 @@ The card's *Last cycle* line always shows how the previous cycle ended — paid 
 
 Money also reaches jars whenever money reaches their account: recording an income, confirming a transfer receipt, importing a statement credit and committing an income allocation all ask **how much goes to each jar** (see *Transactions*, *Importing* and *Income allocation*).
 
-**Jars and the Budget page work together:** the jar tells you *what to set aside each month*, and AllotJar seeds that amount onto its **Savings** budget line automatically when you create each month — the same figures the preview showed. Edit a jar any time to change its target, deadline, monthly amount or cadence: the preview shows the revised schedule, and on Save this month's line and every later month's are updated to it (past months are never touched). Its account can only be changed while the jar is empty — move the money first. Its history stays with the old account. Correcting or deleting a payment or income it had there before the move changes the months before the move; whatever difference that leaves stays in the old account's unallocated money from the day of the move. Such an entry can't be dated after the move, and the move waits for any transfer into the jar that is still in transit, and for any entry in the old account dated after today that puts money into the jar or takes money out of it (change or remove that entry first). From the day of the move, a payment on the jar's line comes from the new account and out of the jar, even if it was first recorded as paid from another jar. A payment dated before the move can go on the jar's line only from the account that held the jar that day. From the old account it comes out of the jar there, and the difference stays in the old account's unallocated money from the day of the move, as a correction does; the new account refuses it, and the message says which account held the jar when the app knows. A payment it keeps on the jar there can be corrected or re-dated only within the time the jar was held there. If the jar had nothing in the old account before it moved (no money and no payments on its line), the app has no record of that stretch, so such a payment goes on another line. Payments the new account already had on the jar's line, dated up to the move day, stay on its unallocated money. If you move a jar away and back again, the payments it made in that account before it left can still be corrected, re-dated within that stretch or split.
+**Jars and the Dashboard work together:** the jar tells you *what to set aside each month*, and AllotJar seeds that amount onto its **Savings** budget line automatically when you create each month — the same figures the preview showed. Edit a jar any time to change its target, deadline, monthly amount or cadence: the preview shows the revised schedule, and on Save this month's line and every later month's are updated to it (past months are never touched). Its account can only be changed while the jar is empty — move the money first. Its history stays with the old account. Correcting or deleting a payment or income it had there before the move changes the months before the move; whatever difference that leaves stays in the old account's unallocated money from the day of the move. Such an entry can't be dated after the move, and the move waits for any transfer into the jar that is still in transit, and for any entry in the old account dated after today that puts money into the jar or takes money out of it (change or remove that entry first). From the day of the move, a payment on the jar's line comes from the new account and out of the jar, even if it was first recorded as paid from another jar. A payment dated before the move can go on the jar's line only from the account that held the jar that day. From the old account it comes out of the jar there, and the difference stays in the old account's unallocated money from the day of the move, as a correction does; the new account refuses it, and the message says which account held the jar when the app knows. A payment it keeps on the jar there can be corrected or re-dated only within the time the jar was held there. If the jar had nothing in the old account before it moved (no money and no payments on its line), the app has no record of that stretch, so such a payment goes on another line. Payments the new account already had on the jar's line, dated up to the move day, stay on its unallocated money. If you move a jar away and back again, the payments it made in that account before it left can still be corrected, re-dated within that stretch or split.
 
 **Finishing with a jar.** There are three endings, and none of them moves money or touches your transactions:
 
@@ -320,7 +320,7 @@ Two things keep the reports honest:
 - **Uncategorised spending is included.** Transactions you haven't placed on a line yet appear as their own **Uncategorised** row (with a *Review N transactions* link to the register), so the month's total is complete — categorising a transaction later moves money between rows without changing the total. Uncategorised income counts as received income.
 - **Refunds reduce spending, not income.** A refund lowers its category's spending in the month it was received, and the row says "after €X refunded". Received income and Variance never include refunds or transfers. A category whose refunds exceeded its spending stays on the list with a negative figure and no share.
 
-All report figures use the same derivations as the Budget page — categorised spending comes from your assigned transactions, so the reports always agree with the budget. Rows still waiting for their budget-currency amount are left out of every figure, as on the Budget page.
+All report figures use the same derivations as the Dashboard — categorised spending comes from your assigned transactions, so the reports always agree with the budget. Rows still waiting for their budget-currency amount are left out of every figure, as on the Dashboard.
 
 ## 8. People & sharing
 
@@ -333,7 +333,7 @@ AllotJar is solo-friendly by default: on your own, the sharing features stay out
 
 ### Whose income is whose
 
-The People page shows the **same month as the Budget page** (change it with the month navigator in the top bar). Each person's **Income** is what the month's budget says: the income lines attributed to them (on the Budget page, each income line has a **Who earns** picker once the household is shared), plus an equal share of any income line left as "Whole household". Their **Share** is that income as a percentage of the household's, and **Spent** is what has been attributed to them in that month. If the month has no budget yet, the figures are zero until you create one.
+The People page shows the **same month as the Dashboard** (change it with the month navigator in the top bar). Each person's **Income** is what the month's budget says: the income lines attributed to them (on the Dashboard, each income line has a **Who earns** picker once the household is shared), plus an equal share of any income line left as "Whole household". Their **Share** is that income as a percentage of the household's, and **Spent** is what has been attributed to them in that month. If the month has no budget yet, the figures are zero until you create one.
 
 ### Renaming and archiving people
 

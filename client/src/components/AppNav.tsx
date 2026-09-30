@@ -29,7 +29,7 @@ export function AppNav({
   const { isShared } = useHousehold()
 
   const items: { key: NavKey; to: string; label: string; show: boolean }[] = [
-    { key: 'budget', to: '/', label: 'Budget', show: true },
+    { key: 'budget', to: '/', label: 'Dashboard', show: true },
     { key: 'transactions', to: '/transactions', label: 'Transactions', show: true },
     { key: 'accounts', to: '/accounts', label: 'Accounts', show: features.accounts },
     { key: 'jars', to: '/jars', label: 'Jars', show: features.jars },

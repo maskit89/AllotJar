@@ -198,7 +198,7 @@ describe('AllocationPage (catalog)', () => {
   })
 
   // ALLOC-007 (rewritten for rule 29) — the viewed month is the app-wide selected month, the same
-  // one the Budget shows; the preview and the month's budget are read for it.
+  // one the Dashboard shows; the preview and the month's budget are read for it.
   it('ALLOC-007: the viewed month is the selected month (July heading, Allocate July, July preview)', async () => {
     profileData = profile()
 
@@ -1161,14 +1161,14 @@ describe('AllocationPage (catalog)', () => {
     await screen.findByText('How July is allocated', {}, { timeout: 5000 })
 
     expect(screen.getByText(/€350\.00 of July’s income isn’t assigned to a person/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Assign income lines on the Budget page' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Assign income lines on the Dashboard' })).toBeInTheDocument()
     // A month with income is quiet about missing income, and nothing mentions People-page defaults.
     expect(screen.queryByText(/No income in July 2026’s budget yet/)).not.toBeInTheDocument()
     expect(screen.queryByText(/default incomes from the People page/)).not.toBeInTheDocument()
   })
 
   // ALLOC-073 (rewritten for rule 28) — there is no People-page fallback any more: a month whose
-  // budget has no income lines has a pool of 0 and the page says to add income lines to the Budget.
+  // budget has no income lines has a pool of 0 and the page says to add income lines to the Dashboard.
   it('ALLOC-073: a month with no income in its budget shows the add-income notice, never a People-page fallback', async () => {
     profileData = profile()
     currentBudget = budgetDto({ envelopes: 0, jars: 0, income: 0 }) // the budget exists; its income lines total 0
@@ -1188,9 +1188,9 @@ describe('AllocationPage (catalog)', () => {
     await screen.findByText('How July is allocated', {}, { timeout: 5000 })
 
     expect(screen.getByRole('status')).toHaveTextContent(
-      'No income in July 2026’s budget yet. Add income lines to the Budget (attribute them to people for a by-income split) and come back.',
+      'No income in July 2026’s budget yet. Add income lines to the Dashboard (attribute them to people for a by-income split) and come back.',
     )
-    expect(screen.getByRole('button', { name: 'Open the Budget' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open the Dashboard' })).toBeInTheDocument()
     expect(screen.queryByText(/default incomes from the People page/)).not.toBeInTheDocument()
     expect(screen.queryByText(/isn’t assigned to a person/)).not.toBeInTheDocument()
   })

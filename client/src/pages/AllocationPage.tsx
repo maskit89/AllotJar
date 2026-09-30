@@ -60,7 +60,7 @@ export function AllocationPage() {
   const navigate = useNavigate()
   const CURRENCY = budgetCurrency
   // The app-wide selected month (rule 29): the allocation reads the same month and figures as
-  // the Budget page, and moves with the top bar's month navigator.
+  // the Dashboard, and moves with the top bar's month navigator.
   const { year, month, label: monthLabel } = useMonth()
   const period = useMemo(() => ({ year, month }), [year, month])
   const [profile, setProfile] = useState<AllocationProfileDto | null>(null)
@@ -480,14 +480,14 @@ export function AllocationPage() {
               role="status"
               className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-200"
             >
-              No income in {monthLabel}’s budget yet. Add income lines to the Budget (attribute them to
+              No income in {monthLabel}’s budget yet. Add income lines to the Dashboard (attribute them to
               people for a by-income split) and come back.{' '}
               <button
                 type="button"
                 onClick={() => navigate('/')}
                 className="font-semibold text-brand-700 underline underline-offset-2 hover:text-brand-800 dark:text-brand-200"
               >
-                Open the Budget
+                Open the Dashboard
               </button>
             </div>
           )}
@@ -500,7 +500,7 @@ export function AllocationPage() {
                 onClick={() => navigate('/')}
                 className="font-semibold underline decoration-amber-400 underline-offset-2 hover:text-amber-900 dark:hover:text-amber-200"
               >
-                Assign income lines on the Budget page
+                Assign income lines on the Dashboard
               </button>{' '}
               for an accurate split.
             </p>
