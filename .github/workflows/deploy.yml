@@ -22,12 +22,18 @@ name: Deploy
 on:
   push:
     branches: [main]
+    # A docs-only merge changes nothing that ships, so it neither rebuilds nor asks
+    # for another production approval. Run the workflow by hand to force a deploy.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
   workflow_dispatch: {}
 
 jobs:
   build-staging:
     name: build release (staging)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -77,12 +83,13 @@ jobs:
         with:
           name: release-staging
           path: release.zip
-          retention-days: 7
+          retention-days: 1
 
   deploy-staging:
     name: deploy to staging
     needs: build-staging
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: staging
     # Serialize staging deploys without ever blocking on the (possibly long)
     # production approval below - hence job-level, not workflow-level, groups.
@@ -147,6 +154,7 @@ jobs:
   build-production:
     name: build release (production)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -204,6 +212,7 @@ jobs:
     # a newer run replaces it, so approving always ships the newest main.
     needs: [build-production, deploy-staging]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: production
     concurrency:
       group: production-deploy

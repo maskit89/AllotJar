@@ -6,10 +6,18 @@ on:
   pull_request:
     branches: [main]
 
+# Superseded pull-request runs are cancelled. Pushes to main are never cancelled and never
+# share a group, so every merge keeps its own complete CI result (the release record
+# depends on it) and none is dropped while queued.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   backend:
     name: backend
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
@@ -37,6 +45,7 @@ jobs:
   integration:
     name: integration
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -78,6 +87,7 @@ jobs:
   journey:
     name: journey
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -146,11 +156,12 @@ jobs:
           path: |
             client/test-results
             client/playwright-report
-          retention-days: 7
+          retention-days: 3
 
   frontend:
     name: frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: client
@@ -182,6 +193,7 @@ jobs:
   a11y:
     name: a11y
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: client
@@ -212,6 +224,7 @@ jobs:
   security-scan:
     name: security-scan
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v7
 
@@ -251,6 +264,7 @@ jobs:
   deploy-scripts:
     name: deploy-scripts
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
 

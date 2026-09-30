@@ -672,6 +672,8 @@ Migration `JarArchivePeriodsAndArrival` (09:49:38) is older than `ForeignAmounts
 
 **Release of [PR #281](https://github.com/maskit89/AllotJar/pull/281).** Christopher merged it at 22:45 UTC on 29 September (`b502a09`). Neither its CI run ([36641411563](https://github.com/maskit89/AllotJar/actions/runs/36641411563)) nor Deploy ([36641411497](https://github.com/maskit89/AllotJar/actions/runs/36641411497)) ran any step: from about 20:57 UTC on 29 September GitHub Actions gave this repository's jobs no runner, and a re-run at 08:29 UTC on 30 September failed the same way. #281 changed tests and docs only, so production is unaffected; the next Deploy that runs ships `main` with it.
 
+**Release of [PR #284](https://github.com/maskit89/AllotJar/pull/284).** Christopher merged it at 08:35 UTC on 30 September (`1cb2b31`); it changes the CI and Deploy workflow files, the journey Playwright config and this log, no application code. No CI or Deploy ran for it: GitHub Actions gave this repository's jobs no runner (see #281's record above). Production is unaffected.
+
 ## Final review: the app's screens (client) — 29 September 2026
 
 Christopher asked for a full review and clean-up once the HANDOVER work was done (27 September). The review was split three ways: server, screens and tests. This section is the screens part. Each screen was read against AGREED-RULES, the HANDOVER decisions, and the server code that decides the same thing. Only client code changed here. Server-side findings went to the server thread. The test-suite thread (#281) owns removing and consolidating tests; this PR changes tests only where the behaviour changed.
@@ -728,3 +730,9 @@ Christopher asked for a full review and clean-up once the HANDOVER work was done
 - The Accounts "Owed" tile can't be non-zero under rule 74.
 - Duplicate split-row helpers in TransactionsPage and ImportPage.
 - Once the server accepts an unchanged stored jar answer that names an archived jar (the server final review, #283), the P3-10 check above is stricter than the server on an edit that leaves the jar answer alone; relax it to refuse only a changed answer. (Done in this PR instead if #283 reaches `main` first.)
+
+## CI minutes (PR #284) — 29 September 2026
+
+- Pull-request CI runs are cancelled when a newer push supersedes them; runs on main are never cancelled and never share a group. Every job has a timeout (journey 15, backend/integration/frontend/a11y 10, security-scan 8, deploy-scripts 5, deploy and provision jobs 15). Journey's Playwright `globalTimeout` is 11 minutes so a hang still leaves a report. Release zips for staging are kept 1 day, journey failure reports 3.
+- Deploy no longer runs for a push that changes only `docs/**` or `*.md`. **A release record for a docs-only merge must say "no Deploy run" (CI still runs on main).** Run Deploy by hand (`workflow_dispatch`) to force one.
+- Decided against skipping CI jobs for docs-only pull requests: a job-level check costs a billed minute on every run and only 1 of 33 September merges was docs-only; a workflow-level `paths-ignore` would leave any required status check pending on such a PR.
