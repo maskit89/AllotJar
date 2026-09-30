@@ -1,9 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Household.Queries.GetMemberIncome;
 using AllotJar.Application.Household.Queries.GetMemberSpending;
 using AllotJar.Application.Transactions;
@@ -31,17 +29,7 @@ namespace AllotJar.Application.Tests.Transactions;
 /// </summary>
 public class RefundTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static readonly CurrentUserStub User = new("user-1");
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-refunds-{Guid.NewGuid()}")
-            .Options);
 
     /// <summary>A month with Income/Salary and Household/Groceries (+ Clothes) lines. Returns the lines by name.</summary>
     private static Dictionary<string, BudgetItem> SeedMonth(ApplicationDbContext db, int year, int month, string owner = "user-1")

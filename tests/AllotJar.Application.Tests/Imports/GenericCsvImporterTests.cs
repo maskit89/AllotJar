@@ -1,7 +1,6 @@
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Imports.Models;
 using AllotJar.Infrastructure.Statements;
-using Xunit;
 
 namespace AllotJar.Application.Tests.Imports;
 

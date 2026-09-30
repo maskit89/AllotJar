@@ -6,11 +6,10 @@ import type { HouseholdMemberDto } from '../types'
 import { formatMoney, fromAmount, setMoneyFormat } from '../lib/money'
 
 // Catalog: docs/testing/cases/04-account-preferences.md (prefix PREF).
-// New, non-duplicating coverage that complements AccountPage.test.tsx (which already
-// asserts: change-password happy POST + success, name/prefs PUT + success, mismatch
-// blocked w/o API, solo/single/shared Sharing cards, owner-vs-member start-own/leave).
-// This file adds the side-effect, currency-relabel, format-immediate-effect,
-// change-password-validation, read-only-self-serve, sharing-navigation and theme cases.
+// AccountPage.test.tsx keeps the mismatch-blocked-without-API, Sharing-card,
+// start-own/leave and locked-currency cases. This file covers the change-password and
+// name/prefs saves, side effects, currency relabel, format-immediate-effect,
+// change-password validation, read-only self-serve, sharing navigation and theme.
 //
 // Determinism notes (this RTL suite is flake-prone under parallel workers):
 //  - every async wait carries an explicit { timeout: 5000 };

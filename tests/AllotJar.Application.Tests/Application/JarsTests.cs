@@ -1,9 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Commands.ArchiveJar;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Jars.Commands.UpdateJar;
@@ -23,16 +21,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class JarsTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-funds2-{Guid.NewGuid()}")
-            .Options);
-
     /// <summary>A jar in <paramref name="account"/>; <paramref name="allocated"/> is an initial allocation from the account's money (rule 77).</summary>
     private static Jar SeedFund(
         ApplicationDbContext db, string ownerId, Guid id, decimal target, Account account,

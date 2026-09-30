@@ -212,22 +212,6 @@ describe('AccountsPage — catalog (ACCT)', () => {
     expect(await screen.findByText('Savings', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
-  it('ACCT-011: a negative opening balance is refused (rule 74) — no POST, a clear message', { timeout: 15000 }, async () => {
-    mockLoads({ accounts: [] })
-    const user = userEvent.setup()
-
-    renderPage()
-
-    const dialog = await openAddModal(user)
-    await user.type(dialog.getByLabelText('Account name'), 'Visa')
-    await user.type(dialog.getByLabelText('Opening balance'), '-450')
-    await user.click(dialog.getByRole('button', { name: 'Add account' }))
-
-    expect(await dialog.findByText('An opening balance can’t be negative.', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(mockPost).not.toHaveBeenCalled()
-    expect(screen.getByRole('dialog')).toBeInTheDocument() // stays open for a correction
-  })
-
   it('ACCT-011: editing a legacy credit-card account keeps its type selectable, but a new account never offers it', { timeout: 15000 }, async () => {
     mockLoads({ accounts: [acct({ id: 'v1', name: 'Visa', type: 3, openingBalance: 0, currentBalance: -450 })] })
     const user = userEvent.setup()

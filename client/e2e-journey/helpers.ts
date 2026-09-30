@@ -165,3 +165,32 @@ export async function createGoalJar(
   await expect(dialog).toBeHidden()
   await expect(page.getByRole('heading', { name: jar.name })).toBeVisible()
 }
+
+/**
+ * Read a link from the Development mailbox (GET /api/dev/emails). Emails are sent off the request
+ * path, so the mailbox is polled until a line starting with http and containing `pathMarker`
+ * (e.g. '/confirm-email?' or '/reset-password?') lands, then that link is returned.
+ */
+export async function waitForEmailLink(
+  page: Page,
+  email: string,
+  pathMarker: string,
+  timeout = 10_000,
+): Promise<string> {
+  let link: string | undefined
+  await expect
+    .poll(
+      async () => {
+        const res = await page.request.get(`/api/dev/emails?to=${encodeURIComponent(email)}`)
+        const messages: Array<{ textBody: string }> = await res.json()
+        link = messages
+          .flatMap((m) => m.textBody.split('\n'))
+          .map((l) => l.trim())
+          .find((l) => l.startsWith('http') && l.includes(pathMarker))
+        return link ?? ''
+      },
+      { message: `email to ${email} containing ${pathMarker}`, timeout },
+    )
+    .not.toBe('')
+  return link!
+}

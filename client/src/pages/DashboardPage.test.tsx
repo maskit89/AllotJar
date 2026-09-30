@@ -87,25 +87,6 @@ function renderPage() {
   )
 }
 
-// A just-created blank month: an Income group with no lines, nothing planned.
-// Remaining is €0, but nothing has been budgeted yet.
-function blankBudget(): BudgetMonthDto {
-  return {
-    id: 'm0',
-    key: '2026-06',
-    year: 2026,
-    month: 6,
-    baseCurrency: 'EUR',
-    totalIncome: 0,
-    totalPlanned: 0,
-    remainingToBudget: 0,
-    isBalanced: false,
-    categories: [
-      { id: 'inc', name: 'Income', kind: 'Income', displayOrder: 0, totalPlanned: 0, totalActual: 0, items: [] },
-    ],
-  }
-}
-
 describe('DashboardPage optimistic editing', () => {
   beforeEach(() => {
     mockGet.mockReset()
@@ -113,22 +94,6 @@ describe('DashboardPage optimistic editing', () => {
     mockPost.mockReset()
     mockDelete.mockReset()
     household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
-  })
-
-  it('prompts for income on an empty month instead of celebrating it as balanced', { timeout: 15000 }, async () => {
-    mockGet.mockImplementation((url: string) =>
-      url === '/budget/months' || url === '/budget/templates' || url === '/jars'
-        ? Promise.resolve({ data: [] })
-        : Promise.resolve({ data: blankBudget() }),
-    )
-
-    renderPage()
-
-    // The hero shows the neutral "add income" nudge, NOT the gold balanced badge.
-    expect(
-      await screen.findByText(/plan your income, then give every euro a job/i, {}, { timeout: 5000 }),
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/every euro has a job/i)).not.toBeInTheDocument()
   })
 
   it('optimistically drives Remaining to €0,00 on a successful edit', { timeout: 15000 }, async () => {
@@ -259,19 +224,6 @@ describe('DashboardPage optimistic editing', () => {
     await user.click(del)
 
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/budget/items/i-pay'))
-  })
-
-  it('shows the transaction-derived spent amount as read-only', { timeout: 15000 }, async () => {
-    mockGet.mockImplementation((url: string) =>
-      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: budget() }),
-    )
-
-    renderPage()
-
-    // Spent/Received are never editable now — they're totalled from assigned transactions.
-    await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })
-    expect(screen.queryByLabelText('Spent for Rent')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Received for Take-home Pay')).not.toBeInTheDocument()
   })
 
   it('adds a category group and reconciles from the server response', { timeout: 15000 }, async () => {

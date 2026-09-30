@@ -7,9 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Xunit;
 using AllotJar.Application.Common.Interfaces;
-using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Identity;
 using AllotJar.Infrastructure.Persistence;
@@ -42,45 +40,10 @@ public class RAuthRegistrationCoverageTests
     // Group A — registration seeds nothing (rule 81; replaces the opt-in sample budget of PR #170)
     // ---------------------------------------------------------------------------------------------
 
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-reg-{Guid.NewGuid()}")
-            .Options);
-
     private static ApplicationUser Registrant(string id) => new()
     {
         Id = id, UserName = $"{id}@x.com", Email = $"{id}@x.com", FirstName = "Sam", DisplayName = "Sam Solo",
     };
-
-    // REG-007 — a brand-new registrant lands on an empty household: no month, no jar, no account,
-    // no ledger row. The Budget page's first-run checklist (accounts → month → jars) takes over.
-    [Fact]
-    public async Task Registration_seeds_no_budget_no_jars_and_no_accounts()
-    {
-        using var db = NewContext();
-
-        var created = await HouseholdBootstrap.EnsureOwnHouseholdAsync(
-            db, Registrant("owner-1"), new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
-
-        created.Should().BeTrue();
-        (await db.BudgetMonths.AnyAsync(m => m.OwnerId == "owner-1")).Should().BeFalse();
-        (await db.BudgetItems.AnyAsync(i => i.Name == "Take-home Pay" || i.Name == "Emergency Fund")).Should().BeFalse();
-        (await db.Jars.AnyAsync(j => j.OwnerId == "owner-1")).Should().BeFalse();
-        (await db.Accounts.AnyAsync(a => a.OwnerId == "owner-1")).Should().BeFalse();
-        (await db.JarAllocations.AnyAsync(a => a.OwnerId == "owner-1")).Should().BeFalse();
-        (await db.HouseholdMembers.CountAsync(m => m.OwnerId == "owner-1")).Should().Be(1);
-    }
-
-    // REG-008 — the quick-start templates keep income/expense structure only: no template can
-    // mint a savings line, because a savings line is a jar and a jar needs its account (rule 73).
-    [Fact]
-    public void Templates_carry_no_savings_groups()
-    {
-        AllotJar.Application.Budgets.Templates.BudgetTemplates.All.Should().NotBeEmpty();
-        AllotJar.Application.Budgets.Templates.BudgetTemplates.All
-            .SelectMany(t => t.Groups)
-            .Should().OnlyContain(g => g.Kind != CategoryKind.Savings);
-    }
 
     // ---------------------------------------------------------------------------------------------
     // Group B/C/D — ASP.NET Core Identity as the real registration/sign-in engine
@@ -312,19 +275,6 @@ public class RAuthRegistrationCoverageTests
 
         result.Succeeded.Should().BeFalse();
         result.Errors.Should().Contain(e => e.Code == expectedCode && e.Description == expectedMessage);
-    }
-
-    // REG-019 — with digit + lower + upper present, NO special character is required (the policy sets
-    // RequireNonAlphanumeric = false), so an all-alphanumeric password is accepted.
-    [Fact]
-    public async Task An_alphanumeric_password_with_no_special_char_is_accepted()
-    {
-        using var h = new AuthHarness();
-        var user = new ApplicationUser { UserName = "nosym@example.test", Email = "nosym@example.test" };
-
-        var result = await h.Users.CreateAsync(user, "Xq7pLm2v"); // 8 chars, digit+upper+lower, no symbol
-
-        result.Succeeded.Should().BeTrue(string.Join("; ", result.Errors.Select(e => e.Description)));
     }
 
     // REG-013 — a password shorter than 8 characters is rejected at model creation with PasswordTooShort

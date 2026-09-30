@@ -1,12 +1,10 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Imports.Commands.PreviewImport;
 using AllotJar.Application.Imports.Models;
-using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Persistence;
 using AllotJar.Infrastructure.Statements;
@@ -46,16 +44,6 @@ namespace AllotJar.Application.Tests.Imports;
 /// </summary>
 public class IImportCoverageTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-import-cov-{Guid.NewGuid()}")
-            .Options);
-
     // Both dedicated parsers in DI registration order (CAMT before HSBC) + the generic importer,
     // so sniffing must pick the right adapter rather than the only one available.
     private static PreviewImportCommandHandler NewPreview(ApplicationDbContext db, string userId) =>

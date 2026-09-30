@@ -1,7 +1,6 @@
 using System.Reflection;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars;
@@ -38,20 +37,10 @@ public class JarW05FollowUpTests
 {
     private const string Owner = "user-1";
 
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private static readonly CurrentUserStub User = new(Owner);
     private static readonly CancellationToken Ct = CancellationToken.None;
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
     private static DateOnly Deadline => new(Today.Year + 1, 7, 1);
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-w05-follow-up-{Guid.NewGuid()}")
-            .Options);
 
     private static Jar SeedGoal(ApplicationDbContext db, Account account, string name = "Holiday")
     {

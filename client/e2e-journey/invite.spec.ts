@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { JOURNEY_PASSWORD, register, suppressOnboarding, uniqueEmail } from './helpers'
+import { JOURNEY_PASSWORD, register, suppressOnboarding, uniqueEmail, waitForEmailLink } from './helpers'
 
 /**
  * The household invite journey (H1), end-to-end: an owner adds a person, creates a one-time invite
@@ -54,19 +54,7 @@ test('an owner invites a new person who accepts and lands in the shared househol
   // The accept CREATED their (unverified) login, so the INITIAL verification email must arrive
   // without touching Resend — the banner says "check your inbox", and now something is there.
   // Filter by the /confirm-email link path: the invite flow may send other mail to this address.
-  await expect
-    .poll(
-      async () => {
-        const res = await guest.request.get(`/api/dev/emails?to=${encodeURIComponent(robinEmail)}`)
-        const messages: Array<{ textBody: string }> = await res.json()
-        return messages
-          .flatMap((m) => m.textBody.split('\n'))
-          .map((l) => l.trim())
-          .some((l) => l.startsWith('http') && l.includes('/confirm-email?'))
-      },
-      { timeout: 15000, message: `no verification email for ${robinEmail}` },
-    )
-    .toBe(true)
+  await waitForEmailLink(guest, robinEmail, '/confirm-email?', 15_000)
 
   // --- Invitee leaves again: lands in their own household, explained, with NO sample data ---
   // The leave path materializes a pure invitee's own household without sample figures

@@ -2,10 +2,8 @@ using System.Security.Cryptography;
 using System.Text;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Domain.Entities;
 using AllotJar.Infrastructure.Identity;
-using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Application;
 
@@ -16,11 +14,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class RefreshTokenServiceTests
 {
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-rt-{Guid.NewGuid()}")
-            .Options);
-
     [Fact]
     public async Task Rotate_revokes_the_old_token_and_issues_a_new_one()
     {

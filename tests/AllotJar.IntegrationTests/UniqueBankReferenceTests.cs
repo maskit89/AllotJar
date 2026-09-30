@@ -24,11 +24,6 @@ public class UniqueBankReferenceTests
 
     public UniqueBankReferenceTests(SqlServerFixture fixture) => _fixture = fixture;
 
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     /// <summary>Answers EUR for the owner's currency and, on its FIRST call, runs a callback — used to
     /// deterministically inject a competing insert into the window between the handler's dedup
     /// snapshot and its save (the budget currency is read there, for a household with no month yet).</summary>

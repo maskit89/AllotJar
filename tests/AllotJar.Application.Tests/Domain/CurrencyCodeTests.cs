@@ -1,4 +1,3 @@
-using Xunit;
 using AllotJar.Domain.ValueObjects;
 
 namespace AllotJar.Application.Tests.Domain;

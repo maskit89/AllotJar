@@ -1,7 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Budgets.Commands.SetBudgetItemMember;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Persistence;
@@ -20,11 +19,6 @@ public class BudgetItemMemberForeignKeyTests
     private readonly SqlServerFixture _fixture;
 
     public BudgetItemMemberForeignKeyTests(SqlServerFixture fixture) => _fixture = fixture;
-
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
 
     private static string NewOwner() => $"user-{Guid.NewGuid():N}";
 

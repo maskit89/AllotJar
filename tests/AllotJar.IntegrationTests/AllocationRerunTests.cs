@@ -1,7 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Allocation.Commands.AllocateIncome;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -22,11 +21,6 @@ public class AllocationRerunTests
     private readonly SqlServerFixture _fixture;
 
     public AllocationRerunTests(SqlServerFixture fixture) => _fixture = fixture;
-
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
 
     private static void SeedBudget(ApplicationDbContext db, string owner)
     {

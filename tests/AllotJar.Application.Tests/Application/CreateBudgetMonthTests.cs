@@ -1,7 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
-using Xunit;
 using AllotJar.Application.Allocation;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Budgets.Templates;
@@ -22,16 +21,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class CreateBudgetMonthTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-{Guid.NewGuid()}")
-            .Options);
-
     // Seeds June 2026: Income(Pay 3000) + Housing(Rent 1000, spent 250 via a transaction) in GBP.
     private static void SeedJune(ApplicationDbContext db, string ownerId)
     {

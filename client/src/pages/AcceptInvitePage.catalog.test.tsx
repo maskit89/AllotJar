@@ -4,9 +4,8 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 
 // Catalog coverage for docs/testing/cases/17-invites.md (INV-*) — the public
-// /accept-invite landing page. These complement the four cases already in
-// AcceptInvitePage.test.tsx (INV-033 redeem, INV-034 terms-required, INV-043
-// button present, INV-048 no-code text) and DO NOT duplicate them. The invite
+// /accept-invite landing page (AcceptInvitePage.test.tsx keeps only INV-034,
+// terms required before submit). The invite
 // *modal* cases (INV-001..INV-013/015/019/051, the temp-password vs link send
 // UI, role select, invited badge, revoke) live in PeoplePage — already covered
 // by PeoplePage.catalog.test.tsx (PPL-044/045/049/038/040) + invite.spec.ts, so

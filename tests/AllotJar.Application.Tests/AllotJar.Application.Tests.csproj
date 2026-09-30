@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="AllotJar.Application.Tests.TestDoubles.TestDb" Static="true" />
   </ItemGroup>
 
   <ItemGroup>

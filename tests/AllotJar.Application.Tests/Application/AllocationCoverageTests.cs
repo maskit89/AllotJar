@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Allocation.Commands.AllocateIncome;
 using AllotJar.Application.Allocation.Commands.UpsertAllocationProfile;
 using AllotJar.Application.Allocation.Dtos;
@@ -24,17 +23,7 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class AllocationCoverageTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     private const string Owner = "user-1";
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-alloc-cov-{Guid.NewGuid()}")
-            .Options);
 
     private static Account SeedAccount(
         ApplicationDbContext db, string name, decimal opening = 0m, CurrencyCode? currency = null)

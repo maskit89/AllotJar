@@ -1,7 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Domain.Entities;
@@ -22,11 +21,6 @@ public class CreateTransactionSplitsTests
     private readonly SqlServerFixture _fixture;
 
     public CreateTransactionSplitsTests(SqlServerFixture fixture) => _fixture = fixture;
-
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
 
     private static string NewOwner() => $"user-{Guid.NewGuid():N}";
 

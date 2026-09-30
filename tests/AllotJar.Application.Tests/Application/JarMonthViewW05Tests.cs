@@ -1,8 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.UpdateJar;
 using AllotJar.Application.Jars.Dtos;
@@ -29,22 +27,12 @@ public class JarMonthViewW05Tests
 {
     private const string Owner = "user-1";
 
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
     // A fixed "today" so the maths are deterministic: October is the current month, September
     // is over and November has not begun.
     private static readonly DateOnly Today = new(2026, 10, 10);
     private static readonly DateOnly September = new(2026, 9, 1);
     private static readonly DateOnly October = new(2026, 10, 1);
     private static readonly DateOnly November = new(2026, 11, 1);
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-w05-{Guid.NewGuid()}")
-            .Options);
 
     private static CurrentUserStub User() => new(Owner);
 

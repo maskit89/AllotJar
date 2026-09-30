@@ -1,10 +1,8 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Xunit;
 using AllotJar.Application.Allocation.Commands.SyncPocketMoneyLines;
 using AllotJar.Application.Allocation.Queries.PreviewIncomeAllocation;
 using AllotJar.Application.Common.Exceptions;
-using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -20,16 +18,6 @@ namespace AllotJar.Application.Tests.Application;
 /// </summary>
 public class SyncPocketMoneyLinesTests
 {
-    private sealed class CurrentUserStub(string? userId) : ICurrentUser
-    {
-        public string? UserId { get; } = userId;
-    }
-
-    private static ApplicationDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"zbb-pocket-sync-{Guid.NewGuid()}")
-            .Options);
-
     private static void SeedProfile(ApplicationDbContext db, string owner, decimal pocketEach)
     {
         db.AllocationProfiles.Add(new AllocationProfile
