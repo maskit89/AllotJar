@@ -460,6 +460,16 @@
 - **Expected:** 2: the previous month's grid loads (Holiday €100.00). 3: it stays; the current month's answer (Holiday €150.00) never shows under the previous month's label. Going back to the current month loads it from the server. The same guard covers every save's reconcile and rollback on the grid.
 - **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-081, both cases)
 
+### DASH-082 - Every save, re-read, reconcile and rollback that answers after the user changed month leaves the viewed month alone
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** Adversarial review of PR #276 (P3-12): the guards #276 added to every Dashboard handler (`isViewed`/`stillOn`) had tests for two of the twenty sites only (DASH-081).
+- **Preconditions:** The previous month has a budget (Rent €900.00) and the current month another (Rent €1,100.00), with the same lines and groups; the request under test is slow.
+- **Steps:**
+  1. On the current month start the action: a template create, a re-read (archive Holiday from its line), an amount, member, due-day, paid or name edit, adding or deleting a line or group, renaming a group, moving a group or a line, or skipping Holiday's line. 2. Before it returns, go to the previous month. 3. Let the request return with the current month, or fail.
+- **Expected:** 2: the previous month's grid loads (Rent €900.00). 3: it stays; neither the current month's answer (Rent €1,100.00) nor the rollback to the current month's snapshot shows under the previous month's label, and a 404 on the re-read does not say the previous month is missing.
+- **Automated:** Yes (client/src/pages/DashboardPage.lateAnswers.test.tsx DASH-082, 22 cases, one per guarded site; each fails with its guard removed)
+
 ## Income card
 
 ### DASH-031 - Income header shows transaction-derived received of planned
