@@ -2,7 +2,7 @@
 // nest them: router > auth > features > household > month. Every screen test wraps its page in
 // a router and AuthProvider; the other providers are opt-in so a test stays as small as the
 // screen it exercises.
-import type { ReactElement } from 'react'
+import type { ReactNode } from 'react'
 import { render } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { AuthProvider } from '../auth/AuthContext'
@@ -21,7 +21,7 @@ export interface ProviderOptions {
   month?: boolean
 }
 
-export function renderWithProviders(ui: ReactElement, { route, features, household, month }: ProviderOptions = {}) {
+export function renderWithProviders(ui: ReactNode, { route, features, household, month }: ProviderOptions = {}) {
   let tree = ui
   if (month) tree = <MonthProvider>{tree}</MonthProvider>
   if (household) tree = <HouseholdProvider>{tree}</HouseholdProvider>

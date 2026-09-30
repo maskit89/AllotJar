@@ -11,10 +11,9 @@ import type {
 
 // Mirror ImportPage.test.tsx + ImportPage.catalog.test.tsx harness exactly: the shared api mock
 // plus hoisted previewImport/commitImport spies, same AuthProvider/MemoryRouter tree. This file
-// only ADDS the remaining
-// jsdom-observable catalog cases that neither sibling file already covers (the cheap P2 tail:
-// include-all header toggle, amount colour/direction, header-toggle re-scan, transfer undo, full
-// reset, and graceful reference-data degradation).
+// only ADDS the remaining jsdom-observable catalog cases that neither sibling file already covers
+// (the cheap P2 tail: include-all header toggle, amount colour/direction, header-toggle re-scan,
+// transfer undo, full reset, and graceful reference-data degradation).
 const { mockPreview, mockCommit } = vi.hoisted(() => ({
   mockPreview: vi.fn(),
   mockCommit: vi.fn(),
