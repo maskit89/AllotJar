@@ -282,7 +282,59 @@ public static class JarMovements
             }
             postings.AddRange(portions.Select(p => new JarAllocationPosting { JarId = p.Key, Amount = -p.Value }));
         }
+        await EnsureArchivedJarsCoverAsync(db, ownerId, transaction,
+            portions.Where(p => p.Key != Guid.Empty && p.Value > 0m).ToDictionary(p => p.Key, p => p.Value), errorKey, cancellationToken);
         await ReplaceAsync(db, ownerId, transaction, account.Id, transaction.Date, postings, cancellationToken, existing);
+    }
+
+    /// <summary>
+    /// An archived jar holds nothing (rule 26) and plans nothing, so a payment on its line may not
+    /// push it below zero, as a payment on a live jar's line may (rule 5): it must hold the draw
+    /// on the payment's date and on every later date its ledger changes (his 1 Oct answer
+    /// "Refuse"). What the stored version of this payment already drew from the jar on a date is
+    /// not asked for twice, so an edit that takes no more passes. Checked after the account's
+    /// ledger lock is taken, like every other validation of a write.
+    /// </summary>
+    private static async Task EnsureArchivedJarsCoverAsync(
+        IApplicationDbContext db, string ownerId, Transaction transaction, IReadOnlyDictionary<Guid, decimal> draws,
+        string errorKey, CancellationToken cancellationToken)
+    {
+        if (draws.Count == 0)
+        {
+            return;
+        }
+        var ids = draws.Keys.ToList();
+        var archived = await db.Jars.AsNoTracking()
+            .Where(j => ids.Contains(j.Id) && j.IsArchived)
+            .ToListAsync(cancellationToken);
+        if (archived.Count == 0)
+        {
+            return;
+        }
+
+        // The ledger without this payment, and as stored (its earlier version, when it is an edit).
+        var without = await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken, excludeTransactionIds: new[] { transaction.Id });
+        var stored = await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken);
+        foreach (var jar in archived)
+        {
+            var dates = without.OperationDatesAfter(jar.FundingAccountId, transaction.Date)
+                .Concat(stored.OperationDatesAfter(jar.FundingAccountId, transaction.Date))
+                .Prepend(transaction.Date)
+                .Distinct().Order();
+            var draw = draws[jar.Id];
+            foreach (var date in dates)
+            {
+                var held = without.At(date).BalanceOf(jar.Id) ?? 0m;
+                var drawnBefore = Math.Max(0m, held - (stored.At(date).BalanceOf(jar.Id) ?? 0m));
+                if (draw > Math.Max(0m, held) && draw > drawnBefore)
+                {
+                    var holds = Math.Max(0m, held);
+                    throw Validation(errorKey,
+                        $"{jar.Name} is archived and holds {holds:0.##}{(date == transaction.Date ? "" : $" on {date:yyyy-MM-dd}")}, "
+                        + $"so it can't pay {draw:0.##}. Restore {jar.Name} or put the payment on another line.");
+                }
+            }
+        }
     }
 
     /// <summary>The departures of the line jars <paramref name="accountId"/> did not hold on <paramref name="date"/>; none (and no query) when it held them all.</summary>
