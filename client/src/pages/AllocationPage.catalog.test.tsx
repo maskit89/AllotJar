@@ -918,6 +918,39 @@ describe('AllocationPage (catalog)', () => {
     expect(screen.getByText(/Pocket money added to July’s budget\./)).toBeInTheDocument()
   })
 
+  it('ALLOC-068b: a pocket-money sync whose preview lands after moving to August says nothing under August (#301 P3-4a)', async () => {
+    profileData = profile()
+    currentBudget = budgetDto({ envelopes: 2500 })
+    previewData = overshootPreview()
+    mockPost.mockImplementation((url: string) =>
+      url.startsWith('/allocation/pocket-lines/')
+        ? Promise.resolve({ data: budgetDto({ envelopes: 2000, pocket: { planned: 500, flagged: true } }) })
+        : Promise.resolve({ data: previewData }),
+    )
+    const user = userEvent.setup()
+
+    const view = renderPage()
+    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+
+    // July's re-read of the preview after the sync is held until the user has moved on.
+    let releasePreview: (value: { data: AllocationResultDto }) => void = () => {}
+    const julyPreview = new Promise<{ data: AllocationResultDto }>((resolve) => (releasePreview = resolve))
+    const readFor = mockGet.getMockImplementation()!
+    mockGet.mockImplementation((url: string) => (url === '/allocation/preview/2026/7' ? julyPreview : readFor(url)))
+
+    await user.click(screen.getByRole('button', { name: "Add pocket money to July's budget" }))
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/allocation/pocket-lines/2026/7', {}), { timeout: 5000 })
+
+    monthState.month = 8
+    monthState.label = 'August 2026'
+    view.rerender(<AllocationPage />)
+    await screen.findByText('How August is allocated', {}, { timeout: 5000 })
+    releasePreview({ data: overshootPreview() })
+    await new Promise((r) => setTimeout(r, 50))
+
+    expect(screen.queryByText(/Pocket money added to/)).not.toBeInTheDocument()
+  })
+
   it('ALLOC-069: an unflagged Pocket Money category plus the rule shows the counted-twice banner', async () => {
     profileData = profile()
     currentBudget = budgetDto({ envelopes: 2000, pocket: { planned: 500, flagged: false } })

@@ -17,7 +17,6 @@ interface Progress {
 }
 
 const EMPTY: Progress = { monthExists: false, hasIncome: false, balanced: false, hasTransaction: false }
-const now = new Date()
 
 /**
  * A small, dismissible "Getting started" panel pinned to the corner. Its steps
@@ -41,8 +40,10 @@ export function GettingStartedChecklist() {
       .then(({ data }) => set({ monthExists: Array.isArray(data) && data.length > 0 }))
       .catch(() => {})
 
+    // Today's month, read on every check: a tab left open over a month's end asks about the new one.
+    const { year, month } = currentMonth(new Date())
     api
-      .get<BudgetMonthDto>(`/budget/${currentMonth(now).year}/${currentMonth(now).month}`)
+      .get<BudgetMonthDto>(`/budget/${year}/${month}`)
       .then(({ data }) => {
         const vm = fromDto(data)
         const income = totalIncome(vm)

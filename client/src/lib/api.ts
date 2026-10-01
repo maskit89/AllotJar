@@ -99,10 +99,24 @@ api.interceptors.request.use((config) => {
 // cookie is presented and rotated exactly once no matter how many callers race.
 let sessionRefresh: Promise<AuthResponse | null> | null = null
 
+/** /auth/refresh got no answer the session can be judged on (see {@link refreshSession}). */
+export class SessionUnreachableError extends Error {
+  constructor() {
+    super('The server could not be reached to refresh the session.')
+    this.name = 'SessionUnreachableError'
+  }
+}
+
+function refreshWasUnreachable(err: unknown): boolean {
+  const status = (err as { response?: { status?: number } } | null)?.response?.status
+  return typeof status !== 'number' || status === 429 || status >= 500
+}
+
 /**
  * Restore the session from the HttpOnly refresh cookie, storing the new in-memory access token.
  * Concurrent callers share a single in-flight /auth/refresh POST. Resolves to the auth payload, or
- * null if the session can't be refreshed (cookie missing/expired/revoked).
+ * null if the server refused the session (cookie missing/expired/revoked). Rejects with
+ * {@link SessionUnreachableError}, leaving the token as it was, when the server could not answer.
  */
 export function refreshSession(): Promise<AuthResponse | null> {
   if (!sessionRefresh) {
@@ -117,7 +131,11 @@ export function refreshSession(): Promise<AuthResponse | null> {
         if (data) sessionHandlers?.refreshed(data)
         return data
       })
-      .catch(() => {
+      .catch((err) => {
+        // Only the server refusing the cookie ends the session. No answer at all (a laptop waking
+        // before its Wi-Fi is back), a rate limit or a server error says nothing about the
+        // session: keep the token and let the next request try again.
+        if (refreshWasUnreachable(err)) throw new SessionUnreachableError()
         setToken(null)
         return null
       })
@@ -147,7 +165,14 @@ api.interceptors.response.use(
 
     if (status === 401 && original && !original.__retried && !isCredentialEndpoint) {
       original.__retried = true
-      const session = await refreshSession()
+      let session: AuthResponse | null
+      try {
+        session = await refreshSession()
+      } catch {
+        // The server could not be reached: the call fails as it would offline, and the session
+        // stays for the next request to refresh.
+        return Promise.reject(error)
+      }
       if (session?.token) {
         original.headers = original.headers ?? {}
         original.headers.Authorization = `Bearer ${session.token}`

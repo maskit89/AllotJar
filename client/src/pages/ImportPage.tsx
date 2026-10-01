@@ -773,7 +773,8 @@ export function ImportPage() {
       setCommittedRows((prev) => [...prev, ...sent.filter((r) => !held.has(r.key)).map((r) => ({ ...r, skipped: skipped.has(r.key) }))])
       setHeldEver((prev) => [...prev, ...held.keys()])
       if (held.size > 0) {
-        setRows(rows.filter((r) => held.has(r.key)).map((r) => ({ ...r, heldMessage: held.get(r.key) ?? null })))
+        // The rows as they are now: a row re-answered while the commit was out keeps that answer.
+        setRows((current) => current.filter((r) => held.has(r.key)).map((r) => ({ ...r, heldMessage: held.get(r.key) ?? null })))
         setSplitOpen(null)
         setHeldResult(result)
       } else {

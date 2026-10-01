@@ -1115,6 +1115,9 @@ export function TransactionsPage() {
 
   // Split rows only ever target expense/savings lines (the add modal offers splits for expenses).
   const expenseSplitOptions = buildItemOptions(month, TransactionType.Expense)
+  // Income lines, for the register's income rows: built once per render, not once per row
+  // (every keystroke in an inline field re-renders the whole register).
+  const incomeOptions = buildItemOptions(month, TransactionType.Income)
   const addRemainderMinor = (parseMinor(amount) ?? 0) - sumMinor(addRows.map((r) => parseMinor(r.amount) ?? 0))
   const addCurrency = month?.baseCurrency ?? budgetCurrency
   // The prompts' "stays unallocated" line needs the arriving amount in major units (null while unparsable).
@@ -1986,7 +1989,7 @@ export function TransactionsPage() {
                     const editing = editingId === t.id
                     const splitting = splittingId === t.id
                     const refunding = refundingId === t.id
-                    const splitOptions = buildItemOptions(month, t.type)
+                    const splitOptions = t.type === TransactionType.Income ? incomeOptions : expenseSplitOptions
                     // Only lines the server accepts for the direction: a refund follows its purchase
                     // onto expense/savings lines (rule 38), other income goes on income lines.
                     const rowOptions = isRefund ? expenseSplitOptions : splitOptions

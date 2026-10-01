@@ -132,6 +132,9 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     setJars([])
     setJarsLoaded(false)
     setJarsFailed(false)
+    // The skip-or-archive dialog belongs to the month it was opened on: it closes with it, so
+    // it can never reopen holding the old month's line under the new month's title.
+    setRemovingJarLine(null)
     api
       .get<BudgetMonthDto>(`/budget/${year}/${monthNum}`)
       .then(({ data }) => {

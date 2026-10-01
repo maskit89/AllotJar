@@ -8,6 +8,8 @@ import {
   loginRedirectPath,
   navigation,
   setSessionHandlers,
+  refreshSession,
+  SessionUnreachableError,
 } from './api'
 
 // Drive the real axios instance (and its interceptors) through a scripted adapter so we can prove
@@ -101,6 +103,40 @@ describe('api 401 → refresh → retry interceptor', () => {
       setSessionHandlers(null)
       assign.mockRestore()
     }
+  })
+
+  it.each([
+    ['no answer at all (offline)', undefined],
+    ['a server error', 503],
+    ['a rate limit', 429],
+  ])('keeps the session when the refresh gets %s (client P3-5)', async (_name, refreshStatus) => {
+    api.defaults.adapter = (config) => {
+      if ((config.url ?? '').includes('/auth/refresh'))
+        return Promise.reject(refreshStatus === undefined ? { message: 'Network Error', config } : { response: { status: refreshStatus, data: {} }, config })
+      return fail401(config)
+    }
+    const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {})
+    const expired = vi.fn()
+    setSessionHandlers({ refreshed: vi.fn(), expired })
+    setToken('stale-jwt', '2030-01-01T00:00:00Z')
+
+    try {
+      // The call fails as it would offline; nothing signs the user out.
+      await expect(api.get('/budget/current')).rejects.toMatchObject({ response: { status: 401 } })
+      expect(expired).not.toHaveBeenCalled()
+      expect(assign).not.toHaveBeenCalled()
+      expect(getToken()).toBe('stale-jwt')
+    } finally {
+      setSessionHandlers(null)
+      assign.mockRestore()
+    }
+  })
+
+  it('refreshSession rejects, keeping the token, when the server cannot be reached', async () => {
+    api.defaults.adapter = (config) => Promise.reject({ message: 'Network Error', config })
+    setToken('stale-jwt', '2030-01-01T00:00:00Z')
+    await expect(refreshSession()).rejects.toBeInstanceOf(SessionUnreachableError)
+    expect(getToken()).toBe('stale-jwt')
   })
 
   it('notifies the refreshed handler so AuthContext state tracks interceptor-driven refreshes', async () => {

@@ -424,6 +424,21 @@ describe('DashboardPage — an answer that lands after the user changed month le
     expect(screen.queryByText('Skipped')).toBeNull()
   })
 
+  it('DASH-082: the skip-or-archive dialog closes when the user changes month, so it never offers the old month\u2019s line', { timeout: 15000 }, async () => {
+    mockNavigation()
+    const user = userEvent.setup()
+    renderWithNav()
+    await currentMonthShown()
+
+    await user.click(screen.getByLabelText('Remove Holiday this month'))
+    await screen.findByRole('dialog', {}, { timeout: 5000 })
+
+    await goToPreviousMonth(user)
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(mockPut).not.toHaveBeenCalled()
+  })
+
   // ---- addCategory: the reconcile from the server and the rollback --------------------------
 
   it('DASH-082: addCategory, a group added whose answer lands after the user moved on is not reconciled into the viewed month', { timeout: 15000 }, async () => {

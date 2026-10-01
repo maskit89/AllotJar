@@ -104,4 +104,21 @@ describe('ImportPage: rows sharing a reference stay apart', () => {
     consoleError.mockRestore()
     expect(duplicateKey).toBe(false)
   })
+
+  it('a row re-answered while the commit is out keeps the new answer when it is held (client P3-4)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup()
+    let answer: (value: ReturnType<typeof committed>) => void = () => {}
+    mockCommit.mockReturnValue(new Promise((resolve) => (answer = resolve)))
+    renderWithProviders(<ImportPage />)
+    await goToReview(user)
+
+    await user.click(screen.getByRole('button', { name: /^Import 2 transactions$/ }))
+    // The commit is still out: the user puts the first row on Groceries meanwhile.
+    await user.selectOptions(screen.getByLabelText('Category for AUTOMARKET on 2026-06-17'), 'bi1')
+    answer(committed({ imported: 1, held: [{ reference: '', index: 0, message: 'Would go below zero.' }] }))
+    await screen.findByRole('status')
+
+    expect(await screen.findAllByText('Held')).toHaveLength(1)
+    expect(screen.getByLabelText('Category for AUTOMARKET on 2026-06-17')).toHaveValue('bi1')
+  })
 })

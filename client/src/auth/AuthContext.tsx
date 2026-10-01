@@ -224,9 +224,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (typeof isAccessTokenExpired !== 'function' || typeof refreshSession !== 'function') return
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       if (!isAccessTokenExpired()) return
-      refreshSession().then((session) => {
-        if (!session && typeof sessionExpired === 'function') sessionExpired()
-      })
+      // Unreachable (offline, server error): stay signed in; the next request tries again.
+      refreshSession()
+        .then((session) => {
+          if (!session && typeof sessionExpired === 'function') sessionExpired()
+        })
+        .catch(() => {})
     }
     window.addEventListener('focus', revalidate)
     document.addEventListener('visibilitychange', revalidate)
@@ -247,7 +250,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
     let cancelled = false
-    // refreshSession() never rejects (it swallows request errors); .catch only guards an apply() throw.
+    // refreshSession() rejects only when the server can't be reached: the visitor then sees sign-in,
+    // as with no session. .catch also guards an apply() throw.
     refreshSession()
       .then((data) => {
         if (!cancelled && data?.token) apply(data)
