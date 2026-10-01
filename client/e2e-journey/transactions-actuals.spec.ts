@@ -238,7 +238,7 @@ test('expense transactions drive real line actuals: explicit assign, payee inher
   // --- Budget side of TX-012/TX-044: each line's read-time actual is the sum of its
   // whole transactions plus its split SLICE — and the split's 100.00 counts exactly
   // once (Groceries would read 240.00 if the parent also landed).
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   const groceries = budgetLineRow(page, 'Groceries')
   await expect(groceries).toContainText('140.00 of') // 40 + 30 + the 70.00 slice
   await expect(groceries).toContainText('200.00')
@@ -290,7 +290,7 @@ test('the auto-categorizer never inherits a payee match from another household',
   ).toBeVisible()
 
   // And B's Groceries actual is untouched by A's 15.00 — only planning-free zeros.
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   await expect(budgetLineRow(page, 'Groceries')).toContainText('0.00 of')
 })
 
@@ -333,7 +333,7 @@ test('deleting a budget line or an account detaches its transactions but never d
 
   // --- TX-092: deleting the Groceries line (real FK: Transactions.BudgetItemId and
   // TransactionSplits.BudgetItemId are ON DELETE SET NULL) detaches, never deletes.
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   await expect(page.getByRole('textbox', { name: 'Rename Groceries', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Delete Groceries', exact: true }).click()
   await expect(page.getByRole('textbox', { name: 'Rename Groceries', exact: true })).toHaveCount(0)
@@ -393,7 +393,7 @@ test('an income transaction alone never marks the month balanced', async ({ page
   // …and the income line's received actual reflects it on the Budget page, but the
   // hero still prompts for income: Remaining is 0.00 yet the month is NOT balanced —
   // no gold "has a job" badge anywhere.
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   await expect(page.getByText(/2,500\.00 received/)).toBeVisible()
   await expect(page.getByLabel(/^Remaining to budget:/)).toContainText('0.00')
   await expect(page.getByText(/Plan your income, then give every/)).toBeVisible()
