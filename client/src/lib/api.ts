@@ -108,15 +108,14 @@ export class SessionUnreachableError extends Error {
 }
 
 function refreshWasUnreachable(err: unknown): boolean {
-  const status = (err as { response?: { status?: number } } | null)?.response?.status
-  return typeof status !== 'number' || status === 429 || status >= 500
+  return typeof (err as { response?: { status?: number } } | null)?.response?.status !== 'number'
 }
 
 /**
  * Restore the session from the HttpOnly refresh cookie, storing the new in-memory access token.
  * Concurrent callers share a single in-flight /auth/refresh POST. Resolves to the auth payload, or
- * null if the server refused the session (cookie missing/expired/revoked). Rejects with
- * {@link SessionUnreachableError}, leaving the token as it was, when the server could not answer.
+ * null if the server answered without one (cookie missing/expired/revoked, or a server error).
+ * Rejects with {@link SessionUnreachableError}, leaving the token as it was, when no answer came.
  */
 export function refreshSession(): Promise<AuthResponse | null> {
   if (!sessionRefresh) {
@@ -132,9 +131,10 @@ export function refreshSession(): Promise<AuthResponse | null> {
         return data
       })
       .catch((err) => {
-        // Only the server refusing the cookie ends the session. No answer at all (a laptop waking
-        // before its Wi-Fi is back), a rate limit or a server error says nothing about the
-        // session: keep the token and let the next request try again.
+        // Only no answer at all (a laptop waking before its Wi-Fi is back) keeps the session: the
+        // request may never have reached the server. Any answer, a 5xx included, ends it as before,
+        // since the server may already have rotated the cookie, and a later replay of the old one
+        // outside the grace window would sign out every device (#302 review P2-1).
         if (refreshWasUnreachable(err)) throw new SessionUnreachableError()
         setToken(null)
         return null
@@ -171,6 +171,7 @@ api.interceptors.response.use(
       } catch {
         // The server could not be reached: the call fails as it would offline, and the session
         // stays for the next request to refresh.
+        trackApiError(error, status)
         return Promise.reject(error)
       }
       if (session?.token) {
@@ -182,15 +183,19 @@ api.interceptors.response.use(
       sessionExpired()
     }
 
-    // One central hook for every failed request: report the endpoint shape + status only
-    // (no bodies, params or ids). No-ops unless analytics is live.
-    track(EVENTS.apiError, {
-      api_endpoint: apiEndpointTemplate(error.config?.url),
-      api_status: typeof status === 'number' ? status : 0,
-    })
+    trackApiError(error, status)
     return Promise.reject(error)
   },
 )
+
+// One central hook for every failed request: report the endpoint shape + status only
+// (no bodies, params or ids). No-ops unless analytics is live.
+function trackApiError(error: { config?: { url?: string } }, status: number | undefined) {
+  track(EVENTS.apiError, {
+    api_endpoint: apiEndpointTemplate(error.config?.url),
+    api_status: typeof status === 'number' ? status : 0,
+  })
+}
 
 /** Parse a statement and get the not-yet-imported rows to review — nothing is saved yet. */
 export async function previewImport(

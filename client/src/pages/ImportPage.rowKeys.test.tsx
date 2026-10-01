@@ -105,7 +105,7 @@ describe('ImportPage: rows sharing a reference stay apart', () => {
     expect(duplicateKey).toBe(false)
   })
 
-  it('a row re-answered while the commit is out keeps the new answer when it is held (client P3-4)', { timeout: 15000 }, async () => {
+  it('holds the review still while Import is out, so no answer is given to a row already on its way (client P3-4)', { timeout: 15000 }, async () => {
     const user = userEvent.setup()
     let answer: (value: ReturnType<typeof committed>) => void = () => {}
     mockCommit.mockReturnValue(new Promise((resolve) => (answer = resolve)))
@@ -113,12 +113,15 @@ describe('ImportPage: rows sharing a reference stay apart', () => {
     await goToReview(user)
 
     await user.click(screen.getByRole('button', { name: /^Import 2 transactions$/ }))
-    // The commit is still out: the user puts the first row on Groceries meanwhile.
-    await user.selectOptions(screen.getByLabelText('Category for AUTOMARKET on 2026-06-17'), 'bi1')
+    // The commit is still out: the rows can't be re-answered.
+    expect(screen.getByLabelText('Category for AUTOMARKET on 2026-06-17')).toBeDisabled()
+    expect(screen.getByLabelText('Category for WOLT on 2026-06-15')).toBeDisabled()
+    expect(screen.getByLabelText('Bulk category')).toBeDisabled()
+
     answer(committed({ imported: 1, held: [{ reference: '', index: 0, message: 'Would go below zero.' }] }))
     await screen.findByRole('status')
 
-    expect(await screen.findAllByText('Held')).toHaveLength(1)
-    expect(screen.getByLabelText('Category for AUTOMARKET on 2026-06-17')).toHaveValue('bi1')
+    // The held row is open again for its answer.
+    await waitFor(() => expect(screen.getByLabelText('Category for AUTOMARKET on 2026-06-17')).toBeEnabled())
   })
 })

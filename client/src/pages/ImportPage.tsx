@@ -1202,10 +1202,10 @@ export function ImportPage() {
             <div className="grid gap-1 text-xs font-medium text-slate-500">
               Category (expenses)
               <div className="flex items-center gap-2">
-                <Select aria-label="Bulk category" value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} className="w-48">
+                <Select aria-label="Bulk category" value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} className="w-48" disabled={busy}>
                   <CategoryOptions groups={expenseGroups} />
                 </Select>
-                <Button variant="secondary" size="sm" onClick={applyCategoryToIncluded} disabled={expenseGroups.length === 0}>
+                <Button variant="secondary" size="sm" onClick={applyCategoryToIncluded} disabled={busy || expenseGroups.length === 0}>
                   Apply to expenses
                 </Button>
               </div>
@@ -1213,6 +1213,9 @@ export function ImportPage() {
           </Card>
 
           <Card className="overflow-x-auto">
+            {/* The rows are what Import sends: they hold still while it is out, so an answer can't be
+                given to a row that is already on its way (and lost when the server takes it). */}
+            <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">
             <table className="w-full text-sm">
               <caption className="sr-only">Transactions to import</caption>
               <thead>
@@ -1700,6 +1703,7 @@ export function ImportPage() {
                 })}
               </tbody>
             </table>
+            </fieldset>
           </Card>
 
           {reviewIncomplete && (
