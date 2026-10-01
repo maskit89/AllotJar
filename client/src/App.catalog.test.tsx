@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
+import userEvent from '@testing-library/user-event'
 
 // Catalog coverage for docs/testing/cases/03-session-auth-lifecycle.md (SESS-*),
 // the route guards in App.tsx: RequireAuth, AuthedLoginRedirect, the bootstrap
@@ -94,6 +95,24 @@ describe('SESS: App route guards & cross-tab sign-out', () => {
     mockPost.mockResolvedValue({ data: {} })
   })
   afterEach(() => vi.restoreAllMocks())
+
+  // #298 — a direct-invite login opens its emailed link while signed in. /auth/me reports the
+  // pending temporary password after the page is up; that must not remount the routes and wipe
+  // the new password already being typed.
+  it('keeps a half-filled new-password form when /auth/me reports a pending temporary password', async () => {
+    authState.token = 'tok'
+    let answerMe: (v: unknown) => void = () => {}
+    mockGet.mockImplementation(() => new Promise((resolve) => (answerMe = resolve)))
+
+    renderApp('/reset-password?email=sam%40example.com&token=t')
+
+    const field = await screen.findByLabelText('New password', {}, { timeout: 5000 })
+    await userEvent.type(field, 'Aa1-own-password')
+
+    await act(async () => answerMe({ data: { ...ME, email: 'sam@example.com', mustChangePassword: true } }))
+
+    expect(screen.getByLabelText('New password')).toHaveValue('Aa1-own-password')
+  })
 
   // SESS-003 / SESS-021 — a signed-out deep link to a guarded route bounces to /login
   // carrying an encoded returnUrl and NO reason param (the user was never signed in).

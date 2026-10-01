@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
-import type { JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import { safeInternalPath } from './lib/returnUrl'
 import { useAuth } from './auth/AuthContext'
 import { ConsentModal } from './components/ConsentModal'
@@ -61,11 +61,20 @@ export default function App() {
   const { isAuthenticated, bootstrapping, needsConsent, mustChangePassword } = useAuth()
   const features = useFeatures()
 
+  // While a temporary password is pending the server refuses every page's reads (S-P2-3). Once
+  // the login chooses its own, remount the routes so each page loads afresh behind the closed
+  // prompt. Only on that change: remounting when the flag first arrives from /auth/me would wipe
+  // a form already being filled, such as the emailed link's new-password page.
+  const [routesEpoch, setRoutesEpoch] = useState(0)
+  const wasPending = useRef(false)
+  useEffect(() => {
+    if (wasPending.current && !mustChangePassword) setRoutesEpoch((n) => n + 1)
+    wasPending.current = mustChangePassword
+  }, [mustChangePassword])
+
   return (
     <MonthProvider>
-      {/* While a temporary password is pending the server refuses every page's reads (S-P2-3);
-          remounting once it is changed lets each page load afresh behind the closed prompt. */}
-      <Routes key={mustChangePassword ? 'password-change-pending' : 'app'}>
+      <Routes key={routesEpoch}>
         <Route
           path="/login"
           element={
