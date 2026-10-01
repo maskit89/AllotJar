@@ -169,7 +169,7 @@ public class JarLedgerActivationTests
     }
 
     [Fact]
-    public async Task CreateJar_BackdatedInitialAllocation_IsValidatedAgainstUnallocatedOnThatDate()
+    public async Task CreateJar_BackdatedInitialAllocation_IsValidatedOnThatDateAndEveryLaterOne()
     {
         // 500 opening; a 450 no-line payment on 10 March leaves 50 unallocated from then on.
         await using var db = NewContext();
@@ -177,13 +177,20 @@ public class JarLedgerActivationTests
         LedgerFixtures.Expense(db, "user-1", account.Id, 450m, new DateOnly(2026, 3, 10));
 
         var handler = new CreateJarCommandHandler(db, User);
-        // On 1 March the whole 500 was free.
-        var dto = await handler.Handle(new CreateJarCommand(
+        // On 1 March the whole 500 was free, but from 10 March only 50 is: 300 set aside as of
+        // 1 March would be money the account has since spent (rule 77 across history).
+        var tooMuch = () => handler.Handle(new CreateJarCommand(
             "Holiday", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate,
             account.Id, InitialAllocation: 300m, InitialAllocationDate: new DateOnly(2026, 3, 1)), CancellationToken.None);
-        dto.CurrentBalance.Should().Be(300m);
+        (await tooMuch.Should().ThrowAsync<ValidationException>()).Which.Errors["InitialAllocation"]
+            .Should().ContainSingle(m => m.Contains("2026-03-10"));
 
-        // After the payment only 50 is unallocated: a second jar cannot claim 100 on 20 March.
+        var dto = await handler.Handle(new CreateJarCommand(
+            "Holiday", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate,
+            account.Id, InitialAllocation: 50m, InitialAllocationDate: new DateOnly(2026, 3, 1)), CancellationToken.None);
+        dto.CurrentBalance.Should().Be(50m);
+
+        // Nothing is unallocated after the payment: a second jar cannot claim 100 on 20 March.
         var act = () => handler.Handle(new CreateJarCommand(
             "Car", JarKind.Goal, 1000m, null, AccrualMethod.TargetByDate,
             account.Id, InitialAllocation: 100m, InitialAllocationDate: new DateOnly(2026, 3, 20)), CancellationToken.None);
