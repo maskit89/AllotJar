@@ -38,7 +38,7 @@ public static class InvitationEmails
 
         return new EmailMessage(toEmail, subject, text, EmailLayout.Wrap(
             title: subject,
-            preheader: $"{inviterName} invited you to their household on AllotJar.",
+            preheader: $"{encodedInviter} invited you to their household on AllotJar.",
             bodyHtml: body,
             footerReasonHtml: $"You're receiving this one-off email because {encodedInviter} invited <strong>{WebUtility.HtmlEncode(toEmail)}</strong> on AllotJar."));
     }

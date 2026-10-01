@@ -140,7 +140,7 @@ export function PeoplePage() {
   const [monthIncome, setMonthIncome] = useState<MemberIncomeResultDto | null>(null)
   // Who was just invited and how: both kinds of invite are emailed to the invited address, never
   // shown here, so the owner can't open the invitee's login for them (S-P2-3, P59).
-  const [invited, setInvited] = useState<{ email: string; method: 'direct' | 'link' } | null>(null)
+  const [invited, setInvited] = useState<{ email: string; method: 'direct' | 'link'; emailSent: boolean } | null>(null)
 
   const canAccess = features.householdAccess && canManageHousehold
 
@@ -380,7 +380,7 @@ export function PeoplePage() {
     setInvited(null)
     try {
       const email = iEmail.trim()
-      await api.post<InviteResultDto>('/access/invite', {
+      const { data } = await api.post<InviteResultDto>('/access/invite', {
         email,
         role: iRole,
         method: iMethod === 'direct' ? InviteMethod.Direct : InviteMethod.Link,
@@ -388,7 +388,7 @@ export function PeoplePage() {
         displayName: iName.trim() || null,
         memberId: invitePersonId || null,
       })
-      setInvited({ email, method: iMethod })
+      setInvited({ email, method: iMethod, emailSent: data.emailSent !== false })
       track(EVENTS.memberInvited, { method: iMethod })
       await reloadAll()
       setIEmail('')
@@ -923,7 +923,7 @@ export function PeoplePage() {
             </Button>
           </div>
 
-          {invited && (
+          {invited && invited.emailSent && (
             <div
               role="status"
               className="mt-4 rounded-lg border border-brand-200 bg-brand-50 p-4 dark:border-brand-500/30 dark:bg-brand-500/10"
@@ -942,6 +942,30 @@ export function PeoplePage() {
                   <>
                     We've emailed <span className="font-medium">{invited.email}</span> a one-time link. It expires
                     in 7 days.
+                  </>
+                )}
+              </p>
+            </div>
+          )}
+
+          {invited && !invited.emailSent && (
+            <div
+              role="alert"
+              className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-500/10"
+            >
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                {invited.method === 'direct' ? 'Login created, but the email failed' : 'Invite saved, but the email failed'}
+              </p>
+              <p className="mt-1 text-xs text-amber-800/80 dark:text-amber-200/80">
+                {invited.method === 'direct' ? (
+                  <>
+                    We couldn't email <span className="font-medium">{invited.email}</span> their link. When they sign
+                    in with the temporary password, they can ask for it again with "Email me the link again".
+                  </>
+                ) : (
+                  <>
+                    We couldn't email <span className="font-medium">{invited.email}</span> their link. Remove the
+                    invite and send it again later.
                   </>
                 )}
               </p>

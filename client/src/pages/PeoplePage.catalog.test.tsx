@@ -774,6 +774,28 @@ describe('PeoplePage — catalog (PPL)', () => {
     expect(dialog.queryByRole('button', { name: /copy/i })).not.toBeInTheDocument()
   })
 
+  // #298 R2-P2-1 — when the server says the email failed, the box says so instead of "We've emailed".
+  it('INV-008: a link invite whose email failed says so and how to retry', { timeout: 15000 }, async () => {
+    membersData = [member({ id: 'm2', name: 'Sam', incomeSharePct: 1 })]
+    membershipsData = []
+    mockPost.mockResolvedValue({ data: { membership: membership({ id: 'mem9', email: 'sam@x.eu' }), emailSent: false } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    await user.click(screen.getByRole('button', { name: 'Invite to sign in' }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+
+    await user.type(dialog.getByLabelText('Invitee email'), 'sam@x.eu')
+    await user.click(dialog.getByRole('button', { name: 'Send invite' }))
+
+    const alert = await dialog.findByRole('alert', {}, { timeout: 5000 })
+    expect(alert).toHaveTextContent('Invite saved, but the email failed')
+    expect(alert).toHaveTextContent(/Remove the invite and send it again later/)
+    expect(dialog.queryByRole('status')).not.toBeInTheDocument()
+  })
+
   // PPL-045 — invite client-side guards: empty email, then a <8-char temp password; neither POSTs.
   it('PPL-045: invite rejects an empty email and a short temp password client-side', { timeout: 15000 }, async () => {
     membersData = [member({ id: 'm2', name: 'Sam', incomeSharePct: 1 })]

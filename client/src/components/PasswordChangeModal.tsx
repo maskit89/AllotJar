@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import axios from 'axios'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { api } from '../lib/api'
 import { JarLogo } from './Jar'
 import { Button } from './ui'
 
@@ -13,7 +15,7 @@ import { Button } from './ui'
  * emailed link or signing out.
  */
 export function PasswordChangeModal() {
-  const { mustChangePassword, email, forgotPassword, logout } = useAuth()
+  const { mustChangePassword, email, logout } = useAuth()
   const { pathname } = useLocation()
   const [busy, setBusy] = useState(false)
   const [resent, setResent] = useState(false)
@@ -25,14 +27,16 @@ export function PasswordChangeModal() {
   if (pathname === '/terms' || pathname === '/privacy' || pathname === '/reset-password') return null
 
   async function resend() {
-    if (!email) return
     setError(null)
+    setResent(false)
     setBusy(true)
     try {
-      await forgotPassword(email)
+      // Sent to this login's own address; the answer says whether the email really went out.
+      await api.post('/auth/password-link')
       setResent(true)
-    } catch {
-      setError('Could not send the email. Try again in a minute.')
+    } catch (err) {
+      const data = axios.isAxiosError(err) ? (err.response?.data as { error?: string } | undefined) : undefined
+      setError(data?.error ?? "We couldn't send the email just now. Try again later.")
     } finally {
       setBusy(false)
     }
@@ -75,7 +79,7 @@ export function PasswordChangeModal() {
           <Button type="button" variant="secondary" onClick={logout} disabled={busy}>
             Sign out
           </Button>
-          <Button type="button" onClick={resend} disabled={busy || !email}>
+          <Button type="button" onClick={resend} disabled={busy}>
             {busy ? 'Sending…' : 'Email me the link again'}
           </Button>
         </div>

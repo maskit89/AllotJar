@@ -1,6 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Enums;
 
 namespace AllotJar.IntegrationTests.Http;
@@ -39,6 +43,8 @@ public class DirectInviteFirstSignInTests
         var invite = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/access/invite", OwnerToken,
             new { email, role = (int)HouseholdRole.Admin, method = 0, tempPassword, displayName = "Sam", memberId = personId });
         invite.StatusCode.Should().Be(HttpStatusCode.OK, await invite.Content.ReadAsStringAsync());
+        (await HttpApiFixture.ReadJsonAsync(invite)).RootElement.GetProperty("emailSent").GetBoolean()
+            .Should().BeTrue("the Development mailbox accepted the set-password email");
         return (email, tempPassword, personId);
     }
 
@@ -160,5 +166,57 @@ public class DirectInviteFirstSignInTests
     {
         using var client = _fixture.CreateClient();
         (await MustChangePasswordAsync(client, OwnerToken)).Should().BeFalse("a registered login set its own password");
+    }
+
+    /// <summary>A provider that rejects every send, like an unverified sending domain or a timeout.</summary>
+    private sealed class RejectingEmailSender : IEmailSender
+    {
+        public Task SendAsync(EmailMessage message, CancellationToken ct = default) =>
+            throw new HttpRequestException("The provider rejected the send.");
+    }
+
+    [Fact]
+    public async Task When_the_provider_rejects_the_email_the_invite_says_so_and_the_login_can_ask_again()
+    {
+        using var client = _fixture.CreateClient(b =>
+            b.ConfigureTestServices(s => s.AddSingleton<IEmailSender, RejectingEmailSender>()));
+        var run = Guid.NewGuid().ToString("N")[..8];
+        var email = $"lost-{run}@firstsignin.test";
+        var tempPassword = HttpApiFixture.StrongPassword();
+        var personId = await AddPersonAsync(client, $"Lost {run}");
+
+        var invite = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/access/invite", OwnerToken,
+            new { email, role = (int)HouseholdRole.Admin, method = 0, tempPassword, displayName = "Lost", memberId = personId });
+        invite.StatusCode.Should().Be(HttpStatusCode.OK, await invite.Content.ReadAsStringAsync());
+        (await HttpApiFixture.ReadJsonAsync(invite)).RootElement.GetProperty("emailSent").GetBoolean()
+            .Should().BeFalse("the owner must not be told a link was emailed when the provider refused it");
+
+        var lostToken = await TokenAsync(await LoginAsync(client, email, tempPassword));
+        var again = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/auth/password-link", lostToken);
+        again.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable, "the prompt must not claim a new link was sent");
+
+        // Once email works again, the same login gets its link from the same endpoint.
+        var linkAgain = await HttpApiFixture.SendAsync(_fixture.CreateClient(), HttpMethod.Post, "/api/auth/password-link", lostToken);
+        linkAgain.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await _fixture.WaitForEmailLinkAsync(email, "/reset-password?")).Should().Contain("/reset-password?");
+    }
+
+    [Fact]
+    public async Task Outside_development_an_invite_is_refused_while_email_only_goes_to_the_log()
+    {
+        // Staging with no provider configured resolves the logging fallback: nothing is delivered.
+        using var client = _fixture.CreateClient(b => b.UseEnvironment("Staging"));
+        var run = Guid.NewGuid().ToString("N")[..8];
+        var email = $"nomail-{run}@firstsignin.test";
+
+        var invite = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/access/invite", OwnerToken,
+            new { email, role = (int)HouseholdRole.Admin, method = 1, tempPassword = (string?)null, displayName = "No mail", memberId = (Guid?)null });
+
+        invite.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await HttpApiFixture.ReadJsonAsync(invite)).RootElement.GetProperty("error").GetString()
+            .Should().Contain("Email isn't set up on this server");
+
+        var members = await HttpApiFixture.SendAsync(_fixture.CreateClient(), HttpMethod.Get, "/api/access/members", OwnerToken);
+        (await members.Content.ReadAsStringAsync()).Should().NotContain(email, "nothing was created");
     }
 }

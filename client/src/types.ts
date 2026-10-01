@@ -1141,9 +1141,10 @@ export interface MembershipDto {
   createdUtc: string
 }
 
-/** Returned by an invite: the new membership. Any link goes by email to the invited address. */
+/** Returned by an invite: the new membership, and whether its email (the only copy of any link) went out. */
 export interface InviteResultDto {
   membership: MembershipDto
+  emailSent: boolean
 }
 
 /** One household the login can act in, for the switcher. The active one has `isActive`. */

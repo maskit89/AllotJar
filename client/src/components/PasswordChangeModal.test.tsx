@@ -58,20 +58,26 @@ describe('PasswordChangeModal', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Email me the link again' }))
 
-    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/auth/forgot-password', { email: 'sam@x.com' }))
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/auth/password-link'))
     expect(await screen.findByRole('status')).toHaveTextContent(/sent a new link/)
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
-  it('says so when the email could not be requested', async () => {
+  it('says so when the email could not be sent, instead of claiming a new link', async () => {
     mockGet.mockResolvedValue(me(true))
-    mockPost.mockRejectedValue(new Error('429'))
+    mockPost.mockRejectedValue(
+      Object.assign(new Error('503'), {
+        isAxiosError: true,
+        response: { status: 503, data: { error: "We couldn't send the email just now. Try again later." } },
+      }),
+    )
     const user = userEvent.setup()
     renderModal()
 
     await user.click(await screen.findByRole('button', { name: 'Email me the link again' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/Could not send the email/)
+    expect(await screen.findByRole('alert')).toHaveTextContent("We couldn't send the email just now.")
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
   it('offers sign-out as the only alternative', async () => {

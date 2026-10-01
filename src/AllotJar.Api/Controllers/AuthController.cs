@@ -637,6 +637,34 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
+    /// Emails the signed-in login a link to set its password, to its own address, and says whether
+    /// the email went out. It is how a direct-invite login still on its temporary password asks for
+    /// the link again (so the one thing it may call besides /auth/me); unlike forgot-password it
+    /// reveals nothing about other addresses, so it can report a failed send (#298 R2-P2-1).
+    /// </summary>
+    [HttpPost("password-link")]
+    [Authorize]
+    [AllowWhilePasswordChangePending]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> SendPasswordLink(CancellationToken ct)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var user = userId is null ? null : await _userManager.FindByIdAsync(userId);
+        if (user?.Email is null)
+        {
+            return Unauthorized();
+        }
+
+        return await _accountEmails.TrySendPasswordLinkAsync(user.Email, ct)
+            ? NoContent()
+            : StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new { error = "We couldn't send the email just now. Try again later." });
+    }
+
+    /// <summary>
     /// Sends the reset email as detached, best-effort work, deliberately NOT awaited by the request
     /// (<see cref="AccountEmails"/>): the response must not depend on, or be timed against, the
     /// provider round-trip. A login still on an owner-set temporary password gets the "choose your

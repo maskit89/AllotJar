@@ -54,7 +54,9 @@ public class HouseholdAccessController : ControllerBase
     /// Invites a person (direct temp password or one-time link). Owner-only. "Email first" (review
     /// P2-1 of #298): the invite link, or a direct-invite login's "choose your password" link, is
     /// emailed to the invited address and never returned here, so whoever invites a person never
-    /// knows the password that person ends up with (P59).
+    /// knows the password that person ends up with (P59). Outside Development an invite is refused
+    /// while the server can't deliver email at all, and the response says whether the email went out
+    /// (#298 R2-P2-1), so the owner is never told a link was sent when it wasn't.
     /// </summary>
     /// <remarks>Rate-limited: direct invites mint logins, so cap the pace like the auth endpoints.</remarks>
     [HttpPost("invite")]
@@ -64,21 +66,25 @@ public class HouseholdAccessController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<InviteResponse>> Invite(InviteMemberRequest request, CancellationToken ct)
     {
+        if (!_accountEmails.CanDeliver())
+        {
+            return BadRequest(new { error = EmailNotSetUp });
+        }
+
         var result = await _mediator.Send(new InviteMemberCommand(
             request.Email, request.Role, request.Method,
             request.TempPassword, request.DisplayName, request.MemberId), ct);
 
         var email = result.Membership.Email;
-        if (result.InviteToken is { } token)
-        {
-            _accountEmails.SendInviteLink(email, await InviterNameAsync(), token);
-        }
-        else
-        {
-            _accountEmails.SendPasswordLink(email);
-        }
-        return Ok(new InviteResponse(result.Membership));
+        // The invite is saved either way; a failed send is reported, not hidden.
+        var emailSent = result.InviteToken is { } token
+            ? await _accountEmails.TrySendInviteLinkAsync(email, await InviterNameAsync(), token, ct)
+            : await _accountEmails.TrySendPasswordLinkAsync(email, ct);
+        return Ok(new InviteResponse(result.Membership, emailSent));
     }
+
+    public const string EmailNotSetUp =
+        "Email isn't set up on this server yet, so invites can't be sent. Try again once it is.";
 
     /// <summary>How the invite email names the person who sent it.</summary>
     private async Task<string> InviterNameAsync()
@@ -123,10 +129,13 @@ public class HouseholdAccessController : ControllerBase
     }
 }
 
-/// <summary>Request body for inviting a household member.</summary>
-/// <summary>An invite's outcome: the new membership. Its link travels only by email.</summary>
-public record InviteResponse(MembershipDto Membership);
+/// <summary>
+/// An invite's outcome: the new membership, and whether its email went out. The link itself
+/// travels only by email.
+/// </summary>
+public record InviteResponse(MembershipDto Membership, bool EmailSent);
 
+/// <summary>Request body for inviting a household member.</summary>
 public record InviteMemberRequest(
     string Email,
     HouseholdRole Role,

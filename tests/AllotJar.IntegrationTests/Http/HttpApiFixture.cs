@@ -56,6 +56,13 @@ public sealed class HttpApiFixture : IAsyncLifetime
     public HttpClient CreateClient() => _factory.CreateClient();
 
     /// <summary>
+    /// A client for the same API and database booted with changes (another environment, a test
+    /// double). The fixture's tokens stay valid there.
+    /// </summary>
+    public HttpClient CreateClient(Action<Microsoft.AspNetCore.Hosting.IWebHostBuilder> configure) =>
+        _factory.WithWebHostBuilder(configure).CreateClient();
+
+    /// <summary>
     /// A client that does NOT persist cookies across requests, so a caller can present an exact
     /// refresh cookie via an explicit Cookie header (e.g. a pre-reset token, to prove it's dead)
     /// without the automatic jar overwriting it with a fresher one.
