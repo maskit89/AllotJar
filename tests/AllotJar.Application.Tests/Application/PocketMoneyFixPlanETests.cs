@@ -78,6 +78,35 @@ public class PocketMoneyFixPlanETests
     }
 
     [Fact]
+    public async Task Cancelling_keeps_the_plan_of_a_line_whose_payment_waits_for_its_converted_amount()
+    {
+        await using var db = NewContext();
+        var kid = new HouseholdMember { OwnerId = Owner, Name = "Kid" };
+        db.HouseholdMembers.Add(kid);
+        db.SaveChanges();
+        var now = Shift(0);
+        var pocketNow = new BudgetItem { Name = "Kid", PlannedAmount = 50m, MemberId = kid.Id };
+        AddMonth(db, now, "Pocket Money", pocketNow);
+        // The only payment so far is in pounds, still waiting for its euro amount (P62).
+        db.Transactions.Add(new Transaction
+        {
+            OwnerId = Owner, Date = new DateOnly(now.Year, now.Month, 2), Payee = "Pocket money", Amount = 25m,
+            Type = TransactionType.Expense, BudgetItemId = pocketNow.Id, Currency = CurrencyCode.From("GBP"), FxPending = true,
+        });
+        db.SaveChanges();
+
+        var preview = await new GetMemberArchivePreviewQueryHandler(db, User).Handle(new GetMemberArchivePreviewQuery(kid.Id), Ct);
+        preview.ThisMonth!.Planned.Should().Be(50m);
+        preview.ThisMonth.Remaining.Should().Be(0m, "a cancel keeps this line's plan, so nothing is offered for cancelling");
+
+        await new ArchiveHouseholdMemberCommandHandler(db, User)
+            .Handle(new ArchiveHouseholdMemberCommand(kid.Id, true, PocketMoneyDecision.Cancel), Ct);
+
+        db.BudgetItems.AsNoTracking().Single(i => i.Id == pocketNow.Id).PlannedAmount
+            .Should().Be(50m, "D13: what was paid isn't known until the amount is confirmed, so the plan isn't cut to 0");
+    }
+
+    [Fact]
     public async Task The_sync_reuses_the_linked_line_after_the_group_was_renamed()
     {
         await using var db = NewContext();
