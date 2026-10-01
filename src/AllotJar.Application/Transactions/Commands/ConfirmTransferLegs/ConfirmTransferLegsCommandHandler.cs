@@ -98,9 +98,10 @@ public class ConfirmTransferLegsCommandHandler : IRequestHandler<ConfirmTransfer
         {
             await AccountBalanceGuard.EnsureNonNegativeAsync(
                 _db, new[] { transfer.Account }, new[] { transfer }, Array.Empty<Guid>(), nameof(request.DepartedOn), cancellationToken);
-            if (request.FromJarId is not null)
+            if (request.FromJarId is Guid fromJarId)
             {
-                await JarMovements.ApplyOutgoingAsync(_db, userId, transfer, transfer.Account, request.FromJarId, nameof(request.FromJarId), cancellationToken);
+                await JarMovements.ApplyOutgoingAsync(_db, userId, transfer, transfer.Account, fromJarId, nameof(request.FromJarId), cancellationToken);
+                await JarHistoryChecks.EnsureTransferDrawAsync(_db, userId, transfer, transfer.Account, fromJarId, nameof(request.FromJarId), cancellationToken);
             }
         }
         if (request.JarAllocations is not null && transfer.TransferAccount is not null && receivedOn is DateOnly receivedDate)

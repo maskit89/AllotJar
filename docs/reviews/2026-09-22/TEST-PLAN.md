@@ -332,6 +332,12 @@ Merged where tests differed only in their inputs: `RemainingToBudgetTests` (seve
 - **New (client), `DashboardPage.lateAnswers.test.tsx` (22, DASH-082):** one per late-answer guard in `DashboardPage.tsx` that DASH-081 leaves out (listed in the DEVELOPMENT-LOG). Each fails with its guard removed.
 - **Server:** no test change; CS8620 in `TransactionConfiguration` is fixed with the model snapshot unchanged (checked with `dotnet ef migrations has-pending-model-changes`).
 
+### End-to-end check, PR A: jar money across its whole history — 1 October 2026
+
+- **New, `JarHistoryChecksTests` (14):** a back-dated reallocation of money the source spent since is refused naming the day (fails on `main`), one the source still covers is accepted, a later shortfall a payment caused does not block a move that leaves it as it is, a move today of money a future-dated payment takes is refused (fails on `main`); money set aside back-dated is refused when the account spent it since, on an account with jars and on one with none yet (both fail on `main`), and accepted when the money is still there; a transfer from a jar larger than it holds is refused on create and on a later-confirmed departure (both fail on `main`), one within it moves the money; editing a transfer checks only a changed draw (fails on `main`); lowering an opening balance below the jars is refused (fails on `main`), changing it while the jars stay backed is accepted (two cases).
+- **Changed:** `JarLedgerActivationTests.CreateJar_BackdatedInitialAllocation_IsValidatedAgainstUnallocatedOnThatDate` asserted the JL-P1-2 behaviour (300 set aside as of 1 March from money spent on 10 March was accepted). Renamed `…IsValidatedOnThatDateAndEveryLaterOne`: the 300 is refused naming 10 March, 50 is accepted, and the second jar's refusal on 20 March is kept.
+- **Unchanged and still passing:** `TransferIdentityW07ReviewTests.ChangingAReturnedTransfersAmount_AfterTheJarMoved…` (a returned transfer's draw is checked only until its return).
+
 ## Execution and completion criteria
 
 Run targeted regressions with the corresponding implementation, then the full affected suites once the change is coherent. Do not repeatedly rerun unchanged suites without a new reason.

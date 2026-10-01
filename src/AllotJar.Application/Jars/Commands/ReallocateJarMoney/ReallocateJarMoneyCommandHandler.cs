@@ -54,8 +54,8 @@ public class ReallocateJarMoneyCommandHandler : IRequestHandler<ReallocateJarMon
         }
 
         await using var write = await _db.BeginLedgerWriteAsync(account.Id, cancellationToken);
-        var snapshot = await JarLedgerReader.ReadAsync(_db, userId, date, cancellationToken, new[] { account.Id });
-        if (!snapshot.Accounts.TryGetValue(account.Id, out var view) || !view.IsAvailable)
+        var ledger = await JarLedgerReader.LoadAsync(_db, userId, cancellationToken, new[] { account.Id });
+        if (ledger.ViewAt(account.Id, date) is not { IsAvailable: true } view)
         {
             throw JarAccounts.Validation("Date", $"{account.Name}'s balance is not available on {date:yyyy-MM-dd}.");
         }
@@ -76,6 +76,13 @@ public class ReallocateJarMoneyCommandHandler : IRequestHandler<ReallocateJarMon
             var available = JarReallocationRules.AvailableAmountOrZero(view.Ledger, request.SourceJarId);
             throw JarAccounts.Validation("Amount",
                 $"{sourceName} can give at most {available:0.##} on {date:yyyy-MM-dd}. {ex.Message}");
+        }
+        // A move dated in the past stays made on every later date: the source must still hold the
+        // money after what it paid or moved out since, and no later day may be left unbacked.
+        if (JarHistoryChecks.FirstRefusal(ledger, account, date, includeFrom: false, request.SourceJarId,
+                source?.Name ?? "Unallocated funds", request.Amount, 0m, postings) is { } refusal)
+        {
+            throw JarAccounts.Validation("Amount", refusal);
         }
 
         _db.JarAllocations.Add(new JarAllocation
