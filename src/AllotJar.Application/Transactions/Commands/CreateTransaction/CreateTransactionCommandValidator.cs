@@ -1,4 +1,5 @@
 using FluentValidation;
+using AllotJar.Application.Common;
 using AllotJar.Application.Jars;
 using AllotJar.Domain.Enums;
 
@@ -12,7 +13,8 @@ public class CreateTransactionCommandValidator : AbstractValidator<CreateTransac
             .GreaterThan(0m)
             .WithMessage("Enter an amount greater than zero.")
             .LessThanOrEqualTo(99_999_999_999_999.9999m)
-            .WithMessage("Amount exceeds the supported range.");
+            .WithMessage("Amount exceeds the supported range.")
+            .WholeCents();
 
         RuleFor(x => x.Payee)
             .MaximumLength(200);
@@ -50,6 +52,7 @@ public class CreateTransactionCommandValidator : AbstractValidator<CreateTransac
         // (rule 78), a payment names the jar it comes from (rule 79). Neither applies without
         // an account, and each belongs to one direction only.
         RuleFor(x => x.JarAllocations).JarAllocationsWellFormed();
+        RuleFor(x => x.JarAllocations).JarAllocationsInCents();
         RuleFor(x => x.JarAllocations)
             .Must((x, list) => list is not { Count: > 0 } || (x.AccountId is not null && x.Type == TransactionType.Income))
             .WithMessage("Only income recorded on an account can be divided among jars.");
@@ -95,7 +98,8 @@ public class CreateTransactionCommandValidator : AbstractValidator<CreateTransac
                     .GreaterThan(0m)
                     .WithMessage("Each split line needs an amount greater than zero.")
                     .LessThanOrEqualTo(99_999_999_999_999.9999m)
-                    .WithMessage("Amount exceeds the supported range.");
+                    .WithMessage("Amount exceeds the supported range.")
+                    .WholeCents();
             });
         });
     }

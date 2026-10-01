@@ -289,8 +289,8 @@ public class TTransfersCoverageTests
         (await db.Transactions.CountAsync()).Should().Be(0);
     }
 
-    // ── TRF-018: the amount at the max boundary is valid; one minor unit over is rejected
-    // by the range rule.
+    // ── TRF-018: the largest amount in whole cents is valid; over the max is rejected by the
+    // range rule, and the column's four decimals by the cents rule (D1).
     [Fact]
     public void Validator_AcceptsMaxAmount_RejectsOverMax()
     {
@@ -298,8 +298,11 @@ public class TTransfersCoverageTests
         var from = Guid.NewGuid();
         var to = Guid.NewGuid();
 
-        validator.Validate(new CreateTransferCommand(new DateOnly(2026, 7, 16), 99_999_999_999_999.9999m, from, to))
+        validator.Validate(new CreateTransferCommand(new DateOnly(2026, 7, 16), 99_999_999_999_999.99m, from, to))
             .IsValid.Should().BeTrue();
+
+        validator.Validate(new CreateTransferCommand(new DateOnly(2026, 7, 16), 99_999_999_999_999.9999m, from, to))
+            .IsValid.Should().BeFalse();
 
         validator.Validate(new CreateTransferCommand(new DateOnly(2026, 7, 16), 100_000_000_000_000m, from, to))
             .IsValid.Should().BeFalse();

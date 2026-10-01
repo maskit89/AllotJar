@@ -10,11 +10,13 @@ public class GetAnnualSummaryQueryHandler : IRequestHandler<GetAnnualSummaryQuer
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly TimeProvider _clock;
 
-    public GetAnnualSummaryQueryHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public GetAnnualSummaryQueryHandler(IApplicationDbContext db, ICurrentUser currentUser, TimeProvider? clock = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<AnnualSummaryDto> Handle(GetAnnualSummaryQuery request, CancellationToken cancellationToken)
@@ -36,6 +38,9 @@ public class GetAnnualSummaryQueryHandler : IRequestHandler<GetAnnualSummaryQuer
         // Uncategorised row accumulates under its own key (rule 37).
         var categoryTotals = new Dictionary<(string Name, string Kind), (decimal Net, decimal Refunds)>();
         var budgetedMonths = 0;
+        // The first and last months of the year with a budget or a figure, for the averages' span.
+        int? firstWithData = null;
+        var lastWithData = 0;
 
         var result = new AnnualSummaryDto { Year = request.Year };
         for (var month = 1; month <= 12; month++)
@@ -47,6 +52,11 @@ public class GetAnnualSummaryQueryHandler : IRequestHandler<GetAnnualSummaryQuer
             if (figures.HasBudget)
             {
                 budgetedMonths++;
+            }
+            if (figures.HasBudget || figures.IncomeReceived != 0m || figures.Spent != 0m || figures.Refunds != 0m)
+            {
+                firstWithData ??= month;
+                lastWithData = month;
             }
 
             result.Months.Add(new AnnualMonthDto
@@ -79,6 +89,14 @@ public class GetAnnualSummaryQueryHandler : IRequestHandler<GetAnnualSummaryQuer
         result.TotalSpent = result.Months.Sum(m => m.Spent);
         result.TotalRefunds = result.Months.Sum(m => m.Refunds);
         result.BudgetedMonths = budgetedMonths;
+        // The averages divide by calendar months, not budgeted ones (D12, review RP-P3-2): from the
+        // first month with a budget or a figure up to the current UTC month (P14), which counts
+        // while it runs (all of a past year), or up to a later month that already has one. A month
+        // in between with no budget counts, as zero.
+        var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
+        var thisFar = request.Year < today.Year ? 12 : request.Year == today.Year ? today.Month : 0;
+        var countedMonths = firstWithData is int first ? Math.Max(thisFar, lastWithData) - first + 1 : 0;
+        result.CountedMonths = countedMonths;
 
         result.Categories = categoryTotals
             .Where(kvp => kvp.Value.Net != 0m || kvp.Value.Refunds != 0m)
@@ -88,9 +106,9 @@ public class GetAnnualSummaryQueryHandler : IRequestHandler<GetAnnualSummaryQuer
                 Kind = kvp.Key.Kind,
                 Total = kvp.Value.Net,
                 Refunds = kvp.Value.Refunds,
-                AveragePerMonth = budgetedMonths == 0
+                AveragePerMonth = countedMonths == 0
                     ? 0m
-                    : Math.Round(kvp.Value.Net / budgetedMonths, 2, MidpointRounding.AwayFromZero),
+                    : Math.Round(kvp.Value.Net / countedMonths, 2, MidpointRounding.AwayFromZero),
             })
             .OrderByDescending(c => c.AveragePerMonth)
             .ToList();

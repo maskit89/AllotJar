@@ -21,7 +21,7 @@ import type {
 } from '../types'
 import { TransactionType, type TransferMatchCandidate } from '../types'
 import { buildItemOptions, type ItemOptionGroup } from '../lib/transactions'
-import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount } from '../lib/money'
+import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { formatDate, monthYear } from '../lib/dates'
 import { crossMonthError, serverErrors } from '../lib/serverErrors'
@@ -180,17 +180,19 @@ function moneyByCurrency(
   return [...byCurrency.entries()].map(([currency, minor]) => ({ currency, minor }))
 }
 
-/** Validity + remaining-to-allocate for a row's split (in minor units). */
-function splitInfo(row: ReviewRow): { valid: boolean; remainingMinor: number } {
-  if (!row.splits) return { valid: true, remainingMinor: 0 }
+/** Validity + remaining-to-allocate for a row's split (in minor units); a slice is whole cents (D1). */
+function splitInfo(row: ReviewRow): { valid: boolean; remainingMinor: number; tooPrecise: boolean } {
+  if (!row.splits) return { valid: true, remainingMinor: 0, tooPrecise: false }
   const minors = row.splits.map((l) => parseMinor(l.amount) ?? -1)
   const allocated = sumMinor(minors.map((m) => (m < 0 ? 0 : m)))
   const remainingMinor = fromAmount(row.amount) - allocated
+  const slicesTooPrecise = row.splits.some((l) => tooPrecise(l.amount))
   const valid =
     row.splits.length >= 2 &&
     row.splits.every((l, i) => l.budgetItemId !== '' && minors[i] > 0) &&
-    remainingMinor === 0
-  return { valid, remainingMinor }
+    remainingMinor === 0 &&
+    !slicesTooPrecise
+  return { valid, remainingMinor, tooPrecise: slicesTooPrecise }
 }
 
 /** The candidate the row's user picked, if any. */
@@ -221,7 +223,7 @@ function rowFeeMinor(r: ReviewRow): number | null {
 function manualFeeValid(r: ReviewRow): boolean {
   if (!r.isTransfer || r.isCredit || r.matchTransferId || !r.feeInput.trim()) return true
   const minor = parseMinor(r.feeInput)
-  return minor !== null && minor > 0 && minor < fromAmount(r.amount)
+  return minor !== null && minor > 0 && minor < fromAmount(r.amount) && !tooPrecise(r.feeInput)
 }
 
 /** An included transfer records a fee (the candidate's or a typed one) but no line for it: the server requires one. */
@@ -293,7 +295,12 @@ function paidFromApplies(r: ReviewRow, jarLineIds: Set<string>): boolean {
 /** Rule 78 fields parse and don't exceed the amount received (the server would refuse otherwise). */
 function jarAllocationValid(r: ReviewRow): boolean {
   const total = jarAllocationsTotal(r.jarAllocation)
-  return total !== null && total <= r.amount
+  return total !== null && total <= r.amount && !jarAllocationTooPrecise(r)
+}
+
+/** A typed jar amount with more decimals than cents (D1). */
+function jarAllocationTooPrecise(r: ReviewRow): boolean {
+  return Object.values(r.jarAllocation).some((text) => tooPrecise(text))
 }
 
 function CategoryOptions({
@@ -1406,7 +1413,9 @@ export function ImportPage() {
                                 )}
                                 {typedFee && !manualFeeValid(r) && (
                                   <span className="text-xs text-rose-600 dark:text-rose-400">
-                                    The fee must be more than zero and less than the row&rsquo;s amount.
+                                    {tooPrecise(r.feeInput)
+                                      ? TOO_MANY_DECIMALS
+                                      : 'The fee must be more than zero and less than the row’s amount.'}
                                   </span>
                                 )}
                                 {feeMinor !== null && (
@@ -1576,16 +1585,18 @@ export function ImportPage() {
                                     <span
                                       aria-label="Remaining to allocate"
                                       className={`text-xs font-semibold tabular-nums ${
-                                        info.remainingMinor === 0
+                                        info.remainingMinor === 0 && !info.tooPrecise
                                           ? 'text-emerald-600 dark:text-emerald-400'
                                           : 'text-rose-600 dark:text-rose-400'
                                       }`}
                                     >
-                                      {info.remainingMinor === 0
-                                        ? 'Fully allocated'
-                                        : over
-                                          ? `${formatMoney(-info.remainingMinor, r.currency)} over`
-                                          : `${formatMoney(info.remainingMinor, r.currency)} left`}
+                                      {info.tooPrecise
+                                        ? TOO_MANY_DECIMALS
+                                        : info.remainingMinor === 0
+                                          ? 'Fully allocated'
+                                          : over
+                                            ? `${formatMoney(-info.remainingMinor, r.currency)} over`
+                                            : `${formatMoney(info.remainingMinor, r.currency)} left`}
                                     </span>
                                   </div>
                                 </div>
@@ -1689,6 +1700,11 @@ export function ImportPage() {
                                 idPrefix={domId}
                                 compact
                               />
+                              {jarAllocationTooPrecise(r) && (
+                                <p role="alert" className="mt-1 text-xs text-rose-600 dark:text-rose-400">
+                                  {TOO_MANY_DECIMALS}
+                                </p>
+                              )}
                               {r.isTransfer && !r.matchTransferId && (
                                 <p className="mt-1 text-xs text-slate-500">
                                   These jar amounts apply once the transfer&rsquo;s departure is confirmed.

@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Common;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Accounts;
@@ -55,6 +56,9 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
         {
             throw Validation("TransactionId", "Only a transfer can be edited here.");
         }
+        MoneyInput.EnsureAccepted(
+            (nameof(request.Amount), request.Amount, transfer.Amount),
+            (nameof(request.Fee), request.Fee, transfer.Fee?.Amount));
         if (transfer.AccountId != sides.AccountId || transfer.TransferAccountId != sides.TransferAccountId)
         {
             throw Validation("TransactionId", "This transfer was changed while you were editing it. Open it again and redo the change.");

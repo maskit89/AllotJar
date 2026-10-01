@@ -147,7 +147,9 @@ public sealed class KnownReferences
 /// references existed stored an inbound transfer's reference on the source leg (the migration
 /// marked them received on their date): those, and only those, are marked
 /// <see cref="Transaction.ReceiptKnownBySourceReference"/> and still honoured on the destination
-/// side by their source reference. A receipt confirmed by hand carries nothing for the
+/// side by their source reference. A row the user moved by hand to another account keeps its
+/// statement's account in <see cref="Transaction.StatementAccountId"/> and is still known there
+/// (D8). A receipt confirmed by hand carries nothing for the
 /// destination, so when both banks print one reference the destination's credit confirms the
 /// receipt instead of being skipped; neither does a transfer whose receipt is still unknown:
 /// its source reference is the other bank's, and the receipt row that shares it is the very row
@@ -167,6 +169,7 @@ public static class StatementReferences
             .Where(t => t.OwnerId == ownerId
                         && ((t.AccountId == accountId
                              && (t.BankReference != null || t.ReturnBankReference != null))
+                            || (accountId != null && t.StatementAccountId == accountId && t.BankReference != null)
                             || (accountId != null && t.Type == TransactionType.Transfer
                                 && t.TransferAccountId == accountId
                                 && (t.ReceiptBankReference != null
@@ -174,7 +177,7 @@ public static class StatementReferences
             .Select(t => new
             {
                 t.Type, t.AccountId, t.Amount, t.Date, t.DepartedOn, t.ReceivedOn, t.ReturnedOn,
-                t.BankReference, t.ReceiptBankReference, t.ReturnBankReference, t.BankEntry,
+                t.BankReference, t.ReceiptBankReference, t.ReturnBankReference, t.BankEntry, t.StatementAccountId,
                 Fee = t.Fee != null ? t.Fee.Amount : 0m,
             })
             .ToListAsync(cancellationToken);
@@ -182,7 +185,8 @@ public static class StatementReferences
         var entries = new Dictionary<string, KnownEntry>(StringComparer.OrdinalIgnoreCase);
         foreach (var t in rows)
         {
-            if (t.AccountId == accountId)
+            // A row moved by hand to another account is still this statement's entry (D8).
+            if (t.AccountId == accountId || (accountId != null && t.StatementAccountId == accountId))
             {
                 if (t.BankReference is not null)
                 {

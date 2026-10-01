@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Budgets.Dtos;
+using AllotJar.Application.Common;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars;
@@ -43,6 +44,7 @@ public class UpdateBudgetItemCommandHandler : IRequestHandler<UpdateBudgetItemCo
         {
             throw new ForbiddenAccessException();
         }
+        MoneyInput.EnsureAccepted((nameof(request.PlannedAmount), request.PlannedAmount, item.PlannedAmount));
 
         var jar = item.SavingsId is { } jarId
             ? await _db.Jars.FirstOrDefaultAsync(j => j.Id == jarId && j.OwnerId == userId, cancellationToken)

@@ -14,7 +14,7 @@ import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import type { AccountDto, AccountReconciliationDto, UnreachableAccountDto } from '../types'
 import { ACCOUNT_TYPE_LABELS, ACCOUNT_TYPE_OPTIONS, AccountType } from '../types'
-import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import { formatMoney, fromAmount, parseMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { formatDate, todayIso } from '../lib/dates'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { serverErrors } from '../lib/serverErrors'
@@ -181,6 +181,10 @@ export function AccountsPage() {
       setError(opening.trim().startsWith('-') ? 'An opening balance can’t be negative.' : 'Enter a valid opening balance.')
       return
     }
+    if (tooPrecise(opening)) {
+      setError(TOO_MANY_DECIMALS)
+      return
+    }
     if (!openingDate) {
       setError('Enter the date the opening balance applies from.')
       return
@@ -237,6 +241,12 @@ export function AccountsPage() {
         setError(eOpening.trim().startsWith('-') ? 'An opening balance can’t be negative.' : 'Enter a valid opening balance.')
         return
       }
+      // A typed amount is whole cents (D1); the saved one goes back as it is.
+      const saved = accounts.find((a) => a.id === id)
+      if (tooPrecise(eOpening, saved ? fromAmount(saved.openingBalance) : null)) {
+        setError(TOO_MANY_DECIMALS)
+        return
+      }
       if (!eOpeningDate) {
         setError('Enter the date the opening balance applies from.')
         return
@@ -262,7 +272,7 @@ export function AccountsPage() {
         setSavingId(null)
       }
     },
-    [eName, eType, eOpening, eOpeningDate, eIds, eHolderIds, members.length],
+    [eName, eType, eOpening, eOpeningDate, eIds, eHolderIds, members.length, accounts],
   )
 
   // Rules 31/33: the holder's own choice of who sees their personal account.

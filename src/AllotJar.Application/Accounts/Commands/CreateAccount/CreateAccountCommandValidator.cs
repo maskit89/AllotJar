@@ -1,4 +1,5 @@
 using FluentValidation;
+using AllotJar.Application.Common;
 
 namespace AllotJar.Application.Accounts.Commands.CreateAccount;
 
@@ -23,7 +24,8 @@ public class CreateAccountCommandValidator : AbstractValidator<CreateAccountComm
         // Rule 74: no account may be negative, including at its opening.
         RuleFor(x => x.OpeningBalance)
             .InclusiveBetween(0m, 99_999_999_999_999.9999m)
-            .WithMessage("The opening balance must be zero or more: an account never has a negative balance here.");
+            .WithMessage("The opening balance must be zero or more: an account never has a negative balance here.")
+            .WholeCents();
 
         // The opening balance is meaningless without the date it applies from: without it no
         // balance can be calculated, and inferring one is exactly what rule 40 forbids.

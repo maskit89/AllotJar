@@ -1,4 +1,5 @@
 using FluentValidation;
+using AllotJar.Application.Common;
 
 namespace AllotJar.Application.Jars;
 
@@ -14,4 +15,11 @@ public static class JarAllocationInputValidators
             .WithMessage("Jar amounts must be zero or more.")
             .Must(list => list is null || list.Count <= 200)
             .WithMessage("Too many jar amounts.");
+
+    /// <summary>Each jar amount a new entry divides is whole cents (D1); an edit may send stored ones back.</summary>
+    public static IRuleBuilderOptions<T, IReadOnlyList<JarAllocationInput>?> JarAllocationsInCents<T>(
+        this IRuleBuilder<T, IReadOnlyList<JarAllocationInput>?> rule) =>
+        rule
+            .Must(list => list is null || list.All(i => MoneyInput.IsWholeCents(i.Amount)))
+            .WithMessage(MoneyInput.TooPrecise);
 }

@@ -1,4 +1,5 @@
 using FluentValidation;
+using AllotJar.Application.Common;
 using AllotJar.Application.Jars;
 
 namespace AllotJar.Application.Imports.Commands.CommitImport;
@@ -30,10 +31,12 @@ public class CommitImportCommandValidator : AbstractValidator<CommitImportComman
                 slice.RuleFor(s => s.BudgetItemId)
                     .NotEmpty().WithMessage("Choose a budget line for every split line.");
                 slice.RuleFor(s => s.Amount)
-                    .GreaterThan(0).WithMessage("Each split line needs an amount greater than zero.");
+                    .GreaterThan(0).WithMessage("Each split line needs an amount greater than zero.")
+                    .WholeCents();
             }).When(i => i.Splits is not null);
 
             item.RuleFor(i => i.JarAllocations).JarAllocationsWellFormed();
+            item.RuleFor(i => i.JarAllocations).JarAllocationsInCents();
             item.RuleFor(i => i.JarAllocations)
                 .Must((i, list) => list is not { Count: > 0 } || i.IsCredit)
                 .WithMessage("Only money received can be divided among jars.");

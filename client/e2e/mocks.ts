@@ -288,6 +288,7 @@ function annualSummary(year: number) {
     totalSpent: 6900,
     totalRefunds: 0,
     budgetedMonths: 3,
+    countedMonths: 3,
     categories: [
       { name: 'Housing', kind: 'Expense', averagePerMonth: 1100, total: 3300, refunds: 0 },
       { name: 'Groceries', kind: 'Expense', averagePerMonth: 400, total: 1200, refunds: 0 },

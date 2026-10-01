@@ -84,6 +84,11 @@ export interface TransactionSplitDto {
   amount: number
 }
 
+/** DELETE /transactions/{id} answers 204, or 200 with this when the delete left something to settle (D10). */
+export interface DeleteTransactionResult {
+  warning: string | null
+}
+
 export interface TransactionDto {
   id: string
   date: string
@@ -180,6 +185,8 @@ export interface TransactionDto {
    * payment drawn from its budget line's jar or unallocated). Optional so fixtures stay valid.
    */
   jarAllocations?: TransactionJarAllocationDto[]
+  /** Only on the answer to an edit: what the saved change left for the user to settle (D10). */
+  warning?: string | null
 }
 
 /**
@@ -591,6 +598,8 @@ export interface BudgetTrendPointDto {
   year: number
   month: number
   key: string
+  /** False for a calendar month with no budget (D12): its budgeted figures are 0, its transactions still count. Optional so fixtures stay valid. */
+  hasBudget?: boolean
   /** Budgeted income (Σ income planned). */
   income: number
   /** Income actually received: income lines' actuals plus uncategorised income; never transfers or refunds (rule 41). */
@@ -673,8 +682,14 @@ export interface AnnualSummaryDto {
   totalSpent: number
   /** Σ refunds across the year. Optional so existing fixtures stay valid. */
   totalRefunds?: number
-  /** How many of the 12 months have a budget (the averaging denominator). */
+  /** How many of the 12 months have a budget. */
   budgetedMonths: number
+  /**
+   * The calendar months the category averages divide by (D12): from the year's first month with
+   * a budget or a figure to the current month (December for a past year). Optional so fixtures
+   * stay valid; the page falls back to budgetedMonths.
+   */
+  countedMonths?: number
   /** Per-category spending across the year, biggest average first. */
   categories: AnnualCategoryDto[]
 }

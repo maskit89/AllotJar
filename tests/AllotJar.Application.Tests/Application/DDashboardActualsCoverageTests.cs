@@ -393,9 +393,9 @@ public class DDashboardActualsCoverageTests
         result.IsBalanced.Should().BeFalse();
     }
 
-    // DASH-019 — One minor unit off is NOT balanced: Groceries 400 → 1,479.9999 leaves
-    // Remaining 0.0001 (four-dp precision preserved server-side) so IsBalanced stays false
-    // even though the currency display would round it to €0.00.
+    // DASH-019 — One cent off is NOT balanced: Groceries 400 → 1,479.99 leaves Remaining 0.01,
+    // so IsBalanced stays false. (A typed amount is whole cents since D1; a stored amount with
+    // more decimals is pinned by MoneyInputTests.)
     [Fact]
     public async Task OneMinorUnitShort_IsNotBalanced()
     {
@@ -403,9 +403,9 @@ public class DDashboardActualsCoverageTests
         var ids = SeedJul26(db);
 
         var result = await EditHandler(db).Handle(
-            new UpdateBudgetItemCommand(ids.GroceriesId, PlannedAmount: 1479.9999m), CancellationToken.None);
+            new UpdateBudgetItemCommand(ids.GroceriesId, PlannedAmount: 1479.99m), CancellationToken.None);
 
-        result.RemainingToBudget.Should().Be(0.0001m); // exactly one minor unit left
+        result.RemainingToBudget.Should().Be(0.01m);   // exactly one cent left
         result.IsBalanced.Should().BeFalse();          // honest integer math, no gold badge
     }
 }

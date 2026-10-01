@@ -119,15 +119,26 @@ public class RReportsCoverageTests
         ApplicationDbContext db, ICurrentUser user, int months = 6) =>
         new GetBudgetTrendsQueryHandler(db, user).Handle(new GetBudgetTrendsQuery(months), CancellationToken.None);
 
+    /// <summary>
+    /// The annual report as read on <paramref name="today"/> (UTC): its averages count the calendar
+    /// months up to the current one (D12). By default the end of May 2026, so a year seeded up to
+    /// May or June reads as it did when only budgeted months counted.
+    /// </summary>
     private static Task<AllotJar.Application.Reports.Dtos.AnnualSummaryDto> Annual(
-        ApplicationDbContext db, ICurrentUser user, int year) =>
-        new GetAnnualSummaryQueryHandler(db, user).Handle(new GetAnnualSummaryQuery(year), CancellationToken.None);
+        ApplicationDbContext db, ICurrentUser user, int year, DateOnly? today = null) =>
+        new GetAnnualSummaryQueryHandler(db, user, new FixedClock(today ?? new DateOnly(2026, 5, 31)))
+            .Handle(new GetAnnualSummaryQuery(year), CancellationToken.None);
 
-    // ── RPT-009: the trend window is the most recent N BUDGETS, not the last N calendar months —
-    // a user with budgets only in Jan and Jun gets exactly two points sitting side-by-side
-    // (Feb–May are not rendered as empty gaps), in chronological order.
+    private sealed class FixedClock(DateOnly today) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => new(today.ToDateTime(new TimeOnly(12, 0)), TimeSpan.Zero);
+    }
+
+    // ── RPT-009 (D12, review RP-P3-2): the trend window is the last N CALENDAR months up to the
+    // latest budget. A month with no budget between two budgets is a point of its own, with its
+    // transactions (P21) and no budgeted figures, in chronological order.
     [Fact]
-    public async Task Trends_Window_IsMostRecentBudgets_NotCalendarMonths_SoGapsCollapse()
+    public async Task Trends_Window_IsCalendarMonths_SoAMonthWithNoBudgetIsAPointOfItsOwn()
     {
         await using var db = NewContext();
         var user = new CurrentUserStub("user-1");
@@ -135,11 +146,56 @@ public class RReportsCoverageTests
             lines: new[] { ("Housing", CategoryKind.Expense, 1000m, 900m) });
         SeedMonth(db, "user-1", 2026, 6, incomePlanned: 3000m,
             lines: new[] { ("Housing", CategoryKind.Expense, 1000m, 950m) });
+        db.Transactions.Add(new Transaction
+        {
+            OwnerId = "user-1", Amount = 80m, Type = TransactionType.Expense, Date = new DateOnly(2026, 3, 9), Payee = "No budget",
+        });
+        db.SaveChanges();
 
         var dto = await Trends(db, user);
 
-        dto.Points.Should().HaveCount(2); // no Feb–May filler points
-        dto.Points.Select(p => p.Key).Should().Equal("2026-01", "2026-06"); // chronological, gap collapsed
+        dto.Points.Select(p => p.Key).Should().Equal("2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06");
+        dto.Points.Select(p => p.HasBudget).Should().Equal(true, false, false, false, false, true);
+        var march = dto.Points.Single(p => p.Key == "2026-03");
+        march.Spent.Should().Be(80m);
+        march.Income.Should().Be(0m);
+        march.Planned.Should().Be(0m);
+        dto.TotalSpent.Should().Be(900m + 80m + 950m);
+    }
+
+    // ── D12 (review RP-P3-2, its probe): spending in a month with no budget, before the first
+    // budget, is in the trends as in the annual table, and the annual average divides it by the
+    // calendar months from that month to the current one, not by the one budgeted month.
+    [Fact]
+    public async Task Trends_AndAnnual_CountTheSameCalendarMonths_AndTheAverageDividesByThem()
+    {
+        await using var db = NewContext();
+        var user = new CurrentUserStub("user-1");
+        SeedMonth(db, "user-1", 2026, 9, incomePlanned: 3000m);
+        db.Transactions.AddRange(
+            new Transaction { OwnerId = "user-1", Amount = 300m, Type = TransactionType.Expense, Date = new DateOnly(2026, 8, 5), Payee = "August, no budget" },
+            new Transaction { OwnerId = "user-1", Amount = 100m, Type = TransactionType.Expense, Date = new DateOnly(2026, 9, 5), Payee = "September loose" });
+        db.SaveChanges();
+
+        var trends = await Trends(db, user);
+        var annual = await Annual(db, user, 2026, today: new DateOnly(2026, 9, 20));
+
+        trends.Points.Select(p => p.Key).Should().Equal("2026-08", "2026-09");
+        trends.TotalSpent.Should().Be(400m);
+        annual.TotalSpent.Should().Be(400m);
+        annual.BudgetedMonths.Should().Be(1);
+        annual.CountedMonths.Should().Be(2); // August and September (the current month counts while it runs)
+        annual.Categories.Single(c => c.Name == "Uncategorised").AveragePerMonth.Should().Be(200m);
+
+        // A month later October counts too, though nothing is recorded in it yet (P14: the current UTC month).
+        var october = await Annual(db, user, 2026, today: new DateOnly(2026, 10, 1));
+        october.CountedMonths.Should().Be(3);
+        october.Categories.Single(c => c.Name == "Uncategorised").AveragePerMonth.Should().Be(133.33m);
+
+        // A past year counts up to December; a budget already made for a later month counts up to it.
+        (await Annual(db, user, 2026, today: new DateOnly(2027, 2, 1))).CountedMonths.Should().Be(5);
+        SeedMonth(db, "user-1", 2026, 12, incomePlanned: 3000m);
+        (await Annual(db, user, 2026, today: new DateOnly(2026, 9, 20))).CountedMonths.Should().Be(5);
     }
 
     // ── RPT-010: the client always asks for 6, so nine consecutive budgets return the six most
@@ -306,7 +362,7 @@ public class RReportsCoverageTests
 
     // ── RPT-019 (rename half): categories are keyed by (Name, Kind), so renaming an expense group
     // mid-year splits the year's spend across two rows — the old name (Jan–Mar) and the new name
-    // (Apr–May) — each averaged over the SAME budgetedMonths denominator (5).
+    // (Apr–May) — each averaged over the SAME calendar-month denominator (5, D12).
     [Fact]
     public async Task Annual_RenamedCategory_SplitsIntoTwoRowsByName()
     {
@@ -326,12 +382,13 @@ public class RReportsCoverageTests
         var dto = await Annual(db, user, 2026);
 
         dto.BudgetedMonths.Should().Be(5);
+        dto.CountedMonths.Should().Be(5);             // Jan–May, read at the end of May
         var groceries = dto.Categories.Single(c => c.Name == "Groceries");
         groceries.Total.Should().Be(300m);            // 3 × 100 (Jan–Mar)
-        groceries.AveragePerMonth.Should().Be(60m);   // ÷ 5 budgeted months
+        groceries.AveragePerMonth.Should().Be(60m);   // ÷ 5 calendar months
         var food = dto.Categories.Single(c => c.Name == "Food");
         food.Total.Should().Be(400m);                 // 2 × 200 (Apr–May)
-        food.AveragePerMonth.Should().Be(80m);        // ÷ 5 budgeted months
+        food.AveragePerMonth.Should().Be(80m);        // ÷ 5 calendar months
         dto.Categories.Should().HaveCount(2);
     }
 

@@ -1,4 +1,5 @@
 using FluentValidation;
+using AllotJar.Application.Common;
 
 namespace AllotJar.Application.Budgets.Commands.AddBudgetItem;
 
@@ -18,6 +19,7 @@ public class AddBudgetItemCommandValidator : AbstractValidator<AddBudgetItemComm
             .GreaterThanOrEqualTo(0m)
             .WithMessage("Planned amount cannot be negative.")
             .LessThanOrEqualTo(99_999_999_999_999.9999m)
-            .WithMessage("Planned amount exceeds the supported range.");
+            .WithMessage("Planned amount exceeds the supported range.")
+            .WholeCents();
     }
 }

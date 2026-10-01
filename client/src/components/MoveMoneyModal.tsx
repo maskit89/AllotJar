@@ -4,7 +4,7 @@ import { Modal } from './Modal'
 import { api } from '../lib/api'
 import { readLedgers } from '../lib/jarLedgers'
 import type { AccountDto, CreateTransferRequest, JarAccountLedgerDto, JarDto, TransactionDto } from '../types'
-import { formatMoney, fromAmount, parseMinor, toAmount } from '../lib/money'
+import { formatMoney, fromAmount, parseMinor, toAmount, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { todayIso } from '../lib/dates'
 import { serverErrors } from '../lib/serverErrors'
@@ -169,6 +169,10 @@ export function MoveMoneyModal({ jar, currency, accounts = [], onClose, onMoved 
     const minor = parseMinor(amount)
     if (minor === null || minor <= 0) {
       setError('Enter the amount to move.')
+      return
+    }
+    if (tooPrecise(amount)) {
+      setError(TOO_MANY_DECIMALS)
       return
     }
     if (!date) {

@@ -217,6 +217,72 @@ describe('TransactionsPage manual sheet', () => {
     expect(mockPost).not.toHaveBeenCalled()
   })
 
+  // D1 (review CL-P3-7): a typed amount with more decimals than cents is refused, never rounded.
+  it('refuses an amount with a third decimal with a message, sending nothing', { timeout: 15000 }, async () => {
+    mockLoad([])
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(screen.getByLabelText('Transaction amount'), '12.345')
+    await user.click(dialog.getByRole('button', { name: 'Add transaction' }))
+
+    expect(await screen.findByText('Enter at most 2 decimal places.', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+  })
+
+  it('an edit refuses a changed amount with a third decimal (D1)', { timeout: 15000 }, async () => {
+    mockLoad([tx()])
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit transaction: Tesco', {}, { timeout: 5000 }))
+    const amountInput = screen.getByLabelText('Edit amount')
+    await user.clear(amountInput)
+    await user.type(amountInput, '12.345')
+    await user.click(screen.getByLabelText('Save transaction'))
+
+    expect(await screen.findByText('Enter at most 2 decimal places.', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPut).not.toHaveBeenCalled()
+  })
+
+  // D10 (review JL-P3-1): the delete stands; the server's warning about jars it left unbacked shows.
+  it('shows the warning a delete answers with, and dismisses it', { timeout: 15000 }, async () => {
+    mockLoad([tx()])
+    const warning =
+      "Deleted. From 2026-06-10 Savings's jars hold 500 while the account holds 0, so 500 of the jars' money is not in the account. Move that much out of a jar, or record the money that came in."
+    mockDelete.mockResolvedValue({ data: { warning } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Delete transaction: Tesco', {}, { timeout: 5000 }))
+
+    await waitFor(() => expect(screen.queryByText('Tesco')).not.toBeInTheDocument())
+    expect(screen.getByRole('status')).toHaveTextContent(warning)
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByText(warning)).not.toBeInTheDocument()
+  })
+
+  it('shows the warning an edit answers with (D10)', { timeout: 15000 }, async () => {
+    mockLoad([tx()])
+    mockPut.mockResolvedValue({ data: { ...tx(), amount: 2, warning: 'Saved. From 2026-06-10 Savings’s jars hold 500 while the account holds 2.' } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit transaction: Tesco', {}, { timeout: 5000 }))
+    const amountInput = screen.getByLabelText('Edit amount')
+    await user.clear(amountInput)
+    await user.type(amountInput, '2')
+    await user.click(screen.getByLabelText('Save transaction'))
+
+    expect(await screen.findByText(/jars hold 500 while the account holds 2/, {}, { timeout: 5000 })).toBeInTheDocument()
+  })
+
   it('deletes a transaction', { timeout: 15000 }, async () => {
     mockLoad([tx()])
     mockDelete.mockResolvedValue({ data: null })

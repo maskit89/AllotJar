@@ -123,6 +123,12 @@ public class TransactionDto
     /// unallocated; a payment drawn from its budget line's jar or unallocated).
     /// </summary>
     public IReadOnlyList<TransactionJarAllocationDto> JarAllocations { get; set; } = Array.Empty<TransactionJarAllocationDto>();
+
+    /// <summary>
+    /// Only on the answer to an edit: the edit was saved, and this says what it left behind for
+    /// the user to settle, e.g. jars no longer backed by the account's money (D10, rule 70).
+    /// </summary>
+    public string? Warning { get; set; }
 }
 
 public class TransactionJarAllocationDto

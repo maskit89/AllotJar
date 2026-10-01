@@ -1,4 +1,5 @@
 using FluentValidation;
+using AllotJar.Application.Common;
 
 namespace AllotJar.Application.Jars.Commands.ReallocateJarMoney;
 
@@ -9,7 +10,8 @@ public class ReallocateJarMoneyCommandValidator : AbstractValidator<ReallocateJa
         RuleFor(x => x.AccountId).NotEmpty();
         RuleFor(x => x.Amount)
             .GreaterThan(0m).WithMessage("Enter the amount to move.")
-            .LessThanOrEqualTo(99_999_999_999_999.9999m);
+            .LessThanOrEqualTo(99_999_999_999_999.9999m)
+            .WholeCents();
         RuleFor(x => x)
             .Must(x => x.SourceJarId != x.DestinationJarId)
             .WithMessage("Choose two different places to move money between.")

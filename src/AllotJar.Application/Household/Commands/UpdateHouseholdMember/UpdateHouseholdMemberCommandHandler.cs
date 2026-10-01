@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Accounts;
+using AllotJar.Application.Common;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Household.Dtos;
@@ -35,6 +36,7 @@ public class UpdateHouseholdMemberCommandHandler
         {
             throw new ForbiddenAccessException();
         }
+        MoneyInput.EnsureAccepted((nameof(request.NetMonthlyIncome), request.NetMonthlyIncome, member.NetMonthlyIncome));
 
         // A personal-savings account must exist and belong to this household. It's a soft hint with
         // no FK, so validate here — otherwise a stale or foreign id would be stored and later booked

@@ -300,6 +300,41 @@ function isGroupedInteger(str: string, sep: string): boolean {
  * Anything beyond 4 dp is rounded half-up to scale 4.
  */
 export function parseMinor(input: string): Minor | null {
+  const canonical = canonicalAmount(input)
+  if (canonical === null) return null
+
+  const [intPart, fracRaw = ''] = canonical.split('.')
+  const frac4 = fracRaw.slice(0, 4).padEnd(4, '0')
+  let minor = Number(intPart) * FACTOR + Number(frac4)
+
+  // Round half-up on a 5th fractional digit.
+  const fifth = fracRaw.charAt(4)
+  if (fifth !== '' && Number(fifth) >= 5) {
+    minor += 1
+  }
+
+  return minor
+}
+
+/** What a money field says when a typed amount has more decimals than cents (D1). */
+export const TOO_MANY_DECIMALS = 'Enter at most 2 decimal places.'
+
+/**
+ * True when the typed amount has more than 2 decimals that matter ("12.345", not "12.340") and
+ * is not the amount the field opened with (`stored`). A typed amount is refused with
+ * TOO_MANY_DECIMALS, never rounded without a word (D1, review CL-P3-7); an amount stored with
+ * more decimals (a converted amount, a planned one the jar planner worked out) still saves
+ * unchanged when the field is left as it opened (W10). The server refuses the same.
+ */
+export function tooPrecise(input: string, stored?: Minor | null): boolean {
+  const canonical = canonicalAmount(input)
+  if (canonical === null) return false
+  const decimals = (canonical.split('.')[1] ?? '').replace(/0+$/, '')
+  return decimals.length > 2 && parseMinor(input) !== stored
+}
+
+/** The typed amount as plain digits with a '.' decimal point ("1234.5"), or null when it isn't one. */
+function canonicalAmount(input: string): string | null {
   // Strip unambiguous grouping separators first — spaces (fr-FR "1 234,56"),
   // apostrophes (de-CH "1'234.56", straight or curly). Neither is ever a decimal
   // separator, so removing them can't change the value; only ',' and '.' remain
@@ -338,16 +373,5 @@ export function parseMinor(input: string): Minor | null {
   if (trimmed === '' || !/^\d+(\.\d+)?$/.test(trimmed)) {
     return null
   }
-
-  const [intPart, fracRaw = ''] = trimmed.split('.')
-  const frac4 = fracRaw.slice(0, 4).padEnd(4, '0')
-  let minor = Number(intPart) * FACTOR + Number(frac4)
-
-  // Round half-up on a 5th fractional digit.
-  const fifth = fracRaw.charAt(4)
-  if (fifth !== '' && Number(fifth) >= 5) {
-    minor += 1
-  }
-
-  return minor
+  return trimmed
 }

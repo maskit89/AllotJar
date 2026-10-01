@@ -9,8 +9,9 @@ using AllotJar.Infrastructure.Persistence;
 namespace AllotJar.Application.Tests.Application;
 
 /// <summary>
-/// The reports trend rollup: one income / planned / spent point per recent month,
-/// chronological, owner-scoped, capped to the requested window.
+/// The reports trend rollup: one income / planned / spent point per recent calendar month (D12),
+/// chronological, owner-scoped, capped to the requested window. Rows are dated in their month:
+/// the window starts no earlier than the first month with a budget or a recorded row.
 /// </summary>
 public class BudgetTrendsTests
 {
@@ -51,6 +52,7 @@ public class BudgetTrendsTests
             db.Transactions.Add(new Transaction
             {
                 OwnerId = ownerId, BudgetItemId = rent.Id, Amount = spent, Type = TransactionType.Expense,
+                Date = new DateOnly(year, month, 2),
             });
             db.SaveChanges();
         }
@@ -90,6 +92,7 @@ public class BudgetTrendsTests
         db.Transactions.Add(new Transaction
         {
             OwnerId = "user-1", BudgetItemId = salary.Id, Amount = 950m, Type = TransactionType.Income,
+            Date = new DateOnly(2026, 6, 1),
         });
         await db.SaveChangesAsync();
 

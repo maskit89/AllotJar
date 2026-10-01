@@ -31,19 +31,26 @@ public class AnnualSummaryDto
     /// <summary>Σ refunds received across the year (already netted out of TotalSpent).</summary>
     public decimal TotalRefunds { get; set; }
 
-    /// <summary>How many of the 12 months actually have a budget — the denominator for the per-category averages.</summary>
+    /// <summary>How many of the 12 months actually have a budget.</summary>
     public int BudgetedMonths { get; set; }
 
     /// <summary>
+    /// The calendar months the per-category averages divide by (D12): from the year's first month
+    /// with a budget or a figure up to the current UTC month (December for a past year), or up to
+    /// a later month that already has one. A month in that span with no budget counts, as zero.
+    /// </summary>
+    public int CountedMonths { get; set; }
+
+    /// <summary>
     /// Per-category net spending across the year (non-income groups, grouped by name), each
-    /// with its yearly total and average per budgeted month, plus an Uncategorised entry when
+    /// with its yearly total and average per counted calendar month, plus an Uncategorised entry when
     /// anything is unplaced (rule 37). Mirrors the workbook's per-row <c>=AVERAGE(...)</c>
     /// column. Biggest average first.
     /// </summary>
     public List<AnnualCategoryDto> Categories { get; set; } = new();
 }
 
-/// <summary>One spending category's full-year total and its average per budgeted month.</summary>
+/// <summary>One spending category's full-year total and its average per counted calendar month.</summary>
 public class AnnualCategoryDto
 {
     public string Name { get; set; } = string.Empty;
@@ -57,7 +64,7 @@ public class AnnualCategoryDto
     /// <summary>Refunds received against this category across the year.</summary>
     public decimal Refunds { get; set; }
 
-    /// <summary>Total ÷ number of budgeted months (0 when no budgeted months).</summary>
+    /// <summary>Total ÷ <see cref="AnnualSummaryDto.CountedMonths"/> (0 when none).</summary>
     public decimal AveragePerMonth { get; set; }
 }
 

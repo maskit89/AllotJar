@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Common;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars;
@@ -50,6 +51,37 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
             throw new ValidationException(new Dictionary<string, string[]>
             {
                 ["Allocations"] = new[] { "A refund follows one purchase and can't be split across lines." },
+            });
+        }
+
+        // A refund stays on the line it landed on, so splitting its purchase onto other lines
+        // would leave that line reading the refund with no purchase (D9, review TX-P3-3). As with
+        // a delete, the user unlinks the refunds first; one in another login's private account
+        // counts too (W13).
+        var refunds = await RefundRules.AllRefundsAsync(_db, transaction.Id, cancellationToken);
+        if (refunds.Count > 0)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["Allocations"] = new[]
+                {
+                    refunds.Any(r => r.Hidden)
+                        ? "This purchase has a refund linked to it in a private account. Its holder must unlink it before the purchase can be split."
+                        : refunds.Count == 1
+                            ? "This purchase has a refund linked to it. Unlink the refund before splitting the purchase."
+                            : $"This purchase has {refunds.Count} refunds linked to it. Unlink them before splitting the purchase.",
+                },
+            });
+        }
+
+        // Slices are typed amounts, whole cents (D1); a row whose own amount carries more
+        // decimals (a converted amount restated at four, P67) can only be split into slices
+        // that add up to it.
+        if (MoneyInput.IsWholeCents(transaction.Amount) && request.Allocations.Any(a => !MoneyInput.IsWholeCents(a.Amount)))
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["Allocations"] = new[] { MoneyInput.TooPrecise },
             });
         }
 

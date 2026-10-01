@@ -142,15 +142,15 @@
 - **Expected:** Each `parseSignedAmount` returns null (magnitude unparseable) → error "Enter a valid opening balance."; no POST fires in any case.
 - **Automated:** No
 
-### ACCT-015 - Many-decimal opening rounds half-up to 4 dp; European grouping tolerated
+### ACCT-015 - Many-decimal opening is refused (D1); European grouping tolerated
 - **Priority:** P2
 - **Type:** Boundary
 - **Preconditions:** Owner; Add modal.
 - **Steps:**
   1. Add with Opening "1234.56785" (5+ decimals).
   2. Add another with Opening "1.234,50" (dot-grouping, comma-decimal).
-- **Expected:** Case 1: `parseMinor` keeps 4 dp and rounds half-up on the 5th digit (…6785 → minor 12345679 → €1,234.5679). Case 2: right-most separator (",") is the decimal, "." is grouping → 1234.50 → €1,234.50. Both POST the rounded wire decimal.
-- **Automated:** No
+- **Expected:** Case 1: refused with "Enter at most 2 decimal places."; nothing is sent or rounded (D1, 1 Oct 2026). Case 2: right-most separator (",") is the decimal, "." is grouping → 1234.50 → €1,234.50, POSTed as 1234.5.
+- **Automated:** Yes (client/src/pages/AccountsPage.catalog.test.tsx)
 
 ### ACCT-016 - Opening beyond the supported range fails server validation
 - **Priority:** P2

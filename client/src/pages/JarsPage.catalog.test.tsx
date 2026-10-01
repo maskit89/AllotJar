@@ -289,8 +289,8 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(screen.queryByText(/of €/)).not.toBeInTheDocument()
   })
 
-  it('JAR-028: a target with >4 decimals is rounded half-up to scale 4 on the wire', { timeout: 15000 }, async () => {
-    mockPost.mockResolvedValue({ data: jar({ id: 'f9', name: 'Precise', kind: 1, targetAmount: 100.1235, status: 'OnTrack' }) })
+  it('JAR-028 (D1): a target with more decimals than cents is refused with a message, never rounded', { timeout: 15000 }, async () => {
+    mockPost.mockResolvedValue({ data: jar({ id: 'f9', name: 'Precise', kind: 1, targetAmount: 100.12, status: 'OnTrack' }) })
     const user = userEvent.setup()
 
     renderPage()
@@ -302,9 +302,14 @@ describe('JarsPage — catalog (JAR)', () => {
     fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-03-01' } })
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
-    // parseMinor rounds HALF-UP on the 5th fractional digit: 100.123456 → 100.1235.
+    expect(await dialog.findByText('Enter at most 2 decimal places.')).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalledWith('/jars', expect.anything())
+
+    await user.clear(dialog.getByLabelText('Target amount'))
+    await user.type(dialog.getByLabelText('Target amount'), '100.12')
+    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
     await waitFor(
-      () => expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ targetAmount: 100.1235 })),
+      () => expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ targetAmount: 100.12 })),
       { timeout: 5000 },
     )
   })

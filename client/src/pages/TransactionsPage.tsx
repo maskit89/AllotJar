@@ -18,12 +18,13 @@ import type {
   ConfirmTransferLegsRequest,
   ConversionSuggestionDto,
   CreateTransferRequest,
+  DeleteTransactionResult,
   HouseholdMemberDto,
   TransactionDto,
   UpdateTransferRequest,
 } from '../types'
 import { TransactionType } from '../types'
-import { formatMoney, formatPlain, fromAmount, parseMinor, sumMinor, toAmount, toEditString } from '../lib/money'
+import { formatMoney, formatPlain, fromAmount, parseMinor, sumMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { formatDate, monthYear, shortDate, todayIso } from '../lib/dates'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
@@ -134,6 +135,9 @@ export function TransactionsPage() {
   const [members, setMembers] = useState<HouseholdMemberDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // What a saved edit or delete left for the user to settle, e.g. jars no longer backed by the
+  // account's money (D10): the change stands, so this is a notice, not an error.
+  const [notice, setNotice] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
   // One prompt for every cross-month confirmation (assign, edit, split, add): the server
   // rejected under the `crossMonth` key; Confirm re-runs the same action acknowledged.
@@ -465,6 +469,10 @@ export function TransactionsPage() {
       setError('Enter a valid amount greater than zero.')
       return
     }
+    if (tooPrecise(amount) || (addSplit && addRows.some((r) => tooPrecise(r.amount)))) {
+      setError(TOO_MANY_DECIMALS)
+      return
+    }
     if (!date) {
       setError('Enter the date of the transaction.')
       return
@@ -633,6 +641,14 @@ export function TransactionsPage() {
       setError('Enter a valid transfer amount greater than zero.')
       return
     }
+    // A typed amount is whole cents (D1); the edited transfer's own figures go back as they are.
+    if (
+      tooPrecise(tAmount, editing ? fromAmount(editing.amount) : null) ||
+      tooPrecise(tFee, editing?.fee != null ? fromAmount(editing.fee) : null)
+    ) {
+      setError(TOO_MANY_DECIMALS)
+      return
+    }
     if (!tFrom || !tTo) {
       setError('Choose both a source and a destination account.')
       return
@@ -676,7 +692,14 @@ export function TransactionsPage() {
     // The destination's jar answer applies on arrival, so it can be given while in transit; a
     // returned transfer never arrives.
     const incomingApplies = !(returnApplies && tReturned)
-    const jarProblem = incomingApplies && tToJars.length > 0 ? jarAllocationsProblem(tJarAlloc, toAmount(minor)) : null
+    const jarProblem =
+      incomingApplies && tToJars.length > 0
+        ? jarAllocationsProblem(
+            tJarAlloc,
+            toAmount(minor),
+            editing ? fromJarAllocations(incomingAllocationsOf(editing.jarAllocations, editing.transferAccountId)) : undefined,
+          )
+        : null
     if (jarProblem) {
       setError(jarProblem)
       return
@@ -835,7 +858,11 @@ export function TransactionsPage() {
         // The fields start from the answer given when it was recorded, so they are always sent
         // (an empty list leaves it all unallocated).
         if (jarsOf(t.transferAccountId).length > 0) {
-          const problem = jarAllocationsProblem(legJarAlloc, t.amount)
+          const problem = jarAllocationsProblem(
+            legJarAlloc,
+            t.amount,
+            fromJarAllocations(incomingAllocationsOf(t.jarAllocations, t.transferAccountId)),
+          )
           if (problem) {
             setError(problem)
             return
@@ -863,7 +890,9 @@ export function TransactionsPage() {
     setSavingId(id)
     setError(null)
     try {
-      await api.delete(`/transactions/${id}`)
+      // 204, or 200 with a warning when the delete left jars unbacked (D10).
+      const { data } = await api.delete<DeleteTransactionResult | ''>(`/transactions/${id}`)
+      setNotice(data ? (data.warning ?? null) : null)
       // The server deletes a transfer's fee row with it (P71): drop that row too.
       setTransactions((prev) => prev.filter((t) => t.id !== id && t.feeForTransferId !== id))
       reloadLedgers()
@@ -924,6 +953,10 @@ export function TransactionsPage() {
         setError('Enter a valid amount greater than zero.')
         return
       }
+      if (tooPrecise(eAmount, fromAmount(t.amount))) {
+        setError(TOO_MANY_DECIMALS)
+        return
+      }
       const id = t.id
       // Until the jar ledgers are known (still loading, or the read failed) the form can't tell
       // whether the account backs jars, so a stored answer is sent back unchanged rather than
@@ -937,7 +970,10 @@ export function TransactionsPage() {
       const backsJars =
         answerJars.length > 0 ||
         (!ledgersLoaded && (eType === TransactionType.Income ? toJarAllocations(eJarAlloc).length > 0 : !!ePaidFrom))
-      const jarProblem = backsJars && eType === TransactionType.Income ? jarAllocationsProblem(eJarAlloc, toAmount(minor)) : null
+      const jarProblem =
+        backsJars && eType === TransactionType.Income
+          ? jarAllocationsProblem(eJarAlloc, toAmount(minor), fromJarAllocations(incomingAllocationsOf(t.jarAllocations, t.accountId)))
+          : null
       if (jarProblem) {
         setError(jarProblem)
         return
@@ -984,6 +1020,7 @@ export function TransactionsPage() {
           ...(backsJars && eType === TransactionType.Expense ? { paidFromJarId: sendsPaidFrom ? ePaidFrom || null : null } : {}),
         })
         setTransactions((prev) => prev.map((x) => (x.id === id ? data : x)))
+        setNotice(data.warning ?? null)
         reloadLedgers()
         track(EVENTS.transactionEdited)
         setEditingId(null)
@@ -1055,6 +1092,12 @@ export function TransactionsPage() {
       }))
       if (parsed.length < 2 || parsed.some((a) => !a.budgetItemId || a.minor === null || a.minor <= 0)) {
         setError('Give every split line a category and an amount greater than zero.')
+        return
+      }
+      // Slices are whole cents (D1), unless the row's own amount carries more decimals (a
+      // converted amount restated at four): its slices must still add up to it.
+      if (fromAmount(t.amount) % 100 === 0 && splitRows.some((r) => tooPrecise(r.amount))) {
+        setError(TOO_MANY_DECIMALS)
         return
       }
       const allocatedMinor = sumMinor(parsed.map((a) => a.minor as number))
@@ -1227,6 +1270,17 @@ export function TransactionsPage() {
         />
 
         {error && !showAdd && <ErrorBanner>{error}</ErrorBanner>}
+        {notice && (
+          <div
+            role="status"
+            className="flex items-start justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+          >
+            <span>{notice}</span>
+            <button type="button" onClick={() => setNotice(null)} className="shrink-0 text-xs font-semibold underline">
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* Add transaction / transfer — a modal opened from the toolbar's + button. */}
         {showAdd && canEnterData && (
