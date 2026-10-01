@@ -1,7 +1,7 @@
 // Registers the jest-dom matchers (e.g. toBeInTheDocument) and cleans up the
 // DOM between tests.
 import '@testing-library/jest-dom/vitest'
-import { afterEach } from 'vitest'
+import { afterEach, beforeEach, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 
 // This jsdom build ships a non-functional localStorage; provide a working
@@ -67,6 +67,15 @@ if (typeof globalThis.BroadcastChannel === 'undefined') {
     configurable: true,
   })
 }
+
+// Many tests hard-code months (2026-09 / 2026-10) in their fixtures and assertions, so "today" is pinned
+// to a day inside that window; otherwise the suite fails once the real calendar leaves it. Only Date is
+// faked: timers, promises and Testing Library's polling keep running on the real clock. It is installed
+// here at load too, because some test files compute "today" at module level, before any beforeEach.
+const TEST_NOW = new Date('2026-10-15T12:00:00Z')
+const pinToday = () => vi.useFakeTimers({ toFake: ['Date'], now: TEST_NOW })
+pinToday()
+beforeEach(pinToday)
 
 afterEach(() => {
   cleanup()
