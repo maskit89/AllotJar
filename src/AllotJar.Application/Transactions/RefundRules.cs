@@ -61,6 +61,12 @@ public static class RefundRules
         {
             throw Refuse("A refund can't itself be refunded. Link this to the original purchase instead.");
         }
+        // A transfer's fee is changed only through its transfer, which can shrink or remove it
+        // (TX-P2-1): a refund linked to it would block that or end up larger than the fee.
+        if (original.FeeForTransferId is not null)
+        {
+            throw Refuse("A transfer's fee can't be refunded. Record the money back as income, or edit the transfer's fee.");
+        }
         if (original.Type != TransactionType.Expense)
         {
             throw Refuse(original.Type == TransactionType.Transfer

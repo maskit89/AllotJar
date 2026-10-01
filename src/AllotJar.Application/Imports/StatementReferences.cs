@@ -34,8 +34,20 @@ public readonly record struct ResolvedReference(string? Reference, bool Duplicat
 public sealed class KnownReferences
 {
     private readonly Dictionary<string, KnownEntry> _entries;
+    // The references rows of the statement being read took (Add): a later row repeating one is
+    // another entry of the same statement, not a reference the account already used.
+    private readonly HashSet<string> _added = new(StringComparer.OrdinalIgnoreCase);
+    // Known references of the old occurrence form "{reference}#N", by {reference}.
+    private readonly Dictionary<string, List<string>> _suffixed = new(StringComparer.OrdinalIgnoreCase);
 
-    internal KnownReferences(Dictionary<string, KnownEntry> entries) => _entries = entries;
+    internal KnownReferences(Dictionary<string, KnownEntry> entries)
+    {
+        _entries = entries;
+        foreach (var key in entries.Keys)
+        {
+            IndexSuffixed(key);
+        }
+    }
 
     public bool Contains(string reference) => _entries.ContainsKey(reference);
 
@@ -45,28 +57,81 @@ public sealed class KnownReferences
         {
             return new(null, false, null);
         }
-        if (!_entries.TryGetValue(reference, out var known))
-        {
-            return new(reference, false, null);
-        }
-        if (known.Matches(date, amount, isCredit))
+        var isKnown = _entries.TryGetValue(reference, out var known);
+        if (isKnown && known!.Matches(date, amount, isCredit))
         {
             return new(reference, true, null);
         }
+        // The entry may be stored under another form of its reference even when the raw one is
+        // free, e.g. its statement's first row with that reference was never imported (unticked,
+        // or held and discarded): under its derived reference, or, before 1 Oct 2026, under the
+        // camt.053 parser's "{reference}#N" for the Nth repeat within one statement whatever its
+        // details. Either is this entry when it recorded the same details (TX-P2-3).
         var derived = StatementReferences.Derive(reference, date, amount, isCredit);
-        return _entries.ContainsKey(derived) ? new(derived, true, null) : new(derived, false, known);
+        if (_entries.ContainsKey(derived))
+        {
+            return new(derived, true, null);
+        }
+        if (_suffixed.TryGetValue(reference, out var suffixed))
+        {
+            foreach (var key in suffixed)
+            {
+                if (_entries[key].Matches(date, amount, isCredit))
+                {
+                    return new(key, true, null);
+                }
+            }
+        }
+        if (!isKnown)
+        {
+            return new(reference, false, null);
+        }
+        return new(derived, false, _added.Contains(reference) ? null : known);
     }
 
     /// <summary>Records <paramref name="reference"/> as taken by this row; false when it already was.</summary>
-    public bool Add(string reference, DateOnly date, decimal amount, bool isCredit) =>
-        _entries.TryAdd(reference, new KnownEntry(date, amount, isCredit));
+    public bool Add(string reference, DateOnly date, decimal amount, bool isCredit)
+    {
+        if (!_entries.TryAdd(reference, new KnownEntry(date, amount, isCredit)))
+        {
+            return false;
+        }
+        _added.Add(reference);
+        IndexSuffixed(reference);
+        return true;
+    }
 
     public void Remove(string? reference)
     {
-        if (reference is not null)
+        if (reference is not null && _entries.Remove(reference))
         {
-            _entries.Remove(reference);
+            _added.Remove(reference);
+            if (SuffixBase(reference) is string head && _suffixed.TryGetValue(head, out var keys))
+            {
+                keys.RemoveAll(k => string.Equals(k, reference, StringComparison.OrdinalIgnoreCase));
+            }
         }
+    }
+
+    private void IndexSuffixed(string key)
+    {
+        if (SuffixBase(key) is string head)
+        {
+            if (!_suffixed.TryGetValue(head, out var keys))
+            {
+                _suffixed[head] = keys = new List<string>();
+            }
+            keys.Add(key);
+        }
+    }
+
+    /// <summary>"R" for a reference of the form "R#&lt;digits&gt;", else null.</summary>
+    private static string? SuffixBase(string key)
+    {
+        var hash = key.LastIndexOf('#');
+        return hash > 0 && hash < key.Length - 1 && key.AsSpan(hash + 1).IndexOfAnyExceptInRange('0', '9') < 0
+            ? key[..hash]
+            : null;
     }
 }
 

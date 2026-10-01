@@ -240,10 +240,10 @@ public class IImportCoverageTests
 
     // ================= CAMT reference edge cases =============================
 
-    // IMP-088a — A CAMT entry whose only reference is EndToEndId=NOTPROVIDED resolves to a NULL
-    // BankReference (exempt from the dedup index), never an empty or literal-"NOTPROVIDED" key.
+    // IMP-088a — A CAMT entry whose only reference is EndToEndId=NOTPROVIDED gets a content
+    // reference ("camt:<hash>#0", TX-P2-2), never an empty or literal-"NOTPROVIDED" key.
     [Fact]
-    public void Camt_notprovided_end_to_end_id_yields_a_null_reference()
+    public void Camt_notprovided_end_to_end_id_yields_a_content_reference()
     {
         const string xml = """
             <Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
@@ -263,14 +263,13 @@ public class IImportCoverageTests
         var entry = new Camt053StatementParser().Parse(xml).Entries.Should().ContainSingle().Subject;
 
         entry.Payee.Should().Be("CORNER SHOP");
-        entry.Reference.Should().BeNull(); // null, not "" and not "NOTPROVIDED"
+        entry.Reference.Should().StartWith("camt:").And.EndWith("#0"); // not "" and not "NOTPROVIDED"
     }
 
-    // IMP-088b — Because a null-reference entry carries no idempotency key, it re-imports on EVERY
-    // upload (a second import creates a second transaction), while a referenced sibling in the same
-    // statement dedups normally. The content-level possible-duplicate hint is the only guard here.
+    // IMP-088b — An entry without a bank reference is keyed by its content (TX-P2-2), so re-uploading
+    // the same statement recognises it as it does its referenced sibling.
     [Fact]
-    public async Task Camt_null_reference_entry_reimports_every_time_while_referenced_rows_dedup()
+    public async Task Camt_entry_without_a_reference_dedups_like_referenced_rows()
     {
         const string xml = """
             <Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
@@ -303,15 +302,14 @@ public class IImportCoverageTests
         await NewCommit(db, "user-1").Handle(
             new CommitImportCommand(null, ToCommitItems(first)), CancellationToken.None);
 
-        // The referenced row persisted with its key; the null-ref row persisted with BankReference NULL.
+        // Both rows persisted with a key: the bank's, and the content reference.
         (await db.Transactions.CountAsync()).Should().Be(2);
-        (await db.Transactions.CountAsync(t => t.BankReference == null)).Should().Be(1);
+        (await db.Transactions.CountAsync(t => t.BankReference == null)).Should().Be(0);
 
-        // Re-upload the identical file: REF-KEEP-1 is recognised, but the null-ref row is new again.
+        // Re-upload the identical file: both rows are recognised.
         var second = await NewPreview(db, "user-1").Handle(command, CancellationToken.None);
-        second.NewCount.Should().Be(1);
-        second.SkippedDuplicates.Should().Be(1);
-        second.Items.Should().ContainSingle().Which.Payee.Should().Be("CORNER SHOP");
+        second.NewCount.Should().Be(0);
+        second.SkippedDuplicates.Should().Be(2);
     }
 
     // ================= Commit & preview validators ===========================

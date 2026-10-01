@@ -63,6 +63,12 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
             });
         }
 
+        // A transfer's fee goes with it, so a refund linked to the fee blocks the delete too (TX-P2-1).
+        if (transaction.Fee is Transaction linkedFee)
+        {
+            await TransferFees.EnsureRefundsFitAsync(_db, linkedFee, 0m, "TransactionId", cancellationToken);
+        }
+
         // Rule 74: removing money that reached an account (an income, a receipt) can leave later
         // payments uncovered; the account must stay at or above zero on every date without it.
         var affected = new[] { transaction.Account, transaction.TransferAccount }.Where(a => a is not null).Select(a => a!).ToList();

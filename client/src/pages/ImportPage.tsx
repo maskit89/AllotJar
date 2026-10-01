@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { Badge, Button, Card, ErrorBanner, Input, PageHeader, Select } from '../components/ui'
@@ -93,6 +93,8 @@ const DATE_FORMAT_OPTIONS: { value: string; label: string }[] = [
 type SplitDraft = SplitRowDraft
 
 interface ReviewRow {
+  /** The row's own identity on this screen, by its place in the preview: bank references can repeat or be empty. */
+  key: string
   reference: string
   date: string
   payee: string
@@ -256,6 +258,20 @@ function matchLabel(r: ReviewRow, m: TransferMatchCandidate): string {
   return parts.join(' · ')
 }
 
+/**
+ * The rows of a commit's `sent` rows that its result names, by key: by position in the request
+ * (unique), else, from a server that sends none, the first row not yet named with that reference.
+ */
+function rowsNamed<T extends { reference: string; index?: number }>(sent: ReviewRow[], named: T[]): Map<string, T> {
+  const byKey = new Map<string, T>()
+  for (const n of named) {
+    const row =
+      typeof n.index === 'number' && n.index >= 0 ? sent[n.index] : sent.find((r) => r.reference === n.reference && !byKey.has(r.key))
+    if (row && !byKey.has(row.key)) byKey.set(row.key, n)
+  }
+  return byKey
+}
+
 /** A DOM id prefix for one row's prompts: the statement reference, sanitised, plus the row's position. */
 function rowDomId(reference: string, index: number): string {
   return `import-row-${index}-${reference.replace(/[^A-Za-z0-9_-]/g, '_')}`
@@ -337,7 +353,11 @@ export function ImportPage() {
   const [results, setResults] = useState<ImportStatementResult[]>([])
   // The reviewed rows each commit accepted (imported or skipped as a duplicate) — the done
   // screen's money in/out sums. Held rows join once a later commit posts them.
-  const [committedRows, setCommittedRows] = useState<ReviewRow[]>([])
+  const [committedRows, setCommittedRows] = useState<(ReviewRow & { skipped: boolean })[]>([])
+  // Every row held at some point in this review (a row may be held by more than one commit), by key.
+  const [heldEver, setHeldEver] = useState<string[]>([])
+  // Each preview's rows get keys no earlier preview used.
+  const nextRowKey = useRef(0)
   // The latest commit that held rows back: while set, the review shows only those rows.
   const [heldResult, setHeldResult] = useState<ImportStatementResult | null>(null)
   // Count of categorised rows dated outside the loaded budget month — set when Import needs the
@@ -424,8 +444,7 @@ export function ImportPage() {
   )
   // Rows held by the latest commit (rule 74): the review shows only those until they post or are unticked.
   const heldMode = heldResult !== null
-  // Every row held at some point in this review (a row may be held by more than one commit).
-  const heldEverCount = useMemo(() => new Set(results.flatMap((r) => (r.held ?? []).map((h) => h.reference))).size, [results])
+  const heldEverCount = useMemo(() => new Set(heldEver).size, [heldEver])
 
   // Fold a preview result into the review state (shared by the first upload and CSV re-scans).
   // On a re-scan, `priorRows` carries the user's per-row work forward for any row whose identity
@@ -438,6 +457,7 @@ export function ImportPage() {
       data.items.map((c) => {
         const kept = prior.get(c.reference)
         return {
+          key: `row-${nextRowKey.current++}`,
           reference: c.reference,
           date: c.date,
           payee: c.payee,
@@ -580,7 +600,7 @@ export function ImportPage() {
   }
 
   // --- per-row split editing ---
-  function startSplit(index: number, ref: string) {
+  function startSplit(index: number, key: string) {
     setRows((rs) =>
       rs.map((r, i) =>
         i === index && !r.splits
@@ -588,7 +608,7 @@ export function ImportPage() {
           : r,
       ),
     )
-    setSplitOpen(ref)
+    setSplitOpen(key)
   }
   function clearSplit(index: number) {
     setRows((rs) => rs.map((r, i) => (i === index ? { ...r, splits: null } : r)))
@@ -742,10 +762,18 @@ export function ImportPage() {
       // Rule 74: the rows the account could not take on their date were held, not posted.
       // Everything else went in; the review stays open for just the held rows, each with the
       // server's reason, until a later commit posts them or the user unticks them.
-      const held = new Map((result.held ?? []).map((h) => [h.reference, h.message]))
-      setCommittedRows((prev) => [...prev, ...sent.filter((r) => !held.has(r.reference))])
+      // Rows are named by their position in the request: references need not be unique.
+      const held = new Map([...rowsNamed(sent, result.held ?? [])].map(([key, h]) => [key, h.message]))
+      const skipped = rowsNamed<{ reference: string; index?: number }>(
+        sent,
+        result.skippedIndexes
+          ? result.skippedIndexes.map((index) => ({ reference: '', index }))
+          : (result.skippedReferences ?? []).map((reference) => ({ reference })),
+      )
+      setCommittedRows((prev) => [...prev, ...sent.filter((r) => !held.has(r.key)).map((r) => ({ ...r, skipped: skipped.has(r.key) }))])
+      setHeldEver((prev) => [...prev, ...held.keys()])
       if (held.size > 0) {
-        setRows(rows.filter((r) => held.has(r.reference)).map((r) => ({ ...r, heldMessage: held.get(r.reference) ?? null })))
+        setRows(rows.filter((r) => held.has(r.key)).map((r) => ({ ...r, heldMessage: held.get(r.key) ?? null })))
         setSplitOpen(null)
         setHeldResult(result)
       } else {
@@ -778,6 +806,7 @@ export function ImportPage() {
     setSplitOpen(null)
     setResults([])
     setCommittedRows([])
+    setHeldEver([])
     setHeldResult(null)
     setError(null)
     setBulkMember('')
@@ -1208,13 +1237,13 @@ export function ImportPage() {
                   const groups = buildItemOptions(month, r.isCredit ? TransactionType.Income : TransactionType.Expense)
                   const nameById = new Map(groups.flatMap((g) => g.items).map((i) => [i.id, i.name]))
                   const info = splitInfo(r)
-                  const open = splitOpen === r.reference
+                  const open = splitOpen === r.key
                   const domId = rowDomId(r.reference, index)
                   // The jar prompts (rules 78/79) apply only to a ticked row into/out of a jar-backed account.
                   const showAllocation = importBacksJars && r.include && r.isCredit && !isReturnRow(r)
                   const showPaidFrom = importBacksJars && r.include && paidFromApplies(r, jarLineIds)
                   return (
-                    <Fragment key={r.reference}>
+                    <Fragment key={r.key}>
                       {/* A flagged-but-unticked row needs its badge readable (an opacity-dimmed
                           row drops the amber text below AA contrast), so it gets an attention
                           tint instead of the excluded-row fade. */}
@@ -1423,7 +1452,7 @@ export function ImportPage() {
                                   <Badge tone={info.valid ? 'violet' : 'amber'}>Split · {r.splits.length}</Badge>
                                   <button
                                     type="button"
-                                    onClick={() => setSplitOpen(open ? null : r.reference)}
+                                    onClick={() => setSplitOpen(open ? null : r.key)}
                                     aria-label={`Edit split for ${r.payee} on ${r.date}`}
                                     className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-200"
                                   >
@@ -1449,7 +1478,7 @@ export function ImportPage() {
                                 </Select>
                                 <button
                                   type="button"
-                                  onClick={() => startSplit(index, r.reference)}
+                                  onClick={() => startSplit(index, r.key)}
                                   disabled={!r.include}
                                   aria-label={`Split ${r.payee} on ${r.date}`}
                                   className="text-xs font-medium text-brand-700 hover:underline disabled:opacity-40 dark:text-brand-200"
@@ -1753,8 +1782,7 @@ export function ImportPage() {
             // moved no money, so it is left out; a row in another currency is summed in that
             // currency and shown apart, and the count of those still waiting for their amount in
             // the budget currency is shown below. Transfers are internal moves, so they stay a count.
-            const skippedRefs = new Set(results.flatMap((r) => r.skippedReferences ?? []))
-            const importedRows = committedRows.filter((r) => !skippedRefs.has(r.reference))
+            const importedRows = committedRows.filter((r) => !r.skipped)
             const moneyIn = moneyByCurrency(importedRows, (r) => !r.isTransfer && r.isCredit)
             const moneyOut = moneyByCurrency(importedRows, (r) => !r.isTransfer && !r.isCredit)
             const money = (groups: { currency: string; minor: number }[]) =>

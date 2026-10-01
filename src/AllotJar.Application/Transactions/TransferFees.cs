@@ -31,6 +31,12 @@ public static class TransferFees
         decimal? fee, Guid? lineId, bool acknowledgeCrossMonth, Guid? paidFromJarId,
         string errorKey, ICollection<Guid> removedIds, CancellationToken cancellationToken)
     {
+        // A fee can't be refunded (RefundRules), but a refund linked before that was refused keeps
+        // the fee from shrinking below it or going (TX-P2-1).
+        if (transfer.Fee is Transaction current && (fee is not > 0m || fee.Value < current.Amount))
+        {
+            await EnsureRefundsFitAsync(db, current, fee is > 0m ? fee.Value : 0m, errorKey, cancellationToken);
+        }
         if (fee is not > 0m)
         {
             if (transfer.Fee is Transaction old)
@@ -100,6 +106,27 @@ public static class TransferFees
         await JarMovements.ApplyOutgoingAsync(
             db, ownerId, row, source, drawsFromLineJar ? null : paidFromJarId, errorKey, cancellationToken);
         return row;
+    }
+
+    /// <summary>
+    /// Refuses a fee change that would leave less than its linked refunds: <paramref name="amount"/>
+    /// is what the fee becomes (0 when it goes).
+    /// </summary>
+    public static async Task EnsureRefundsFitAsync(
+        IApplicationDbContext db, Transaction fee, decimal amount, string errorKey, CancellationToken cancellationToken)
+    {
+        var refunds = await RefundRules.AllRefundsAsync(db, fee.Id, cancellationToken);
+        if (refunds.Count == 0)
+        {
+            return;
+        }
+        var refunded = refunds.Where(r => !r.Waiting).Sum(r => r.Amount);
+        if (amount <= 0m || amount < refunded)
+        {
+            throw Validation(errorKey, refunds.Any(r => r.Hidden)
+                ? "This transfer's fee has a refund linked to it in a private account. Its holder must unlink it first."
+                : "This transfer's fee has a refund linked to it. Unlink the refund first.");
+        }
     }
 
     /// <summary>
