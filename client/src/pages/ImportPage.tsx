@@ -1186,7 +1186,7 @@ export function ImportPage() {
             <div className="grid gap-1 text-xs font-medium text-slate-500">
               Member
               <div className="flex items-center gap-2">
-                <Select aria-label="Bulk member" value={bulkMember} onChange={(e) => setBulkMember(e.target.value)} className="w-40">
+                <Select aria-label="Bulk member" value={bulkMember} onChange={(e) => setBulkMember(e.target.value)} className="w-40" disabled={busy}>
                   <option value="">No member</option>
                   {members.map((m) => (
                     <option key={m.id} value={m.id}>
@@ -1194,7 +1194,7 @@ export function ImportPage() {
                     </option>
                   ))}
                 </Select>
-                <Button variant="secondary" size="sm" onClick={applyMemberToIncluded} disabled={members.length === 0}>
+                <Button variant="secondary" size="sm" onClick={applyMemberToIncluded} disabled={busy || members.length === 0}>
                   Apply to included
                 </Button>
               </div>

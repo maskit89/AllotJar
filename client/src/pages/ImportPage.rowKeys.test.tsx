@@ -117,6 +117,9 @@ describe('ImportPage: rows sharing a reference stay apart', () => {
     expect(screen.getByLabelText('Category for AUTOMARKET on 2026-06-17')).toBeDisabled()
     expect(screen.getByLabelText('Category for WOLT on 2026-06-15')).toBeDisabled()
     expect(screen.getByLabelText('Bulk category')).toBeDisabled()
+    expect(screen.getByLabelText('Bulk member')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Apply to included' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Apply to expenses' })).toBeDisabled()
 
     answer(committed({ imported: 1, held: [{ reference: '', index: 0, message: 'Would go below zero.' }] }))
     await screen.findByRole('status')
