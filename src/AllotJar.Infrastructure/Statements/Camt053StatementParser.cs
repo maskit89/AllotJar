@@ -62,9 +62,10 @@ public class Camt053StatementParser : IStatementParser
         // bad rows the same way), so parse per entry and drop the ones we can't trust.
         var entries = new List<ParsedStatementEntry>();
         // Banks DO reuse references (a standing order re-using its EndToEndId, a pooled
-        // AcctSvcrRef), and commit dedups on exact reference — so the Nth repeat of a reference
-        // within one statement gets an occurrence suffix, exactly like the CSV parsers. The FIRST
-        // occurrence keeps the raw reference so everything already imported stays matched.
+        // AcctSvcrRef). A repeat with other details keeps the bank's reference: the import tells it
+        // apart by its date, amount and direction (StatementReferences.Derive), the same way in
+        // every statement that shows it, overlapping or not (TX-P2-3). Only a repeat identical in
+        // those too gets an occurrence suffix, the Nth such repeat "#N".
         var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
 
         foreach (var ntry in stmt.Descendants().Where(e => e.Name.LocalName == "Ntry"))
@@ -77,18 +78,29 @@ public class Camt053StatementParser : IStatementParser
 
             if (entry.Reference is string reference)
             {
-                var index = occurrences.TryGetValue(reference, out var seen) ? seen : 0;
-                occurrences[reference] = index + 1;
+                var identity = string.Create(CultureInfo.InvariantCulture,
+                    $"{reference.ToUpperInvariant()}|{entry.BookingDate:yyyy-MM-dd}|{entry.Amount:0.####}|{(entry.IsCredit ? 'C' : 'D')}");
+                var index = occurrences.TryGetValue(identity, out var seen) ? seen : 0;
+                occurrences[identity] = index + 1;
                 if (index > 0)
                 {
-                    // Suffixed repeats were never importable before (commit dedup dropped them),
-                    // so folding an overlong base here can't drift any existing reference.
                     var suffix = $"#{index}";
                     entry = entry with
                     {
                         Reference = FitWithin(reference, MaxReferenceLength - suffix.Length) + suffix,
                     };
                 }
+            }
+            else
+            {
+                // No bank reference (no AcctSvcrRef, an EndToEndId of NOTPROVIDED, as many banks
+                // print for card payments): a stable reference from the entry's own content, as the
+                // CSV parsers make, so a re-import or an overlapping statement recognises it
+                // (TX-P2-2). Identical entries are told apart by their order, "#N".
+                var signature = ContentSignature(ntry, entry);
+                var index = occurrences.TryGetValue(signature, out var seen) ? seen : 0;
+                occurrences[signature] = index + 1;
+                entry = entry with { Reference = $"camt:{ShortHash(signature)}#{index}" };
             }
 
             entries.Add(entry);
@@ -165,6 +177,25 @@ public class Camt053StatementParser : IStatementParser
             ? null
             : FitWithin(endToEnd.Trim(), MaxReferenceLength);
     }
+
+    /// <summary>
+    /// What identifies an entry that carries no bank reference: its date, signed amount, currency,
+    /// counterparty and remittance text, as printed. Prefixed so it can never equal a bank's own
+    /// reference in <see cref="Parse"/>'s occurrence count.
+    /// </summary>
+    private static string ContentSignature(XElement ntry, ParsedStatementEntry entry)
+    {
+        var remittance = string.Join(" ", ntry.Descendants()
+            .Where(e => e.Name.LocalName is "Ustrd" or "AddtlNtryInf")
+            .Select(e => e.Value.Trim())
+            .Where(v => v.Length > 0));
+        var signed = entry.IsCredit ? entry.Amount : -entry.Amount;
+        return string.Create(CultureInfo.InvariantCulture,
+            $"camt|{entry.BookingDate:yyyy-MM-dd}|{signed:0.####}|{entry.Currency}|{entry.Payee.ToUpperInvariant()}|{remittance.ToUpperInvariant()}");
+    }
+
+    private static string ShortHash(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)), 0, 16).ToLowerInvariant();
 
     /// <summary>Deterministic fold: unchanged when it fits, else prefix + '~' + 32-hex SHA-256 head.</summary>
     private static string FitWithin(string reference, int max)

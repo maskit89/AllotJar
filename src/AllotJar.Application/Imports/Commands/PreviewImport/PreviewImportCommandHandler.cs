@@ -109,6 +109,13 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
             {
                 fresh.Add(entry);
                 resolved.Add(resolution);
+                // As the commit does: a later row of this statement repeating the reference with
+                // other details is offered under its own derived reference, so every row the
+                // screen gets has a reference of its own (TX-P2-3).
+                if (resolution.Reference is string taken)
+                {
+                    known.Add(taken, entry.BookingDate, entry.Amount, entry.IsCredit);
+                }
             }
         }
         var skipped = statement.Entries.Count - fresh.Count;
