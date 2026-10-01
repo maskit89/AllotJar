@@ -148,10 +148,14 @@ public class RefreshTokenService : IRefreshTokenService
     private async Task PruneExpiredAsync(string userId, CancellationToken cancellationToken)
     {
         var now = DateTime.UtcNow;
-        var expired = await _db.RefreshTokens
-            .Where(t => t.UserId == userId && t.ExpiresUtc < now)
-            .ToListAsync(cancellationToken);
-        _db.RefreshTokens.RemoveRange(expired);
+        var expired = _db.RefreshTokens.Where(t => t.UserId == userId && t.ExpiresUtc < now);
+        if (_db.Database.IsRelational())
+        {
+            // Set-based: a concurrent refresh that already removed the same rows is no conflict.
+            await expired.ExecuteDeleteAsync(cancellationToken);
+            return;
+        }
+        _db.RefreshTokens.RemoveRange(await expired.ToListAsync(cancellationToken));
     }
 
     /// <summary>A new URL-safe random token (256 bits of entropy).</summary>
