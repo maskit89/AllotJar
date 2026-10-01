@@ -773,7 +773,8 @@ export function ImportPage() {
       setCommittedRows((prev) => [...prev, ...sent.filter((r) => !held.has(r.key)).map((r) => ({ ...r, skipped: skipped.has(r.key) }))])
       setHeldEver((prev) => [...prev, ...held.keys()])
       if (held.size > 0) {
-        setRows(rows.filter((r) => held.has(r.key)).map((r) => ({ ...r, heldMessage: held.get(r.key) ?? null })))
+        // The rows as they are now: a row re-answered while the commit was out keeps that answer.
+        setRows((current) => current.filter((r) => held.has(r.key)).map((r) => ({ ...r, heldMessage: held.get(r.key) ?? null })))
         setSplitOpen(null)
         setHeldResult(result)
       } else {
@@ -1185,7 +1186,7 @@ export function ImportPage() {
             <div className="grid gap-1 text-xs font-medium text-slate-500">
               Member
               <div className="flex items-center gap-2">
-                <Select aria-label="Bulk member" value={bulkMember} onChange={(e) => setBulkMember(e.target.value)} className="w-40">
+                <Select aria-label="Bulk member" value={bulkMember} onChange={(e) => setBulkMember(e.target.value)} className="w-40" disabled={busy}>
                   <option value="">No member</option>
                   {members.map((m) => (
                     <option key={m.id} value={m.id}>
@@ -1193,7 +1194,7 @@ export function ImportPage() {
                     </option>
                   ))}
                 </Select>
-                <Button variant="secondary" size="sm" onClick={applyMemberToIncluded} disabled={members.length === 0}>
+                <Button variant="secondary" size="sm" onClick={applyMemberToIncluded} disabled={busy || members.length === 0}>
                   Apply to included
                 </Button>
               </div>
@@ -1201,10 +1202,10 @@ export function ImportPage() {
             <div className="grid gap-1 text-xs font-medium text-slate-500">
               Category (expenses)
               <div className="flex items-center gap-2">
-                <Select aria-label="Bulk category" value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} className="w-48">
+                <Select aria-label="Bulk category" value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} className="w-48" disabled={busy}>
                   <CategoryOptions groups={expenseGroups} />
                 </Select>
-                <Button variant="secondary" size="sm" onClick={applyCategoryToIncluded} disabled={expenseGroups.length === 0}>
+                <Button variant="secondary" size="sm" onClick={applyCategoryToIncluded} disabled={busy || expenseGroups.length === 0}>
                   Apply to expenses
                 </Button>
               </div>
@@ -1212,6 +1213,9 @@ export function ImportPage() {
           </Card>
 
           <Card className="overflow-x-auto">
+            {/* The rows are what Import sends: they hold still while it is out, so an answer can't be
+                given to a row that is already on its way (and lost when the server takes it). */}
+            <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">
             <table className="w-full text-sm">
               <caption className="sr-only">Transactions to import</caption>
               <thead>
@@ -1699,6 +1703,7 @@ export function ImportPage() {
                 })}
               </tbody>
             </table>
+            </fieldset>
           </Card>
 
           {reviewIncomplete && (

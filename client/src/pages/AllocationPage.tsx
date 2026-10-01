@@ -211,6 +211,7 @@ export function AllocationPage() {
       // fresh preview in.
       setCommitted(null)
       await loadPreview(period.year, period.month)
+      if (!isViewed(period.year, period.month)) return
       setSyncedMsg(`Pocket money added to ${new Date(period.year, period.month - 1, 1).toLocaleDateString(undefined, { month: 'long' })}’s budget.`)
     } catch (err) {
       setError(serverErrors(err) ?? 'Could not add the pocket-money lines to the budget.')

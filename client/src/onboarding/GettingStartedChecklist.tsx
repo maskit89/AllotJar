@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { api } from '../lib/api'
 import type { BudgetMonthDto, BudgetMonthSummaryDto, TransactionDto } from '../types'
@@ -17,7 +17,6 @@ interface Progress {
 }
 
 const EMPTY: Progress = { monthExists: false, hasIncome: false, balanced: false, hasTransaction: false }
-const now = new Date()
 
 /**
  * A small, dismissible "Getting started" panel pinned to the corner. Its steps
@@ -32,17 +31,23 @@ export function GettingStartedChecklist() {
   const [open, setOpen] = useState(true)
   const [progress, setProgress] = useState<Progress>(EMPTY)
 
+  // Only the latest check lands: a focus check and a navigation check in flight together answer in
+  // either order, and an older "no income yet" must not overwrite a newer answer.
+  const latestCheck = useRef(0)
   const refresh = useCallback(() => {
     let cancelled = false
-    const set = (p: Partial<Progress>) => !cancelled && setProgress((prev) => ({ ...prev, ...p }))
+    const checkNo = ++latestCheck.current
+    const set = (p: Partial<Progress>) => !cancelled && checkNo === latestCheck.current && setProgress((prev) => ({ ...prev, ...p }))
 
     api
       .get<BudgetMonthSummaryDto[]>('/budget/months')
       .then(({ data }) => set({ monthExists: Array.isArray(data) && data.length > 0 }))
       .catch(() => {})
 
+    // Today's month, read on every check: a tab left open over a month's end asks about the new one.
+    const { year, month } = currentMonth(new Date())
     api
-      .get<BudgetMonthDto>(`/budget/${currentMonth(now).year}/${currentMonth(now).month}`)
+      .get<BudgetMonthDto>(`/budget/${year}/${month}`)
       .then(({ data }) => {
         const vm = fromDto(data)
         const income = totalIncome(vm)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import type { JarAccountLedgerDto, JarAllocationRequest, JarLedgerLineDto, TransactionJarAllocationDto } from '../types'
 import { fromAmount, parseMinor } from './money'
@@ -13,9 +13,14 @@ export function useJarLedgers(enabled = true) {
   // True once a read has succeeded (and false again after one fails): until then an empty list
   // means "not known", not "no jar-backed accounts", so a form must not clear stored jar answers.
   const [loaded, setLoaded] = useState(false)
+  // Only the latest read lands: two reloads in flight (two saves in a row) answer in any order,
+  // and an older ledger must not overwrite a newer one.
+  const latestRead = useRef(0)
   const read = useCallback(
-    (isCurrent: () => boolean = () => true) => {
+    (isLive: () => boolean = () => true) => {
       if (!enabled) return Promise.resolve()
+      const readNo = ++latestRead.current
+      const isCurrent = () => isLive() && readNo === latestRead.current
       return api
         .get<JarAccountLedgerDto[]>('/jars/ledger')
         .then(({ data }) => {

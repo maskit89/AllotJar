@@ -99,10 +99,23 @@ api.interceptors.request.use((config) => {
 // cookie is presented and rotated exactly once no matter how many callers race.
 let sessionRefresh: Promise<AuthResponse | null> | null = null
 
+/** /auth/refresh got no answer the session can be judged on (see {@link refreshSession}). */
+export class SessionUnreachableError extends Error {
+  constructor() {
+    super('The server could not be reached to refresh the session.')
+    this.name = 'SessionUnreachableError'
+  }
+}
+
+function refreshWasUnreachable(err: unknown): boolean {
+  return typeof (err as { response?: { status?: number } } | null)?.response?.status !== 'number'
+}
+
 /**
  * Restore the session from the HttpOnly refresh cookie, storing the new in-memory access token.
  * Concurrent callers share a single in-flight /auth/refresh POST. Resolves to the auth payload, or
- * null if the session can't be refreshed (cookie missing/expired/revoked).
+ * null if the server answered without one (cookie missing/expired/revoked, or a server error).
+ * Rejects with {@link SessionUnreachableError}, leaving the token as it was, when no answer came.
  */
 export function refreshSession(): Promise<AuthResponse | null> {
   if (!sessionRefresh) {
@@ -117,7 +130,12 @@ export function refreshSession(): Promise<AuthResponse | null> {
         if (data) sessionHandlers?.refreshed(data)
         return data
       })
-      .catch(() => {
+      .catch((err) => {
+        // Only no answer at all (a laptop waking before its Wi-Fi is back) keeps the session: the
+        // request may never have reached the server. Any answer, a 5xx included, ends it as before,
+        // since the server may already have rotated the cookie, and a later replay of the old one
+        // outside the grace window would sign out every device (#302 review P2-1).
+        if (refreshWasUnreachable(err)) throw new SessionUnreachableError()
         setToken(null)
         return null
       })
@@ -147,7 +165,15 @@ api.interceptors.response.use(
 
     if (status === 401 && original && !original.__retried && !isCredentialEndpoint) {
       original.__retried = true
-      const session = await refreshSession()
+      let session: AuthResponse | null
+      try {
+        session = await refreshSession()
+      } catch {
+        // The server could not be reached: the call fails as it would offline, and the session
+        // stays for the next request to refresh.
+        trackApiError(error, status)
+        return Promise.reject(error)
+      }
       if (session?.token) {
         original.headers = original.headers ?? {}
         original.headers.Authorization = `Bearer ${session.token}`
@@ -157,15 +183,19 @@ api.interceptors.response.use(
       sessionExpired()
     }
 
-    // One central hook for every failed request: report the endpoint shape + status only
-    // (no bodies, params or ids). No-ops unless analytics is live.
-    track(EVENTS.apiError, {
-      api_endpoint: apiEndpointTemplate(error.config?.url),
-      api_status: typeof status === 'number' ? status : 0,
-    })
+    trackApiError(error, status)
     return Promise.reject(error)
   },
 )
+
+// One central hook for every failed request: report the endpoint shape + status only
+// (no bodies, params or ids). No-ops unless analytics is live.
+function trackApiError(error: { config?: { url?: string } }, status: number | undefined) {
+  track(EVENTS.apiError, {
+    api_endpoint: apiEndpointTemplate(error.config?.url),
+    api_status: typeof status === 'number' ? status : 0,
+  })
+}
 
 /** Parse a statement and get the not-yet-imported rows to review — nothing is saved yet. */
 export async function previewImport(
