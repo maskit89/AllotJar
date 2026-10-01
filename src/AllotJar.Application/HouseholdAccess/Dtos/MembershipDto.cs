@@ -15,7 +15,10 @@ public record MembershipDto(
     bool IsSelf,
     DateTime CreatedUtc);
 
-/// <summary>Returned by an invite: the new membership and, for link invites, the raw token (shown once).</summary>
+/// <summary>
+/// Returned by an invite: the new membership and, for link invites, the raw token, which the API
+/// emails to the invited address and never returns to the inviter.
+/// </summary>
 public record InviteResultDto(MembershipDto Membership, string? InviteToken);
 
 public static class MembershipMapping

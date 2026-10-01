@@ -31,6 +31,7 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<HouseholdContext>();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
+builder.Services.AddSingleton<AccountEmails>();
 
 builder.Services.AddControllers();
 builder.Services.AddAuthorization();

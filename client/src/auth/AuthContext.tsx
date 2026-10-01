@@ -417,7 +417,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // fresh token + rotated cookie so THIS device carries on seamlessly — adopt it.
     const { data } = await api.post<AuthResponse>('/auth/change-password', { currentPassword, newPassword })
     if (data?.token) apply(data)
-    setMustChangePassword(false)
   }
 
   async function forgotPassword(email: string) {
@@ -429,6 +428,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // token + cookie for this device — adopt it so the user lands signed in.
     const { data } = await api.post<AuthResponse>('/auth/reset-password', { email, token, newPassword })
     if (data?.token) apply(data)
+    // The emailed link is how a direct-invite login chooses its own password (S-P2-3).
+    setMustChangePassword(false)
   }
 
   async function switchHousehold(ownerId: string) {

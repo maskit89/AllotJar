@@ -6,10 +6,11 @@ using AllotJar.Domain.Enums;
 namespace AllotJar.IntegrationTests.Http;
 
 /// <summary>
-/// S-P2-3 (end-to-end check, 30 Sep 2026): P59 keeps a private account to the one login that made
-/// it private, but a direct invite gives the owner that login's password. A login created that way
-/// now has to choose its own password before the API answers anything else, and choosing it ends
-/// every session opened with the temporary one, the owner's included.
+/// S-P2-3 (end-to-end check, 30 Sep 2026) and review P2-1 of #298, "Email first": P59 keeps a
+/// private account to the one login that made it private, but an invite used to let whoever sent
+/// it know the password that login ends up with. A direct-invite login now chooses its own password
+/// only through a link emailed to its address, and can do nothing else until then; an invite link
+/// travels only by email. Choosing the password ends every session opened with the temporary one.
 /// </summary>
 [Collection(nameof(HttpApiCollection))]
 public class DirectInviteFirstSignInTests
@@ -20,16 +21,20 @@ public class DirectInviteFirstSignInTests
 
     private string OwnerToken => _fixture.TokenFor(HouseholdRole.Owner);
 
+    private async Task<Guid> AddPersonAsync(HttpClient client, string name)
+    {
+        var person = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/members", OwnerToken,
+            new { name, netMonthlyIncome = 1000m, personalSavingsAccountId = (Guid?)null });
+        person.StatusCode.Should().Be(HttpStatusCode.Created, await person.Content.ReadAsStringAsync());
+        return (await HttpApiFixture.ReadJsonAsync(person)).RootElement.GetProperty("id").GetGuid();
+    }
+
     private async Task<(string Email, string TempPassword, Guid Person)> DirectInviteAsync(HttpClient client)
     {
         var run = Guid.NewGuid().ToString("N")[..8];
         var email = $"sam-{run}@firstsignin.test";
         var tempPassword = HttpApiFixture.StrongPassword();
-
-        var person = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/members", OwnerToken,
-            new { name = $"Sam {run}", netMonthlyIncome = 1000m, personalSavingsAccountId = (Guid?)null });
-        person.StatusCode.Should().Be(HttpStatusCode.Created, await person.Content.ReadAsStringAsync());
-        var personId = (await HttpApiFixture.ReadJsonAsync(person)).RootElement.GetProperty("id").GetGuid();
+        var personId = await AddPersonAsync(client, $"Sam {run}");
 
         var invite = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/access/invite", OwnerToken,
             new { email, role = (int)HouseholdRole.Admin, method = 0, tempPassword, displayName = "Sam", memberId = personId });
@@ -54,80 +59,106 @@ public class DirectInviteFirstSignInTests
     }
 
     [Fact]
-    public async Task A_direct_invite_login_can_do_nothing_but_choose_its_own_password_first()
+    public async Task A_direct_invite_login_can_do_nothing_until_its_holder_chooses_a_password_from_the_emailed_link()
     {
         using var client = _fixture.CreateClient();
         var (email, tempPassword, _) = await DirectInviteAsync(client);
         var samToken = await TokenAsync(await LoginAsync(client, email, tempPassword));
 
-        (await MustChangePasswordAsync(client, samToken)).Should().BeTrue("/auth/me tells the app to ask for a new password");
+        (await MustChangePasswordAsync(client, samToken)).Should().BeTrue("/auth/me tells the app to ask for the emailed link");
 
         var accounts = await HttpApiFixture.SendAsync(client, HttpMethod.Get, "/api/accounts", samToken);
         accounts.StatusCode.Should().Be(HttpStatusCode.Forbidden, "nothing else answers until the password is the login's own");
         (await HttpApiFixture.ReadJsonAsync(accounts)).RootElement.GetProperty("code").GetString()
             .Should().Be("password_change_required");
-        var create = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/accounts", samToken,
-            new { name = "Sam private", type = 0, currency = "EUR", openingBalance = 10m, openingDate = "2026-01-01" });
-        create.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/accounts", samToken,
+                new { name = "Sam private", type = 0, currency = "EUR", openingBalance = 10m, openingDate = "2026-01-01" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
-        // Agreeing to the terms is allowed, so the two first-sign-in prompts can come in either order.
-        var consent = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/auth/consent", samToken);
-        consent.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        // Review P3-1: whoever holds the temporary password can't accept the terms for the holder.
+        (await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/auth/consent", samToken))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
-        // The temporary password itself is not a new password.
-        var same = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/auth/change-password", samToken,
-            new { currentPassword = tempPassword, newPassword = tempPassword });
-        same.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await MustChangePasswordAsync(client, samToken)).Should().BeTrue();
+        // Knowing the temporary password is not enough to choose the next one.
+        (await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/auth/change-password", samToken,
+                new { currentPassword = tempPassword, newPassword = HttpApiFixture.StrongPassword() }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
-        var changed = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/auth/change-password", samToken,
-            new { currentPassword = tempPassword, newPassword = HttpApiFixture.StrongPassword() });
-        var newToken = await TokenAsync(changed);
+        // The invite emailed the invited address a link to choose a password.
+        var link = await _fixture.WaitForEmailLinkAsync(email, "/reset-password?");
+        var newToken = await TokenAsync(await HttpApiFixture.ResetFromLinkAsync(client, link, HttpApiFixture.StrongPassword()));
 
         (await MustChangePasswordAsync(client, newToken)).Should().BeFalse();
         (await HttpApiFixture.SendAsync(client, HttpMethod.Get, "/api/accounts", newToken))
             .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/auth/consent", newToken))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
 
-    /// <summary>The review's probe, inverted: it showed the owner reading the invitee's private account.</summary>
+    /// <summary>
+    /// The review's probes, inverted: the owner signing in as Sam first and choosing Sam's password
+    /// for them (P2-1), or simply reusing the temporary one, never reaches Sam's private account.
+    /// </summary>
     [Fact]
-    public async Task The_owner_who_set_the_temporary_password_cannot_read_the_members_private_account()
+    public async Task The_owner_who_set_the_temporary_password_cannot_choose_the_members_password_or_read_their_private_account()
     {
         using var client = _fixture.CreateClient();
         var (email, tempPassword, person) = await DirectInviteAsync(client);
 
-        // The owner signs in as Sam with the password they chose, before Sam ever does.
+        // The owner signs in as Sam with the password they chose, before Sam ever does, and tries
+        // to pick the password they would then hand to Sam.
         var ownerAsSam = await TokenAsync(await LoginAsync(client, email, tempPassword));
+        (await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/auth/change-password", ownerAsSam,
+                new { currentPassword = tempPassword, newPassword = HttpApiFixture.StrongPassword() }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await MustChangePasswordAsync(client, ownerAsSam)).Should().BeTrue("Sam will still be asked");
         (await HttpApiFixture.SendAsync(client, HttpMethod.Get, "/api/accounts", ownerAsSam))
-            .StatusCode.Should().Be(HttpStatusCode.Forbidden, "that session can read nothing while the password is the owner's");
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
-        // Sam signs in, chooses a password and adds a personal account (private by default, P54).
-        var samFirst = await TokenAsync(await LoginAsync(client, email, tempPassword));
-        var newPassword = HttpApiFixture.StrongPassword();
-        var samToken = await TokenAsync(await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/auth/change-password", samFirst,
-            new { currentPassword = tempPassword, newPassword }));
+        // Sam chooses a password from the email and adds a personal account (private by default, P54).
+        var link = await _fixture.WaitForEmailLinkAsync(email, "/reset-password?");
+        var samToken = await TokenAsync(await HttpApiFixture.ResetFromLinkAsync(client, link, HttpApiFixture.StrongPassword()));
         var created = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/accounts", samToken,
             new { name = "Sam private", type = 0, currency = "EUR", openingBalance = 10m, openingDate = "2026-01-01", holderIds = new[] { person } });
         created.StatusCode.Should().Be(HttpStatusCode.Created, await created.Content.ReadAsStringAsync());
         var samAccount = (await HttpApiFixture.ReadJsonAsync(created)).RootElement.GetProperty("id").GetGuid();
 
-        // The owner's session as Sam ended with the change, and the temporary password is dead.
+        // The owner's session as Sam ended with the reset, and the temporary password is dead.
         (await HttpApiFixture.SendAsync(client, HttpMethod.Get, "/api/accounts", ownerAsSam))
             .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         (await LoginAsync(client, email, tempPassword)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
-        // And the owner's own login doesn't see it (P53).
         var ownerView = await HttpApiFixture.SendAsync(client, HttpMethod.Get, "/api/accounts", OwnerToken);
-        (await ownerView.Content.ReadAsStringAsync()).Should().NotContain(samAccount.ToString());
+        (await ownerView.Content.ReadAsStringAsync()).Should().NotContain(samAccount.ToString(), "P53");
         var samView = await HttpApiFixture.SendAsync(client, HttpMethod.Get, "/api/accounts", samToken);
         (await samView.Content.ReadAsStringAsync()).Should().Contain(samAccount.ToString());
+    }
+
+    [Fact]
+    public async Task An_invite_link_is_emailed_to_the_invited_address_and_never_returned_to_the_inviter()
+    {
+        using var client = _fixture.CreateClient();
+        var run = Guid.NewGuid().ToString("N")[..8];
+        var email = $"robin-{run}@firstsignin.test";
+
+        var invite = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/access/invite", OwnerToken,
+            new { email, role = (int)HouseholdRole.Limited, method = 1, tempPassword = (string?)null, displayName = "Robin", memberId = (Guid?)null });
+        invite.StatusCode.Should().Be(HttpStatusCode.OK, await invite.Content.ReadAsStringAsync());
+        var body = await invite.Content.ReadAsStringAsync();
+        body.Should().NotContainAny("inviteToken", "accept-invite");
+
+        var link = await _fixture.WaitForEmailLinkAsync(email, "/accept-invite?code=");
+        var code = Uri.UnescapeDataString(link[(link.IndexOf("code=", StringComparison.Ordinal) + 5)..]);
+        var accepted = await client.PostAsJsonAsync("/api/auth/accept-invite",
+            new { token = code, password = HttpApiFixture.StrongPassword(), displayName = "Robin", acceptedTerms = true }, HttpApiFixture.Json);
+        var robinToken = await TokenAsync(accepted);
+        (await MustChangePasswordAsync(client, robinToken)).Should().BeFalse("the password came from the mailbox's owner");
     }
 
     [Fact]
     public async Task A_login_that_chose_its_own_password_is_never_asked()
     {
         using var client = _fixture.CreateClient();
-        var token = _fixture.TokenFor(HouseholdRole.Owner);
-        (await MustChangePasswordAsync(client, token)).Should().BeFalse("a registered login set its own password");
+        (await MustChangePasswordAsync(client, OwnerToken)).Should().BeFalse("a registered login set its own password");
     }
 }

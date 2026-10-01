@@ -19,13 +19,6 @@ const me = (mustChangePassword: boolean) => ({ data: joinedMe(1, { mustChangePas
 
 const renderModal = (path = '/') => renderWithProviders(<PasswordChangeModal />, { route: path })
 
-async function fill(user: ReturnType<typeof userEvent.setup>, current: string, next: string, confirm = next) {
-  await user.type(screen.getByLabelText('Temporary password'), current)
-  await user.type(screen.getByLabelText('New password'), next)
-  await user.type(screen.getByLabelText('Confirm new password'), confirm)
-  await user.click(screen.getByRole('button', { name: 'Save password' }))
-}
-
 describe('PasswordChangeModal', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -40,57 +33,45 @@ describe('PasswordChangeModal', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('blocks a direct-invite login until it saves a new password', async () => {
+  it('blocks a direct-invite login and points it at the link emailed to its own address', async () => {
     mockGet.mockResolvedValue(me(true))
-    const user = userEvent.setup()
     renderModal()
 
-    expect(await screen.findByRole('dialog')).toHaveTextContent(/Choose your own password/)
-    await fill(user, 'Temp-pass-1', 'Mine-pass-22')
-
-    await waitFor(() =>
-      expect(mockPost).toHaveBeenCalledWith('/auth/change-password', {
-        currentPassword: 'Temp-pass-1',
-        newPassword: 'Mine-pass-22',
-      }),
-    )
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent(/Choose your own password/)
+    expect(dialog).toHaveTextContent(/emailed to sam@x\.com/)
+    // No way to type a new password here: whoever set the temporary one could do that (P2-1).
+    expect(dialog.querySelector('input')).toBeNull()
   })
 
-  it('refuses the temporary password itself or a mismatched confirmation without calling the server', async () => {
+  it('steps aside on the page the emailed link opens', async () => {
     mockGet.mockResolvedValue(me(true))
-    const user = userEvent.setup()
-    renderModal()
-    await screen.findByRole('dialog')
-
-    await fill(user, 'Temp-pass-1', 'Temp-pass-1')
-    expect(await screen.findByRole('alert')).toHaveTextContent(/different from the temporary one/)
-
-    await user.clear(screen.getByLabelText('Temporary password'))
-    await user.clear(screen.getByLabelText('New password'))
-    await user.clear(screen.getByLabelText('Confirm new password'))
-    await fill(user, 'Temp-pass-1', 'Mine-pass-22', 'Mine-pass-23')
-    expect(await screen.findByRole('alert')).toHaveTextContent(/do not match/)
-
-    expect(mockPost).not.toHaveBeenCalledWith('/auth/change-password', expect.anything())
+    renderModal('/reset-password?email=sam%40x.com&token=t')
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/auth/me'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('shows the server refusal and stays open', async () => {
+  it('emails the link again on request', async () => {
     mockGet.mockResolvedValue(me(true))
-    mockPost.mockRejectedValue(
-      Object.assign(new Error('400'), {
-        isAxiosError: true,
-        response: { status: 400, data: { errors: ['Incorrect password.'] } },
-      }),
-    )
     const user = userEvent.setup()
     renderModal()
-    await screen.findByRole('dialog')
 
-    await fill(user, 'Wrong-pass-1', 'Mine-pass-22')
+    await user.click(await screen.findByRole('button', { name: 'Email me the link again' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Incorrect password.')
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/auth/forgot-password', { email: 'sam@x.com' }))
+    expect(await screen.findByRole('status')).toHaveTextContent(/sent a new link/)
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('says so when the email could not be requested', async () => {
+    mockGet.mockResolvedValue(me(true))
+    mockPost.mockRejectedValue(new Error('429'))
+    const user = userEvent.setup()
+    renderModal()
+
+    await user.click(await screen.findByRole('button', { name: 'Email me the link again' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Could not send the email/)
   })
 
   it('offers sign-out as the only alternative', async () => {

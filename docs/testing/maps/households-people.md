@@ -49,12 +49,12 @@ Section header "Your household".
 Title `Invite {person} to sign in` (PeoplePage.tsx:667-672). Controls:
 - "Email" input (placeholder "sam@example.eu")
 - "Access level" select — options **Admin / Limited / Read-only only** (`GRANTABLE_ROLES`, PeoplePage.tsx:28; Owner is never grantable); hint line under it from `HOUSEHOLD_ROLE_HINTS` (types.ts:453-458: Owner "Full control, including managing who has access."; Admin "Everything except managing members and access."; Limited "Day-to-day entry: transactions, mark bills paid, run allocation."; Read-only "View everything; cannot make changes.")
-- SegmentedControl "How should they get access?": **"Generate an invite link"** (default) | **"Set a temporary password"**
+- SegmentedControl "How should they get access?": **"Email an invite link"** (default) | **"Set a temporary password"**
 - direct mode: "Temporary password" input (placeholder "At least 8 characters") + helper "Only works for someone without an account yet."
 - link mode: helper paragraph "A one-time link is created for you to copy and send. If they already have an account, they accept it while signed in; otherwise they set a password when they open it."
-- Submit button: "Create invite link" / "Create login" (busy: "Inviting…")
-- Success (link): green box "Invite link created" + "Copy this and send it to them — it works once and expires in 7 days." + read-only link input + **"Copy"** button (→ "Copied"). Link format `${origin}/accept-invite?code=${token}` (PeoplePage.tsx:30-32).
-- Success (direct): box "Login created" + "{email} can sign in now with the temporary password you set — share it with them privately. They'll accept the terms on their first sign-in, and can change the password from Account settings."
+- Submit button: "Send invite" / "Create login" (busy: "Inviting…")
+- Success (link): status box "Invite sent" + "We've emailed {email} a one-time link. It expires in 7 days." The link (`{AppBaseUrl}/accept-invite?code=${token}`) is emailed to the invited address by `AccountEmails.SendInviteLink` and never shown to the owner (#298).
+- Success (direct): box "Login created" + "We've emailed {email} a link to choose their own password. Until they do, the temporary password you set only lets them sign in to see that prompt." (S-P2-3: the login is marked `MustChangePassword` and gets a "Choose your AllotJar password" email.)
 
 ### "Other sign-ins" card (PeoplePage.tsx:780-839)
 Shown only when `canAccess` and there exist memberships with `memberId == null` and `!isSelf` (orphan logins). Per row: displayName/email, Badge "Invited"/"Active", role Badge, select **"Link to a person…"** (options = members not already claimed), **"Remove"** button (hidden for owner/self).
@@ -106,7 +106,7 @@ All under `/api`. Numeric enum serialization on the wire (role, status, method).
 | Verb+route | Body | Role gate | Behavior |
 |---|---|---|---|
 | GET `/access/members` | — | **any role** (query — even Read-only sees the full membership list incl. emails) | Memberships of active household ordered `Role, CreatedUtc` → `MembershipDto{id,email,displayName,role,status,memberId,isOwner,isSelf,createdUtc}` |
-| POST `/access/invite` | `{email, role, method, tempPassword?, displayName?, memberId?}` | **[OwnerOnly]** — Admin gets 403 | Rate-limited (`[EnableRateLimiting("auth")]` — 20/min/IP fixed window, Program.cs:57-67, 429 on excess). See §4 for validation. Direct: creates login (ConsentedUtc=null → consent modal on first sign-in), membership Active. Link: 256-bit token, SHA-256 hash stored, `InviteExpiresUtc = now+7d`, Status=Invited. Returns `InviteResultDto{membership, inviteToken}` — raw token returned **once**, never retrievable again |
+| POST `/access/invite` | `{email, role, method, tempPassword?, displayName?, memberId?}` | **[OwnerOnly]** — Admin gets 403 | Rate-limited (`[EnableRateLimiting("auth")]` — 20/min/IP fixed window, Program.cs:57-67, 429 on excess). See §4 for validation. Direct: creates login (ConsentedUtc=null → consent modal on first sign-in), membership Active. Link: 256-bit token, SHA-256 hash stored, `InviteExpiresUtc = now+7d`, Status=Invited. Returns `InviteResponse{membership}`. A link invite's raw token is emailed to the invited address only; a direct invite emails a set-password link (#298) |
 | PUT `/access/members/{id:guid}/role` | `{role}` | [OwnerOnly] | 404 `Membership {id} was not found.` (scoped to own household); 403 `The owner's role cannot be changed.` on the Owner row; validator rejects role=Owner |
 | PUT `/access/members/{id:guid}/link` | `{memberId?}` (null = unlink) | [OwnerOnly] | Member must exist in household (404); 1:1 — 400 `That budget person is already linked to another login.` if claimed by another membership |
 | DELETE `/access/members/{id:guid}` | — | [OwnerOnly] | 403 `The owner cannot be removed from the household.`; else **hard-deletes** the membership row. 204 |
@@ -137,7 +137,7 @@ All under `/api`. Numeric enum serialization on the wire (role, status, method).
 - DisplayName: max 120.
 - Handler: email (trimmed) already has ANY membership row in household (incl. pending Invited) → 400 field `Email`: "That email already has access to this household."
 - `memberId` set: must exist in household → 404 `Member {id} was not found.`; already claimed → 400 field `MemberId`: "That budget person is already linked to another login."
-- Direct + email already has an account → 400 field `Email`: "That email already has an account — use 'Generate an invite link' so they can accept it."
+- Direct + email already has an account → 400 field `Email`: "That email already has an account — use 'Email an invite link' so they can accept it."
 - Direct + Identity/HIBP create failure → 400 field `Password` with Identity error descriptions (e.g. "This password has appeared in a known data breach. Please choose a different one." — BreachedPasswordValidator.cs:59; password policy: min 8, no non-alphanumeric requirement — Infrastructure/DependencyInjection.cs:67-68).
 
 ### Server — AcceptInviteCommand (src/AllotJar.Application/HouseholdAccess/Commands/AcceptInvite/)

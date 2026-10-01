@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using AllotJar.Api.Contracts.Auth;
 using AllotJar.Api.Middleware;
+using AllotJar.Api.Services;
 using AllotJar.Application.Accounts;
 using AllotJar.Application.Auth.Commands.Login;
 using AllotJar.Application.Budgets;
@@ -39,6 +40,7 @@ public class AuthController : ControllerBase
     private readonly EmailSettings _emailSettings;
     private readonly ILogger<AuthController> _logger;
     private readonly IIdentityService _identity;
+    private readonly AccountEmails _accountEmails;
 
     public AuthController(
         UserManager<ApplicationUser> userManager,
@@ -51,8 +53,10 @@ public class AuthController : ControllerBase
         IServiceScopeFactory scopeFactory,
         IOptions<EmailSettings> emailSettings,
         ILogger<AuthController> logger,
-        IIdentityService identity)
+        IIdentityService identity,
+        AccountEmails accountEmails)
     {
+        _accountEmails = accountEmails;
         _userManager = userManager;
         _tokenGenerator = tokenGenerator;
         _refreshTokens = refreshTokens;
@@ -633,40 +637,12 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Looks up the account and sends the reset email as detached, best-effort work — deliberately
-    /// NOT awaited by the request. Two reasons: (1) the HTTP response must not depend on (or be
-    /// timed against) the provider round-trip, and (2) a slow/timing-out Resend call must not hang
-    /// the caller for the HttpClient timeout. A fresh DI scope is created because the request scope
-    /// (and its scoped <see cref="UserManager{TUser}"/>) is disposed the moment we return 204.
+    /// Sends the reset email as detached, best-effort work, deliberately NOT awaited by the request
+    /// (<see cref="AccountEmails"/>): the response must not depend on, or be timed against, the
+    /// provider round-trip. A login still on an owner-set temporary password gets the "choose your
+    /// password" wording, which is also how such a login asks for its link again.
     /// </summary>
-    private void DispatchResetEmail(string email)
-    {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                using var scope = _scopeFactory.CreateScope();
-                var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-                var user = await users.FindByEmailAsync(email);
-                if (user is null)
-                {
-                    return; // unknown address — nothing to send, and never revealed to the caller
-                }
-
-                var token = await users.GeneratePasswordResetTokenAsync(user);
-                // The base URL comes from config only — building it from the request's Host header
-                // would let a spoofed header steer the emailed link to an attacker.
-                var link = $"{_emailSettings.AppBaseUrl.TrimEnd('/')}/reset-password" +
-                           $"?email={Uri.EscapeDataString(user.Email!)}&token={Uri.EscapeDataString(token)}";
-                var sender = scope.ServiceProvider.GetRequiredService<IEmailSender>();
-                await sender.SendAsync(PasswordResetEmail.Build(user.Email!, link));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send a password-reset email.");
-            }
-        });
-    }
+    private void DispatchResetEmail(string email) => _accountEmails.SendPasswordLink(email);
 
     /// <summary>
     /// Redeems an emailed reset token and sets a new password. Like change-password, this ends the
@@ -734,7 +710,6 @@ public class AuthController : ControllerBase
     /// </summary>
     [HttpPost("change-password")]
     [Authorize]
-    [AllowWhilePasswordChangePending]
     [EnableRateLimiting("auth")]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -753,8 +728,15 @@ public class AuthController : ControllerBase
             return Unauthorized();
         }
 
-        // Whoever set a temporary password knows it, so "changing" it to itself would leave the
-        // account readable by them (S-P2-3). Refused for everyone: it is never a real change.
+        // A temporary password was chosen by whoever invited this login, so knowing it proves
+        // nothing: the login's own password is set only through the link emailed to its address
+        // (review P2-1 of #298). The gate already refuses this endpoint; this holds if it ever doesn't.
+        if (user.MustChangePassword)
+        {
+            return BadRequest(new { errors = new[] { $"Choose your password with the link emailed to {user.Email}." } });
+        }
+
+        // "Changing" a password to itself is never a real change.
         if (string.Equals(request.CurrentPassword, request.NewPassword, StringComparison.Ordinal))
         {
             return BadRequest(new { errors = new[] { "Choose a new password that is different from your current one." } });
@@ -764,12 +746,6 @@ public class AuthController : ControllerBase
         if (!result.Succeeded)
         {
             return BadRequest(new { errors = result.Errors.Select(e => e.Description) });
-        }
-
-        if (user.MustChangePassword)
-        {
-            user.MustChangePassword = false;
-            await _userManager.UpdateAsync(user);
         }
 
         await _refreshTokens.RevokeAllForUserAsync(user.Id, ct);
@@ -847,7 +823,6 @@ public class AuthController : ControllerBase
     /// </summary>
     [HttpPost("consent")]
     [Authorize]
-    [AllowWhilePasswordChangePending]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Consent()

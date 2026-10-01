@@ -1,8 +1,11 @@
+using System.Security.Claims;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using AllotJar.Api.Features;
+using AllotJar.Api.Services;
 using AllotJar.Application.HouseholdAccess;
 using AllotJar.Application.HouseholdAccess.Commands.ChangeMemberRole;
 using AllotJar.Application.HouseholdAccess.Commands.InviteMember;
@@ -11,6 +14,7 @@ using AllotJar.Application.HouseholdAccess.Commands.RevokeMember;
 using AllotJar.Application.HouseholdAccess.Dtos;
 using AllotJar.Application.HouseholdAccess.Queries.GetMemberships;
 using AllotJar.Domain.Enums;
+using AllotJar.Infrastructure.Identity;
 
 namespace AllotJar.Api.Controllers;
 
@@ -27,9 +31,14 @@ public class HouseholdAccessController : ControllerBase
 {
     private readonly ISender _mediator;
 
-    public HouseholdAccessController(ISender mediator)
+    private readonly AccountEmails _accountEmails;
+    private readonly UserManager<ApplicationUser> _userManager;
+
+    public HouseholdAccessController(ISender mediator, AccountEmails accountEmails, UserManager<ApplicationUser> userManager)
     {
         _mediator = mediator;
+        _accountEmails = accountEmails;
+        _userManager = userManager;
     }
 
     /// <summary>Lists the logins with access to the household.</summary>
@@ -41,19 +50,42 @@ public class HouseholdAccessController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Invites a person (direct temp password or one-time link). Owner-only.</summary>
+    /// <summary>
+    /// Invites a person (direct temp password or one-time link). Owner-only. "Email first" (review
+    /// P2-1 of #298): the invite link, or a direct-invite login's "choose your password" link, is
+    /// emailed to the invited address and never returned here, so whoever invites a person never
+    /// knows the password that person ends up with (P59).
+    /// </summary>
     /// <remarks>Rate-limited: direct invites mint logins, so cap the pace like the auth endpoints.</remarks>
     [HttpPost("invite")]
     [EnableRateLimiting("auth")]
-    [ProducesResponseType(typeof(InviteResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(InviteResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<ActionResult<InviteResultDto>> Invite(InviteMemberRequest request, CancellationToken ct)
+    public async Task<ActionResult<InviteResponse>> Invite(InviteMemberRequest request, CancellationToken ct)
     {
         var result = await _mediator.Send(new InviteMemberCommand(
             request.Email, request.Role, request.Method,
             request.TempPassword, request.DisplayName, request.MemberId), ct);
-        return Ok(result);
+
+        var email = result.Membership.Email;
+        if (result.InviteToken is { } token)
+        {
+            _accountEmails.SendInviteLink(email, await InviterNameAsync(), token);
+        }
+        else
+        {
+            _accountEmails.SendPasswordLink(email);
+        }
+        return Ok(new InviteResponse(result.Membership));
+    }
+
+    /// <summary>How the invite email names the person who sent it.</summary>
+    private async Task<string> InviterNameAsync()
+    {
+        var id = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var me = id is null ? null : await _userManager.FindByIdAsync(id);
+        return string.IsNullOrWhiteSpace(me?.DisplayName) ? me?.Email ?? "Someone" : me.DisplayName!;
     }
 
     /// <summary>Changes a member's access level. Owner-only.</summary>
@@ -92,6 +124,9 @@ public class HouseholdAccessController : ControllerBase
 }
 
 /// <summary>Request body for inviting a household member.</summary>
+/// <summary>An invite's outcome: the new membership. Its link travels only by email.</summary>
+public record InviteResponse(MembershipDto Membership);
+
 public record InviteMemberRequest(
     string Email,
     HouseholdRole Role,

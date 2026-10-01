@@ -6,19 +6,20 @@ using AllotJar.Infrastructure.Persistence;
 namespace AllotJar.Api.Middleware;
 
 /// <summary>
-/// Marks the few signed-in endpoints a login may still use while it has to replace a password
-/// someone else chose: reading who it is, agreeing to the terms, changing the password, signing out.
+/// Marks the signed-in endpoints a login may still use while it has to replace a password someone
+/// else chose: only reading who it is. Signing out, refreshing and asking for the emailed link are
+/// anonymous endpoints, and the terms wait until the login is its holder's alone (review P3-1 of #298).
 /// </summary>
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class AllowWhilePasswordChangePendingAttribute : Attribute;
 
 /// <summary>
 /// S-P2-3 / P59: a login created by an owner's direct invite starts with a password the owner
-/// knows. Until it chooses its own, every signed-in endpoint other than those marked
-/// <see cref="AllowWhilePasswordChangePendingAttribute"/> answers 403, so neither the new member
-/// nor an owner signed in as them can read or change anything. The flag is read per request, like
-/// the household, so changing the password takes effect at once; the change also rotates the
-/// security stamp, which ends any session opened with the temporary password.
+/// knows. Until its holder chooses their own through the link emailed to its address, every
+/// signed-in endpoint other than those marked <see cref="AllowWhilePasswordChangePendingAttribute"/>
+/// answers 403, so neither the new member nor an owner signed in as them can read or change
+/// anything. The flag is read per request, like the household, so the reset takes effect at once;
+/// it also rotates the security stamp, which ends any session opened with the temporary password.
 /// </summary>
 public class PasswordChangeGateMiddleware
 {
@@ -46,7 +47,7 @@ public class PasswordChangeGateMiddleware
             await context.Response.WriteAsJsonAsync(new
             {
                 status = StatusCodes.Status403Forbidden,
-                title = "Choose your own password first: this login's password was set by someone else.",
+                title = "Choose your own password first, with the link emailed to this login's address: its password was set by someone else.",
                 code = Code,
             });
             return;

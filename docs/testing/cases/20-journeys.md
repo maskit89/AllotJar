@@ -82,8 +82,8 @@
   4. Set Alex's own person income to 3,000.00 via the row **✎** inline edit.
   5. Go to `/allocation`; if prompted, click **"Set up allocation"**; in **"Allocation settings"** set **"Pay shared costs from"** = "Joint", **"Split shared costs"** = "By income", **"Send savings to"** = "Balance", **"Balance lean (0–100)"** = 25; **"Set up"** (as ALLOC-010).
   6. Read the waterfall preview and per-member tiles.
-  7. Back on `/people`, on Sam's row click **"Invite to sign in"** → in the modal keep **"Generate an invite link"**, set **"Access level"** = "Admin", submit **"Create invite link"**, then **"Copy"** the link (`{origin}/accept-invite?code=…`).
-  8. In a separate signed-out browser context, open the copied `/accept-invite?code=…` link. Fill **"Your name (optional)"** "Sam", **"Password"** (random), tick terms, click **"Accept invite"** (as invite.spec).
+  7. Back on `/people`, on Sam's row click **"Invite to sign in"** → in the modal keep **"Email an invite link"**, set **"Access level"** = "Admin", submit **"Send invite"**, then read the link (`{origin}/accept-invite?code=…`) from the invitation email in the dev mailbox (`/api/dev/emails`); the page itself never shows it.
+  8. In a separate signed-out browser context, open the emailed `/accept-invite?code=…` link. Fill **"Your name (optional)"** "Sam", **"Password"** (random), tick terms, click **"Accept invite"** (as invite.spec).
   9. Observe Sam's landing.
   10. As Sam, add a transaction on `/transactions` attributed to herself (Member = Sam) against a shared expense line.
   11. As Alex, refresh `/people` and read the members table (income shares, "Shared this month").
@@ -107,7 +107,7 @@
   1. As Alex, `/people` → Robin's row → **"Invite to sign in"** → switch **"How should they get access?"** to **"Set a temporary password"**, set **"Access level"** = "Limited", type a temporary password (≥8, HIBP-safe), submit **"Create login"** (people suite).
   2. Read the success box.
   3. In a signed-out context, go to `/login`, sign in as Robin with the email + temporary password.
-  4. Observe the very first authed screen; in **"Choose your own password"** enter the temporary password and a new one twice, then **"Save password"**.
+  4. Observe the very first authed screen; **"Choose your own password"** names Robin's address and has no password fields; open the "Choose your AllotJar password" link from Robin's email (dev mailbox), enter a new password twice and click **"Set new password"**.
   5. Click **"I agree"** in the blocking dialog.
   6. Observe onboarding / dashboard.
   7. As Robin, on `/transactions` record a transaction and mark a bill **"Paid"** on `/`.
@@ -115,7 +115,7 @@
   9. As Robin, go to `/account` and use **"Change password"** to replace the temp password.
 - **Expected:**
   - CP1-CP2: a login is created with membership Active, role Limited, `MustChangePassword = true` and `ConsentedUtc = null`; the success box reads "Login created … On their first sign-in they choose their own password…".
-  - CP3-CP4: Robin signs in and is first blocked by **"Choose your own password"** (S-P2-3; every other signed-in call is 403 until it is saved), then by the **ConsentModal** ("One thing before you start") — Onboarding is NOT mounted underneath (App gates it on `!needsConsent`); the modal is non-dismissible (only "I agree" / "Sign out") and disappears if Robin navigates to `/terms`//`/privacy` so it never covers the text.
+  - CP3-CP4: Robin signs in and is first blocked by **"Choose your own password"** (S-P2-3; every other signed-in call is 403, change-password and consent included, until the emailed link is used), then by the **ConsentModal** ("One thing before you start") — Onboarding is NOT mounted underneath (App gates it on `!needsConsent`); the modal is non-dismissible (only "I agree" / "Sign out") and disappears if Robin navigates to `/terms`//`/privacy` so it never covers the text.
   - CP5-CP6: `POST /auth/consent` stamps `ConsentedUtc`; `needsConsent` flips false; the onboarding welcome may then appear; the dashboard shows the shared household's budget (Robin acts in Alex's household).
   - CP7: Limited role CAN record transactions and toggle Paid on bill lines (`[AllowLimited]`); the AppShell shows the amber "limited access" banner.
   - CP8: structure edits are hidden client-side and 403 server-side ("Your access level (Limited) does not permit this action."); `/accounts` shows a read-only register (no "+ Add account"), and account create 403s.

@@ -2,7 +2,9 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using AllotJar.Domain.Enums;
+using AllotJar.Infrastructure.Email;
 
 namespace AllotJar.IntegrationTests.Http;
 
@@ -105,16 +107,13 @@ public sealed class HttpApiFixture : IAsyncLifetime
                 });
             await EnsureAsync(invite, HttpStatusCode.OK, $"direct invite for {role}");
 
-            // 3. Real login => real bearer token carrying the real security stamp. A direct-invite
-            //    login must replace the owner-set password before anything else (S-P2-3), so it
-            //    does, and the token issued by that change is the one the sweep uses.
-            var login = await client.PostAsJsonAsync("/api/auth/login", new { email, password }, Json);
-            await EnsureAsync(login, HttpStatusCode.OK, $"login for {role}");
-            var firstToken = (await ReadJsonAsync(login)).RootElement.GetProperty("token").GetString()!;
-            var changed = await SendAsync(client, HttpMethod.Post, "/api/auth/change-password", firstToken,
-                new { currentPassword = password, newPassword = StrongPassword() });
-            await EnsureAsync(changed, HttpStatusCode.OK, $"first password change for {role}");
-            _tokens[role] = (await ReadJsonAsync(changed)).RootElement.GetProperty("token").GetString()!;
+            // 3. A direct-invite login can do nothing until its holder chooses their own password
+            //    through the link emailed to its address (S-P2-3, "Email first"). The reset signs
+            //    in, so its token (real security stamp) is the one the sweep uses.
+            var link = await WaitForEmailLinkAsync(email, "/reset-password?");
+            var reset = await ResetFromLinkAsync(client, link, StrongPassword());
+            await EnsureAsync(reset, HttpStatusCode.OK, $"first password for {role}");
+            _tokens[role] = (await ReadJsonAsync(reset)).RootElement.GetProperty("token").GetString()!;
         }
 
         // 4. Two accounts as transfer referents (also proves the Owner write path works end-to-end).
@@ -171,6 +170,38 @@ public sealed class HttpApiFixture : IAsyncLifetime
                 $"Fixture provisioning failed at {step}: expected {(int)expected} but got " +
                 $"{(int)response.StatusCode}. Body: {body}. WWW-Authenticate: {challenge}");
         }
+    }
+
+    /// <summary>
+    /// Polls the Development mailbox (sends run off the request path) until an email to
+    /// <paramref name="email"/> carries a link containing <paramref name="pathMarker"/>, and returns it.
+    /// </summary>
+    public async Task<string> WaitForEmailLinkAsync(string email, string pathMarker)
+    {
+        var sink = _factory.Services.GetRequiredService<DevEmailSink>();
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            var link = sink.ForRecipient(email)
+                .SelectMany(m => m.TextBody.Split('\n'))
+                .Select(l => l.Trim())
+                .FirstOrDefault(l => l.StartsWith("http") && l.Contains(pathMarker));
+            if (link is not null)
+            {
+                return link;
+            }
+            await Task.Delay(50);
+        }
+        throw new InvalidOperationException($"No email to {email} with a {pathMarker} link within the timeout.");
+    }
+
+    /// <summary>Redeems an emailed /reset-password link with <paramref name="newPassword"/>.</summary>
+    public static Task<HttpResponseMessage> ResetFromLinkAsync(HttpClient client, string link, string newPassword)
+    {
+        var query = link[(link.IndexOf('?') + 1)..].Split('&')
+            .Select(p => p.Split('=', 2))
+            .ToDictionary(p => p[0], p => Uri.UnescapeDataString(p[1]));
+        return client.PostAsJsonAsync("/api/auth/reset-password",
+            new { email = query["email"], token = query["token"], newPassword }, Json);
     }
 
     /// <summary>Meets the Identity policy (len >= 8, upper/lower/digit) and is unique per call, so it

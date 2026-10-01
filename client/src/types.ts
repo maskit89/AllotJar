@@ -1141,10 +1141,9 @@ export interface MembershipDto {
   createdUtc: string
 }
 
-/** Returned by an invite: the new membership and, for link invites, the raw token (shown once). */
+/** Returned by an invite: the new membership. Any link goes by email to the invited address. */
 export interface InviteResultDto {
   membership: MembershipDto
-  inviteToken: string | null
 }
 
 /** One household the login can act in, for the switcher. The active one has `isActive`. */

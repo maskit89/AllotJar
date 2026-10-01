@@ -5,7 +5,7 @@ import { AppShell } from '../components/AppShell'
 import { Badge, Button, Card, EmptyState, ErrorBanner, Input, Select, SegmentedControl } from '../components/ui'
 import { Hero } from '../components/Hero'
 import { Modal } from '../components/Modal'
-import { MembersIcon, CopyIcon } from '../components/icons'
+import { MembersIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { useHousehold } from '../features/HouseholdContext'
 import { useFeatures } from '../features/FeatureContext'
@@ -40,10 +40,6 @@ const PRIVATE_SAVINGS = 'private'
 
 /** Roles the owner can grant (everything except Owner itself). */
 const GRANTABLE_ROLES = [HouseholdRole.Admin, HouseholdRole.Limited, HouseholdRole.ReadOnly]
-
-function inviteLinkFor(token: string): string {
-  return `${window.location.origin}/accept-invite?code=${token}`
-}
 
 /** "September 2026" in the visitor's locale, for the month a pocket-money line belongs to. */
 function pocketMoneyMonthLabel(m: PocketMoneyMonthDto): string {
@@ -142,9 +138,9 @@ export function PeoplePage() {
   const [iTempPassword, setITempPassword] = useState('')
   const [inviting, setInviting] = useState(false)
   const [monthIncome, setMonthIncome] = useState<MemberIncomeResultDto | null>(null)
-  const [inviteLink, setInviteLink] = useState<string | null>(null)
-  const [directCreatedEmail, setDirectCreatedEmail] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
+  // Who was just invited and how: both kinds of invite are emailed to the invited address, never
+  // shown here, so the owner can't open the invitee's login for them (S-P2-3, P59).
+  const [invited, setInvited] = useState<{ email: string; method: 'direct' | 'link' } | null>(null)
 
   const canAccess = features.householdAccess && canManageHousehold
 
@@ -362,9 +358,7 @@ export function PeoplePage() {
   function openInviteFor(personId: string) {
     setInvitePersonId(personId)
     setInviteOpen(true)
-    setInviteLink(null)
-    setDirectCreatedEmail(null)
-    setCopied(false)
+    setInvited(null)
     const person = members.find((p) => p.id === personId)
     setIName(person?.name ?? '')
     setIEmail('')
@@ -383,12 +377,10 @@ export function PeoplePage() {
     }
     setInviting(true)
     setError(null)
-    setInviteLink(null)
-    setDirectCreatedEmail(null)
-    setCopied(false)
+    setInvited(null)
     try {
       const email = iEmail.trim()
-      const { data } = await api.post<InviteResultDto>('/access/invite', {
+      await api.post<InviteResultDto>('/access/invite', {
         email,
         role: iRole,
         method: iMethod === 'direct' ? InviteMethod.Direct : InviteMethod.Link,
@@ -396,8 +388,7 @@ export function PeoplePage() {
         displayName: iName.trim() || null,
         memberId: invitePersonId || null,
       })
-      if (data.inviteToken) setInviteLink(inviteLinkFor(data.inviteToken))
-      else setDirectCreatedEmail(email)
+      setInvited({ email, method: iMethod })
       track(EVENTS.memberInvited, { method: iMethod })
       await reloadAll()
       setIEmail('')
@@ -459,16 +450,6 @@ export function PeoplePage() {
     },
     [reloadAll],
   )
-
-  async function copyLink() {
-    if (!inviteLink) return
-    try {
-      await navigator.clipboard.writeText(inviteLink)
-      setCopied(true)
-    } catch {
-      setCopied(false)
-    }
-  }
 
   return (
     <AppShell active="people" title="People">
@@ -910,7 +891,7 @@ export function PeoplePage() {
               value={iMethod}
               onChange={setIMethod}
               options={[
-                { value: 'link', label: 'Generate an invite link' },
+                { value: 'link', label: 'Email an invite link' },
                 { value: 'direct', label: 'Set a temporary password' },
               ]}
             />
@@ -931,43 +912,38 @@ export function PeoplePage() {
             </label>
           ) : (
             <p className="mt-4 max-w-md text-xs text-slate-500">
-              A one-time link is created for you to copy and send. If they already have an account, they accept it
-              while signed in; otherwise they set a password when they open it.
+              We email them a one-time link. If they already have an account, they accept it while signed in;
+              otherwise they set their own password when they open it.
             </p>
           )}
 
           <div className="mt-5">
             <Button onClick={invite} disabled={inviting}>
-              {inviting ? 'Inviting…' : iMethod === 'direct' ? 'Create login' : 'Create invite link'}
+              {inviting ? 'Inviting…' : iMethod === 'direct' ? 'Create login' : 'Send invite'}
             </Button>
           </div>
 
-          {inviteLink && (
-            <div className="mt-4 rounded-lg border border-brand-200 bg-brand-50 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
-              <p className="text-sm font-medium text-brand-800 dark:text-brand-200">Invite link created</p>
-              <p className="mt-1 text-xs text-brand-700/80 dark:text-brand-200/80">
-                Copy this and send it to them — it works once and expires in 7 days.
-              </p>
-              <div className="mt-2 flex items-center gap-2">
-                <Input readOnly value={inviteLink} aria-label="Invite link" className="w-full font-mono text-xs" />
-                <Button variant="secondary" size="sm" onClick={copyLink} aria-label="Copy invite link">
-                  <CopyIcon className="h-4 w-4" />
-                  {copied ? 'Copied' : 'Copy'}
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {directCreatedEmail && (
+          {invited && (
             <div
               role="status"
               className="mt-4 rounded-lg border border-brand-200 bg-brand-50 p-4 dark:border-brand-500/30 dark:bg-brand-500/10"
             >
-              <p className="text-sm font-medium text-brand-800 dark:text-brand-200">Login created</p>
+              <p className="text-sm font-medium text-brand-800 dark:text-brand-200">
+                {invited.method === 'direct' ? 'Login created' : 'Invite sent'}
+              </p>
               <p className="mt-1 text-xs text-brand-700/80 dark:text-brand-200/80">
-                <span className="font-medium">{directCreatedEmail}</span> can sign in now with the temporary
-                password you set — share it with them privately. On their first sign-in they choose their own
-                password, which ends any other session using the temporary one, and accept the terms.
+                {invited.method === 'direct' ? (
+                  <>
+                    We've emailed <span className="font-medium">{invited.email}</span> a link to choose their own
+                    password. Until they do, the temporary password you set only lets them sign in to see that
+                    prompt.
+                  </>
+                ) : (
+                  <>
+                    We've emailed <span className="font-medium">{invited.email}</span> a one-time link. It expires
+                    in 7 days.
+                  </>
+                )}
               </p>
             </div>
           )}
