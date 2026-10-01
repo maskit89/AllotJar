@@ -98,15 +98,18 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
             await Jars.JarMovements.ClearAsync(_db, transaction, legAccount.Id, cancellationToken);
         }
         await Jars.TransferReturns.ClearAsync(_db, transaction.Id, cancellationToken);
-        // The payment that fulfilled a Recurring cycle: the bill is unpaid again (MG-P2-2).
-        var reopened = await Jars.JarCycles.ReopenPaidByAsync(_db, userId, transaction.Id, cancellationToken);
+        // The payment that fulfilled a Recurring cycle: the bill is unpaid again (MG-P2-2), the
+        // transfer's fee included (linked before #301 refused fees as payments).
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var reopened = await Jars.JarCycles.ReopenPaidByAsync(
+            _db, userId, transaction.Fee is Transaction paidFee ? new[] { transaction.Id, paidFee.Id } : new[] { transaction.Id },
+            today, cancellationToken);
         _db.Transactions.Remove(transaction);
         await _db.SaveChangesAsync(cancellationToken);
         if (reopened.Count > 0)
         {
             // Planned toward the reopened cycle from what the jar holds without the payment,
             // which the ledger reads only once the deletion is saved.
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
             foreach (var jar in reopened)
             {
                 await Jars.JarPlanner.ReplantAsync(_db, userId, jar, today, 0m, cancellationToken);

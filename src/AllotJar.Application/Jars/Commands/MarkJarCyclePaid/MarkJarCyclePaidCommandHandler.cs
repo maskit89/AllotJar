@@ -50,6 +50,12 @@ public class MarkJarCyclePaidCommandHandler : IRequestHandler<MarkJarCyclePaidCo
         {
             throw JarAccounts.Validation("PaymentTransactionId", "Choose the payment that settled the bill — money out, not income, a transfer or a refund.");
         }
+        // A transfer's fee is changed only through its transfer and goes with it, so it can't be
+        // the payment a cycle keeps (#301 review P3-2).
+        if (payment.FeeForTransferId is not null)
+        {
+            throw JarAccounts.Validation("PaymentTransactionId", "That is a transfer's fee, not the bill's payment. Choose the payment that settled the bill.");
+        }
         if (payment.Date > today)
         {
             throw JarAccounts.Validation("PaymentTransactionId", "That payment is dated in the future.");

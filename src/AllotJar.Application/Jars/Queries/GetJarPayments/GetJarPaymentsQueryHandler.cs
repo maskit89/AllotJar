@@ -46,6 +46,7 @@ public class GetJarPaymentsQueryHandler : IRequestHandler<GetJarPaymentsQuery, I
             .Where(t => t.OwnerId == userId
                         && t.Type == TransactionType.Expense
                         && t.RefundOfTransactionId == null
+                        && t.FeeForTransferId == null
                         && t.Date <= today
                         && !fulfilled.Contains(t.Id))
             .Select(t => new

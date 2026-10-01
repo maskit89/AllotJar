@@ -1,12 +1,15 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
+using AllotJar.Application.Common.Exceptions;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Budgets.Commands.SkipJarContribution;
 using AllotJar.Application.Jars.Commands.ArchiveJar;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Jars.Commands.DismissJarCycle;
 using AllotJar.Application.Jars.Commands.MarkJarCyclePaid;
 using AllotJar.Application.Jars.Dtos;
+using AllotJar.Application.Jars.Queries.GetJarPayments;
 using AllotJar.Application.Jars.Queries.GetJarSchedule;
 using AllotJar.Application.Jars.Queries.GetJars;
 using AllotJar.Application.Tests.TestDoubles;
@@ -14,6 +17,7 @@ using AllotJar.Application.Transactions.Commands.DeleteTransaction;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.Services;
+using AllotJar.Domain.ValueObjects;
 using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Application;
@@ -238,5 +242,67 @@ public class SchedulesCyclesFixPlanETests
         first.Outcome.Should().Be(JarCycleOutcome.Funded, "without the payment the jar held its 600 the day before the deadline");
         first.BalanceAtDeadline.Should().Be(600m);
         (await db.Jars.AsNoTracking().SingleAsync()).CycleDeadline.Should().Be(openAfter);
+    }
+
+    [Fact]
+    public async Task Deleting_an_early_payment_leaves_the_cycle_to_be_judged_on_its_own_deadline()
+    {
+        // #301 review P3-1: two cycles marked paid ahead; deleting the first payment can't call
+        // its cycle missed 20 days before its deadline. It closes on its deadline and is judged then.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, opening: 5000m);
+        var d1 = Today.AddDays(20);
+        var jar = new Jar
+        {
+            OwnerId = Owner, Name = "Phone", Kind = JarKind.Recurring, TargetAmount = 100m, TargetDate = d1, CycleDeadline = d1,
+            Accrual = AccrualMethod.TargetByDate, RecurMonths = 1, FundingAccountId = account.Id,
+        };
+        db.Jars.Add(jar);
+        db.SaveChanges();
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 50m, Today.AddDays(-5), JarAllocationKind.Reallocation);
+        var p1 = LedgerFixtures.Expense(db, Owner, account.Id, 100m, Today);
+        var p2 = LedgerFixtures.Expense(db, Owner, account.Id, 100m, Today);
+        await new MarkJarCyclePaidCommandHandler(db, User).Handle(new MarkJarCyclePaidCommand(jar.Id, d1, p1.Id), Ct);
+        var d2 = (await db.Jars.AsNoTracking().SingleAsync()).CycleDeadline!.Value;
+        await new MarkJarCyclePaidCommandHandler(db, User).Handle(new MarkJarCyclePaidCommand(jar.Id, d2, p2.Id), Ct);
+
+        await new DeleteTransactionCommandHandler(db, User).Handle(new DeleteTransactionCommand(p1.Id), Ct);
+
+        var first = await db.JarCycles.AsNoTracking().SingleAsync(c => c.Deadline == d1);
+        first.Outcome.Should().NotBe(JarCycleOutcome.Missed, "its deadline has not come");
+        first.ClosedOn.Should().Be(d1);
+        first.PaymentTransactionId.Should().BeNull();
+        first.BalanceAtDeadline.Should().BeNull("nothing is judged before the deadline");
+
+        // The deadline arrives: the jar held 50 of 100 the day before, so the cycle was missed.
+        await JarCycles.SettleAsync(db, Owner, d1, Ct);
+        db.ChangeTracker.Clear();
+        var judged = await db.JarCycles.AsNoTracking().SingleAsync(c => c.Deadline == d1);
+        judged.Outcome.Should().Be(JarCycleOutcome.Missed);
+        judged.BalanceAtDeadline.Should().Be(50m);
+    }
+
+    [Fact]
+    public async Task A_transfers_fee_is_not_offered_or_accepted_as_a_cycles_payment()
+    {
+        // #301 review P3-2: a fee goes with its transfer, so it can't be the payment a cycle keeps.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, opening: 5000m);
+        var jar = SeedInsurance(db, account, Deadline);
+        var transfer = new Transaction
+        {
+            OwnerId = Owner, Type = TransactionType.Transfer, Amount = 100m, Currency = CurrencyCode.Eur, Date = Today,
+            Payee = "To savings", AccountId = account.Id,
+        };
+        db.Transactions.Add(transfer);
+        var fee = LedgerFixtures.Expense(db, Owner, account.Id, 2m, Today);
+        fee.FeeForTransfer = transfer;
+        db.SaveChanges();
+
+        var act = () => new MarkJarCyclePaidCommandHandler(db, User).Handle(new MarkJarCyclePaidCommand(jar.Id, Deadline, fee.Id), Ct);
+        (await act.Should().ThrowAsync<ValidationException>())
+            .Which.Errors.Values.SelectMany(v => v).Should().Contain(m => m.Contains("transfer's fee"));
+        var offered = await new GetJarPaymentsQueryHandler(db, User).Handle(new GetJarPaymentsQuery(jar.Id, IncludeOtherPayments: true), Ct);
+        offered.Should().NotContain(p => p.Id == fee.Id);
     }
 }

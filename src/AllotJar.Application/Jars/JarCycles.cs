@@ -38,8 +38,13 @@ public static class JarCycles
             .ToListAsync(cancellationToken);
         if (due.Count == 0)
         {
+            if (await JudgeWaitingAsync(db, ownerId, today, jarId, cancellationToken))
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
             return false;
         }
+        await JudgeWaitingAsync(db, ownerId, today, jarId, cancellationToken);
 
         var changed = false;
         // Settling moves no money: one load of the ledger serves every deadline and replant (P3-10).
@@ -122,7 +127,7 @@ public static class JarCycles
     }
 
     /// <summary>
-    /// The payment that fulfilled a cycle (rule 83) is being deleted: the bill is unpaid again
+    /// The payments that fulfilled cycles (rule 83) are being deleted: the bill is unpaid again
     /// (MG-P2-2; default until Christopher answers, deleting it reopens the cycle). When the cycle
     /// is the jar's latest closed one and the jar still plans toward the cycle after it, the cycle
     /// becomes the open one again: its row goes and <see cref="Jar.CycleDeadline"/> returns to its
@@ -131,16 +136,17 @@ public static class JarCycles
     /// or one whose jar has moved on since (archived, completed, its date changed), keeps its row
     /// and is judged as the rollover would have judged it — Funded when, without this payment, the
     /// jar held its target the day before the deadline, otherwise Missed — with no payment, so
-    /// another can be linked to it.
+    /// another can be linked to it, closed on its deadline. One whose deadline is still ahead
+    /// (paid early) is judged when the deadline arrives (<see cref="SettleAsync"/>).
     /// The jar's draw of the payment goes with the transaction itself. Returns the jars whose open
     /// cycle came back, to be replanted once the deletion is saved. The caller saves.
     /// </summary>
     public static async Task<IReadOnlyList<Jar>> ReopenPaidByAsync(
-        IApplicationDbContext db, string ownerId, Guid paymentId, CancellationToken cancellationToken)
+        IApplicationDbContext db, string ownerId, IReadOnlyCollection<Guid> paymentIds, DateOnly today, CancellationToken cancellationToken)
     {
         var paid = await db.JarCycles
             .Include(c => c.Jar)
-            .Where(c => c.PaymentTransactionId == paymentId)
+            .Where(c => c.PaymentTransactionId != null && paymentIds.Contains(c.PaymentTransactionId.Value))
             .ToListAsync(cancellationToken);
         var reopened = new List<Jar>();
         JarLedgerSource? withoutPayment = null;
@@ -157,17 +163,60 @@ public static class JarCycles
                 continue;
             }
 
-            withoutPayment ??= await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken, excludeTransactionIds: new[] { paymentId });
-            cycle.BalanceAtDeadline = withoutPayment.At(cycle.Deadline.AddDays(-1)).BalanceOf(jar.Id);
-            cycle.Outcome = cycle.BalanceAtDeadline is { } held && held >= cycle.TargetAmount
-                ? JarCycleOutcome.Funded
-                : JarCycleOutcome.Missed;
+            // Without its payment the cycle closed on its deadline, not on the day it was marked
+            // paid (#301 review P3-1).
+            cycle.ClosedOn = cycle.Deadline;
+            if (cycle.Deadline > today)
+            {
+                // Paid ahead, and its deadline has not come: nothing can be judged yet. It waits
+                // unjudged (no balance) and SettleAsync judges it when the deadline arrives.
+                cycle.BalanceAtDeadline = null;
+                cycle.Outcome = JarCycleOutcome.Funded;
+            }
+            else
+            {
+                withoutPayment ??= await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken, excludeTransactionIds: paymentIds);
+                Judge(cycle, withoutPayment);
+            }
             cycle.PaymentTransactionId = null;
             cycle.PaymentTransaction = null;
             cycle.PaidOn = null;
             cycle.PaidAmount = null;
         }
         return reopened;
+    }
+
+    /// <summary>Judges a cycle with no payment as the rollover would: Funded when the jar held its target the day before the deadline, otherwise Missed.</summary>
+    private static void Judge(JarCycle cycle, JarLedgerSource ledger)
+    {
+        cycle.BalanceAtDeadline = ledger.At(cycle.Deadline.AddDays(-1)).BalanceOf(cycle.JarId);
+        cycle.Outcome = cycle.BalanceAtDeadline is { } held && held >= cycle.TargetAmount
+            ? JarCycleOutcome.Funded
+            : JarCycleOutcome.Missed;
+    }
+
+    /// <summary>
+    /// Cycles whose payment was deleted before their deadline (<see cref="ReopenPaidByAsync"/>)
+    /// are judged once the deadline has arrived. A rollover always records the balance it judged,
+    /// so an unpaid Funded cycle with none is one of these. The caller saves.
+    /// </summary>
+    private static async Task<bool> JudgeWaitingAsync(
+        IApplicationDbContext db, string ownerId, DateOnly today, Guid? jarId, CancellationToken cancellationToken)
+    {
+        var waiting = await db.JarCycles
+            .Where(c => c.OwnerId == ownerId && c.Outcome == JarCycleOutcome.Funded && c.PaymentTransactionId == null
+                        && c.BalanceAtDeadline == null && c.Deadline <= today && (jarId == null || c.JarId == jarId))
+            .ToListAsync(cancellationToken);
+        if (waiting.Count == 0)
+        {
+            return false;
+        }
+        var ledger = await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken);
+        foreach (var cycle in waiting)
+        {
+            Judge(cycle, ledger);
+        }
+        return true;
     }
 
     /// <summary>Records <paramref name="payment"/> as the one that fulfilled <paramref name="cycle"/> (rule 83).</summary>

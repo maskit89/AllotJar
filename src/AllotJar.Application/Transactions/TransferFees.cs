@@ -42,6 +42,9 @@ public static class TransferFees
             if (transfer.Fee is Transaction old)
             {
                 await JarMovements.ClearAsync(db, old, source.Id, cancellationToken);
+                // A fee linked as a cycle's payment before #301 refused that: the cycle reopens
+                // (his "Reopen it"); its jar is replanted at its next replant.
+                await JarCycles.ReopenPaidByAsync(db, ownerId, new[] { old.Id }, DateOnly.FromDateTime(DateTime.UtcNow), cancellationToken);
                 db.Transactions.Remove(old);
                 removedIds.Add(old.Id);
                 transfer.Fee = null;

@@ -299,9 +299,59 @@ public static class JarMovements
         IApplicationDbContext db, string ownerId, Transaction transaction, IReadOnlyDictionary<Guid, decimal> draws,
         string errorKey, CancellationToken cancellationToken)
     {
+        if (await ArchivedJarsRefusalAsync(db, ownerId, transaction, draws, null, cancellationToken) is string refusal)
+        {
+            throw Validation(errorKey, refusal);
+        }
+    }
+
+    /// <summary>
+    /// The same "Refuse" check for a new bank row an import is about to add (P2-1 of the #301
+    /// review): what its line, or its slices' lines, draw from archived jars this account holds on
+    /// its date, counting what the import's earlier rows drew from them (<paramref name="earlier"/>,
+    /// which a passing row is added to). Returns the refusal, so the import holds the row rather
+    /// than failing; null when the row may be added. A row naming a jar it is paid from goes
+    /// through <see cref="ApplyOutgoingAsync"/> instead.
+    /// </summary>
+    public static async Task<string?> ArchivedLineRefusalAsync(
+        IApplicationDbContext db, string ownerId, Transaction transaction, Account account,
+        Dictionary<Guid, decimal> earlier, CancellationToken cancellationToken)
+    {
+        var lined = transaction.Splits.Count > 0
+            ? transaction.Splits.Where(s => s.BudgetItemId is not null).Select(s => (Line: s.BudgetItemId!.Value, s.Amount)).ToList()
+            : transaction.BudgetItemId is Guid lineId ? new List<(Guid Line, decimal Amount)> { (lineId, transaction.Amount) } : new();
+        if (lined.Count == 0)
+        {
+            return null;
+        }
+        var lineJars = await LineJarsAsync(db, lined.Select(l => l.Line).Distinct().ToList(), cancellationToken);
+        var draws = new Dictionary<Guid, decimal>();
+        foreach (var (line, amount) in lined)
+        {
+            if (lineJars.TryGetValue(line, out var jar) && JarLedgerReader.HeldOn(jar.AccountId, jar.Since, account.Id, transaction.Date))
+            {
+                draws[jar.JarId] = draws.GetValueOrDefault(jar.JarId) + amount;
+            }
+        }
+        var positive = draws.Where(d => d.Value > 0m).ToDictionary(d => d.Key, d => d.Value);
+        if (await ArchivedJarsRefusalAsync(db, ownerId, transaction, positive, earlier, cancellationToken) is string refusal)
+        {
+            return refusal;
+        }
+        foreach (var (jarId, draw) in positive)
+        {
+            earlier[jarId] = earlier.GetValueOrDefault(jarId) + draw;
+        }
+        return null;
+    }
+
+    private static async Task<string?> ArchivedJarsRefusalAsync(
+        IApplicationDbContext db, string ownerId, Transaction transaction, IReadOnlyDictionary<Guid, decimal> draws,
+        IReadOnlyDictionary<Guid, decimal>? earlier, CancellationToken cancellationToken)
+    {
         if (draws.Count == 0)
         {
-            return;
+            return null;
         }
         var ids = draws.Keys.ToList();
         var archived = await db.Jars.AsNoTracking()
@@ -309,7 +359,7 @@ public static class JarMovements
             .ToListAsync(cancellationToken);
         if (archived.Count == 0)
         {
-            return;
+            return null;
         }
 
         // The ledger without this payment, and as stored (its earlier version, when it is an edit).
@@ -322,19 +372,21 @@ public static class JarMovements
                 .Prepend(transaction.Date)
                 .Distinct().Order();
             var draw = draws[jar.Id];
+            // Unsaved rows of the same import: counted on every date, the cautious reading.
+            var drawnEarlier = earlier?.GetValueOrDefault(jar.Id) ?? 0m;
             foreach (var date in dates)
             {
-                var held = without.At(date).BalanceOf(jar.Id) ?? 0m;
-                var drawnBefore = Math.Max(0m, held - (stored.At(date).BalanceOf(jar.Id) ?? 0m));
+                var held = (without.At(date).BalanceOf(jar.Id) ?? 0m) - drawnEarlier;
+                var drawnBefore = Math.Max(0m, held + drawnEarlier - (stored.At(date).BalanceOf(jar.Id) ?? 0m));
                 if (draw > Math.Max(0m, held) && draw > drawnBefore)
                 {
                     var holds = Math.Max(0m, held);
-                    throw Validation(errorKey,
-                        $"{jar.Name} is archived and holds {holds:0.##}{(date == transaction.Date ? "" : $" on {date:yyyy-MM-dd}")}, "
-                        + $"so it can't pay {draw:0.##}. Restore {jar.Name} or put the payment on another line.");
+                    return $"{jar.Name} is archived and holds {holds:0.##}{(date == transaction.Date ? "" : $" on {date:yyyy-MM-dd}")}, "
+                        + $"so it can't pay {draw:0.##}. Restore {jar.Name} or put the payment on another line.";
                 }
             }
         }
+        return null;
     }
 
     /// <summary>The departures of the line jars <paramref name="accountId"/> did not hold on <paramref name="date"/>; none (and no query) when it held them all.</summary>

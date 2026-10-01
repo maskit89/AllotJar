@@ -240,8 +240,8 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await register(page)
 
   // --- Fixture: two Goal jars (held in the Pot account), then a current-month budget built through the UI ---
-  // Holiday holds 100.00 set aside today (rule 77). The current month plans from the balance
-  // entering it — nothing at the end of last month (rule 13): 1,200 ÷ 12 = 100.00/mo.
+  // Holiday holds 100.00 set aside today (rule 77). Money set aside counts as the balance the
+  // month opened with, not as this month's saving (SC-P2-1): (1,200 − 100) ÷ 12 = 91.66/mo.
   await createGoalJar(page, 'Holiday', '1200', { setAside: '100' })
   await createGoalJar(page, 'Old Boiler', '600') // 600 ÷ 12 = 50.00/mo — archived below
 
@@ -255,7 +255,7 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   )
   // Both jars were appended into the fresh month at their accrual requirements.
   await expect(page.getByRole('button', { name: 'Planned amount for Holiday' })).toHaveText(
-    '€100.00',
+    '€91.66',
   )
   await expect(page.getByRole('button', { name: 'Planned amount for Old Boiler' })).toHaveText(
     '€50.00',
@@ -338,20 +338,19 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
 
   // BUDG-015: Holiday is scheduled, so its line is RE-PLANNED for the new month rather than
   // copied flat at the 200.00 hand edit. The balance entering next month is projected through
-  // this month's saved plan (rule 13 / HANDOVER P27): nothing entered this month + 200.00
-  // planned — the 100.00 set aside today is this month's saving in progress, never counted
-  // twice. (1,200 − 200) over the eleven remaining contribution months = 90.90 (rule 35 floors
-  // to the cent; the remainder lands in the final month).
+  // this month's saved plan (rule 13 / HANDOVER P27): the 100.00 set aside (the month's
+  // opening, SC-P2-1) + 200.00 planned. (1,200 − 300) over the eleven remaining contribution
+  // months = 81.81 (rule 35 floors to the cent; the remainder lands in the final month).
   await expect(page.getByRole('button', { name: 'Planned amount for Holiday' })).toHaveText(
-    '€90.90',
+    '€81.81',
   )
 
   // BUDG-017 / BUDG-032: the archived jar's line was dropped and not re-appended.
   await expect(page.getByRole('textbox', { name: 'Rename Old Boiler' })).toHaveCount(0)
 
-  // The hero locks the whole copy in one figure: 2,500 − (1,000 + 90.90) = 1,409.10.
-  await expect(page.getByLabel('Remaining to budget: €1,409.10')).toBeVisible()
-  await expect(page.getByText('€1,409.10 still to assign')).toBeVisible()
+  // The hero locks the whole copy in one figure: 2,500 − (1,000 + 81.81) = 1,418.19.
+  await expect(page.getByLabel('Remaining to budget: €1,418.19')).toBeVisible()
+  await expect(page.getByText('€1,418.19 still to assign')).toBeVisible()
 
   // --- Optimistic round-trips on the copied month (DASH-032 / DASH-043 / DASH-048) ---
   const incomeName = page.getByRole('textbox', { name: 'Income source name', exact: true })
@@ -370,7 +369,7 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   )
   await expect(page.getByRole('textbox', { name: 'Rename Rent' })).toHaveCount(0)
   await expect(page.getByText(/Bills:/)).toHaveCount(0)
-  await expect(page.getByLabel('Remaining to budget: €2,409.10')).toBeVisible()
+  await expect(page.getByLabel('Remaining to budget: €2,418.19')).toBeVisible()
 
   // --- Full reload: every optimistic edit must have really landed server-side ---
   await page.reload()
@@ -381,9 +380,9 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
     page.getByRole('textbox', { name: 'Income source name', exact: true }),
   ).toHaveValue('Consulting')
   await expect(page.getByRole('textbox', { name: 'Rename group Home' })).toBeVisible()
-  await expect(page.getByLabel('Remaining to budget: €2,409.10')).toBeVisible()
+  await expect(page.getByLabel('Remaining to budget: €2,418.19')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Planned amount for Holiday' })).toHaveText(
-    '€90.90',
+    '€81.81',
   )
   await expect(page.getByRole('textbox', { name: 'Rename Rent' })).toHaveCount(0)
   await expect(page.getByText(/Bills:/)).toHaveCount(0)

@@ -1,6 +1,8 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
+using AllotJar.Application.Imports.Commands.CommitImport;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Application.Transactions.Commands.AssignTransaction;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
@@ -95,5 +97,27 @@ public class ArchivedJarPaymentTests
         await new CreateTransactionCommandHandler(live, User).Handle(
             new CreateTransactionCommand(Today, "Hotel", 30m, TransactionType.Expense, liveLine.Id, liveAccount.Id), Ct);
         (await live.Transactions.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task An_imported_row_on_an_archived_jars_line_is_held_counting_earlier_rows_of_the_import()
+    {
+        // #301 review P2-1: most payments arrive by import, so "Refuse" holds a bank row the
+        // archived jar can't cover, with the reason, and imports the rest.
+        await using var db = NewContext();
+        var (account, jar, jarLine, groceries) = Seed(db);
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 40m, Today.AddDays(-1), JarAllocationKind.Reallocation);
+
+        var result = await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(account.Id, new[]
+        {
+            new CommitImportItem("BANK-1", Today, "Hotel", 30m, "EUR", false, jarLine.Id, null),
+            new CommitImportItem("BANK-2", Today, "Ferry", 30m, "EUR", false, jarLine.Id, null),
+            new CommitImportItem("BANK-3", Today, "Shop", 30m, "EUR", false, groceries.Id, null),
+        }), Ct);
+
+        result.Imported.Should().Be(2);
+        result.Held.Should().ContainSingle().Which.Message.Should().Contain("Holiday is archived and holds 10").And.Contain("Restore Holiday");
+        db.ChangeTracker.Clear();
+        (await JarLedgerReader.LoadAsync(db, Owner, Ct)).At(Today).BalanceOf(jar.Id).Should().Be(10m);
     }
 }
