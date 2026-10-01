@@ -219,7 +219,7 @@ test('a transfer moves both balances but never the budget, renders badge + from 
 
   // --- TRF-028 (budget-invariance leg): no budget actual moved — Groceries is
   // still untouched and the "Remaining to budget" hero is byte-identical.
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   const groceries = page
     .locator('div.group')
     .filter({ has: page.getByRole('textbox', { name: 'Rename Groceries', exact: true }) })
