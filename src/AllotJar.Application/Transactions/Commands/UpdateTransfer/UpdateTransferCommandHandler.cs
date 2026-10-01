@@ -62,6 +62,11 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
         }
 
         var receiptPosted = transfer.TransferAccountId is Guid destination && JarMovements.PostsOn(transfer, destination) is not null;
+        // What the departure took and from which jar, to check a changed draw against rule 68.
+        var previousDraw = (transfer.AccountId, transfer.Amount, transfer.DepartedOn,
+            JarId: await _db.JarAllocations.AsNoTracking()
+                .Where(a => a.TransactionId == transfer.Id && a.AccountId == transfer.AccountId)
+                .SelectMany(a => a.Postings).Where(p => p.JarId != null).Select(p => p.JarId).FirstOrDefaultAsync(cancellationToken));
         var previousSource = transfer.Account;
         var previousDestination = transfer.TransferAccount;
         // What the stored return (if any) was decided from: kept unless one of these changes.
@@ -107,6 +112,14 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
         {
             await JarMovements.ApplyOutgoingAsync(
                 _db, userId, transfer, from, request.FromJarId, nameof(request.FromJarId), cancellationToken, keepDepartedDraw: true);
+            // Only a changed draw is checked, so an edit of the payee or the receipt never trips on
+            // what the jar did since the money left.
+            if (request.FromJarId is Guid fromJarId
+                && (previousDraw.JarId != fromJarId || previousDraw.AccountId != from.Id
+                    || previousDraw.Amount != transfer.Amount || previousDraw.DepartedOn != transfer.DepartedOn))
+            {
+                await JarHistoryChecks.EnsureTransferDrawAsync(_db, userId, transfer, from, fromJarId, nameof(request.FromJarId), cancellationToken);
+            }
         }
         if (transfer.ReturnedOn is not null)
         {

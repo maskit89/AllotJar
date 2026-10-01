@@ -98,11 +98,15 @@ public static class JarLedgerReader
 
     /// <summary>Loads the owner's jar ledger rows (every date) for reading as of any date.</summary>
     /// <param name="accountIds">Restrict to these accounts; null reads every account that backs a jar.</param>
+    /// <param name="includeUnbacked">Read <paramref name="accountIds"/> even when no jar uses them yet (every movement unallocated).</param>
+    /// <param name="excludeTransactionIds">Read the ledger as if these transactions (and their stored jar answers) did not exist, to check an edit of them.</param>
     public static async Task<JarLedgerSource> LoadAsync(
         IApplicationDbContext db,
         string ownerId,
         CancellationToken cancellationToken,
-        IReadOnlyCollection<Guid>? accountIds = null)
+        IReadOnlyCollection<Guid>? accountIds = null,
+        bool includeUnbacked = false,
+        IReadOnlyCollection<Guid>? excludeTransactionIds = null)
     {
         // Archived jars still own money and stay in every ledger (rule 26 makes them zero).
         var jars = await db.Jars
@@ -121,6 +125,10 @@ public static class JarLedgerReader
             .ToListAsync(cancellationToken));
         if (accountIds is not null)
         {
+            if (includeUnbacked)
+            {
+                backedIds.UnionWith(accountIds);
+            }
             backedIds.IntersectWith(accountIds);
         }
         if (backedIds.Count == 0)
@@ -144,6 +152,12 @@ public static class JarLedgerReader
                                 && t.TransferAccountId != null
                                 && ids.Contains(t.TransferAccountId.Value))))
             .ToListAsync(cancellationToken);
+        if (excludeTransactionIds is { Count: > 0 })
+        {
+            // A stored answer on an excluded transaction is dropped with it: the reader keeps a
+            // transaction-linked operation only while its transaction is read.
+            transactions = transactions.Where(t => !excludeTransactionIds.Contains(t.Id)).ToList();
+        }
 
         var lineJars = await LineJarsAsync(db, ownerId, cancellationToken);
 
@@ -299,27 +313,44 @@ public sealed class JarLedgerSource
     /// <summary>Every jar-backed account as of <paramref name="asOf"/>.</summary>
     public JarLedgerSnapshot At(DateOnly asOf)
     {
-        var views = new Dictionary<Guid, JarLedgerView>();
-        foreach (var account in _accounts)
-        {
-            var carried = _carried.TryGetValue(account.Id, out var jarIds) ? jarIds : new HashSet<Guid>();
-            if (account.OpeningDate is not DateOnly openingDate)
-            {
-                views[account.Id] = new JarLedgerView(asOf, account, new SavingsLedgerBalance(asOf, null, null, null), true, 0);
-                continue;
-            }
-            if (asOf < openingDate)
-            {
-                views[account.Id] = new JarLedgerView(asOf, account, new SavingsLedgerBalance(asOf, null, null, null), false, 0);
-                continue;
-            }
+        var views = _accounts.ToDictionary(a => a.Id, a => ViewOf(a, asOf));
+        return new JarLedgerSnapshot(asOf, views, _jarsById, _isComplete);
+    }
 
-            var (operations, unreconciled, _) = OperationsOf(account, openingDate, asOf);
-            var ledger = ActualSavingsLedger.Calculate(account, openingDate, asOf, _jars, _readable, operations, _postingDates);
-            views[account.Id] = new JarLedgerView(asOf, account, ledger, false, unreconciled) { CarriedJars = carried };
+    /// <summary>One loaded account as of <paramref name="asOf"/>, or null when it was not loaded.</summary>
+    public JarLedgerView? ViewAt(Guid accountId, DateOnly asOf) =>
+        _accounts.FirstOrDefault(a => a.Id == accountId) is { } account ? ViewOf(account, asOf) : null;
+
+    /// <summary>
+    /// The dates after <paramref name="after"/>, future-dated entries included, on which the
+    /// account's ledger has an operation: its balances change only on these days, so a check
+    /// that must hold on every later date reads these and no others.
+    /// </summary>
+    public IReadOnlyList<DateOnly> OperationDatesAfter(Guid accountId, DateOnly after)
+    {
+        if (_accounts.FirstOrDefault(a => a.Id == accountId) is not { OpeningDate: DateOnly openingDate } account)
+        {
+            return Array.Empty<DateOnly>();
+        }
+        var (operations, _, _) = OperationsOf(account, openingDate, DateOnly.MaxValue);
+        return operations.Select(o => o.Date).Where(d => d > after).Distinct().Order().ToList();
+    }
+
+    private JarLedgerView ViewOf(Account account, DateOnly asOf)
+    {
+        var carried = _carried.TryGetValue(account.Id, out var jarIds) ? jarIds : new HashSet<Guid>();
+        if (account.OpeningDate is not DateOnly openingDate)
+        {
+            return new JarLedgerView(asOf, account, new SavingsLedgerBalance(asOf, null, null, null), true, 0);
+        }
+        if (asOf < openingDate)
+        {
+            return new JarLedgerView(asOf, account, new SavingsLedgerBalance(asOf, null, null, null), false, 0);
         }
 
-        return new JarLedgerSnapshot(asOf, views, _jarsById, _isComplete);
+        var (operations, unreconciled, _) = OperationsOf(account, openingDate, asOf);
+        var ledger = ActualSavingsLedger.Calculate(account, openingDate, asOf, _jars, _readable, operations, _postingDates);
+        return new JarLedgerView(asOf, account, ledger, false, unreconciled) { CarriedJars = carried };
     }
 
     /// <summary>

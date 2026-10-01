@@ -60,6 +60,10 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
         {
             await EnsureJarsKeepTheirMoneyAsync(account, openingDate, userId, cancellationToken);
         }
+        if (request.OpeningBalance < account.OpeningBalance)
+        {
+            await EnsureJarsStayBackedAsync(account, request.OpeningBalance, openingDate, userId, cancellationToken);
+        }
 
         account.Name = request.Name.Trim();
         account.Type = request.Type;
@@ -129,6 +133,58 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
                 + $"would no longer count in {account.Name}. Change or remove those entries first, or keep the opening date.",
             },
         });
+    }
+
+    /// <summary>
+    /// A smaller opening balance takes money out of the account on every date, but none out of its
+    /// jars: on a day the jars held more than what is left, their positive balances would exceed
+    /// the account's money (rule 70) with nothing to explain it. Refused, naming the first such
+    /// day, unless that day was already short by as much (a deficit a payment caused stays
+    /// readable). The jars give money back to unallocated first (Jars page) if the opening was
+    /// overstated.
+    /// </summary>
+    private async Task EnsureJarsStayBackedAsync(Account account, decimal openingBalance, DateOnly openingDate, string ownerId, CancellationToken ct)
+    {
+        var source = await Jars.JarLedgerReader.LoadAsync(_db, ownerId, ct, new[] { account.Id });
+        var opening = source.ViewAt(account.Id, openingDate)?.Account;
+        if (opening is null)
+        {
+            return; // The account carries no jar.
+        }
+        var previous = (opening.OpeningBalance, opening.OpeningDate);
+        var dates = source.OperationDatesAfter(account.Id, openingDate).Prepend(openingDate).ToList();
+        var before = dates.Select(d => source.ViewAt(account.Id, d)!).ToList();
+        // The loaded account is an untracked copy, read again with the new opening.
+        opening.OpeningBalance = openingBalance;
+        opening.OpeningDate = openingDate;
+        try
+        {
+            for (var i = 0; i < dates.Count; i++)
+            {
+                var after = source.ViewAt(account.Id, dates[i])!;
+                if (!after.IsAvailable || !before[i].IsAvailable)
+                {
+                    continue;
+                }
+                var shortBefore = Math.Max(0m, before[i].PositiveAllocations - before[i].AccountBalance!.Value);
+                var shortAfter = Math.Max(0m, after.PositiveAllocations - after.AccountBalance!.Value);
+                if (shortAfter > shortBefore)
+                {
+                    throw new ValidationException(new Dictionary<string, string[]>
+                    {
+                        ["OpeningBalance"] = new[]
+                        {
+                            $"On {dates[i]:yyyy-MM-dd} {account.Name} would hold {after.AccountBalance:0.##} while its jars hold "
+                            + $"{after.PositiveAllocations:0.##}. Move money out of the jars to unallocated first, or keep the opening balance.",
+                        },
+                    });
+                }
+            }
+        }
+        finally
+        {
+            (opening.OpeningBalance, opening.OpeningDate) = previous;
+        }
     }
 
     // Rule 30: the holders are who the account belongs to; its balance and history are untouched.
