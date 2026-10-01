@@ -1043,3 +1043,24 @@ Christopher confirmed on 30 September that the first handwritten note means the 
 - Validation: `npx vitest run` **902 passed**; lint and `tsc` as before.
 
 **Deploy.** Client code only; nothing to run.
+
+## Follow-ups F2: server fixes and hardening (the end-to-end check's SC-P3-1, SC-P3-4, RP-P3-1, TX-P3-2, S-P3-1, S-P3-5, MG-P3-2; #302 review P2-1's server half) — 1 October 2026
+
+**Scope.** The second follow-up PR from the open list of 1 October (`plans/2026-10-01-open-follow-ups.md`, group 1). No migration, no data step.
+
+- **(SC-P3-1, rule 58) The jar card estimates like the edit preview.** The card passed today's balance to the planner only when a month was skipped, so with money arriving this month it said "about 6 more months" where the preview said 4. `JarDto` always passes it now.
+- **(RP-P3-1, rule 37) "Review N transactions" counts a split whose slice is on no line.** The slice's money was in Uncategorised but its transaction was not in the count (income likewise). A split counts once however many of its slices are loose. `ReportFiguresTests` pinned the old count and now expects 2.
+- **(SC-P3-4) Two requests closing the same jar cycle get "reload and try again", not a 500.** Two pages settling a cycle on the first day after its deadline, or a double-clicked Mark paid or Dismiss, both added the cycle and the second save tripped the unique index. The exception middleware answers that collision (`IX_JarCycles_…`) with the 409 it already gives a concurrency conflict. SQL test: `FollowUpsF2SqlTests`.
+- **(TX-P3-2) A camt.053 statement declaring a DTD is refused** ("a bank statement never does") instead of being expanded; nothing outside the document is resolved.
+- **(S-P3-1) Expired refresh tokens are deleted** for the login on each sign-in and rotation. Rotated tokens that have not expired stay, so replaying a stolen one still meets the theft response.
+- **(S-P3-5) The sign-in answer's role is the role in the household the login acts in** (its chosen household while it still belongs to it, else its own), as each request resolves it, not whichever membership came first (`ActiveHouseholdSelector.ActiveRoleAsync`, used by login and by refresh, Google and the other auth answers).
+- **(#302 review P2-1) A refresh's rotation and its answer stand or fall together.** `AuthController.Refresh` saved the new token before loading the login and building the answer; a failure there gave a 500 with the rotation kept, and the browser, still holding the replaced cookie, met the theft response on its next refresh. The rotation now commits only with the answer.
+- **(MG-P3-2) The start-up departure backfill asks the database for jars with no departure** instead of reading every posting a moved jar ever had and filtering in memory; once every moved jar has its departure, a start-up reads nothing.
+
+**Left out (still on the open list).** S-P3-4 (answer 404 rather than 403 for another household's id) touches about 50 handlers and their tests for little gain, since ids are GUIDs. S-P3-6 (reset and confirmation tokens in the link's fragment) changes the email links, the two pages and about 15 tests that read the links. MG-P3-1 (backfill saved per household) would change deploy-time code that has nothing to do in production. The live Cloudflare list (#298 P3-3) would add a network call at start-up. Each is better as its own small PR if wanted.
+
+**Tests.** `FollowUpsF2Tests` (4: the card estimate, the split counted, the DTD refused, expired tokens pruned), all failing on `main`; `LoginTests` (+2: the role in the chosen household, and in the login's own when none is chosen); `FollowUpsF2SqlTests` (1: the second close recognised as a collision).
+
+**Validation (this machine: .NET SDK 10.0, SQL Server 2022 in Docker).** From `main` at `0bae18b` (#301): `dotnet build` 0 warnings; unit suite **1401 passed**; SQL integration suite **124 passed**.
+
+**Deploy.** No migration or data step.
