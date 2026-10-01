@@ -305,4 +305,39 @@ public class SchedulesCyclesFixPlanETests
         var offered = await new GetJarPaymentsQueryHandler(db, User).Handle(new GetJarPaymentsQuery(jar.Id, IncludeOtherPayments: true), Ct);
         offered.Should().NotContain(p => p.Id == fee.Id);
     }
+
+    [Fact]
+    public async Task A_cycle_waiting_for_its_deadline_is_judged_and_saved_while_another_jar_sits_missed()
+    {
+        // #301 review R2-1: the verdict is saved even when no jar rolled forward on this read.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, opening: 5000m);
+        var d1 = Today.AddDays(-3);
+        var phone = new Jar
+        {
+            OwnerId = Owner, Name = "Phone", Kind = JarKind.Recurring, TargetAmount = 100m, TargetDate = d1.AddMonths(2),
+            CycleDeadline = d1.AddMonths(2), Accrual = AccrualMethod.TargetByDate, RecurMonths = 1, FundingAccountId = account.Id,
+        };
+        // Gym's deadline passed short: the persistent "Deadline missed" state (rule 20).
+        var gym = new Jar
+        {
+            OwnerId = Owner, Name = "Gym", Kind = JarKind.Recurring, TargetAmount = 300m, TargetDate = Today.AddDays(-5),
+            CycleDeadline = Today.AddDays(-5), Accrual = AccrualMethod.TargetByDate, RecurMonths = 1, FundingAccountId = account.Id,
+        };
+        db.Jars.AddRange(phone, gym);
+        db.SaveChanges();
+        LedgerFixtures.Allocate(db, Owner, account.Id, phone.Id, 50m, Today.AddDays(-30), JarAllocationKind.Reallocation);
+        db.JarCycles.Add(new JarCycle
+        {
+            OwnerId = Owner, JarId = phone.Id, Deadline = d1, TargetAmount = 100m, Outcome = JarCycleOutcome.Funded,
+            BalanceAtDeadline = null, ClosedOn = d1, CreatedUtc = DateTime.UtcNow,
+        });
+        db.SaveChanges();
+
+        await ListAsync(db);
+
+        var stored = await db.JarCycles.AsNoTracking().SingleAsync(c => c.JarId == phone.Id && c.Deadline == d1);
+        stored.Outcome.Should().Be(JarCycleOutcome.Missed, "the deadline passed with 50 of 100 held");
+        stored.BalanceAtDeadline.Should().Be(50m);
+    }
 }

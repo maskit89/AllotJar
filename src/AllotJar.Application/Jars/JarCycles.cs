@@ -44,7 +44,7 @@ public static class JarCycles
             }
             return false;
         }
-        await JudgeWaitingAsync(db, ownerId, today, jarId, cancellationToken);
+        var judged = await JudgeWaitingAsync(db, ownerId, today, jarId, cancellationToken);
 
         var changed = false;
         // Settling moves no money: one load of the ledger serves every deadline and replant (P3-10).
@@ -82,7 +82,7 @@ public static class JarCycles
             }
         }
 
-        if (changed)
+        if (changed || judged)
         {
             await db.SaveChangesAsync(cancellationToken);
         }
