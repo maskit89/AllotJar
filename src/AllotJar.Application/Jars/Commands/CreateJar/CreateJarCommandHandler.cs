@@ -96,6 +96,14 @@ public class CreateJarCommandHandler
                 throw JarAccounts.Validation("InitialAllocation",
                     $"{account.Name} has {view.Unallocated:0.##} unallocated on {date:yyyy-MM-dd}. {ex.Message}");
             }
+            // Money set aside as of a past date divides what the account held then and still
+            // holds on every later date (rule 77): not money it has since spent.
+            var history = await JarLedgerReader.LoadAsync(_db, userId, cancellationToken, new[] { account.Id }, includeUnbacked: true);
+            if (JarHistoryChecks.FirstRefusal(history, account, date, includeFrom: false, null,
+                    $"{account.Name}'s unallocated money", request.InitialAllocation, 0m, postings) is { } refusal)
+            {
+                throw JarAccounts.Validation("InitialAllocation", refusal);
+            }
 
             // The jar is staged only once its allocation passed: a context reused after a refusal
             // must never persist a jar without the money it claimed.

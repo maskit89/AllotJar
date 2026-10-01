@@ -84,9 +84,10 @@ public class CreateTransferCommandHandler : IRequestHandler<CreateTransferComman
         await AccountBalanceGuard.EnsureNonNegativeAsync(
             _db, new[] { from }, fee is null ? new[] { transfer } : new[] { transfer, fee }, Array.Empty<Guid>(), "Amount", cancellationToken);
 
-        if (request.FromJarId is not null)
+        if (request.FromJarId is Guid fromJarId)
         {
-            await JarMovements.ApplyOutgoingAsync(_db, userId, transfer, from, request.FromJarId, "FromJarId", cancellationToken);
+            await JarMovements.ApplyOutgoingAsync(_db, userId, transfer, from, fromJarId, "FromJarId", cancellationToken);
+            await JarHistoryChecks.EnsureTransferDrawAsync(_db, userId, transfer, from, fromJarId, "FromJarId", cancellationToken);
         }
         if (request.JarAllocations is { Count: > 0 })
         {
