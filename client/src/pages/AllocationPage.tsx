@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { Button, Card, EmptyState, ErrorBanner, Input, Select, SegmentedControl } from '../components/ui'
@@ -29,6 +29,7 @@ import { toJarAllocations } from '../lib/jarAllocationFields'
 import { serverErrors } from '../lib/serverErrors'
 import { JarAllocationFields } from '../components/jars/JarAllocationFields'
 import { PRIVATE_ACCOUNT } from '../lib/accountHolders'
+import { todayIso } from '../lib/dates'
 
 /** The source picker's value for a source its holder has made private (P53: its id is never sent). */
 const PRIVATE_SOURCE = 'private'
@@ -98,14 +99,24 @@ export function AllocationPage() {
   const [savingsSplit, setSavingsSplit] = useState<number>(SplitMethod.BalanceTilt)
   const [lean, setLean] = useState('25')
 
+  // The month on screen now. A handler keeps the month it started on; an answer that lands after
+  // the user moved to another month belongs to that month and is dropped, never painted under
+  // the new month's heading (CL-P2-2, as on the Dashboard).
+  const viewedMonth = useRef(`${year}-${month}`)
+  useEffect(() => {
+    viewedMonth.current = `${year}-${month}`
+  }, [year, month])
+  const isViewed = useCallback((y: number, m: number) => viewedMonth.current === `${y}-${m}`, [])
+
   const loadPreview = useCallback(async (year: number, month: number) => {
     try {
       const { data } = await api.get<AllocationResultDto>(`/allocation/preview/${year}/${month}`)
+      if (!isViewed(year, month)) return
       setPreview(data)
     } catch {
-      setError('Could not compute the allocation preview.')
+      if (isViewed(year, month)) setError('Could not compute the allocation preview.')
     }
-  }, [])
+  }, [isViewed])
 
   // Reloads whenever the selected month changes: the preview and the budget it reconciles
   // against are both that month's.
@@ -194,6 +205,7 @@ export function AllocationPage() {
     setError(null)
     try {
       const { data } = await api.post<BudgetMonthDto>(`/allocation/pocket-lines/${period.year}/${period.month}`, {})
+      if (!isViewed(period.year, period.month)) return
       setMonthVM(fromDto(data))
       // The envelopes (and possibly a healed double-count) just changed — stale banner off,
       // fresh preview in.
@@ -205,7 +217,7 @@ export function AllocationPage() {
     } finally {
       setBusy(false)
     }
-  }, [period, loadPreview])
+  }, [period, loadPreview, isViewed])
 
   // Link a savings account to a member straight from the warning on their card. The PUT is a
   // full echo, so the member's saved record is read first: the preview's `netIncome` is the
@@ -238,7 +250,7 @@ export function AllocationPage() {
 
   // The commit records bank transfers the user says they have made (rules 7/29): the date the
   // money left the source account is required, and receipt stays unconfirmed (in transit).
-  const [commitDate, setCommitDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [commitDate, setCommitDate] = useState(todayIso)
   const [commitConfirmed, setCommitConfirmed] = useState(false)
 
   const commit = useCallback(async () => {
@@ -260,12 +272,14 @@ export function AllocationPage() {
         confirmedCompleted: true,
         ...(jarAllocations.length > 0 ? { jarAllocations } : {}),
       })
-      setPreview(data)
-      setCommitted(data.transfersCreated)
-      setRetained(data.transfersRetained ?? 0)
       setCommitConfirmed(false)
       setAllocJar({})
       track(EVENTS.allocationCommitted, { count_bucket: bucketCount(data.transfersCreated) })
+      // The commit's preview and banner are its own month's.
+      if (!isViewed(period.year, period.month)) return
+      setPreview(data)
+      setCommitted(data.transfersCreated)
+      setRetained(data.transfersRetained ?? 0)
     } catch (err) {
       // Rule 74 refusals and jar validation messages show verbatim.
       setError(
@@ -275,7 +289,7 @@ export function AllocationPage() {
     } finally {
       setBusy(false)
     }
-  }, [period, commitDate, commitConfirmed, allocJar])
+  }, [period, commitDate, commitConfirmed, allocJar, isViewed])
 
   // Re-seed the settings form from the saved profile (defaults when there's none). Called when the
   // modal opens (clean start) and closes (Cancel/backdrop discards unsaved edits, so a later Save

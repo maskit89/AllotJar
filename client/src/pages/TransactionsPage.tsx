@@ -25,7 +25,7 @@ import type {
 import { TransactionType } from '../types'
 import { formatMoney, formatPlain, fromAmount, parseMinor, sumMinor, toAmount, toEditString } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
-import { formatDate, monthYear, shortDate } from '../lib/dates'
+import { formatDate, monthYear, shortDate, todayIso } from '../lib/dates'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { buildItemOptions, jarLinesOf, transactionTypeLabel } from '../lib/transactions'
 import { SplitLinesEditor, SplitRemainderChip, type SplitRowDraft } from '../components/SplitLinesEditor'
@@ -48,10 +48,6 @@ import { fromJarAllocations, jarAllocationsProblem, toJarAllocations } from '../
 import { crossMonthError, serverErrors } from '../lib/serverErrors'
 import { PRIVATE_ACCOUNT } from '../lib/accountHolders'
 import { fetchConversionSuggestion, formatForeign, suggestionHint } from '../lib/conversion'
-
-function today(): string {
-  return new Date().toISOString().slice(0, 10)
-}
 
 /**
  * When an assigned transaction is budgeted to a line in a *different* month than its own date
@@ -151,7 +147,7 @@ export function TransactionsPage() {
   const [mode, setMode] = useState<'transaction' | 'transfer'>('transaction')
 
   // Add-transaction form state.
-  const [date, setDate] = useState(today)
+  const [date, setDate] = useState(todayIso)
   const [payee, setPayee] = useState('')
   const [amount, setAmount] = useState('')
   const [type, setType] = useState<number>(TransactionType.Expense)
@@ -178,7 +174,7 @@ export function TransactionsPage() {
   // Transfer form state (a completed bank transfer between two of the user's own accounts).
   // tDate is the departure the user confirms; tReceived is optional — left blank, the money is
   // shown in transit until the receipt is confirmed on the register (rule 71).
-  const [tDate, setTDate] = useState(today)
+  const [tDate, setTDate] = useState(todayIso)
   const [tReceived, setTReceived] = useState('')
   const [tConfirmed, setTConfirmed] = useState(false)
   const [tAmount, setTAmount] = useState('')
@@ -200,7 +196,7 @@ export function TransactionsPage() {
   // Inline leg confirmation on a transfer row: the receipt date for an in-transit transfer, or
   // the departure date for a receipt held for review.
   const [legId, setLegId] = useState<string | null>(null)
-  const [legDate, setLegDate] = useState(today)
+  const [legDate, setLegDate] = useState(todayIso)
 
   // Register filter — All or just Unassigned (the design's toolbar segmented control).
   const [filter, setFilter] = useState<'all' | 'unassigned'>('all')
@@ -581,7 +577,7 @@ export function TransactionsPage() {
   /** Back to a blank transfer form (after editing a transfer, whose values must not linger). */
   function resetTransferForm() {
     setEditingTransfer(null)
-    setTDate(today())
+    setTDate(todayIso())
     setTReceived('')
     setTReturned('')
     setTConfirmed(false)
@@ -2239,7 +2235,7 @@ export function TransactionsPage() {
                                       type="button"
                                       onClick={() => {
                                         setLegId(t.id)
-                                        setLegDate(t.transferStatus === 'PendingReview' ? t.receivedOn ?? today() : t.departedOn ?? today())
+                                        setLegDate(t.transferStatus === 'PendingReview' ? t.receivedOn ?? todayIso() : t.departedOn ?? todayIso())
                                         // Start from the jar answers given when it was recorded.
                                         setLegJarAlloc(fromJarAllocations(incomingAllocationsOf(t.jarAllocations, t.transferAccountId)))
                                         setLegFromJar(paidFromJarOf(t.jarAllocations, t.accountId, new Set()) ?? PAID_FROM_UNALLOCATED)

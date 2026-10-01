@@ -487,6 +487,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     applyPrefs(DEFAULT_CURRENCY, DEFAULT_FORMAT)
     applyBudgetCurrency(null)
     setCurrencyLocked(false)
+    // The next login in this tab must not inherit who this one was (CL-P3-2).
+    setOwnBudgetCurrencyState(null)
+    setMemberId(null)
+    setSharingReviewPending(false)
     localStorage.removeItem(EMAIL_KEY)
     localStorage.removeItem(ROLE_KEY)
     localStorage.removeItem(NAME_KEY)

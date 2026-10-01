@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 import { EVENTS, track } from '../analytics'
+import { currentMonth } from '../lib/dates'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -22,10 +23,8 @@ export interface MonthState {
   goToMonth: (year: number, month: number) => void
 }
 
-const nowMonth = () => {
-  const d = new Date()
-  return { year: d.getFullYear(), month: d.getMonth() + 1 }
-}
+/** The current month is the UTC month, as on the server (rule 82, P14). */
+const nowMonth = () => currentMonth()
 
 /** Safe default so consumers (and page tests) render without a provider: the
  *  current month, with no-op navigation. The real provider supplies state. */
