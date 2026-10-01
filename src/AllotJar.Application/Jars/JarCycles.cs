@@ -219,6 +219,13 @@ public static class JarCycles
         return true;
     }
 
+    /// <summary>
+    /// How a missed cycle closes without a payment (rule 20 dismissed, rule 57): FundedLate when
+    /// the jar holds its target <paramref name="balanceNow"/>, otherwise Missed.
+    /// </summary>
+    public static JarCycleOutcome UnpaidCloseOutcome(Jar jar, decimal? balanceNow) =>
+        balanceNow is { } balance && balance >= jar.TargetAmount ? JarCycleOutcome.FundedLate : JarCycleOutcome.Missed;
+
     /// <summary>Records <paramref name="payment"/> as the one that fulfilled <paramref name="cycle"/> (rule 83).</summary>
     public static void Link(JarCycle cycle, Transaction payment)
     {

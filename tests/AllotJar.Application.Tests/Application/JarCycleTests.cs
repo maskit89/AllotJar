@@ -483,6 +483,26 @@ public class JarCycleTests
     }
 
     [Fact]
+    public async Task D15_ChangingTheDateWhenAMissedCycleIsNowFunded_RecordsItAsFundedLate_AsDismissWould()
+    {
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner);
+        var due = Today.AddDays(-3);
+        var jar = SeedInsurance(db, account, due: due);
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 450m, Today.AddDays(-30));
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 150m, Today.AddDays(-1)); // after the deadline
+        (await ListAsync(db)).Single().Status.Should().Be("FundedLate");
+
+        await new UpdateJarCommandHandler(db, User()).Handle(new UpdateJarCommand(
+            jar.Id, "Insurance", JarKind.Recurring, 600m, NextMonth.AddMonths(2), AccrualMethod.TargetByDate, account.Id, RecurMonths: 12), CancellationToken.None);
+
+        var cycle = await db.JarCycles.SingleAsync();
+        cycle.Deadline.Should().Be(due);
+        cycle.Outcome.Should().Be(JarCycleOutcome.FundedLate);
+        cycle.BalanceAtDeadline.Should().Be(450m, "the balance the day before the deadline");
+    }
+
+    [Fact]
     public async Task ThePreviewOfAnEdit_PlansTowardTheOpenCycle_WhenTheDateIsEchoed()
     {
         await using var db = NewContext();

@@ -109,15 +109,16 @@ public class UpdateJarCommandHandler
         if (jar is { Kind: JarKind.Recurring, IsArchived: false, CycleDeadline: { } open } && open <= today && cycleDeadline != open)
         {
             // The open cycle is in Deadline missed (the settle above rolled it forward otherwise),
-            // and the edit replaces it: it is recorded as Missed first, so the history keeps it
-            // (rule 20, D15), its balance read the day before the deadline as the rollover reads it.
+            // and the edit replaces it: it is recorded first, as Dismiss would close it now (Missed,
+            // or FundedLate once the jar holds its target), so the history keeps it (rule 20, D15);
+            // its balance is read the day before the deadline, as the rollover reads it.
             _db.JarCycles.Add(new JarCycle
             {
                 OwnerId = userId,
                 JarId = jar.Id,
                 Deadline = open,
                 TargetAmount = jar.TargetAmount,
-                Outcome = JarCycleOutcome.Missed,
+                Outcome = JarCycles.UnpaidCloseOutcome(jar, ledger.At(today).BalanceOf(jar.Id)),
                 BalanceAtDeadline = ledger.At(open.AddDays(-1)).BalanceOf(jar.Id),
                 ClosedOn = today,
                 CreatedUtc = DateTime.UtcNow,
