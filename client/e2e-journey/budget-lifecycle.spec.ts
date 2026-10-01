@@ -199,7 +199,7 @@ test('a jar-owning household’s blank month is born over-budgeted with an accru
 
   // BUDG-029 / JAR-063: the create card tells the user their jar will be appended
   // (singular form for exactly one jar).
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   await expect(
     page.getByText(/Your 1 existing jar is added to any new budget automatically/),
   ).toBeVisible()
@@ -246,7 +246,7 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await createGoalJar(page, 'Old Boiler', '600') // 600 ÷ 12 = 50.00/mo — archived below
 
   // BUDG-029: plural jar-append note for two jars.
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   await expect(
     page.getByText(/Your 2 existing jars are added to any new budget automatically/),
   ).toBeVisible()
@@ -310,7 +310,7 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await expect(page.getByRole('heading', { name: 'Old Boiler' })).toHaveCount(0)
 
   // --- Copy the current month into the next one (BUDG-038/040: ‹› + real source name) ---
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   await page.getByRole('button', { name: 'Next month' }).click()
   await expect(page.getByRole('heading', { name: next.label })).toBeVisible()
   await expect(page.getByText(`No budget for ${next.label} yet.`)).toBeVisible()
@@ -401,7 +401,7 @@ test('month navigation moves every screen together; the jars shelf follows the m
   // the Pot account — whose line lands in the month.
   await register(page, { starterBudget: true })
   await createGoalJar(page, 'Emergency Fund', '', { monthly: '250' })
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   await expect(page.getByText('Remaining to budget')).toBeVisible()
   // A jar created while the month exists plants its contribution line there at its plan
   // (rule 46); hand-edit this month's line to 300.00.
@@ -433,7 +433,7 @@ test('month navigation moves every screen together; the jars shelf follows the m
   // on the same (previous) month, and Budget still shows it on the way back.
   await page.getByRole('link', { name: 'Transactions' }).click()
   await expect(page.getByText(`Money in · ${prev.label}`)).toBeVisible()
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   await expect(page.getByText(`No budget for ${prev.label} yet.`)).toBeVisible()
 
   // BUDG-040: › twice reaches the (creatable) next month; the copy button names the

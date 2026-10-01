@@ -85,7 +85,7 @@ test('a recurring cycle is marked paid with its payment; a goal is skipped for t
 
   // --- W04 rules 60–61: "Sofa" 300.00 by a deadline three months out → 100.00 a month ---
   await createGoalJar(page, { name: 'Sofa', target: '300', heldIn: 'Savings', deadline: firstOfMonthAhead(3) })
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   const planned = page.getByRole('button', { name: 'Planned amount for Sofa' })
   await expect(planned).toContainText('100.00')
   // The ✕ on a jar's line offers skip or archive, never a bare delete (rule 60), with the
@@ -104,7 +104,7 @@ test('a recurring cycle is marked paid with its payment; a goal is skipped for t
   await page.getByRole('link', { name: 'Jars' }).click()
   await expect(jarCard(page, 'Sofa')).toContainText('Skipped this month')
   // Planned again: the even plan is back.
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   const restored = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith('/skip') && r.ok())
   await page.getByRole('button', { name: 'Plan Sofa again this month' }).click()
   await restored
@@ -121,7 +121,7 @@ test('a recurring cycle is marked paid with its payment; a goal is skipped for t
   await expect(complete).toBeHidden()
   await expect(jarCard(page, 'Sofa')).toContainText('Completed')
   await expect(jarCard(page, 'Sofa').getByRole('button', { name: 'Mark Sofa completed' })).toBeHidden()
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   await expect(page.getByRole('button', { name: 'Planned amount for Sofa' })).toContainText('0.00')
 
   // --- W04 rule 27: a jar that never held money can be deleted; one that has cannot ---
@@ -141,7 +141,7 @@ test('a recurring cycle is marked paid with its payment; a goal is skipped for t
   await expect(editRoadTax.getByRole('button', { name: 'Delete Road tax' })).toHaveCount(0)
   await editRoadTax.getByRole('button', { name: 'Cancel edit' }).click()
   // Its planned lines went with Bike; Sofa's and Road tax's stay.
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   await expect(page.getByRole('button', { name: 'Planned amount for Bike' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Planned amount for Sofa' })).toBeVisible()
 })

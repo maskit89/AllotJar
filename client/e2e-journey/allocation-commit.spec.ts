@@ -169,7 +169,7 @@ async function createGoalJar(page: Page, jar: { name: string; target: string; he
  * per-person defaults). The "Who earns" picker only renders once the household is shared.
  */
 async function addAttributedIncome(page: Page, line: { name: string; amount: string; formatted: string; person: string }) {
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   await page.getByRole('textbox', { name: 'New income source name', exact: true }).fill(line.name)
   await committed(page, 'POST', '/api/budget/categories/', () =>
     page.getByRole('button', { name: 'Add income source', exact: true }).click(),
@@ -351,7 +351,7 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   await page.getByRole('link', { name: 'Jars' }).click()
   await createGoalJar(page, { name: 'Holiday', target: '6000', heldIn: 'Joint' })
 
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   await startBlankBudget(page)
   // The jar line is the FundJars input the engine reads (planned 500.00).
   await expect(page.getByRole('textbox', { name: 'Rename Holiday', exact: true })).toBeVisible()
@@ -548,7 +548,7 @@ test('a member without a savings account strands their share; over-committing th
   await addAccount(page, { name: 'Joint', opening: '5000' })
   await addAccount(page, { name: 'Alex Pot', opening: '0' })
 
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   await addExpenseGroup(page, 'Essentials')
   await addLine(page, 'Essentials', 'Rent')
   await setPlanned(page, 'Rent', '2000', '2,000.00')
@@ -607,7 +607,7 @@ test('a member without a savings account strands their share; over-committing th
   await expect(page.getByText('In transit', { exact: true }).first()).toBeVisible()
 
   // --- Over-commit the month: Rent 6,000.00 now exceeds the 5,000.00 pool ---
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   await setPlanned(page, 'Rent', '6000', '6,000.00')
   await page.getByRole('link', { name: 'Allocation' }).click()
 
@@ -662,7 +662,7 @@ test('a new couple with equal zero balances previews and commits under the defau
   await addAccount(page, { name: 'Pot A', opening: '0' })
   await addAccount(page, { name: 'Pot B', opening: '0' })
 
-  await page.getByRole('link', { name: 'Budget' }).click()
+  await page.getByRole('link', { name: 'Dashboard' }).click()
   await addExpenseGroup(page, 'Essentials')
   await addLine(page, 'Essentials', 'Rent')
   await setPlanned(page, 'Rent', '3000', '3,000.00')
