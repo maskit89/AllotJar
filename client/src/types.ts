@@ -540,6 +540,8 @@ export interface CommitImportItem {
 export interface ImportHeldRow {
   reference: string
   message: string
+  /** The row's position in the commit request; unique even when two rows share a reference. */
+  index?: number
 }
 
 /** Summary returned by a statement import (CAMT.053 or HSBC CSV). */
@@ -566,6 +568,8 @@ export interface ImportStatementResult {
   awaitingAmount?: number
   /** The rows counted in skippedDuplicates, by the reference this client sent. */
   skippedReferences?: string[]
+  /** The same rows by their position in the commit request. */
+  skippedIndexes?: number[]
 }
 
 export interface AccountReconciliationDto {

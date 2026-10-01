@@ -90,5 +90,14 @@ public class CommitImportCommandValidator : AbstractValidator<CommitImportComman
         RuleFor(x => x)
             .Must(c => c.AccountId is not null || c.Items.All(i => i.TransferAccountId is null))
             .WithMessage("Choose the account this import belongs to before marking rows as transfers.");
+
+        // So does confirming a recorded transfer's leg or its return (TX-P2-4): the statement's
+        // account is the side the row confirms.
+        RuleFor(x => x)
+            .Must(c => c.AccountId is not null || c.Items.All(i => i.MatchTransferId is null))
+            .WithMessage("Choose the account this import belongs to before confirming a recorded transfer.");
+        RuleFor(x => x)
+            .Must(c => c.AccountId is not null || c.Items.All(i => i.ReturnOfTransferId is null))
+            .WithMessage("Choose the account this import belongs to before confirming a returned transfer.");
     }
 }

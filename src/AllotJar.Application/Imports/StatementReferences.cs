@@ -34,6 +34,9 @@ public readonly record struct ResolvedReference(string? Reference, bool Duplicat
 public sealed class KnownReferences
 {
     private readonly Dictionary<string, KnownEntry> _entries;
+    // The references rows of the statement being read took (Add): a later row repeating one is
+    // another entry of the same statement, not a reference the account already used.
+    private readonly HashSet<string> _added = new(StringComparer.OrdinalIgnoreCase);
 
     internal KnownReferences(Dictionary<string, KnownEntry> entries) => _entries = entries;
 
@@ -54,18 +57,44 @@ public sealed class KnownReferences
             return new(reference, true, null);
         }
         var derived = StatementReferences.Derive(reference, date, amount, isCredit);
-        return _entries.ContainsKey(derived) ? new(derived, true, null) : new(derived, false, known);
+        if (_entries.ContainsKey(derived))
+        {
+            return new(derived, true, null);
+        }
+        // Before 1 Oct 2026 the camt.053 parser stored the Nth repeat of a reference within one
+        // statement as "{reference}#N", whatever its details: such a row is this entry when it
+        // recorded the same details, so an overlapping statement doesn't import it again (TX-P2-3).
+        var prefix = reference + "#";
+        foreach (var (key, entry) in _entries)
+        {
+            if (key.Length > prefix.Length
+                && key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                && key.AsSpan(prefix.Length).IndexOfAnyExceptInRange('0', '9') < 0
+                && entry.Matches(date, amount, isCredit))
+            {
+                return new(key, true, null);
+            }
+        }
+        return new(derived, false, _added.Contains(reference) ? null : known);
     }
 
     /// <summary>Records <paramref name="reference"/> as taken by this row; false when it already was.</summary>
-    public bool Add(string reference, DateOnly date, decimal amount, bool isCredit) =>
-        _entries.TryAdd(reference, new KnownEntry(date, amount, isCredit));
+    public bool Add(string reference, DateOnly date, decimal amount, bool isCredit)
+    {
+        if (!_entries.TryAdd(reference, new KnownEntry(date, amount, isCredit)))
+        {
+            return false;
+        }
+        _added.Add(reference);
+        return true;
+    }
 
     public void Remove(string? reference)
     {
         if (reference is not null)
         {
             _entries.Remove(reference);
+            _added.Remove(reference);
         }
     }
 }

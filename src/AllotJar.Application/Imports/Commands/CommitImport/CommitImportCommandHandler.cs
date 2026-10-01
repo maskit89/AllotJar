@@ -57,6 +57,13 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 ["AccountId"] = new[] { "Choose the account this import belongs to before marking rows as transfers." },
             });
         }
+        if (request.AccountId is null && request.Items.Any(i => i.MatchTransferId is not null))
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["AccountId"] = new[] { "Choose the account this import belongs to before confirming a recorded transfer." },
+            });
+        }
 
         // Serialise against every other writer of the accounts this import can move money in:
         // the statement account, the counterparties of new transfers, and both sides of every
@@ -148,6 +155,12 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         // carry a derived reference), so the screen can leave them out of its money totals.
         var skippedReferences = new List<string>();
         var sentReference = new Dictionary<Transaction, string>(ReferenceEqualityComparer.Instance);
+        // The same rows by their position in the request: references need not be unique (TX-P3-5).
+        var skippedIndexes = new List<int>();
+        var sentIndex = new Dictionary<Transaction, int>(ReferenceEqualityComparer.Instance);
+        var rowIndex = request.Items
+            .Select((item, index) => (item, index))
+            .ToDictionary(x => x.item, x => x.index, ReferenceEqualityComparer.Instance);
         // The legs rows of this import confirm: a transfer's departure and its return can be on
         // one statement (a bounced transfer), but no leg is confirmed twice.
         var matchedIds = new HashSet<(Guid TransferId, TransferLeg Leg)>();
@@ -234,6 +247,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             {
                 skipped++;
                 skippedReferences.Add(item.Reference);
+                skippedIndexes.Add(rowIndex[item]);
                 continue;
             }
             var reference = resolution.Reference;
@@ -259,7 +273,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     (target.ReturnedOn, target.ReturnBankReference, target.ReceivedOn) = (previousReturned, previousReturnReference, previousReceived);
                     matchedIds.Remove((returnId, TransferLeg.Return));
                     known.Remove(reference);
-                    held.Add(new ImportHeldRow(item.Reference, returnShortfall));
+                    held.Add(new ImportHeldRow(item.Reference, Index: rowIndex[item], Message: returnShortfall));
                     continue;
                 }
                 if (target.TransferAccountId is Guid neverReached)
@@ -373,7 +387,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                         (target.DepartedOn, target.ReceivedOn, target.BankReference, target.ReceiptBankReference, target.Date, target.Amount) = before;
                         matchedIds.Remove((matchId, item.IsCredit ? TransferLeg.Receipt : TransferLeg.Departure));
                         known.Remove(reference);
-                        held.Add(new ImportHeldRow(item.Reference, matchShortfall));
+                        held.Add(new ImportHeldRow(item.Reference, Index: rowIndex[item], Message: matchShortfall));
                         continue;
                     }
 
@@ -480,12 +494,13 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     && (newTransferFee is null ? Shortfall(null, transfer) : Shortfall(null, transfer, newTransferFee)) is string transferShortfall)
                 {
                     known.Remove(reference);
-                    held.Add(new ImportHeldRow(item.Reference, transferShortfall));
+                    held.Add(new ImportHeldRow(item.Reference, Index: rowIndex[item], Message: transferShortfall));
                     continue;
                 }
                 _db.Transactions.Add(transfer);
                 created.Add(transfer);
                 sentReference[transfer] = item.Reference;
+                sentIndex[transfer] = rowIndex[item];
                 AddToCandidate(transfer);
                 if (rowFee > 0m)
                 {
@@ -569,13 +584,14 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             if (!item.IsCredit && Shortfall(null, transaction) is string rowShortfall)
             {
                 known.Remove(reference);
-                held.Add(new ImportHeldRow(item.Reference, rowShortfall));
+                held.Add(new ImportHeldRow(item.Reference, Index: rowIndex[item], Message: rowShortfall));
                 continue;
             }
 
             _db.Transactions.Add(transaction);
             created.Add(transaction);
             sentReference[transaction] = item.Reference;
+            sentIndex[transaction] = rowIndex[item];
             AddToCandidate(transaction);
 
             if (importAccount is not null)
@@ -634,6 +650,10 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                         imported--;
                         skipped++;
                         skippedReferences.Add(sentReference.TryGetValue(row, out var sent) ? sent : row.BankReference ?? string.Empty);
+                        if (sentIndex.TryGetValue(row, out var sentAt))
+                        {
+                            skippedIndexes.Add(sentAt);
+                        }
                         if (row.Type == TransactionType.Transfer)
                         {
                             transfers--;
@@ -669,7 +689,8 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             Held: held,
             Returned: returned,
             AwaitingAmount: created.Concat(fees).Count(t => t.FxPending),
-            SkippedReferences: skippedReferences);
+            SkippedReferences: skippedReferences,
+            SkippedIndexes: skippedIndexes);
     }
 
     /// <summary>

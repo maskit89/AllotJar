@@ -174,14 +174,17 @@ public class ParserToleranceTests
         var doc = CamtDoc(
             CamtEntry(amount: "100.00", reference: "MANDATE-77"),
             CamtEntry(amount: "100.00", reference: "MANDATE-77"),
-            CamtEntry(amount: "9.99", reference: "OTHER"));
+            CamtEntry(amount: "9.99", reference: "OTHER"),
+            CamtEntry(amount: "50.00", reference: "MANDATE-77"));
 
         var statement = _camt.Parse(doc);
 
-        Assert.Equal(3, statement.Entries.Count);
+        Assert.Equal(4, statement.Entries.Count);
         Assert.Equal("MANDATE-77", statement.Entries[0].Reference);   // first keeps the raw ref
-        Assert.Equal("MANDATE-77#1", statement.Entries[1].Reference); // repeat is disambiguated
+        Assert.Equal("MANDATE-77#1", statement.Entries[1].Reference); // an identical repeat is disambiguated
         Assert.Equal("OTHER", statement.Entries[2].Reference);
+        // A repeat with other details keeps the bank's reference; the import derives its own (TX-P2-3).
+        Assert.Equal("MANDATE-77", statement.Entries[3].Reference);
     }
 
     [Fact]

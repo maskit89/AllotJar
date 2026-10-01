@@ -855,14 +855,14 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
 
 ## Reference edge cases & graceful degradation
 
-### IMP-088 - CAMT entry with no reference (or `NOTPROVIDED`) re-imports every time
+### IMP-088 - CAMT entry with no reference (or `NOTPROVIDED`) is keyed by its content
 - **Priority:** P1
 - **Type:** Edge
 - **Preconditions:** A CAMT.053 statement whose entry has no `AcctSvcrRef` and either no `EndToEndId` or the literal `EndToEndId = NOTPROVIDED`.
 - **Steps:**
-  1. Import the file, then reset and import the identical file again.
-- **Expected:** `ResolveReference` returns **null** for that entry (`Camt053StatementParser.cs:164-166` — empty/`NOTPROVIDED` ⇒ null), so it is stored with `BankReference = NULL` (exempt from the unique index) and carries **no** idempotency key. Preview keeps it as a *new* row on every re-upload (no `csv:`/`hsbc:`/CAMT ref to match), so a second import creates a **second** transaction rather than skipping it. Content-level possible-duplicate hints (IMP-059, ±4 days / same amount / payee) are the only guard against re-importing such a row. Referenced entries in the same statement still dedup normally.
-- **Automated:** Partial (ParserToleranceTests.cs / Camt053StatementParserTests.cs cover `EndToEndId` fallback + occurrence suffixes; the null-ref re-import path is not asserted end-to-end)
+  1. Import the file, then import the identical file again.
+- **Expected:** The parser gives the entry a content reference, `camt:<hash of date, signed amount, currency, payee and remittance text>#N` (N counts identical entries in the file, from 0), as the CSV parsers do (TX-P2-2, fix plan C, 1 Oct 2026). The second import skips it as already imported, like its referenced siblings. Rows imported before this change were stored with `BankReference = NULL` and are offered once more on the next import of the same statement, unticked by the possible-duplicate hint (IMP-059).
+- **Automated:** Yes (IImportCoverageTests IMP-088a/b, TransferImportIdentityTests)
 
 ### IMP-089 - Reference-data fetch failures degrade gracefully, import still works
 - **Priority:** P2
