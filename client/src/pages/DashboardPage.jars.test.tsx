@@ -465,4 +465,23 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     expect(planned.closest('div')!.textContent).toContain('plan €125.00')
     expect(planned.closest('div')!.textContent).not.toContain('to go')
   })
+
+  it('DASH-083: a refused jar line edit says why and reverts (an archived jar’s line, D18)', { timeout: 15000 }, async () => {
+    mockLoads(month())
+    const reason = 'Holiday is archived and plans no contributions. Restore Holiday on the Jars page to plan it again.'
+    mockPut.mockRejectedValue({ response: { status: 400, data: { errors: { PlannedAmount: [reason] } } } })
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByRole('heading', { name: 'Your jars' }, { timeout: 5000 })
+    await user.click(screen.getByLabelText('Planned amount for Holiday'))
+    const holiday = (await screen.findByLabelText('Planned amount for Holiday')) as HTMLInputElement
+    await user.clear(holiday)
+    await user.type(holiday, '200')
+    await user.tab()
+
+    expect(await screen.findByText(reason)).toBeInTheDocument()
+    expect(screen.queryByText(/Could not save that change/)).not.toBeInTheDocument()
+    expect(((await screen.findByLabelText('Planned amount for Holiday')) as HTMLInputElement).value).not.toContain('200')
+  })
 })

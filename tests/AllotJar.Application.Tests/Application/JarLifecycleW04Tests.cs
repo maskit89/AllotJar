@@ -331,13 +331,57 @@ public class JarLifecycleW04Tests
         LineFor(db, jar, After).Should().Be(100m);
 
         // Skipped again, then the user simply types an amount on the line: that is a plan, so the
-        // skip is over (the later months are the user's to adjust, as with any typed amount).
+        // skip is over, and the later months give back what they carried for it around the typed
+        // amount (D14): 30 now, the other 270 over the next two months, never 30 + 150 + 150.
         await SkipAsync(db, lines[Current]);
+        LineFor(db, jar, Next).Should().Be(150m);
         var typed = await new UpdateBudgetItemCommandHandler(db, User())
             .Handle(new UpdateBudgetItemCommand(lines[Current].Id, 30m), CancellationToken.None);
         var line = typed.Categories.Single(c => c.Kind == "Savings").Items.Single();
         line.IsSkipped.Should().BeFalse();
         line.PlannedAmount.Should().Be(30m);
+        LineFor(db, jar, Next).Should().Be(135m);
+        LineFor(db, jar, After).Should().Be(135m);
+    }
+
+    [Fact]
+    public async Task D14_TypingAnAmountOnASkippedLaterMonth_RespreadsTheOtherMonths()
+    {
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner);
+        var jar = SeedGoal(db, account);
+        var lines = SeedPlan(db, jar);
+        await SkipAsync(db, lines[Next]);
+        LineFor(db, jar, Current).Should().Be(150m);
+
+        await new UpdateBudgetItemCommandHandler(db, User())
+            .Handle(new UpdateBudgetItemCommand(lines[Next].Id, 100m), CancellationToken.None);
+
+        LineFor(db, jar, Current).Should().Be(100m);
+        LineFor(db, jar, Next).Should().Be(100m);
+        LineFor(db, jar, After).Should().Be(100m, "the 300 target is planned once, never 150 + 100 + 150");
+        db.BudgetItems.Single(i => i.Id == lines[Next].Id).IsSkipped.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task D18_AnArchivedJarsLine_RefusesATypedAmount_AndKeepsItsSkip()
+    {
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner);
+        var jar = SeedGoal(db, account);
+        var lines = SeedPlan(db, jar);
+        await SkipAsync(db, lines[Next]);
+        await ArchiveAsync(db, jar);
+        db.BudgetItems.AsNoTracking().Single(i => i.Id == lines[Next].Id).IsSkipped.Should().BeTrue("the archive keeps a skipped later month (PR E)");
+
+        var act = () => new UpdateBudgetItemCommandHandler(db, User())
+            .Handle(new UpdateBudgetItemCommand(lines[Next].Id, 100m), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<ValidationException>()).Which.Errors.Values.SelectMany(v => v)
+            .Should().ContainSingle().Which.Should().Contain("is archived and plans no contributions");
+        var line = db.BudgetItems.AsNoTracking().Single(i => i.Id == lines[Next].Id);
+        line.IsSkipped.Should().BeTrue("a restore still plans around the skipped month");
+        line.PlannedAmount.Should().Be(0m);
     }
 
     [Fact]
