@@ -14,7 +14,10 @@ import { EVENTS, track } from '../analytics'
  * clear path to requesting a fresh one instead of a dead end.
  */
 export function ResetPasswordPage() {
-  const { resetPassword } = useAuth()
+  // A signed-in visitor (a direct-invite login opening its emailed link) is still restoring its
+  // session here. Submitting before that settles lets the restore land after the reset and put
+  // back the session the reset just revoked, which signs the visitor out; so wait for it.
+  const { resetPassword, bootstrapping } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
@@ -147,7 +150,7 @@ export function ResetPasswordPage() {
                   </Button>
                 )}
 
-                <Button type="submit" disabled={busy} className="w-full">
+                <Button type="submit" disabled={busy || bootstrapping} className="w-full">
                   {busy ? 'Please wait…' : 'Set new password'}
                 </Button>
               </form>

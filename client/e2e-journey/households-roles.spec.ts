@@ -74,6 +74,8 @@ async function chooseOwnPassword(page: Page, email: string, temporary: string): 
   await page.getByLabel('New password', { exact: true }).fill(`${temporary}-own`)
   await page.getByLabel('Confirm new password').fill(`${temporary}-own`)
   await page.getByRole('button', { name: 'Set new password' }).click()
+  // The reset signs this device in and leaves the reset page, with the prompt gone.
+  await expect(page).not.toHaveURL(/\/reset-password/)
   await expect(dialog).toBeHidden()
 }
 
