@@ -60,7 +60,7 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
         {
             await EnsureJarsKeepTheirMoneyAsync(account, openingDate, userId, cancellationToken);
         }
-        if (request.OpeningBalance < account.OpeningBalance)
+        if (request.OpeningBalance < account.OpeningBalance || account.OpeningDate != openingDate)
         {
             await EnsureJarsStayBackedAsync(account, request.OpeningBalance, openingDate, userId, cancellationToken);
         }

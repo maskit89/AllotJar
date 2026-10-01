@@ -11,6 +11,7 @@ using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Domain.Common;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.Services;
 using AllotJar.Domain.ValueObjects;
 
 namespace AllotJar.Application.Imports.Commands.CommitImport;
@@ -152,6 +153,34 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         // one statement (a bounced transfer), but no leg is confirmed twice.
         var matchedIds = new HashSet<(Guid TransferId, TransferLeg Leg)>();
         var held = new List<ImportHeldRow>();
+        // What the rows accepted so far do to the statement account's jars, for the rule 68 check
+        // of a transfer from a jar: nothing is saved until the end, so the ledger read from the
+        // database does not see them. A payment on a jar's savings line counts as unallocated
+        // money here (its jar is derived when read back).
+        var earlierChanges = new List<JarLedgerChange>();
+        void RecordChange(DateOnly date, decimal amount, bool isCredit, Guid? fromJar, IReadOnlyList<JarAllocationInput>? intoJars)
+        {
+            if (importAccount is null)
+            {
+                return;
+            }
+            var postings = new List<JarLedgerPosting>();
+            if (isCredit)
+            {
+                var intoJarsTotal = 0m;
+                foreach (var allocation in intoJars ?? Array.Empty<JarAllocationInput>())
+                {
+                    postings.Add(new JarLedgerPosting(allocation.JarId, allocation.Amount));
+                    intoJarsTotal += allocation.Amount;
+                }
+                postings.Add(new JarLedgerPosting(null, amount - intoJarsTotal));
+            }
+            else
+            {
+                postings.Add(new JarLedgerPosting(fromJar, -amount));
+            }
+            earlierChanges.Add(new JarLedgerChange(date, isCredit ? amount : -amount, postings));
+        }
 
         // Rule 74/11: the statement account is evaluated row by row in date order, against its
         // stored money plus the rows accepted so far. A row that would take it below zero on any
@@ -368,6 +397,18 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                             : tentativeFee is null
                                 ? await OtherShortfallAsync(otherLegAccount, null)
                                 : await OtherShortfallAsync(otherLegAccount, oldFee?.Id, tentativeFee));
+                    // Rule 68: a departure from a jar takes at most what the jar holds, as the
+                    // transfer form's does; a departure the app already recorded from the same jar
+                    // is compared with what it took.
+                    if (matchShortfall is null && !item.IsCredit && item.PaidFromJarId is Guid matchJar)
+                    {
+                        var previousDraw = before.DepartedOn is DateOnly previousDeparture
+                                           && await DepartureJarAsync(target.Id, target.AccountId!.Value, cancellationToken) == matchJar
+                            ? (before.Amount, previousDeparture, target.ReturnedOn)
+                            : ((decimal, DateOnly, DateOnly?)?)null;
+                        matchShortfall = await JarHistoryChecks.TransferDrawRefusalAsync(
+                            _db, userId, target, importAccount, matchJar, cancellationToken, previousDraw, earlierChanges);
+                    }
                     if (matchShortfall is not null)
                     {
                         (target.DepartedOn, target.ReceivedOn, target.BankReference, target.ReceiptBankReference, target.Date, target.Amount) = before;
@@ -439,6 +480,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     {
                         await TransferReturns.SyncAsync(_db, target, returnSource, returnBasis, cancellationToken);
                     }
+                    RecordChange(item.Date, item.Amount, item.IsCredit, item.PaidFromJarId, item.JarAllocations);
                     matched++;
                     transfers++;
                     continue;
@@ -483,6 +525,15 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     held.Add(new ImportHeldRow(item.Reference, transferShortfall));
                     continue;
                 }
+                // Rule 68, as the transfer form checks it: counting the rows accepted above.
+                if (!item.IsCredit && item.PaidFromJarId is Guid drawJar
+                    && await JarHistoryChecks.TransferDrawRefusalAsync(
+                        _db, userId, transfer, importAccount, drawJar, cancellationToken, earlier: earlierChanges) is string drawRefusal)
+                {
+                    known.Remove(reference);
+                    held.Add(new ImportHeldRow(item.Reference, drawRefusal));
+                    continue;
+                }
                 _db.Transactions.Add(transfer);
                 created.Add(transfer);
                 sentReference[transfer] = item.Reference;
@@ -506,6 +557,11 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 else if (item.PaidFromJarId is not null)
                 {
                     await JarMovements.ApplyOutgoingAsync(_db, userId, transfer, importAccount, item.PaidFromJarId, "Items", cancellationToken);
+                }
+                if (!item.IsCredit)
+                {
+                    // A receipt waits for its departure (rule 72) and moves no money yet.
+                    RecordChange(item.Date, item.Amount, isCredit: false, item.PaidFromJarId, null);
                 }
                 imported++;
                 transfers++;
@@ -591,6 +647,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 }
             }
 
+            RecordChange(item.Date, item.Amount, item.IsCredit, item.PaidFromJarId, item.JarAllocations);
             imported++;
             if (item.IsCredit) credits++; else debits++;
         }

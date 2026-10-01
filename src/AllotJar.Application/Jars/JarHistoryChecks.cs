@@ -26,6 +26,8 @@ public static class JarHistoryChecks
     /// <param name="source">The ledger loaded without the write being checked.</param>
     /// <param name="sourceJarId">The jar giving the money; null for unallocated funds.</param>
     /// <param name="until">The first day the write no longer holds (a returned transfer's money is back from its return date); null: for good.</param>
+    /// <param name="alreadyTaken">What the write this one replaces took from the source on a date (an edit of the same draw): a date is refused only when the new write takes more than that too, so a correction that leaves the source no worse passes.</param>
+    /// <param name="earlier">Writes not yet saved that already change the account (earlier rows of one import).</param>
     /// <param name="accountChange">What the write does to the account's money (a transfer's departure: minus its amount; a move between jars: 0).</param>
     public static string? FirstRefusal(
         JarLedgerSource source,
@@ -37,17 +39,23 @@ public static class JarHistoryChecks
         decimal amount,
         decimal accountChange,
         IReadOnlyList<JarLedgerPosting> postings,
-        DateOnly? until = null)
+        DateOnly? until = null,
+        Func<DateOnly, decimal>? alreadyTaken = null,
+        IReadOnlyList<JarLedgerChange>? earlier = null)
     {
-        var dates = source.OperationDatesAfter(account.Id, from).Where(d => until is not DateOnly end || d < end);
+        var dates = source.OperationDatesAfter(account.Id, from)
+            .Concat(earlier?.Select(c => c.From).Where(d => d > from) ?? Enumerable.Empty<DateOnly>())
+            .Where(d => until is not DateOnly end || d < end)
+            .Distinct().Order();
         foreach (var date in includeFrom ? dates.Prepend(from) : dates)
         {
-            if (source.ViewAt(account.Id, date) is not { IsAvailable: true } view)
+            if (source.ViewAt(account.Id, date) is not { IsAvailable: true } stored)
             {
                 continue;
             }
+            var view = WithEarlier(stored, earlier?.Where(c => c.From <= date).ToList());
             var held = sourceJarId is Guid jarId ? view.JarBalances.GetValueOrDefault(jarId) : view.Unallocated!.Value;
-            if (amount > Math.Max(0m, held))
+            if (amount > Math.Max(0m, held) && amount > (alreadyTaken?.Invoke(date) ?? 0m))
             {
                 var what = date == from ? "" : $", after what was paid or moved out of it since {from:yyyy-MM-dd}";
                 return $"{sourceName} holds {Math.Max(0m, held):0.##} on {date:yyyy-MM-dd}{what}, so it cannot give {amount:0.##} "
@@ -79,24 +87,68 @@ public static class JarHistoryChecks
     /// </summary>
     public static async Task EnsureTransferDrawAsync(
         IApplicationDbContext db, string ownerId, Transaction transfer, Account account, Guid fromJarId,
-        string errorKey, CancellationToken cancellationToken)
+        string errorKey, CancellationToken cancellationToken,
+        (decimal Amount, DateOnly From, DateOnly? Until)? previous = null)
+    {
+        if (await TransferDrawRefusalAsync(db, ownerId, transfer, account, fromJarId, cancellationToken, previous) is { } refusal)
+        {
+            throw JarAccounts.Validation(errorKey, refusal);
+        }
+    }
+
+    /// <summary>
+    /// <see cref="EnsureTransferDrawAsync"/>'s refusal, or null, for a caller that holds the row
+    /// instead of failing (the import). <paramref name="previous"/>: the draw an edit replaces,
+    /// when it took from the same jar of the same account; a date is refused only when the new
+    /// draw takes more than the jar holds there and more than the old one took that day.
+    /// <paramref name="earlier"/>: what rows not yet saved (earlier rows of the same import) do
+    /// to the account.
+    /// </summary>
+    public static async Task<string?> TransferDrawRefusalAsync(
+        IApplicationDbContext db, string ownerId, Transaction transfer, Account account, Guid fromJarId,
+        CancellationToken cancellationToken,
+        (decimal Amount, DateOnly From, DateOnly? Until)? previous = null,
+        IReadOnlyList<JarLedgerChange>? earlier = null)
     {
         if (transfer.DepartedOn is not DateOnly departed)
         {
-            return;
+            return null;
         }
         var name = await db.Jars.AsNoTracking().Where(j => j.Id == fromJarId).Select(j => j.Name).FirstOrDefaultAsync(cancellationToken)
             ?? "The jar";
         var source = await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken, new[] { account.Id },
             includeUnbacked: true, excludeTransactionIds: new[] { transfer.Id });
-        if (FirstRefusal(source, account, departed, includeFrom: true, fromJarId, name, transfer.Amount, -transfer.Amount,
-                new[] { new JarLedgerPosting(fromJarId, -transfer.Amount) }, until: transfer.ReturnedOn) is { } refusal)
+        return FirstRefusal(source, account, departed, includeFrom: true, fromJarId, name, transfer.Amount, -transfer.Amount,
+            new[] { new JarLedgerPosting(fromJarId, -transfer.Amount) }, until: transfer.ReturnedOn,
+            alreadyTaken: previous is { } p ? d => d >= p.From && (p.Until is not DateOnly u || d < u) ? p.Amount : 0m : null,
+            earlier: earlier);
+    }
+
+    /// <summary>The stored view plus what unsaved rows already do to the account that day.</summary>
+    private static JarLedgerView WithEarlier(JarLedgerView view, IReadOnlyList<JarLedgerChange>? active)
+    {
+        if (active is not { Count: > 0 })
         {
-            throw JarAccounts.Validation(errorKey, refusal);
+            return view;
         }
+        var moved = JarLedgerReader.Apply(view, active.SelectMany(c => c.Postings).ToList());
+        return view with
+        {
+            Ledger = new SavingsLedgerBalance(view.AsOf, view.AccountBalance + active.Sum(c => c.AccountChange), moved.JarBalances, moved.Unallocated)
+            {
+                PendingTransferReceipts = view.Ledger.PendingTransferReceipts,
+            },
+        };
     }
 
     /// <summary>How far the positive jars exceed the account's money (rule 70), or 0.</summary>
     private static decimal Excess(SavingsLedgerBalance ledger) =>
         Math.Max(0m, ledger.PositiveAllocations - (ledger.AccountBalance ?? 0m));
 }
+
+/// <summary>
+/// What a write not yet saved does to an account's jar ledger from <paramref name="From"/> on:
+/// its money (<paramref name="AccountChange"/>) and where in the account it lands or leaves
+/// (<paramref name="Postings"/>; a null jar is unallocated money).
+/// </summary>
+public sealed record JarLedgerChange(DateOnly From, decimal AccountChange, IReadOnlyList<JarLedgerPosting> Postings);

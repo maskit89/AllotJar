@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Accounts.Commands.UpdateAccount;
 using AllotJar.Application.Common.Exceptions;
+using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Jars.Commands.ReallocateJarMoney;
@@ -300,5 +301,144 @@ public class JarHistoryChecksTests
         var today = await TodayAsync(db, savings.Id);
         today.AccountBalance.Should().Be(opening);
         today.HasBackingDeficit.Should().BeFalse();
+    }
+
+    // --- Review round 1 (PR #297) ----------------------------------------------------------------
+
+    // A transfer of all of Holiday's 100 on 2 Jan, then a payment of 30 from Holiday on 15 Jan
+    // overdraws it (rule 5 allows a payment to).
+    private static async Task<(Account A, Account B, Jar Holiday, Guid TransferId)> OverdrawnAfterTransferAsync(ApplicationDbContext db)
+    {
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Jan1);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 0m, Jan1, order: 1);
+        var holiday = SeedGoal(db, a, "Holiday");
+        LedgerFixtures.Allocate(db, Owner, a.Id, holiday.Id, 100m, Jan1);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Jan2, 100m, a.Id, b.Id, ReceivedOn: Jan2, FromJarId: holiday.Id), Ct);
+        await PayFromJarAsync(db, a, holiday, 30m, Jan15);
+        return (a, b, holiday, transfer.Id);
+    }
+
+    [Fact]
+    public async Task EditingATransferFromAJar_ToTakeLess_AfterAPaymentOverdrewTheJar_IsAccepted()
+    {
+        await using var db = NewContext();
+        var (a, b, holiday, id) = await OverdrawnAfterTransferAsync(db);
+
+        await new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(id, a.Id, b.Id, 80m, Jan2, Jan2, FromJarId: holiday.Id), Ct);
+
+        (await TodayAsync(db, a.Id)).JarBalances[holiday.Id].Should().Be(-10m);
+    }
+
+    [Fact]
+    public async Task EditingATransferFromAJar_ToADayLater_AfterAPaymentOverdrewTheJar_IsAccepted()
+    {
+        await using var db = NewContext();
+        var (a, b, holiday, id) = await OverdrawnAfterTransferAsync(db);
+
+        await new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(id, a.Id, b.Id, 100m, new DateOnly(2026, 1, 3), new DateOnly(2026, 1, 3), FromJarId: holiday.Id), Ct);
+
+        (await TodayAsync(db, a.Id)).JarBalances[holiday.Id].Should().Be(-30m);
+    }
+
+    [Fact]
+    public async Task EditingATransferFromAJar_ToTakeMore_AfterAPaymentOverdrewTheJar_IsRefused()
+    {
+        await using var db = NewContext();
+        var (a, b, holiday, id) = await OverdrawnAfterTransferAsync(db);
+
+        var act = () => new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(id, a.Id, b.Id, 120m, Jan2, Jan2, FromJarId: holiday.Id), Ct);
+
+        Message((await act.Should().ThrowAsync<ValidationException>()).Which, "FromJarId").Should().Contain("cannot give 120");
+    }
+
+    private static CommitImportItem TransferRow(string reference, DateOnly date, decimal amount, Account to, Jar from, Guid? match = null) =>
+        new(reference, date, "To B", amount, "EUR", false, null, null, TransferAccountId: to.Id, MatchTransferId: match, PaidFromJarId: from.Id);
+
+    [Fact]
+    public async Task ImportedTransferFromAJar_LargerThanTheJarHolds_IsHeldWithTheReason()
+    {
+        await using var db = NewContext();
+        var (a, b, holiday, _, _) = SeedTwoAccounts(db);
+
+        var result = await new CommitImportCommandHandler(db, User).Handle(
+            new CommitImportCommand(a.Id, new[] { TransferRow("REF-1", Jan15, 500m, b, holiday) }), Ct);
+
+        result.Held.Should().ContainSingle().Which.Message.Should().Contain("Holiday holds 100").And.Contain("cannot give 500");
+        (await db.Transactions.CountAsync(t => t.Type == TransactionType.Transfer)).Should().Be(0);
+        (await TodayAsync(db, a.Id)).JarBalances[holiday.Id].Should().Be(100m);
+    }
+
+    [Fact]
+    public async Task ImportedTransfersFromAJar_CountTheRowsAcceptedBeforeThemInTheSameImport()
+    {
+        await using var db = NewContext();
+        var (a, b, holiday, _, _) = SeedTwoAccounts(db);
+
+        // Each fits Holiday's 100 alone; together they don't.
+        var result = await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
+        {
+            TransferRow("REF-1", Jan15, 60m, b, holiday),
+            TransferRow("REF-2", new DateOnly(2026, 1, 16), 60m, b, holiday),
+        }), Ct);
+
+        result.Held.Should().ContainSingle().Which.Reference.Should().Be("REF-2");
+        (await TodayAsync(db, a.Id)).JarBalances[holiday.Id].Should().Be(40m);
+    }
+
+    [Fact]
+    public async Task ImportedTransferFromAJar_CanUseMoneyAnEarlierRowOfTheSameImportPutInIt()
+    {
+        await using var db = NewContext();
+        var (a, b, holiday, _, _) = SeedTwoAccounts(db);
+
+        var result = await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
+        {
+            new CommitImportItem("PAY-1", new DateOnly(2026, 1, 10), "Salary", 200m, "EUR", true, null, null,
+                JarAllocations: new[] { new JarAllocationInput(holiday.Id, 200m) }),
+            TransferRow("REF-1", Jan15, 250m, b, holiday),
+        }), Ct);
+
+        result.Held.Should().BeEmpty();
+        (await TodayAsync(db, a.Id)).JarBalances[holiday.Id].Should().Be(50m);
+    }
+
+    [Fact]
+    public async Task ImportedDepartureFromAJar_MatchingAWaitingTransfer_LargerThanTheJarHolds_IsHeld()
+    {
+        await using var db = NewContext();
+        var (a, b, holiday, _, _) = SeedTwoAccounts(db);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(new CreateTransferCommand(Jan15, 300m, a.Id, b.Id), Ct);
+        var waiting = await db.Transactions.SingleAsync(t => t.Id == transfer.Id);
+        waiting.DepartedOn = null;
+        waiting.ReceivedOn = Jan15;
+        await db.SaveChangesAsync(Ct);
+
+        var result = await new CommitImportCommandHandler(db, User).Handle(
+            new CommitImportCommand(a.Id, new[] { TransferRow("REF-2", Jan15, 300m, b, holiday, match: transfer.Id) }), Ct);
+
+        result.Held.Should().ContainSingle().Which.Message.Should().Contain("cannot give 300");
+        (await db.Transactions.AsNoTracking().SingleAsync(t => t.Id == transfer.Id)).DepartedOn.Should().BeNull();
+        (await TodayAsync(db, a.Id)).JarBalances[holiday.Id].Should().Be(100m);
+    }
+
+    [Fact]
+    public async Task MovingTheOpeningDateEarlier_OverPaymentsTheJarsDontCover_IsRefused()
+    {
+        await using var db = NewContext();
+        var mar1 = new DateOnly(2026, 3, 1);
+        var savings = LedgerFixtures.SeedAccount(db, Owner, "Savings", 1000m, mar1);
+        var holiday = SeedGoal(db, savings, "Holiday");
+        LedgerFixtures.Allocate(db, Owner, savings.Id, holiday.Id, 800m, mar1);
+        LedgerFixtures.Expense(db, Owner, savings.Id, 500m, new DateOnly(2026, 2, 15)); // before the opening: counts nowhere yet
+
+        var act = () => new UpdateAccountCommandHandler(db, User).Handle(
+            new UpdateAccountCommand(savings.Id, "Savings", AccountType.Savings, 1000m, Jan1), Ct);
+
+        await act.Should().ThrowAsync<ValidationException>();
+        (await db.Accounts.AsNoTracking().SingleAsync(x => x.Id == savings.Id)).OpeningDate.Should().Be(mar1);
     }
 }
