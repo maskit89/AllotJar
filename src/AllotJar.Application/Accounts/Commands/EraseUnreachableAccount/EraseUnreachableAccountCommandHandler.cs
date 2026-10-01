@@ -204,6 +204,10 @@ public class EraseUnreachableAccountCommandHandler : IRequestHandler<EraseUnreac
             fee.FeeForTransfer = null;
         }
 
+        // A cycle paid by an erased row is unpaid again (his "Reopen it", #301 review P3-2).
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var reopened = await JarCycles.ReopenPaidByAsync(_db, ownerId, erased.ToList(), today, cancellationToken);
+
         // The account's own jar history can't exist (rule 33: a private account holds no jar), so
         // its remaining allocations, if any, are removed with it rather than left dangling.
         var allocations = await _db.JarAllocations.Include(a => a.Postings)
@@ -228,6 +232,15 @@ public class EraseUnreachableAccountCommandHandler : IRequestHandler<EraseUnreac
         }
         _db.Accounts.Remove(account);
         await _db.SaveChangesAsync(cancellationToken);
+        if (reopened.Count > 0)
+        {
+            // Planned toward the reopened cycle from what the jar holds once the rows are gone.
+            foreach (var jar in reopened)
+            {
+                await JarPlanner.ReplantAsync(_db, ownerId, jar, today, 0m, cancellationToken);
+            }
+            await _db.SaveChangesAsync(cancellationToken);
+        }
         if (write is not null)
         {
             await write.CommitAsync(cancellationToken);

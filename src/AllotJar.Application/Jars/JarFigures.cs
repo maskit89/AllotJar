@@ -64,6 +64,9 @@ public static class JarFigures
         // postings themselves, so money that left the jar in the month (a bill paid from it) is
         // not netted off what was contributed. Nothing yet, for a month that has not begun.
         var contributed = ledger.ContributionsBetween(monthStart, balanceDate);
+        // Money set aside when a jar was created in the month was already saved: it counts as
+        // the balance the month began with, not as a contribution (SC-P2-1).
+        var setAside = ledger.SetAsideBetween(monthStart, balanceDate);
 
         var ids = jars.Select(j => j.Id).ToList();
         // This month's stored lines: the plan they carry, and whether the user skipped the month
@@ -128,7 +131,7 @@ public static class JarFigures
         return jars
             .Select(j => DefinitionOf(j).ToDto(
                 now.BalanceOf(j.Id),
-                before.BalanceOf(j.Id),
+                JarPlanner.OpeningOf(before, setAside, j.Id),
                 // A month that is over planned what its line says, or nothing: a jar with no line
                 // there (created later, or never planted) is not given a plan after the fact.
                 storedLines.TryGetValue(j.Id, out var line) ? line.Planned : isOver ? 0m : null,

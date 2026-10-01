@@ -56,22 +56,33 @@ public static class JarPlanner
 
         if (target < current)
         {
-            var snapshot = await JarLedgerReader.ReadAsync(db, ownerId, target.AddDays(-1), cancellationToken);
+            // A month that is over is planned toward the definition the jar had at its end — the
+            // revision then, the Recurring cycle open then — exactly as the shelf judges it
+            // (JarFigures, P49), never toward today's (SC-P2-4).
+            var pastLedger = await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken);
+            var monthEnd = target.AddMonths(1).AddDays(-1);
+            var before = pastLedger.At(target.AddDays(-1));
+            var setAsideThen = pastLedger.SetAsideBetween(target, monthEnd);
+            var definitions = await JarHistory.DefinitionsOnAsync(db, scheduled, monthEnd, cancellationToken);
             foreach (var jar in scheduled)
             {
-                result[jar.Id] = JarSchedule.PlannedFor(jar, target, snapshot.BalanceOf(jar.Id) ?? 0m, OptionsFor(jar));
+                var then = definitions[jar.Id];
+                result[jar.Id] = JarSchedule.HasSchedule(then)
+                    ? JarSchedule.PlannedFor(then, target, OpeningOf(before, setAsideThen, jar.Id) ?? 0m, OptionsFor(jar))
+                    : 0m;
             }
             return result;
         }
 
         var ledger = await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken);
         var opening = ledger.At(current.AddDays(-1));
+        var setAside = ledger.SetAsideBetween(current, today);
         var now = ledger.At(today);
         if (target == current)
         {
             foreach (var jar in scheduled)
             {
-                result[jar.Id] = JarSchedule.PlannedFor(jar, target, PlanningBalance(opening.BalanceOf(jar.Id), now.BalanceOf(jar.Id)), OptionsFor(jar));
+                result[jar.Id] = JarSchedule.PlannedFor(jar, target, PlanningBalance(OpeningOf(opening, setAside, jar.Id), now.BalanceOf(jar.Id)), OptionsFor(jar));
             }
             return result;
         }
@@ -80,7 +91,7 @@ public static class JarPlanner
         foreach (var jar in scheduled)
         {
             var options = OptionsFor(jar);
-            var planningBalance = PlanningBalance(opening.BalanceOf(jar.Id), now.BalanceOf(jar.Id));
+            var planningBalance = PlanningBalance(OpeningOf(opening, setAside, jar.Id), now.BalanceOf(jar.Id));
             var thisMonth = stored.TryGetValue((jar.Id, current.Year, current.Month), out var storedNow)
                 ? storedNow
                 : JarSchedule.PlannedFor(jar, current, planningBalance, options);
@@ -106,6 +117,20 @@ public static class JarPlanner
         Math.Min(opening ?? 0m, now ?? 0m);
 
     /// <summary>
+    /// The balance the jar entered a month with, as the planner reads it: the ledger's balance at
+    /// the end of the day before the month (<paramref name="dayBefore"/>), plus what was set aside
+    /// into it when it was created during the month (<paramref name="setAside"/>,
+    /// <see cref="JarLedgerSource.SetAsideBetween"/>) — money already saved, so the month's plan
+    /// and its "contributed" figure treat it as there from the start (SC-P2-1). Null when the
+    /// balance is unavailable and nothing was set aside.
+    /// </summary>
+    public static decimal? OpeningOf(JarLedgerSnapshot dayBefore, IReadOnlyDictionary<Guid, decimal> setAside, Guid jarId)
+    {
+        var opening = dayBefore.BalanceOf(jarId);
+        return setAside.TryGetValue(jarId, out var amount) ? (opening ?? 0m) + amount : opening;
+    }
+
+    /// <summary>
     /// What the jar is assumed to hold as the current month ends: what it holds now plus what
     /// this month's plan has still to contribute (plan − contributed so far, floored at zero).
     /// </summary>
@@ -120,9 +145,8 @@ public static class JarPlanner
     {
         var current = new DateOnly(today.Year, today.Month, 1);
         ledger ??= await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken);
-        var opening = ledger.At(current.AddDays(-1));
+        var openingBalance = OpeningOf(ledger.At(current.AddDays(-1)), ledger.SetAsideBetween(current, today), jar.Id);
         var now = ledger.At(today);
-        var openingBalance = opening.BalanceOf(jar.Id);
         var nowBalance = now.BalanceOf(jar.Id);
         return ((openingBalance ?? 0m) + extraBalance, (nowBalance ?? 0m) + extraBalance, PlanningBalance(openingBalance, nowBalance) + extraBalance);
     }

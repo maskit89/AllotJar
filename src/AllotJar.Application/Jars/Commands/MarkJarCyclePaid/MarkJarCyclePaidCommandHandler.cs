@@ -4,6 +4,7 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Dtos;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.Services;
 
 namespace AllotJar.Application.Jars.Commands.MarkJarCyclePaid;
 
@@ -49,6 +50,12 @@ public class MarkJarCyclePaidCommandHandler : IRequestHandler<MarkJarCyclePaidCo
         {
             throw JarAccounts.Validation("PaymentTransactionId", "Choose the payment that settled the bill — money out, not income, a transfer or a refund.");
         }
+        // A transfer's fee is changed only through its transfer and goes with it, so it can't be
+        // the payment a cycle keeps (#301 review P3-2).
+        if (payment.FeeForTransferId is not null)
+        {
+            throw JarAccounts.Validation("PaymentTransactionId", "That is a transfer's fee, not the bill's payment. Choose the payment that settled the bill.");
+        }
         if (payment.Date > today)
         {
             throw JarAccounts.Validation("PaymentTransactionId", "That payment is dated in the future.");
@@ -84,6 +91,13 @@ public class MarkJarCyclePaidCommandHandler : IRequestHandler<MarkJarCyclePaidCo
                 throw JarAccounts.Validation("Deadline", $"The cycle due {cycle.Deadline:d MMM yyyy} is already marked paid.");
             }
             JarCycles.Link(cycle, payment);
+            // The bill left the jar: the next cycle's plan starts from what is actually left now,
+            // this month included (rules 19, 23; P37), as it does when the open cycle is marked
+            // paid. A cycle that rolled forward Funded had replanted from before the payment (SC-P2-2).
+            if (JarSchedule.IsPlanning(jar))
+            {
+                await JarPlanner.ReplantAsync(_db, userId, jar, today, 0m, cancellationToken);
+            }
         }
 
         await _db.SaveChangesAsync(cancellationToken);

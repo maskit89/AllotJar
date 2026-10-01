@@ -9,7 +9,7 @@ import { EVENTS, track } from '../analytics'
 import type { AnnualMonthDto, AnnualSummaryDto, BudgetTrendsDto, MonthReportDto } from '../types'
 import { formatMoney, fromAmount, type Minor } from '../lib/money'
 import { hueColor, hueForIndex, hueTint } from '../lib/categoryColors'
-import { todayIso } from '../lib/dates'
+import { currentMonth, todayIso } from '../lib/dates'
 import { useAuth } from '../auth/AuthContext'
 
 const SHORT_MONTHS = [
@@ -68,7 +68,7 @@ export function ReportsPage() {
         const last = data.points.at(-1)
         // Default the annual view to the year of the most recent budget, and the
         // category breakdown to the most recent month.
-        setAnnualYear((y) => y ?? last?.year ?? new Date().getFullYear())
+        setAnnualYear((y) => y ?? last?.year ?? currentMonth().year)
         setBreakdownKey((k) => k ?? last?.key ?? null)
       })
       .catch(() => !cancelled && setError('Could not load your reports.'))
@@ -262,7 +262,7 @@ export function ReportsPage() {
                       type="button"
                       onClick={() => {
                         track(EVENTS.reportViewed, { report_type: 'annual' })
-                        setAnnualYear((y) => (y ?? new Date().getFullYear()) - 1)
+                        setAnnualYear((y) => (y ?? currentMonth().year) - 1)
                       }}
                       aria-label="Previous year"
                       className="rounded-md border border-slate-300 px-2 py-0.5 text-slate-600 hover:bg-slate-50"
@@ -276,7 +276,7 @@ export function ReportsPage() {
                       type="button"
                       onClick={() => {
                         track(EVENTS.reportViewed, { report_type: 'annual' })
-                        setAnnualYear((y) => (y ?? new Date().getFullYear()) + 1)
+                        setAnnualYear((y) => (y ?? currentMonth().year) + 1)
                       }}
                       aria-label="Next year"
                       className="rounded-md border border-slate-300 px-2 py-0.5 text-slate-600 hover:bg-slate-50"

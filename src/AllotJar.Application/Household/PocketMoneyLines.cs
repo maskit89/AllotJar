@@ -45,7 +45,10 @@ public static class PocketMoneyLines
                 .Where(c => c.Kind == CategoryKind.Expense)
                 .SelectMany(c => c.Items)
                 .Where(i => i.MemberId == memberId)
-                .Select(i => new PocketMoneyLine(i.Id, i.PlannedAmount, i.ActualAmount))
+                // A refund lands on the line it is linked to (P19), possibly one with less spent
+                // than came back: the line's net is then below zero, but nothing was paid out of
+                // it, never a negative payment (RP-P2-1).
+                .Select(i => new PocketMoneyLine(i.Id, i.PlannedAmount, Math.Max(0m, i.ActualAmount)))
                 .ToList();
             result.Add(new PocketMoneyMonth(month.Id, month.Year, month.Month, lines));
         }
@@ -80,7 +83,8 @@ public static class PocketMoneyLines
                     continue;
                 }
 
-                var paid = paidByLine.GetValueOrDefault(line.Id);
+                // Never below zero: a planned amount can't be negative (RP-P2-1).
+                var paid = Math.Max(0m, paidByLine.GetValueOrDefault(line.Id));
                 if (line.PlannedAmount > paid)
                 {
                     cancelled += line.PlannedAmount - paid;

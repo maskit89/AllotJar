@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect } from 'vitest'
 import type { ItemVM, MonthVM } from './budgetModel'
 import {
   billAlerts,
@@ -233,8 +233,8 @@ describe('budgetModel selectors', () => {
 
 describe('bill reminders', () => {
   const item = (dueDay: number | null, isPaid = false): ItemVM => itemVM({ dueDay, isPaid })
-  // Mid-June 2026 — the month under test is 2026-06.
-  const today = new Date(2026, 5, 15)
+  // Mid-June 2026 (noon UTC) — the month under test is 2026-06.
+  const today = new Date(Date.UTC(2026, 5, 15, 12))
 
   it('classifies a bill in the current month by how close its due day is', () => {
     expect(billStatus(item(10), 2026, 6, today)).toBe('overdue') // 10th already passed
@@ -253,7 +253,7 @@ describe('bill reminders', () => {
   })
 
   it('clamps a due day past the end of a short month', () => {
-    const feb27 = new Date(2026, 1, 27)
+    const feb27 = new Date(Date.UTC(2026, 1, 27, 12))
     // "Due on the 31st" of February clamps to the 28th → due tomorrow → due-soon.
     expect(billStatus(item(31), 2026, 2, feb27)).toBe('due-soon')
   })
@@ -283,5 +283,32 @@ describe('excludeFromAllocation mapping', () => {
     // The fixture's other categories carry no flag — absent reads as false.
     expect(m.categories.find((c) => c.name === 'Income')?.excludeFromAllocation).toBe(false)
     expect(m.categories.find((c) => c.name === 'Food')?.excludeFromAllocation).toBe(false)
+  })
+})
+
+describe('bill reminders count today on the UTC calendar (rule 82, P14)', () => {
+  const item = (dueDay: number | null): ItemVM => itemVM({ dueDay, isPaid: false })
+  // The test runner's Node environment; the app's tsconfig has no Node types.
+  const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env
+  const tz = env.TZ
+  afterEach(() => {
+    env.TZ = tz
+  })
+
+  it('reads 00:30 on 1 November in Malta as still 31 October, as the server does', () => {
+    env.TZ = 'Europe/Malta'
+    const lateEvening = new Date('2026-10-31T23:30:00Z') // 00:30 on 1 Nov, Malta time
+    // October is still the current month: a bill due on the 31st is due today, not overdue.
+    expect(billStatus(item(31), 2026, 10, lateEvening)).toBe('due-soon')
+    // November has not begun yet.
+    expect(billStatus(item(1), 2026, 11, lateEvening)).toBe('upcoming')
+    expect(billStatus(item(30), 2026, 10, lateEvening)).toBe('overdue')
+  })
+
+  it('moves to the new month at midnight UTC', () => {
+    env.TZ = 'Europe/Malta'
+    const justAfter = new Date('2026-11-01T00:30:00Z')
+    expect(billStatus(item(31), 2026, 10, justAfter)).toBe('overdue')
+    expect(billStatus(item(1), 2026, 11, justAfter)).toBe('due-soon')
   })
 })

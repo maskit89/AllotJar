@@ -33,6 +33,8 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
     {
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
+        // Read once: the cycles are settled and the month planned on the same day (SC-P3-3).
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         var alreadyExists = await _db.BudgetMonths
             .AnyAsync(m => m.OwnerId == userId && m.Year == request.Year && m.Month == request.Month,
@@ -64,7 +66,7 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         // filling without a manual budget step. A Recurring jar plans toward its open cycle,
         // settled first so a cycle whose deadline has arrived funded has rolled forward (W03,
         // rule 21); the anchor date itself is never rewritten here.
-        await JarCycles.SettleAsync(_db, userId, DateOnly.FromDateTime(DateTime.UtcNow), cancellationToken);
+        await JarCycles.SettleAsync(_db, userId, today, cancellationToken);
         var allJars = await _db.Jars
             .AsNoTracking()
             .Where(f => f.OwnerId == userId)
@@ -98,7 +100,6 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         // that arrived later must not zero out this month's contribution when an earlier month
         // is back-filled); a later month is projected from the current one (JarPlanner). An
         // unavailable balance (rule 67) plans from nothing saved rather than inventing money.
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         // A month that is over, created after a jar was restored, reads the jar as it was then
         // (P2-19): one archived all through that month planned nothing in it, so it is neither

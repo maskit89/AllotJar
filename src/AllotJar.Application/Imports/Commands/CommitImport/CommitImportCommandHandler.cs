@@ -166,6 +166,9 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         // one statement (a bounced transfer), but no leg is confirmed twice.
         var matchedIds = new HashSet<(Guid TransferId, TransferLeg Leg)>();
         var held = new List<ImportHeldRow>();
+        // What this import's rows drew from archived jars so far (his 1 Oct answer "Refuse").
+        var archivedDrawn = new Dictionary<Guid, decimal>();
+        var anyArchived = await _db.Jars.AnyAsync(j => j.OwnerId == userId && j.IsArchived, cancellationToken);
         // What the rows accepted so far do to the statement account's jars, for the rule 68 check
         // of a transfer from a jar: nothing is saved until the end, so the ledger read from the
         // database does not see them. A transfer a row confirmed a leg of is left out of that
@@ -699,6 +702,15 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             {
                 known.Remove(reference);
                 held.Add(new ImportHeldRow(item.Reference, Index: rowIndex[item], Message: rowShortfall));
+                continue;
+            }
+            // A row on an archived jar's line is refused like the same payment typed in the form,
+            // and held with the reason rather than failing the import.
+            if (!item.IsCredit && importAccount is not null && anyArchived
+                && await JarMovements.ArchivedLineRefusalAsync(_db, userId, transaction, importAccount, archivedDrawn, cancellationToken) is string archivedRefusal)
+            {
+                known.Remove(reference);
+                held.Add(new ImportHeldRow(item.Reference, Index: rowIndex[item], Message: archivedRefusal));
                 continue;
             }
 

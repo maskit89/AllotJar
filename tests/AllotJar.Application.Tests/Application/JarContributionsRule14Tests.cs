@@ -118,7 +118,10 @@ public class JarContributionsRule14Tests
         var ledger = await JarLedgerReader.LoadAsync(db, Owner, CancellationToken.None);
 
         ledger.ContributionsBetween(October, Today).Should().Equal(new Dictionary<Guid, decimal> { [jar.Id] = 125m });
-        ledger.ContributionsBetween(new DateOnly(2026, 8, 1), new DateOnly(2026, 8, 31)).Should().Equal(new Dictionary<Guid, decimal> { [jar.Id] = 100m });
+        // The 100 set aside when the jar was created is its opening balance, not a contribution (SC-P2-1).
+        ledger.ContributionsBetween(new DateOnly(2026, 8, 1), new DateOnly(2026, 8, 31)).Should().BeEmpty();
+        ledger.SetAsideBetween(new DateOnly(2026, 8, 1), new DateOnly(2026, 8, 31)).Should().Equal(new Dictionary<Guid, decimal> { [jar.Id] = 100m });
+        ledger.SetAsideBetween(October, Today).Should().BeEmpty();
         ledger.ContributionsBetween(new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30)).Should().BeEmpty();
     }
 }

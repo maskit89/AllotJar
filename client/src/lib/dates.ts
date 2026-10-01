@@ -82,3 +82,13 @@ export function monthYear(iso: string): string {
 export function todayIso(now = new Date()): string {
   return now.toISOString().slice(0, 10)
 }
+
+/**
+ * The current month on the same UTC basis as `todayIso` and the server (rule 82, P14: the
+ * current month is the UTC month), so from midnight local time until midnight UTC a new month
+ * is not shown as current while the server still counts the old one.
+ */
+export function currentMonth(now = new Date()): { year: number; month: number } {
+  const [year, month] = todayIso(now).split('-').map(Number)
+  return { year, month }
+}

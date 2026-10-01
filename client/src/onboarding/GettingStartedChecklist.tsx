@@ -6,6 +6,7 @@ import { fromDto, remainingToBudget, totalIncome } from '../budgetModel'
 import { CheckIcon, ChevronDownIcon, CloseIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { currencyNoun } from '../lib/money'
+import { currentMonth } from '../lib/dates'
 import { useOnboarding } from './OnboardingContext'
 
 interface Progress {
@@ -41,7 +42,7 @@ export function GettingStartedChecklist() {
       .catch(() => {})
 
     api
-      .get<BudgetMonthDto>(`/budget/${now.getFullYear()}/${now.getMonth() + 1}`)
+      .get<BudgetMonthDto>(`/budget/${currentMonth(now).year}/${currentMonth(now).month}`)
       .then(({ data }) => {
         const vm = fromDto(data)
         const income = totalIncome(vm)

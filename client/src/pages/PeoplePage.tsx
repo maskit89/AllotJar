@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from 'axios'
 import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
@@ -144,9 +144,19 @@ export function PeoplePage() {
 
   const canAccess = features.householdAccess && canManageHousehold
 
+  // The month on screen now. A save's reload reads this month, not the one the save started on,
+  // and an answer for a month the user has since left is dropped (CL-P2-3): the new month's own
+  // read fills the page.
+  const viewedMonth = useRef({ year, month })
+  useEffect(() => {
+    viewedMonth.current = { year, month }
+  }, [year, month])
+
   // Everything month-scoped is read for the selected month, so the page moves with the top
   // bar's month navigator together with Budget (rule 29).
   const reloadAll = useCallback(async () => {
+    const shown = viewedMonth.current
+    const { year, month } = shown
     const [m, acc, spend, mem, inc] = await Promise.all([
       api.get<HouseholdMemberDto[]>(`/members?year=${year}&month=${month}`),
       api.get<AccountDto[]>('/accounts').catch(() => ({ data: null })),
@@ -159,6 +169,7 @@ export function PeoplePage() {
         .get<MemberIncomeResultDto>(`/members/income/${year}/${month}`)
         .catch(() => ({ data: null as MemberIncomeResultDto | null })),
     ])
+    if (viewedMonth.current !== shown) return
     setMembers(Array.isArray(m?.data) ? m.data : [])
     setAccounts(Array.isArray(acc?.data) ? acc.data : [])
     setAccountsLoaded(Array.isArray(acc?.data))
@@ -167,7 +178,7 @@ export function PeoplePage() {
     // Accept only a well-shaped payload — a failed/foreign response falls back to null (the
     // members' own month figures still carry the page), never a partial object.
     setMonthIncome(Array.isArray(inc?.data?.items) ? inc.data : null)
-  }, [year, month])
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -178,7 +189,7 @@ export function PeoplePage() {
     return () => {
       cancelled = true
     }
-  }, [reloadAll])
+  }, [year, month, reloadAll])
 
   // The login (membership) linked to a given budget person, if any.
   const membershipByMember = useMemo(() => {

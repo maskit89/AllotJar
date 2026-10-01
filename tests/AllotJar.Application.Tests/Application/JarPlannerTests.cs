@@ -111,7 +111,7 @@ public class JarPlannerTests
         var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
         var next = Current.AddMonths(1);
 
-        LedgerFixtures.Allocate(db, "user-1", account.Id, jar.Id, 40m, Today);
+        LedgerFixtures.Allocate(db, "user-1", account.Id, jar.Id, 40m, Today, JarAllocationKind.Reallocation);
         (await handler.Handle(new CreateBudgetMonthCommand(Current.Year, Current.Month, CopyFromPrevious: false), CancellationToken.None))
             .Categories.Single(c => c.Kind == "Savings").Items.Single().PlannedAmount.Should().Be(50m);
         var nextMonth = await handler.Handle(new CreateBudgetMonthCommand(next.Year, next.Month, CopyFromPrevious: false), CancellationToken.None);

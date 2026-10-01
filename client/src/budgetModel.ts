@@ -4,6 +4,7 @@
 
 import type { BudgetMonthDto } from './types'
 import { fromAmount, sumMinor, type Minor } from './lib/money'
+import { todayIso } from './lib/dates'
 
 export type CategoryKind = 'income' | 'expense' | 'savings'
 
@@ -146,7 +147,8 @@ export type BillStatus = 'paid' | 'overdue' | 'due-soon' | 'upcoming'
 /** Bills due within this many days count as "due soon". */
 const DUE_SOON_DAYS = 7
 
-const dateOnly = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate())
+/** A calendar day as a day count, so day differences ignore time zones and DST. */
+const dayNumber = (year: number, month: number, day: number): number => Date.UTC(year, month - 1, day) / 86_400_000
 
 /** The due day clamped to the month's length (e.g. "31" → 28/29 in February). */
 export function effectiveDueDay(dueDay: number | null, year: number, month: number): number | null {
@@ -164,16 +166,15 @@ export function billStatus(i: ItemVM, year: number, month: number, today: Date):
   if (i.dueDay === null) return null
   if (i.isPaid) return 'paid'
 
-  const currentYear = today.getFullYear()
-  const currentMonth = today.getMonth() + 1
+  // Today is the UTC calendar day, as on the server (rule 82, P14).
+  const [currentYear, currentMonth, currentDay] = todayIso(today).split('-').map(Number)
   const isPastMonth = year < currentYear || (year === currentYear && month < currentMonth)
   const isCurrentMonth = year === currentYear && month === currentMonth
   if (isPastMonth) return 'overdue' // an unpaid bill in a month already gone is overdue
   if (!isCurrentMonth) return 'upcoming'
 
   const day = effectiveDueDay(i.dueDay, year, month)! // clamp e.g. "31" in a 30-day month
-  const due = new Date(year, month - 1, day)
-  const diffDays = Math.round((due.getTime() - dateOnly(today).getTime()) / 86_400_000)
+  const diffDays = dayNumber(year, month, day) - dayNumber(currentYear, currentMonth, currentDay)
 
   if (diffDays < 0) return 'overdue'
   if (diffDays <= DUE_SOON_DAYS) return 'due-soon'

@@ -43,7 +43,9 @@ public class JarsTests
         db.SaveChanges();
         if (allocated != 0m)
         {
-            LedgerFixtures.Allocate(db, ownerId, account.Id, id, allocated, allocatedOn);
+            // Money put into the jar after it existed (a contribution); money set aside at
+            // creation is the month's opening balance instead (SC-P2-1).
+            LedgerFixtures.Allocate(db, ownerId, account.Id, id, allocated, allocatedOn, JarAllocationKind.Reallocation);
         }
         return fund;
     }
