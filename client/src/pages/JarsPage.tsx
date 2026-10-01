@@ -8,6 +8,7 @@ import { MoveMoneyModal } from '../components/MoveMoneyModal'
 import { MarkCyclePaidModal } from '../components/jars/MarkCyclePaidModal'
 import { DismissCycleModal } from '../components/jars/DismissCycleModal'
 import { CompleteJarModal } from '../components/jars/CompleteJarModal'
+import { ReopenJarModal } from '../components/jars/ReopenJarModal'
 import { JarsIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
@@ -39,6 +40,8 @@ export function JarsPage() {
   const [dismissingId, setDismissingId] = useState<string | null>(null)
   // W04: the Goal jar being marked completed (rule 55).
   const [completingId, setCompletingId] = useState<string | null>(null)
+  // O3c: the completed Goal being reopened.
+  const [reopeningId, setReopeningId] = useState<string | null>(null)
   const editingJar = useMemo(
     () => (editingId ? jars.find((f) => f.id === editingId) ?? null : null),
     [editingId, jars],
@@ -58,6 +61,10 @@ export function JarsPage() {
   const completingJar = useMemo(
     () => (completingId ? jars.find((f) => f.id === completingId) ?? null : null),
     [completingId, jars],
+  )
+  const reopeningJar = useMemo(
+    () => (reopeningId ? jars.find((f) => f.id === reopeningId) ?? null : null),
+    [reopeningId, jars],
   )
 
   const loadLedgers = useCallback(() => {
@@ -139,6 +146,16 @@ export function JarsPage() {
     (completed: JarDto) => {
       setJars((prev) => prev.map((f) => (f.id === completed.id ? completed : f)))
       setCompletingId(null)
+      loadLedgers()
+    },
+    [loadLedgers],
+  )
+
+  // Reopened (O3c): the jar saves again, its plan replanted by the server from what it holds.
+  const onReopened = useCallback(
+    (reopened: JarDto) => {
+      setJars((prev) => prev.map((f) => (f.id === reopened.id ? reopened : f)))
+      setReopeningId(null)
       loadLedgers()
     },
     [loadLedgers],
@@ -280,6 +297,10 @@ export function JarsPage() {
                     setError(null)
                     setCompletingId(f.id)
                   }}
+                  onReopen={() => {
+                    setError(null)
+                    setReopeningId(f.id)
+                  }}
                   canManage={canWrite}
                 />
               ))}
@@ -319,6 +340,10 @@ export function JarsPage() {
         <CompleteJarModal jar={completingJar} currency={CURRENCY} onClose={() => setCompletingId(null)} onCompleted={onCompleted} />
       )}
 
+      {reopeningJar && canWrite && (
+        <ReopenJarModal jar={reopeningJar} currency={CURRENCY} onClose={() => setReopeningId(null)} onReopened={onReopened} />
+      )}
+
       {dismissingJar && !markingPaid && canWrite && (
         <DismissCycleModal
           jar={dismissingJar}
@@ -345,6 +370,7 @@ function JarCard({
   onMarkPaid,
   onDismiss,
   onComplete,
+  onReopen,
   canManage,
 }: {
   jar: JarDto
@@ -359,6 +385,8 @@ function JarCard({
   onDismiss: () => void
   /** W04: mark a Goal jar completed (rule 55). */
   onComplete: () => void
+  /** O3c: reopen a completed Goal. */
+  onReopen: () => void
   canManage: boolean
 }) {
   // Null = the account's balance is unavailable (rule 67): shown as such, never as zero.
@@ -378,11 +406,12 @@ function JarCard({
   const missed = jar.status === 'DeadlineMissed' || jar.status === 'FundedLate'
   const unpaidLastCycle =
     jar.lastCycle && (jar.lastCycle.outcome === 'Funded' || jar.lastCycle.outcome === 'Waiting') ? jar.lastCycle : null
-  // W04: a Goal can be marked completed (rule 55) while its balance is known and not overdrawn
-  // (rule 56); a completed jar offers nothing more than Move money and Edit.
+  // W04: a Goal can be marked completed (rule 55) while its balance is known; an overdrawn one
+  // opens the dialog only to say how much to cover first (rule 56, P41; O3a). A completed jar
+  // offers Reopen (O3c), Move money and Edit.
   const completed = jar.completedOn !== null
-  const canComplete =
-    !completed && jar.recurMonths === null && jar.status !== 'Unavailable' && balanceMinor !== null && balanceMinor >= 0
+  const canComplete = !completed && jar.recurMonths === null && jar.status !== 'Unavailable' && balanceMinor !== null
+  const canReopen = completed && !jar.isArchived
 
   return (
     <Card className="flex gap-4 p-5">
@@ -459,6 +488,16 @@ function JarCard({
                   className="text-[12.5px] font-semibold text-slate-500 transition hover:text-brand-700 dark:hover:text-brand-200"
                 >
                   Mark completed
+                </button>
+              )}
+              {canReopen && (
+                <button
+                  type="button"
+                  onClick={onReopen}
+                  aria-label={`Reopen ${jar.name}`}
+                  className="text-[12.5px] font-semibold text-slate-500 transition hover:text-brand-700 dark:hover:text-brand-200"
+                >
+                  Reopen
                 </button>
               )}
               {recurring && (

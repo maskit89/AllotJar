@@ -44,6 +44,12 @@ public class JarScheduleDto
     /// in time and says so. 0 otherwise.
     /// </summary>
     public decimal Unplanned { get; set; }
+
+    /// <summary>
+    /// O3b: later months whose amount was typed by hand but which the schedule doesn't reach (after
+    /// the funding-completion month or the target). Saving keeps them as typed; not in <see cref="Total"/>.
+    /// </summary>
+    public List<JarScheduleMonthDto> ByHandLater { get; set; } = new();
 }
 
 public class JarScheduleMonthDto
@@ -54,6 +60,9 @@ public class JarScheduleMonthDto
 
     /// <summary>Rule 60 (W04): the user skipped this month's contribution; it plans 0 and the other months carry the plan.</summary>
     public bool Skipped { get; set; }
+
+    /// <summary>O3b: the amount was typed by hand on this later month's line; saving keeps it and the other months carry the rest.</summary>
+    public bool ByHand { get; set; }
 
     /// <summary>Whether a budget already exists for this month.</summary>
     public bool HasBudget { get; set; }

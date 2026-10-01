@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Domain.Enums;
 
@@ -73,11 +74,13 @@ public class LinkRefundCommandHandler : IRequestHandler<LinkRefundCommand, Trans
             // The row now matches expense/savings lines only (rules 38/39): a chosen line is
             // validated as such; otherwise it leaves any income line for the purchase's line in
             // its own month, or stays uncategorised for the user to place.
+            // A refund may sit on its purchase's jar line from any account it reached (O9a).
             if (request.BudgetItemId is Guid itemId)
             {
                 var item = await TransactionInvariants.ValidateWholeLineAsync(
                     _db, userId, TransactionType.Expense, itemId, transaction.Date, request.AcknowledgeCrossMonth,
-                    "BudgetItemId", cancellationToken, transaction.AccountId);
+                    "BudgetItemId", cancellationToken, transaction.AccountId,
+                    await RefundRules.PurchaseJarsAsync(_db, original, cancellationToken));
                 transaction.BudgetItem = item;
                 transaction.BudgetItemId = item.Id;
             }
@@ -87,6 +90,18 @@ public class LinkRefundCommandHandler : IRequestHandler<LinkRefundCommand, Trans
                     _db, userId, original, transaction.Date, transaction.AccountId, cancellationToken);
                 transaction.BudgetItem = item;
                 transaction.BudgetItemId = item?.Id;
+            }
+
+            // O9b: money back from a completed Goal's purchase, or a paid cycle's payment, goes back
+            // into the jar when it reached the jar's account and nothing was answered for it yet.
+            if (transaction.AccountId is Guid refundAccountId
+                && await RefundRules.JarToRefillAsync(_db, original, refundAccountId, transaction.Date, cancellationToken) is { } jar
+                && !await _db.JarAllocations.AnyAsync(a => a.TransactionId == transaction.Id, cancellationToken))
+            {
+                var account = await _db.Accounts.FirstAsync(a => a.Id == refundAccountId, cancellationToken);
+                await JarMovements.ApplyIncomingAsync(
+                    _db, userId, transaction, account, transaction.Date, transaction.Amount,
+                    new[] { new JarAllocationInput(jar.Id, transaction.Amount) }, RefundRules.Key, cancellationToken);
             }
         }
         else

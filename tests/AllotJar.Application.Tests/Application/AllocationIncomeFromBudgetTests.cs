@@ -60,6 +60,36 @@ public class AllocationIncomeFromBudgetTests
             }), CancellationToken.None);
     }
 
+    // O4 (answered 1 October 2026): a by-income split in a month whose income is zero is shared
+    // equally and the preview carries a note saying so; a month with income carries none.
+    [Fact]
+    public async Task O4_ByIncomeSplit_InAMonthWithZeroIncome_IsSharedEqually_WithANote()
+    {
+        await using var db = NewContext();
+        var s = Seed(db);
+        await new UpsertAllocationProfileCommandHandler(db, new CurrentUserStub("user-1"))
+            .Handle(new UpsertAllocationProfileCommand(null, "P", null, new List<AllocationRuleSpec>
+            {
+                new(0, AllocationRuleType.FundEnvelopes, SplitMethod.ByIncomeRatio, 0m),
+                new(1, AllocationRuleType.SplitRemainderToMembers, SplitMethod.Equal, 0m),
+            }), CancellationToken.None);
+        var handler = new PreviewIncomeAllocationQueryHandler(db, new CurrentUserStub("user-1"));
+
+        var dto = await handler.Handle(new PreviewIncomeAllocationQuery(2026, 7, null), CancellationToken.None);
+
+        dto.Pool.Should().Be(0m);
+        var rent = dto.Steps.Single(st => st.Type == AllocationRuleType.FundEnvelopes);
+        rent.FellBackToEqual.Should().BeTrue();
+        rent.PerMember.Select(m => m.Amount).Should().Equal(500m, 500m);
+        dto.EqualSplitNote.Should().Be("This month's income is zero, so the by-income split was shared equally instead.");
+
+        AddIncomeLine(db, s, "Alex — Salary", 3000m, s.Alex.Id);
+        var withIncome = await handler.Handle(new PreviewIncomeAllocationQuery(2026, 7, null), CancellationToken.None);
+        withIncome.EqualSplitNote.Should().BeNull();
+        withIncome.Steps.Single(st => st.Type == AllocationRuleType.FundEnvelopes).PerMember
+            .Select(m => m.Amount).Should().Equal(1000m, 0m);
+    }
+
     [Fact]
     public async Task AttributedLines_DriveThePool_AndPerMemberIncome()
     {

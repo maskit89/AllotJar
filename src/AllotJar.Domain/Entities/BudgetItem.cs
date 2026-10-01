@@ -54,6 +54,15 @@ public class BudgetItem : BaseEntity
     public bool IsSkipped { get; set; }
 
     /// <summary>
+    /// O3b (answered 1 October 2026): for a jar's line, true once the user typed its planned
+    /// amount by hand. A replant (a schedule edit, P29, or any other) keeps a hand-typed amount on
+    /// a month after the current one, as it keeps a skipped month (P44), and the other months
+    /// carry the rest of the plan. Skipping the month or planning it again hands it back to the
+    /// schedule. Always false on ordinary income/expense lines.
+    /// </summary>
+    public bool IsPlannedByHand { get; set; }
+
+    /// <summary>
     /// Transient (not persisted): for a fund line, the running available balance of
     /// the fund as of this month — the sum of every contribution (planned) minus
     /// every spend (actual) across all months up to and including this one. Null for

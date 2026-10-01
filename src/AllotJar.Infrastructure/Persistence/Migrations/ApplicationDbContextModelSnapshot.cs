@@ -230,6 +230,11 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsPaid")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("IsPlannedByHand")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("IsSkipped")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")

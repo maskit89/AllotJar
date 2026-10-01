@@ -45,7 +45,8 @@ public static class IncomeAllocator
                         balances[s.MemberId] -= s.Amount;
                     }
 
-                    steps.Add(new AllocationStep(rule.Type, rule.ResolvedTotal, shares));
+                    steps.Add(new AllocationStep(
+                        rule.Type, rule.ResolvedTotal, shares, FellBackToEqual(rule.Split, members, totalNet)));
                     break;
                 }
 
@@ -85,7 +86,9 @@ public static class IncomeAllocator
                         balances[s.MemberId] = s.Amount;
                     }
 
-                    steps.Add(new AllocationStep(rule.Type, shares.Sum(s => s.Amount), shares));
+                    steps.Add(new AllocationStep(
+                        rule.Type, shares.Sum(s => s.Amount), shares,
+                        remainder > 0m && FellBackToEqual(rule.Split, members, totalNet)));
                     break;
                 }
             }
@@ -98,6 +101,13 @@ public static class IncomeAllocator
 
         return new AllocationResult(pool, steps, residuals);
     }
+
+    /// <summary>
+    /// O4 (answered 1 October 2026): an income-based split when the month's income is zero has no
+    /// ratio to follow, so it is shared equally instead, and the step says so for the screen's note.
+    /// </summary>
+    private static bool FellBackToEqual(SplitMethod split, IReadOnlyList<AllocationMember> members, decimal totalNet) =>
+        split == SplitMethod.ByIncomeRatio && totalNet <= 0m && members.Count > 0;
 
     private static IReadOnlyList<MemberShare> Split(
         IReadOnlyList<AllocationMember> members, decimal total, SplitMethod split, decimal totalNet)
@@ -221,7 +231,12 @@ public record AllocationRuleInput(
 
 public record MemberShare(Guid MemberId, string Name, decimal Amount);
 
-public record AllocationStep(AllocationRuleType Type, decimal Total, IReadOnlyList<MemberShare> PerMember);
+/// <param name="FellBackToEqual">
+/// True when the step asked for an income-based split but the month's income is zero, so the
+/// amount was shared equally (O4).
+/// </param>
+public record AllocationStep(
+    AllocationRuleType Type, decimal Total, IReadOnlyList<MemberShare> PerMember, bool FellBackToEqual = false);
 
 public record MemberResidual(
     Guid MemberId, string Name, decimal NetIncome, decimal Residual, Guid? SavingsAccountId, decimal SavingsBalance = 0m,

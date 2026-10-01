@@ -5,7 +5,8 @@ namespace AllotJar.Domain.Services;
 
 /// <summary>One planned month of a jar's contribution schedule.</summary>
 /// <param name="Skipped">Rule 60: the user skipped this month's contribution; it plans 0 and the remaining months carry the plan.</param>
-public readonly record struct JarPlannedMonth(int Year, int Month, decimal Planned, bool Skipped = false)
+/// <param name="ByHand">O3b: the amount the user typed on this later month's line, kept by every replant; the other months carry the rest.</param>
+public readonly record struct JarPlannedMonth(int Year, int Month, decimal Planned, bool Skipped = false, bool ByHand = false)
 {
     public DateOnly FirstDay => new(Year, Month, 1);
     public DateOnly LastDay => new(Year, Month, DateTime.DaysInMonth(Year, Month));
@@ -32,6 +33,13 @@ public sealed record JarPlan(
     bool IsOngoing,
     decimal Unplanned = 0m)
 {
+    /// <summary>
+    /// O3b: the hand-typed months after the planned ones (past the funding-completion month, or
+    /// after the target is reached), which a replant keeps as typed. Not in <see cref="Months"/>
+    /// or <see cref="Total"/>: they are not part of the schedule, only left alone by it.
+    /// </summary>
+    public IReadOnlyList<JarPlannedMonth> ByHandLater { get; init; } = Array.Empty<JarPlannedMonth>();
+
     public static readonly JarPlan Empty = new(Array.Empty<JarPlannedMonth>(), 0m, null, null, null, false);
 
     /// <summary>What the first planned month (the month planned from) contributes; 0 when nothing is planned.</summary>
@@ -52,14 +60,30 @@ public sealed record JarPlan(
 /// plan never shrinks (rule 14). Null assumes the plan is simply kept.
 /// </param>
 /// <param name="ListThrough">Ongoing plans (rule 16): list every month up to this one instead of the single representative month, so each existing month can take its figure.</param>
+/// <param name="ByHandMonths">
+/// O3b: first days of the later months whose line carries an amount the user typed by hand, with
+/// that amount. Each plans exactly it and the other months carry the rest, as around a skipped
+/// month (rule 61); a skip wins over it.
+/// </param>
 public sealed record JarPlanOptions(
     IReadOnlySet<DateOnly>? SkippedMonths = null,
     decimal? BalanceNow = null,
-    DateOnly? ListThrough = null)
+    DateOnly? ListThrough = null,
+    IReadOnlyDictionary<DateOnly, decimal>? ByHandMonths = null)
 {
     public static readonly JarPlanOptions None = new();
 
     public bool IsSkipped(DateOnly month) => SkippedMonths is not null && SkippedMonths.Contains(new DateOnly(month.Year, month.Month, 1));
+
+    /// <summary>The amount typed by hand on <paramref name="month"/>'s line (O3b); null when it has none or is skipped.</summary>
+    public decimal? ByHand(DateOnly month) =>
+        !IsSkipped(month) && ByHandMonths is not null && ByHandMonths.TryGetValue(new DateOnly(month.Year, month.Month, 1), out var amount)
+            ? amount
+            : null;
+
+    /// <summary>What the hand-typed months after <paramref name="after"/> and up to <paramref name="through"/> carry.</summary>
+    public decimal ByHandBetween(DateOnly after, DateOnly through) =>
+        ByHandMonths is null ? 0m : ByHandMonths.Where(m => m.Key > after && m.Key <= through && !IsSkipped(m.Key)).Sum(m => m.Value);
 }
 
 /// <summary>
@@ -184,9 +208,23 @@ public static class JarSchedule
 
         var from = new DateOnly(asOf.Year, asOf.Month, 1);
         options ??= JarPlanOptions.None;
-        return jar.Accrual == AccrualMethod.TargetByDate
+        var plan = jar.Accrual == AccrualMethod.TargetByDate
             ? PlanByDeadline(jar, from, balance, options)
             : PlanFixedMonthly(jar, from, balance, options);
+        if (options.ByHandMonths is not { Count: > 0 } byHand)
+        {
+            return plan;
+        }
+        // O3b: a hand-typed month the schedule doesn't reach is still left as typed; say so.
+        var listed = plan.Months.Select(m => m.FirstDay).ToHashSet();
+        return plan with
+        {
+            ByHandLater = byHand.Keys
+                .Where(m => m >= from && !listed.Contains(m) && !options.IsSkipped(m))
+                .OrderBy(m => m)
+                .Select(m => new JarPlannedMonth(m.Year, m.Month, byHand[m], ByHand: true))
+                .ToList(),
+        };
     }
 
     /// <summary>
@@ -220,29 +258,32 @@ public static class JarSchedule
         // the remainder in the last of them, so the plan still sums exactly. When the first
         // month is projected to end above its plan (money arrived this month, P37), the split
         // for the months after it is recomputed from that balance.
+        // A month whose amount was typed by hand (O3b) plans exactly that, and the months that
+        // are neither skipped nor typed share what the typed ones leave.
         var months = new List<JarPlannedMonth>();
         var eligible = 0;
         for (var m = from; m <= end; m = m.AddMonths(1))
         {
-            if (!options.IsSkipped(m))
+            if (!options.IsSkipped(m) && options.ByHand(m) is null)
             {
                 eligible++;
             }
         }
 
         var projected = balance;
-        var split = SplitExactly(Math.Max(0m, jar.TargetAmount - projected), eligible);
+        var split = SplitExactly(Math.Max(0m, jar.TargetAmount - projected - options.ByHandBetween(from.AddDays(-1), end)), eligible);
         var k = 0;
         for (var m = from; m <= end; m = m.AddMonths(1))
         {
             var skipped = options.IsSkipped(m);
-            var planned = skipped ? 0m : split[k++];
-            months.Add(new JarPlannedMonth(m.Year, m.Month, planned, skipped));
+            var byHand = options.ByHand(m);
+            var planned = skipped ? 0m : byHand ?? split[k++];
+            months.Add(new JarPlannedMonth(m.Year, m.Month, planned, skipped, byHand is not null));
             var next = projected + planned;
             if (m == from && options.BalanceNow is { } now && now > next)
             {
                 next = now;
-                split = SplitExactly(Math.Max(0m, jar.TargetAmount - next), eligible - k);
+                split = SplitExactly(Math.Max(0m, jar.TargetAmount - next - options.ByHandBetween(from, end)), eligible - k);
                 k = 0;
             }
             projected = next;
@@ -273,7 +314,8 @@ public static class JarSchedule
             for (var m = from; m <= through; m = m.AddMonths(1))
             {
                 var skipped = options.IsSkipped(m);
-                run.Add(new JarPlannedMonth(m.Year, m.Month, skipped ? 0m : fixedAmount, skipped));
+                var byHand = options.ByHand(m);
+                run.Add(new JarPlannedMonth(m.Year, m.Month, skipped ? 0m : byHand ?? fixedAmount, skipped, byHand is not null));
             }
             return new JarPlan(run, 0m, null, null, null, true);
         }
@@ -294,8 +336,9 @@ public static class JarSchedule
         for (var m = from; months.Count < MaxListedMonths && projected < jar.TargetAmount; m = m.AddMonths(1))
         {
             var skipped = options.IsSkipped(m);
-            var planned = skipped ? 0m : Math.Min(fixedAmount, jar.TargetAmount - projected);
-            months.Add(new JarPlannedMonth(m.Year, m.Month, planned, skipped));
+            var byHand = options.ByHand(m);
+            var planned = skipped ? 0m : byHand ?? Math.Min(fixedAmount, jar.TargetAmount - projected);
+            months.Add(new JarPlannedMonth(m.Year, m.Month, planned, skipped, byHand is not null));
             if (!skipped)
             {
                 contributions++;

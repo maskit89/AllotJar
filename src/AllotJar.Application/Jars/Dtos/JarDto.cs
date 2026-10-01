@@ -143,7 +143,7 @@ public static class JarMapping
     /// </summary>
     public static JarDto ToDto(this Jar f, decimal? currentBalance, decimal? balanceAtMonthStart, decimal? storedPlanThisMonth, DateOnly asOf,
         JarCycle? lastCycle = null, bool skippedThisMonth = false, bool canDelete = false, IReadOnlySet<DateOnly>? skippedMonths = null,
-        DateOnly? month = null, decimal? contributedThisMonth = null)
+        DateOnly? month = null, decimal? contributedThisMonth = null, IReadOnlyDictionary<DateOnly, decimal>? byHandMonths = null)
     {
         var balance = currentBalance ?? 0m;
         var target = f.TargetAmount;
@@ -165,8 +165,9 @@ public static class JarMapping
         // from today's balance), never from today's month.
         var planFrom = monthStart > asOf ? monthStart : asOf;
         // Today's balance rides along as the schedule preview passes it (rule 58): money that arrived this month
-        // shortens the estimate on the card exactly as it does in the edit preview.
-        var plan = JarSchedule.Plan(f, planFrom, startBalance, new JarPlanOptions(skipped, currentBalance));
+        // shortens the estimate on the card exactly as it does in the edit preview. The later months typed by
+        // hand (O3b) carry their amount, as the Savings lines do.
+        var plan = JarSchedule.Plan(f, planFrom, startBalance, new JarPlanOptions(skipped, currentBalance, ByHandMonths: byHandMonths));
         var deadline = plan.Deadline ?? JarSchedule.CurrentDeadline(f);
         // Rule 20: a Recurring cycle whose deadline has arrived is settled before this read
         // (JarCycles.SettleAsync rolls a funded one forward), so an open cycle at or before the

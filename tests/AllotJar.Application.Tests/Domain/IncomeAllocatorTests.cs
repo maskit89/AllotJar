@@ -279,4 +279,28 @@ public class IncomeAllocatorTests
         step.PerMember.Should().OnlyContain(s => s.Amount >= 0m);
         step.PerMember.Sum(s => s.Amount).Should().Be(total);
     }
+
+    // O4 (answered 1 October 2026): an income-based split in a month whose income is zero falls
+    // back to an equal split, and the step says so; with income it follows the ratio and doesn't.
+    [Fact]
+    public void O4_ByIncomeSplit_WithZeroIncome_FallsBackToEqual_AndFlagsTheStep()
+    {
+        var noIncome = new List<AllocationMember> { new(Alex, "Alex", 0m, null), new(Sam, "Sam", 0m, null) };
+        var rules = new List<AllocationRuleInput>
+        {
+            new(0, AllocationRuleType.FundEnvelopes, SplitMethod.ByIncomeRatio, 0m, ResolvedTotal: 100.01m),
+            new(1, AllocationRuleType.FundJars, SplitMethod.Equal, 0m, ResolvedTotal: 40m),
+            new(2, AllocationRuleType.SplitRemainderToMembers, SplitMethod.ByIncomeRatio, 0m, 0m),
+        };
+
+        var steps = IncomeAllocator.Compute(noIncome, rules).Steps;
+
+        steps[0].PerMember.Select(s => s.Amount).Should().Equal(50.01m, 50.00m);
+        steps[0].FellBackToEqual.Should().BeTrue();
+        steps[1].FellBackToEqual.Should().BeFalse(); // asked for equal: nothing fell back
+        steps[2].FellBackToEqual.Should().BeFalse(); // nothing left to share, so no split happened
+
+        var withIncome = IncomeAllocator.Compute(Couple(), rules).Steps;
+        withIncome.Should().OnlyContain(s => !s.FellBackToEqual);
+    }
 }

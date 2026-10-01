@@ -6,7 +6,7 @@ import type { JarDto } from '../types'
 // W04 — completing and deleting a jar on the Jars page (rules 27, 55–56): Mark completed for a
 // Goal and what the completed card says (JAR-094, JAR-095), Delete in the edit form for a jar
 // that has never held money and its absence otherwise (JAR-096, JAR-097), and the server's
-// refusals shown in its own words (JAR-098).
+// refusals shown in its own words (JAR-098); an overdrawn Goal's dialog (O3a) and Reopen (O3c).
 //
 // Same shared api mock as the sibling *.catalog.test.tsx files.
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
@@ -69,6 +69,9 @@ describe('JarsPage — completion and deletion (W04)', () => {
   beforeEach(() => {
     setMoneyFormat('en-GB')
     resetApiMocks()
+    // The edit form previews its schedule (POST /jars/schedule) on a timer; answer it with
+    // nothing plannable unless a test cares, so a late preview never reads an unset mock.
+    mockPost.mockResolvedValue({ data: {} })
   })
 
   afterEach(() => {
@@ -101,7 +104,7 @@ describe('JarsPage — completion and deletion (W04)', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('JAR-095: only a Goal with a known, non-negative balance can be completed; recurring, overdrawn and unavailable jars offer nothing, and a completed one leaves the Active count', async () => {
+  it('JAR-095: only a Goal with a known balance offers Mark completed; recurring and unavailable jars offer nothing, and a completed one leaves the Active count', async () => {
     mockLoads({
       jars: [
         goal({ id: 'r1', name: 'Road tax', kind: 0, recurMonths: 12 }),
@@ -117,16 +120,59 @@ describe('JarsPage — completion and deletion (W04)', () => {
     expect(await screen.findByLabelText('Mark New laptop completed', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.queryByLabelText('Mark Road tax completed')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Mark Road tax paid')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Mark Overdrawn completed')).not.toBeInTheDocument()
+    // O3a: an overdrawn Goal opens the dialog, which says how much to cover first (below).
+    expect(screen.getByLabelText('Mark Overdrawn completed')).toBeInTheDocument()
     expect(screen.queryByLabelText('Mark Unknown completed')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Mark Done completed')).not.toBeInTheDocument()
     // Five jars listed, four active (rule 55: a completed goal stays listed but no longer saves).
     expect(screen.getByText('Active jars').nextSibling).toHaveTextContent('4')
   })
 
+  // O3a (answered 1 October 2026): an overdrawn Goal still can't be completed (P41); the dialog
+  // says how much to cover first and offers no confirm.
+  it('O3a: an overdrawn Goal\'s dialog says how much to cover first, with nothing to confirm', { timeout: 15000 }, async () => {
+    mockLoads({ jars: [goal({ currentBalance: -20, status: 'Overspent' })] })
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(await screen.findByLabelText('Mark New laptop completed', {}, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+
+    expect(
+      dialog.getByText(
+        'New laptop is €20.00 overdrawn. Cover the €20.00 shortfall from another jar or unallocated funds first, then mark it completed.',
+      ),
+    ).toBeInTheDocument()
+    expect(dialog.queryByLabelText('Confirm complete New laptop')).not.toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+  })
+
+  // O3c (answered 1 October 2026): a completed Goal offers Reopen, confirmed in a dialog; the
+  // server replants it and the card reads as a live jar again.
+  it('O3c: a completed Goal offers Reopen; confirming posts to /reopen and the card saves again', { timeout: 15000 }, async () => {
+    mockLoads({ jars: [completed(), completed({ id: 'a1', name: 'Shelved', isArchived: true })] })
+    mockPost.mockResolvedValue({ data: goal() })
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(await screen.findByLabelText('Reopen New laptop', {}, { timeout: 5000 }))
+    // An archived completed jar is restored first: it offers no Reopen.
+    expect(screen.queryByLabelText('Reopen Shelved')).not.toBeInTheDocument()
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByText('Reopen New laptop?')).toBeInTheDocument()
+    expect(dialog.getByText(/holds €400\.00\. Reopening makes it active again/)).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+    await user.click(dialog.getByLabelText('Confirm reopen New laptop'))
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/g1/reopen'))
+    expect(await screen.findByLabelText('Mark New laptop completed', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Reopen New laptop')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it('JAR-098: the server\'s refusal to complete is shown in its own words and the jar is unchanged', { timeout: 15000 }, async () => {
     mockLoads({ jars: [goal()] })
-    mockPost.mockRejectedValue(validation('Id', 'New laptop is €20.00 overdrawn. Cover the shortfall before completing it.'))
+    mockPost.mockRejectedValue(validation('Id', 'New laptop is 20.00 EUR overdrawn. Cover the 20.00 EUR shortfall from another jar or unallocated funds first, then mark it completed.'))
     const user = userEvent.setup()
 
     renderPage()
@@ -134,7 +180,13 @@ describe('JarsPage — completion and deletion (W04)', () => {
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.click(dialog.getByLabelText('Confirm complete New laptop'))
 
-    expect(await dialog.findByText('New laptop is €20.00 overdrawn. Cover the shortfall before completing it.', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(
+      await dialog.findByText(
+        'New laptop is 20.00 EUR overdrawn. Cover the 20.00 EUR shortfall from another jar or unallocated funds first, then mark it completed.',
+        {},
+        { timeout: 5000 },
+      ),
+    ).toBeInTheDocument()
     expect(screen.queryByText('Completed')).not.toBeInTheDocument()
   })
 

@@ -102,8 +102,8 @@ public class Jar : BaseEntity
     /// plans no further contributions — its balance being spent (or reaching zero) never restarts
     /// a plan — and keeps whatever it still holds until the user reallocates it (rule 56).
     /// Completion records no payment and moves no money. Null while the jar is live; never set on
-    /// a Recurring jar (its cycles end by being marked paid, rule 83). Reopening is not offered
-    /// (HANDOVER O3).
+    /// a Recurring jar (its cycles end by being marked paid, rule 83). Reopening clears it and the
+    /// plan restarts from what the jar holds (O3c, answered 1 October 2026).
     /// </summary>
     public DateOnly? CompletedOn { get; set; }
 

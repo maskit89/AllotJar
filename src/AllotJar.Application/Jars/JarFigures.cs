@@ -85,6 +85,10 @@ public static class JarFigures
         // The months the user skipped from this one on (rule 60), so the card's horizon follows
         // the same plan the Savings lines carry (rule 61).
         var skippedMonths = await SavingsLines.SkippedMonthsByJarAsync(db, ownerId, ids, monthStart, cancellationToken);
+        // ... and the later months whose amount was typed by hand (O3b); a month that is over has none to keep.
+        var byHandMonths = isOver
+            ? new Dictionary<Guid, Dictionary<DateOnly, decimal>>()
+            : await SavingsLines.ByHandMonthsByJarAsync(db, ownerId, ids, asOf, cancellationToken);
 
         // Rule 84: a jar that never held money may be deleted outright; the card offers it.
         var heldMoney = await JarUsage.EverHeldMoneyAsync(db, ownerId, ids, cancellationToken);
@@ -141,6 +145,7 @@ public static class JarFigures
                 skippedThisMonth: storedLines.TryGetValue(j.Id, out var flags) && flags.Skipped,
                 canDelete: !heldMoney.Contains(j.Id),
                 skippedMonths: skippedMonths.GetValueOrDefault(j.Id),
+                byHandMonths: byHandMonths.GetValueOrDefault(j.Id),
                 contributedThisMonth: contributed.GetValueOrDefault(j.Id)))
             .ToList();
     }

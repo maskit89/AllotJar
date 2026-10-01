@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using AllotJar.Api.Features;
 using AllotJar.Application.Jars.Commands.ArchiveJar;
 using AllotJar.Application.Jars.Commands.CompleteJar;
+using AllotJar.Application.Jars.Commands.ReopenJar;
 using AllotJar.Application.Jars.Commands.CreateJar;
 using AllotJar.Application.Jars.Commands.DeleteJar;
 using AllotJar.Application.Jars.Commands.DismissJarCycle;
@@ -147,6 +148,21 @@ public class JarsController : ControllerBase
     public async Task<ActionResult<JarDto>> Complete(Guid id, CancellationToken ct)
     {
         var result = await _mediator.Send(new CompleteJarCommand(id), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// O3c: reopens a completed Goal. It saves again, its plan restarting from the money still in
+    /// the jar for the current and later months; nothing is paid or moved. Returns the jar.
+    /// </summary>
+    [HttpPost("{id:guid}/reopen")]
+    [ProducesResponseType(typeof(JarDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<JarDto>> Reopen(Guid id, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new ReopenJarCommand(id), ct);
         return Ok(result);
     }
 

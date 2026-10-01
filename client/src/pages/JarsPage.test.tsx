@@ -8,7 +8,7 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
-import { account, jar, ledger, schedule } from '../test/fixtures/jars'
+import { account, jar, ledger, schedule, scheduleMonth } from '../test/fixtures/jars'
 
 const accountsData = [account()]
 
@@ -245,6 +245,30 @@ describe('JarsPage', () => {
       recurMonths: 12,
       initialAllocation: 0,
     })
+  })
+
+  // O3b (answered 1 October 2026): the edit preview says which later months keep the amount the
+  // user typed on their line, including one past the months the schedule plans.
+  it('O3b: the edit preview lists the months that keep a hand-typed amount', { timeout: 15000 }, async () => {
+    fundsData = [jar()]
+    mockPost.mockImplementation((url: string) =>
+      url === '/jars/schedule'
+        ? Promise.resolve({
+            data: schedule({
+              months: [scheduleMonth(2026, 10, 75), scheduleMonth(2026, 11, 150, { byHand: true })],
+              byHandLater: [scheduleMonth(2027, 1, 40, { byHand: true })],
+            }),
+          })
+        : Promise.resolve({ data: {} }),
+    )
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+
+    const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
+    expect(preview).toHaveTextContent(/Kept as typed: Nov 2026 .*150\.00, Jan 2027 .*40\.00\. The other months carry the rest\./)
   })
 
   it('blocks a recurring jar without a due date, client-side', { timeout: 15000 }, async () => {

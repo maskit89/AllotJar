@@ -185,7 +185,7 @@ public class LedgerLockSqlTests(SqlServerFixture fixture)
                 return Task.CompletedTask;
             });
 
-        Errors(error).Should().Contain("Holiday is 50 overdrawn");
+        Errors(error).Should().Contain("Holiday is 50.00 EUR overdrawn");
     }
 
     [Fact]

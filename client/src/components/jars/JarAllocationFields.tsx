@@ -18,6 +18,8 @@ export interface JarAllocationFieldsProps {
   /** Field ids are prefixed so several prompts can coexist (one per import row). */
   idPrefix: string
   compact?: boolean
+  /** What leaving every jar empty does, when it isn't simply "unallocated" (O9b: a refund). */
+  emptyNote?: string
 }
 
 /**
@@ -26,7 +28,7 @@ export interface JarAllocationFieldsProps {
  * unallocated. The prompt may be dismissed by leaving the fields empty.
  */
 export function JarAllocationFields({
-  jars, accountName, currency, amount, value, onChange, idPrefix, compact = false,
+  jars, accountName, currency, amount, value, onChange, idPrefix, compact = false, emptyNote,
 }: JarAllocationFieldsProps) {
   const total = useMemo(() => jarAllocationsTotal(value), [value])
   const remainder = amount === null || total === null ? null : Math.round((amount - total) * 100) / 100
@@ -38,7 +40,7 @@ export function JarAllocationFields({
         Put into jars in {accountName}
       </legend>
       <p className="text-xs text-slate-600">
-        Leave a jar empty to keep that money unallocated. You can allocate it later from the Jars page.
+        {emptyNote ?? 'Leave a jar empty to keep that money unallocated. You can allocate it later from the Jars page.'}
       </p>
       <div className={compact ? 'grid gap-2 sm:grid-cols-2' : 'space-y-2'}>
         {jars.map((jar) => {

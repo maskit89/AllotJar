@@ -94,6 +94,45 @@ public static class SavingsLines
     }
 
     /// <summary>
+    /// O3b: each jar's months after <paramref name="today"/>'s month whose line carries an amount
+    /// the user typed by hand (and did not skip), with what the month's lines plan. Every replant
+    /// keeps them and plans the other months around them, as around a skipped month (P44); the
+    /// current month is replanted as before (P29). A jar with none is absent.
+    /// </summary>
+    public static async Task<Dictionary<Guid, Dictionary<DateOnly, decimal>>> ByHandMonthsByJarAsync(
+        IApplicationDbContext db, string ownerId, IReadOnlyCollection<Guid> jarIds, DateOnly today, CancellationToken cancellationToken)
+    {
+        if (jarIds.Count == 0)
+        {
+            return new Dictionary<Guid, Dictionary<DateOnly, decimal>>();
+        }
+        var afterKey = (today.Year * 12) + today.Month;
+        var rows = await db.BudgetItems
+            .AsNoTracking()
+            .Where(i => i.SavingsId != null && jarIds.Contains(i.SavingsId.Value)
+                        && i.BudgetCategory.BudgetMonth.OwnerId == ownerId
+                        && (i.BudgetCategory.BudgetMonth.Year * 12) + i.BudgetCategory.BudgetMonth.Month > afterKey)
+            .Select(i => new { JarId = i.SavingsId!.Value, i.BudgetCategory.BudgetMonth.Year, i.BudgetCategory.BudgetMonth.Month, i.PlannedAmount, i.IsPlannedByHand, i.IsSkipped })
+            .ToListAsync(cancellationToken);
+        return rows
+            .GroupBy(r => (r.JarId, Month: new DateOnly(r.Year, r.Month, 1)))
+            .Where(g => g.Any(r => r.IsPlannedByHand) && !g.Any(r => r.IsSkipped))
+            .GroupBy(g => g.Key.JarId)
+            .ToDictionary(j => j.Key, j => j.ToDictionary(g => g.Key.Month, g => g.Sum(r => r.PlannedAmount)));
+    }
+
+    /// <summary>The months after the current one whose line the user typed by hand (O3b), read from loaded lines.</summary>
+    public static Dictionary<DateOnly, decimal> ByHandMonths(IEnumerable<(DateOnly Month, BudgetItem Line)> lines, DateOnly today)
+    {
+        var current = new DateOnly(today.Year, today.Month, 1);
+        return lines
+            .Where(l => l.Month > current)
+            .GroupBy(l => l.Month)
+            .Where(g => g.Any(l => l.Line.IsPlannedByHand) && !g.Any(l => l.Line.IsSkipped))
+            .ToDictionary(g => g.Key, g => g.Sum(l => l.Line.PlannedAmount));
+    }
+
+    /// <summary>
     /// Rules 27 and 55: stops the jar's planned contributions from the current month on. The
     /// current month's line is cut to what has actually gone into the jar since the month began
     /// (its remaining contribution is cancelled; rule 14's figures stay coherent), and each later
@@ -142,6 +181,8 @@ public static class SavingsLines
         foreach (var line in lines.OrderBy(l => l.BudgetCategory.BudgetMonth.Year).ThenBy(l => l.BudgetCategory.BudgetMonth.Month))
         {
             var month = new DateOnly(line.BudgetCategory.BudgetMonth.Year, line.BudgetCategory.BudgetMonth.Month, 1);
+            // A stopped jar's plan is cancelled, a hand-typed amount included (O3b).
+            line.IsPlannedByHand = false;
             if (keepSkipped && line.IsSkipped)
             {
                 // The user's skip outlives the archive: the line stays at 0, flagged.

@@ -76,6 +76,11 @@ public class UpdateBudgetItemCommandHandler : IRequestHandler<UpdateBudgetItemCo
             }
         }
 
+        if (item.SavingsId is not null && item.PlannedAmount != request.PlannedAmount)
+        {
+            // O3b: a jar line's amount typed by hand is kept by later replants (on a later month).
+            item.IsPlannedByHand = true;
+        }
         item.PlannedAmount = request.PlannedAmount;
         if (unskipping)
         {

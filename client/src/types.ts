@@ -860,6 +860,8 @@ export interface JarScheduleMonthDto {
   planned: number
   /** Rule 60 (W04): the user skipped this month; it plans 0 and the other months carry the plan. */
   skipped: boolean
+  /** O3b: the amount was typed by hand on this later month's line; saving keeps it. */
+  byHand?: boolean
   /** Whether a budget already exists for this month. */
   hasBudget: boolean
   /** Rule 59: how far the month's plans would exceed its income with this contribution (0 fits); null with no budget. */
@@ -890,6 +892,8 @@ export interface JarScheduleDto {
    * carries because every eligible month was skipped; 0 otherwise.
    */
   unplanned: number
+  /** O3b: later hand-typed months the schedule doesn't reach; saving keeps them as typed (not in `total`). */
+  byHandLater?: JarScheduleMonthDto[]
 }
 
 /** The body of POST /jars/schedule: the definition being previewed (jarId when editing). */
@@ -1036,6 +1040,8 @@ export interface MemberShareDto {
 export interface AllocationStepDto {
   type: number
   total: number
+  /** O4: asked to split by income, shared equally because the month's income is zero. */
+  fellBackToEqual?: boolean
   perMember: MemberShareDto[]
 }
 
@@ -1068,6 +1074,8 @@ export interface AllocationResultDto {
   incomeFromBudget?: boolean
   /** Budgeted income not attributed to any person, shared equally when incomeFromBudget. */
   unattributedIncome?: number
+  /** O4: why a by-income step was shared equally (the month's income is zero); absent otherwise. */
+  equalSplitNote?: string | null
 }
 
 /** Per-member income for a month, derived from the budget (GET /members/income/{y}/{m}). */

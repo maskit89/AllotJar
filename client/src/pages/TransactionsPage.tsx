@@ -1438,6 +1438,11 @@ export function TransactionsPage() {
                 value={addJarAlloc}
                 onChange={setAddJarAlloc}
                 idPrefix="add"
+                emptyNote={
+                  addIsRefund
+                    ? 'Left empty, a refund of a payment from a completed jar, or of the payment a cycle was marked paid with, goes back into that jar; any other stays unallocated.'
+                    : undefined
+                }
               />
             )}
             {/* Category — hidden for income, per the design; a refund offers the expense/savings
