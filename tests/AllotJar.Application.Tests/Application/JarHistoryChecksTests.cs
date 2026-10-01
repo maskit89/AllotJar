@@ -13,6 +13,7 @@ using AllotJar.Application.Transactions.Commands.CreateTransfer;
 using AllotJar.Application.Transactions.Commands.UpdateTransfer;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.ValueObjects;
 using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Application;
@@ -440,5 +441,80 @@ public class JarHistoryChecksTests
 
         await act.Should().ThrowAsync<ValidationException>();
         (await db.Accounts.AsNoTracking().SingleAsync(x => x.Id == savings.Id)).OpeningDate.Should().Be(mar1);
+    }
+
+    // --- Review round 2 (PR #297) ----------------------------------------------------------------
+
+    private static BudgetItem SeedJarLine(ApplicationDbContext db, Jar jar)
+    {
+        var item = new BudgetItem { Name = jar.Name, PlannedAmount = 100m, SavingsId = jar.Id };
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = Owner, Year = 2026, Month = 1, BaseCurrency = CurrencyCode.Eur,
+            Categories = new List<BudgetCategory> { new() { Name = "Savings", Kind = CategoryKind.Savings, Items = new List<BudgetItem> { item } } },
+        });
+        db.SaveChanges();
+        return item;
+    }
+
+    [Fact]
+    public async Task ImportedTransferFromAJar_AfterAPaymentOnItsLineInTheSameImportEmptiedIt_IsHeld()
+    {
+        await using var db = NewContext();
+        var (a, b, holiday, _, _) = SeedTwoAccounts(db);
+        var line = SeedJarLine(db, holiday);
+
+        // Rule 79: the payment on Holiday's line draws from Holiday.
+        var result = await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
+        {
+            new CommitImportItem("PAY-1", new DateOnly(2026, 1, 10), "Hotel", 100m, "EUR", false, line.Id, null),
+            TransferRow("TRF-1", new DateOnly(2026, 1, 12), 100m, b, holiday),
+        }), Ct);
+
+        result.Held.Should().ContainSingle().Which.Reference.Should().Be("TRF-1");
+        (await TodayAsync(db, a.Id)).JarBalances[holiday.Id].Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task ImportedTransferFromAJar_AfterConfirmingADepartureTheAppRecorded_CountsThatDepartureOnce()
+    {
+        await using var db = NewContext();
+        var (a, b, holiday, _, _) = SeedTwoAccounts(db);
+        var recorded = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(new DateOnly(2026, 1, 10), 50m, a.Id, b.Id, FromJarId: holiday.Id), Ct);
+
+        var result = await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(a.Id, new[]
+        {
+            TransferRow("TRF-A", new DateOnly(2026, 1, 10), 50m, b, holiday, match: recorded.Id),
+            TransferRow("TRF-B", new DateOnly(2026, 1, 12), 50m, b, holiday),
+        }), Ct);
+
+        result.Held.Should().BeEmpty("Holiday held 100: 50 recorded and now confirmed, and 50 more");
+        (await TodayAsync(db, a.Id)).JarBalances[holiday.Id].Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task ImportedTransferFromAJar_AfterConfirmingAReceiptTheAppPostedIntoIt_CountsThatReceiptOnce()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Jan1);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 1000m, Jan1, order: 1);
+        var holiday = SeedGoal(db, b, "Holiday");
+        var repairs = SeedGoal(db, b, "Repairs");
+        LedgerFixtures.Allocate(db, Owner, b.Id, repairs.Id, 1000m, Jan1);
+        var recorded = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(new DateOnly(2026, 1, 10), 100m, a.Id, b.Id, ReceivedOn: new DateOnly(2026, 1, 10),
+                JarAllocations: new[] { new JarAllocationInput(holiday.Id, 100m) }), Ct);
+
+        var result = await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(b.Id, new[]
+        {
+            new CommitImportItem("IN-1", new DateOnly(2026, 1, 10), "From A", 100m, "EUR", true, null, null,
+                TransferAccountId: a.Id, MatchTransferId: recorded.Id, JarAllocations: new[] { new JarAllocationInput(holiday.Id, 100m) }),
+            TransferRow("OUT-1", new DateOnly(2026, 1, 12), 150m, a, holiday),
+            TransferRow("OUT-2", new DateOnly(2026, 1, 13), 100m, a, holiday),
+        }), Ct);
+
+        result.Held.Should().ContainSingle().Which.Reference.Should().Be("OUT-1");
+        (await TodayAsync(db, b.Id)).JarBalances[holiday.Id].Should().Be(0m);
     }
 }

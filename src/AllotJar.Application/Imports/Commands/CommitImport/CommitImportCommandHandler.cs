@@ -155,10 +155,14 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         var held = new List<ImportHeldRow>();
         // What the rows accepted so far do to the statement account's jars, for the rule 68 check
         // of a transfer from a jar: nothing is saved until the end, so the ledger read from the
-        // database does not see them. A payment on a jar's savings line counts as unallocated
-        // money here (its jar is derived when read back).
+        // database does not see them. A transfer a row confirmed a leg of is left out of that
+        // ledger, so the money it already read for that leg isn't counted a second time.
         var earlierChanges = new List<JarLedgerChange>();
-        void RecordChange(DateOnly date, decimal amount, bool isCredit, Guid? fromJar, IReadOnlyList<JarAllocationInput>? intoJars)
+        var confirmedTransferIds = new List<Guid>();
+        Dictionary<Guid, Guid>? lineJars = null;
+        Dictionary<Guid, Jar>? jarsById = null;
+        async Task RecordChangeAsync(
+            DateOnly date, decimal amount, bool isCredit, Guid? fromJar, IReadOnlyList<JarAllocationInput>? intoJars, Transaction? payment = null)
         {
             if (importAccount is null)
             {
@@ -174,6 +178,16 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     intoJarsTotal += allocation.Amount;
                 }
                 postings.Add(new JarLedgerPosting(null, amount - intoJarsTotal));
+            }
+            else if (payment is { Type: TransactionType.Expense })
+            {
+                // Rule 79, as the ledger reads the payment back: the jar its line (or each slice's
+                // line) names while the account holds it; the rest from the jar the row names, or
+                // unallocated.
+                lineJars ??= await JarLedgerReader.LineJarsAsync(_db, userId, cancellationToken);
+                jarsById ??= await _db.Jars.AsNoTracking().Where(j => j.OwnerId == userId).ToDictionaryAsync(j => j.Id, cancellationToken);
+                postings.AddRange(JarLedgerReader.Derive(payment, importAccount, -amount, lineJars, jarsById)
+                    .Select(p => p.JarId is null ? p with { JarId = fromJar } : p));
             }
             else
             {
@@ -407,7 +421,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                             ? (before.Amount, previousDeparture, target.ReturnedOn)
                             : ((decimal, DateOnly, DateOnly?)?)null;
                         matchShortfall = await JarHistoryChecks.TransferDrawRefusalAsync(
-                            _db, userId, target, importAccount, matchJar, cancellationToken, previousDraw, earlierChanges);
+                            _db, userId, target, importAccount, matchJar, cancellationToken, previousDraw, earlierChanges, confirmedTransferIds);
                     }
                     if (matchShortfall is not null)
                     {
@@ -480,7 +494,13 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     {
                         await TransferReturns.SyncAsync(_db, target, returnSource, returnBasis, cancellationToken);
                     }
-                    RecordChange(item.Date, item.Amount, item.IsCredit, item.PaidFromJarId, item.JarAllocations);
+                    // The leg as it now stands, with the jar answer it keeps when the row gives none.
+                    var keptAnswer = item.IsCredit
+                        ? item.JarAllocations ?? await ReceiptJarsAsync(target.Id, importAccount.Id, cancellationToken)
+                        : null;
+                    var keptJar = item.IsCredit ? null : item.PaidFromJarId ?? await DepartureJarAsync(target.Id, importAccount.Id, cancellationToken);
+                    await RecordChangeAsync(item.Date, item.Amount, item.IsCredit, keptJar, keptAnswer);
+                    confirmedTransferIds.Add(target.Id);
                     matched++;
                     transfers++;
                     continue;
@@ -528,7 +548,8 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 // Rule 68, as the transfer form checks it: counting the rows accepted above.
                 if (!item.IsCredit && item.PaidFromJarId is Guid drawJar
                     && await JarHistoryChecks.TransferDrawRefusalAsync(
-                        _db, userId, transfer, importAccount, drawJar, cancellationToken, earlier: earlierChanges) is string drawRefusal)
+                        _db, userId, transfer, importAccount, drawJar, cancellationToken,
+                        earlier: earlierChanges, alsoExclude: confirmedTransferIds) is string drawRefusal)
                 {
                     known.Remove(reference);
                     held.Add(new ImportHeldRow(item.Reference, drawRefusal));
@@ -561,7 +582,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 if (!item.IsCredit)
                 {
                     // A receipt waits for its departure (rule 72) and moves no money yet.
-                    RecordChange(item.Date, item.Amount, isCredit: false, item.PaidFromJarId, null);
+                    await RecordChangeAsync(item.Date, item.Amount, isCredit: false, item.PaidFromJarId, null);
                 }
                 imported++;
                 transfers++;
@@ -647,7 +668,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 }
             }
 
-            RecordChange(item.Date, item.Amount, item.IsCredit, item.PaidFromJarId, item.JarAllocations);
+            await RecordChangeAsync(item.Date, item.Amount, item.IsCredit, item.PaidFromJarId, item.JarAllocations, transaction);
             imported++;
             if (item.IsCredit) credits++; else debits++;
         }
@@ -858,6 +879,17 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             : target.ReceivedOn is DateOnly received && received < bankDate && target.ReceiptBankReference is null ? target.TransferAccount : null;
 
     /// <summary>The jar a transfer's departure is recorded as drawing from on the source account, if any.</summary>
+    /// <summary>The jar answer a transfer's receipt into <paramref name="accountId"/> is stored with, if any.</summary>
+    private async Task<IReadOnlyList<JarAllocationInput>> ReceiptJarsAsync(Guid transferId, Guid accountId, CancellationToken cancellationToken) =>
+        (await _db.JarAllocations.AsNoTracking()
+            .Where(a => a.TransactionId == transferId && a.AccountId == accountId)
+            .SelectMany(a => a.Postings)
+            .Where(p => p.JarId != null && p.Amount > 0)
+            .Select(p => new { JarId = p.JarId!.Value, p.Amount })
+            .ToListAsync(cancellationToken))
+        .Select(p => new JarAllocationInput(p.JarId, p.Amount))
+        .ToList();
+
     private async Task<Guid?> DepartureJarAsync(Guid transferId, Guid sourceId, CancellationToken cancellationToken) =>
         await _db.JarAllocationPostings
             .AsNoTracking()

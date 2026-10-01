@@ -102,13 +102,16 @@ public static class JarHistoryChecks
     /// when it took from the same jar of the same account; a date is refused only when the new
     /// draw takes more than the jar holds there and more than the old one took that day.
     /// <paramref name="earlier"/>: what rows not yet saved (earlier rows of the same import) do
-    /// to the account.
+    /// to the account. <paramref name="alsoExclude"/>: transactions whose effect on the account
+    /// <paramref name="earlier"/> already carries (a transfer an earlier row confirmed), read
+    /// from there alone.
     /// </summary>
     public static async Task<string?> TransferDrawRefusalAsync(
         IApplicationDbContext db, string ownerId, Transaction transfer, Account account, Guid fromJarId,
         CancellationToken cancellationToken,
         (decimal Amount, DateOnly From, DateOnly? Until)? previous = null,
-        IReadOnlyList<JarLedgerChange>? earlier = null)
+        IReadOnlyList<JarLedgerChange>? earlier = null,
+        IReadOnlyCollection<Guid>? alsoExclude = null)
     {
         if (transfer.DepartedOn is not DateOnly departed)
         {
@@ -117,7 +120,7 @@ public static class JarHistoryChecks
         var name = await db.Jars.AsNoTracking().Where(j => j.Id == fromJarId).Select(j => j.Name).FirstOrDefaultAsync(cancellationToken)
             ?? "The jar";
         var source = await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken, new[] { account.Id },
-            includeUnbacked: true, excludeTransactionIds: new[] { transfer.Id });
+            includeUnbacked: true, excludeTransactionIds: (alsoExclude ?? Array.Empty<Guid>()).Append(transfer.Id).ToList());
         return FirstRefusal(source, account, departed, includeFrom: true, fromJarId, name, transfer.Amount, -transfer.Amount,
             new[] { new JarLedgerPosting(fromJarId, -transfer.Amount) }, until: transfer.ReturnedOn,
             alreadyTaken: previous is { } p ? d => d >= p.From && (p.Until is not DateOnly u || d < u) ? p.Amount : 0m : null,
