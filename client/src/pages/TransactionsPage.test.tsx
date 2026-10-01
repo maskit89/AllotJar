@@ -410,7 +410,7 @@ describe('TransactionsPage manual sheet', () => {
     await user.click(screen.getByLabelText('Save transaction'))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t1', {
-      date: '2026-06-10', payee: 'Tesco', amount: 1.234, type: 0, accountId: null, memberId: null,
+      date: '2026-06-10', payee: 'Tesco', amount: 1.234, type: 0, accountId: null, memberId: null, version: null,
     }))
   })
 

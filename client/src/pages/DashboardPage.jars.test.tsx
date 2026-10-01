@@ -202,7 +202,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     await user.clear(holiday)
     await user.type(holiday, '200')
     await user.tab()
-    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday', { plannedAmount: 200 }))
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday', { plannedAmount: 200, version: null }))
     await waitFor(() => expect(jarReads().length).toBe(2))
 
     // An expense line moves no jar figure: no re-read.
@@ -211,7 +211,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     await user.clear(rent)
     await user.type(rent, '1200')
     await user.tab()
-    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent', { plannedAmount: 1200 }))
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent', { plannedAmount: 1200, version: null }))
     expect(jarReads().length).toBe(2)
   })
 
@@ -293,7 +293,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     await user.clear(holiday)
     await user.type(holiday, '200')
     await user.click(screen.getByText('go-prev'))
-    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday', { plannedAmount: 200 }))
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday', { plannedAmount: 200, version: null }))
     expect(await screen.findByText('€300.00 saved', {}, { timeout: 5000 })).toBeInTheDocument()
     const readsBefore = jarReads().length
 
@@ -350,7 +350,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     await user.type(holiday, '200')
     await user.tab()
 
-    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday', { plannedAmount: 200 }))
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday', { plannedAmount: 200, version: null }))
     expect(await screen.findByText('+€200.00/mo', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.queryByText('Skipped')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Plan Holiday again this month' })).toBeNull()

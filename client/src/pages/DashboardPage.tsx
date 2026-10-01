@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
-import { serverErrors } from '../lib/serverErrors'
+import { editConflict, serverErrors } from '../lib/serverErrors'
 import { EVENTS, track } from '../analytics'
 import { useAuth } from '../auth/AuthContext'
 import { AppShell } from '../components/AppShell'
@@ -37,6 +37,7 @@ import {
   withoutItem,
   withReorderedExpenseCategories,
   withReorderedItems,
+  withVersions,
   type ItemVM,
   type MonthVM,
 } from '../budgetModel'
@@ -311,20 +312,32 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setMonth(withItemPlanned(month, itemId, plannedMinor)) // optimistic
 
       try {
-        await api.put(`/budget/items/${itemId}`, { plannedAmount: toAmount(plannedMinor) })
+        // The line's version goes with the save (D11); the answer's versions keep the next one current.
+        const { data } = await api.put<BudgetMonthDto>(`/budget/items/${itemId}`, {
+          plannedAmount: toAmount(plannedMinor),
+          version: findItem(month, itemId)?.version ?? null,
+        })
+        if (onMonth()) setMonth((m) => (m ? withVersions(m, data) : m))
         track(EVENTS.budgetItemEdited, { context: 'planned' })
         // A jar line's planned amount is the plan the shelf shows for the month (rule 14), and
         // typing one un-skips the month: re-read the shelf so it never goes stale (J6).
         if (findItem(month, itemId)?.savingsId) refreshJars()
       } catch (err) {
         if (onMonth()) setMonth(snapshot) // roll back to the pre-edit state
-        // A refusal says why (an archived jar's line plans nothing, D18).
-        setError(serverErrors(err) ?? 'Could not save that change — reverted to the previous value.')
+        const conflict = editConflict(err)
+        if (conflict) {
+          // Someone else changed the line first: show what they saved.
+          setError(conflict)
+          if (onMonth()) void refreshMonth()
+        } else {
+          // A refusal says why (an archived jar's line plans nothing, D18).
+          setError(serverErrors(err) ?? 'Could not save that change — reverted to the previous value.')
+        }
       } finally {
         setSavingItemId(null)
       }
     },
-    [month, refreshJars, stillOn],
+    [month, refreshJars, refreshMonth, stillOn],
   )
 
   // Attribute an income line to the household member who earns it (or clear with null).
@@ -339,7 +352,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setMonth(withItemMember(month, itemId, memberId)) // optimistic
 
       try {
-        await api.put(`/budget/items/${itemId}/member`, { memberId })
+        const { data } = await api.put<BudgetMonthDto>(`/budget/items/${itemId}/member`, { memberId })
+        if (onMonth()) setMonth((m) => (m ? withVersions(m, data) : m))
       } catch {
         if (onMonth()) setMonth(snapshot)
         setError('Could not update who earns that income — reverted.')
@@ -362,7 +376,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setMonth(withItemBill(month, itemId, dueDay)) // optimistic
 
       try {
-        await api.put(`/budget/items/${itemId}/bill`, { dueDay })
+        const { data } = await api.put<BudgetMonthDto>(`/budget/items/${itemId}/bill`, { dueDay })
+        if (onMonth()) setMonth((m) => (m ? withVersions(m, data) : m))
       } catch {
         if (onMonth()) setMonth(snapshot)
         setError('Could not update that bill — reverted.')
@@ -385,7 +400,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setMonth(withItemPaid(month, itemId, isPaid)) // optimistic
 
       try {
-        await api.put(`/budget/items/${itemId}/paid`, { isPaid })
+        const { data } = await api.put<BudgetMonthDto>(`/budget/items/${itemId}/paid`, { isPaid })
+        if (onMonth()) setMonth((m) => (m ? withVersions(m, data) : m))
       } catch {
         if (onMonth()) setMonth(snapshot)
         setError('Could not update that bill — reverted.')
@@ -411,18 +427,26 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setMonth(withItemName(month, itemId, name)) // optimistic
 
       try {
-        await api.put(`/budget/items/${itemId}`, {
+        const { data } = await api.put<BudgetMonthDto>(`/budget/items/${itemId}`, {
           plannedAmount: toAmount(current.plannedMinor),
           name,
+          version: current.version ?? null,
         })
-      } catch {
+        if (onMonth()) setMonth((m) => (m ? withVersions(m, data) : m))
+      } catch (err) {
         if (onMonth()) setMonth(snapshot)
-        setError('Could not rename that line — reverted to the previous name.')
+        const conflict = editConflict(err)
+        if (conflict) {
+          setError(conflict)
+          if (onMonth()) void refreshMonth()
+        } else {
+          setError('Could not rename that line — reverted to the previous name.')
+        }
       } finally {
         setSavingItemId(null)
       }
     },
-    [month, stillOn],
+    [month, refreshMonth, stillOn],
   )
 
   // Add a line to a category. We show a temp row instantly, then reconcile from
@@ -570,13 +594,23 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setMonth(withCategoryName(month, categoryId, name)) // optimistic
 
       try {
-        await api.put(`/budget/categories/${categoryId}`, { name })
-      } catch {
+        const { data } = await api.put<BudgetMonthDto>(`/budget/categories/${categoryId}`, {
+          name,
+          version: month.categories.find((c) => c.id === categoryId)?.version ?? null,
+        })
+        if (onMonth()) setMonth((m) => (m ? withVersions(m, data) : m))
+      } catch (err) {
         if (onMonth()) setMonth(snapshot)
-        setError('Could not rename that group — reverted to the previous name.')
+        const conflict = editConflict(err)
+        if (conflict) {
+          setError(conflict)
+          if (onMonth()) void refreshMonth()
+        } else {
+          setError('Could not rename that group — reverted to the previous name.')
+        }
       }
     },
-    [month, stillOn],
+    [month, refreshMonth, stillOn],
   )
 
   const deleteCategory = useCallback(

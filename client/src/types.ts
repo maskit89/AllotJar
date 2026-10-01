@@ -2,6 +2,8 @@
 
 export interface BudgetItemDto {
   id: string
+  /** The row version an edit form sends back with its save (D11); null where the server keeps none. */
+  version?: string | null
   name: string
   displayOrder: number
   plannedAmount: number
@@ -36,6 +38,8 @@ export interface BudgetItemDto {
 
 export interface BudgetCategoryDto {
   id: string
+  /** The row version an edit form sends back with its save (D11); null where the server keeps none. */
+  version?: string | null
   name: string
   kind: 'Income' | 'Expense' | 'Savings'
   displayOrder: number
@@ -91,6 +95,8 @@ export interface DeleteTransactionResult {
 
 export interface TransactionDto {
   id: string
+  /** The row version an edit form sends back with its save (D11); null where the server keeps none. */
+  version?: string | null
   date: string
   payee: string
   amount: number
@@ -259,6 +265,8 @@ export interface UpdateTransferRequest {
   acknowledgeCrossMonth: boolean
   fromJarId: string | null
   jarAllocations: JarAllocationRequest[] | null
+  /** The version of the transfer the form loaded (D11). */
+  version: string | null
 }
 
 /** Request body for PUT /transactions/{id}/transfer-legs. */
@@ -306,6 +314,8 @@ export const ACCOUNT_TYPE_OPTIONS: ReadonlyArray<{ value: number; label: string 
 
 export interface AccountDto {
   id: string
+  /** The row version an edit form sends back with its save (D11); null where the server keeps none. */
+  version?: string | null
   name: string
   /** Numeric AccountType. */
   type: number
@@ -777,6 +787,8 @@ export const RECUR_MONTHS_OPTIONS: ReadonlyArray<{ value: number; label: string 
 
 export interface JarDto {
   id: string
+  /** The row version an edit form sends back with its save (D11); null where the server keeps none. */
+  version?: string | null
   name: string
   /** Numeric JarKind. */
   kind: number
@@ -956,6 +968,8 @@ export interface JarAccountLedgerDto {
 
 export interface HouseholdMemberDto {
   id: string
+  /** The row version an edit form sends back with its save (D11); null where the server keeps none. */
+  version?: string | null
   name: string
   /** The saved default income: a helper for filling in a new budget, never a figure any calculation uses (rule 28). */
   netMonthlyIncome: number
@@ -1039,6 +1053,8 @@ export interface AllocationRuleDto {
 
 export interface AllocationProfileDto {
   id: string
+  /** The row version an edit form sends back with its save (D11); null where the server keeps none. */
+  version?: string | null
   name: string
   /** Null when the source is private to another login (then {@link sourcePrivate} is true). */
   sourceAccountId: string | null

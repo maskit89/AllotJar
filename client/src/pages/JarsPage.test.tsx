@@ -319,6 +319,7 @@ describe('JarsPage', () => {
         includeDeadlineMonth: false,
         fundingAccountId: 'acc1',
         recurMonths: null,
+        version: null,
       }),
     )
   })
