@@ -716,7 +716,7 @@ describe('PeoplePage — catalog (PPL)', () => {
   it('PPL-044: a direct temp-password invite posts method Direct and shows "Login created"', { timeout: 15000 }, async () => {
     membersData = [member({ id: 'm2', name: 'Sam', incomeSharePct: 1 })]
     membershipsData = [] // Sam has no login → "Invite to sign in" pill
-    mockPost.mockResolvedValue({ data: { membership: membership({ id: 'mem9', email: 'sam@x.eu' }), inviteToken: null } })
+    mockPost.mockResolvedValue({ data: { membership: membership({ id: 'mem9', email: 'sam@x.eu' }) } })
     const user = userEvent.setup()
 
     renderPage()
@@ -738,7 +738,62 @@ describe('PeoplePage — catalog (PPL)', () => {
         ),
       { timeout: 5000 },
     )
-    expect(await dialog.findByText('Login created', {}, { timeout: 5000 })).toBeInTheDocument()
+    const status = await dialog.findByRole('status', {}, { timeout: 5000 })
+    expect(status).toHaveTextContent('Login created')
+    expect(status).toHaveTextContent(/emailed sam@x\.eu a link to choose their own password/)
+  })
+
+  // INV-008 — a link invite is emailed to the invitee; the page never shows the link (P2-1 on #298).
+  it('INV-008: a link invite posts method Link and says it was emailed, with no link to copy', { timeout: 15000 }, async () => {
+    membersData = [member({ id: 'm2', name: 'Sam', incomeSharePct: 1 })]
+    membershipsData = []
+    mockPost.mockResolvedValue({ data: { membership: membership({ id: 'mem9', email: 'sam@x.eu' }) } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    await user.click(screen.getByRole('button', { name: 'Invite to sign in' }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+
+    await user.type(dialog.getByLabelText('Invitee email'), 'sam@x.eu')
+    await user.click(dialog.getByRole('button', { name: 'Send invite' }))
+
+    await waitFor(
+      () =>
+        expect(mockPost).toHaveBeenCalledWith(
+          '/access/invite',
+          expect.objectContaining({ email: 'sam@x.eu', method: 1, tempPassword: null }),
+        ),
+      { timeout: 5000 },
+    )
+    const status = await dialog.findByRole('status', {}, { timeout: 5000 })
+    expect(status).toHaveTextContent('Invite sent')
+    expect(status).toHaveTextContent(/emailed sam@x\.eu a one-time link/)
+    expect(dialog.queryByText(/accept-invite/)).not.toBeInTheDocument()
+    expect(dialog.queryByRole('button', { name: /copy/i })).not.toBeInTheDocument()
+  })
+
+  // #298 R2-P2-1 — when the server says the email failed, the box says so instead of "We've emailed".
+  it('INV-008: a link invite whose email failed says so and how to retry', { timeout: 15000 }, async () => {
+    membersData = [member({ id: 'm2', name: 'Sam', incomeSharePct: 1 })]
+    membershipsData = []
+    mockPost.mockResolvedValue({ data: { membership: membership({ id: 'mem9', email: 'sam@x.eu' }), emailSent: false } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    await user.click(screen.getByRole('button', { name: 'Invite to sign in' }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+
+    await user.type(dialog.getByLabelText('Invitee email'), 'sam@x.eu')
+    await user.click(dialog.getByRole('button', { name: 'Send invite' }))
+
+    const alert = await dialog.findByRole('alert', {}, { timeout: 5000 })
+    expect(alert).toHaveTextContent('Invite saved, but the email failed')
+    expect(alert).toHaveTextContent(/Remove the invite and send it again later/)
+    expect(dialog.queryByRole('status')).not.toBeInTheDocument()
   })
 
   // PPL-045 — invite client-side guards: empty email, then a <8-char temp password; neither POSTs.
@@ -754,7 +809,7 @@ describe('PeoplePage — catalog (PPL)', () => {
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     // (1) Empty email on the link method.
-    await user.click(dialog.getByRole('button', { name: 'Create invite link' }))
+    await user.click(dialog.getByRole('button', { name: 'Send invite' }))
     expect(await dialog.findByText('Enter an email address.', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(mockPost).not.toHaveBeenCalled()
 

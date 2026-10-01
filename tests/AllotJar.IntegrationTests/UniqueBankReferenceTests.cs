@@ -44,7 +44,7 @@ public class UniqueBankReferenceTests
         public Task<bool> EmailExistsAsync(string email) => throw new NotSupportedException();
         public Task<UserAccount?> FindByEmailAsync(string email) => throw new NotSupportedException();
         public Task<UserAccount?> FindByIdAsync(string userId) => throw new NotSupportedException();
-        public Task<CreateUserResult> CreateUserAsync(string email, string password, string? displayName, bool consented = false) =>
+        public Task<CreateUserResult> CreateUserAsync(string email, string password, string? displayName, bool consented = false, bool mustChangePassword = false) =>
             throw new NotSupportedException();
         public Task SetActiveHouseholdAsync(string userId, string? ownerId) => throw new NotSupportedException();
         public Task<IReadOnlyList<string>> ChangePasswordAsync(string userId, string currentPassword, string newPassword) =>

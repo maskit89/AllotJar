@@ -7,7 +7,14 @@ public class AllocationProfileDto
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
+    /// <summary>The account the allocation pays out of; null when <see cref="SourcePrivate"/> (P53).</summary>
     public Guid? SourceAccountId { get; set; }
+
+    /// <summary>
+    /// P53: the source is set but its holder has since made it private, so the viewer is told that
+    /// much without its id. Only that holder can commit from it; anyone may choose another source.
+    /// </summary>
+    public bool SourcePrivate { get; set; }
 
     /// <summary>How hard a balance-tilt savings split leans toward equalising balances (0–100).</summary>
     public int BalanceLeanPercent { get; set; }
@@ -26,11 +33,13 @@ public class AllocationRuleDto
 
 public static class AllocationProfileMapping
 {
-    public static AllocationProfileDto ToDto(this AllocationProfile p) => new()
+    /// <param name="sourceHidden">The source is private to another login (<see cref="Accounts.HiddenAccounts"/>).</param>
+    public static AllocationProfileDto ToDto(this AllocationProfile p, bool sourceHidden) => new()
     {
         Id = p.Id,
         Name = p.Name,
-        SourceAccountId = p.SourceAccountId,
+        SourceAccountId = sourceHidden ? null : p.SourceAccountId,
+        SourcePrivate = sourceHidden,
         BalanceLeanPercent = p.BalanceLeanPercent,
         Rules = p.Rules
             .OrderBy(r => r.Order)

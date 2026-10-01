@@ -70,11 +70,13 @@ describe('PeoplePage', () => {
 
     expect(await screen.findByText(/Budgeting on your own\?/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
-  // W13 (P53): the savings account a person chose may be their own private account, which the
-  // login looking at them can't see. It reads "Private account" and an edit keeps it.
+  // W13 (P53/P56): the savings account a person chose may be their own private account, which the
+  // login looking at them can't see. The server says so without the id (S-P2-1): it reads
+  // "Private account", an edit offers no "None" over it, and saving sends no id, which the server
+  // reads as "leave it".
   it('shows a savings account private to someone else as "Private account" and keeps it on edit', { timeout: 15000 }, async () => {
-    membersData = [member({ personalSavingsAccountId: 'hidden-1' })]
-    mockPut.mockResolvedValue({ data: member({ personalSavingsAccountId: 'hidden-1' }) })
+    membersData = [member({ personalSavingsAccountId: null, savingsPrivate: true })]
+    mockPut.mockResolvedValue({ data: member({ personalSavingsAccountId: null, savingsPrivate: true }) })
     const user = userEvent.setup()
 
     renderPage()
@@ -84,12 +86,12 @@ describe('PeoplePage', () => {
 
     await user.click(table.getByRole('button', { name: 'Edit Alex' }))
     const select = table.getByLabelText('Savings account for Alex') as HTMLSelectElement
-    expect(select.value).toBe('hidden-1')
-    expect(within(select).getByRole('option', { name: 'Private account' })).toBeInTheDocument()
+    expect(select.selectedOptions[0]).toHaveTextContent('Private account')
+    expect(within(select).queryByRole('option', { name: 'None' })).not.toBeInTheDocument()
     await user.click(table.getByRole('button', { name: 'Save Alex' }))
 
     await waitFor(() =>
-      expect(mockPut).toHaveBeenCalledWith('/members/m1', expect.objectContaining({ personalSavingsAccountId: 'hidden-1' })),
+      expect(mockPut).toHaveBeenCalledWith('/members/m1', expect.objectContaining({ personalSavingsAccountId: null })),
     )
   })
 })

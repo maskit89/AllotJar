@@ -48,7 +48,7 @@ public class IdentityService : IIdentityService
     }
 
     public async Task<CreateUserResult> CreateUserAsync(
-        string email, string password, string? displayName, bool consented = false)
+        string email, string password, string? displayName, bool consented = false, bool mustChangePassword = false)
     {
         var user = new ApplicationUser
         {
@@ -56,6 +56,7 @@ public class IdentityService : IIdentityService
             Email = email,
             DisplayName = displayName,
             ConsentedUtc = consented ? DateTime.UtcNow : null,
+            MustChangePassword = mustChangePassword,
         };
         var result = await _userManager.CreateAsync(user, password);
         return result.Succeeded

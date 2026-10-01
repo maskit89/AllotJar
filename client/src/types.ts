@@ -943,7 +943,10 @@ export interface HouseholdMemberDto {
   incomeMonth?: number
   /** False when that month has no budget yet (income and share are then zero). */
   hasBudget?: boolean
+  /** Null when the account is private to another login (then {@link savingsPrivate} is true). */
   personalSavingsAccountId: string | null
+  /** P53: the person has a savings account, but it is private to another login, so its id is withheld. */
+  savingsPrivate?: boolean
   displayOrder: number
   isArchived: boolean
   /** This member's share of the household's income in the selected month's budget (0–1). */
@@ -1009,7 +1012,10 @@ export interface AllocationRuleDto {
 export interface AllocationProfileDto {
   id: string
   name: string
+  /** Null when the source is private to another login (then {@link sourcePrivate} is true). */
   sourceAccountId: string | null
+  /** P53: a source is set, but its holder has made it private; only they can allocate from it. */
+  sourcePrivate?: boolean
   /** How hard a balance-aware savings split leans toward equalising balances (0–100). */
   balanceLeanPercent: number
   rules: AllocationRuleDto[]
@@ -1135,10 +1141,10 @@ export interface MembershipDto {
   createdUtc: string
 }
 
-/** Returned by an invite: the new membership and, for link invites, the raw token (shown once). */
+/** Returned by an invite: the new membership, and whether its email (the only copy of any link) went out. */
 export interface InviteResultDto {
   membership: MembershipDto
-  inviteToken: string | null
+  emailSent: boolean
 }
 
 /** One household the login can act in, for the switcher. The active one has `isActive`. */
@@ -1172,6 +1178,8 @@ export interface MeResponse {
   households?: HouseholdSummary[]
   /** True for invite-created logins that haven't accepted the terms yet (blocking consent prompt). */
   needsConsent?: boolean
+  /** True while the login still has the temporary password an owner set for it (blocking prompt). */
+  mustChangePassword?: boolean
   /** Rule 32: review who sees the personal accounts this login holds. */
   sharingReviewPending?: boolean
   /** False for Google-created accounts with no password — the account page adapts change-password. */

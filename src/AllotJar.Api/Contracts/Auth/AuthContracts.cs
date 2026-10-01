@@ -112,6 +112,7 @@ public record MeResponse(
     bool HasPassword,
     bool HasGoogle,
     bool EmailConfirmed,
+    bool MustChangePassword = false,
     bool SharingReviewPending = false,
     string BudgetCurrency = "EUR",
     bool CurrencyLocked = false,

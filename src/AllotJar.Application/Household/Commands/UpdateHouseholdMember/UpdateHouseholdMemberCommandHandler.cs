@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Accounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Household.Dtos;
@@ -39,8 +40,16 @@ public class UpdateHouseholdMemberCommandHandler
         // no FK, so validate here — otherwise a stale or foreign id would be stored and later booked
         // as an allocation transfer into a non-existent (crash) or another household's (leak) account.
         // An unchanged choice is kept as it is: it may be the person's own private account, which
-        // someone else editing them cannot see (P53) and must not lose.
-        if (request.PersonalSavingsAccountId is Guid savingsId && savingsId != member.PersonalSavingsAccountId)
+        // someone else editing them cannot see (P53) and must not lose. Since the People list
+        // withholds that account's id (P56), "none" from such an editor means "leave it": only a
+        // login that can see the account clears it; anyone may still pick another visible one.
+        var savingsAccountId = request.PersonalSavingsAccountId;
+        if (savingsAccountId is null
+            && await HiddenAccounts.IsHiddenAsync(_db, _currentUser.UserId, member.PersonalSavingsAccountId, cancellationToken))
+        {
+            savingsAccountId = member.PersonalSavingsAccountId;
+        }
+        if (savingsAccountId is Guid savingsId && savingsId != member.PersonalSavingsAccountId)
         {
             var owned = await _db.Accounts
                 .AnyAsync(a => a.Id == savingsId && a.OwnerId == userId, cancellationToken);
@@ -60,11 +69,11 @@ public class UpdateHouseholdMemberCommandHandler
 
         member.Name = newName;
         member.NetMonthlyIncome = request.NetMonthlyIncome;
-        member.PersonalSavingsAccountId = request.PersonalSavingsAccountId;
+        member.PersonalSavingsAccountId = savingsAccountId;
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        return await HouseholdMemberReads.ToDtoAsync(_db, userId, member, cancellationToken);
+        return await HouseholdMemberReads.ToDtoAsync(_db, _currentUser, userId, member, cancellationToken);
     }
 
     /// <summary>

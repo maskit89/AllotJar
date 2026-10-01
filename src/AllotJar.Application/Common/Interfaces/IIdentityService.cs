@@ -24,8 +24,11 @@ public interface IIdentityService
     /// Creates a login. <paramref name="consented"/> records terms acceptance and must be true only
     /// when the person themselves accepted (e.g. redeeming an invite link) — never when an owner
     /// creates the login on their behalf; those consent on their first sign-in instead.
+    /// <paramref name="mustChangePassword"/> is true when someone else chose the password: the
+    /// login then has to replace it before it can do anything else.
     /// </summary>
-    Task<CreateUserResult> CreateUserAsync(string email, string password, string? displayName, bool consented = false);
+    Task<CreateUserResult> CreateUserAsync(
+        string email, string password, string? displayName, bool consented = false, bool mustChangePassword = false);
 
     /// <summary>Persists which household the login acts in (null = their own). No-op for unknown users.</summary>
     Task SetActiveHouseholdAsync(string userId, string? ownerId);

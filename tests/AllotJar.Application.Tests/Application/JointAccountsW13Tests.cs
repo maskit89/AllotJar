@@ -371,7 +371,13 @@ public class JointAccountsW13Tests
         {
             var dto = await new UpdateHouseholdMemberCommandHandler(db, Chris)
                 .Handle(new UpdateHouseholdMemberCommand(_sam, "Sam", 1500m, mine), CancellationToken.None);
-            dto.PersonalSavingsAccountId.Should().Be(mine);
+            // The answer names no id Chris can't see (P56, S-P2-1), but the choice is kept.
+            dto.PersonalSavingsAccountId.Should().BeNull();
+            dto.SavingsPrivate.Should().BeTrue();
+        }
+        using (var db = Seed())
+        {
+            db.HouseholdMembers.Single(m => m.Id == _sam).PersonalSavingsAccountId.Should().Be(mine);
         }
         // Choosing an account the editor can't see is refused as if it did not exist: only an
         // unchanged choice is kept.
@@ -946,7 +952,7 @@ public class JointAccountsW13Tests
         public Task<bool> EmailExistsAsync(string email) => throw new NotSupportedException();
         public Task<UserAccount?> FindByEmailAsync(string email) => throw new NotSupportedException();
         public Task<CurrencyCode?> GetPreferredCurrencyAsync(string userId) => Task.FromResult<CurrencyCode?>(null);
-        public Task<CreateUserResult> CreateUserAsync(string email, string password, string? displayName, bool consented = false) => throw new NotSupportedException();
+        public Task<CreateUserResult> CreateUserAsync(string email, string password, string? displayName, bool consented = false, bool mustChangePassword = false) => throw new NotSupportedException();
         public Task SetActiveHouseholdAsync(string userId, string? ownerId) => throw new NotSupportedException();
         public Task<IReadOnlyList<string>> ChangePasswordAsync(string userId, string currentPassword, string newPassword) => throw new NotSupportedException();
         public Task<CredentialCheckResult> CheckCredentialsAsync(string email, string password) => throw new NotSupportedException();

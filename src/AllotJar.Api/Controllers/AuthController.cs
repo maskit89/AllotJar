@@ -8,6 +8,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using AllotJar.Api.Contracts.Auth;
+using AllotJar.Api.Middleware;
+using AllotJar.Api.Services;
 using AllotJar.Application.Accounts;
 using AllotJar.Application.Auth.Commands.Login;
 using AllotJar.Application.Budgets;
@@ -38,6 +40,7 @@ public class AuthController : ControllerBase
     private readonly EmailSettings _emailSettings;
     private readonly ILogger<AuthController> _logger;
     private readonly IIdentityService _identity;
+    private readonly AccountEmails _accountEmails;
 
     public AuthController(
         UserManager<ApplicationUser> userManager,
@@ -50,8 +53,10 @@ public class AuthController : ControllerBase
         IServiceScopeFactory scopeFactory,
         IOptions<EmailSettings> emailSettings,
         ILogger<AuthController> logger,
-        IIdentityService identity)
+        IIdentityService identity,
+        AccountEmails accountEmails)
     {
+        _accountEmails = accountEmails;
         _userManager = userManager;
         _tokenGenerator = tokenGenerator;
         _refreshTokens = refreshTokens;
@@ -441,7 +446,9 @@ public class AuthController : ControllerBase
 
         if (!alreadyVerified && await _userManager.HasPasswordAsync(existing))
         {
-            // The attacker's known password (if this was a pre-hijack) must stop working.
+            // The attacker's known password (if this was a pre-hijack) must stop working. With no
+            // password left, an owner-set temporary one is no longer pending either.
+            existing.MustChangePassword = false;
             await _userManager.RemovePasswordAsync(existing);
             _logger.LogInformation(
                 "Removed the pre-existing password on {UserId} while linking Google to a " +
@@ -541,10 +548,13 @@ public class AuthController : ControllerBase
         return Ok(new AuthResponse(token, expiresAt, result.UserId, result.Email, result.Role, result.DisplayName));
     }
 
-    /// <summary>Exchanges the refresh cookie for a fresh access token, rotating the cookie.</summary>
+    /// <summary>
+    /// Exchanges the refresh cookie for a fresh access token, rotating the cookie. Limited in its
+    /// own bucket, so a flood of sign-in attempts can't end the sessions already open (S-P2-4).
+    /// </summary>
     [HttpPost("refresh")]
     [AllowAnonymous]
-    [EnableRateLimiting("auth")]
+    [EnableRateLimiting("auth-refresh")]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Refresh(CancellationToken ct)
@@ -627,40 +637,40 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Looks up the account and sends the reset email as detached, best-effort work — deliberately
-    /// NOT awaited by the request. Two reasons: (1) the HTTP response must not depend on (or be
-    /// timed against) the provider round-trip, and (2) a slow/timing-out Resend call must not hang
-    /// the caller for the HttpClient timeout. A fresh DI scope is created because the request scope
-    /// (and its scoped <see cref="UserManager{TUser}"/>) is disposed the moment we return 204.
+    /// Emails the signed-in login a link to set its password, to its own address, and says whether
+    /// the email went out. It is how a direct-invite login still on its temporary password asks for
+    /// the link again (so the one thing it may call besides /auth/me); unlike forgot-password it
+    /// reveals nothing about other addresses, so it can report a failed send (#298 R2-P2-1).
     /// </summary>
-    private void DispatchResetEmail(string email)
+    [HttpPost("password-link")]
+    [Authorize]
+    [AllowWhilePasswordChangePending]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> SendPasswordLink(CancellationToken ct)
     {
-        _ = Task.Run(async () =>
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var user = userId is null ? null : await _userManager.FindByIdAsync(userId);
+        if (user?.Email is null)
         {
-            try
-            {
-                using var scope = _scopeFactory.CreateScope();
-                var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-                var user = await users.FindByEmailAsync(email);
-                if (user is null)
-                {
-                    return; // unknown address — nothing to send, and never revealed to the caller
-                }
+            return Unauthorized();
+        }
 
-                var token = await users.GeneratePasswordResetTokenAsync(user);
-                // The base URL comes from config only — building it from the request's Host header
-                // would let a spoofed header steer the emailed link to an attacker.
-                var link = $"{_emailSettings.AppBaseUrl.TrimEnd('/')}/reset-password" +
-                           $"?email={Uri.EscapeDataString(user.Email!)}&token={Uri.EscapeDataString(token)}";
-                var sender = scope.ServiceProvider.GetRequiredService<IEmailSender>();
-                await sender.SendAsync(PasswordResetEmail.Build(user.Email!, link));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send a password-reset email.");
-            }
-        });
+        return await _accountEmails.TrySendPasswordLinkAsync(user.Email, ct)
+            ? NoContent()
+            : StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new { error = "We couldn't send the email just now. Try again later." });
     }
+
+    /// <summary>
+    /// Sends the reset email as detached, best-effort work, deliberately NOT awaited by the request
+    /// (<see cref="AccountEmails"/>): the response must not depend on, or be timed against, the
+    /// provider round-trip. A login still on an owner-set temporary password gets the "choose your
+    /// password" wording, which is also how such a login asks for its link again.
+    /// </summary>
+    private void DispatchResetEmail(string email) => _accountEmails.SendPasswordLink(email);
 
     /// <summary>
     /// Redeems an emailed reset token and sets a new password. Like change-password, this ends the
@@ -707,10 +717,12 @@ public class AuthController : ControllerBase
 
         // Redeeming an emailed link proves control of the address, so confirm it. This is what
         // makes forgot-password double as the safe-RECLAIM of a pre-hijack squat: the true owner
-        // resets, and the account is now verified + password-rotated + sessions revoked.
-        if (!user.EmailConfirmed)
+        // resets, and the account is now verified + password-rotated + sessions revoked. The new
+        // password is the login's own, so a temporary one set by an owner is no longer pending.
+        if (!user.EmailConfirmed || user.MustChangePassword)
         {
             user.EmailConfirmed = true;
+            user.MustChangePassword = false;
             await _userManager.UpdateAsync(user);
         }
 
@@ -744,6 +756,20 @@ public class AuthController : ControllerBase
             return Unauthorized();
         }
 
+        // A temporary password was chosen by whoever invited this login, so knowing it proves
+        // nothing: the login's own password is set only through the link emailed to its address
+        // (review P2-1 of #298). The gate already refuses this endpoint; this holds if it ever doesn't.
+        if (user.MustChangePassword)
+        {
+            return BadRequest(new { errors = new[] { $"Choose your password with the link emailed to {user.Email}." } });
+        }
+
+        // "Changing" a password to itself is never a real change.
+        if (string.Equals(request.CurrentPassword, request.NewPassword, StringComparison.Ordinal))
+        {
+            return BadRequest(new { errors = new[] { "Choose a new password that is different from your current one." } });
+        }
+
         var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
         if (!result.Succeeded)
         {
@@ -758,6 +784,7 @@ public class AuthController : ControllerBase
     /// <summary>The authenticated login's identity, household and access level.</summary>
     [HttpGet("me")]
     [Authorize]
+    [AllowWhilePasswordChangePending]
     [ProducesResponseType(typeof(MeResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Me()
@@ -799,6 +826,8 @@ public class AuthController : ControllerBase
             // Drives the persistent "confirm your email" banner. Google-created accounts are
             // confirmed on creation; password/invite accounts confirm via the emailed link.
             EmailConfirmed: user.EmailConfirmed,
+            // S-P2-3: the password was set by someone else; the app asks for a new one before anything else.
+            MustChangePassword: user.MustChangePassword,
             // Rule 32: the app asks this login to review who sees the personal accounts it holds.
             SharingReviewPending: await SharingReview.IsDueAsync(_db, _currentUser, HttpContext.RequestAborted),
             // Rule 85: the active household's one currency labels all its money, whatever this

@@ -24,7 +24,7 @@
 - **Preconditions:** Fixture R; invite modal freshly opened for Robin.
 - **Steps:**
   1. Inspect the initial control state.
-- **Expected:** The "Invite method" segmented control (aria-label "Invite method", legend "How should they get access?") defaults to "Generate an invite link" (`iMethod='link'`); the "Access level" select defaults to Admin (`iRole = HouseholdRole.Admin = 1`); Email is empty; no temp-password field is shown (link method shows the explanatory paragraph instead). The submit button reads "Create invite link".
+- **Expected:** The "Invite method" segmented control (aria-label "Invite method", legend "How should they get access?") defaults to "Email an invite link" (`iMethod='link'`); the "Access level" select defaults to Admin (`iRole = HouseholdRole.Admin = 1`); Email is empty; no temp-password field is shown (link method shows the explanatory paragraph instead). The submit button reads "Send invite".
 - **Automated:** No
 
 ### INV-003 - Access-level list offers only Admin / Limited / Read-only; hint tracks the choice
@@ -42,7 +42,7 @@
 - **Preconditions:** Fixture R; invite modal open (link method).
 - **Steps:**
   1. Click "Set a temporary password" in the method control.
-- **Expected:** A "Temporary password" input appears (placeholder "At least 8 characters", aria-label "Temporary password") with helper "Only works for someone without an account yet."; the link-method explanatory paragraph is replaced; the submit button label flips to "Create login". Switching back to "Generate an invite link" hides the field and restores the paragraph "A one-time link is created for you to copy and send. If they already have an account, they accept it while signed in; otherwise they set a password when they open it."
+- **Expected:** A "Temporary password" input appears (placeholder "At least 8 characters", aria-label "Temporary password") with helper "Only works for someone without an account yet."; the link-method explanatory paragraph is replaced; the submit button label flips to "Create login". Switching back to "Email an invite link" hides the field and restores the paragraph "We email them a one-time link. If they already have an account, they accept it while signed in; otherwise they set their own password when they open it."
 - **Automated:** No
 
 ### INV-005 - Chosen access level persists across modal re-opens; email/method/name reset
@@ -78,23 +78,23 @@
 
 ## Create a one-time invite link
 
-### INV-008 - Create an invite link for an unlinked person (happy path)
+### INV-008 - Email an invite link to an unlinked person (happy path)
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Fixture R; owner; invite modal open for Robin.
 - **Steps:**
-  1. Type Email `robin@x.eu`; leave Access level at Admin; keep method "Generate an invite link".
-  2. Click "Create invite link".
-- **Expected:** `POST /access/invite {email:"robin@x.eu", role:1, method:1 (Link), tempPassword:null, displayName:"Robin", memberId:<Robin>}` → 200 `InviteResultDto` with a non-null `inviteToken`. `member_invited {method:"link"}` fires. A brand success box appears: heading "Invite link created" + "Copy this and send it to them — it works once and expires in 7 days." + a read-only "Invite link" input holding `${window.location.origin}/accept-invite?code=<token>` + a "Copy" button. Server persists the membership with `Status=Invited`, `InviteTokenHash=SHA-256(token)`, `InviteExpiresUtc=now+7d`; `reloadAll()` refreshes so Robin's row now shows the amber "Invited" badge.
-- **Automated:** Yes (`client/e2e-journey/invite.spec.ts`; `tests/AllotJar.Application.Tests/Application/HouseholdAccessTests.cs::Invite_link_creates_a_pending_membership_and_returns_the_token_once`)
+  1. Type Email `robin@x.eu`; leave Access level at Admin; keep method "Email an invite link".
+  2. Click "Send invite".
+- **Expected:** `POST /access/invite {email:"robin@x.eu", role:1, method:1 (Link), tempPassword:null, displayName:"Robin", memberId:<Robin>}` → 200 `InviteResultDto` `{membership, emailSent:true}` (no token: the link goes only to the invited address, #298 P2-1). If the provider rejects the send, `emailSent` is false and an amber alert says "Invite saved, but the email failed … Remove the invite and send it again later." Outside Development, with no email provider configured, the invite is refused with 400 "Email isn't set up on this server yet, so invites can't be sent." and nothing is created (#298 R2-P2-1). The app emails robin@x.eu "You're invited to a household on AllotJar" with `{AppBaseUrl}/accept-invite?code=<token>` alone on its own line. `member_invited {method:"link"}` fires. A brand status box appears: "Invite sent" + "We've emailed robin@x.eu a one-time link. It expires in 7 days." No link and no Copy button are shown. Server persists the membership with `Status=Invited`, `InviteTokenHash=SHA-256(token)`, `InviteExpiresUtc=now+7d`; `reloadAll()` refreshes so Robin's row now shows the amber "Invited" badge.
+- **Automated:** Yes (`client/e2e-journey/invite.spec.ts` reads the link from the email; `client/src/pages/PeoplePage.catalog.test.tsx` INV-008; `HouseholdAccessTests.cs::Invite_link_creates_a_pending_membership_and_returns_the_token_once` covers the handler, which still hands the token to the API to email)
 
-### INV-009 - Copy the invite link to the clipboard
+### INV-009 - (Retired) Copy the invite link
 - **Priority:** P3
 - **Type:** Happy
-- **Preconditions:** INV-008 completed; the "Invite link created" box shown.
+- **Preconditions:** None.
 - **Steps:**
-  1. Click the "Copy" button (aria-label "Copy invite link").
-- **Expected:** `navigator.clipboard.writeText(inviteLink)` runs; the button label changes to "Copied". If the clipboard API throws (insecure context / denied), the label stays "Copy" (the `catch` sets `copied=false`) — no crash, no error banner; the user can still select/copy the read-only input manually.
+  1. None.
+- **Expected:** Retired by #298: the owner is no longer shown the link, so there is nothing to copy. The link reaches the invitee only by email (INV-008).
 - **Automated:** No
 
 ### INV-010 - Invite link URL shape and token are URL-safe
@@ -102,7 +102,7 @@
 - **Type:** Boundary
 - **Preconditions:** INV-008; a created link.
 - **Steps:**
-  1. Read the "Invite link" input value.
+  1. Read the link line from the invitation email.
 - **Expected:** Exactly `${origin}/accept-invite?code=<token>` (no trailing slash, single `?code=`). The token is base64url (`InviteToken.Generate` trims `=` padding and maps `+`→`-`, `/`→`_`), so it is URL-safe with no percent-encoding needed and round-trips through `?code=` without mangling.
 - **Automated:** No
 
@@ -112,8 +112,8 @@
 - **Preconditions:** INV-008; the link box is visible.
 - **Steps:**
   1. Reload `/people` (or close and re-open the invite modal for Robin).
-- **Expected:** The "Invite link created" box does not reappear — `inviteToken` is only ever returned by the invite `POST` and only the hash is stored, so the raw link cannot be re-displayed. Robin's row still shows "Invited". To hand out a fresh link the owner must Remove the pending invite (INV-051) and invite again (which mints a new token).
-- **Automated:** Partial (`HouseholdAccessTests.cs::Invite_link_creates_a_pending_membership_and_returns_the_token_once` asserts the token is returned once; the UI non-persistence is UI-only)
+- **Expected:** The "Invite sent" box does not reappear and no link is ever shown to the owner: the raw token goes only into the invitee's email and only its hash is stored. Robin's row still shows "Invited". To hand out a fresh link the owner must Remove the pending invite (INV-051) and invite again (which mints a new token).
+- **Automated:** Yes (`tests/AllotJar.IntegrationTests/Http/DirectInviteFirstSignInTests.cs` asserts the invite response carries no token and the link arrives by email; `client/src/pages/PeoplePage.catalog.test.tsx` INV-008)
 
 ### INV-012 - A pending link marks the person's row with the amber "Invited" badge
 - **Priority:** P2
@@ -136,8 +136,8 @@
   1. Switch method to "Set a temporary password".
   2. Enter Email `sam@x.eu`, Temporary password `Aa1-longpass`, Access level Limited.
   3. Click "Create login".
-- **Expected:** `POST /access/invite {method:0 (Direct), tempPassword:"Aa1-longpass", role:2, memberId:<Sam>}`. Server creates the Identity login (`consented` NOT set → `ConsentedUtc=null`) and a membership with `Status=Active`, `UserId` set. A `role="status"` box appears: heading "Login created" + "sam@x.eu can sign in now with the temporary password you set — share it with them privately. They'll accept the terms on their first sign-in, and can change the password from Account settings." Sam's row flips to Active. On Sam's first sign-in a blocking `ConsentModal` appears (consent flow → `03-session-auth-lifecycle.md`).
-- **Automated:** Partial (`HouseholdAccessTests.cs::Invite_direct_creates_an_active_login_membership`)
+- **Expected:** `POST /access/invite {method:0 (Direct), tempPassword:"Aa1-longpass", role:2, memberId:<Sam>}`. Server creates the Identity login (`consented` NOT set → `ConsentedUtc=null`) and a membership with `Status=Active`, `UserId` set. A `role="status"` box appears: heading "Login created" + "We've emailed sam@x.eu a link to choose their own password. Until they do, the temporary password you set only lets them sign in to see that prompt." Sam's row flips to Active. The login has `MustChangePassword = true` (S-P2-3) and the app emails sam@x.eu "Choose your AllotJar password" with a `/reset-password?` link (2 hours; "Email me the link again" on the prompt calls `POST /auth/password-link`, which sends to the login's own address and answers 503 "We couldn't send the email just now." when the send fails; forgot-password also sends one). On Sam's first sign-in the blocking "Choose your own password" dialog names the address and has no password fields; until the emailed link is used every signed-in endpoint except `/auth/me` answers 403 `password_change_required`, `/auth/change-password` and `/auth/consent` included, so whoever knows the temporary password can neither choose Sam's password nor accept the terms for Sam (#298 P2-1, P3-1). Using the link rotates the security stamp, so a session opened with the temporary password ends, and the temporary password stops working. Then the blocking `ConsentModal` appears (consent flow → `03-session-auth-lifecycle.md`).
+- **Automated:** Partial (`HouseholdAccessTests.cs::Invite_direct_creates_an_active_login_membership`, `DirectInviteFirstSignInTests.cs`, `PasswordChangeModal.test.tsx`)
 
 ### INV-014 - Direct temp-password to an email that already has an account is rejected
 - **Priority:** P1
@@ -145,7 +145,7 @@
 - **Preconditions:** Fixture D — `dana@x.eu` already has an AllotJar account; invite modal open for a person in B.
 - **Steps:**
   1. Method "Set a temporary password", Email `dana@x.eu`, password `Aa1-longpass`, "Create login".
-- **Expected:** Server 400, field `Email`: "That email already has an account — use 'Generate an invite link' so they can accept it." (curly quotes around 'Generate an invite link' in source; `_identity.EmailExistsAsync` true on the Direct branch). The modal surfaces the flattened field text via `inviteError`. No login is created, no membership added. The correct route for an existing account is the link method (INV-037/INV-038).
+- **Expected:** Server 400, field `Email`: "That email already has an account — use 'Email an invite link' so they can accept it." (curly quotes around 'Email an invite link' in source; `_identity.EmailExistsAsync` true on the Direct branch). The modal surfaces the flattened field text via `inviteError`. No login is created, no membership added. The correct route for an existing account is the link method (INV-037/INV-038).
 - **Automated:** No
 
 ### INV-015 - Direct temp-password shorter than 8 chars blocked before the request
@@ -193,7 +193,7 @@
 - **Type:** Negative
 - **Preconditions:** Fixture R; invite modal open.
 - **Steps:**
-  1. Leave Email blank, click "Create invite link".
+  1. Leave Email blank, click "Send invite".
 - **Expected:** In-modal ErrorBanner "Enter an email address." (client guard `iEmail.trim() === ''`); no `POST /access/invite`.
 - **Automated:** No
 
@@ -202,7 +202,7 @@
 - **Type:** Boundary
 - **Preconditions:** Fixture R; invite modal open.
 - **Steps:**
-  1. Type "   " (spaces only) into Email, click "Create invite link".
+  1. Type "   " (spaces only) into Email, click "Send invite".
 - **Expected:** `iEmail.trim() === ''` → "Enter an email address."; no API call. (Even if a value survived trimming, the server `EmailAddress()` validator would reject a non-email.)
 - **Automated:** No
 
@@ -211,7 +211,7 @@
 - **Type:** Negative
 - **Preconditions:** Fixture R; invite modal open.
 - **Steps:**
-  1. Enter `not-an-email` and click "Create invite link".
+  1. Enter `not-an-email` and click "Send invite".
 - **Expected:** The client only checks non-empty, so the request is sent; server 400 field `Email` from `.EmailAddress()`. The modal surfaces the flattened validator message. No membership created.
 - **Automated:** No
 
