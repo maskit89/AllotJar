@@ -157,6 +157,13 @@ describe('jarLastCycleLabel', () => {
     expect(jarLastCycleLabel(jar({ lastCycle: { ...cycle, outcome: 'Missed', balanceAtDeadline: 400, paidOnTime: false } }), 'EUR')).toMatch(/· missed$/)
   })
 
+  it('reads a cycle whose payment was removed before its deadline as waiting, not funded on time (D17)', () => {
+    const waiting = { ...cycle, outcome: 'Waiting', balanceAtDeadline: null, paymentTransactionId: null, paidOn: null, paidAmount: null, paidOnTime: false }
+    const label = jarLastCycleLabel(jar({ lastCycle: waiting }), 'EUR')
+    expect(label).toMatch(/· waiting for the deadline$/)
+    expect(label).not.toMatch(/funded/)
+  })
+
   it('is silent before any cycle has closed, and for a Goal', () => {
     expect(jarLastCycleLabel(jar(), 'EUR')).toBeNull()
     expect(jarLastCycleLabel(jar({ kind: 1, recurMonths: null, lastCycle: cycle }), 'EUR')).toBeNull()

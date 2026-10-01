@@ -824,7 +824,7 @@ export interface JarCycleDto {
   /** The deadline the cycle worked toward (ISO yyyy-MM-dd). */
   deadline: string
   targetAmount: number
-  /** Paid | Funded | Missed | FundedLate. */
+  /** Paid | Funded | Missed | FundedLate, or Waiting (unpaid, its deadline not yet judged). */
   outcome: string
   /** The balance at the end of the day before the deadline; null when it was unavailable. */
   balanceAtDeadline: number | null
