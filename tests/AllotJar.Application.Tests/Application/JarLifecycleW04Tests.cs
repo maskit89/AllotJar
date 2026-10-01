@@ -113,7 +113,7 @@ public class JarLifecycleW04Tests
         var account = LedgerFixtures.SeedAccount(db, Owner);
         var jar = SeedGoal(db, account);
         var lines = SeedPlan(db, jar);
-        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 40m, Today);
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 40m, Today, JarAllocationKind.Reallocation);
         // A transaction assigned to next month's line (rule 79 attributes only expenses to a jar,
         // so this income leaves the balance alone; it just pins the line).
         LedgerFixtures.Income(db, Owner, account.Id, 10m, Today, lines[Next].Id);

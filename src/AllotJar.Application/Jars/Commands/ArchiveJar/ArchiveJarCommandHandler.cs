@@ -69,8 +69,9 @@ public class ArchiveJarCommandHandler
         if (request.Archived && !jar.IsArchived)
         {
             // Rule 27: the remaining contribution this month and every later month's line are
-            // cancelled; past months, transactions and balances are untouched.
-            await SavingsLines.CancelPlansAsync(_db, userId, jar, today, cancellationToken);
+            // cancelled; past months, transactions and balances are untouched. A month the user
+            // skipped stays skipped, so a restore plans around it (SC-P2-3).
+            await SavingsLines.CancelPlansAsync(_db, userId, jar, today, cancellationToken, keepSkipped: true);
         }
         if (request.Archived != jar.IsArchived)
         {

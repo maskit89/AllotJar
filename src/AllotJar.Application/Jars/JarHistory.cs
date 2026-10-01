@@ -72,6 +72,36 @@ public static class JarHistory
         cycles?.Where(c => c.ClosedForHistoryOn > date).OrderBy(c => c.Deadline).FirstOrDefault();
 
     /// <summary>
+    /// Each of <paramref name="jars"/> as defined, and archived or live, at the end of
+    /// <paramref name="date"/> (a day that is over): <see cref="DefinitionOn"/> from its latest
+    /// revision on or before the date and its recorded cycles, then <see cref="ArchiveOn"/> — the
+    /// definition <see cref="JarFigures"/> judges a month that is over against, so the planner
+    /// plants a back-filled month toward the same one (SC-P2-4). Detached copies.
+    /// </summary>
+    public static async Task<IReadOnlyDictionary<Guid, Jar>> DefinitionsOnAsync(
+        IApplicationDbContext db, IReadOnlyCollection<Jar> jars, DateOnly date, CancellationToken cancellationToken)
+    {
+        var ids = jars.Select(j => j.Id).ToList();
+        var revisions = (await db.JarRevisions
+                .AsNoTracking()
+                .Where(r => ids.Contains(r.JarId) && r.EffectiveFrom <= date)
+                .ToListAsync(cancellationToken))
+            .GroupBy(r => r.JarId)
+            .ToDictionary(g => g.Key, g => g.MaxBy(r => r.EffectiveFrom)!);
+        var cycles = (await db.JarCycles
+                .AsNoTracking()
+                .Where(c => ids.Contains(c.JarId))
+                .ToListAsync(cancellationToken))
+            .GroupBy(c => c.JarId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+        var periods = await JarFigures.ArchivePeriodsAsync(db, ids, cancellationToken);
+        return jars.ToDictionary(
+            j => j.Id,
+            j => ArchiveOn(DefinitionOn(j, revisions.GetValueOrDefault(j.Id), cycles.GetValueOrDefault(j.Id), date),
+                periods.GetValueOrDefault(j.Id), date));
+    }
+
+    /// <summary>
     /// The jar as it was defined at the end of <paramref name="date"/> (a month that is over): the
     /// latest revision dated on or before it, or the jar's own row when it has none. For a
     /// Recurring jar, the cycle that was still open then and has closed since keeps its own

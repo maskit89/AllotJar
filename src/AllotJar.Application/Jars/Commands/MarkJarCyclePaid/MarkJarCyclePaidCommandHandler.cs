@@ -4,6 +4,7 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Dtos;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.Services;
 
 namespace AllotJar.Application.Jars.Commands.MarkJarCyclePaid;
 
@@ -84,6 +85,13 @@ public class MarkJarCyclePaidCommandHandler : IRequestHandler<MarkJarCyclePaidCo
                 throw JarAccounts.Validation("Deadline", $"The cycle due {cycle.Deadline:d MMM yyyy} is already marked paid.");
             }
             JarCycles.Link(cycle, payment);
+            // The bill left the jar: the next cycle's plan starts from what is actually left now,
+            // this month included (rules 19, 23; P37), as it does when the open cycle is marked
+            // paid. A cycle that rolled forward Funded had replanted from before the payment (SC-P2-2).
+            if (JarSchedule.IsPlanning(jar))
+            {
+                await JarPlanner.ReplantAsync(_db, userId, jar, today, 0m, cancellationToken);
+            }
         }
 
         await _db.SaveChangesAsync(cancellationToken);

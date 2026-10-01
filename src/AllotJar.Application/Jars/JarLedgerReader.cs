@@ -363,10 +363,29 @@ public sealed class JarLedgerSource
     /// 14's "contributed this month" is what went in, not the change in balance, so a bill paid
     /// from the jar moves its balance and its plan but not this figure. A returned transfer's
     /// share going back to its jar (<see cref="JarAllocationKind.Return"/>) and a jar's departure
-    /// from an account (rule 80, zero-sum) put nothing new in either. A jar with nothing in, or
-    /// less than left it by a move, is absent.
+    /// from an account (rule 80, zero-sum) put nothing new in either. Nor does money set aside
+    /// when the jar was created (<see cref="JarAllocationKind.InitialAllocation"/>): it was
+    /// already saved, so it counts as the month's opening balance (<see cref="SetAsideBetween"/>,
+    /// SC-P2-1), never as a contribution. A jar with nothing in, or less than left it by a move,
+    /// is absent.
     /// </summary>
-    public IReadOnlyDictionary<Guid, decimal> ContributionsBetween(DateOnly from, DateOnly to)
+    public IReadOnlyDictionary<Guid, decimal> ContributionsBetween(DateOnly from, DateOnly to) =>
+        SumPostings(from, to, kind => kind is not (JarAllocationKind.Return or JarAllocationKind.Departure or JarAllocationKind.InitialAllocation),
+            (kind, amount) => kind is JarAllocationKind.Reallocation || amount > 0m);
+
+    /// <summary>
+    /// The money set aside into each jar when it was created (<see cref="JarAllocationKind.InitialAllocation"/>)
+    /// between <paramref name="from"/> and <paramref name="to"/> (both inclusive). It was saved
+    /// before the jar existed, so a month it falls in is planned as if the jar had entered the
+    /// month holding it (rules 12, 13 and 35; SC-P2-1): the planners add it to the month's
+    /// opening balance and <see cref="ContributionsBetween"/> leaves it out.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, decimal> SetAsideBetween(DateOnly from, DateOnly to) =>
+        SumPostings(from, to, kind => kind is JarAllocationKind.InitialAllocation, (_, _) => true);
+
+    /// <summary>The jar postings dated between <paramref name="from"/> and <paramref name="to"/> of the operations whose kind <paramref name="include"/> accepts, summed per jar where <paramref name="counts"/> says so; positive totals only.</summary>
+    private IReadOnlyDictionary<Guid, decimal> SumPostings(
+        DateOnly from, DateOnly to, Func<JarAllocationKind, bool> include, Func<JarAllocationKind, decimal, bool> counts)
     {
         var net = new Dictionary<Guid, decimal>();
         if (to < from)
@@ -389,7 +408,7 @@ public sealed class JarLedgerSource
                 // A movement's jar split, or the budget-line attribution derived for it, when the
                 // operation was not stored.
                 var kind = kinds.TryGetValue(op.Id, out var stored) ? stored : JarAllocationKind.Movement;
-                if (kind is JarAllocationKind.Return or JarAllocationKind.Departure)
+                if (!include(kind))
                 {
                     continue;
                 }
@@ -399,8 +418,7 @@ public sealed class JarLedgerSource
                     {
                         continue;
                     }
-                    var counts = kind is JarAllocationKind.InitialAllocation or JarAllocationKind.Reallocation || posting.Amount > 0m;
-                    if (counts)
+                    if (counts(kind, posting.Amount))
                     {
                         net[jarId] = net.GetValueOrDefault(jarId) + posting.Amount;
                     }

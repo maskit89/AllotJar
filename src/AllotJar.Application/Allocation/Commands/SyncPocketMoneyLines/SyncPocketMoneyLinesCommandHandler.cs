@@ -11,10 +11,11 @@ namespace AllotJar.Application.Allocation.Commands.SyncPocketMoneyLines;
 
 public class SyncPocketMoneyLinesCommandHandler : IRequestHandler<SyncPocketMoneyLinesCommand, BudgetMonthDto>
 {
-    /// <summary>The category the sync owns. Matched case-insensitively so a user rename of
-    /// casing doesn't spawn a duplicate; any other rename detaches it (by design — the banner
-    /// re-offers the sync, which then creates a fresh flagged category). Its lines are linked to
-    /// their person by <see cref="BudgetItem.MemberId"/> (rule 53).</summary>
+    /// <summary>The name of the category the sync creates. A flagged Expense category that holds
+    /// lines linked to a person is the pocket category whatever it has been renamed to (rule 53:
+    /// the link, not a name, identifies a person's line; RP-P2-2); otherwise one of this name
+    /// (case-insensitive) is adopted. Its lines are linked to their person by
+    /// <see cref="BudgetItem.MemberId"/>.</summary>
     public const string CategoryName = "Pocket Money";
 
     private readonly IApplicationDbContext _db;
@@ -67,12 +68,21 @@ public class SyncPocketMoneyLinesCommandHandler : IRequestHandler<SyncPocketMone
                 .ThenBy(m => m.Name)
             .ToListAsync(cancellationToken);
 
-        // Find the pocket category: prefer one the sync already owns (flagged), else adopt an
-        // UNFLAGGED Expense category of the same name — flagging it also heals the latent
-        // double-count where pocket money was both a budget envelope AND the engine's
-        // FixedPerMember deduction — else create one at the end of the expense groups.
+        // Find the pocket category: prefer one the sync already owns — flagged and holding a
+        // person's linked line, whatever the user renamed it to (RP-P2-2), or flagged under its
+        // own name — else adopt an UNFLAGGED Expense category of the same name — flagging it
+        // also heals the latent double-count where pocket money was both a budget envelope AND
+        // the engine's FixedPerMember deduction — else create one at the end of the expense groups.
+        var expenseLines = month.Categories
+            .Where(c => c.Kind == CategoryKind.Expense)
+            .SelectMany(c => c.Items)
+            .ToList();
         var category =
             month.Categories.FirstOrDefault(c =>
+                c.Kind == CategoryKind.Expense
+                && c.ExcludeFromAllocation
+                && c.Items.Any(i => i.MemberId is not null))
+            ?? month.Categories.FirstOrDefault(c =>
                 c.Kind == CategoryKind.Expense
                 && c.ExcludeFromAllocation
                 && string.Equals(c.Name, CategoryName, StringComparison.OrdinalIgnoreCase))
@@ -105,15 +115,15 @@ public class SyncPocketMoneyLinesCommandHandler : IRequestHandler<SyncPocketMone
         }
 
         // One line per active member, identified by the person's id (rule 53): a line the sync
-        // already linked is reused whatever it is called now, so a renamed person never gets a
-        // second line. A line from before the link existed is adopted by name (case-insensitive)
+        // already linked is reused whatever it is called now and whichever Expense group it sits
+        // in, so neither a renamed person nor a renamed group gets a second line (RP-P2-2). A line from before the link existed is adopted by name (case-insensitive)
         // and linked. Lines linked to an archived person are theirs to keep or cancel through the
         // archive (rule 54), and unlinked lines matching nobody are left untouched — visible
         // leftovers beat silent deletion.
         var nextOrder = category.Items.Select(i => i.DisplayOrder).DefaultIfEmpty(-1).Max() + 1;
         foreach (var member in members)
         {
-            var line = category.Items.FirstOrDefault(i => i.MemberId == member.Id)
+            var line = expenseLines.FirstOrDefault(i => i.MemberId == member.Id)
                 ?? category.Items.FirstOrDefault(i =>
                     i.MemberId is null
                     && string.Equals(i.Name, member.Name, StringComparison.OrdinalIgnoreCase));

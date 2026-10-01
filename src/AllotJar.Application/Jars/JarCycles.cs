@@ -121,6 +121,55 @@ public static class JarCycles
         return cycle;
     }
 
+    /// <summary>
+    /// The payment that fulfilled a cycle (rule 83) is being deleted: the bill is unpaid again
+    /// (MG-P2-2; default until Christopher answers, deleting it reopens the cycle). When the cycle
+    /// is the jar's latest closed one and the jar still plans toward the cycle after it, the cycle
+    /// becomes the open one again: its row goes and <see cref="Jar.CycleDeadline"/> returns to its
+    /// deadline, so the next read settles it afresh (rolled forward Funded if the money was there
+    /// the day before, otherwise Deadline missed until the user acts, rules 20–21). An older cycle,
+    /// or one whose jar has moved on since (archived, completed, its date changed), keeps its row
+    /// and is judged as the rollover would have judged it — Funded when, without this payment, the
+    /// jar held its target the day before the deadline, otherwise Missed — with no payment, so
+    /// another can be linked to it.
+    /// The jar's draw of the payment goes with the transaction itself. Returns the jars whose open
+    /// cycle came back, to be replanted once the deletion is saved. The caller saves.
+    /// </summary>
+    public static async Task<IReadOnlyList<Jar>> ReopenPaidByAsync(
+        IApplicationDbContext db, string ownerId, Guid paymentId, CancellationToken cancellationToken)
+    {
+        var paid = await db.JarCycles
+            .Include(c => c.Jar)
+            .Where(c => c.PaymentTransactionId == paymentId)
+            .ToListAsync(cancellationToken);
+        var reopened = new List<Jar>();
+        JarLedgerSource? withoutPayment = null;
+        foreach (var cycle in paid)
+        {
+            var jar = cycle.Jar;
+            var later = await db.JarCycles.AnyAsync(c => c.JarId == jar.Id && c.Deadline > cycle.Deadline, cancellationToken);
+            if (!later && JarSchedule.IsPlanning(jar) && jar.Kind == JarKind.Recurring
+                && jar.CycleDeadline is { } open && open == JarSchedule.NextCycleDeadline(jar, cycle.Deadline))
+            {
+                db.JarCycles.Remove(cycle);
+                jar.CycleDeadline = cycle.Deadline;
+                reopened.Add(jar);
+                continue;
+            }
+
+            withoutPayment ??= await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken, excludeTransactionIds: new[] { paymentId });
+            cycle.BalanceAtDeadline = withoutPayment.At(cycle.Deadline.AddDays(-1)).BalanceOf(jar.Id);
+            cycle.Outcome = cycle.BalanceAtDeadline is { } held && held >= cycle.TargetAmount
+                ? JarCycleOutcome.Funded
+                : JarCycleOutcome.Missed;
+            cycle.PaymentTransactionId = null;
+            cycle.PaymentTransaction = null;
+            cycle.PaidOn = null;
+            cycle.PaidAmount = null;
+        }
+        return reopened;
+    }
+
     /// <summary>Records <paramref name="payment"/> as the one that fulfilled <paramref name="cycle"/> (rule 83).</summary>
     public static void Link(JarCycle cycle, Transaction payment)
     {

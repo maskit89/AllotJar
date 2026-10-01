@@ -101,8 +101,14 @@ public static class SavingsLines
     /// which case it is kept at 0 so that history stays where it was. Past months, transactions
     /// and balances are never touched, and no money moves. The caller saves.
     /// </summary>
+    /// <param name="keepSkipped">
+    /// An archive (true) keeps each skipped line at 0 with its flag, so a restore replants around
+    /// the months the user skipped (P44 over P40, his 1 Oct default; SC-P2-3). A completion never
+    /// restarts (rule 55), so it has no skip to keep.
+    /// </param>
     public static async Task CancelPlansAsync(
-        IApplicationDbContext db, string ownerId, Jar jar, DateOnly today, CancellationToken cancellationToken)
+        IApplicationDbContext db, string ownerId, Jar jar, DateOnly today, CancellationToken cancellationToken,
+        bool keepSkipped = false)
     {
         var current = new DateOnly(today.Year, today.Month, 1);
         var lines = await db.BudgetItems
@@ -136,7 +142,12 @@ public static class SavingsLines
         foreach (var line in lines.OrderBy(l => l.BudgetCategory.BudgetMonth.Year).ThenBy(l => l.BudgetCategory.BudgetMonth.Month))
         {
             var month = new DateOnly(line.BudgetCategory.BudgetMonth.Year, line.BudgetCategory.BudgetMonth.Month, 1);
-            if (month == current)
+            if (keepSkipped && line.IsSkipped)
+            {
+                // The user's skip outlives the archive: the line stays at 0, flagged.
+                line.PlannedAmount = 0m;
+            }
+            else if (month == current)
             {
                 // One line carries what was contributed; a duplicate (a copied month that already
                 // had one) drops to 0.
