@@ -10,7 +10,9 @@ namespace AllotJar.Application.Imports.Models;
 /// zero on some date (rules 11/74): each names the reason, so the user records the missing
 /// deposit and re-commits it, corrects it, or discards it; nothing is posted "anyway".
 /// <paramref name="SkippedReferences"/> names the rows counted in <paramref name="SkippedDuplicates"/>
-/// by the reference the request sent, so the screen's money totals can leave them out.
+/// by the reference the request sent, so the screen's money totals can leave them out;
+/// <paramref name="SkippedIndexes"/> names the same rows by their position in the request, which
+/// stays unique when two rows share a reference (TX-P3-5).
 /// </summary>
 public record ImportStatementResult(
     int TotalEntries,
@@ -26,12 +28,18 @@ public record ImportStatementResult(
     IReadOnlyList<ImportHeldRow>? Held = null,
     int Returned = 0,
     int AwaitingAmount = 0,
-    IReadOnlyList<string>? SkippedReferences = null)
+    IReadOnlyList<string>? SkippedReferences = null,
+    IReadOnlyList<int>? SkippedIndexes = null)
 {
     public IReadOnlyList<ImportHeldRow> Held { get; init; } = Held ?? [];
     public IReadOnlyList<string> SkippedReferences { get; init; } = SkippedReferences ?? [];
+    public IReadOnlyList<int> SkippedIndexes { get; init; } = SkippedIndexes ?? [];
     public int HeldCount => Held.Count;
 }
 
-/// <summary>A statement row held back from an import (rule 74) and why.</summary>
-public record ImportHeldRow(string Reference, string Message);
+/// <summary>
+/// A statement row held back from an import (rule 74) and why: by the reference the request sent
+/// and by its position in the request (<paramref name="Index"/>), which is unique even when two
+/// rows share a reference (TX-P3-5).
+/// </summary>
+public record ImportHeldRow(string Reference, string Message, int Index = -1);
