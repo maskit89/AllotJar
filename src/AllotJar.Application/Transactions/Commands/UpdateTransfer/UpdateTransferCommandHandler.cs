@@ -125,10 +125,16 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
             await JarMovements.ApplyOutgoingAsync(
                 _db, userId, transfer, from, request.FromJarId, nameof(request.FromJarId), cancellationToken, keepDepartedDraw: true);
             // Only a changed draw is checked, so an edit of the payee or the receipt never trips on
-            // what the jar did since the money left.
+            // what the jar did since the money left. A return removed or dated later lengthens the
+            // draw: the jar must hold the money it never got back on those days (rule 68, D16) —
+            // unless the jar has left the account since, where the old account's history is
+            // accepted and settled on the day it left (#280, P51).
+            var lengthened = previousDraw.ReturnedOn is DateOnly oldReturn
+                && (transfer.ReturnedOn is not DateOnly newReturn || newReturn > oldReturn);
             if (request.FromJarId is Guid fromJarId
                 && (previousDraw.JarId != fromJarId || previousDraw.AccountId != from.Id
-                    || previousDraw.Amount != transfer.Amount || previousDraw.DepartedOn != transfer.DepartedOn))
+                    || previousDraw.Amount != transfer.Amount || previousDraw.DepartedOn != transfer.DepartedOn
+                    || (lengthened && !await JarLeftSinceAsync(fromJarId, from.Id, transfer.DepartedOn.Value, cancellationToken))))
             {
                 var same = previousDraw.JarId == fromJarId && previousDraw.AccountId == from.Id && previousDraw.DepartedOn is DateOnly prevFrom
                     ? (previousDraw.Amount, prevFrom, previousDraw.ReturnedOn) : ((decimal, DateOnly, DateOnly?)?)null;
@@ -218,6 +224,12 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
 
     private static string Kept(string leg, string what) =>
         $"The {leg} is confirmed by a bank statement, so it keeps the bank's {what}.";
+
+    /// <summary>Whether the jar is no longer held in the account, or left it on or after <paramref name="since"/> (rule 80).</summary>
+    private async Task<bool> JarLeftSinceAsync(Guid jarId, Guid accountId, DateOnly since, CancellationToken cancellationToken) =>
+        await _db.Jars.AnyAsync(j => j.Id == jarId && j.FundingAccountId != accountId, cancellationToken)
+        || await _db.JarAllocations.AnyAsync(a => a.Kind == JarAllocationKind.Departure && a.AccountId == accountId && a.Date >= since
+                                                  && a.Postings.Any(p => p.JarId == jarId), cancellationToken);
 
     private async Task<Account> OwnedAccountAsync(Guid id, string userId, CancellationToken cancellationToken)
     {
