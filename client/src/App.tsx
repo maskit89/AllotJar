@@ -1,8 +1,9 @@
 import { Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
-import type { JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import { safeInternalPath } from './lib/returnUrl'
 import { useAuth } from './auth/AuthContext'
 import { ConsentModal } from './components/ConsentModal'
+import { PasswordChangeModal } from './components/PasswordChangeModal'
 import { useFeatures } from './features/FeatureContext'
 import { MonthProvider } from './features/MonthContext'
 import { LoginPage } from './pages/LoginPage'
@@ -57,12 +58,23 @@ function AuthedLoginRedirect() {
 }
 
 export default function App() {
-  const { isAuthenticated, bootstrapping, needsConsent } = useAuth()
+  const { isAuthenticated, bootstrapping, needsConsent, mustChangePassword } = useAuth()
   const features = useFeatures()
+
+  // While a temporary password is pending the server refuses every page's reads (S-P2-3). Once
+  // the login chooses its own, remount the routes so each page loads afresh behind the closed
+  // prompt. Only on that change: remounting when the flag first arrives from /auth/me would wipe
+  // a form already being filled, such as the emailed link's new-password page.
+  const [routesEpoch, setRoutesEpoch] = useState(0)
+  const wasPending = useRef(false)
+  useEffect(() => {
+    if (wasPending.current && !mustChangePassword) setRoutesEpoch((n) => n + 1)
+    wasPending.current = mustChangePassword
+  }, [mustChangePassword])
 
   return (
     <MonthProvider>
-      <Routes>
+      <Routes key={routesEpoch}>
         <Route
           path="/login"
           element={
@@ -186,10 +198,12 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      {/* Onboarding waits for consent, so its focus-trapped welcome dialog can never sit
-          (keyboard-unreachable) underneath the blocking consent prompt. */}
-      {isAuthenticated && !needsConsent && <Onboarding />}
-      {isAuthenticated && <ConsentModal />}
+      {/* Onboarding waits for consent and for the login's own password, so its focus-trapped
+          welcome dialog can never sit (keyboard-unreachable) underneath a blocking prompt. The
+          password comes first: until it changes, the server refuses everything else (S-P2-3). */}
+      {isAuthenticated && !needsConsent && !mustChangePassword && <Onboarding />}
+      {isAuthenticated && !mustChangePassword && <ConsentModal />}
+      {isAuthenticated && <PasswordChangeModal />}
     </MonthProvider>
   )
 }

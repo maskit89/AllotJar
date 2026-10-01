@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route, Routes } from 'react-router-dom'
 
@@ -9,10 +9,13 @@ import { Route, Routes } from 'react-router-dom'
 // Harness matches the repo convention: the shared api mock (signed out), page inside
 // <MemoryRouter><AuthProvider>.
 
+// The session restore a cold load starts; one test holds it open.
+const restore = vi.hoisted(() => ({ next: () => Promise.resolve(null) as Promise<null> }))
+
 vi.mock('../lib/api', async (importOriginal) =>
   (await import('../test/apiMock')).apiModule(importOriginal, {
     getToken: () => null,
-    refreshSession: () => Promise.resolve(null),
+    refreshSession: () => restore.next(),
   }),
 )
 
@@ -61,6 +64,7 @@ async function fillPasswords(newPassword: string, confirm = newPassword) {
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
+  restore.next = () => Promise.resolve(null)
 })
 
 describe('ResetPasswordPage (catalog REG-063/REG-065)', () => {
@@ -87,6 +91,21 @@ describe('ResetPasswordPage (catalog REG-063/REG-065)', () => {
       newPassword: 'Aa1-fresh-secret',
     })
     expect(track).toHaveBeenCalledWith(EVENTS.passwordResetCompleted)
+  })
+
+  // A signed-in visitor (a direct-invite login with its emailed link) is still restoring its
+  // session: a reset sent before that settles would be overwritten by the restore and end the
+  // session it just made, so the button waits (#298).
+  it('waits for the session restore before the reset can be sent', async () => {
+    let finishRestore: (v: null) => void = () => {}
+    restore.next = () => new Promise<null>((resolve) => (finishRestore = resolve))
+    renderAt(LINK)
+
+    await fillPasswords('Aa1-fresh-secret')
+    expect(screen.getByRole('button', { name: 'Set new password' })).toBeDisabled()
+
+    finishRestore(null)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Set new password' })).toBeEnabled())
   })
 
   // REG-065 — mismatched confirmation is caught client-side: inline alert, no POST.

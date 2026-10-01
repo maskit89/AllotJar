@@ -43,6 +43,7 @@ public class HouseholdAccessTests
     {
         public readonly List<string> CreatedEmails = new();
         public readonly HashSet<string> ConsentedEmails = new(StringComparer.OrdinalIgnoreCase);
+        public readonly HashSet<string> MustChangePasswordEmails = new(StringComparer.OrdinalIgnoreCase);
         public readonly HashSet<string> Existing = new(StringComparer.OrdinalIgnoreCase);
         public readonly Dictionary<string, UserAccount> ById = new();
         /// <summary>userId → the ownerId passed to SetActiveHouseholdAsync (null = own household).</summary>
@@ -56,10 +57,11 @@ public class HouseholdAccessTests
             Task.FromResult<CurrencyCode?>(null); // no preference -> callers use the EUR default
 
         public Task<CreateUserResult> CreateUserAsync(
-            string email, string password, string? displayName, bool consented = false)
+            string email, string password, string? displayName, bool consented = false, bool mustChangePassword = false)
         {
             CreatedEmails.Add(email);
             if (consented) ConsentedEmails.Add(email);
+            if (mustChangePassword) MustChangePasswordEmails.Add(email);
             Existing.Add(email);
             var id = "user-" + Guid.NewGuid().ToString("N")[..8];
             ById[id] = new UserAccount(id, email, displayName);
@@ -102,6 +104,8 @@ public class HouseholdAccessTests
 
         result.InviteToken.Should().BeNull();
         identity.CreatedEmails.Should().ContainSingle().Which.Should().Be("sam@x.com");
+        // S-P2-3: the owner chose this password, so the new login must replace it first.
+        identity.MustChangePasswordEmails.Should().BeEquivalentTo(new[] { "sam@x.com" });
 
         var membership = await db.HouseholdMemberships.SingleAsync(m => m.InvitedEmail == "sam@x.com");
         membership.Status.Should().Be(MembershipStatus.Active);

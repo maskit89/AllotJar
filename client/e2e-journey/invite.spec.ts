@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { JOURNEY_PASSWORD, register, suppressOnboarding, uniqueEmail, waitForEmailLink } from './helpers'
 
 /**
- * The household invite journey (H1), end-to-end: an owner adds a person, creates a one-time invite
+ * The household invite journey (H1), end-to-end: an owner adds a person, emails them a one-time invite
  * link, and a brand-new person redeems it in a fresh (logged-out) browser and lands INSIDE the
  * inviter's household — the coherence fix that the stubbed suites can't exercise (real token,
  * real membership reconcile, the auto-switch into the joined household).
@@ -28,11 +28,12 @@ test('an owner invites a new person who accepts and lands in the shared househol
   const inviteDialog = page.getByRole('dialog')
   const robinEmail = uniqueEmail('robin')
   await inviteDialog.getByLabel('Invitee email').fill(robinEmail)
-  await inviteDialog.getByRole('button', { name: 'Create invite link' }).click()
+  await inviteDialog.getByRole('button', { name: 'Send invite' }).click()
 
-  // textbox role — "Invite link" is also a substring of the "Copy invite link" button's name.
-  const link = await page.getByRole('textbox', { name: 'Invite link' }).inputValue()
-  expect(link).toContain('/accept-invite?code=')
+  // The link goes only to the invited address: the owner's screen says so and never shows it.
+  await expect(inviteDialog.getByText('Invite sent')).toBeVisible()
+  await expect(inviteDialog.getByText(/accept-invite/)).toHaveCount(0)
+  const link = await waitForEmailLink(page, robinEmail, '/accept-invite?code=')
 
   // --- Invitee: a fresh, logged-out browser redeems the link ---
   const guestContext = await browser.newContext()

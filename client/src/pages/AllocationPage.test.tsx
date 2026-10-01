@@ -16,7 +16,7 @@ vi.mock('../features/MonthContext', async (importOriginal) => ({
 
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
+import { mockGet, mockPost, mockPut, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { AllocationPage } from './AllocationPage'
 import { jointCurrent, preview, profile } from '../test/fixtures/allocation'
@@ -103,6 +103,30 @@ describe('AllocationPage', () => {
     await screen.findByText('How June is allocated', {}, { timeout: 5000 })
     expect(screen.getByRole('button', { name: 'Commit allocation' })).toBeDisabled()
     expect(screen.getByText(/Set the account to pay shared costs from/)).toBeInTheDocument()
+  })
+
+  // S-P2-2 (P53): the source's holder made it private, so the profile names no id. The page still
+  // counts it as set (the server explains a commit by someone else), shows "Private account" in the
+  // settings, and saving them sends no id, which the server reads as "leave it".
+  it('treats a source made private by its holder as set, without its id', { timeout: 15000 }, async () => {
+    profileData = { ...profile(), sourceAccountId: null, sourcePrivate: true }
+    mockPut.mockResolvedValue({ data: profileData })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await screen.findByText('How June is allocated', {}, { timeout: 5000 })
+    expect(screen.getByRole('button', { name: 'Commit allocation' })).toBeEnabled()
+    expect(screen.queryByText(/Set the account to pay shared costs from/)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Allocation settings' }))
+    const source = (await screen.findByLabelText('Source account')) as HTMLSelectElement
+    expect(source.selectedOptions[0]).toHaveTextContent('Private account')
+    await user.click(screen.getByRole('button', { name: 'Save allocation settings' }))
+
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith('/allocation/profile', expect.objectContaining({ sourceAccountId: null })),
+    )
   })
 
   it('commits the allocation', { timeout: 15000 }, async () => {

@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Accounts;
 using AllotJar.Application.Allocation.Dtos;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
@@ -25,10 +26,28 @@ public class UpsertAllocationProfileCommandHandler
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
+        var existing = request.Id is Guid existingId
+            ? await _db.AllocationProfiles.AsNoTracking()
+                .Where(p => p.Id == existingId && p.OwnerId == userId)
+                .Select(p => p.SourceAccountId)
+                .FirstOrDefaultAsync(cancellationToken)
+            : null;
+
+        // P53: the profile read withholds a source its holder has since made private, so "none"
+        // (or the same id, from an older read) from a login that can't see it means "leave it".
+        // Choosing another source still replaces it.
+        var sourceAccountId = request.SourceAccountId;
+        var keepsHiddenSource = (sourceAccountId is null || sourceAccountId == existing)
+            && await HiddenAccounts.IsHiddenAsync(_db, _currentUser.UserId, existing, cancellationToken);
+        if (keepsHiddenSource)
+        {
+            sourceAccountId = existing;
+        }
+
         // The source account must be the caller's, and it can't double as a member's personal
         // savings account — committing that allocation would book a no-op self-transfer (same
         // account on both legs, zero balance effect, still reported as a created transfer).
-        if (request.SourceAccountId is Guid sourceId)
+        if (!keepsHiddenSource && sourceAccountId is Guid sourceId)
         {
             var sourceOwned = await _db.Accounts
                 .AnyAsync(a => a.Id == sourceId && a.OwnerId == userId, cancellationToken);
@@ -68,7 +87,7 @@ public class UpsertAllocationProfileCommandHandler
             }
 
             profile.Name = request.Name.Trim();
-            profile.SourceAccountId = request.SourceAccountId;
+            profile.SourceAccountId = sourceAccountId;
             profile.BalanceLeanPercent = request.BalanceLeanPercent;
             // Rules are replaced wholesale.
             _db.AllocationRules.RemoveRange(profile.Rules);
@@ -80,7 +99,7 @@ public class UpsertAllocationProfileCommandHandler
             {
                 OwnerId = userId,
                 Name = request.Name.Trim(),
-                SourceAccountId = request.SourceAccountId,
+                SourceAccountId = sourceAccountId,
                 BalanceLeanPercent = request.BalanceLeanPercent,
             };
             _db.AllocationProfiles.Add(profile);
@@ -106,6 +125,6 @@ public class UpsertAllocationProfileCommandHandler
             .Include(p => p.Rules)
             .FirstAsync(p => p.Id == profile.Id, cancellationToken);
 
-        return saved.ToDto();
+        return saved.ToDto(keepsHiddenSource);
     }
 }

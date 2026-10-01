@@ -514,7 +514,7 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
 - **Type:** Happy
 - **Preconditions:** Olivia invites a new person "Robin" to H1 with "Access level" = **Read-only** (link method). Robin accepts anonymously. Also covered as INV-050.
 - **Steps:**
-  1. Olivia: `/people` → invite Robin as Read-only → "Create invite link".
+  1. Olivia: `/people` → invite Robin as Read-only → "Send invite" (the link arrives in Robin's email).
   2. Robin: open the link in a fresh browser, set a password, accept terms, "Accept invite".
   3. Robin (now in H1): GET `/auth/me`; attempt `POST /transactions`.
 - **Expected:** Robin lands inside H1 (`?joined=1`) with `role=3`. His first write attempt (`POST /transactions`) → **403**, and the read-only banner shows. The role chosen at invite time is the role stamped on the membership and resolved on Robin's very first authenticated request — no delay, no default-to-something-else.

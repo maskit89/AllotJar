@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { expect, request, test, type APIRequestContext } from '@playwright/test'
-import { JOURNEY_PASSWORD, register, uniqueEmail } from './helpers'
+import { JOURNEY_PASSWORD, register, uniqueEmail, waitForEmailLink } from './helpers'
 
 /**
  * Security-functional behaviours that need the whole real stack (the SEC deferred set):
@@ -227,7 +227,10 @@ test('an invite link is strictly single-use: the second redemption fails cleanly
     },
   })
   expect(invite.status()).toBe(200)
-  const { inviteToken } = (await invite.json()) as { inviteToken: string }
+  // The token never comes back to the inviter: it is read from the invitee's email (#298 P2-1).
+  expect(await invite.text()).not.toContain('accept-invite')
+  const emailed = await waitForEmailLink(page, inviteeEmail, '/accept-invite?code=')
+  const inviteToken = new URL(emailed).searchParams.get('code')!
   expect(inviteToken).toBeTruthy()
 
   // SEC-025 — the one allowed redemption: an anonymous accept that sets a password. On

@@ -447,9 +447,9 @@
 - **Preconditions:** Fixture B; owner; a person "Robin" with no login.
 - **Steps:**
   1. On Robin's row click "Invite to sign in" → modal titled "Invite Robin to sign in".
-  2. Enter Email `robin@x.eu`; leave "Access level" at Admin; keep method "Generate an invite link" (default).
-  3. Click "Create invite link".
-- **Expected:** `POST /access/invite {email, role:1, method:Link, tempPassword:null, displayName:"Robin", memberId:<Robin>}`; `member_invited {method:"link"}` fires. Success box "Invite link created" + "Copy this and send it to them — it works once and expires in 7 days." + a read-only "Invite link" input holding `${origin}/accept-invite?code=<token>` + a "Copy" button (→ "Copied"). The raw token is returned once and never retrievable again; Robin's row now shows an amber "Invited" badge.
+  2. Enter Email `robin@x.eu`; leave "Access level" at Admin; keep method "Email an invite link" (default).
+  3. Click "Send invite".
+- **Expected:** `POST /access/invite {email, role:1, method:Link, tempPassword:null, displayName:"Robin", memberId:<Robin>}`; `member_invited {method:"link"}` fires. Status box "Invite sent" + "We've emailed robin@x.eu a one-time link. It expires in 7 days." The link (`{AppBaseUrl}/accept-invite?code=<token>`) goes only to the invited address; the response carries no token and the page shows no link (#298 P2-1); Robin's row now shows an amber "Invited" badge.
 - **Automated:** Yes (`client/e2e-journey/invite.spec.ts`)
 
 ### PPL-044 - Create a direct login with a temporary password
@@ -459,7 +459,7 @@
 - **Steps:**
   1. Open the invite modal for Sam; switch the "How should they get access?" control to "Set a temporary password".
   2. Enter Email `sam@x.eu`, Temporary password `Aa1-longpass`, click "Create login".
-- **Expected:** `POST /access/invite {method:Direct, tempPassword:"Aa1-longpass"}`; success box "Login created" + "sam@x.eu can sign in now with the temporary password you set…". The created login has `ConsentedUtc=null`, so it hits a blocking ConsentModal on first sign-in (consent flow → `03-session-auth-lifecycle.md`). Sam's membership is Active.
+- **Expected:** `POST /access/invite {method:Direct, tempPassword:"Aa1-longpass"}`; status box "Login created" + "We've emailed sam@x.eu a link to choose their own password…". On first sign-in the login must choose its own password through that emailed link (blocking "Choose your own password" dialog, S-P2-3, see INV-013); it has `ConsentedUtc=null`, so a blocking ConsentModal follows (consent flow → `03-session-auth-lifecycle.md`). Sam's membership is Active.
 - **Automated:** No
 
 ### PPL-045 - Invite validation: empty email and short temp password
@@ -467,7 +467,7 @@
 - **Type:** Negative
 - **Preconditions:** Fixture B; invite modal open.
 - **Steps:**
-  1. With email empty, click "Create invite link".
+  1. With email empty, click "Send invite".
   2. Switch to "Set a temporary password", enter a valid email + a 5-char password, click "Create login".
 - **Expected:** (1) In-modal "Enter an email address."; no API call. (2) In-modal "Set a temporary password of at least 8 characters." (pre-submit guard, `<8` chars); no API call. Server also enforces min-8 with the same message.
 - **Automated:** No
@@ -488,7 +488,7 @@
 - **Preconditions:** `existing@x.eu` already has an AllotJar account elsewhere.
 - **Steps:**
   1. Invite `existing@x.eu` via "Set a temporary password".
-- **Expected:** Server 400 field `Email`: "That email already has an account — use 'Generate an invite link' so they can accept it." (a temp-password path cannot claim an existing account). The link method is the correct route.
+- **Expected:** Server 400 field `Email`: "That email already has an account — use 'Email an invite link' so they can accept it." (a temp-password path cannot claim an existing account). The link method is the correct route.
 - **Automated:** Partial (`HouseholdAccessTests.cs`)
 
 ### PPL-048 - Invite validation: HIBP-breached temporary password rejected
