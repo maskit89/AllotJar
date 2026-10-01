@@ -20,7 +20,15 @@ public class HouseholdMemberDto
 
     /// <summary>False when that month has no budget yet (income and share are then zero).</summary>
     public bool HasBudget { get; set; }
+
+    /// <summary>The person's savings account; null when <see cref="SavingsPrivate"/> (P56: the others never receive its id).</summary>
     public Guid? PersonalSavingsAccountId { get; set; }
+
+    /// <summary>
+    /// P53: the person has a savings account, but it is private to another login, so the viewer
+    /// sees that one is set without its id (as <c>MemberAllocationDto.SavingsPrivate</c> does).
+    /// </summary>
+    public bool SavingsPrivate { get; set; }
     public int DisplayOrder { get; set; }
     public bool IsArchived { get; set; }
 
@@ -31,7 +39,9 @@ public class HouseholdMemberDto
 public static class HouseholdMemberMapping
 {
     /// <param name="shares">The month's budget income per member (rule 28), from <see cref="MemberIncome.SharesAsync"/>.</param>
-    public static HouseholdMemberDto ToDto(this HouseholdMember m, MemberIncomeShares shares, int year, int month) => new()
+    /// <param name="hiddenAccounts">Accounts private to another login, from <see cref="Accounts.HiddenAccounts.AmongAsync"/>.</param>
+    public static HouseholdMemberDto ToDto(
+        this HouseholdMember m, MemberIncomeShares shares, int year, int month, IReadOnlySet<Guid> hiddenAccounts) => new()
     {
         Id = m.Id,
         Name = m.Name,
@@ -40,9 +50,13 @@ public static class HouseholdMemberMapping
         IncomeYear = year,
         IncomeMonth = month,
         HasBudget = shares.HasBudget,
-        PersonalSavingsAccountId = m.PersonalSavingsAccountId,
+        PersonalSavingsAccountId = SavingsHidden(m, hiddenAccounts) ? null : m.PersonalSavingsAccountId,
+        SavingsPrivate = SavingsHidden(m, hiddenAccounts),
         DisplayOrder = m.DisplayOrder,
         IsArchived = m.IsArchived,
         IncomeSharePct = shares.ShareOf(m.Id),
     };
+
+    private static bool SavingsHidden(HouseholdMember m, IReadOnlySet<Guid> hiddenAccounts) =>
+        m.PersonalSavingsAccountId is Guid id && hiddenAccounts.Contains(id);
 }

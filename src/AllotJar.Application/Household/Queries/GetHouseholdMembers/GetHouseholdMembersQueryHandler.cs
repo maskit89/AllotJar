@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Accounts;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Allocation;
@@ -37,6 +38,10 @@ public class GetHouseholdMembersQueryHandler
         var (year, month) = HouseholdMonth.Resolve(request.Year, request.Month);
         var shares = await MemberIncome.SharesAsync(_db, userId, year, month, members, cancellationToken);
 
-        return members.Select(m => m.ToDto(shares, year, month)).ToList();
+        // P56: a savings account private to another login is reported as private, without its id.
+        var hidden = await HiddenAccounts.AmongAsync(
+            _db, _currentUser.UserId, members.Select(m => m.PersonalSavingsAccountId), cancellationToken);
+
+        return members.Select(m => m.ToDto(shares, year, month, hidden)).ToList();
     }
 }

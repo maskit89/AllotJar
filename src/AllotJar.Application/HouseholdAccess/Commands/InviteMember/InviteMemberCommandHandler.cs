@@ -70,10 +70,14 @@ public class InviteMemberCommandHandler : IRequestHandler<InviteMemberCommand, I
             {
                 // A temporary password only makes sense for someone without an account. Existing
                 // accounts join via a link invite, which they accept while signed in.
-                throw Conflict("Email", "That email already has an account — use ‘Generate an invite link’ so they can accept it.");
+                throw Conflict("Email", "That email already has an account — use ‘Email an invite link’ so they can accept it.");
             }
 
-            var created = await _identity.CreateUserAsync(email, request.TempPassword!, request.DisplayName);
+            // P59 rests on only that login seeing its private accounts, and the owner knows this
+            // password: the new login must choose its own, through the link emailed to its
+            // address, before it can do anything (S-P2-3).
+            var created = await _identity.CreateUserAsync(
+                email, request.TempPassword!, request.DisplayName, mustChangePassword: true);
             if (!created.Succeeded)
             {
                 throw Conflict("Password", created.Errors);

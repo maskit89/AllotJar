@@ -585,7 +585,7 @@
 - **Steps:**
   1. While `lockme@` is locked, sign in as `owner@example.com` with correct credentials from the same browser.
 - **Expected:**
-  - `owner@` signs in normally — the Identity lockout binds to the account, and it is the real brute-force defence (the IP rate limiter is effectively per-site behind Cloudflare/IIS).
+  - `owner@` signs in normally — the Identity lockout binds to the account, and it is the real brute-force defence (the per-visitor rate limiter is only a coarse flood cap).
 - **Automated:** No
 
 ### REG-047 - Auth rate limiter returns 429 after 20 requests per minute

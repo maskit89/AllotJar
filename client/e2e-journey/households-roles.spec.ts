@@ -1,10 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
-import { JOURNEY_PASSWORD, register, suppressOnboarding, uniqueEmail } from './helpers'
+import { JOURNEY_PASSWORD, register, suppressOnboarding, uniqueEmail, waitForEmailLink } from './helpers'
 
 /**
  * People & roles against the live stack (the PPL/ROLE deferred set): the owner-as-member-#1
  * invariant and the solo→shared gating flip when a 2nd person is added; a direct
- * temp-password invite that mints a Limited login (consent-gated first sign-in); the Limited
+ * temp-password invite that mints a Limited login (its first sign-in asks for its own password,
+ * then consent); the Limited
  * chrome (banner + hidden Admin+ controls) TOGETHER WITH real server enforcement — a Limited
  * write succeeds, then a mid-session demotion makes the very next write 403 while the stale
  * UI still offers the button, and the chrome catches up on reload; a pure invitee starting
@@ -43,7 +44,7 @@ async function directInviteLimited(page: Page, personName: string, email: string
   await dialog.getByRole('button', { name: 'Set a temporary password' }).click()
   await dialog.getByLabel('Temporary password').fill(JOURNEY_PASSWORD)
   await dialog.getByRole('button', { name: 'Create login' }).click()
-  // PPL-044: the success box confirms the login exists NOW (no pending link).
+  // PPL-044: the success box confirms the login exists NOW and that its password link was emailed.
   await expect(dialog.getByText('Login created')).toBeVisible()
   await expect(dialog.getByText(email)).toBeVisible()
   await dialog.getByRole('button', { name: 'Close' }).click()
@@ -56,6 +57,30 @@ async function signIn(page: Page, email: string, password: string): Promise<void
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
   await page.locator('button[type="submit"]').click()
+}
+
+/**
+ * S-P2-3: a login created with a temporary password must choose its own before anything else;
+ * the server refuses every other call until it does. Then the consent prompt follows.
+ */
+async function chooseOwnPassword(page: Page, email: string, temporary: string): Promise<void> {
+  const dialog = page.getByRole('dialog', { name: 'Choose your own password' })
+  await expect(dialog).toBeVisible()
+  // The prompt offers no password fields: the new one is chosen through the link emailed to the
+  // login's own address, so whoever set the temporary password can't choose it for them.
+  await expect(dialog).toContainText(email)
+  const link = await waitForEmailLink(page, email, '/reset-password?')
+  await page.goto(link)
+  await page.getByLabel('New password', { exact: true }).fill(`${temporary}-own`)
+  await page.getByLabel('Confirm new password').fill(`${temporary}-own`)
+  const [reset] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/auth/reset-password')),
+    page.getByRole('button', { name: 'Set new password' }).click(),
+  ])
+  expect(reset.status(), await reset.text()).toBe(200)
+  // The reset signs this device in and leaves the reset page, with the prompt gone.
+  await expect(page).not.toHaveURL(/\/reset-password/)
+  await expect(dialog).toBeHidden()
 }
 
 /**
@@ -113,6 +138,7 @@ test('adding a 2nd person flips solo→shared live, and a temp-password Limited 
   const guest = await guestContext.newPage()
   await suppressOnboarding(guest, robinEmail)
   await signIn(guest, robinEmail, JOURNEY_PASSWORD)
+  await chooseOwnPassword(guest, robinEmail, JOURNEY_PASSWORD)
   await agreeToTerms(guest)
 
   // ROLE-040 (direct variant): the invite-assigned Limited role governs the very first
@@ -216,6 +242,7 @@ test('a pure invitee starts their own budget (nothing seeded), switches househol
   const guest = await guestContext.newPage()
   await suppressOnboarding(guest, robinEmail)
   await signIn(guest, robinEmail, JOURNEY_PASSWORD)
+  await chooseOwnPassword(guest, robinEmail, JOURNEY_PASSWORD)
   await agreeToTerms(guest)
   await expect(guest.getByText('Remaining to budget')).toBeVisible()
   await expect(guest.getByText(/You have limited access/)).toBeVisible()

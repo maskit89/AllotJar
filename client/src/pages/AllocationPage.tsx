@@ -28,6 +28,14 @@ import { activeJars, useJarLedgers } from '../lib/jarLedgers'
 import { toJarAllocations } from '../lib/jarAllocationFields'
 import { serverErrors } from '../lib/serverErrors'
 import { JarAllocationFields } from '../components/jars/JarAllocationFields'
+import { PRIVATE_ACCOUNT } from '../lib/accountHolders'
+
+/** The source picker's value for a source its holder has made private (P53: its id is never sent). */
+const PRIVATE_SOURCE = 'private'
+
+function sourceChoice(p: AllocationProfileDto | null | undefined): string {
+  return p?.sourcePrivate ? PRIVATE_SOURCE : (p?.sourceAccountId ?? '')
+}
 
 interface RuleSpec {
   order: number
@@ -125,7 +133,7 @@ export function AllocationPage() {
         // with the engine's promised outputs.
         setMonthVM(Array.isArray(budget?.data?.categories) ? fromDto(budget.data) : null)
         if (p) {
-          setSourceAccountId(p.sourceAccountId ?? '')
+          setSourceAccountId(sourceChoice(p))
           const pocketRule = p.rules.find((r) => r.type === AllocationRuleType.FixedPerMember)
           setPocket(pocketRule ? toEditString(fromAmount(pocketRule.fixedAmountPerMember)) : '')
           const fundRule = p.rules.find((r) => r.type === AllocationRuleType.FundEnvelopes)
@@ -160,7 +168,8 @@ export function AllocationPage() {
       const { data } = await api.put<AllocationProfileDto>('/allocation/profile', {
         id: profile?.id ?? null,
         name: profile?.name ?? 'Household allocation',
-        sourceAccountId: sourceAccountId || null,
+        // The server keeps a private source it was sent no id for.
+        sourceAccountId: sourceAccountId === PRIVATE_SOURCE ? null : sourceAccountId || null,
         balanceLeanPercent: leanValue,
         rules: standardRules(split, toAmount(pocketAmount as number), savingsSplit),
       })
@@ -273,7 +282,7 @@ export function AllocationPage() {
   // can't quietly commit a value the user thought they'd cancelled).
   const syncFormFromProfile = useCallback(() => {
     setError(null)
-    setSourceAccountId(profile?.sourceAccountId ?? '')
+    setSourceAccountId(sourceChoice(profile))
     const pocketRule = profile?.rules.find((r) => r.type === AllocationRuleType.FixedPerMember)
     setPocket(pocketRule ? toEditString(fromAmount(pocketRule.fixedAmountPerMember)) : '')
     const fundRule = profile?.rules.find((r) => r.type === AllocationRuleType.FundEnvelopes)
@@ -321,7 +330,7 @@ export function AllocationPage() {
   const strandedNames = formatNames(strandedMembers.map((m) => m.name))
   const strandedHasHave = strandedMembers.length === 1 ? 'has' : 'have'
   const nothingToSave = !!preview && toSavingsMinor <= 0
-  const hasSource = !!profile?.sourceAccountId
+  const hasSource = !!profile?.sourceAccountId || profile?.sourcePrivate === true
   // The members whose transfer lands in a jar-backed savings account: the commit asks how each
   // is divided among that account's jars (rule 78).
   const jarMembers = members.flatMap((m) => {
@@ -816,7 +825,11 @@ export function AllocationPage() {
                 onChange={(e) => setSourceAccountId(e.target.value)}
                 className="w-full"
               >
-                <option value="">Choose an account…</option>
+                {sourceAccountId === PRIVATE_SOURCE ? (
+                  <option value={PRIVATE_SOURCE}>{PRIVATE_ACCOUNT}</option>
+                ) : (
+                  <option value="">Choose an account…</option>
+                )}
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}

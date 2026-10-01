@@ -38,4 +38,11 @@ public class ApplicationUser : IdentityUser
     /// its own household (OwnerId == this user's id). Set by the household switcher.
     /// </summary>
     public string? ActiveOwnerId { get; set; }
+
+    /// <summary>
+    /// The password was set by someone else (an owner's direct invite with a temporary password),
+    /// so the login must choose its own before it can do anything else (S-P2-3, P59). Cleared by
+    /// change-password, a password reset, or Google removing the password.
+    /// </summary>
+    public bool MustChangePassword { get; set; }
 }

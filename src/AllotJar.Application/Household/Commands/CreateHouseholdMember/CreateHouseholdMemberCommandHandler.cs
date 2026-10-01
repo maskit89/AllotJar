@@ -57,6 +57,6 @@ public class CreateHouseholdMemberCommandHandler
         _db.HouseholdMembers.Add(member);
         await _db.SaveChangesAsync(cancellationToken);
 
-        return await HouseholdMemberReads.ToDtoAsync(_db, userId, member, cancellationToken);
+        return await HouseholdMemberReads.ToDtoAsync(_db, _currentUser, userId, member, cancellationToken);
     }
 }

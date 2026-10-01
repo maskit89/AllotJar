@@ -2,7 +2,9 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using AllotJar.Domain.Enums;
+using AllotJar.Infrastructure.Email;
 
 namespace AllotJar.IntegrationTests.Http;
 
@@ -52,6 +54,13 @@ public sealed class HttpApiFixture : IAsyncLifetime
 
     /// <summary>A client with NO Authorization header (callers add one per request when needed).</summary>
     public HttpClient CreateClient() => _factory.CreateClient();
+
+    /// <summary>
+    /// A client for the same API and database booted with changes (another environment, a test
+    /// double). The fixture's tokens stay valid there.
+    /// </summary>
+    public HttpClient CreateClient(Action<Microsoft.AspNetCore.Hosting.IWebHostBuilder> configure) =>
+        _factory.WithWebHostBuilder(configure).CreateClient();
 
     /// <summary>
     /// A client that does NOT persist cookies across requests, so a caller can present an exact
@@ -105,10 +114,13 @@ public sealed class HttpApiFixture : IAsyncLifetime
                 });
             await EnsureAsync(invite, HttpStatusCode.OK, $"direct invite for {role}");
 
-            // 3. Real login => real bearer token carrying the real security stamp.
-            var login = await client.PostAsJsonAsync("/api/auth/login", new { email, password }, Json);
-            await EnsureAsync(login, HttpStatusCode.OK, $"login for {role}");
-            _tokens[role] = (await ReadJsonAsync(login)).RootElement.GetProperty("token").GetString()!;
+            // 3. A direct-invite login can do nothing until its holder chooses their own password
+            //    through the link emailed to its address (S-P2-3, "Email first"). The reset signs
+            //    in, so its token (real security stamp) is the one the sweep uses.
+            var link = await WaitForEmailLinkAsync(email, "/reset-password?");
+            var reset = await ResetFromLinkAsync(client, link, StrongPassword());
+            await EnsureAsync(reset, HttpStatusCode.OK, $"first password for {role}");
+            _tokens[role] = (await ReadJsonAsync(reset)).RootElement.GetProperty("token").GetString()!;
         }
 
         // 4. Two accounts as transfer referents (also proves the Owner write path works end-to-end).
@@ -167,9 +179,41 @@ public sealed class HttpApiFixture : IAsyncLifetime
         }
     }
 
+    /// <summary>
+    /// Polls the Development mailbox (sends run off the request path) until an email to
+    /// <paramref name="email"/> carries a link containing <paramref name="pathMarker"/>, and returns it.
+    /// </summary>
+    public async Task<string> WaitForEmailLinkAsync(string email, string pathMarker)
+    {
+        var sink = _factory.Services.GetRequiredService<DevEmailSink>();
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            var link = sink.ForRecipient(email)
+                .SelectMany(m => m.TextBody.Split('\n'))
+                .Select(l => l.Trim())
+                .FirstOrDefault(l => l.StartsWith("http") && l.Contains(pathMarker));
+            if (link is not null)
+            {
+                return link;
+            }
+            await Task.Delay(50);
+        }
+        throw new InvalidOperationException($"No email to {email} with a {pathMarker} link within the timeout.");
+    }
+
+    /// <summary>Redeems an emailed /reset-password link with <paramref name="newPassword"/>.</summary>
+    public static Task<HttpResponseMessage> ResetFromLinkAsync(HttpClient client, string link, string newPassword)
+    {
+        var query = link[(link.IndexOf('?') + 1)..].Split('&')
+            .Select(p => p.Split('=', 2))
+            .ToDictionary(p => p[0], p => Uri.UnescapeDataString(p[1]));
+        return client.PostAsJsonAsync("/api/auth/reset-password",
+            new { email = query["email"], token = query["token"], newPassword }, Json);
+    }
+
     /// <summary>Meets the Identity policy (len >= 8, upper/lower/digit) and is unique per call, so it
     /// can never be in the HIBP breach corpus the breached-password validator screens against.</summary>
-    private static string StrongPassword() => $"Aa1x{Guid.NewGuid():N}";
+    public static string StrongPassword() => $"Aa1x{Guid.NewGuid():N}";
 }
 
 /// <summary>Sweep + role-matrix classes share one booted API and provisioned household.</summary>

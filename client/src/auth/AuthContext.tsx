@@ -71,6 +71,8 @@ interface AuthState {
   ownsHousehold: boolean
   /** True for invite-created logins that haven't accepted the terms yet (blocks the app until they do). */
   needsConsent: boolean
+  /** True while the login still has a temporary password someone else set (blocks the app until it is changed). */
+  mustChangePassword: boolean
   /** The budget person this login is linked to in the active household (null when none). */
   memberId: string | null
   /** Rule 32: this login should review who sees the personal accounts it holds. */
@@ -157,6 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [households, setHouseholds] = useState<HouseholdSummary[]>([])
   const [activeOwnerId, setActiveOwnerId] = useState<string | null>(null)
   const [needsConsent, setNeedsConsent] = useState(false)
+  const [mustChangePassword, setMustChangePassword] = useState(false)
   const [memberId, setMemberId] = useState<string | null>(null)
   const [sharingReviewPending, setSharingReviewPending] = useState(false)
   // Default TRUE so the change-password card doesn't flicker away for ordinary password logins
@@ -308,6 +311,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setHouseholds(Array.isArray(data.households) ? data.households : [])
         setActiveOwnerId(typeof data.ownerId === 'string' ? data.ownerId : null)
         setNeedsConsent(data.needsConsent === true)
+        setMustChangePassword(data.mustChangePassword === true)
         setMemberId(typeof data.memberId === 'string' ? data.memberId : null)
         setSharingReviewPending(data.sharingReviewPending === true)
         setHasPassword(data.hasPassword !== false)
@@ -424,6 +428,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // token + cookie for this device — adopt it so the user lands signed in.
     const { data } = await api.post<AuthResponse>('/auth/reset-password', { email, token, newPassword })
     if (data?.token) apply(data)
+    // The emailed link is how a direct-invite login chooses its own password (S-P2-3).
+    setMustChangePassword(false)
   }
 
   async function switchHousehold(ownerId: string) {
@@ -473,6 +479,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setHouseholds([])
     setActiveOwnerId(null)
     setNeedsConsent(false)
+    setMustChangePassword(false)
     setHasPassword(true)
     setHasGoogle(false)
     emailConfirmedLatch.current = false
@@ -515,6 +522,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       activeOwnerId,
       ownsHousehold: households.some((h) => h.isOwn),
       needsConsent,
+      mustChangePassword,
       memberId,
       sharingReviewPending,
       clearSharingReview: () => setSharingReviewPending(false),
@@ -538,7 +546,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updatePreferences,
       logout,
     }),
-    [token, email, displayName, firstName, lastName, preferredCurrency, budgetCurrencyState, currencyLocked, ownBudgetCurrencyState, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, memberId, sharingReviewPending, hasPassword, hasGoogle, emailConfirmed],
+    [token, email, displayName, firstName, lastName, preferredCurrency, budgetCurrencyState, currencyLocked, ownBudgetCurrencyState, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, mustChangePassword, memberId, sharingReviewPending, hasPassword, hasGoogle, emailConfirmed],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

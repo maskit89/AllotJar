@@ -60,4 +60,17 @@ public class ContentSecurityPolicyTests
             .And.Contain("frame-ancestors 'none'")
             .And.NotContain("unsafe-eval");
     }
+
+    [Fact]
+    public void The_front_site_sends_hsts()
+    {
+        // S-P3-2: cookies are Secure and the site is HTTPS-only, so browsers must never be
+        // talked into plain http. Subdomains are deliberately left out.
+        var hstsLine = WebConfig()
+            .Split('\n')
+            .Single(l => l.Contains("name=\"Strict-Transport-Security\""));
+
+        hstsLine.Should().Contain("value=\"max-age=31536000\"");
+        hstsLine.Should().NotContain("includeSubDomains").And.NotContain("preload");
+    }
 }
