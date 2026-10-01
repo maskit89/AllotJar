@@ -37,8 +37,17 @@ public sealed class KnownReferences
     // The references rows of the statement being read took (Add): a later row repeating one is
     // another entry of the same statement, not a reference the account already used.
     private readonly HashSet<string> _added = new(StringComparer.OrdinalIgnoreCase);
+    // Known references of the old occurrence form "{reference}#N", by {reference}.
+    private readonly Dictionary<string, List<string>> _suffixed = new(StringComparer.OrdinalIgnoreCase);
 
-    internal KnownReferences(Dictionary<string, KnownEntry> entries) => _entries = entries;
+    internal KnownReferences(Dictionary<string, KnownEntry> entries)
+    {
+        _entries = entries;
+        foreach (var key in entries.Keys)
+        {
+            IndexSuffixed(key);
+        }
+    }
 
     public bool Contains(string reference) => _entries.ContainsKey(reference);
 
@@ -48,32 +57,34 @@ public sealed class KnownReferences
         {
             return new(null, false, null);
         }
-        if (!_entries.TryGetValue(reference, out var known))
-        {
-            return new(reference, false, null);
-        }
-        if (known.Matches(date, amount, isCredit))
+        var isKnown = _entries.TryGetValue(reference, out var known);
+        if (isKnown && known!.Matches(date, amount, isCredit))
         {
             return new(reference, true, null);
         }
+        // The entry may be stored under another form of its reference even when the raw one is
+        // free, e.g. its statement's first row with that reference was never imported (unticked,
+        // or held and discarded): under its derived reference, or, before 1 Oct 2026, under the
+        // camt.053 parser's "{reference}#N" for the Nth repeat within one statement whatever its
+        // details. Either is this entry when it recorded the same details (TX-P2-3).
         var derived = StatementReferences.Derive(reference, date, amount, isCredit);
         if (_entries.ContainsKey(derived))
         {
             return new(derived, true, null);
         }
-        // Before 1 Oct 2026 the camt.053 parser stored the Nth repeat of a reference within one
-        // statement as "{reference}#N", whatever its details: such a row is this entry when it
-        // recorded the same details, so an overlapping statement doesn't import it again (TX-P2-3).
-        var prefix = reference + "#";
-        foreach (var (key, entry) in _entries)
+        if (_suffixed.TryGetValue(reference, out var suffixed))
         {
-            if (key.Length > prefix.Length
-                && key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                && key.AsSpan(prefix.Length).IndexOfAnyExceptInRange('0', '9') < 0
-                && entry.Matches(date, amount, isCredit))
+            foreach (var key in suffixed)
             {
-                return new(key, true, null);
+                if (_entries[key].Matches(date, amount, isCredit))
+                {
+                    return new(key, true, null);
+                }
             }
+        }
+        if (!isKnown)
+        {
+            return new(reference, false, null);
         }
         return new(derived, false, _added.Contains(reference) ? null : known);
     }
@@ -86,16 +97,41 @@ public sealed class KnownReferences
             return false;
         }
         _added.Add(reference);
+        IndexSuffixed(reference);
         return true;
     }
 
     public void Remove(string? reference)
     {
-        if (reference is not null)
+        if (reference is not null && _entries.Remove(reference))
         {
-            _entries.Remove(reference);
             _added.Remove(reference);
+            if (SuffixBase(reference) is string head && _suffixed.TryGetValue(head, out var keys))
+            {
+                keys.RemoveAll(k => string.Equals(k, reference, StringComparison.OrdinalIgnoreCase));
+            }
         }
+    }
+
+    private void IndexSuffixed(string key)
+    {
+        if (SuffixBase(key) is string head)
+        {
+            if (!_suffixed.TryGetValue(head, out var keys))
+            {
+                _suffixed[head] = keys = new List<string>();
+            }
+            keys.Add(key);
+        }
+    }
+
+    /// <summary>"R" for a reference of the form "R#&lt;digits&gt;", else null.</summary>
+    private static string? SuffixBase(string key)
+    {
+        var hash = key.LastIndexOf('#');
+        return hash > 0 && hash < key.Length - 1 && key.AsSpan(hash + 1).IndexOfAnyExceptInRange('0', '9') < 0
+            ? key[..hash]
+            : null;
     }
 }
 

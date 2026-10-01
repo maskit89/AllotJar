@@ -244,6 +244,33 @@ public class TransferImportIdentityTests
         commit.Imported.Should().Be(0);
     }
 
+    // Review of #299, P2-1: the first row of the repeat was never stored (unticked, or held and
+    // discarded), so the raw reference is free while the second row sits under its derived one.
+    [Fact]
+    public async Task ARepeatedReference_WhoseFirstRowWasNeverImported_IsNotImportedAgain()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        var oct5 = new DateOnly(2026, 10, 5);
+
+        var both = await PreviewAsync(db, Camt(Row("SO-1", Sep5, 50m), Row("SO-1", Sep20, 50m)), a.Id);
+        (await CommitAsync(db, a.Id, Item(both.Items[1]))).Imported.Should().Be(1);
+
+        var later = await PreviewAsync(db, Camt(Row("SO-1", Sep20, 50m), Row("SO-1", oct5, 50m)), a.Id);
+        later.Items.Select(i => i.Date).Should().Equal(oct5);
+    }
+
+    [Fact]
+    public async Task ARowStoredUnderTheOldOccurrenceSuffix_WithoutItsFirstRow_IsStillRecognised()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Sep1, AccountType.Current);
+        LedgerFixtures.Expense(db, Owner, a.Id, 50m, Sep20).BankReference = "SO-1#1";
+        await db.SaveChangesAsync(Ct);
+
+        (await PreviewAsync(db, Camt(Row("SO-1", Sep20, 50m)), a.Id)).NewCount.Should().Be(0);
+    }
+
     [Fact]
     public async Task IdenticalRowsUnderOneReference_BothImport_AndReimportChangesNothing()
     {
