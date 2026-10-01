@@ -223,9 +223,14 @@ public static class JarDepartures
     private static async Task<List<LegacyPosting>> LegacyPostingsAsync(
         IApplicationDbContext db, IReadOnlySet<Guid>? accounts, CancellationToken cancellationToken)
     {
+        // The "no departure there" test runs in the query (MG-P3-2): once every moved jar has its
+        // departure, a start-up reads nothing instead of every posting a moved jar ever had.
         var postings = await db.JarAllocationPostings
             .AsNoTracking()
-            .Where(p => p.JarId != null && p.Jar != null && p.JarAllocation.AccountId != p.Jar.FundingAccountId)
+            .Where(p => p.JarId != null && p.Jar != null && p.JarAllocation.AccountId != p.Jar.FundingAccountId
+                        && !db.JarAllocationPostings.Any(d => d.JarId == p.JarId
+                                                              && d.JarAllocation.AccountId == p.JarAllocation.AccountId
+                                                              && d.JarAllocation.Kind == JarAllocationKind.Departure))
             .Select(p => new LegacyPosting(
                 p.JarId!.Value,
                 p.JarAllocation.AccountId,
@@ -237,9 +242,6 @@ public static class JarDepartures
             .ToListAsync(cancellationToken);
         return postings
             .Where(p => accounts is null || accounts.Contains(p.AccountId))
-            .GroupBy(p => (p.JarId, p.AccountId))
-            .Where(g => !g.Any(p => p.Kind == JarAllocationKind.Departure))
-            .SelectMany(g => g)
             .ToList();
     }
 

@@ -123,6 +123,6 @@ public class IdentityService : IIdentityService
 
         await _userManager.ResetAccessFailedCountAsync(user);
         var stamp = await _userManager.GetSecurityStampAsync(user);
-        return CredentialCheckResult.Success(user.Id, user.Email!, user.DisplayName, stamp);
+        return CredentialCheckResult.Success(user.Id, user.Email!, user.DisplayName, stamp, user.ActiveOwnerId);
     }
 }

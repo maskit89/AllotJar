@@ -49,6 +49,14 @@ public class ExceptionHandlingMiddleware
             await WriteProblem(context, StatusCodes.Status409Conflict,
                 "Something else changed this at the same moment. Reload and try again.");
         }
+        catch (DbUpdateException ex) when (IsJarCycleCollision(ex))
+        {
+            // Two requests closed the same jar cycle at once (two pages settling it on the first
+            // day after its deadline, a double-clicked Mark paid or Dismiss; SC-P3-4): the unique
+            // cycle index kept one, and the other is told to reload rather than shown an error.
+            await WriteProblem(context, StatusCodes.Status409Conflict,
+                "Something else changed this at the same moment. Reload and try again.");
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unhandled exception processing {Path}", context.Request.Path);
@@ -56,6 +64,13 @@ public class ExceptionHandlingMiddleware
                 "An unexpected error occurred.");
         }
     }
+
+    /// <summary>
+    /// True when a save failed on one of the jar cycles' unique indexes ((JarId, Deadline) or the
+    /// payment). Matched by index name in the provider's message, as the import's reference check is.
+    /// </summary>
+    public static bool IsJarCycleCollision(DbUpdateException ex) =>
+        ex.InnerException?.Message.Contains("IX_JarCycles_", StringComparison.Ordinal) == true;
 
     private static async Task WriteProblem(
         HttpContext context, int statusCode, string title, object? extensions = null)

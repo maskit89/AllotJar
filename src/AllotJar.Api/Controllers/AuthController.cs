@@ -13,6 +13,7 @@ using AllotJar.Api.Services;
 using AllotJar.Application.Accounts;
 using AllotJar.Application.Auth.Commands.Login;
 using AllotJar.Application.Budgets;
+using AllotJar.Application.Common.Households;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.HouseholdAccess.Commands.AcceptInvite;
 using AllotJar.Domain.Enums;
@@ -1029,10 +1030,8 @@ public class AuthController : ControllerBase
 
     private async Task<AuthResponse> BuildResponseAsync(ApplicationUser user, CancellationToken ct)
     {
-        var role = await _db.HouseholdMemberships
-            .Where(m => m.UserId == user.Id && m.Status == MembershipStatus.Active)
-            .Select(m => (HouseholdRole?)m.Role)
-            .FirstOrDefaultAsync(ct) ?? HouseholdRole.Owner;
+        // The role in the household the login acts in, not in whichever membership comes first (S-P3-5).
+        var role = await ActiveHouseholdSelector.ActiveRoleAsync(_db, user.Id, user.ActiveOwnerId, ct);
 
         var stamp = await _userManager.GetSecurityStampAsync(user);
         var (token, expiresAt) = _tokenGenerator.Generate(user.Id, user.Email!, stamp);

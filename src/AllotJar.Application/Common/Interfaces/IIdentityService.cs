@@ -64,13 +64,15 @@ public enum CredentialCheckOutcome
 }
 
 /// <summary>Outcome of <see cref="IIdentityService.CheckCredentialsAsync"/>. The login details are
-/// populated only on <see cref="CredentialCheckOutcome.Success"/>.</summary>
+/// populated only on <see cref="CredentialCheckOutcome.Success"/>.
+/// <see cref="ActiveOwnerId"/> is the household the login last chose to act in (null: its own).</summary>
 public record CredentialCheckResult(
-    CredentialCheckOutcome Outcome, string? UserId, string? Email, string? DisplayName, string? SecurityStamp)
+    CredentialCheckOutcome Outcome, string? UserId, string? Email, string? DisplayName, string? SecurityStamp,
+    string? ActiveOwnerId = null)
 {
     public static CredentialCheckResult Success(
-        string userId, string email, string? displayName, string? securityStamp) =>
-        new(CredentialCheckOutcome.Success, userId, email, displayName, securityStamp);
+        string userId, string email, string? displayName, string? securityStamp, string? activeOwnerId = null) =>
+        new(CredentialCheckOutcome.Success, userId, email, displayName, securityStamp, activeOwnerId);
 
     public static readonly CredentialCheckResult Invalid =
         new(CredentialCheckOutcome.InvalidCredentials, null, null, null, null);

@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Enums;
 
 namespace AllotJar.Application.Common.Households;
@@ -41,5 +43,20 @@ public static class ActiveHouseholdSelector
         }
 
         return memberships[0];
+    }
+
+    /// <summary>
+    /// The login's role in the household it acts in (S-P3-5), picked as each request picks it: the
+    /// chosen household while the login still belongs to it, else its own, else the first. Owner
+    /// when it belongs to none yet (a new registrant owns its own household).
+    /// </summary>
+    public static async Task<HouseholdRole> ActiveRoleAsync(
+        IApplicationDbContext db, string userId, string? activeOwnerId, CancellationToken cancellationToken)
+    {
+        var memberships = await db.HouseholdMemberships
+            .Where(m => m.UserId == userId && m.Status == MembershipStatus.Active)
+            .Select(m => new HouseholdMembershipRef(m.OwnerId, m.Role, m.MemberId))
+            .ToListAsync(cancellationToken);
+        return Pick(memberships, activeOwnerId, userId)?.Role ?? HouseholdRole.Owner;
     }
 }

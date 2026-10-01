@@ -164,7 +164,9 @@ public static class JarMapping
         // A month that has not begun is planned from that month (its own share of what is left,
         // from today's balance), never from today's month.
         var planFrom = monthStart > asOf ? monthStart : asOf;
-        var plan = JarSchedule.Plan(f, planFrom, startBalance, skipped.Count > 0 ? new JarPlanOptions(skipped, currentBalance) : null);
+        // Today's balance rides along as the schedule preview passes it (rule 58): money that arrived this month
+        // shortens the estimate on the card exactly as it does in the edit preview.
+        var plan = JarSchedule.Plan(f, planFrom, startBalance, new JarPlanOptions(skipped, currentBalance));
         var deadline = plan.Deadline ?? JarSchedule.CurrentDeadline(f);
         // Rule 20: a Recurring cycle whose deadline has arrived is settled before this read
         // (JarCycles.SettleAsync rolls a funded one forward), so an open cycle at or before the

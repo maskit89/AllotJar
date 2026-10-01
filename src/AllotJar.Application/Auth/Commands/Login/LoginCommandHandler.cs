@@ -1,5 +1,5 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Common.Households;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Enums;
 
@@ -38,10 +38,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, LoginResult>
             return new LoginResult(LoginOutcome.InvalidCredentials);
         }
 
-        var role = await _db.HouseholdMemberships
-            .Where(m => m.UserId == check.UserId && m.Status == MembershipStatus.Active)
-            .Select(m => (HouseholdRole?)m.Role)
-            .FirstOrDefaultAsync(cancellationToken) ?? HouseholdRole.Owner;
+        var role = await ActiveHouseholdSelector.ActiveRoleAsync(_db, check.UserId!, check.ActiveOwnerId, cancellationToken);
 
         var (token, expiresAt) = _tokenGenerator.Generate(check.UserId!, check.Email!, check.SecurityStamp);
         return new LoginResult(

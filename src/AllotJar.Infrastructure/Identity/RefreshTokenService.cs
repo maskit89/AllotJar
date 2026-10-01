@@ -34,6 +34,7 @@ public class RefreshTokenService : IRefreshTokenService
 
     public async Task<string> IssueAsync(string userId, CancellationToken cancellationToken = default)
     {
+        await PruneExpiredAsync(userId, cancellationToken);
         var raw = Generate();
         _db.RefreshTokens.Add(new RefreshToken
         {
@@ -88,6 +89,7 @@ public class RefreshTokenService : IRefreshTokenService
             return RefreshRotationResult.Failed;
         }
 
+        await PruneExpiredAsync(token.UserId, cancellationToken);
         var newRaw = Generate();
         token.RevokedUtc = DateTime.UtcNow;
         token.ReplacedByTokenHash = Hash(newRaw);
@@ -135,6 +137,21 @@ public class RefreshTokenService : IRefreshTokenService
             t.RevokedUtc = DateTime.UtcNow;
         }
         await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Removes the login's tokens past their expiry (S-P3-1): every issue and rotation adds a row,
+    /// and nothing else ever deleted one. Only expired rows go: a rotated or revoked token that has
+    /// not expired is kept, so replaying a stolen one still meets the theft response above, and
+    /// once expired it would be refused anyway. The caller's save removes them.
+    /// </summary>
+    private async Task PruneExpiredAsync(string userId, CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var expired = await _db.RefreshTokens
+            .Where(t => t.UserId == userId && t.ExpiresUtc < now)
+            .ToListAsync(cancellationToken);
+        _db.RefreshTokens.RemoveRange(expired);
     }
 
     /// <summary>A new URL-safe random token (256 bits of entropy).</summary>
