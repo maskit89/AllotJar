@@ -21,9 +21,10 @@ public class DeleteJarCommandHandler : IRequestHandler<DeleteJarCommand>
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
-        var jar = await _db.Jars
-            .FirstOrDefaultAsync(f => f.Id == request.Id, cancellationToken)
-            ?? throw new NotFoundException($"Jar {request.Id} was not found.");
+        // Under the ledger lock of the jar's account (P11): money put into the jar meanwhile is
+        // either seen by the rule 84 check below or waits and then finds the jar gone.
+        var (jar, write) = await JarLocks.LoadLockedAsync(_db, request.Id, null, cancellationToken);
+        await using var _ = write;
 
         if (jar.OwnerId != userId)
         {
@@ -60,5 +61,9 @@ public class DeleteJarCommandHandler : IRequestHandler<DeleteJarCommand>
         _db.Jars.Remove(jar);
 
         await _db.SaveChangesAsync(cancellationToken);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
     }
 }

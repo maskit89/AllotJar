@@ -283,7 +283,8 @@ public static class TransferReturns
     }
 
     /// <summary><paramref name="transferId"/>'s return operations as this write leaves them (tracked).</summary>
-    private static async Task<List<JarAllocation>> OperationsAsync(IApplicationDbContext db, Guid transferId, CancellationToken cancellationToken)
+    /// <summary>The transfer's return operations as this unit of work leaves them (tracked).</summary>
+    internal static async Task<List<JarAllocation>> OperationsAsync(IApplicationDbContext db, Guid transferId, CancellationToken cancellationToken)
     {
         await db.JarAllocations.Include(a => a.Postings).Where(a => a.ReturnOfTransferId == transferId).LoadAsync(cancellationToken);
         return db.JarAllocations.Local.Where(a => a.ReturnOfTransferId == transferId).ToList();

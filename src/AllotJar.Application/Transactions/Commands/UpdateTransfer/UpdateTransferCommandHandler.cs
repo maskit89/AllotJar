@@ -29,6 +29,18 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
+        // Every account the edit can take money from is locked before the transfer is read (P11):
+        // a second edit of the same transfer waits, then compares its draw with what the first
+        // one saved, not with a draw already gone (#300 review P3-3).
+        var sides = await _db.Transactions.AsNoTracking()
+            .Where(t => t.Id == request.TransactionId)
+            .Select(t => new { t.AccountId, t.TransferAccountId })
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new NotFoundException($"Transaction {request.TransactionId} was not found.");
+        await using var write = await _db.BeginLedgerWriteAsync(
+            new[] { sides.AccountId, sides.TransferAccountId, request.FromAccountId, request.ToAccountId }.OfType<Guid>(),
+            cancellationToken);
+
         var transfer = await _db.Transactions
             .Include(t => t.Account)
             .Include(t => t.TransferAccount)
@@ -42,6 +54,10 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
         if (transfer.Type != TransactionType.Transfer)
         {
             throw Validation("TransactionId", "Only a transfer can be edited here.");
+        }
+        if (transfer.AccountId != sides.AccountId || transfer.TransferAccountId != sides.TransferAccountId)
+        {
+            throw Validation("TransactionId", "This transfer was changed while you were editing it. Open it again and redo the change.");
         }
 
         var from = await OwnedAccountAsync(request.FromAccountId, userId, cancellationToken);
@@ -72,10 +88,6 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
         // What the stored return (if any) was decided from: kept unless one of these changes.
         var previousReturn = await TransferReturns.BasisAsync(_db, transfer, cancellationToken);
 
-        // Serialise against the other writers of every account the edit can take money from (the
-        // rule 74 check below reads all four).
-        await using var write = await _db.BeginLedgerWriteAsync(
-            new[] { from.Id, to.Id, previousSource?.Id ?? from.Id, previousDestination?.Id ?? to.Id }, cancellationToken);
 
         transfer.Account = from;
         transfer.AccountId = from.Id;

@@ -53,6 +53,12 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
             });
         }
 
+        // Under the account's ledger lock before the slices' jars are checked, so a jar can't be
+        // archived or moved between the check and the save (P11, #300 review P2-1).
+        await using var write = transaction.Account is not null && transaction.Type == TransactionType.Expense
+            ? await _db.BeginLedgerWriteAsync(transaction.Account.Id, cancellationToken)
+            : null;
+
         // Shared slice rules (transfer rejection, sum, ownership, direction match, month
         // coherence, member ownership) — the same guard CreateTransaction uses for
         // split-at-creation. A slice on the line of a jar the account held on the transaction's
@@ -105,6 +111,10 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
 
         // Re-read with line, member and jar names so the DTO carries each slice's "assigned to".
         return await TransactionReads.ReadDtoAsync(_db, transaction.Id, cancellationToken);

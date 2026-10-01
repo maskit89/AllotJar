@@ -39,6 +39,12 @@ public class LinkRefundCommandHandler : IRequestHandler<LinkRefundCommand, Trans
             throw new ForbiddenAccessException();
         }
 
+        // The line chosen below can be a jar's (rule 79): its account is locked before the line's
+        // jar is checked, so a move or archive of the jar can't slip in between (P11).
+        await using var write = transaction.AccountId is Guid accountId
+            ? await _db.BeginLedgerWriteAsync(accountId, cancellationToken)
+            : null;
+
         if (request.RefundOfTransactionId is Guid originalId)
         {
             // Only money received can come back from a purchase; a purchase with refunds of its
@@ -106,6 +112,10 @@ public class LinkRefundCommandHandler : IRequestHandler<LinkRefundCommand, Trans
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
 
         return await TransactionReads.ReadDtoAsync(_db, transaction.Id, cancellationToken);
     }

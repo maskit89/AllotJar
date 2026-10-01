@@ -26,9 +26,10 @@ public class ArchiveJarCommandHandler
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
-        var jar = await _db.Jars
-            .FirstOrDefaultAsync(f => f.Id == request.Id, cancellationToken)
-            ?? throw new NotFoundException($"Jar {request.Id} was not found.");
+        // Under the ledger lock of the jar's account (P11): a reallocation or payment into the jar
+        // either lands before the zero check below or waits and then finds the jar archived (JL-P2-5).
+        var (jar, write) = await JarLocks.LoadLockedAsync(_db, request.Id, null, cancellationToken);
+        await using var _ = write;
 
         if (jar.OwnerId != userId)
         {
@@ -58,7 +59,7 @@ public class ArchiveJarCommandHandler
             // Money on its way counts too: an entry that names the jar but hasn't reached the
             // account by today (a transfer in transit, an entry dated later) would move money in or
             // out of the jar once it was put away (#282 review P2-1).
-            if (await WaitingAsync(jar, today, cancellationToken) is { Count: > 0 } waiting)
+            if (await WaitingAsync(jar, userId, today, cancellationToken) is { Count: > 0 } waiting)
             {
                 throw JarAccounts.Validation("Id",
                     $"{jar.Name} has entries that haven't reached the account yet: {string.Join("; ", waiting)}. "
@@ -91,12 +92,32 @@ public class ArchiveJarCommandHandler
             await JarPlanner.ReplantAsync(_db, userId, jar, today, 0m, cancellationToken, ledger);
         }
         await _db.SaveChangesAsync(cancellationToken);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
 
         return await JarFigures.ReadOneAsync(_db, userId, jar, today, cancellationToken);
     }
 
-    /// <summary>The stored jar answers in the jar's account naming it whose leg has not posted by <paramref name="today"/>, described for the refusal.</summary>
-    private async Task<List<string>> WaitingAsync(Jar jar, DateOnly today, CancellationToken cancellationToken)
+    /// <summary>
+    /// The entries in the jar's account that move money in or out of it after <paramref name="today"/>,
+    /// described for the refusal: the stored jar answers naming it whose leg has not posted yet, and
+    /// the payments on its lines dated later, which draw from it on their date (rule 79, JL-P2-2).
+    /// </summary>
+    private async Task<List<string>> WaitingAsync(Jar jar, string userId, DateOnly today, CancellationToken cancellationToken)
+    {
+        var payments = await JarMovements.LinePaymentsAfterAsync(_db, userId, jar.Id, jar.FundingAccountId, today, cancellationToken);
+        return (await StoredWaitingAsync(jar, today, cancellationToken))
+            .Concat(payments
+                .OrderBy(t => t.Date)
+                .Select(t => (Posts: (DateOnly?)t.Date, Text: $"a payment of {t.Amount:0.##} for {t.Payee} on its line (on {t.Date:d MMM yyyy})")))
+            .OrderBy(w => w.Posts ?? DateOnly.MaxValue)
+            .Select(w => w.Text)
+            .ToList();
+    }
+
+    private async Task<List<(DateOnly? Posts, string Text)>> StoredWaitingAsync(Jar jar, DateOnly today, CancellationToken cancellationToken)
     {
         var legs = await _db.JarAllocations.AsNoTracking()
             .Include(a => a.Postings)
@@ -119,9 +140,9 @@ public class ArchiveJarCommandHandler
                     : t.DepartedOn is null ? "waiting for its departure" : "not received yet";
                 // A transfer is named by the account at its other end.
                 var other = t.Type != TransactionType.Transfer ? null : amount > 0m ? t.Account?.Name : t.TransferAccount?.Name;
-                return amount > 0m
+                return (l.Posts, amount > 0m
                     ? $"{amount:0.##} in from {other ?? t.Payee} ({when})"
-                    : $"{-amount:0.##} out {(other is null ? $"for {t.Payee}" : $"to {other}")} ({when})";
+                    : $"{-amount:0.##} out {(other is null ? $"for {t.Payee}" : $"to {other}")} ({when})");
             })
             .ToList();
     }
