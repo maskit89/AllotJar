@@ -90,10 +90,10 @@ public class ConfirmTransferLegsCommandHandler : IRequestHandler<ConfirmTransfer
         }
 
         // A departure supplied now posts the debit (rule 72): the source must stay at or above
-        // zero on every date (rule 74). Confirming a receipt only adds money.
-        await using var write = departureNowKnown && transfer.Account is not null
-            ? await _db.BeginLedgerWriteAsync(transfer.Account.Id, cancellationToken)
-            : null;
+        // zero on every date (rule 74). Confirming a receipt only adds money, but it answers the
+        // destination's jars, so both sides are locked (P11, JL-P2-6).
+        var sides = new[] { transfer.AccountId, transfer.TransferAccountId }.OfType<Guid>().ToList();
+        await using var write = sides.Count == 0 ? null : await _db.BeginLedgerWriteAsync(sides, cancellationToken);
         if (departureNowKnown && transfer.Account is not null)
         {
             await AccountBalanceGuard.EnsureNonNegativeAsync(

@@ -40,6 +40,12 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
             throw new ForbiddenAccessException();
         }
 
+        // Under the account's ledger lock before the line's jar is checked, so the jar can't be
+        // archived or moved between the check and the save (P11, #300 review P2-1).
+        await using var write = transaction.Account is not null && transaction.Type == TransactionType.Expense
+            ? await _db.BeginLedgerWriteAsync(transaction.Account.Id, cancellationToken)
+            : null;
+
         // Assigning (or clearing) the whole transaction supersedes any split.
         if (transaction.Splits.Count > 0)
         {
@@ -77,6 +83,10 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
 
         return await TransactionReads.ReadDtoAsync(_db, transaction.Id, cancellationToken);
     }

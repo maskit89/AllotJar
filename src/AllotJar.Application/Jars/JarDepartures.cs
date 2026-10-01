@@ -59,16 +59,24 @@ public static class JarDepartures
     /// moves money in or out of the jar (an income split into it ahead of payday, a payment drawn
     /// from it or a reallocation dated later). Today's balance does not see such an entry, and no
     /// departure could settle it, so the account would hold the jar's money again from that date
-    /// (P51). Null when there is none.
+    /// (P51). A payment on one of the jar's lines dated later counts too although it stores no
+    /// operation: the reader draws it from the jar on its date (rule 79, JL-P2-1). Null when there
+    /// is none.
     /// </summary>
-    public static Task<DateOnly?> EntryDatedAfterAsync(
-        IApplicationDbContext db, Guid jarId, Guid accountId, DateOnly movedOn, CancellationToken cancellationToken) =>
-        db.JarAllocations
+    public static async Task<DateOnly?> EntryDatedAfterAsync(
+        IApplicationDbContext db, string ownerId, Guid jarId, Guid accountId, DateOnly movedOn, CancellationToken cancellationToken)
+    {
+        var stored = await db.JarAllocations
             .Where(a => a.AccountId == accountId
                         && a.Kind != JarAllocationKind.Departure
                         && a.Date > movedOn
                         && a.Postings.Any(p => p.JarId == jarId && p.Amount != 0m))
             .MinAsync(a => (DateOnly?)a.Date, cancellationToken);
+        var derived = (await JarMovements.LinePaymentsAfterAsync(db, ownerId, jarId, accountId, movedOn, cancellationToken))
+            .Select(t => (DateOnly?)t.Date)
+            .Min();
+        return stored is null ? derived : derived is null ? stored : stored < derived ? stored : derived;
+    }
 
     /// <summary>
     /// The departure that closes the stretch a leg of <paramref name="accountId"/> dated
@@ -186,31 +194,63 @@ public static class JarDepartures
     /// the last day the account's ledger touched the jar: its last posting, on the day the
     /// ledger posts it, or its last such payment. The history before that date reads as it did
     /// before the move. Idempotent: a jar and account with a departure are left alone. Saves
-    /// once. Run at startup.
+    /// once, under the ledger lock (P11) of every account it writes in, and decides what to write
+    /// only once it holds them: two processes starting together write each departure once, the
+    /// second finding the first one's (MG-P2-1). Run at startup.
     /// </summary>
     /// <param name="today">The run's date; null is today (UTC).</param>
     public static async Task<JarBackfill> BackfillAsync(
         IApplicationDbContext db, CancellationToken cancellationToken, DateOnly? today = null)
     {
-        var runOn = today ?? DateOnly.FromDateTime(DateTime.UtcNow);
-        var upTo = runOn < DeparturesRecordedFrom ? runOn : DeparturesRecordedFrom;
+        var accounts = (await LegacyPostingsAsync(db, null, cancellationToken)).Select(p => p.AccountId).ToHashSet();
+        if (accounts.Count == 0)
+        {
+            return new JarBackfill(0, 0);
+        }
+        await using var write = await db.BeginLedgerWriteAsync(accounts, cancellationToken);
+        var result = await BackfillLockedAsync(db, accounts, cancellationToken, today);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
+        return result;
+    }
+
+    private sealed record LegacyPosting(
+        Guid JarId, Guid AccountId, string OwnerId, DateOnly Date, JarAllocationKind Kind, Guid? TransactionId, decimal Amount);
+
+    /// <summary>The postings of jars in accounts they are no longer designated to, for each jar and account with no departure there (in <paramref name="accounts"/>, when given).</summary>
+    private static async Task<List<LegacyPosting>> LegacyPostingsAsync(
+        IApplicationDbContext db, IReadOnlySet<Guid>? accounts, CancellationToken cancellationToken)
+    {
         var postings = await db.JarAllocationPostings
             .AsNoTracking()
             .Where(p => p.JarId != null && p.Jar != null && p.JarAllocation.AccountId != p.Jar.FundingAccountId)
-            .Select(p => new
-            {
-                JarId = p.JarId!.Value,
+            .Select(p => new LegacyPosting(
+                p.JarId!.Value,
                 p.JarAllocation.AccountId,
                 p.JarAllocation.OwnerId,
                 p.JarAllocation.Date,
                 p.JarAllocation.Kind,
                 p.JarAllocation.TransactionId,
-                p.Amount,
-            })
+                p.Amount))
             .ToListAsync(cancellationToken);
-        var legacy = postings
+        return postings
+            .Where(p => accounts is null || accounts.Contains(p.AccountId))
             .GroupBy(p => (p.JarId, p.AccountId))
             .Where(g => !g.Any(p => p.Kind == JarAllocationKind.Departure))
+            .SelectMany(g => g)
+            .ToList();
+    }
+
+    private static async Task<JarBackfill> BackfillLockedAsync(
+        IApplicationDbContext db, IReadOnlySet<Guid> accounts, CancellationToken cancellationToken, DateOnly? today)
+    {
+        var runOn = today ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var upTo = runOn < DeparturesRecordedFrom ? runOn : DeparturesRecordedFrom;
+        // Read again under the lock: another run may have written these departures meanwhile.
+        var legacy = (await LegacyPostingsAsync(db, accounts, cancellationToken))
+            .GroupBy(p => (p.JarId, p.AccountId))
             .ToList();
         if (legacy.Count == 0)
         {

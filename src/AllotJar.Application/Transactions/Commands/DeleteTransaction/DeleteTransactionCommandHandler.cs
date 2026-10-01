@@ -71,10 +71,17 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
 
         // Rule 74: removing money that reached an account (an income, a receipt) can leave later
         // payments uncovered; the account must stay at or above zero on every date without it.
+        // Every account checked here or whose jars change is locked (P11), so a payment racing on
+        // the receiving side waits and then sees the receipt gone (JL-P2-6).
         var affected = new[] { transaction.Account, transaction.TransferAccount }.Where(a => a is not null).Select(a => a!).ToList();
-        await using var write = affected.Count == 0
+        var locked = affected.Select(a => a.Id).ToList();
+        if (transaction.Fee?.AccountId is Guid feeAccount)
+        {
+            locked.Add(feeAccount);
+        }
+        await using var write = locked.Count == 0
             ? null
-            : await _db.BeginLedgerWriteAsync(affected[0].Id, cancellationToken);
+            : await _db.BeginLedgerWriteAsync(locked, cancellationToken);
         if (affected.Count > 0)
         {
             // A transfer's fee goes with it.

@@ -443,16 +443,25 @@ public static class JarMovements
     /// <summary>The expenses from <paramref name="accountId"/> on a line of any of <paramref name="jarIds"/> (whole or a slice), dated on or before <paramref name="upTo"/>, that carry no stored answer there.</summary>
     internal static Task<List<Transaction>> UnstoredLinePaymentsAsync(
         IApplicationDbContext db, string ownerId, IReadOnlyCollection<Guid> jarIds, Guid accountId, DateOnly upTo,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken, DateOnly? after = null) =>
         db.Transactions
             .AsNoTracking()
             .Include(t => t.Splits)
             .Where(t => t.OwnerId == ownerId && t.Type == TransactionType.Expense && t.AccountId == accountId
-                        && t.Date <= upTo
+                        && t.Date <= upTo && (after == null || t.Date > after)
                         && !t.JarAllocations.Any(a => a.AccountId == accountId)
                         && ((t.BudgetItem != null && t.BudgetItem.SavingsId != null && jarIds.Contains(t.BudgetItem.SavingsId.Value))
                             || t.Splits.Any(s => s.BudgetItem != null && s.BudgetItem.SavingsId != null && jarIds.Contains(s.BudgetItem.SavingsId.Value))))
             .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// The payments of <paramref name="accountId"/> on <paramref name="jarId"/>'s lines dated after
+    /// <paramref name="after"/> that carry no stored leg there: the reader draws them from the jar
+    /// on their date (rule 79), so a jar at zero today is not at zero then (JL-P2-1, JL-P2-2).
+    /// </summary>
+    internal static Task<List<Transaction>> LinePaymentsAfterAsync(
+        IApplicationDbContext db, string ownerId, Guid jarId, Guid accountId, DateOnly after, CancellationToken cancellationToken) =>
+        UnstoredLinePaymentsAsync(db, ownerId, new[] { jarId }, accountId, DateOnly.MaxValue, cancellationToken, after);
 
     /// <summary>Stores each payment's leg on <paramref name="account"/> exactly as the reader derives it with <paramref name="jars"/>. Returns the operations added; the caller saves.</summary>
     internal static List<JarAllocation> WriteDown(

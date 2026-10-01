@@ -70,10 +70,12 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         var previousAccount = transaction.Account;
         // A transfer's other side: it loses the credit when the row stops being a transfer.
         var previousDestination = transaction.Type == TransactionType.Transfer ? transaction.TransferAccount : null;
-        // Serialise against other writers on the account that receives the edited row (rule 74).
-        await using var write = account is null
+        // Serialise against other writers on every account the edit checks or posts to (rule 74,
+        // P11): the one receiving the row, the one losing it and a transfer's former destination.
+        var locked = new[] { account?.Id, previousAccount?.Id, previousDestination?.Id }.OfType<Guid>().ToList();
+        await using var write = locked.Count == 0
             ? null
-            : await _db.BeginLedgerWriteAsync(account.Id, cancellationToken);
+            : await _db.BeginLedgerWriteAsync(locked, cancellationToken);
 
         // Moving a transaction onto an account of a different currency would corrupt that
         // account's (currency-blind) balance — reject it. The transaction's currency is not

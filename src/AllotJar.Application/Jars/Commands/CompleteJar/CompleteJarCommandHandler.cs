@@ -23,9 +23,10 @@ public class CompleteJarCommandHandler : IRequestHandler<CompleteJarCommand, Jar
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
-        var jar = await _db.Jars
-            .FirstOrDefaultAsync(f => f.Id == request.Id, cancellationToken)
-            ?? throw new NotFoundException($"Jar {request.Id} was not found.");
+        // Under the ledger lock of the jar's account (P11, JL-P2-5): a draw racing the completion
+        // lands before the balance check below, or waits for it.
+        var (jar, write) = await JarLocks.LoadLockedAsync(_db, request.Id, null, cancellationToken);
+        await using var _ = write;
 
         if (jar.OwnerId != userId)
         {
@@ -64,6 +65,10 @@ public class CompleteJarCommandHandler : IRequestHandler<CompleteJarCommand, Jar
         jar.CompletedOn = today;
         await SavingsLines.CancelPlansAsync(_db, userId, jar, today, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
 
         return await JarFigures.ReadOneAsync(_db, userId, jar, today, cancellationToken);
     }

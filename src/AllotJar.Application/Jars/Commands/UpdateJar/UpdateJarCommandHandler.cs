@@ -29,9 +29,12 @@ public class UpdateJarCommandHandler
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
-        var jar = await _db.Jars
-            .FirstOrDefaultAsync(f => f.Id == request.Id, cancellationToken)
-            ?? throw new NotFoundException($"Jar {request.Id} was not found.");
+        // Under the ledger lock of the jar's account and of the account it may move to (P11): a
+        // reallocation or payment into the jar either lands before the zero check below, or waits
+        // and then finds the jar in its new account (JL-P2-5). Both are locked here, in id order,
+        // so the save's own lock on the new account (P55) is already held.
+        var (jar, write) = await JarLocks.LoadLockedAsync(_db, request.Id, request.FundingAccountId, cancellationToken);
+        await using var _ = write;
 
         if (jar.OwnerId != userId)
         {
@@ -70,7 +73,7 @@ public class UpdateJarCommandHandler
                 throw JarAccounts.Validation("FundingAccountId",
                     $"{jar.Name} has a transfer in transit. Confirm it first, then change the account.");
             }
-            if (await JarDepartures.EntryDatedAfterAsync(_db, jar.Id, jar.FundingAccountId, today, cancellationToken) is { } later)
+            if (await JarDepartures.EntryDatedAfterAsync(_db, userId, jar.Id, jar.FundingAccountId, today, cancellationToken) is { } later)
             {
                 throw JarAccounts.Validation("FundingAccountId",
                     $"{jar.Name} has an entry dated {later:d MMM yyyy} in {current.AccountOf(jar.Id)?.Account.Name}. " +
@@ -135,6 +138,10 @@ public class UpdateJarCommandHandler
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
 
         return await JarFigures.ReadOneAsync(_db, userId, jar, today, cancellationToken);
     }

@@ -75,7 +75,8 @@ public class CreateTransferCommandHandler : IRequestHandler<CreateTransferComman
 
         _db.Transactions.Add(transfer);
 
-        await using var write = await _db.BeginLedgerWriteAsync(from.Id, cancellationToken);
+        // Both sides: the source is checked (rule 74) and the destination's jars are answered (P11).
+        await using var write = await _db.BeginLedgerWriteAsync(new[] { from.Id, to.Id }, cancellationToken);
         var fee = await TransferFees.ApplyAsync(
             _db, _identity, userId, transfer, from, request.Fee, request.FeeBudgetItemId, request.AcknowledgeCrossMonth,
             request.FromJarId, nameof(request.Fee), new List<Guid>(), cancellationToken);
