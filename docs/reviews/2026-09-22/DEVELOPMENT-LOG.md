@@ -1070,3 +1070,12 @@ Christopher confirmed on 30 September that the first handwritten note means the 
 - Validation: unit **1401 passed**; SQL **127 passed**; build 0 warnings.
 
 **Deploy.** No migration or data step.
+
+## Follow-ups: jars and cycles (D13 to D18)
+
+- **D13 (RP-P3-4):** archiving a person with "Cancel remaining" keeps the plan of a pocket-money line whose payment still waits for its converted amount, and the preview no longer offers that line for cancelling (`PocketMoneyLines`). Tests: `PocketMoneyFixPlanETests.Cancelling_keeps_the_plan_of_a_line_whose_payment_waits_for_its_converted_amount`; SQL `JarFollowUpsSqlTests.D13_…`.
+- **D14 (SC P3-2):** typing an amount on a skipped month of a live jar (this month or later) un-skips it and re-spreads the other months around the typed amount (`UpdateBudgetItem`). Tests: `JarLifecycleW04Tests.Rule61_…AndTypingAnAmountAlsoUnskipsIt` (now 30 / 135 / 135), `D14_TypingAnAmountOnASkippedLaterMonth_RespreadsTheOtherMonths`.
+- **D15 (SC P3-5):** changing a Recurring jar's date, or its kind, while a cycle is missed records that cycle as Missed with its balance the day before the deadline, then moves the date (`UpdateJar`). Test: `JarCycleTests.D15_ChangingTheDateWhileACycleIsMissed_RecordsItAsMissed_ThenMovesTheDate`.
+- **D16 (#297 review P3-1):** removing a transfer's return, or dating it later, is checked with `JarHistoryChecks.EnsureTransferDrawAsync` unless the jar has left the account since, which keeps #280's "Accept and settle" (`UpdateTransfer`). Tests: `JarHistoryChecksTests.D16_…` (3), the existing `TransferIdentityW07ReviewTests` move tests; SQL `JarFollowUpsSqlTests.D16_…`.
+- **D17 (#301 review R2):** a cycle whose payment was removed before its deadline reads "waiting for the deadline" (outcome `Waiting`) until it is judged, and can still be given a payment (`JarDto`, `jarStatus.ts`, `JarsPage`). Tests: `SchedulesCyclesFixPlanETests.D17_…`, `jarStatus.test` "reads a cycle whose payment was removed…".
+- **D18 (#301 review P3-3):** a planned amount or name typed on an archived jar's line is refused ("Holiday is archived and plans no contributions…"), so a skipped later month stays skipped for the restore; the Budget page shows the server's reason. Tests: `JarLifecycleW04Tests.D18_AnArchivedJarsLine_RefusesATypedAmount_AndKeepsItsSkip`, `DashboardPage.jars` DASH-083.
