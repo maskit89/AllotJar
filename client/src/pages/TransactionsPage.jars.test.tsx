@@ -362,7 +362,9 @@ describe('TransactionsPage jar prompts', () => {
     expect(screen.queryByLabelText('From jar')).not.toBeInTheDocument()
     expect(await screen.findByTestId('transfer-jar-allocation')).toBeInTheDocument()
     expect(screen.getByText(/the jars get their amounts on the day it reaches Savings/)).toBeInTheDocument()
-    await user.type(screen.getByLabelText('Transfer receipt date'), '2026-09-30')
+    // The departure date defaults to today (UTC), so the receipt date is today too, whatever day the suite runs.
+    const receivedOn = new Date().toISOString().slice(0, 10)
+    await user.type(screen.getByLabelText('Transfer receipt date'), receivedOn)
     expect(screen.queryByText(/the jars get their amounts on the day it reaches/)).not.toBeInTheDocument()
     await user.type(screen.getByLabelText('Amount for Car'), '50')
 
@@ -377,7 +379,7 @@ describe('TransactionsPage jar prompts', () => {
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(
         '/transactions/transfer',
-        expect.objectContaining({ fromAccountId: 'a2', toAccountId: 'a1', receivedOn: '2026-09-30', fromJarId: 'j-hol' }),
+        expect.objectContaining({ fromAccountId: 'a2', toAccountId: 'a1', receivedOn, fromJarId: 'j-hol' }),
       ),
     )
     expect(mockPost.mock.calls[0][1]).not.toHaveProperty('jarAllocations')
