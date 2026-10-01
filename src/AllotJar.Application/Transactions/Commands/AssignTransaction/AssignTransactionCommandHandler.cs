@@ -40,6 +40,12 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
             throw new ForbiddenAccessException();
         }
 
+        // Under the account's ledger lock before the line's jar is checked, so the jar can't be
+        // archived or moved between the check and the save (P11, #300 review P2-1).
+        await using var write = transaction.Account is not null && transaction.Type == TransactionType.Expense
+            ? await _db.BeginLedgerWriteAsync(transaction.Account.Id, cancellationToken)
+            : null;
+
         // Assigning (or clearing) the whole transaction supersedes any split.
         if (transaction.Splits.Count > 0)
         {
@@ -70,10 +76,6 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
 
         // The line decides which jar a payment from a jar-backed account draws from (rule 79);
         // the stored answer is rewritten for the new line, or cleared back to the default.
-        // Under the account's ledger lock, so the jar it answers can't be archived or moved meanwhile (P11).
-        await using var write = transaction.Account is not null && transaction.Type == TransactionType.Expense
-            ? await _db.BeginLedgerWriteAsync(transaction.Account.Id, cancellationToken)
-            : null;
         if (transaction.Account is not null && transaction.Type == TransactionType.Expense)
         {
             await JarMovements.ApplyOutgoingAsync(

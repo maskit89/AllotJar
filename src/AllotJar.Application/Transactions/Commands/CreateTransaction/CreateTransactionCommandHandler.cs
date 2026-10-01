@@ -46,6 +46,29 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
             });
         }
 
+        // The account and its ledger lock come before the line's jar is checked (P11, #300 review
+        // P2-1): a jar moved or archived meanwhile is then seen by the check.
+        Account? account = null;
+        if (request.AccountId is Guid accountId)
+        {
+            account = await _db.Accounts
+                .FirstOrDefaultAsync(a => a.Id == accountId, cancellationToken);
+
+            if (account is null)
+            {
+                throw new NotFoundException($"Account {accountId} was not found.");
+            }
+            if (account.OwnerId != userId)
+            {
+                throw new ForbiddenAccessException();
+            }
+        }
+        // Serialise against the account's other writers so the rule 74 check below reads
+        // committed money, never a stale balance.
+        await using var write = account is null
+            ? null
+            : await _db.BeginLedgerWriteAsync(account.Id, cancellationToken);
+
         // A refund follows the purchase it comes back from (rules 38/39): the original must be
         // the user's own expense, dated on or before the refund, and not already refunded in full.
         Transaction? original = null;
@@ -70,27 +93,6 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
             // No line chosen: the refund lands where the purchase was budgeted, in its own month.
             item = await RefundRules.DefaultLineAsync(_db, userId, original, request.Date, request.AccountId, cancellationToken);
         }
-
-        Account? account = null;
-        if (request.AccountId is Guid accountId)
-        {
-            account = await _db.Accounts
-                .FirstOrDefaultAsync(a => a.Id == accountId, cancellationToken);
-
-            if (account is null)
-            {
-                throw new NotFoundException($"Account {accountId} was not found.");
-            }
-            if (account.OwnerId != userId)
-            {
-                throw new ForbiddenAccessException();
-            }
-        }
-        // Serialise against the account's other writers so the rule 74 check below reads
-        // committed money, never a stale balance.
-        await using var write = account is null
-            ? null
-            : await _db.BeginLedgerWriteAsync(account.Id, cancellationToken);
 
         HouseholdMember? member = null;
         if (request.MemberId is Guid memberId)

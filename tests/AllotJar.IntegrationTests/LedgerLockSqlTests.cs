@@ -8,6 +8,10 @@ using AllotJar.Application.Jars.Commands.ArchiveJar;
 using AllotJar.Application.Jars.Commands.CompleteJar;
 using AllotJar.Application.Jars.Commands.ReallocateJarMoney;
 using AllotJar.Application.Jars.Commands.UpdateJar;
+using AllotJar.Application.Transactions.Commands.AssignTransaction;
+using AllotJar.Application.Transactions.Commands.CreateTransaction;
+using AllotJar.Application.Transactions.Commands.SplitTransaction;
+using AllotJar.Application.Transactions.Commands.UpdateTransfer;
 using AllotJar.Application.Transactions.Commands.ConfirmTransferLegs;
 using AllotJar.Application.Transactions.Commands.CreateTransfer;
 using AllotJar.Application.Transactions.Commands.DeleteTransaction;
@@ -353,5 +357,123 @@ public class LedgerLockSqlTests(SqlServerFixture fixture)
             .Should().Be(1);
         (await JarLedgerReader.ReadAsync(verify, owner, Today, Ct, new[] { a.Id })).Accounts[a.Id].JarBalances
             .GetValueOrDefault(holiday.Id).Should().Be(0m);
+    }
+
+    // --- A payment on a jar's line racing the jar's move (#300 review P2-1) ---------------------
+
+    private sealed record LineSeed(string Owner, Account A, Account B, Jar Holiday, BudgetItem Line, BudgetItem Groceries, Transaction Unassigned);
+
+    /// <summary>Holiday (0) in A with a savings line this month, a groceries line, and a 30 payment from A on no line.</summary>
+    private async Task<LineSeed> SeedLineAsync()
+    {
+        var owner = NewOwner();
+        var a = await SeedAccountAsync(owner, "A", 500m);
+        var b = await SeedAccountAsync(owner, "B", 500m);
+        var holiday = await SeedJarAsync(a, "Holiday");
+        await using var db = fixture.CreateContext();
+        var line = new BudgetItem { Name = "Holiday", SavingsId = holiday.Id, PlannedAmount = 0m };
+        var groceries = new BudgetItem { Name = "Groceries", PlannedAmount = 100m };
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = owner, Year = Today.Year, Month = Today.Month, BaseCurrency = CurrencyCode.Eur,
+            Categories = new List<BudgetCategory>
+            {
+                new() { Name = "Savings", Kind = CategoryKind.Savings, Items = new List<BudgetItem> { line } },
+                new() { Name = "Food", Kind = CategoryKind.Expense, DisplayOrder = 1, Items = new List<BudgetItem> { groceries } },
+            },
+        });
+        var unassigned = Expense(a, 30m, Today);
+        unassigned.Payee = "Travel agent";
+        db.Transactions.Add(unassigned);
+        await db.SaveChangesAsync();
+        return new LineSeed(owner, a, b, holiday, line, groceries, unassigned);
+    }
+
+    /// <summary>What UpdateJar writes for a change of account to B, on the connection holding A's and B's locks.</summary>
+    private static async Task MoveToBAsync(ApplicationDbContext db, LineSeed s)
+    {
+        var jar = await db.Jars.SingleAsync(j => j.Id == s.Holiday.Id);
+        var joining = await db.Accounts.SingleAsync(a => a.Id == s.B.Id);
+        var kept = await JarMovements.KeepLineAttributionAsync(db, s.Owner, jar, Today, Ct);
+        await JarDepartures.RecordAsync(db, s.Owner, jar.Id, jar.FundingAccountId, Today, kept > 0, Ct);
+        await JarMovements.KeepArrivalAttributionAsync(db, s.Owner, jar, joining, Today, Ct);
+        jar.FundingAccountId = joining.Id;
+        jar.FundingAccountSince = Today;
+    }
+
+    private async Task<int> PaymentsOnTheLineAsync(LineSeed s)
+    {
+        await using var db = fixture.CreateContext();
+        return await db.Transactions.AsNoTracking()
+            .CountAsync(t => t.OwnerId == s.Owner && (t.BudgetItemId == s.Line.Id || t.Splits.Any(x => x.BudgetItemId == s.Line.Id)));
+    }
+
+    [Fact]
+    public async Task A_payment_on_a_jars_line_waits_for_the_jars_move_and_is_then_refused_from_the_old_account()
+    {
+        var s = await SeedLineAsync();
+
+        var error = await RunAgainstHeldLockAsync(new[] { s.A.Id, s.B.Id },
+            db => new CreateTransactionCommandHandler(db, new CurrentUserStub(s.Owner)).Handle(
+                new CreateTransactionCommand(Today, "Hotel", 30m, TransactionType.Expense, s.Line.Id, s.A.Id), Ct),
+            racing: db => MoveToBAsync(db, s));
+
+        Errors(error).Should().Contain("Record this payment from B");
+        (await PaymentsOnTheLineAsync(s)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Assigning_a_payment_to_a_jars_line_waits_for_the_jars_move_and_is_then_refused()
+    {
+        var s = await SeedLineAsync();
+
+        var error = await RunAgainstHeldLockAsync(new[] { s.A.Id, s.B.Id },
+            db => new AssignTransactionCommandHandler(db, new CurrentUserStub(s.Owner)).Handle(
+                new AssignTransactionCommand(s.Unassigned.Id, s.Line.Id), Ct),
+            racing: db => MoveToBAsync(db, s));
+
+        Errors(error).Should().Contain("Record this payment from B");
+        (await PaymentsOnTheLineAsync(s)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Splitting_a_payment_onto_a_jars_line_waits_for_the_jars_move_and_is_then_refused()
+    {
+        var s = await SeedLineAsync();
+
+        var error = await RunAgainstHeldLockAsync(new[] { s.A.Id, s.B.Id },
+            db => new SplitTransactionCommandHandler(db, new CurrentUserStub(s.Owner)).Handle(
+                new SplitTransactionCommand(s.Unassigned.Id, new[]
+                {
+                    new SplitAllocationInput(s.Line.Id, 20m),
+                    new SplitAllocationInput(s.Groceries.Id, 10m),
+                }), Ct),
+            racing: db => MoveToBAsync(db, s));
+
+        error.Should().BeOfType<ValidationException>(Errors(error));
+        (await PaymentsOnTheLineAsync(s)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Editing_a_transfer_waits_for_its_accounts_lock_before_reading_its_draw()
+    {
+        // #300 review P3-3: the draw an edit compares with is read under the lock.
+        var owner = NewOwner();
+        var a = await SeedAccountAsync(owner, "Everyday", 1000m, AccountType.Current);
+        var b = await SeedAccountAsync(owner, "Savings", 0m);
+        Guid transferId;
+        await using (var seed = fixture.CreateContext())
+        {
+            transferId = (await new CreateTransferCommandHandler(seed, new CurrentUserStub(owner)).Handle(
+                new CreateTransferCommand(new DateOnly(2026, 1, 15), 100m, a.Id, b.Id), Ct)).Id;
+        }
+
+        var error = await RunAgainstHeldLockAsync(new[] { a.Id },
+            db => new UpdateTransferCommandHandler(db, new CurrentUserStub(owner)).Handle(
+                new UpdateTransferCommand(transferId, a.Id, b.Id, 120m, new DateOnly(2026, 1, 15), null), Ct));
+
+        error.Should().BeNull();
+        await using var verify = fixture.CreateContext();
+        (await verify.Transactions.AsNoTracking().SingleAsync(t => t.Id == transferId)).Amount.Should().Be(120m);
     }
 }

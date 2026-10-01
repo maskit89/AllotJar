@@ -342,6 +342,7 @@ Merged where tests differed only in their inputs: `RemainingToBudgetTests` (seve
 
 - **New, `JarFutureEntriesTests` (7, unit):** archiving or moving a jar with a payment on its line dated tomorrow is refused naming the date (both fail on `main`); a payment on the line dated today still reads as today's overdraft, and one from another account does not hold the move (controls); an import confirming the departure of a transfer that came back, or carrying its return row, lets a later row take the returned money (both fail on `main`), but not more than the return gave back (fails on `main`, where the message read "holds 0").
 - **New, `LedgerLockSqlTests` (10, SQL Server):** one racing writer holds an account's ledger lock while the real handler runs on another connection; the handler must wait, then judge the committed state. Archive, a reallocation into a jar being archived, Complete, a jar's change of account (old account), deleting a transfer (destination), confirming a receipt (destination), moving an income to another account (the account it leaves), lowering an opening balance, and two departure backfills started together (each fails on `main`); a jar's change of account waiting on the new account (passes on `main` through P55's lock; kept as a guard).
+- **Review round 1, `LedgerLockSqlTests` (4 more):** a payment, an assignment and a split onto a jar's line racing the jar's move are refused from the old account (each fails on `17bf63f`); editing a transfer waits for its accounts' lock (a guard).
 
 ## Execution and completion criteria
 

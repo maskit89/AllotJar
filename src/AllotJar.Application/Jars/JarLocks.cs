@@ -29,10 +29,15 @@ public static class JarLocks
             var accountId = await HeldInAsync(db, jarId, cancellationToken);
             var ids = alsoAccountId is Guid other ? new[] { accountId, other } : new[] { accountId };
             var write = await db.BeginLedgerWriteAsync(ids, cancellationToken);
-            if (write is not null && attempt < 3 && await HeldInAsync(db, jarId, cancellationToken) != accountId)
+            if (write is not null && await HeldInAsync(db, jarId, cancellationToken) != accountId)
             {
                 await write.DisposeAsync();
-                continue;
+                if (attempt < 3)
+                {
+                    continue;
+                }
+                // Never carry on under the wrong account's lock (#300 review P3-2).
+                throw JarAccounts.Validation("Id", "This jar was moved to another account while it was being changed. Try again.");
             }
             try
             {

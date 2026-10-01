@@ -944,3 +944,12 @@ Christopher confirmed on 30 September that the first handwritten note means the 
 **Deploy.** No migration, no data change. Writes take a few more row locks than before (one more account on transfers, deletes and confirmations), always in id order.
 
 **Validation (this machine: .NET SDK 10.0, SQL Server 2022 in Docker).** Unit suite **1356 passed** (1349 on `main`: 7 new in `JarFutureEntriesTests`, 5 of which fail on `main`). SQL integration suite **106 passed** (96 on `main`: 10 new in `LedgerLockSqlTests`, 9 of which fail on `main`; the tenth, moving a jar while the new account is locked, already waited on `main` through P55's lock and is kept as a guard). Build 0 warnings. No client file changed.
+
+**Review round 1** (on `17bf63f`, write-up in the project's `reviews/pr-300/`): no P1, one P2 and three P3s.
+- **(P2-1) A payment on a jar's line checked which account holds the jar before taking that account's lock.** A move committing in between let the payment save from the old account on the jar's line, drawing nothing from the jar (JL-P2-1's end state). `CreateTransaction`, `AssignTransaction` and `SplitTransaction` now take the lock before the line or slices are validated (the reviewer's proposed fix), and `LinkRefund` takes its account's lock before it validates a chosen line, which had the same order.
+- **(P3-2)** `JarLocks.LoadLockedAsync` now refuses ("try again") instead of carrying on under the wrong account's lock when the jar keeps moving.
+- **(P3-3)** `UpdateTransfer` now locks every account the edit can touch before it reads the transfer and its previous draw, and refuses if the transfer's accounts changed meanwhile.
+- Validation: unit suite **1356 passed**; SQL integration suite **110 passed** (4 new: a payment, an assignment and a split racing the jar's move, all three failing without the fix, and a transfer edit waiting for its lock, kept as a guard). Main merged in (#296, client tests only).
+
+**Follow-ups (not in this change).** (Review P3-1, a question for Christopher) A payment entered on an archived jar's line after the archive is accepted and overdraws the archived jar (−30 in the review's probe). It predates this PR: rule 26 covers the archive itself, and P40 keeps the current month's line. Should such a payment be refused (record it on another line), or allowed as rule 5 lets a payment overdraw a jar?
+
