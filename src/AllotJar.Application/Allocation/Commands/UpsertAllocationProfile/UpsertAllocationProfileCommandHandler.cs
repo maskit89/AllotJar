@@ -85,6 +85,8 @@ public class UpsertAllocationProfileCommandHandler
             {
                 throw new ForbiddenAccessException();
             }
+            // Its rules are part of the profile's version: replacing them moves it (D11).
+            _db.ExpectVersion(profile, request.Version);
 
             profile.Name = request.Name.Trim();
             profile.SourceAccountId = sourceAccountId;

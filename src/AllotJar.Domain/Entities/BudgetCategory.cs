@@ -8,8 +8,11 @@ namespace AllotJar.Domain.Entities;
 /// (e.g. "Housing", "Transport"); an <see cref="CategoryKind.Income"/> group sits
 /// at the top and holds the user's income sources.
 /// </summary>
-public class BudgetCategory : BaseEntity
+public class BudgetCategory : BaseEntity, IVersioned
 {
+    /// <inheritdoc />
+    public byte[] Version { get; set; } = [];
+
     public Guid BudgetMonthId { get; set; }
     public BudgetMonth BudgetMonth { get; set; } = null!;
 

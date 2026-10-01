@@ -2,11 +2,14 @@ using System.Reflection;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage;
 using AllotJar.Application.Accounts;
+using AllotJar.Application.Common;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars;
+using AllotJar.Domain.Common;
 using AllotJar.Domain.Entities;
 using AllotJar.Infrastructure.Identity;
 
@@ -103,6 +106,13 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
         // Then all IEntityTypeConfiguration<T> definitions in this assembly.
         builder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
 
+        // The records an edit form saves back whole carry a row version (D11): every UPDATE of
+        // one checks it, so a write made from a stale read is refused instead of winning silently.
+        foreach (var type in builder.Model.GetEntityTypes().Where(t => typeof(IVersioned).IsAssignableFrom(t.ClrType)).ToList())
+        {
+            builder.Entity(type.ClrType).Property(nameof(IVersioned.Version)).IsRowVersion();
+        }
+
         // Private accounts (P53): another login's private account is not there at all.
         builder.Entity<Account>().HasQueryFilter(a =>
             ViewerId == null
@@ -124,6 +134,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         GuardPrivateAccountsAsync(CancellationToken.None).GetAwaiter().GetResult();
+        TouchEditedRecords();
         using var held = HoldJarAccountsAsync(CancellationToken.None).GetAwaiter().GetResult();
         var saved = base.SaveChanges(acceptAllChangesOnSuccess);
         held?.Commit();
@@ -133,6 +144,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         await GuardPrivateAccountsAsync(cancellationToken);
+        TouchEditedRecords();
         await using var held = await HoldJarAccountsAsync(cancellationToken);
         var saved = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
         if (held is not null)
@@ -299,6 +311,44 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
 
     /// <inheritdoc />
     public void AllowErasing(Guid accountId) => _erasing.Add(accountId);
+
+    private readonly List<IVersioned> _edited = new();
+
+    /// <inheritdoc />
+    public void ExpectVersion(IVersioned record, string? version)
+    {
+        // The tracked record's version is the original value EF checks in the UPDATE, so a stale
+        // form is refused here and a change committed between this read and the save is refused by
+        // the UPDATE itself (DbUpdateConcurrencyException).
+        EditVersions.Ensure(record, version);
+        _edited.Add(record);
+    }
+
+    /// <summary>
+    /// An edited record whose own row this save leaves unchanged while it writes something else
+    /// (only its rules, or its jar split, changed) is written back as it is, so its version moves.
+    /// It changes no value, so it runs after the private-account guard, which judges the real changes.
+    /// </summary>
+    private void TouchEditedRecords()
+    {
+        if (_edited.Count == 0 || !ChangeTracker.HasChanges())
+        {
+            return;
+        }
+        foreach (var record in _edited)
+        {
+            var entry = Entry(record);
+            if (entry.State != EntityState.Unchanged)
+            {
+                continue;
+            }
+            var column = entry.Properties.First(p => !p.Metadata.IsPrimaryKey()
+                                                     && !p.Metadata.IsConcurrencyToken
+                                                     && !p.Metadata.IsForeignKey()
+                                                     && p.Metadata.ValueGenerated == ValueGenerated.Never);
+            column.IsModified = true;
+        }
+    }
 
     private async Task GuardPrivateAccountsAsync(CancellationToken cancellationToken)
     {

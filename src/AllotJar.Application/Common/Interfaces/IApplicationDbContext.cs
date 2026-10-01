@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Domain.Common;
 using AllotJar.Domain.Entities;
 
 namespace AllotJar.Application.Common.Interfaces;
@@ -39,6 +40,15 @@ public interface IApplicationDbContext
     /// that no login in the household can see the account.
     /// </summary>
     void AllowErasing(Guid accountId);
+
+    /// <summary>
+    /// An edit form's save of <paramref name="record"/> (D11): refuses it (<see cref="Exceptions.EditConflictException"/>)
+    /// when the tracked record is no longer the <paramref name="version"/> the form loaded, and makes
+    /// the record's version move with this save even when only the rows under it change (a profile's
+    /// rules, an income's jar split), so the next stale form is refused too. Call it on the tracked
+    /// entity that is actually saved. A null version (a client from before the deploy) is no check.
+    /// </summary>
+    void ExpectVersion(IVersioned record, string? version);
 
     /// <summary>
     /// Begins a serialised write on <paramref name="accountId"/>'s ledger (see <see cref="ILedgerWrite"/>).

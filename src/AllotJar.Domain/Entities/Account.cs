@@ -11,8 +11,11 @@ namespace AllotJar.Domain.Entities;
 /// subtracts), so the transaction register stays the single source of truth. This is
 /// a "where my money is" view alongside the budget, not part of the zero-based plan.
 /// </summary>
-public class Account : BaseEntity
+public class Account : BaseEntity, IVersioned
 {
+    /// <inheritdoc />
+    public byte[] Version { get; set; } = [];
+
     /// <summary>Identity user id that owns this account.</summary>
     public string OwnerId { get; set; } = string.Empty;
 

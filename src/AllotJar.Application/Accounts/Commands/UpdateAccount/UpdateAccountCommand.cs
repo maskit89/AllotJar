@@ -21,4 +21,7 @@ public record UpdateAccountCommand(
     string? Bic = null,
     string? SortCode = null,
     string? AccountNumber = null,
-    IReadOnlyList<Guid>? HolderIds = null) : IRequest<AccountDto>;
+    IReadOnlyList<Guid>? HolderIds = null,
+    // The version the edit form loaded (D11): a save of a record changed since is refused. Null is
+    // no check, for a client loaded before the deploy that added versions.
+    string? Version = null) : IRequest<AccountDto>;

@@ -40,6 +40,7 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
             throw new ForbiddenAccessException();
         }
         MoneyInput.EnsureAccepted((nameof(request.OpeningBalance), request.OpeningBalance, account.OpeningBalance));
+        _db.ExpectVersion(account, request.Version);
 
         // The validators enforce both; a bypassing caller must still not create a credit-card
         // account (rule 75) or a negative opening (rule 74).

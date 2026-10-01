@@ -1,3 +1,4 @@
+using AllotJar.Application.Common;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 
@@ -6,6 +7,10 @@ namespace AllotJar.Application.Accounts.Dtos;
 public class AccountDto
 {
     public Guid Id { get; set; }
+
+    /// <summary>The row version the edit form sends back with its save (D11); null where the store keeps none.</summary>
+    public string? Version { get; set; }
+
     public string Name { get; set; } = string.Empty;
 
     /// <summary>The account kind (Current/Savings/Cash/Other; credit cards are not accounts, rule 75) as its numeric enum value.</summary>
@@ -86,6 +91,7 @@ public static class AccountMapping
     public static AccountDto ToDto(this Account a, AccountLedgerView ledger) => new()
     {
         Id = a.Id,
+        Version = EditVersions.Of(a),
         Name = a.Name,
         Type = a.Type,
         Currency = a.Currency.Value,

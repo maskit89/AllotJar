@@ -30,6 +30,10 @@ public class BudgetMonthDto
 public class BudgetCategoryDto
 {
     public Guid Id { get; set; }
+
+    /// <summary>The row version the edit form sends back with its save (D11); null where the store keeps none.</summary>
+    public string? Version { get; set; }
+
     public string Name { get; set; } = string.Empty;
 
     /// <summary>"Income", "Expense" or "Savings" — drives where/how the group renders.</summary>
@@ -52,6 +56,10 @@ public class BudgetCategoryDto
 public class BudgetItemDto
 {
     public Guid Id { get; set; }
+
+    /// <summary>The row version the edit form sends back with its save (D11); null where the store keeps none.</summary>
+    public string? Version { get; set; }
+
     public string Name { get; set; } = string.Empty;
     public int DisplayOrder { get; set; }
     public decimal PlannedAmount { get; set; }

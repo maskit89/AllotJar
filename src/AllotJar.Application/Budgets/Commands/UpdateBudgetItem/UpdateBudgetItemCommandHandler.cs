@@ -45,6 +45,7 @@ public class UpdateBudgetItemCommandHandler : IRequestHandler<UpdateBudgetItemCo
             throw new ForbiddenAccessException();
         }
         MoneyInput.EnsureAccepted((nameof(request.PlannedAmount), request.PlannedAmount, item.PlannedAmount));
+        _db.ExpectVersion(item, request.Version);
 
         var jar = item.SavingsId is { } jarId
             ? await _db.Jars.FirstOrDefaultAsync(j => j.Id == jarId && j.OwnerId == userId, cancellationToken)

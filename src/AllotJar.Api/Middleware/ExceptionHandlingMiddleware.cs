@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
+using AllotJar.Domain.Common;
 
 namespace AllotJar.Api.Middleware;
 
@@ -42,12 +43,21 @@ public class ExceptionHandlingMiddleware
         {
             await WriteProblem(context, StatusCodes.Status422UnprocessableEntity, ex.Message);
         }
-        catch (DbUpdateConcurrencyException)
+        catch (EditConflictException ex)
+        {
+            // An edit form saved a record someone else changed after it loaded (D11).
+            await WriteProblem(context, StatusCodes.Status409Conflict, ex.Message);
+        }
+        catch (DbUpdateConcurrencyException ex)
         {
             // Two writes changed the same ledger row at once (a jar's departure, P3-9): the
             // second is refused rather than overwriting the first, and can simply be made again.
+            // A versioned record changed between this request's read and its save reads as the
+            // edit conflict it is (D11).
             await WriteProblem(context, StatusCodes.Status409Conflict,
-                "Something else changed this at the same moment. Reload and try again.");
+                ex.Entries.Any(e => e.Entity is IVersioned)
+                    ? EditConflictException.Reason
+                    : "Something else changed this at the same moment. Reload and try again.");
         }
         catch (DbUpdateException ex) when (IsJarCycleCollision(ex))
         {

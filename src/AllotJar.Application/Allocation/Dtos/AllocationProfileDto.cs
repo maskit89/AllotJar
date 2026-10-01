@@ -1,3 +1,4 @@
+using AllotJar.Application.Common;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 
@@ -6,6 +7,10 @@ namespace AllotJar.Application.Allocation.Dtos;
 public class AllocationProfileDto
 {
     public Guid Id { get; set; }
+
+    /// <summary>The row version the edit form sends back with its save (D11); null where the store keeps none.</summary>
+    public string? Version { get; set; }
+
     public string Name { get; set; } = string.Empty;
     /// <summary>The account the allocation pays out of; null when <see cref="SourcePrivate"/> (P53).</summary>
     public Guid? SourceAccountId { get; set; }
@@ -37,6 +42,7 @@ public static class AllocationProfileMapping
     public static AllocationProfileDto ToDto(this AllocationProfile p, bool sourceHidden) => new()
     {
         Id = p.Id,
+        Version = EditVersions.Of(p),
         Name = p.Name,
         SourceAccountId = sourceHidden ? null : p.SourceAccountId,
         SourcePrivate = sourceHidden,

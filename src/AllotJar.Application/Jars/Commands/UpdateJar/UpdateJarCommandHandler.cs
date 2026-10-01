@@ -44,6 +44,8 @@ public class UpdateJarCommandHandler
         MoneyInput.EnsureAccepted(
             (nameof(request.TargetAmount), request.TargetAmount, jar.TargetAmount),
             (nameof(request.MonthlyContribution), request.MonthlyContribution, jar.MonthlyContribution));
+        // On the jar as loaded under the lock: that is the entity this save writes (D11).
+        _db.ExpectVersion(jar, request.Version);
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         // A funded cycle whose deadline has arrived rolls forward before the edit is compared

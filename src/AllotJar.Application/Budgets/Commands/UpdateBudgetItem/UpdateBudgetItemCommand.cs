@@ -11,4 +11,7 @@ namespace AllotJar.Application.Budgets.Commands.UpdateBudgetItem;
 public record UpdateBudgetItemCommand(
     Guid BudgetItemId,
     decimal PlannedAmount,
-    string? Name = null) : IRequest<BudgetMonthDto>;
+    string? Name = null,
+    // The version the edit form loaded (D11): a save of a record changed since is refused. Null is
+    // no check, for a client loaded before the deploy that added versions.
+    string? Version = null) : IRequest<BudgetMonthDto>;

@@ -109,7 +109,7 @@ public class BudgetController : ControllerBase
         CancellationToken ct)
     {
         var result = await _mediator.Send(
-            new UpdateBudgetItemCommand(id, request.PlannedAmount, request.Name), ct);
+            new UpdateBudgetItemCommand(id, request.PlannedAmount, request.Name, request.Version), ct);
         return Ok(result);
     }
 
@@ -155,7 +155,7 @@ public class BudgetController : ControllerBase
         RenameBudgetCategoryRequest request,
         CancellationToken ct)
     {
-        var result = await _mediator.Send(new RenameBudgetCategoryCommand(id, request.Name), ct);
+        var result = await _mediator.Send(new RenameBudgetCategoryCommand(id, request.Name, request.Version), ct);
         return Ok(result);
     }
 
@@ -302,7 +302,8 @@ public class BudgetController : ControllerBase
 public record CreateBudgetMonthRequest(int Year, int Month, bool CopyFromPrevious = true, string? TemplateKey = null);
 
 /// <summary>Request body for updating a budget line (the id comes from the route).</summary>
-public record UpdateBudgetItemRequest(decimal PlannedAmount, string? Name = null);
+/// <param name="Version">The version the line was loaded at (D11); null only from a client older than this deploy.</param>
+public record UpdateBudgetItemRequest(decimal PlannedAmount, string? Name = null, string? Version = null);
 
 /// <summary>Request body for adding a budget line (the category id comes from the route).</summary>
 public record AddBudgetItemRequest(string Name, decimal PlannedAmount = 0m, Guid? MemberId = null);
@@ -323,7 +324,8 @@ public record SkipJarContributionRequest(bool Skipped = true);
 public record AddBudgetCategoryRequest(Guid BudgetMonthId, string Name, bool IsSavings = false);
 
 /// <summary>Request body for renaming a category group (the id comes from the route).</summary>
-public record RenameBudgetCategoryRequest(string Name);
+/// <param name="Version">The version the group was loaded at (D11); null only from a client older than this deploy.</param>
+public record RenameBudgetCategoryRequest(string Name, string? Version = null);
 
 /// <summary>Request body for reordering a month's category groups.</summary>
 public record ReorderBudgetCategoriesRequest(Guid BudgetMonthId, IReadOnlyList<Guid> OrderedCategoryIds);
