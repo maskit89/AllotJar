@@ -70,6 +70,10 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
 
         // The line decides which jar a payment from a jar-backed account draws from (rule 79);
         // the stored answer is rewritten for the new line, or cleared back to the default.
+        // Under the account's ledger lock, so the jar it answers can't be archived or moved meanwhile (P11).
+        await using var write = transaction.Account is not null && transaction.Type == TransactionType.Expense
+            ? await _db.BeginLedgerWriteAsync(transaction.Account.Id, cancellationToken)
+            : null;
         if (transaction.Account is not null && transaction.Type == TransactionType.Expense)
         {
             await JarMovements.ApplyOutgoingAsync(
@@ -77,6 +81,10 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
 
         return await TransactionReads.ReadDtoAsync(_db, transaction.Id, cancellationToken);
     }

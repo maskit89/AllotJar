@@ -37,6 +37,11 @@ public class ReallocateJarMoneyCommandHandler : IRequestHandler<ReallocateJarMon
             throw JarAccounts.Validation("Date", $"{account.Name} opens on {opening:yyyy-MM-dd}; money cannot be moved before that.");
         }
 
+        // The account's ledger lock comes before the jars are read (P11): archiving a jar or moving
+        // it to another account takes the same lock, so neither can slip in between these checks
+        // and the posting (JL-P2-5).
+        await using var write = await _db.BeginLedgerWriteAsync(account.Id, cancellationToken);
+
         // Both sides must be this account's jars (rule 6). The destination must be active; the
         // source may be archived only in the sense that an archived jar holds nothing (rule 26).
         var source = await JarOnAccountAsync(request.SourceJarId, account.Id, userId, "SourceJarId", cancellationToken);
@@ -53,7 +58,6 @@ public class ReallocateJarMoneyCommandHandler : IRequestHandler<ReallocateJarMon
             throw JarAccounts.Validation("DestinationJarId", $"{destination.Name} is archived. Restore it before moving money into it.");
         }
 
-        await using var write = await _db.BeginLedgerWriteAsync(account.Id, cancellationToken);
         var ledger = await JarLedgerReader.LoadAsync(_db, userId, cancellationToken, new[] { account.Id });
         if (ledger.ViewAt(account.Id, date) is not { IsAvailable: true } view)
         {

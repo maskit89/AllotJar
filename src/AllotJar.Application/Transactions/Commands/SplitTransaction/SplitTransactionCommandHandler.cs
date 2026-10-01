@@ -98,6 +98,10 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
 
         // Each slice's line decides the jar it draws from (rule 79); the stored answer for the
         // non-jar slices is rewritten with the new split.
+        // Under the account's ledger lock, so the jar it answers can't be archived or moved meanwhile (P11).
+        await using var write = transaction.Account is not null && transaction.Type == TransactionType.Expense
+            ? await _db.BeginLedgerWriteAsync(transaction.Account.Id, cancellationToken)
+            : null;
         if (transaction.Account is not null && transaction.Type == TransactionType.Expense)
         {
             await JarMovements.ApplyOutgoingAsync(
@@ -105,6 +109,10 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
 
         // Re-read with line, member and jar names so the DTO carries each slice's "assigned to".
         return await TransactionReads.ReadDtoAsync(_db, transaction.Id, cancellationToken);

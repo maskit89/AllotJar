@@ -195,6 +195,34 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             }
             earlierChanges.Add(new JarLedgerChange(date, isCredit ? amount : -amount, postings));
         }
+        // A returned transfer's money back in the statement account, as the ledger will read it
+        // once saved: the return leg into unallocated funds on its date, then the jars its return
+        // operations refill. Recorded for a transfer the stored ledger is read without (a row
+        // confirmed its departure) or whose return a row only now confirms, so a later row taking
+        // from the refilled jar is judged with the money back (#297 review R3-P3-1).
+        var returnChanges = new Dictionary<Guid, List<JarLedgerChange>>();
+        async Task RecordReturnAsync(Transaction transfer)
+        {
+            if (returnChanges.Remove(transfer.Id, out var stale))
+            {
+                earlierChanges.RemoveAll(c => stale.Any(x => ReferenceEquals(x, c)));
+            }
+            if (importAccount is null || transfer.ReturnedOn is not DateOnly returnedOn || transfer.AccountId != importAccount.Id)
+            {
+                return;
+            }
+            var changes = new List<JarLedgerChange>
+            {
+                new(returnedOn, transfer.Amount, new[] { new JarLedgerPosting(null, transfer.Amount) }),
+            };
+            changes.AddRange((await TransferReturns.OperationsAsync(_db, transfer.Id, cancellationToken))
+                // As the reader counts them: one dated after the return is set aside.
+                .Where(op => op.AccountId == importAccount.Id && op.Date <= returnedOn)
+                .Select(op => new JarLedgerChange(op.Date, 0m,
+                    op.Postings.Select(p => new JarLedgerPosting(p.JarId, p.Amount)).ToList())));
+            returnChanges[transfer.Id] = changes;
+            earlierChanges.AddRange(changes);
+        }
 
         // Rule 74/11: the statement account is evaluated row by row in date order, against its
         // stored money plus the rows accepted so far. A row that would take it below zero on any
@@ -312,6 +340,10 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 // The jars the money left get it back, as they stand now (P72); a return already
                 // marked by hand keeps the decision it was recorded with and takes the bank's date.
                 await TransferReturns.SyncAsync(_db, target, importAccount!.Id, returnBasis, cancellationToken);
+                if (previousReturned is null || confirmedTransferIds.Contains(target.Id))
+                {
+                    await RecordReturnAsync(target);
+                }
                 returned++;
                 continue;
             }
@@ -501,6 +533,11 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     var keptJar = item.IsCredit ? null : item.PaidFromJarId ?? await DepartureJarAsync(target.Id, importAccount.Id, cancellationToken);
                     await RecordChangeAsync(item.Date, item.Amount, item.IsCredit, keptJar, keptAnswer);
                     confirmedTransferIds.Add(target.Id);
+                    if (!item.IsCredit)
+                    {
+                        // The stored ledger is now read without this transfer, its return included.
+                        await RecordReturnAsync(target);
+                    }
                     matched++;
                     transfers++;
                     continue;

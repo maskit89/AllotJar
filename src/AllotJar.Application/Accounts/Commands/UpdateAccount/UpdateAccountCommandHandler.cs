@@ -23,6 +23,9 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
+        // The account's ledger lock comes first (P11): the jar and rule 74 checks below read its
+        // money, and a payment or reallocation racing the edit must wait and then see it (JL-P2-6).
+        await using var write = await _db.BeginLedgerWriteAsync(request.Id, cancellationToken);
         var account = await _db.Accounts
             .Include(a => a.Holders)
             .FirstOrDefaultAsync(a => a.Id == request.Id, cancellationToken);
@@ -86,6 +89,10 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
             _db, new[] { account }, Array.Empty<Domain.Entities.Transaction>(), Array.Empty<Guid>(), "OpeningBalance", cancellationToken);
 
         await _db.SaveChangesAsync(cancellationToken);
+        if (write is not null)
+        {
+            await write.CommitAsync(cancellationToken);
+        }
 
         var asOf = DateOnly.FromDateTime(DateTime.UtcNow);
         var views = await AccountLedgerReader.ReadAsync(_db, userId, new[] { account }, asOf, cancellationToken);
