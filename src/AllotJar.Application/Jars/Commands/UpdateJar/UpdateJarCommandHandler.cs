@@ -106,6 +106,23 @@ public class UpdateJarCommandHandler
         // A Recurring jar's form shows its open cycle's date: sent back unchanged it keeps the
         // anchor and the cycle; any other date is a deliberate change and restarts both (W03).
         var (anchor, cycleDeadline) = JarCycles.DeadlinesFor(jar, request.Kind, request.TargetDate);
+        if (jar is { Kind: JarKind.Recurring, IsArchived: false, CycleDeadline: { } open } && open <= today && cycleDeadline != open)
+        {
+            // The open cycle is in Deadline missed (the settle above rolled it forward otherwise),
+            // and the edit replaces it: it is recorded as Missed first, so the history keeps it
+            // (rule 20, D15), its balance read the day before the deadline as the rollover reads it.
+            _db.JarCycles.Add(new JarCycle
+            {
+                OwnerId = userId,
+                JarId = jar.Id,
+                Deadline = open,
+                TargetAmount = jar.TargetAmount,
+                Outcome = JarCycleOutcome.Missed,
+                BalanceAtDeadline = ledger.At(open.AddDays(-1)).BalanceOf(jar.Id),
+                ClosedOn = today,
+                CreatedUtc = DateTime.UtcNow,
+            });
+        }
         jar.Name = request.Name.Trim();
         jar.Kind = request.Kind;
         jar.TargetAmount = request.TargetAmount;
