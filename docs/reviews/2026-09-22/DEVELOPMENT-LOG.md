@@ -1059,6 +1059,8 @@ Christopher confirmed on 30 September that the first handwritten note means the 
 
 **Left out (still on the open list).** S-P3-4 (answer 404 rather than 403 for another household's id) touches about 50 handlers and their tests for little gain, since ids are GUIDs. S-P3-6 (reset and confirmation tokens in the link's fragment) changes the email links, the two pages and about 15 tests that read the links. MG-P3-1 (backfill saved per household) would change deploy-time code that has nothing to do in production. The live Cloudflare list (#298 P3-3) would add a network call at start-up. Each is better as its own small PR if wanted.
 
+**Follow-ups (not in this change).** (#302 review P2-1, accepted by Christopher on 1 October: "Accept") A renewal whose answer is lost on the way back (the server rotated the cookie, the browser never got the new one), followed more than 30 seconds later by the browser's replay of the old cookie, meets the theft response and signs out every device. Rotating and answering together (above) closes the server-error half; the lost answer would need a longer grace for an unused replacement, a security trade-off he chose not to make.
+
 **Tests.** `FollowUpsF2Tests` (4: the card estimate, the split counted, the DTD refused, expired tokens pruned), all failing on `main`; `LoginTests` (+2: the role in the chosen household, and in the login's own when none is chosen); `FollowUpsF2SqlTests` (1: the second close recognised as a collision).
 
 **Validation (this machine: .NET SDK 10.0, SQL Server 2022 in Docker).** From `main` at `0bae18b` (#301): `dotnet build` 0 warnings; unit suite **1401 passed**; SQL integration suite **124 passed**.
