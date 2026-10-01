@@ -920,6 +920,6 @@ Christopher confirmed on 30 September that the first handwritten note means the 
 
 **Tests.** `TransferImportIdentityTests` (12; 11 fail on `main`, the identical-rows one records a guard that holds), `ImportPage.rowKeys.test.tsx` (4; all fail on `main`). IMP-088a/b now assert the content reference and the re-import skip; `ParserToleranceTests` adds a differing repeat that keeps the raw reference. Docs: IMP-088 and the import map.
 
-**Deploy.** Rows imported from a camt.053 statement before this without a reference were stored with `BankReference = NULL`; the next import of a statement showing them offers them once more (unticked when the possible-duplicate hint finds them). `reviews/pr-N/pre-deploy-checks.sql` (read only) lists such candidates (Q1), legacy `#N` rows (Q2, information) and refunds linked to a fee (Q3); Q1 and Q3 must be empty for there to be nothing to decide.
+**Deploy.** Rows imported from a camt.053 statement before this without a reference were stored with `BankReference = NULL`; the next import of a statement showing them offers them once more (unticked when the possible-duplicate hint finds them). `reviews/pr-299/pre-deploy-checks.sql` (project files) (read only) lists such candidates (Q1), legacy `#N` rows (Q2, information) and refunds linked to a fee (Q3); Q1 and Q3 must be empty for there to be nothing to decide.
 
 **Not in this change.** TX-P3-1 (a row moved to another account by hand is offered again by its statement) stays a follow-up.
