@@ -27,6 +27,7 @@ import {
   type MemberIncomeResultDto,
   type MemberSpendingDto,
   type MembershipDto,
+  type ResendResultDto,
   type PocketMoneyMonthDto,
 } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
@@ -143,6 +144,8 @@ export function PeoplePage() {
   const [invited, setInvited] = useState<{ email: string; method: 'direct' | 'link'; emailSent: boolean } | null>(null)
 
   const canAccess = features.householdAccess && canManageHousehold
+  // "Send again" (D7): the row whose email just went out again, or failed to.
+  const [resent, setResent] = useState<{ id: string; emailSent: boolean } | null>(null)
 
   // The month on screen now. A save's reload reads this month, not the one the save started on,
   // and an answer for a month the user has since left is dropped (CL-P2-3): the new month's own
@@ -456,6 +459,22 @@ export function PeoplePage() {
     [reloadAll],
   )
 
+  // "Send again" for a pending invite (a fresh link; the earlier one stops working) or a login
+  // still waiting to choose its password (its link again). The server spaces sends a minute apart.
+  const resend = useCallback(async (id: string) => {
+    setSavingId(id)
+    setError(null)
+    setResent(null)
+    try {
+      const { data } = await api.post<ResendResultDto>(`/access/members/${id}/resend`)
+      setResent({ id, emailSent: data?.emailSent !== false })
+    } catch (err) {
+      setError(inviteError(err))
+    } finally {
+      setSavingId(null)
+    }
+  }, [])
+
   const linkLoginToPerson = useCallback(
     async (membershipId: string, memberId: string) => {
       setSavingId(membershipId)
@@ -659,7 +678,15 @@ export function PeoplePage() {
                                       Remove
                                     </button>
                                   )}
+                                  {canAccess && canSendAgain(login) && (
+                                    <SendAgainButton
+                                      onClick={() => resend(login.id)}
+                                      disabled={savingId === login.id}
+                                      label={`Send the email to ${m.name} again`}
+                                    />
+                                  )}
                                 </div>
+                                {resent?.id === login.id && <ResentNote login={login} emailSent={resent.emailSent} />}
                               </div>
                             ) : canAccess ? (
                               <div className="flex flex-wrap items-center gap-2">
@@ -991,8 +1018,8 @@ export function PeoplePage() {
                   </>
                 ) : (
                   <>
-                    We couldn't email <span className="font-medium">{invited.email}</span> their link. Remove the
-                    invite and send it again later.
+                    We couldn't email <span className="font-medium">{invited.email}</span> their link. Use "Send
+                    again" on their row to try once more.
                   </>
                 )}
               </p>
@@ -1043,6 +1070,14 @@ export function PeoplePage() {
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-right">
+                      {canSendAgain(login) && (
+                        <SendAgainButton
+                          onClick={() => resend(login.id)}
+                          disabled={savingId === login.id}
+                          label={`Send the email to ${login.displayName ?? login.email} again`}
+                        />
+                      )}
+                      {resent?.id === login.id && <ResentNote login={login} emailSent={resent.emailSent} />}
                       {!login.isOwner && !login.isSelf && (
                         <button
                           type="button"
@@ -1063,6 +1098,43 @@ export function PeoplePage() {
         </Card>
       )}
     </AppShell>
+  )
+}
+
+/** A pending invite, or a login someone else created that hasn't chosen its password yet (D7). */
+function canSendAgain(login: MembershipDto): boolean {
+  return !login.isOwner && !login.isSelf && (login.status === MembershipStatus.Invited || login.awaitingPassword === true)
+}
+
+function SendAgainButton({ onClick, disabled, label }: { onClick: () => void; disabled: boolean; label: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className="rounded-md px-1.5 py-0.5 text-xs font-medium text-brand-700 hover:bg-brand-50 disabled:opacity-50 dark:text-brand-200"
+    >
+      Send again
+    </button>
+  )
+}
+
+function ResentNote({ login, emailSent }: { login: MembershipDto; emailSent: boolean }) {
+  if (!emailSent) {
+    return (
+      <p role="alert" className="mt-1 text-xs text-amber-700 dark:text-amber-200">
+        We couldn't email {login.email} just now
+        {login.status === MembershipStatus.Invited ? ', and the earlier link no longer works' : ''}. Try again later.
+      </p>
+    )
+  }
+  return (
+    <p role="status" className="mt-1 text-xs text-brand-700 dark:text-brand-200">
+      {login.status === MembershipStatus.Invited
+        ? `We've emailed ${login.email} a new link. The earlier one no longer works.`
+        : `We've emailed ${login.email} their link to choose a password again.`}
+    </p>
   )
 }
 

@@ -8,6 +8,7 @@ import { useHousehold } from '../features/HouseholdContext'
 import { CURRENCY_OPTIONS, NUMBER_FORMAT_OPTIONS } from '../lib/money'
 import { EVENTS, track } from '../analytics'
 import { HOUSEHOLD_ROLE_LABELS } from '../types'
+import { api } from '../lib/api'
 
 export function AccountPage() {
   const {
@@ -43,6 +44,25 @@ export function AccountPage() {
   const [confirmLeave, setConfirmLeave] = useState(false)
   const [leaveBusy, setLeaveBusy] = useState(false)
   const [leaveError, setLeaveError] = useState<string | null>(null)
+  // D4: how many of this login's accounts there are private (null until known). Leaving makes them
+  // reachable by nobody, and the owner may then erase them, so the confirm step says how many.
+  const [leavePrivate, setLeavePrivate] = useState<number | null>(null)
+
+  async function askToLeave() {
+    if (!activeHousehold) return
+    setLeaveError(null)
+    setLeavePrivate(null)
+    setConfirmLeave(true)
+    const ownerId = activeHousehold.ownerId
+    try {
+      const { data } = await api.get<{ privateAccounts: number }>(
+        `/households/leave-preview?ownerId=${encodeURIComponent(ownerId)}`,
+      )
+      if (typeof data?.privateAccounts === 'number') setLeavePrivate(data.privateAccounts)
+    } catch {
+      // The leave itself is refused with the count if this read failed and there are some.
+    }
+  }
 
   async function onStartOwnBudget() {
     setStartError(null)
@@ -61,9 +81,17 @@ export function AccountPage() {
     setLeaveError(null)
     setLeaveBusy(true)
     try {
-      await leaveHousehold(activeHousehold.ownerId)
-    } catch {
-      setLeaveError('Could not leave this household. Please try again.')
+      await leaveHousehold(activeHousehold.ownerId, leavePrivate ?? 0)
+    } catch (err) {
+      const data = axios.isAxiosError(err)
+        ? (err.response?.data as { error?: string; privateAccounts?: number } | undefined)
+        : undefined
+      if (axios.isAxiosError(err) && err.response?.status === 409 && typeof data?.privateAccounts === 'number') {
+        // More private accounts than the warning said (or the count couldn't be read): show it.
+        setLeavePrivate(data.privateAccounts)
+      } else {
+        setLeaveError('Could not leave this household. Please try again.')
+      }
       setLeaveBusy(false)
     }
   }
@@ -257,6 +285,17 @@ export function AccountPage() {
               <ErrorBanner>{leaveError}</ErrorBanner>
             </div>
           )}
+          {confirmLeave && leavePrivate !== null && leavePrivate > 0 && (
+            <div
+              role="alert"
+              className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+            >
+              You keep {leavePrivate} private {leavePrivate === 1 ? 'account' : 'accounts'} in this household. Once you
+              leave, nobody can see {leavePrivate === 1 ? 'it' : 'them'}, and the owner can erase{' '}
+              {leavePrivate === 1 ? 'it' : 'them'} for good. To keep {leavePrivate === 1 ? 'it' : 'them'} visible, share{' '}
+              {leavePrivate === 1 ? 'it' : 'them'} on the Accounts page first.
+            </div>
+          )}
           {confirmLeave ? (
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-medium text-slate-700">Are you sure?</span>
@@ -275,13 +314,7 @@ export function AccountPage() {
               </Button>
             </div>
           ) : (
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setLeaveError(null)
-                setConfirmLeave(true)
-              }}
-            >
+            <Button variant="secondary" onClick={askToLeave}>
               Leave household
             </Button>
           )}

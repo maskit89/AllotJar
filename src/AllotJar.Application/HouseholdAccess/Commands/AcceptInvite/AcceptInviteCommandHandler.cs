@@ -47,6 +47,14 @@ public class AcceptInviteCommandHandler : IRequestHandler<AcceptInviteCommand, A
                 throw Invalid("Email", "This invite was sent to a different email address.");
             }
 
+            // The same address isn't proof of holding it: anyone can register an address they don't
+            // own. Only a login that proved it (the emailed link, or Google) joins, as with a login
+            // someone else created ("Email first", #298; S-P3-3).
+            if (!me.EmailConfirmed)
+            {
+                throw Invalid("Email", EmailNotConfirmed);
+            }
+
             var already = await _db.HouseholdMemberships.AnyAsync(
                 m => m.OwnerId == membership.OwnerId && m.UserId == userId && m.Id != membership.Id,
                 cancellationToken);
@@ -115,6 +123,9 @@ public class AcceptInviteCommandHandler : IRequestHandler<AcceptInviteCommand, A
             membership.DisplayName = displayName;
         }
     }
+
+    public const string EmailNotConfirmed =
+        "Confirm your email first: open the link we emailed you (or sign in with Google), then open this invite again.";
 
     private static ValidationException Invalid(string field, string message) =>
         new(new Dictionary<string, string[]> { [field] = new[] { message } });

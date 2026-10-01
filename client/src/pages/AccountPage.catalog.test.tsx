@@ -69,10 +69,10 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     setMoneyFormat('comma-dot')
   })
 
-  // PREF-005 — Edit first + last name and save; the details card, the user chip and
-  // localStorage['zbb.displayName'] all update immediately (side-effects the existing
-  // test leaves unasserted), and currency/format ride along unchanged in the payload.
-  it('PREF-005: saving a new name updates the details card, the user chip and localStorage', async () => {
+  // PREF-005 — Edit first + last name and save; the details card and the user chip update
+  // immediately (side-effects the existing test leaves unasserted), the name is never kept in
+  // localStorage (D2), and currency/format ride along unchanged in the payload.
+  it('PREF-005: saving a new name updates the details card and the user chip, never localStorage', async () => {
     mockPut.mockResolvedValue({
       data: { firstName: 'Christopher', lastName: 'Borg', displayName: 'Christopher Borg', preferredCurrency: 'EUR', numberFormat: 'comma-dot' },
     })
@@ -110,9 +110,9 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     expect(await screen.findByText(/preferences have been saved/, {}, { timeout: 5000 })).toBeInTheDocument()
 
     // The details card "Name" and the user chip re-render to the recomposed display name
-    // without a reload; localStorage carries it for the next cold load.
+    // without a reload; the next cold load reads it from /auth/me, not from storage.
     await waitFor(() => expect(screen.getAllByText('Christopher Borg').length).toBeGreaterThanOrEqual(1), { timeout: 5000 })
-    expect(localStorage.getItem('zbb.displayName')).toBe('Christopher Borg')
+    expect(localStorage.getItem('zbb.displayName')).toBeNull()
   })
 
   // PREF-012 — The Currency select offers exactly the curated 24-currency list and the

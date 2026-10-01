@@ -29,14 +29,17 @@ public class IdentityService : IIdentityService
     public async Task<UserAccount?> FindByEmailAsync(string email)
     {
         var user = await _userManager.FindByEmailAsync(email);
-        return user is null ? null : new UserAccount(user.Id, user.Email!, user.DisplayName);
+        return user is null ? null : ToAccount(user);
     }
 
     public async Task<UserAccount?> FindByIdAsync(string userId)
     {
         var user = await _userManager.FindByIdAsync(userId);
-        return user is null ? null : new UserAccount(user.Id, user.Email!, user.DisplayName);
+        return user is null ? null : ToAccount(user);
     }
+
+    private static UserAccount ToAccount(ApplicationUser user) =>
+        new(user.Id, user.Email!, user.DisplayName, user.EmailConfirmed, user.MustChangePassword);
 
     public async Task<CurrencyCode?> GetPreferredCurrencyAsync(string userId)
     {

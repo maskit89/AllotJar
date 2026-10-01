@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.HouseholdAccess.Dtos;
+using AllotJar.Domain.Enums;
 
 namespace AllotJar.Application.HouseholdAccess.Commands.LinkMembershipMember;
 
@@ -58,6 +59,12 @@ public class LinkMembershipMemberCommandHandler
         if (request.MemberId is not null && request.MemberId != membership.MemberId && membership.UserId is not null)
         {
             membership.SharingReviewPending = true;
+        }
+        // S-P3-8: the person keeps knowing which login was its own, so a login linked to it later
+        // can't make its accounts private while that one is still in the household.
+        if (request.MemberId != membership.MemberId && membership.Status == MembershipStatus.Active)
+        {
+            await PersonLogin.RecordUnlinkAsync(_db, ownerId, membership.MemberId, membership.UserId, cancellationToken);
         }
         membership.MemberId = request.MemberId;
         await _db.SaveChangesAsync(cancellationToken);

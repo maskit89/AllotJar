@@ -326,6 +326,29 @@ describe('AcceptInvitePage (INV catalog)', () => {
     ).toHaveAttribute('role', 'alert')
   })
 
+  // D3 (S-P3-3) — a signed-in login whose email isn't confirmed can't join yet: the page says how
+  // to confirm it, can send the confirmation email again, and holds the Accept button.
+  it('INV-040b: a signed-in login with an unconfirmed email is asked to confirm it before joining', async () => {
+    mockGetToken.mockReturnValue('jwt')
+    mockGet.mockResolvedValue({
+      data: { role: 0, email: 'sam@x.eu', displayName: 'Sam', households: [], ownerId: null, emailConfirmed: false },
+    })
+    mockPost.mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+
+    renderAt('/accept-invite?code=ABC123')
+
+    expect(
+      await screen.findByText(/Confirm your email first: open the link we emailed you/, {}, { timeout: 5000 }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Accept invite' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Send the confirmation email again' }))
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/auth/resend-verification'), { timeout: 5000 })
+    expect(await screen.findByText("We've sent the confirmation email again.")).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalledWith('/auth/accept-invite', expect.anything())
+  })
+
   // INV-049 — "Not now" dismisses to the dashboard (/) for a signed-in user.
   it('INV-049: "Not now" sends a signed-in user to the dashboard', async () => {
     mockGetToken.mockReturnValue('jwt')

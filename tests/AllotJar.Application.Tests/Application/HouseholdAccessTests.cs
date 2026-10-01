@@ -7,7 +7,9 @@ using AllotJar.Application.HouseholdAccess.Commands.AcceptInvite;
 using AllotJar.Application.HouseholdAccess.Commands.ChangeMemberRole;
 using AllotJar.Application.HouseholdAccess.Commands.InviteMember;
 using AllotJar.Application.HouseholdAccess.Commands.LinkMembershipMember;
+using AllotJar.Application.HouseholdAccess.Commands.ResendInvite;
 using AllotJar.Application.HouseholdAccess.Commands.RevokeMember;
+using AllotJar.Application.HouseholdAccess.Queries.GetMemberships;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.ValueObjects;
 using AllotJar.Domain.Enums;
@@ -64,7 +66,7 @@ public class HouseholdAccessTests
             if (mustChangePassword) MustChangePasswordEmails.Add(email);
             Existing.Add(email);
             var id = "user-" + Guid.NewGuid().ToString("N")[..8];
-            ById[id] = new UserAccount(id, email, displayName);
+            ById[id] = new UserAccount(id, email, displayName, MustChangePassword: mustChangePassword);
             return Task.FromResult(CreateUserResult.Success(id));
         }
 
@@ -355,7 +357,7 @@ public class HouseholdAccessTests
         db.HouseholdMemberships.Add(membership);
         await db.SaveChangesAsync();
         var identity = new FakeIdentity();
-        identity.ById["user-sam"] = new UserAccount("user-sam", "sam@x.com", "Sam"); // already has an account
+        identity.ById["user-sam"] = new UserAccount("user-sam", "sam@x.com", "Sam", EmailConfirmed: true); // already has an account
 
         var handler = new AcceptInviteCommandHandler(db, identity, new CurrentUserStub("user-sam"));
         var result = await handler.Handle(new AcceptInviteCommand(token, null, null), default);
@@ -403,5 +405,103 @@ public class HouseholdAccessTests
         var act = () => handler.Handle(new AcceptInviteCommand(token, "password123", null), default);
 
         await act.Should().ThrowAsync<ValidationException>();
+    }
+
+    // ---- D3: a signed-in accept needs a confirmed email (S-P3-3) -------------------------------
+
+    [Fact]
+    public async Task Accept_invite_by_a_signed_in_user_whose_email_is_not_confirmed_is_refused_and_the_invite_waits()
+    {
+        using var db = NewContext();
+        var (membership, token) = PendingInvite("sam@x.com");
+        db.HouseholdMemberships.Add(membership);
+        await db.SaveChangesAsync();
+        var identity = new FakeIdentity();
+        // Anyone can register sam@x.com without owning it; the address alone proves nothing.
+        identity.ById["user-squat"] = new UserAccount("user-squat", "sam@x.com", "Squat", EmailConfirmed: false);
+
+        var handler = new AcceptInviteCommandHandler(db, identity, new CurrentUserStub("user-squat"));
+        var act = () => handler.Handle(new AcceptInviteCommand(token, null, null), default);
+
+        (await act.Should().ThrowAsync<ValidationException>())
+            .Which.Errors["Email"].Should().Equal(AcceptInviteCommandHandler.EmailNotConfirmed);
+        var saved = await db.HouseholdMemberships.SingleAsync();
+        saved.Status.Should().Be(MembershipStatus.Invited, "the invite still waits for the confirmed login");
+        saved.UserId.Should().BeNull();
+        identity.ActiveHouseholds.Should().BeEmpty();
+    }
+
+    // ---- D7: "Send again" ---------------------------------------------------------------------
+
+    [Fact]
+    public async Task Send_again_on_a_pending_invite_issues_a_new_link_and_the_old_one_stops_working()
+    {
+        using var db = NewContext();
+        db.HouseholdMemberships.Add(Owner());
+        var (membership, oldToken) = PendingInvite("sam@x.com");
+        membership.InviteExpiresUtc = DateTime.UtcNow.AddDays(-1); // even an expired one
+        db.HouseholdMemberships.Add(membership);
+        await db.SaveChangesAsync();
+        var identity = new FakeIdentity();
+
+        var result = await new ResendInviteCommandHandler(db, new CurrentUserStub(OwnerId), identity)
+            .Handle(new ResendInviteCommand(membership.Id), default);
+
+        result.Email.Should().Be("sam@x.com");
+        result.InviteToken.Should().NotBeNullOrEmpty().And.NotBe(oldToken);
+        var saved = await db.HouseholdMemberships.SingleAsync(m => m.Id == membership.Id);
+        saved.InviteTokenHash.Should().Be(InviteToken.Hash(result.InviteToken!));
+        saved.InviteExpiresUtc.Should().BeCloseTo(DateTime.UtcNow.AddDays(7), TimeSpan.FromMinutes(1));
+
+        var accept = new AcceptInviteCommandHandler(db, identity, new AnonymousUserStub());
+        var withOld = () => accept.Handle(new AcceptInviteCommand(oldToken, "password123", null, AcceptedTerms: true), default);
+        await withOld.Should().ThrowAsync<NotFoundException>();
+        var accepted = await accept.Handle(new AcceptInviteCommand(result.InviteToken!, "password123", null, AcceptedTerms: true), default);
+        accepted.CreatedNewLogin.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Send_again_for_a_login_still_on_its_temporary_password_sends_its_password_link_and_nothing_once_chosen()
+    {
+        using var db = NewContext();
+        db.HouseholdMemberships.Add(Owner());
+        var waiting = ActiveLogin("user-wait", "sam@x.com");
+        var done = ActiveLogin("user-done", "riley@x.com");
+        db.HouseholdMemberships.AddRange(waiting, done);
+        await db.SaveChangesAsync();
+        var identity = new FakeIdentity();
+        identity.ById["user-wait"] = new UserAccount("user-wait", "sam@x.com", "Sam", MustChangePassword: true);
+        identity.ById["user-done"] = new UserAccount("user-done", "riley@x.com", "Riley", EmailConfirmed: true);
+        var handler = new ResendInviteCommandHandler(db, new CurrentUserStub(OwnerId), identity);
+
+        var result = await handler.Handle(new ResendInviteCommand(waiting.Id), default);
+        result.Should().Be(new ResendInviteResult("sam@x.com", null));
+
+        var nothing = () => handler.Handle(new ResendInviteCommand(done.Id), default);
+        (await nothing.Should().ThrowAsync<ValidationException>()).Which.Errors.Should().ContainKey("MembershipId");
+        var ownerMembership = await db.HouseholdMemberships.SingleAsync(m => m.UserId == OwnerId);
+        var owners = () => handler.Handle(new ResendInviteCommand(ownerMembership.Id), default);
+        await owners.Should().ThrowAsync<ValidationException>();
+        var elsewhere = () => handler.Handle(new ResendInviteCommand(Guid.NewGuid()), default);
+        await elsewhere.Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
+    public async Task The_owner_sees_which_logins_still_wait_to_choose_their_password()
+    {
+        using var db = NewContext();
+        db.HouseholdMemberships.Add(Owner());
+        db.HouseholdMemberships.AddRange(ActiveLogin("user-wait", "sam@x.com"), ActiveLogin("user-done", "riley@x.com"));
+        await db.SaveChangesAsync();
+        var identity = new FakeIdentity();
+        identity.ById["user-wait"] = new UserAccount("user-wait", "sam@x.com", "Sam", MustChangePassword: true);
+        identity.ById["user-done"] = new UserAccount("user-done", "riley@x.com", "Riley", EmailConfirmed: true);
+
+        var list = await new GetMembershipsQueryHandler(db, new CurrentUserStub(OwnerId), identity)
+            .Handle(new GetMembershipsQuery(), default);
+
+        list.Single(m => m.Email == "sam@x.com").AwaitingPassword.Should().BeTrue();
+        list.Single(m => m.Email == "riley@x.com").AwaitingPassword.Should().BeFalse();
+        list.Single(m => m.IsOwner).AwaitingPassword.Should().BeFalse();
     }
 }

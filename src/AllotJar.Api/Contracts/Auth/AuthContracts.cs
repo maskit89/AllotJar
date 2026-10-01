@@ -124,5 +124,12 @@ public record HouseholdSummary(string OwnerId, string Label, HouseholdRole Role,
 /// <summary>Switches which household the login is acting in (must have access). <c>OwnerId</c> = the target household key.</summary>
 public record SwitchHouseholdRequest(string OwnerId);
 
-/// <summary>Leaves a household the login joined. <c>OwnerId</c> = the household to leave (not the caller's own).</summary>
-public record LeaveHouseholdRequest([Required] string OwnerId);
+/// <summary>
+/// Leaves a household the login joined. <c>OwnerId</c> = the household to leave (not the caller's own).
+/// <c>PrivateAccounts</c> = how many of the caller's private accounts there the leaver was warned
+/// about (S-P3-7); the leave is refused while it holds more than that.
+/// </summary>
+public record LeaveHouseholdRequest([Required] string OwnerId, int PrivateAccounts = 0);
+
+/// <summary>What leaving a household would leave behind: the caller's private accounts there.</summary>
+public record LeavePreviewResponse(int PrivateAccounts);

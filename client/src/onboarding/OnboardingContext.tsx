@@ -88,7 +88,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     emailRef.current = email
     setRecord(r)
     setTourStep(0)
-    setPhase(r.welcomeSeen ? 'idle' : 'welcome')
+    // Not before the login is known (its email keys the record): what it chose couldn't be kept.
+    setPhase(r.welcomeSeen || !email ? 'idle' : 'welcome')
   }, [email])
 
   const persist = useCallback((patch: Partial<OnboardingRecord>) => {
@@ -150,7 +151,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     phase,
     tourStep,
     totalTourSteps: TOUR_STEP_COUNT,
-    checklistVisible: !record.checklistDismissed,
+    checklistVisible: !!email && !record.checklistDismissed,
     startTour,
     nextTourStep,
     prevTourStep,

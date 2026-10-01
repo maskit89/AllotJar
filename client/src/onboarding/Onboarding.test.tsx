@@ -21,9 +21,10 @@ describe('Onboarding', () => {
     mockGet.mockImplementation((url: string) => {
       if (url === '/budget/months') return Promise.resolve({ data: [] })
       if (url === '/transactions') return Promise.resolve({ data: [] })
+      // The signed-in login's email keys the onboarding record; it comes from /auth/me (D2).
+      if (url === '/auth/me') return Promise.resolve({ data: { email: 'me@test.app', role: 0 } })
       return Promise.reject({ response: { status: 404 } }) // current month → none yet
     })
-    localStorage.setItem('zbb.email', 'me@test.app')
   })
 
   it('walks from welcome through the tour to the checklist', async () => {

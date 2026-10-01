@@ -23,7 +23,7 @@ function extractError(err: unknown): string {
  * login (keeping their own budget) and can switch to it.
  */
 export function AcceptInvitePage() {
-  const { acceptInvite, isAuthenticated, email } = useAuth()
+  const { acceptInvite, isAuthenticated, email, emailConfirmed, resendVerification } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const code = params.get('code') ?? ''
@@ -33,6 +33,7 @@ export function AcceptInvitePage() {
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [resent, setResent] = useState(false)
 
   // An existing account must sign in before accepting; bounce through /login and come back here.
   const signInHref = `/login?returnUrl=${encodeURIComponent(`/accept-invite?code=${code}`)}`
@@ -63,6 +64,20 @@ export function AcceptInvitePage() {
       // Full reload so /auth/me picks up the joined household, which the server made active —
       // the accepter lands in the budget they just joined, not back in their own.
       window.location.assign('/?joined=1')
+    } catch (err) {
+      setError(extractError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // A signed-in login joins only once its email is confirmed (the server refuses otherwise, D3).
+  async function resendConfirmation() {
+    setError(null)
+    setBusy(true)
+    try {
+      await resendVerification()
+      setResent(true)
     } catch (err) {
       setError(extractError(err))
     } finally {
@@ -109,12 +124,27 @@ export function AcceptInvitePage() {
                     this household to your account — your own budget stays exactly as it is, and you can switch
                     between them.
                   </p>
+                  {!emailConfirmed && (
+                    <div role="status" className="space-y-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
+                      <p>
+                        Confirm your email first: open the link we emailed you (or sign in with Google), then open
+                        this invite again.
+                      </p>
+                      {resent ? (
+                        <p className="font-medium">We've sent the confirmation email again.</p>
+                      ) : (
+                        <Button type="button" variant="secondary" onClick={resendConfirmation} disabled={busy}>
+                          Send the confirmation email again
+                        </Button>
+                      )}
+                    </div>
+                  )}
                   {error && (
                     <p role="alert" className="text-sm text-rose-600">
                       {error}
                     </p>
                   )}
-                  <Button type="button" onClick={joinExisting} disabled={busy} className="w-full">
+                  <Button type="button" onClick={joinExisting} disabled={busy || !emailConfirmed} className="w-full">
                     {busy ? 'Please wait…' : 'Accept invite'}
                   </Button>
                 </div>

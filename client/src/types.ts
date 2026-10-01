@@ -1168,11 +1168,18 @@ export interface MembershipDto {
   /** True when this row is the current login. */
   isSelf: boolean
   createdUtc: string
+  /** A login someone else created that hasn't chosen its own password yet (told to the owner only). */
+  awaitingPassword?: boolean
 }
 
 /** Returned by an invite: the new membership, and whether its email (the only copy of any link) went out. */
 export interface InviteResultDto {
   membership: MembershipDto
+  emailSent: boolean
+}
+
+/** "Send again" on People: whether the email went out. */
+export interface ResendResultDto {
   emailSent: boolean
 }
 

@@ -340,6 +340,10 @@ export async function mockApi(route: Route) {
   }
   if (path === '/auth/me') return json(meResponse())
   if (path === '/access/members') return json(memberships())
+  // D7: "Send again" on People answers whether the email went out.
+  if (/^\/access\/members\/[^/]+\/resend$/.test(path)) return json({ emailSent: true })
+  // D4: leaving a joined household first asks how many private accounts stay behind.
+  if (path === '/households/leave-preview') return json({ privateAccounts: 0 })
   if (path === '/transactions') return json(transactions())
   // W07: editing a transfer in place answers with the (updated) transfer.
   if (/^\/transactions\/[^/]+\/transfer$/.test(path)) return json(transactions().find((t) => t.id === 't4'))
@@ -420,13 +424,12 @@ export async function mockSignedIn(page: Page, email = 'e2e@allotjar.app') {
   )
 }
 
-/** Sign in as the Owner (refresh session + email + completed onboarding) and stub the API.
+/** Sign in as the Owner (refresh session + completed onboarding) and stub the API.
  *  `theme: 'system'` leaves `zbb.theme` unset, so the app follows the OS scheme live. */
 export async function authedSetup(page: Page, theme: 'light' | 'dark' | 'system') {
   await page.addInitScript(
     ({ t, done }) => {
       if (t !== 'system') localStorage.setItem('zbb.theme', t)
-      localStorage.setItem('zbb.email', 'e2e@allotjar.app')
       localStorage.setItem('zbb.onboarding:e2e@allotjar.app', done)
     },
     { t: theme, done: ONBOARDING_DONE },

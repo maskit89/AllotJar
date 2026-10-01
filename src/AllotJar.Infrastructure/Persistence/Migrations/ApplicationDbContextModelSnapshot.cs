@@ -307,6 +307,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<int>("DisplayOrder")
                         .HasColumnType("int");
 
+                    b.Property<string>("FormerLoginUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
                     b.Property<bool>("IsArchived")
                         .HasColumnType("bit");
 

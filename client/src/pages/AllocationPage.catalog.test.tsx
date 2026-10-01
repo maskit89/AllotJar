@@ -107,8 +107,12 @@ let failProfile = false
 let failAccounts = false
 let failPreview = false
 
+// The login's role as /auth/me answers it (null: the default Owner). Never read from storage (D2).
+let meRole: number | null = null
+
 function setupGet() {
   mockGet.mockImplementation((url: string) => {
+    if (url === '/auth/me' && meRole !== null) return Promise.resolve({ data: { role: meRole } })
     if (url === '/allocation/profile') {
       return failProfile ? Promise.reject(new Error('500')) : Promise.resolve({ data: profileData })
     }
@@ -159,7 +163,8 @@ async function openSetupModal(user: ReturnType<typeof userEvent.setup>) {
 describe('AllocationPage (catalog)', () => {
   beforeEach(() => {
     resetApiMocks()
-    localStorage.clear() // role → Owner, currency → EUR, format → comma-dot (en-GB) by default
+    localStorage.clear() // currency → EUR, format → comma-dot (en-GB) by default
+    meRole = null // role → Owner
     profileData = null
     accountsData = defaultAccounts()
     previewData = workedPreview()
@@ -220,13 +225,14 @@ describe('AllocationPage (catalog)', () => {
   })
 
   it('ALLOC-009: a read-only user sees the empty-state but no Set up button', async () => {
-    localStorage.setItem('zbb.role', '3') // ReadOnly → canWrite false
+    meRole = 3 // ReadOnly → canWrite false
     profileData = null
 
     renderPage()
 
     expect(await screen.findByText(/No allocation set up yet/, {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Set up allocation' })).not.toBeInTheDocument()
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/auth/me'))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Set up allocation' })).not.toBeInTheDocument())
   })
 
   // ---- Settings modal: open, controls, InfoHints ----------------------------
@@ -778,7 +784,7 @@ describe('AllocationPage (catalog)', () => {
   })
 
   it('ALLOC-066: a Limited user sees the ask-an-admin copy, no picker, and can still allocate', async () => {
-    localStorage.setItem('zbb.role', '2') // Limited → canEnterData true, canWrite false
+    meRole = 2 // Limited → canEnterData true, canWrite false
     profileData = profile()
     accountsData = [
       ...defaultAccounts(),
@@ -795,7 +801,7 @@ describe('AllocationPage (catalog)', () => {
     renderPage()
     await screen.findByText('How July is allocated', {}, { timeout: 5000 })
 
-    expect(screen.getByText(/Ask an admin to link one on the People page/)).toBeInTheDocument()
+    expect(await screen.findByText(/Ask an admin to link one on the People page/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.queryByLabelText('Savings account for Robin')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Commit allocation' })).toBeInTheDocument()
   })
@@ -1005,13 +1011,14 @@ describe('AllocationPage (catalog)', () => {
   // ---- Commit flow ----------------------------------------------------------
 
   it('ALLOC-048: a read-only user never sees the Allocate button', async () => {
-    localStorage.setItem('zbb.role', '3') // ReadOnly → canEnterData false
+    meRole = 3 // ReadOnly → canEnterData false
     profileData = profile()
 
     renderPage()
 
     await screen.findByText('How July is allocated', {}, { timeout: 5000 })
-    expect(screen.queryByRole('button', { name: 'Commit allocation' })).not.toBeInTheDocument()
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/auth/me'))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Commit allocation' })).not.toBeInTheDocument())
     expect(screen.queryByRole('button', { name: 'Allocation settings' })).not.toBeInTheDocument()
   })
 

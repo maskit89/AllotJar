@@ -44,8 +44,14 @@ public interface IIdentityService
     Task<CredentialCheckResult> CheckCredentialsAsync(string email, string password);
 }
 
-/// <summary>A login as seen by the Application layer.</summary>
-public record UserAccount(string Id, string Email, string? DisplayName);
+/// <summary>
+/// A login as seen by the Application layer. <see cref="EmailConfirmed"/> is whether the login has
+/// proved it holds <see cref="Email"/> (the emailed link, or Google attesting it);
+/// <see cref="MustChangePassword"/> is a login someone else created that hasn't chosen its own
+/// password from the emailed link yet (S-P2-3).
+/// </summary>
+public record UserAccount(
+    string Id, string Email, string? DisplayName, bool EmailConfirmed = false, bool MustChangePassword = false);
 
 /// <summary>Result of creating a login. <see cref="UserId"/> is set only when <see cref="Succeeded"/>.</summary>
 public record CreateUserResult(bool Succeeded, string? UserId, IReadOnlyList<string> Errors)

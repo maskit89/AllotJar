@@ -96,9 +96,13 @@ describe('SESS: AuthContext session lifecycle', () => {
   })
 
   // SESS-006 — the access token lives in memory only: it is stored via setToken (not
-  // localStorage), so a successful XSS can't read a durable credential. localStorage
-  // holds only identity hints.
-  it('SESS-006: the access token is memory-only — never in localStorage, only identity + pref hints are', async () => {
+  // localStorage), so a successful XSS can't read a durable credential. Who is signed in
+  // (email, name, role) isn't kept there either (D2): only the money-display prefs are.
+  it('SESS-006: the access token and the identity are memory-only — localStorage holds only pref hints', async () => {
+    // An older version left the identity behind; starting up clears it.
+    localStorage.setItem('zbb.email', 'old@x.com')
+    localStorage.setItem('zbb.role', '0')
+    localStorage.setItem('zbb.displayName', 'Old')
     await renderSignedIn(standardAdapter)
     await waitFor(() => expect(localStorage.getItem('zbb.currency')).toBe('GBP'), { timeout: 5000 })
 
@@ -107,9 +111,57 @@ describe('SESS: AuthContext session lifecycle', () => {
     for (let i = 0; i < localStorage.length; i++) stored.push(localStorage.getItem(localStorage.key(i)!) as string)
     expect(stored).not.toContain('boot-jwt') // the JWT appears NOWHERE in storage
 
-    expect(localStorage.getItem('zbb.email')).toBe('dev@x.com')
-    expect(localStorage.getItem('zbb.role')).toBe('0')
-    expect(localStorage.getItem('zbb.displayName')).toBe('Dev')
+    expect(localStorage.getItem('zbb.email')).toBeNull()
+    expect(localStorage.getItem('zbb.role')).toBeNull()
+    expect(localStorage.getItem('zbb.displayName')).toBeNull()
+    expect(stored.join(' ')).not.toContain('dev@x.com')
+  })
+
+  // D2 — with nothing stored, a cold load keeps the splash up until /auth/me answers, so the
+  // first signed-in paint already has the server's role (never the sign-in answer's guess,
+  // never a signed-out flash).
+  it('SESS-006b: a cold load paints signed in only once /auth/me has answered, with its role', async () => {
+    let answerMe: () => void = () => {}
+    const meAnswered = new Promise<void>((resolve) => {
+      answerMe = resolve
+    })
+    api.defaults.adapter = (config: InternalAxiosRequestConfig) => {
+      const url = config.url ?? ''
+      if (url.includes('/auth/refresh')) return ok(REFRESHED, config)
+      if (url.includes('/auth/me')) return meAnswered.then(() => ok({ ...ME, role: 3 }, config))
+      return ok({}, config)
+    }
+    const seen: string[] = []
+    function Recorder() {
+      const { bootstrapping, isAuthenticated, isReadOnly } = useAuth()
+      seen.push(bootstrapping ? 'loading' : isAuthenticated ? (isReadOnly ? 'in-read-only' : 'in-owner') : 'out')
+      return null
+    }
+    render(
+      <AuthProvider>
+        <Recorder />
+        <Probe />
+      </AuthProvider>,
+    )
+    await waitFor(() => expect(getToken()).toBe('boot-jwt'), { timeout: 5000 })
+    expect(screen.getByTestId('probe')).toHaveTextContent('loading')
+
+    answerMe()
+    await waitFor(() => expect(screen.getByTestId('probe')).toHaveTextContent('in'), { timeout: 5000 })
+    expect(screen.getByTestId('role')).toHaveTextContent('read-only')
+    expect(seen).not.toContain('out')
+    expect(seen).not.toContain('in-owner')
+  })
+
+  // A cold load whose /auth/me fails still ends the splash (signed in; the role stays the default).
+  it('SESS-006c: a failed /auth/me after a cold load still ends the splash', async () => {
+    await renderSignedIn((config) => {
+      const url = config.url ?? ''
+      if (url.includes('/auth/refresh')) return ok(REFRESHED, config)
+      if (url.includes('/auth/me')) return fail(500, config)
+      return ok({}, config)
+    })
+    expect(screen.getByTestId('probe')).toHaveTextContent('in')
   })
 
   // SESS-037 — signing out via the menu: the fire-and-forget POST /auth/logout goes
@@ -152,14 +204,14 @@ describe('SESS: AuthContext session lifecycle', () => {
       if (url.includes('/auth/logout')) return Promise.reject(new Error('offline'))
       return ok(url.includes('/auth/me') ? ME : {}, config)
     })
-    await waitFor(() => expect(localStorage.getItem('zbb.email')).toBe('dev@x.com'), { timeout: 5000 })
+    await waitFor(() => expect(localStorage.getItem('zbb.currency')).toBe('GBP'), { timeout: 5000 })
 
     const user = userEvent.setup()
     await user.click(screen.getByText('signout'))
 
     await waitFor(() => expect(screen.getByTestId('probe')).toHaveTextContent('out'), { timeout: 5000 })
     expect(getToken()).toBeNull()
-    expect(localStorage.getItem('zbb.email')).toBeNull()
+    expect(localStorage.getItem('zbb.currency')).toBe('EUR')
   })
 
   // SESS-013 — an interceptor-driven refresh re-syncs AuthContext: because the refresh

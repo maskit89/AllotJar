@@ -538,9 +538,9 @@ describe('LoginPage (REG catalog)', () => {
 
   // ---- Sign-in -------------------------------------------------------------
 
-  // REG-036 — valid credentials sign in, navigate to "/", and persist only identity
-  // hints in localStorage — never the access token.
-  it('REG-036: valid credentials land on the dashboard and store identity hints, never the token', async () => {
+  // REG-036 — valid credentials sign in and navigate to "/"; neither the access token nor who
+  // signed in (email, role, name) is kept in localStorage (D2).
+  it('REG-036: valid credentials land on the dashboard and store neither the identity nor the token', async () => {
     mockPost.mockResolvedValue({ data: authResponse() })
     const user = userEvent.setup()
     renderAt('/login')
@@ -550,9 +550,10 @@ describe('LoginPage (REG catalog)', () => {
     await user.click(submitButton('Sign in'))
 
     expect(await screen.findByText('HOME', undefined, { timeout: 5000 })).toBeInTheDocument()
-    await waitFor(() => expect(localStorage.getItem('zbb.email')).toBe('owner@example.com'), { timeout: 5000 })
-    expect(localStorage.getItem('zbb.role')).toBe('0')
-    expect(localStorage.getItem('zbb.displayName')).toBe('Owner')
+    expect(localStorage.getItem('zbb.email')).toBeNull()
+    expect(localStorage.getItem('zbb.role')).toBeNull()
+    expect(localStorage.getItem('zbb.displayName')).toBeNull()
+    expect(allStoredValues().join(' ')).not.toContain('owner@example.com')
     // The access token is in-memory only — it must never touch localStorage.
     expect(allStoredValues()).not.toContain('tok-secret-xyz')
   })

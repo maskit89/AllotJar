@@ -3,7 +3,10 @@ using AllotJar.Domain.Enums;
 
 namespace AllotJar.Application.HouseholdAccess.Dtos;
 
-/// <summary>A login's access within the household, as shown on the access page.</summary>
+/// <summary>
+/// A login's access within the household, as shown on the access page. <see cref="AwaitingPassword"/>
+/// (told to the owner only) marks a login someone else created that hasn't chosen its own password yet.
+/// </summary>
 public record MembershipDto(
     Guid Id,
     string Email,
@@ -13,7 +16,8 @@ public record MembershipDto(
     Guid? MemberId,
     bool IsOwner,
     bool IsSelf,
-    DateTime CreatedUtc);
+    DateTime CreatedUtc,
+    bool AwaitingPassword = false);
 
 /// <summary>
 /// Returned by an invite: the new membership and, for link invites, the raw token, which the API

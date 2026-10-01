@@ -12,7 +12,7 @@
 // MemoryRouter + AuthProvider + OnboardingProvider, jest-dom matchers, per-test GET fixtures)
 // mirror the existing onboarding + page catalog tests.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { act, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import type { BudgetCategoryDto, BudgetItemDto, BudgetMonthDto, BudgetMonthSummaryDto, HouseholdSummary } from '../types'
 
@@ -77,7 +77,10 @@ const ZERO_INCOME_MONTH = bMonth({
 let monthsData: BudgetMonthSummaryDto[] = []
 let currentMonth: BudgetMonthDto | null = null // null → the current-month GET rejects 404
 let transactionsData: unknown[] = []
-let meData: Record<string, unknown> | null = null // null → /auth/me rejects (keeps localStorage-seeded prefs)
+// The signed-in login as /auth/me answers: its email keys the onboarding record (D2: nothing about
+// who is signed in is read from localStorage). null → /auth/me rejects.
+const ME = { email: 'me@test.app', role: 0 }
+let meData: Record<string, unknown> | null = ME
 
 function setupGet() {
   mockGet.mockImplementation((url: string) => {
@@ -125,8 +128,7 @@ describe('Onboarding — catalog (ONBD)', () => {
     monthsData = []
     currentMonth = null
     transactionsData = []
-    meData = null
-    localStorage.setItem('zbb.email', 'me@test.app')
+    meData = ME
     setupGet()
   })
 
@@ -482,6 +484,9 @@ describe('Onboarding — catalog (ONBD)', () => {
   it('ONBD-027: replay re-runs the flow but never re-arms first-run auto-open', { timeout: 15000 }, async () => {
     localStorage.setItem(KEY, JSON.stringify({ v: 1, welcomeSeen: true, tourDone: true, checklistDismissed: true }))
     const { unmount } = renderOnboarding(<ReplayTrigger />)
+    // The record is the signed-in login's: wait for /auth/me to say who that is (D2).
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/auth/me'), { timeout: 5000 })
+    await act(async () => {})
 
     // Fully-onboarded + dismissed: nothing auto-opens.
     expect(screen.queryByRole('heading', { name: 'Welcome to AllotJar' })).not.toBeInTheDocument()
@@ -510,6 +515,7 @@ describe('Onboarding — catalog (ONBD)', () => {
   // and the all-done line (USD → "dollar").
   it('ONBD-004: the currency noun (USD → "dollar") threads through welcome, tour, checklist and all-done', { timeout: 15000 }, async () => {
     localStorage.setItem('zbb.currency', 'USD')
+    meData = { ...ME, preferredCurrency: 'USD' }
     monthsData = [summary()]
     currentMonth = BALANCED_MONTH
     transactionsData = [{ id: 't1' }]
@@ -536,6 +542,7 @@ describe('Onboarding — catalog (ONBD)', () => {
   // noun — no crash, no empty string.
   it('ONBD-004: an unknown currency falls back to the "unit" noun', { timeout: 15000 }, async () => {
     localStorage.setItem('zbb.currency', 'XYZ')
+    meData = { ...ME, preferredCurrency: 'XYZ' }
     renderOnboarding()
     const dialog = await screen.findByRole('dialog', {}, { timeout: 5000 })
     expect(within(dialog).getByText('every unit a job')).toBeInTheDocument()
@@ -561,7 +568,7 @@ describe('Onboarding — catalog (ONBD)', () => {
   // the panel at 0 of 4 with no crash or error UI.
   it('ONBD-022: checklist polling failures render 0 of 4 without crashing', { timeout: 15000 }, async () => {
     mockGet.mockImplementation((url: string) => {
-      if (url === '/auth/me') return Promise.reject({ response: { status: 401 } })
+      if (url === '/auth/me') return Promise.resolve({ data: ME })
       return Promise.reject({ response: { status: 500 } }) // months / current-month / transactions all fail
     })
     renderOnboarding()

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Api.Contracts.Auth;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.HouseholdAccess;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Identity;
 using AllotJar.Infrastructure.Persistence;
@@ -112,15 +113,50 @@ public class HouseholdsController : ControllerBase
     }
 
     /// <summary>
+    /// How many accounts in a household the caller joined are private to the caller. Leaving makes
+    /// them unreachable, and the owner may then erase them unseen (P59), so the leave asks first.
+    /// </summary>
+    [HttpGet("leave-preview")]
+    [ProducesResponseType(typeof(LeavePreviewResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> LeavePreview([FromQuery] string ownerId, CancellationToken ct)
+    {
+        var userId = _currentUser.UserId;
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var member = await _db.HouseholdMemberships.AnyAsync(
+            m => m.UserId == userId && m.OwnerId == ownerId && m.Status == MembershipStatus.Active, ct);
+        if (!member)
+        {
+            return NotFound(new { error = "You don't have access to that household." });
+        }
+
+        return Ok(new LeavePreviewResponse(await PrivateAccountCountAsync(userId, ownerId, ct)));
+    }
+
+    /// <summary>The caller's private accounts in <paramref name="ownerId"/>'s household.</summary>
+    private Task<int> PrivateAccountCountAsync(string userId, string ownerId, CancellationToken ct) =>
+        _db.AccountPrivacies.CountAsync(
+            p => p.UserId == userId
+                 && _db.Accounts.IgnoreQueryFilters().Any(a => a.Id == p.AccountId && a.OwnerId == ownerId),
+            ct);
+
+    /// <summary>
     /// Removes the caller's own access to a household they joined — a self-service "leave", so a
     /// member never has to ask the owner to remove them. You cannot leave your OWN household (you're
     /// the owner; there is nothing to leave). If it was the active household, falls back to your own.
+    /// A leaver holding private accounts there must have been told how many (409 until then).
     /// </summary>
     [HttpPost("leave")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Leave(LeaveHouseholdRequest request, CancellationToken ct)
     {
         var userId = _currentUser.UserId;
@@ -148,6 +184,16 @@ public class HouseholdsController : ControllerBase
             return BadRequest(new { error = "The owner can't leave their own household." });
         }
 
+        // S-P3-7: once the login has gone, its private accounts there are hidden from everyone and
+        // the owner may erase them (P59). Leave only once the leaver has seen how many there are.
+        var privateAccounts = await PrivateAccountCountAsync(userId, request.OwnerId, ct);
+        if (privateAccounts > request.PrivateAccounts)
+        {
+            return Conflict(new { error = LeavingPrivateAccounts(privateAccounts), privateAccounts });
+        }
+
+        // S-P3-8: the person stays this login's, should it be given access again.
+        await PersonLogin.RecordUnlinkAsync(_db, request.OwnerId, membership.MemberId, userId, ct);
         _db.HouseholdMemberships.Remove(membership);
         await _db.SaveChangesAsync(ct);
 
@@ -171,5 +217,12 @@ public class HouseholdsController : ControllerBase
         }
 
         return NoContent();
+    }
+
+    public static string LeavingPrivateAccounts(int count)
+    {
+        var them = count == 1 ? "it" : "them";
+        return $"You keep {count} private {(count == 1 ? "account" : "accounts")} in this household. Once you leave, " +
+               $"nobody can see {them} and the owner can erase {them} for good. Share {them} first, or confirm to leave anyway.";
     }
 }
