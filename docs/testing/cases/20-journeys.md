@@ -107,15 +107,15 @@
   1. As Alex, `/people` → Robin's row → **"Invite to sign in"** → switch **"How should they get access?"** to **"Set a temporary password"**, set **"Access level"** = "Limited", type a temporary password (≥8, HIBP-safe), submit **"Create login"** (people suite).
   2. Read the success box.
   3. In a signed-out context, go to `/login`, sign in as Robin with the email + temporary password.
-  4. Observe the very first authed screen.
+  4. Observe the very first authed screen; in **"Choose your own password"** enter the temporary password and a new one twice, then **"Save password"**.
   5. Click **"I agree"** in the blocking dialog.
   6. Observe onboarding / dashboard.
   7. As Robin, on `/transactions` record a transaction and mark a bill **"Paid"** on `/`.
   8. As Robin, attempt to add a budget group (**"+ Add group"**) and to open `/accounts` add-account.
   9. As Robin, go to `/account` and use **"Change password"** to replace the temp password.
 - **Expected:**
-  - CP1-CP2: a login is created with membership Active, role Limited, and `ConsentedUtc = null`; the success box reads "Login created … They'll accept the terms on their first sign-in…".
-  - CP3-CP4: Robin signs in and is immediately blocked by the **ConsentModal** ("One thing before you start") — Onboarding is NOT mounted underneath (App gates it on `!needsConsent`); the modal is non-dismissible (only "I agree" / "Sign out") and disappears if Robin navigates to `/terms`//`/privacy` so it never covers the text.
+  - CP1-CP2: a login is created with membership Active, role Limited, `MustChangePassword = true` and `ConsentedUtc = null`; the success box reads "Login created … On their first sign-in they choose their own password…".
+  - CP3-CP4: Robin signs in and is first blocked by **"Choose your own password"** (S-P2-3; every other signed-in call is 403 until it is saved), then by the **ConsentModal** ("One thing before you start") — Onboarding is NOT mounted underneath (App gates it on `!needsConsent`); the modal is non-dismissible (only "I agree" / "Sign out") and disappears if Robin navigates to `/terms`//`/privacy` so it never covers the text.
   - CP5-CP6: `POST /auth/consent` stamps `ConsentedUtc`; `needsConsent` flips false; the onboarding welcome may then appear; the dashboard shows the shared household's budget (Robin acts in Alex's household).
   - CP7: Limited role CAN record transactions and toggle Paid on bill lines (`[AllowLimited]`); the AppShell shows the amber "limited access" banner.
   - CP8: structure edits are hidden client-side and 403 server-side ("Your access level (Limited) does not permit this action."); `/accounts` shows a read-only register (no "+ Add account"), and account create 403s.

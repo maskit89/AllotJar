@@ -459,7 +459,7 @@
 - **Steps:**
   1. Open the invite modal for Sam; switch the "How should they get access?" control to "Set a temporary password".
   2. Enter Email `sam@x.eu`, Temporary password `Aa1-longpass`, click "Create login".
-- **Expected:** `POST /access/invite {method:Direct, tempPassword:"Aa1-longpass"}`; success box "Login created" + "sam@x.eu can sign in now with the temporary password you set…". The created login has `ConsentedUtc=null`, so it hits a blocking ConsentModal on first sign-in (consent flow → `03-session-auth-lifecycle.md`). Sam's membership is Active.
+- **Expected:** `POST /access/invite {method:Direct, tempPassword:"Aa1-longpass"}`; success box "Login created" + "sam@x.eu can sign in now with the temporary password you set…". On first sign-in the login must choose its own password (blocking "Choose your own password" dialog, S-P2-3, see INV-013); it has `ConsentedUtc=null`, so a blocking ConsentModal follows (consent flow → `03-session-auth-lifecycle.md`). Sam's membership is Active.
 - **Automated:** No
 
 ### PPL-045 - Invite validation: empty email and short temp password

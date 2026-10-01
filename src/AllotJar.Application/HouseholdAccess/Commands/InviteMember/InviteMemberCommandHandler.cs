@@ -73,7 +73,10 @@ public class InviteMemberCommandHandler : IRequestHandler<InviteMemberCommand, I
                 throw Conflict("Email", "That email already has an account — use ‘Generate an invite link’ so they can accept it.");
             }
 
-            var created = await _identity.CreateUserAsync(email, request.TempPassword!, request.DisplayName);
+            // P59 rests on only that login seeing its private accounts, and the owner knows this
+            // password: the new login must choose its own before it can do anything (S-P2-3).
+            var created = await _identity.CreateUserAsync(
+                email, request.TempPassword!, request.DisplayName, mustChangePassword: true);
             if (!created.Succeeded)
             {
                 throw Conflict("Password", created.Errors);

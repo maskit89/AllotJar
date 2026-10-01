@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -19,6 +20,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 const string SpaCorsPolicy = "SpaCors";
 const string AuthRateLimitPolicy = "auth";
+const string RefreshRateLimitPolicy = "auth-refresh";
 
 // --- Layer composition ------------------------------------------------------
 builder.Services.AddApplication();
@@ -70,24 +72,36 @@ builder.Services.AddCors(options =>
         .AllowAnyMethod()));
 
 // Rate limiting for the sensitive auth endpoints (login/register/accept-invite/change-password)
-// to blunt credential-stuffing and password-guessing floods. This is the coarse, per-source layer;
+// to blunt credential-stuffing and password-guessing floods. This is the coarse, per-visitor layer;
 // the precise, IP-independent defence is the per-account Identity lockout in CheckCredentialsAsync.
-// NOTE: in production the API sits behind the IIS/ARR reverse proxy, so RemoteIpAddress is the
-// proxy (loopback) and this effectively becomes a per-site cap until X-Forwarded-For handling is
-// added. The limit is set high enough that real household use never trips it.
-// The per-source cap. Configurable so a serial end-to-end test run (many register/login/refresh
+// In production the API sits behind Cloudflare and the IIS/ARR reverse proxy, so the visitor's
+// address comes from X-Forwarded-For, read only through those trusted proxies (ClientAddress).
+// The per-visitor cap. Configurable so a serial end-to-end test run (many register/login/refresh
 // calls from one IP inside a minute) can raise it via RateLimiting__AuthPermitLimit without
 // weakening the production default of 20.
 var authPermitLimit = builder.Configuration.GetValue("RateLimiting:AuthPermitLimit", 20);
+// Silent refresh has its own, larger bucket, so a burst of sign-in attempts from a visitor never
+// ends the sessions already open there (the SPA renews every few minutes per tab).
+var refreshPermitLimit = builder.Configuration.GetValue("RateLimiting:RefreshPermitLimit", authPermitLimit * 3);
+builder.Services.Configure<ForwardedHeadersOptions>(options => ClientAddress.Configure(options, builder.Configuration));
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy(AuthRateLimitPolicy, httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            partitionKey: ClientAddress.PartitionKey(httpContext),
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = authPermitLimit,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+    options.AddPolicy(RefreshRateLimitPolicy, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ClientAddress.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = refreshPermitLimit,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
             }));
@@ -116,6 +130,8 @@ builder.Services.AddSwaggerGen(options =>
 var app = builder.Build();
 
 // --- HTTP pipeline ----------------------------------------------------------
+// First, so everything after it (the rate limiter in particular) sees the visitor's address.
+app.UseForwardedHeaders();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 // Apply any pending EF Core migrations on startup so the configured SQL Server
@@ -163,11 +179,14 @@ if (app.Environment.IsDevelopment())
 app.UseCors(SpaCorsPolicy);
 
 // Throttle abusive bursts before they reach authentication. Only endpoints tagged with the
-// [EnableRateLimiting("auth")] policy are limited; everything else is unaffected.
+// [EnableRateLimiting("auth")] or ("auth-refresh") policy are limited; everything else is unaffected.
 app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// A login whose password someone else chose can do nothing else until it picks its own (S-P2-3).
+app.UseMiddleware<PasswordChangeGateMiddleware>();
 
 // After authentication, resolve which household (and at what role) the caller belongs to.
 app.UseMiddleware<HouseholdResolutionMiddleware>();

@@ -93,7 +93,7 @@ public class IInvitesCoverageTests
             Task.FromResult<CurrencyCode?>(null); // no preference -> callers use the EUR default
 
         public Task<CreateUserResult> CreateUserAsync(
-            string email, string password, string? displayName, bool consented = false)
+            string email, string password, string? displayName, bool consented = false, bool mustChangePassword = false)
         {
             CreatedEmails.Add(email);
             if (consented) ConsentedEmails.Add(email);

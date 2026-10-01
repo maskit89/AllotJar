@@ -35,6 +35,9 @@ import { accountOptionLabel, savingsFirst } from '../lib/accountOptions'
 import { PRIVATE_ACCOUNT } from '../lib/accountHolders'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 
+/** The savings picker's value for a person's savings account that is private to another login (its id is never sent). */
+const PRIVATE_SAVINGS = 'private'
+
 /** Roles the owner can grant (everything except Owner itself). */
 const GRANTABLE_ROLES = [HouseholdRole.Admin, HouseholdRole.Limited, HouseholdRole.ReadOnly]
 
@@ -271,7 +274,7 @@ export function PeoplePage() {
     setEditingId(m.id)
     setEName(m.name)
     setEIncome(toEditString(fromAmount(m.netMonthlyIncome)))
-    setESavings(m.personalSavingsAccountId ?? '')
+    setESavings(m.savingsPrivate ? PRIVATE_SAVINGS : (m.personalSavingsAccountId ?? ''))
   }
 
   const saveEdit = useCallback(
@@ -291,7 +294,8 @@ export function PeoplePage() {
         await api.put<HouseholdMemberDto>(`/members/${id}`, {
           name: eName.trim(),
           netMonthlyIncome,
-          personalSavingsAccountId: eSavings || null,
+          // The server keeps a private savings account it was sent no id for (P53/P56).
+          personalSavingsAccountId: eSavings === PRIVATE_SAVINGS ? null : eSavings || null,
         })
         track(EVENTS.memberEdited)
         await reloadAll()
@@ -597,7 +601,9 @@ export function PeoplePage() {
                             onChange={(e) => setESavings(e.target.value)}
                             className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-600"
                           >
-                            <option value="">None</option>
+                            {/* Only the login that holds a private savings account can clear it,
+                                so "None" is not offered over it; another account can replace it. */}
+                            {!m.savingsPrivate && <option value="">None</option>}
                             {eSavings && !accounts.some((a) => a.id === eSavings) && (
                               <option value={eSavings}>{PRIVATE_ACCOUNT}</option>
                             )}
@@ -608,7 +614,7 @@ export function PeoplePage() {
                             ))}
                           </select>
                         ) : (
-                          accountName(m.personalSavingsAccountId)
+                          m.savingsPrivate ? PRIVATE_ACCOUNT : accountName(m.personalSavingsAccountId)
                         )}
                       </td>
                       <td className="px-4 py-4">
@@ -960,8 +966,8 @@ export function PeoplePage() {
               <p className="text-sm font-medium text-brand-800 dark:text-brand-200">Login created</p>
               <p className="mt-1 text-xs text-brand-700/80 dark:text-brand-200/80">
                 <span className="font-medium">{directCreatedEmail}</span> can sign in now with the temporary
-                password you set — share it with them privately. They’ll accept the terms on their first
-                sign-in, and can change the password from Account settings.
+                password you set — share it with them privately. On their first sign-in they choose their own
+                password, which ends any other session using the temporary one, and accept the terms.
               </p>
             </div>
           )}

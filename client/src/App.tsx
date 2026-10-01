@@ -3,6 +3,7 @@ import type { JSX } from 'react'
 import { safeInternalPath } from './lib/returnUrl'
 import { useAuth } from './auth/AuthContext'
 import { ConsentModal } from './components/ConsentModal'
+import { PasswordChangeModal } from './components/PasswordChangeModal'
 import { useFeatures } from './features/FeatureContext'
 import { MonthProvider } from './features/MonthContext'
 import { LoginPage } from './pages/LoginPage'
@@ -57,12 +58,14 @@ function AuthedLoginRedirect() {
 }
 
 export default function App() {
-  const { isAuthenticated, bootstrapping, needsConsent } = useAuth()
+  const { isAuthenticated, bootstrapping, needsConsent, mustChangePassword } = useAuth()
   const features = useFeatures()
 
   return (
     <MonthProvider>
-      <Routes>
+      {/* While a temporary password is pending the server refuses every page's reads (S-P2-3);
+          remounting once it is changed lets each page load afresh behind the closed prompt. */}
+      <Routes key={mustChangePassword ? 'password-change-pending' : 'app'}>
         <Route
           path="/login"
           element={
@@ -186,10 +189,12 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      {/* Onboarding waits for consent, so its focus-trapped welcome dialog can never sit
-          (keyboard-unreachable) underneath the blocking consent prompt. */}
-      {isAuthenticated && !needsConsent && <Onboarding />}
-      {isAuthenticated && <ConsentModal />}
+      {/* Onboarding waits for consent and for the login's own password, so its focus-trapped
+          welcome dialog can never sit (keyboard-unreachable) underneath a blocking prompt. The
+          password comes first: until it changes, the server refuses everything else (S-P2-3). */}
+      {isAuthenticated && !needsConsent && !mustChangePassword && <Onboarding />}
+      {isAuthenticated && !mustChangePassword && <ConsentModal />}
+      {isAuthenticated && <PasswordChangeModal />}
     </MonthProvider>
   )
 }

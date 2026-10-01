@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using AllotJar.Api.Contracts.Auth;
+using AllotJar.Api.Middleware;
 using AllotJar.Application.Accounts;
 using AllotJar.Application.Auth.Commands.Login;
 using AllotJar.Application.Budgets;
@@ -441,7 +442,9 @@ public class AuthController : ControllerBase
 
         if (!alreadyVerified && await _userManager.HasPasswordAsync(existing))
         {
-            // The attacker's known password (if this was a pre-hijack) must stop working.
+            // The attacker's known password (if this was a pre-hijack) must stop working. With no
+            // password left, an owner-set temporary one is no longer pending either.
+            existing.MustChangePassword = false;
             await _userManager.RemovePasswordAsync(existing);
             _logger.LogInformation(
                 "Removed the pre-existing password on {UserId} while linking Google to a " +
@@ -541,10 +544,13 @@ public class AuthController : ControllerBase
         return Ok(new AuthResponse(token, expiresAt, result.UserId, result.Email, result.Role, result.DisplayName));
     }
 
-    /// <summary>Exchanges the refresh cookie for a fresh access token, rotating the cookie.</summary>
+    /// <summary>
+    /// Exchanges the refresh cookie for a fresh access token, rotating the cookie. Limited in its
+    /// own bucket, so a flood of sign-in attempts can't end the sessions already open (S-P2-4).
+    /// </summary>
     [HttpPost("refresh")]
     [AllowAnonymous]
-    [EnableRateLimiting("auth")]
+    [EnableRateLimiting("auth-refresh")]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Refresh(CancellationToken ct)
@@ -707,10 +713,12 @@ public class AuthController : ControllerBase
 
         // Redeeming an emailed link proves control of the address, so confirm it. This is what
         // makes forgot-password double as the safe-RECLAIM of a pre-hijack squat: the true owner
-        // resets, and the account is now verified + password-rotated + sessions revoked.
-        if (!user.EmailConfirmed)
+        // resets, and the account is now verified + password-rotated + sessions revoked. The new
+        // password is the login's own, so a temporary one set by an owner is no longer pending.
+        if (!user.EmailConfirmed || user.MustChangePassword)
         {
             user.EmailConfirmed = true;
+            user.MustChangePassword = false;
             await _userManager.UpdateAsync(user);
         }
 
@@ -726,6 +734,7 @@ public class AuthController : ControllerBase
     /// </summary>
     [HttpPost("change-password")]
     [Authorize]
+    [AllowWhilePasswordChangePending]
     [EnableRateLimiting("auth")]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -744,10 +753,23 @@ public class AuthController : ControllerBase
             return Unauthorized();
         }
 
+        // Whoever set a temporary password knows it, so "changing" it to itself would leave the
+        // account readable by them (S-P2-3). Refused for everyone: it is never a real change.
+        if (string.Equals(request.CurrentPassword, request.NewPassword, StringComparison.Ordinal))
+        {
+            return BadRequest(new { errors = new[] { "Choose a new password that is different from your current one." } });
+        }
+
         var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
         if (!result.Succeeded)
         {
             return BadRequest(new { errors = result.Errors.Select(e => e.Description) });
+        }
+
+        if (user.MustChangePassword)
+        {
+            user.MustChangePassword = false;
+            await _userManager.UpdateAsync(user);
         }
 
         await _refreshTokens.RevokeAllForUserAsync(user.Id, ct);
@@ -758,6 +780,7 @@ public class AuthController : ControllerBase
     /// <summary>The authenticated login's identity, household and access level.</summary>
     [HttpGet("me")]
     [Authorize]
+    [AllowWhilePasswordChangePending]
     [ProducesResponseType(typeof(MeResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Me()
@@ -799,6 +822,8 @@ public class AuthController : ControllerBase
             // Drives the persistent "confirm your email" banner. Google-created accounts are
             // confirmed on creation; password/invite accounts confirm via the emailed link.
             EmailConfirmed: user.EmailConfirmed,
+            // S-P2-3: the password was set by someone else; the app asks for a new one before anything else.
+            MustChangePassword: user.MustChangePassword,
             // Rule 32: the app asks this login to review who sees the personal accounts it holds.
             SharingReviewPending: await SharingReview.IsDueAsync(_db, _currentUser, HttpContext.RequestAborted),
             // Rule 85: the active household's one currency labels all its money, whatever this
@@ -822,6 +847,7 @@ public class AuthController : ControllerBase
     /// </summary>
     [HttpPost("consent")]
     [Authorize]
+    [AllowWhilePasswordChangePending]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Consent()

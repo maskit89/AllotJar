@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Accounts;
 using AllotJar.Application.Allocation.Dtos;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
@@ -29,6 +30,7 @@ public class GetAllocationProfileQueryHandler : IRequestHandler<GetAllocationPro
             .OrderBy(p => p.Name)
             .FirstOrDefaultAsync(cancellationToken);
 
-        return profile?.ToDto();
+        return profile?.ToDto(
+            await HiddenAccounts.IsHiddenAsync(_db, _currentUser.UserId, profile.SourceAccountId, cancellationToken));
     }
 }

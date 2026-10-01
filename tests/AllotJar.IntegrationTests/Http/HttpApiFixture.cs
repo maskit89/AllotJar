@@ -105,10 +105,16 @@ public sealed class HttpApiFixture : IAsyncLifetime
                 });
             await EnsureAsync(invite, HttpStatusCode.OK, $"direct invite for {role}");
 
-            // 3. Real login => real bearer token carrying the real security stamp.
+            // 3. Real login => real bearer token carrying the real security stamp. A direct-invite
+            //    login must replace the owner-set password before anything else (S-P2-3), so it
+            //    does, and the token issued by that change is the one the sweep uses.
             var login = await client.PostAsJsonAsync("/api/auth/login", new { email, password }, Json);
             await EnsureAsync(login, HttpStatusCode.OK, $"login for {role}");
-            _tokens[role] = (await ReadJsonAsync(login)).RootElement.GetProperty("token").GetString()!;
+            var firstToken = (await ReadJsonAsync(login)).RootElement.GetProperty("token").GetString()!;
+            var changed = await SendAsync(client, HttpMethod.Post, "/api/auth/change-password", firstToken,
+                new { currentPassword = password, newPassword = StrongPassword() });
+            await EnsureAsync(changed, HttpStatusCode.OK, $"first password change for {role}");
+            _tokens[role] = (await ReadJsonAsync(changed)).RootElement.GetProperty("token").GetString()!;
         }
 
         // 4. Two accounts as transfer referents (also proves the Owner write path works end-to-end).
@@ -169,7 +175,7 @@ public sealed class HttpApiFixture : IAsyncLifetime
 
     /// <summary>Meets the Identity policy (len >= 8, upper/lower/digit) and is unique per call, so it
     /// can never be in the HIBP breach corpus the breached-password validator screens against.</summary>
-    private static string StrongPassword() => $"Aa1x{Guid.NewGuid():N}";
+    public static string StrongPassword() => $"Aa1x{Guid.NewGuid():N}";
 }
 
 /// <summary>Sweep + role-matrix classes share one booted API and provisioned household.</summary>

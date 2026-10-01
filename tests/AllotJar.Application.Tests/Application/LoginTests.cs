@@ -32,7 +32,7 @@ public class LoginTests
         public Task<CurrencyCode?> GetPreferredCurrencyAsync(string userId) =>
             Task.FromResult<CurrencyCode?>(null); // no preference -> callers use the EUR default
         public Task<CreateUserResult> CreateUserAsync(
-            string email, string password, string? displayName, bool consented = false) =>
+            string email, string password, string? displayName, bool consented = false, bool mustChangePassword = false) =>
             Task.FromResult(CreateUserResult.Success("x"));
         public Task SetActiveHouseholdAsync(string userId, string? ownerId) => Task.CompletedTask;
         public Task<IReadOnlyList<string>> ChangePasswordAsync(string userId, string current, string next) =>
