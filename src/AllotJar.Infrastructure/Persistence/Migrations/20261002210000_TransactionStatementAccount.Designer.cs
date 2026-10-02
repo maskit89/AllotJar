@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AllotJar.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261001200000_TransactionStatementAccount")]
+    [Migration("20261002210000_TransactionStatementAccount")]
     partial class TransactionStatementAccount
     {
         /// <inheritdoc />
@@ -232,6 +232,11 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("IsPaid")
                         .HasColumnType("bit");
+
+                    b.Property<bool>("IsPlannedByHand")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
 
                     b.Property<bool>("IsSkipped")
                         .ValueGeneratedOnAdd()
