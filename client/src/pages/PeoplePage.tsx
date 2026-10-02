@@ -763,6 +763,12 @@ export function PeoplePage() {
                 ? `, and the pocket money already planned for ${pocketMoneyMonthLabel(archivePreview.futureMonths[0])} is cancelled.`
                 : `, and the pocket money already planned for ${archivePreview.futureMonths.length} later months is cancelled.`}
           </p>
+          {archivePreview.thisMonth.waitingForConvertedAmount && (
+            <p className="mt-2 text-sm text-slate-600">
+              A payment this month is waiting for its converted amount, so its line keeps its plan until the amount is
+              confirmed.
+            </p>
+          )}
           <div className="mt-4 flex flex-wrap justify-end gap-2">
             <Button
               variant="ghost"

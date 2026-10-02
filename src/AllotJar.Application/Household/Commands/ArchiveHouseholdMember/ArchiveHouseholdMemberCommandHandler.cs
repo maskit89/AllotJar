@@ -72,7 +72,8 @@ public class ArchiveHouseholdMemberCommandHandler
             {
                 [nameof(ArchiveHouseholdMemberCommand.PocketMoneyThisMonth)] = new[]
                 {
-                    $"{member.Name} still has {current.Remaining.ToString("0.00", CultureInfo.InvariantCulture)} of pocket money planned for {monthName}. Choose whether to keep or cancel it before archiving.",
+                    $"{member.Name} still has {current.Remaining.ToString("0.00", CultureInfo.InvariantCulture)} of pocket money planned for {monthName}. Choose whether to keep or cancel it before archiving." +
+                    (current.Waiting ? " A payment is waiting for its converted amount, so its line keeps its plan until the amount is confirmed." : string.Empty),
                 },
             });
         }

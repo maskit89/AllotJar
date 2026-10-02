@@ -356,6 +356,68 @@ public class JarHistoryChecksTests
         Message((await act.Should().ThrowAsync<ValidationException>()).Which, "FromJarId").Should().Contain("cannot give 120");
     }
 
+    // --- D16: a return removed or dated later lengthens the draw (PR #297 review P3-1) -----------
+
+    // Holiday's 100 left on 2 Jan and came back on 5 Jan; Holiday gives it to Car on 15 Jan.
+    private static async Task<(Account A, Account B, Jar Holiday, Guid TransferId)> ReturnedThenMovedOnAsync(ApplicationDbContext db)
+    {
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Jan1);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 0m, Jan1, order: 1);
+        var holiday = SeedGoal(db, a, "Holiday");
+        LedgerFixtures.Allocate(db, Owner, a.Id, holiday.Id, 100m, Jan1);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Jan2, 100m, a.Id, b.Id, FromJarId: holiday.Id), Ct);
+        await new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(transfer.Id, a.Id, b.Id, 100m, Jan2, null, new DateOnly(2026, 1, 5), FromJarId: holiday.Id), Ct);
+        var car = SeedGoal(db, a, "Car");
+        await new ReallocateJarMoneyCommandHandler(db, User).Handle(new ReallocateJarMoneyCommand(a.Id, holiday.Id, car.Id, 100m, Jan15), Ct);
+        return (a, b, holiday, transfer.Id);
+    }
+
+    [Fact]
+    public async Task D16_RemovingAReturn_TheJarSpentSince_IsRefused()
+    {
+        await using var db = NewContext();
+        var (a, b, holiday, id) = await ReturnedThenMovedOnAsync(db);
+
+        var act = () => new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(id, a.Id, b.Id, 100m, Jan2, Jan2, FromJarId: holiday.Id), Ct);
+
+        Message((await act.Should().ThrowAsync<ValidationException>()).Which, "FromJarId").Should().Contain("Holiday holds 0 on 2026-01-15");
+        (await db.Transactions.AsNoTracking().SingleAsync(t => t.Id == id)).ReturnedOn.Should().Be(new DateOnly(2026, 1, 5));
+        (await TodayAsync(db, a.Id)).JarBalances[holiday.Id].Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task D16_DatingAReturnLater_PastWhatTheJarSpentSince_IsRefused()
+    {
+        await using var db = NewContext();
+        var (a, b, holiday, id) = await ReturnedThenMovedOnAsync(db);
+
+        var act = () => new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(id, a.Id, b.Id, 100m, Jan2, null, new DateOnly(2026, 1, 20), FromJarId: holiday.Id), Ct);
+
+        Message((await act.Should().ThrowAsync<ValidationException>()).Which, "FromJarId").Should().Contain("Holiday holds 0 on 2026-01-15");
+    }
+
+    [Fact]
+    public async Task D16_RemovingAReturn_TheJarStillHolds_IsAccepted()
+    {
+        await using var db = NewContext();
+        var a = LedgerFixtures.SeedAccount(db, Owner, "A", 1000m, Jan1);
+        var b = LedgerFixtures.SeedAccount(db, Owner, "B", 0m, Jan1, order: 1);
+        var holiday = SeedGoal(db, a, "Holiday");
+        LedgerFixtures.Allocate(db, Owner, a.Id, holiday.Id, 300m, Jan1);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Jan2, 100m, a.Id, b.Id, FromJarId: holiday.Id), Ct);
+        var handler = new UpdateTransferCommandHandler(db, User);
+        await handler.Handle(new UpdateTransferCommand(transfer.Id, a.Id, b.Id, 100m, Jan2, null, new DateOnly(2026, 1, 5), FromJarId: holiday.Id), Ct);
+
+        await handler.Handle(new UpdateTransferCommand(transfer.Id, a.Id, b.Id, 100m, Jan2, Jan2, FromJarId: holiday.Id), Ct);
+
+        (await TodayAsync(db, a.Id)).JarBalances[holiday.Id].Should().Be(200m);
+    }
+
     private static CommitImportItem TransferRow(string reference, DateOnly date, decimal amount, Account to, Jar from, Guid? match = null) =>
         new(reference, date, "To B", amount, "EUR", false, null, null, TransferAccountId: to.Id, MatchTransferId: match, PaidFromJarId: from.Id);
 

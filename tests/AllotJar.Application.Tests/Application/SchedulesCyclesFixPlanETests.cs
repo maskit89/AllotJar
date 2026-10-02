@@ -283,6 +283,32 @@ public class SchedulesCyclesFixPlanETests
     }
 
     [Fact]
+    public async Task D17_A_cycle_reopened_before_its_deadline_reads_as_waiting_until_the_deadline()
+    {
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, opening: 5000m);
+        var d1 = Today.AddDays(20);
+        var jar = new Jar
+        {
+            OwnerId = Owner, Name = "Phone", Kind = JarKind.Recurring, TargetAmount = 100m, TargetDate = d1, CycleDeadline = d1.AddMonths(1),
+            Accrual = AccrualMethod.TargetByDate, RecurMonths = 1, FundingAccountId = account.Id,
+        };
+        db.Jars.Add(jar);
+        // Its payment was removed while the jar had moved on: the cycle waits unjudged (ReopenPaidByAsync).
+        db.JarCycles.Add(new JarCycle
+        {
+            OwnerId = Owner, JarId = jar.Id, Deadline = d1, TargetAmount = 100m, Outcome = JarCycleOutcome.Funded,
+            BalanceAtDeadline = null, ClosedOn = d1, CreatedUtc = DateTime.UtcNow,
+        });
+        db.SaveChanges();
+
+        var dto = (await new GetJarsQueryHandler(db, User).Handle(new GetJarsQuery(), Ct)).Single();
+
+        dto.LastCycle!.Outcome.Should().Be(JarMapping.WaitingOutcome, "nothing is judged before the deadline, so it isn't funded on time yet");
+        dto.LastCycle.Deadline.Should().Be(d1);
+    }
+
+    [Fact]
     public async Task A_transfers_fee_is_not_offered_or_accepted_as_a_cycles_payment()
     {
         // #301 review P3-2: a fee goes with its transfer, so it can't be the payment a cycle keeps.

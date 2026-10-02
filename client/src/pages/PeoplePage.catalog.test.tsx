@@ -441,8 +441,8 @@ describe('PeoplePage — catalog (PPL)', () => {
         id: 'm2',
         name: 'Sam',
         isArchived: false,
-        thisMonth: { year: 2026, month: 9, planned: 100, paid: 60, remaining: 40 },
-        futureMonths: [{ year: 2026, month: 10, planned: 100, paid: 0, remaining: 100 }],
+        thisMonth: { year: 2026, month: 9, planned: 100, paid: 60, remaining: 40, waitingForConvertedAmount: false },
+        futureMonths: [{ year: 2026, month: 10, planned: 100, paid: 0, remaining: 100, waitingForConvertedAmount: false }],
       },
     }
     mockPut.mockImplementation((url: string) => {
@@ -486,7 +486,7 @@ describe('PeoplePage — catalog (PPL)', () => {
         id: 'm2',
         name: 'Sam',
         isArchived: false,
-        thisMonth: { year: 2026, month: 9, planned: 100, paid: 0, remaining: 100 },
+        thisMonth: { year: 2026, month: 9, planned: 100, paid: 0, remaining: 100, waitingForConvertedAmount: false },
         futureMonths: [],
       },
     }
@@ -511,6 +511,32 @@ describe('PeoplePage — catalog (PPL)', () => {
     expect(mockPut).toHaveBeenCalledTimes(1)
   })
 
+  // PPL-085 (D13) — a payment this month still waits for its converted amount: its line is still
+  // asked about, and the dialog says that line keeps its plan until the amount is confirmed.
+  it('PPL-085: a payment waiting for its converted amount is still asked about and named', { timeout: 15000 }, async () => {
+    membersData = twoMembers()
+    archivePreviews = {
+      m2: {
+        id: 'm2',
+        name: 'Sam',
+        isArchived: false,
+        thisMonth: { year: 2026, month: 9, planned: 50, paid: 0, remaining: 50, waitingForConvertedAmount: true },
+        futureMonths: [],
+      },
+    }
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    await user.click(screen.getByRole('button', { name: 'Archive Sam' }))
+
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByText('€50.00')).toBeInTheDocument()
+    expect(dialog.getByText(/A payment this month is waiting for its converted amount, so its line keeps its plan until the amount is\s+confirmed\./)).toBeInTheDocument()
+    expect(mockPut).not.toHaveBeenCalled()
+  })
+
   // PPL-086 — "Don't archive" closes the question and nothing is sent; a preview with nothing
   // remaining (this month fully paid) never asks and archives on the one click as PPL-022.
   it('PPL-086: "Don’t archive" sends nothing; a fully paid month archives without asking', { timeout: 15000 }, async () => {
@@ -520,7 +546,7 @@ describe('PeoplePage — catalog (PPL)', () => {
         id: 'm2',
         name: 'Sam',
         isArchived: false,
-        thisMonth: { year: 2026, month: 9, planned: 100, paid: 0, remaining: 100 },
+        thisMonth: { year: 2026, month: 9, planned: 100, paid: 0, remaining: 100, waitingForConvertedAmount: false },
         futureMonths: [],
       },
     }
@@ -538,7 +564,7 @@ describe('PeoplePage — catalog (PPL)', () => {
     expect(screen.getByText('Sam')).toBeInTheDocument()
 
     // Fully paid: remaining 0 → no question, the plain archive request.
-    archivePreviews.m2.thisMonth = { year: 2026, month: 9, planned: 100, paid: 100, remaining: 0 }
+    archivePreviews.m2.thisMonth = { year: 2026, month: 9, planned: 100, paid: 100, remaining: 0, waitingForConvertedAmount: false }
     await user.click(screen.getByRole('button', { name: 'Archive Sam' }))
     await waitFor(
       () => expect(mockPut).toHaveBeenCalledWith('/members/m2/archive', { archived: true }),

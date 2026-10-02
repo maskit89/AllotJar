@@ -41,15 +41,18 @@ public static class PocketMoneyLines
         {
             // Read-side actuals on a detached graph: nothing here is saved.
             await BudgetActuals.ApplyAsync(db, ownerId, month, ct);
-            var lines = month.Categories
-                .Where(c => c.Kind == CategoryKind.Expense)
-                .SelectMany(c => c.Items)
-                .Where(i => i.MemberId == memberId)
+            var lines = new List<PocketMoneyLine>();
+            foreach (var item in month.Categories
+                         .Where(c => c.Kind == CategoryKind.Expense)
+                         .SelectMany(c => c.Items)
+                         .Where(i => i.MemberId == memberId))
+            {
                 // A refund lands on the line it is linked to (P19), possibly one with less spent
                 // than came back: the line's net is then below zero, but nothing was paid out of
                 // it, never a negative payment (RP-P2-1).
-                .Select(i => new PocketMoneyLine(i.Id, i.PlannedAmount, Math.Max(0m, i.ActualAmount)))
-                .ToList();
+                lines.Add(new PocketMoneyLine(item.Id, item.PlannedAmount, Math.Max(0m, item.ActualAmount),
+                    await HasWaitingPaymentAsync(db, item.Id, ct)));
+            }
             result.Add(new PocketMoneyMonth(month.Id, month.Year, month.Month, lines));
         }
         return result;
@@ -58,7 +61,8 @@ public static class PocketMoneyLines
     /// <summary>
     /// Cancels the remaining planned pocket money on the tracked <paramref name="month"/>'s lines for
     /// the person: a line nothing was ever recorded against is removed; a line with payments keeps
-    /// them, its planned amount dropping to what was paid (an overspent line is left as it is).
+    /// them, its planned amount dropping to what was paid (an overspent line is left as it is); a
+    /// line with a payment still waiting for its converted amount keeps its plan (D13).
     /// Returns the planned amount cancelled. The caller saves.
     /// </summary>
     public static async Task<decimal> CancelAsync(
@@ -83,6 +87,14 @@ public static class PocketMoneyLines
                     continue;
                 }
 
+                // A payment still waiting for its budget-currency amount isn't in what was paid yet
+                // (P62), so cutting the plan now would judge "never below paid" against too little:
+                // the line keeps its plan until the amount is confirmed (D13).
+                if (await HasWaitingPaymentAsync(db, line.Id, ct))
+                {
+                    continue;
+                }
+
                 // Never below zero: a planned amount can't be negative (RP-P2-1).
                 var paid = Math.Max(0m, paidByLine.GetValueOrDefault(line.Id));
                 if (line.PlannedAmount > paid)
@@ -94,6 +106,51 @@ public static class PocketMoneyLines
         }
         return cancelled;
     }
+
+    /// <summary>
+    /// Ends "keep the plan until the amount is confirmed" (D13): once a payment on an archived
+    /// person's pocket-money line is confirmed, the line's month is cancelled as the archive would
+    /// have cancelled it, when that month is after the current one (rule 54 always cancels those;
+    /// the archive month is the current one or earlier). The current month's keep-or-cancel choice
+    /// isn't stored, so a line there keeps its plan (a DEVELOPMENT-LOG follow-up). The confirmed
+    /// amount must already be saved, so the paid amount reads it. Returns whether anything changed;
+    /// the caller saves.
+    /// </summary>
+    public static async Task<bool> TrimAfterConfirmAsync(IApplicationDbContext db, string ownerId, Guid lineId, CancellationToken ct)
+    {
+        var line = await db.BudgetItems
+            .AsNoTracking()
+            .Where(i => i.Id == lineId && i.MemberId != null && i.BudgetCategory.Kind == CategoryKind.Expense)
+            .Select(i => new { i.MemberId, i.BudgetCategory.BudgetMonth.Year, i.BudgetCategory.BudgetMonth.Month })
+            .FirstOrDefaultAsync(ct);
+        if (line?.MemberId is not { } memberId
+            || !await db.HouseholdMembers.AnyAsync(m => m.Id == memberId && m.OwnerId == ownerId && m.IsArchived, ct))
+        {
+            return false;
+        }
+
+        var (year, monthNo) = HouseholdMonth.Resolve(null, null);
+        if (line.Year < year || (line.Year == year && line.Month <= monthNo))
+        {
+            return false;
+        }
+
+        var pocket = (await ReadFromAsync(db, ownerId, memberId, line.Year, line.Month, ct))
+            .FirstOrDefault(m => m.Year == line.Year && m.Month == line.Month);
+        if (pocket is null)
+        {
+            return false;
+        }
+        var tracked = await db.BudgetMonths
+            .Include(m => m.Categories)
+                .ThenInclude(c => c.Items)
+            .FirstAsync(m => m.Id == pocket.MonthId, ct);
+        return await CancelAsync(db, tracked, memberId, pocket.Lines.ToDictionary(l => l.Id, l => l.Paid), ct) > 0m;
+    }
+
+    /// <summary>Whether a payment on the line (whole or as a split slice) still waits for its budget-currency amount (P62).</summary>
+    private static Task<bool> HasWaitingPaymentAsync(IApplicationDbContext db, Guid lineId, CancellationToken ct) =>
+        db.Transactions.AnyAsync(t => t.FxPending && (t.BudgetItemId == lineId || t.Splits.Any(s => s.BudgetItemId == lineId)), ct);
 }
 
 /// <summary>One month's pocket-money lines for a person, as read by <see cref="PocketMoneyLines.ReadFromAsync"/>.</summary>
@@ -102,8 +159,16 @@ public record PocketMoneyMonth(Guid MonthId, int Year, int Month, IReadOnlyList<
     public decimal Planned => Lines.Sum(l => l.Planned);
     public decimal Paid => Lines.Sum(l => l.Paid);
 
-    /// <summary>What is still planned beyond what was paid; an overspent line contributes nothing.</summary>
+    /// <summary>
+    /// What is still planned beyond what was paid; an overspent line contributes nothing. A line
+    /// whose payment waits for its converted amount still counts, so the archive still asks about
+    /// it, though a cancel keeps its plan until the amount is confirmed (D13, review round 1 P2-2).
+    /// </summary>
     public decimal Remaining => Lines.Sum(l => Math.Max(l.Planned - l.Paid, 0m));
+
+    /// <summary>A line here has a payment still waiting for its converted amount (D13).</summary>
+    public bool Waiting => Lines.Any(l => l.Waiting);
 }
 
-public record PocketMoneyLine(Guid Id, decimal Planned, decimal Paid);
+/// <param name="Waiting">A payment on the line still waits for its budget-currency amount, so what was paid isn't known yet (D13).</param>
+public record PocketMoneyLine(Guid Id, decimal Planned, decimal Paid, bool Waiting);

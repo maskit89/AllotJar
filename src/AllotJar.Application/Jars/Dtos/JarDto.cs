@@ -107,7 +107,7 @@ public class JarCycleDto
     public DateOnly Deadline { get; set; }
     public decimal TargetAmount { get; set; }
 
-    /// <summary>Paid | Funded | Missed | FundedLate — see <see cref="JarCycleOutcome"/>.</summary>
+    /// <summary>Paid | Funded | Missed | FundedLate — see <see cref="JarCycleOutcome"/> — or Waiting: unpaid, its deadline not yet come and nothing judged (D17).</summary>
     public string Outcome { get; set; } = string.Empty;
 
     /// <summary>The balance at the end of the day before the deadline; null when it was unavailable.</summary>
@@ -254,12 +254,20 @@ public static class JarMapping
         };
     }
 
+    /// <summary>The outcome a cycle reads while it waits for its deadline to be judged (D17).</summary>
+    public const string WaitingOutcome = "Waiting";
+
     public static JarCycleDto ToDto(this JarCycle c) => new()
     {
         Id = c.Id,
         Deadline = c.Deadline,
         TargetAmount = c.TargetAmount,
-        Outcome = c.Outcome.ToString(),
+        // A cycle whose payment was removed before its deadline is judged only when the deadline
+        // arrives (JarCycles.ReopenPaidByAsync): until then it reads as waiting, never as funded
+        // on time (D17).
+        Outcome = c is { Outcome: JarCycleOutcome.Funded, PaymentTransactionId: null, BalanceAtDeadline: null }
+            ? WaitingOutcome
+            : c.Outcome.ToString(),
         BalanceAtDeadline = c.BalanceAtDeadline,
         PaymentTransactionId = c.PaymentTransactionId,
         PaymentPayee = c.PaymentTransaction?.Payee,

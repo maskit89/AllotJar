@@ -316,9 +316,10 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         // A jar line's planned amount is the plan the shelf shows for the month (rule 14), and
         // typing one un-skips the month: re-read the shelf so it never goes stale (J6).
         if (findItem(month, itemId)?.savingsId) refreshJars()
-      } catch {
+      } catch (err) {
         if (onMonth()) setMonth(snapshot) // roll back to the pre-edit state
-        setError('Could not save that change — reverted to the previous value.')
+        // A refusal says why (an archived jar's line plans nothing, D18).
+        setError(serverErrors(err) ?? 'Could not save that change — reverted to the previous value.')
       } finally {
         setSavingItemId(null)
       }

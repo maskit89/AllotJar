@@ -373,10 +373,11 @@ function JarCard({
   const lastCycle = jarLastCycleLabel(jar, currency)
   // W03: a Recurring jar with an open cycle can be marked paid at any time (rule 83); the
   // missed-deadline notice can also be dismissed (rule 20). A last cycle that rolled forward
-  // funded but never had its payment recorded can still be given one.
+  // funded but never had its payment recorded, or one waiting for its deadline, can still be given one.
   const recurring = jar.recurMonths !== null && jar.deadline !== null && jar.status !== 'Unavailable'
   const missed = jar.status === 'DeadlineMissed' || jar.status === 'FundedLate'
-  const unpaidLastCycle = jar.lastCycle && jar.lastCycle.outcome === 'Funded' ? jar.lastCycle : null
+  const unpaidLastCycle =
+    jar.lastCycle && (jar.lastCycle.outcome === 'Funded' || jar.lastCycle.outcome === 'Waiting') ? jar.lastCycle : null
   // W04: a Goal can be marked completed (rule 55) while its balance is known and not overdrawn
   // (rule 56); a completed jar offers nothing more than Move money and Edit.
   const completed = jar.completedOn !== null

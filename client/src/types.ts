@@ -824,7 +824,7 @@ export interface JarCycleDto {
   /** The deadline the cycle worked toward (ISO yyyy-MM-dd). */
   deadline: string
   targetAmount: number
-  /** Paid | Funded | Missed | FundedLate. */
+  /** Paid | Funded | Missed | FundedLate, or Waiting (unpaid, its deadline not yet judged). */
   outcome: string
   /** The balance at the end of the day before the deadline; null when it was unavailable. */
   balanceAtDeadline: number | null
@@ -978,6 +978,8 @@ export interface PocketMoneyMonthDto {
   planned: number
   paid: number
   remaining: number
+  /** A payment this month waits for its converted amount: a cancel keeps that line's plan until it is confirmed (D13). */
+  waitingForConvertedAmount: boolean
 }
 
 // Matches Application PocketMoneyDecision (serialized as a number): what happens to the pocket

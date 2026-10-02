@@ -46,9 +46,7 @@ public class DismissJarCycleCommandHandler : IRequestHandler<DismissJarCycleComm
         }
 
         var snapshot = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken);
-        var outcome = snapshot.BalanceOf(jar.Id) is { } balance && balance >= jar.TargetAmount
-            ? JarCycleOutcome.FundedLate
-            : JarCycleOutcome.Missed;
+        var outcome = JarCycles.UnpaidCloseOutcome(jar, snapshot.BalanceOf(jar.Id));
         await JarCycles.CloseOpenCycleAsync(_db, userId, jar, outcome, null, today, cancellationToken);
 
         await _db.SaveChangesAsync(cancellationToken);

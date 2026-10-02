@@ -49,6 +49,17 @@ public class UpdateJarCommandHandler
         // an edit moves no money, and what it writes down keeps every balance as it reads (P3-10).
         var ledger = await JarLedgerReader.LoadAsync(_db, userId, cancellationToken);
 
+        // A Recurring date changed to a deadline this jar already has a recorded cycle for (missed,
+        // paid or rolled over) would open that cycle a second time, and closing it again could
+        // never be recorded: the date is refused before anything is written (review round 1, P2-3).
+        if (JarCycles.DeadlinesFor(jar, request.Kind, request.TargetDate).CycleDeadline is { } newDeadline
+            && newDeadline != jar.CycleDeadline
+            && await _db.JarCycles.AnyAsync(c => c.JarId == jar.Id && c.Deadline == newDeadline, cancellationToken))
+        {
+            throw JarAccounts.Validation(nameof(UpdateJarCommand.TargetDate),
+                $"A cycle due on {newDeadline:d MMM yyyy} is already recorded for {jar.Name}. Pick another date.");
+        }
+
         if (request.FundingAccountId != jar.FundingAccountId)
         {
             // Rule 80: the account can change only while the jar holds nothing, today and on every
@@ -106,6 +117,24 @@ public class UpdateJarCommandHandler
         // A Recurring jar's form shows its open cycle's date: sent back unchanged it keeps the
         // anchor and the cycle; any other date is a deliberate change and restarts both (W03).
         var (anchor, cycleDeadline) = JarCycles.DeadlinesFor(jar, request.Kind, request.TargetDate);
+        if (jar is { Kind: JarKind.Recurring, IsArchived: false, CycleDeadline: { } open } && open <= today && cycleDeadline != open)
+        {
+            // The open cycle is in Deadline missed (the settle above rolled it forward otherwise),
+            // and the edit replaces it: it is recorded first, as Dismiss would close it now (Missed,
+            // or FundedLate once the jar holds its target), so the history keeps it (rule 20, D15);
+            // its balance is read the day before the deadline, as the rollover reads it.
+            _db.JarCycles.Add(new JarCycle
+            {
+                OwnerId = userId,
+                JarId = jar.Id,
+                Deadline = open,
+                TargetAmount = jar.TargetAmount,
+                Outcome = JarCycles.UnpaidCloseOutcome(jar, ledger.At(today).BalanceOf(jar.Id)),
+                BalanceAtDeadline = ledger.At(open.AddDays(-1)).BalanceOf(jar.Id),
+                ClosedOn = today,
+                CreatedUtc = DateTime.UtcNow,
+            });
+        }
         jar.Name = request.Name.Trim();
         jar.Kind = request.Kind;
         jar.TargetAmount = request.TargetAmount;

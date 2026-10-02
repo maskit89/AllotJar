@@ -456,6 +456,78 @@ public class JarCycleTests
         moved.Deadline.Should().Be(NextMonth.AddMonths(2));
         moved.TargetDate.Should().Be(NextMonth.AddMonths(2));
         (await db.Jars.SingleAsync()).CycleDeadline.Should().Be(NextMonth.AddMonths(2));
+        (await db.JarCycles.CountAsync()).Should().Be(0, "a cycle not yet due is replaced, never missed");
+    }
+
+    [Fact]
+    public async Task D15_ChangingTheDateWhileACycleIsMissed_RecordsItAsMissed_ThenMovesTheDate()
+    {
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner);
+        var due = Today.AddDays(-3);
+        var jar = SeedInsurance(db, account, due: due);
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 450m, Today.AddDays(-30));
+        (await ListAsync(db)).Single().Status.Should().Be("DeadlineMissed");
+
+        var moved = await new UpdateJarCommandHandler(db, User()).Handle(new UpdateJarCommand(
+            jar.Id, "Insurance", JarKind.Recurring, 600m, NextMonth.AddMonths(2), AccrualMethod.TargetByDate, account.Id, RecurMonths: 12), CancellationToken.None);
+
+        moved.Deadline.Should().Be(NextMonth.AddMonths(2));
+        var cycle = await db.JarCycles.SingleAsync();
+        cycle.Deadline.Should().Be(due);
+        cycle.Outcome.Should().Be(JarCycleOutcome.Missed);
+        cycle.BalanceAtDeadline.Should().Be(450m);
+        cycle.TargetAmount.Should().Be(600m);
+        cycle.ClosedOn.Should().Be(Today);
+        moved.LastCycle!.Outcome.Should().Be("Missed");
+    }
+
+    [Fact]
+    public async Task D15_ChangingTheDateWhenAMissedCycleIsNowFunded_RecordsItAsFundedLate_AsDismissWould()
+    {
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner);
+        var due = Today.AddDays(-3);
+        var jar = SeedInsurance(db, account, due: due);
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 450m, Today.AddDays(-30));
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 150m, Today.AddDays(-1)); // after the deadline
+        (await ListAsync(db)).Single().Status.Should().Be("FundedLate");
+
+        await new UpdateJarCommandHandler(db, User()).Handle(new UpdateJarCommand(
+            jar.Id, "Insurance", JarKind.Recurring, 600m, NextMonth.AddMonths(2), AccrualMethod.TargetByDate, account.Id, RecurMonths: 12), CancellationToken.None);
+
+        var cycle = await db.JarCycles.SingleAsync();
+        cycle.Deadline.Should().Be(due);
+        cycle.Outcome.Should().Be(JarCycleOutcome.FundedLate);
+        cycle.BalanceAtDeadline.Should().Be(450m, "the balance the day before the deadline");
+    }
+
+    [Theory]
+    [InlineData(JarCycleOutcome.Missed)]
+    [InlineData(JarCycleOutcome.Paid)]
+    [InlineData(JarCycleOutcome.Funded)]
+    public async Task D15_ChangingTheDateToADeadlineWithARecordedCycle_IsRefused(JarCycleOutcome outcome)
+    {
+        // A cycle due D is already recorded (missed, paid or rolled over); the open cycle is later.
+        // Setting the date back to D would open that cycle again, and closing it a second time
+        // could never be recorded (one row per jar and deadline), so the date is refused.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner);
+        var recorded = Today.AddDays(-3);
+        var jar = SeedInsurance(db, account, due: NextMonth.AddMonths(2), anchor: NextMonth.AddMonths(2));
+        db.JarCycles.Add(new JarCycle
+        {
+            OwnerId = Owner, JarId = jar.Id, Deadline = recorded, TargetAmount = 600m, Outcome = outcome,
+            BalanceAtDeadline = 0m, ClosedOn = recorded, CreatedUtc = DateTime.UtcNow,
+        });
+        db.SaveChanges();
+
+        var act = () => new UpdateJarCommandHandler(db, User()).Handle(new UpdateJarCommand(
+            jar.Id, "Insurance", JarKind.Recurring, 600m, recorded, AccrualMethod.TargetByDate, account.Id, RecurMonths: 12), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<ValidationException>()).Which.Errors[nameof(UpdateJarCommand.TargetDate)].Single()
+            .Should().Be($"A cycle due on {recorded:d MMM yyyy} is already recorded for Insurance. Pick another date.");
+        (await db.Jars.AsNoTracking().SingleAsync()).CycleDeadline.Should().Be(NextMonth.AddMonths(2));
     }
 
     [Fact]

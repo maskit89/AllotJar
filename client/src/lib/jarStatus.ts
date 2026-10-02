@@ -102,8 +102,8 @@ export function jarHorizonLabel(jar: JarDto): string | null {
 
 /**
  * How a Recurring jar's last cycle ended (W03), in one line: "Last cycle · due 1 Dec 2025 ·
- * paid 28 Nov 2025 (€550.00)", "… · funded on time", "… · funded late", "… · missed". Null when
- * no cycle has closed yet, or for a Goal.
+ * paid 28 Nov 2025 (€550.00)", "… · funded on time", "… · funded late", "… · missed", "… · waiting
+ * for the deadline" (unpaid and not yet judged). Null when no cycle has closed yet, or for a Goal.
  */
 export function jarLastCycleLabel(jar: JarDto, currency: string): string | null {
   const cycle = jar.lastCycle
@@ -117,6 +117,9 @@ export function jarLastCycleLabel(jar: JarDto, currency: string): string | null 
     }
     case 'Funded':
       return `${due} · funded on time, payment not recorded`
+    case 'Waiting':
+      // Its payment was removed before the deadline: judged only when the deadline comes (D17).
+      return `${due} · waiting for the deadline`
     case 'FundedLate':
       return `${due} · funded late`
     case 'Missed':
