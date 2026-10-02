@@ -978,6 +978,8 @@ export interface PocketMoneyMonthDto {
   planned: number
   paid: number
   remaining: number
+  /** A payment this month waits for its converted amount: a cancel keeps that line's plan until it is confirmed (D13). */
+  waitingForConvertedAmount: boolean
 }
 
 // Matches Application PocketMoneyDecision (serialized as a number): what happens to the pocket

@@ -49,6 +49,17 @@ public class UpdateJarCommandHandler
         // an edit moves no money, and what it writes down keeps every balance as it reads (P3-10).
         var ledger = await JarLedgerReader.LoadAsync(_db, userId, cancellationToken);
 
+        // A Recurring date changed to a deadline this jar already has a recorded cycle for (missed,
+        // paid or rolled over) would open that cycle a second time, and closing it again could
+        // never be recorded: the date is refused before anything is written (review round 1, P2-3).
+        if (JarCycles.DeadlinesFor(jar, request.Kind, request.TargetDate).CycleDeadline is { } newDeadline
+            && newDeadline != jar.CycleDeadline
+            && await _db.JarCycles.AnyAsync(c => c.JarId == jar.Id && c.Deadline == newDeadline, cancellationToken))
+        {
+            throw JarAccounts.Validation(nameof(UpdateJarCommand.TargetDate),
+                $"A cycle due on {newDeadline:d MMM yyyy} is already recorded for {jar.Name}. Pick another date.");
+        }
+
         if (request.FundingAccountId != jar.FundingAccountId)
         {
             // Rule 80: the account can change only while the jar holds nothing, today and on every

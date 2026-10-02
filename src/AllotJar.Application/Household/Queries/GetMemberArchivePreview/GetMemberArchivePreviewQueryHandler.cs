@@ -44,6 +44,7 @@ public class GetMemberArchivePreviewQueryHandler
             Planned = m.Planned,
             Paid = m.Paid,
             Remaining = m.Remaining,
+            WaitingForConvertedAmount = m.Waiting,
         };
 
         return new MemberArchivePreviewDto

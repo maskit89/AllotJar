@@ -363,6 +363,33 @@ public class JarLifecycleW04Tests
         db.BudgetItems.Single(i => i.Id == lines[Next].Id).IsSkipped.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(JarKind.Recurring)]
+    [InlineData(JarKind.Goal)]
+    public async Task D14_TypingAnAmountOnASkippedMonthAfterTheDeadline_LeavesThePlanBeforeItWhole(JarKind kind)
+    {
+        // 300 due on the 1st in three months, 100/100/100. The month after the deadline (a
+        // Recurring jar's next cycle, a Goal past its date) is skipped and an amount typed there:
+        // money saved after the deadline can't fund it, so the months before it keep the whole 300.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner);
+        var jar = SeedGoal(db, account, kind: kind);
+        SeedPlan(db, jar);
+        var later = SeedMonth(db, Current.AddMonths(4), jar, 0m);
+        await SkipAsync(db, later);
+        LineFor(db, jar, Current).Should().Be(100m, "a skip outside the plan changes nothing");
+
+        await new UpdateBudgetItemCommandHandler(db, User())
+            .Handle(new UpdateBudgetItemCommand(later.Id, 150m), CancellationToken.None);
+
+        LineFor(db, jar, Current).Should().Be(100m);
+        LineFor(db, jar, Next).Should().Be(100m);
+        LineFor(db, jar, After).Should().Be(100m);
+        var typed = db.BudgetItems.AsNoTracking().Single(i => i.Id == later.Id);
+        typed.PlannedAmount.Should().Be(150m);
+        typed.IsSkipped.Should().BeFalse("the typed amount still ends the skip");
+    }
+
     [Fact]
     public async Task D18_AnArchivedJarsLine_RefusesATypedAmount_AndKeepsItsSkip()
     {

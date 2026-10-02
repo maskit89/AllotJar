@@ -4,6 +4,7 @@ using AllotJar.Application.Household;
 using AllotJar.Application.Household.Commands.ArchiveHouseholdMember;
 using AllotJar.Application.Household.Queries.GetMemberArchivePreview;
 using AllotJar.Application.Tests.TestDoubles;
+using AllotJar.Application.Transactions.Commands.ConfirmConvertedAmount;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -97,13 +98,75 @@ public class PocketMoneyFixPlanETests
 
         var preview = await new GetMemberArchivePreviewQueryHandler(db, User).Handle(new GetMemberArchivePreviewQuery(kid.Id), Ct);
         preview.ThisMonth!.Planned.Should().Be(50m);
-        preview.ThisMonth.Remaining.Should().Be(0m, "a cancel keeps this line's plan, so nothing is offered for cancelling");
+        preview.ThisMonth.Remaining.Should().Be(50m, "the line is still asked about, so the archive asks keep or cancel");
+        preview.ThisMonth.WaitingForConvertedAmount.Should().BeTrue("the dialog says that line's plan stays until the amount is confirmed");
+
+        // Without the decision the archive is refused with the question, naming the waiting payment.
+        var undecided = () => new ArchiveHouseholdMemberCommandHandler(db, User).Handle(new ArchiveHouseholdMemberCommand(kid.Id), Ct);
+        (await undecided.Should().ThrowAsync<AllotJar.Application.Common.Exceptions.ValidationException>())
+            .Which.Errors[nameof(ArchiveHouseholdMemberCommand.PocketMoneyThisMonth)].Single()
+            .Should().Contain("still has 50.00").And.Contain("waiting for its converted amount");
 
         await new ArchiveHouseholdMemberCommandHandler(db, User)
             .Handle(new ArchiveHouseholdMemberCommand(kid.Id, true, PocketMoneyDecision.Cancel), Ct);
 
         db.BudgetItems.AsNoTracking().Single(i => i.Id == pocketNow.Id).PlannedAmount
             .Should().Be(50m, "D13: what was paid isn't known until the amount is confirmed, so the plan isn't cut to 0");
+    }
+
+    [Fact]
+    public async Task Confirming_the_waiting_payment_cancels_a_later_months_kept_plan_for_an_archived_person()
+    {
+        await using var db = NewContext();
+        var kid = new HouseholdMember { OwnerId = Owner, Name = "Kid" };
+        db.HouseholdMembers.Add(kid);
+        db.SaveChanges();
+        var next = Shift(1);
+        var pocketNext = new BudgetItem { Name = "Kid", PlannedAmount = 50m, MemberId = kid.Id };
+        AddMonth(db, next, "Pocket Money", pocketNext);
+        var payment = new Transaction
+        {
+            OwnerId = Owner, Date = new DateOnly(next.Year, next.Month, 1), Payee = "Pocket money", Amount = 25m,
+            Type = TransactionType.Expense, BudgetItemId = pocketNext.Id, Currency = CurrencyCode.From("GBP"), FxPending = true,
+        };
+        db.Transactions.Add(payment);
+        db.SaveChanges();
+
+        // Rule 54 cancels next month whatever the user chose; the waiting line keeps its plan for now.
+        await new ArchiveHouseholdMemberCommandHandler(db, User).Handle(new ArchiveHouseholdMemberCommand(kid.Id), Ct);
+        db.BudgetItems.AsNoTracking().Single(i => i.Id == pocketNext.Id).PlannedAmount.Should().Be(50m);
+
+        await new ConfirmConvertedAmountCommandHandler(db, User).Handle(new ConfirmConvertedAmountCommand(payment.Id, 28m), Ct);
+
+        db.BudgetItems.AsNoTracking().Single(i => i.Id == pocketNext.Id).PlannedAmount
+            .Should().Be(28m, "once the amount is confirmed, the plan the archive kept for it is cancelled down to what was paid");
+    }
+
+    [Fact]
+    public async Task Confirming_the_waiting_payment_keeps_the_archive_months_plan_while_the_choice_is_not_stored()
+    {
+        await using var db = NewContext();
+        var kid = new HouseholdMember { OwnerId = Owner, Name = "Kid" };
+        db.HouseholdMembers.Add(kid);
+        db.SaveChanges();
+        var now = Shift(0);
+        var pocketNow = new BudgetItem { Name = "Kid", PlannedAmount = 50m, MemberId = kid.Id };
+        AddMonth(db, now, "Pocket Money", pocketNow);
+        var payment = new Transaction
+        {
+            OwnerId = Owner, Date = new DateOnly(now.Year, now.Month, 1), Payee = "Pocket money", Amount = 25m,
+            Type = TransactionType.Expense, BudgetItemId = pocketNow.Id, Currency = CurrencyCode.From("GBP"), FxPending = true,
+        };
+        db.Transactions.Add(payment);
+        db.SaveChanges();
+        await new ArchiveHouseholdMemberCommandHandler(db, User)
+            .Handle(new ArchiveHouseholdMemberCommand(kid.Id, true, PocketMoneyDecision.Cancel), Ct);
+
+        await new ConfirmConvertedAmountCommandHandler(db, User).Handle(new ConfirmConvertedAmountCommand(payment.Id, 28m), Ct);
+
+        // The archive month's keep-or-cancel choice isn't stored, so nothing cuts this month's plan
+        // after the confirmation (DEVELOPMENT-LOG follow-up of review round 1, P2-2).
+        db.BudgetItems.AsNoTracking().Single(i => i.Id == pocketNow.Id).PlannedAmount.Should().Be(50m);
     }
 
     [Fact]

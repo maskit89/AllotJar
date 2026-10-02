@@ -25,4 +25,7 @@ public class PocketMoneyMonthDto
     public decimal Planned { get; set; }
     public decimal Paid { get; set; }
     public decimal Remaining { get; set; }
+
+    /// <summary>A payment this month still waits for its converted amount: a cancel keeps that line's plan until the amount is confirmed (D13).</summary>
+    public bool WaitingForConvertedAmount { get; set; }
 }

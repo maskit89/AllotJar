@@ -4,6 +4,8 @@ using AllotJar.Application.Budgets.Dtos;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars;
+using AllotJar.Domain.Entities;
+using AllotJar.Domain.Enums;
 using AllotJar.Domain.Services;
 
 namespace AllotJar.Application.Budgets.Commands.UpdateBudgetItem;
@@ -64,8 +66,14 @@ public class UpdateBudgetItemCommandHandler : IRequestHandler<UpdateBudgetItemCo
             // months give back what they carried for it (rule 61), as "Plan it again" does, but
             // around the typed amount. The replant runs with the month still skipped and the typed
             // amount counted as saved, so the remaining months carry the rest of the plan (D14).
+            // Only inside the plan window: money typed for a month after the deadline's last
+            // contribution month (a Recurring jar's next cycle, a Goal past its date) can't fund
+            // it, so there the skip just ends, as before (review round 1, P2-1).
             await JarCycles.SettleAsync(_db, userId, today, cancellationToken, jar.Id);
-            await JarPlanner.ReplantAsync(_db, userId, jar, today, request.PlannedAmount, cancellationToken);
+            if (InPlanWindow(jar, new DateOnly(month.Year, month.Month, 1), today))
+            {
+                await JarPlanner.ReplantAsync(_db, userId, jar, today, request.PlannedAmount, cancellationToken);
+            }
         }
 
         item.PlannedAmount = request.PlannedAmount;
@@ -91,5 +99,22 @@ public class UpdateBudgetItemCommandHandler : IRequestHandler<UpdateBudgetItemCo
         await BudgetActuals.ApplyAsync(_db, userId, updated, cancellationToken);
 
         return updated.ToDto();
+    }
+
+    /// <summary>
+    /// Whether <paramref name="month"/> is one the jar's plan spreads over: for a deadline plan, up
+    /// to the deadline's last contribution month (or the current month when that has passed, as the
+    /// planner clamps it); a fixed monthly plan runs on until its target, so every month.
+    /// </summary>
+    private static bool InPlanWindow(Jar jar, DateOnly month, DateOnly today)
+    {
+        if (jar.Accrual != AccrualMethod.TargetByDate || JarSchedule.CurrentDeadline(jar) is not { } deadline)
+        {
+            return true;
+        }
+
+        var end = JarSchedule.FundingCompletionMonth(jar, deadline);
+        var current = new DateOnly(today.Year, today.Month, 1);
+        return month <= (end < current ? current : end);
     }
 }

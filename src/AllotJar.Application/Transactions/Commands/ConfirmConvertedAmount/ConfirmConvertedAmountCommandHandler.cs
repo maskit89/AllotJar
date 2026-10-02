@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Budgets;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Household;
 using AllotJar.Application.Transactions.Dtos;
 
 namespace AllotJar.Application.Transactions.Commands.ConfirmConvertedAmount;
@@ -85,6 +86,13 @@ public class ConfirmConvertedAmountCommandHandler : IRequestHandler<ConfirmConve
         transaction.FxPending = false;
 
         await _db.SaveChangesAsync(cancellationToken);
+        // An archived person's pocket-money line kept its plan while this payment waited (D13):
+        // with the amount now known, a month the archive cancels is cancelled (review round 1, P2-2).
+        if (transaction.BudgetItemId is { } lineId
+            && await PocketMoneyLines.TrimAfterConfirmAsync(_db, userId, lineId, cancellationToken))
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
         return await TransactionReads.ReadDtoAsync(_db, transaction.Id, cancellationToken);
     }
 
