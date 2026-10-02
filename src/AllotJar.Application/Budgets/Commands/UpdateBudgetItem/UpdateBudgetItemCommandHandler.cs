@@ -76,9 +76,13 @@ public class UpdateBudgetItemCommandHandler : IRequestHandler<UpdateBudgetItemCo
             }
         }
 
-        if (item.SavingsId is not null && item.PlannedAmount != request.PlannedAmount)
+        if (item.SavingsId is not null && item.PlannedAmount != request.PlannedAmount
+            && (month.Year > today.Year || (month.Year == today.Year && month.Month > today.Month)))
         {
-            // O3b: a jar line's amount typed by hand is kept by later replants (on a later month).
+            // O3b: a jar line's amount typed by hand on a later month is kept by every replant,
+            // that month's own included once it arrives (PR #305 review round 1, P2-1). One typed
+            // on the current month is not marked, so P29 still replants it; a mark it already
+            // carries stays.
             item.IsPlannedByHand = true;
         }
         item.PlannedAmount = request.PlannedAmount;

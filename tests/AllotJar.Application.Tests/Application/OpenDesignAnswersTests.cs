@@ -16,6 +16,7 @@ using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.LinkRefund;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.Services;
 using AllotJar.Domain.ValueObjects;
 using AllotJar.Infrastructure.Persistence;
 
@@ -128,7 +129,8 @@ public class OpenDesignAnswersTests
     [Fact]
     public async Task O3b_AnAmountTypedOnThisMonth_IsReplantedAsBefore_AndSkippingAMonthHandsItBackToTheSchedule()
     {
-        // Only later months are protected (P29 still rewrites the current month), and skipping or
+        // An amount typed on the current month is not marked, so P29 still rewrites it; one typed
+        // on a later month is (and keeps it once that month arrives, next test). Skipping or
         // planning a month again clears the hand-typed mark.
         await using var db = NewContext();
         var account = LedgerFixtures.SeedAccount(db, Owner);
@@ -137,6 +139,8 @@ public class OpenDesignAnswersTests
 
         await TypeAsync(db, lines[Current], 40m);
         await TypeAsync(db, lines[Next], 60m);
+        LineFor(db, jar, Current).IsPlannedByHand.Should().BeFalse();
+        LineFor(db, jar, Next).IsPlannedByHand.Should().BeTrue();
         await new UpdateJarCommandHandler(db, User).Handle(Retarget(jar, account, 600m), Ct);
 
         // Next keeps 60; this month and the one after share 540.
@@ -151,6 +155,43 @@ public class OpenDesignAnswersTests
         LineFor(db, jar, Current).PlannedAmount.Should().Be(200m);
         LineFor(db, jar, Next).PlannedAmount.Should().Be(200m);
         LineFor(db, jar, After).PlannedAmount.Should().Be(200m);
+    }
+
+    [Fact]
+    public async Task O3b_AnAmountTypedForALaterMonth_KeepsItOnceThatMonthArrives_UntilTheJarIsArchived()
+    {
+        // PR #305 review round 1, P2-1. In this month the user types 250 for next month. On the
+        // 2nd of next month something replants the jar (an edit, a skip, a cycle closing, a
+        // restore, a reopen): next month, now the current one, keeps its 250 and the month after
+        // carries the 50 left. Archiving cancels the plan, the typed amount and its mark included.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner);
+        var jar = SeedJar(db, account);
+        var lines = SeedPlan(db, jar);
+
+        await TypeAsync(db, lines[Next], 250m);
+        LineFor(db, jar, Next).IsPlannedByHand.Should().BeTrue();
+
+        var secondOfNext = new DateOnly(Next.Year, Next.Month, 2);
+        var tracked = await db.Jars.SingleAsync(j => j.Id == jar.Id);
+        await JarPlanner.ReplantAsync(db, Owner, tracked, secondOfNext, 0m, Ct);
+        await db.SaveChangesAsync(Ct);
+
+        LineFor(db, jar, Current).PlannedAmount.Should().Be(100m, "a past month is history (rule 46)");
+        LineFor(db, jar, Next).PlannedAmount.Should().Be(250m, "the user typed 250 for this month (O3b)");
+        LineFor(db, jar, After).PlannedAmount.Should().Be(50m);
+        var plan = JarSchedule.Plan(tracked, secondOfNext, 0m, new JarPlanOptions(
+            ByHandMonths: (await SavingsLines.ByHandMonthsByJarAsync(db, Owner, new[] { jar.Id }, secondOfNext, Ct)).GetValueOrDefault(jar.Id)));
+        plan.Months.Select(m => (m.Planned, m.ByHand)).Should().Equal((250m, true), (50m, false));
+
+        // Archiving today cancels the plan: this month's line (marked, as if typed last month) is
+        // cut and loses its mark, and the later lines go.
+        var thisMonth = await db.BudgetItems.SingleAsync(i => i.Id == lines[Current].Id);
+        thisMonth.IsPlannedByHand = true;
+        await db.SaveChangesAsync(Ct);
+        await new ArchiveJarCommandHandler(db, User).Handle(new ArchiveJarCommand(jar.Id, true), Ct);
+        LineFor(db, jar, Current).IsPlannedByHand.Should().BeFalse();
+        LineFor(db, jar, Current).PlannedAmount.Should().Be(0m);
     }
 
     [Fact]
@@ -193,6 +234,29 @@ public class OpenDesignAnswersTests
         LineFor(db, jar, Next).PlannedAmount.Should().Be(60m);
         LineFor(db, jar, After).PlannedAmount.Should().Be(60m);
         (await BalanceAsync(db, jar)).Should().Be(120m);
+    }
+
+    [Fact]
+    public async Task O3c_ReopeningAGoalPastItsDate_PlansTheWholeRemainderThisMonth()
+    {
+        // As an edit of a Goal past its date would: no months left to spread over, so the 180 still
+        // missing is due this month and the Goal reads Behind (PR #305 review round 1, P3-2 asks
+        // the dialog to say so; logged).
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner);
+        var jar = SeedJar(db, account);
+        jar.TargetDate = Current.AddMonths(-1);
+        db.SaveChanges();
+        SeedMonth(db, Current, jar, 0m);
+        SeedMonth(db, Next, jar, 0m);
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 120m);
+        await new CompleteJarCommandHandler(db, User).Handle(new CompleteJarCommand(jar.Id), Ct);
+
+        var reopened = await new ReopenJarCommandHandler(db, User).Handle(new ReopenJarCommand(jar.Id), Ct);
+
+        reopened.Status.Should().Be("Behind");
+        reopened.PlannedThisMonth.Should().Be(180m);
+        LineFor(db, jar, Current).PlannedAmount.Should().Be(180m);
     }
 
     [Fact]
@@ -317,6 +381,43 @@ public class OpenDesignAnswersTests
         var livePurchase = LedgerFixtures.Expense(db, Owner, savings.Id, 60m, Today, liveLine.Id);
         await RefundAsync(db, livePurchase, 20m, savings.Id);
         (await BalanceAsync(db, live)).Should().Be(40m);
+    }
+
+    [Fact]
+    public async Task O9b_LinkingAReceiptWhoseMoneyWasSpentSince_LeavesItUnallocated()
+    {
+        // PR #305 review round 1, P2-2. Savings 1000; Sofa holds 800, pays 100 (700 left) and is
+        // completed. 50 arrives and stays unallocated; 250 of groceries is then paid from
+        // unallocated money (account 700, unallocated 0). Marking the 50 as the sofa's refund
+        // links it, but can't put it back into Sofa: that money is gone, and the jars would hold
+        // more than the account. It stays unallocated for the user to place.
+        await using var db = NewContext();
+        var savings = LedgerFixtures.SeedAccount(db, Owner);
+        var jar = SeedJar(db, savings);
+        var line = SeedMonth(db, Current, jar, 100m);
+        var home = new BudgetCategory
+        {
+            BudgetMonthId = line.BudgetCategory.BudgetMonthId, Name = "Home", Kind = CategoryKind.Expense,
+            Items = new List<BudgetItem> { new() { Name = "Groceries", PlannedAmount = 300m } },
+        };
+        db.BudgetCategories.Add(home);
+        db.SaveChanges();
+        var groceriesLine = home.Items.Single();
+        LedgerFixtures.Allocate(db, Owner, savings.Id, jar.Id, 800m);
+        var purchase = LedgerFixtures.Expense(db, Owner, savings.Id, 100m, Current, line.Id);
+        await new CompleteJarCommandHandler(db, User).Handle(new CompleteJarCommand(jar.Id), Ct);
+        var receipt = LedgerFixtures.Income(db, Owner, savings.Id, 50m, Current);
+        LedgerFixtures.Expense(db, Owner, savings.Id, 250m, Current, groceriesLine.Id);
+        (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[savings.Id].Unallocated.Should().Be(0m);
+
+        await new LinkRefundCommandHandler(db, User).Handle(new LinkRefundCommand(receipt.Id, purchase.Id), Ct);
+
+        db.Transactions.AsNoTracking().Single(t => t.Id == receipt.Id).RefundOfTransactionId.Should().Be(purchase.Id);
+        var after = (await JarLedgerReader.ReadAsync(db, Owner, Today, Ct)).Accounts[savings.Id];
+        after.AccountBalance.Should().Be(700m);
+        after.JarBalances!.GetValueOrDefault(jar.Id).Should().Be(700m);
+        after.Unallocated.Should().Be(0m);
+        after.HasBackingDeficit.Should().BeFalse();
     }
 
     [Fact]

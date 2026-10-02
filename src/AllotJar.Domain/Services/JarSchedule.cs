@@ -5,7 +5,7 @@ namespace AllotJar.Domain.Services;
 
 /// <summary>One planned month of a jar's contribution schedule.</summary>
 /// <param name="Skipped">Rule 60: the user skipped this month's contribution; it plans 0 and the remaining months carry the plan.</param>
-/// <param name="ByHand">O3b: the amount the user typed on this later month's line, kept by every replant; the other months carry the rest.</param>
+/// <param name="ByHand">O3b: the amount the user typed on this month's line while it was still a later month, kept by every replant; the other months carry the rest.</param>
 public readonly record struct JarPlannedMonth(int Year, int Month, decimal Planned, bool Skipped = false, bool ByHand = false)
 {
     public DateOnly FirstDay => new(Year, Month, 1);
@@ -61,7 +61,7 @@ public sealed record JarPlan(
 /// </param>
 /// <param name="ListThrough">Ongoing plans (rule 16): list every month up to this one instead of the single representative month, so each existing month can take its figure.</param>
 /// <param name="ByHandMonths">
-/// O3b: first days of the later months whose line carries an amount the user typed by hand, with
+/// O3b: first days of the months whose line carries an amount the user typed by hand, with
 /// that amount. Each plans exactly it and the other months carry the rest, as around a skipped
 /// month (rule 61); a skip wins over it.
 /// </param>

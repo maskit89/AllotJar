@@ -52,7 +52,7 @@ public static class JarPlanner
         // two: a skipped later month must not shrink the share this one is asked for (rule 61).
         var jarIds = scheduled.Select(j => j.Id).ToList();
         var skippedByJar = await SavingsLines.SkippedMonthsByJarAsync(db, ownerId, jarIds, target < current ? target : current, cancellationToken);
-        // ... and the later months whose amount the user typed by hand (O3b), which carry exactly that.
+        // ... and the months from this one on whose amount the user typed by hand (O3b), which carry exactly that.
         var byHandByJar = await SavingsLines.ByHandMonthsByJarAsync(db, ownerId, jarIds, today, cancellationToken);
         JarPlanOptions OptionsFor(Jar jar) => new(
             skippedByJar.GetValueOrDefault(jar.Id),
@@ -184,8 +184,8 @@ public static class JarPlanner
     /// stay untouched (rule 46); money is never moved. Used when a jar is created (so it starts
     /// filling without a manual Budget-page step), when its target, deadline or plan changes,
     /// when a Recurring cycle closes (W03), when a month is skipped or planned again and when an
-    /// archived jar is restored. A later month whose amount the user typed by hand keeps it and
-    /// the other months carry the rest (O3b). The plan written is the one <see cref="ScheduleAsync"/>
+    /// archived jar is restored. A month whose amount the user typed by hand while it was still a
+    /// later one keeps it, after it arrives too, and the other months carry the rest (O3b). The plan written is the one <see cref="ScheduleAsync"/>
     /// previews.
     /// </summary>
     /// <param name="ledger">The ledger the caller already loaded, when nothing it holds has changed since; null loads it.</param>
@@ -212,8 +212,9 @@ public static class JarPlanner
             .Where(m => m.Categories.SelectMany(c => c.Items).Any(i => i.SavingsId == jar.Id && i.IsSkipped))
             .Select(m => new DateOnly(m.Year, m.Month, 1))
             .ToHashSet();
-        // A later month whose amount the user typed by hand keeps it (O3b), and the other months
-        // carry the rest, as around a skipped month.
+        // A month whose amount the user typed by hand keeps it (O3b), the current one included once
+        // a figure typed for it earlier arrives, and the other months carry the rest, as around a
+        // skipped month.
         var byHand = SavingsLines.ByHandMonths(
             months.SelectMany(m => m.Categories.SelectMany(c => c.Items)
                 .Where(i => i.SavingsId == jar.Id)

@@ -303,4 +303,25 @@ public class IncomeAllocatorTests
         var withIncome = IncomeAllocator.Compute(Couple(), rules).Steps;
         withIncome.Should().OnlyContain(s => !s.FellBackToEqual);
     }
+
+    // PR #305 review round 1, P3-4: the O4 note only when a split happened, i.e. something to share
+    // among more than one member.
+    [Fact]
+    public void O4_NothingToShare_OrOneMember_DoesNotFlagTheStep()
+    {
+        var noIncome = new List<AllocationMember> { new(Alex, "Alex", 0m, null), new(Sam, "Sam", 0m, null) };
+        var nothing = new List<AllocationRuleInput>
+        {
+            new(0, AllocationRuleType.FundEnvelopes, SplitMethod.ByIncomeRatio, 0m, ResolvedTotal: 0m),
+        };
+        IncomeAllocator.Compute(noIncome, nothing).Steps.Single().FellBackToEqual.Should().BeFalse();
+
+        var alone = new List<AllocationMember> { new(Alex, "Alex", 0m, null) };
+        var something = new List<AllocationRuleInput>
+        {
+            new(0, AllocationRuleType.FundEnvelopes, SplitMethod.ByIncomeRatio, 0m, ResolvedTotal: 100m),
+        };
+        IncomeAllocator.Compute(alone, something).Steps.Single().FellBackToEqual.Should().BeFalse();
+        IncomeAllocator.Compute(noIncome, something).Steps.Single().FellBackToEqual.Should().BeTrue();
+    }
 }

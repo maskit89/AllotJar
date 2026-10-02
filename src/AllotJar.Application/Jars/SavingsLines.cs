@@ -94,10 +94,13 @@ public static class SavingsLines
     }
 
     /// <summary>
-    /// O3b: each jar's months after <paramref name="today"/>'s month whose line carries an amount
+    /// O3b: each jar's months from <paramref name="today"/>'s month on whose line carries an amount
     /// the user typed by hand (and did not skip), with what the month's lines plan. Every replant
-    /// keeps them and plans the other months around them, as around a skipped month (P44); the
-    /// current month is replanted as before (P29). A jar with none is absent.
+    /// keeps them and plans the other months around them, as around a skipped month (P44). Only a
+    /// line typed while its month was still a later one is marked (UpdateBudgetItem), so a figure
+    /// typed for a later month keeps its amount once that month arrives, while one typed on the
+    /// current month is replanted as before (P29; PR #305 review round 1, P2-1). A jar with none
+    /// is absent.
     /// </summary>
     public static async Task<Dictionary<Guid, Dictionary<DateOnly, decimal>>> ByHandMonthsByJarAsync(
         IApplicationDbContext db, string ownerId, IReadOnlyCollection<Guid> jarIds, DateOnly today, CancellationToken cancellationToken)
@@ -106,12 +109,12 @@ public static class SavingsLines
         {
             return new Dictionary<Guid, Dictionary<DateOnly, decimal>>();
         }
-        var afterKey = (today.Year * 12) + today.Month;
+        var fromKey = (today.Year * 12) + today.Month;
         var rows = await db.BudgetItems
             .AsNoTracking()
             .Where(i => i.SavingsId != null && jarIds.Contains(i.SavingsId.Value)
                         && i.BudgetCategory.BudgetMonth.OwnerId == ownerId
-                        && (i.BudgetCategory.BudgetMonth.Year * 12) + i.BudgetCategory.BudgetMonth.Month > afterKey)
+                        && (i.BudgetCategory.BudgetMonth.Year * 12) + i.BudgetCategory.BudgetMonth.Month >= fromKey)
             .Select(i => new { JarId = i.SavingsId!.Value, i.BudgetCategory.BudgetMonth.Year, i.BudgetCategory.BudgetMonth.Month, i.PlannedAmount, i.IsPlannedByHand, i.IsSkipped })
             .ToListAsync(cancellationToken);
         return rows
@@ -121,12 +124,12 @@ public static class SavingsLines
             .ToDictionary(j => j.Key, j => j.ToDictionary(g => g.Key.Month, g => g.Sum(r => r.PlannedAmount)));
     }
 
-    /// <summary>The months after the current one whose line the user typed by hand (O3b), read from loaded lines.</summary>
+    /// <summary>The months from the current one on whose line the user typed by hand (O3b), read from loaded lines.</summary>
     public static Dictionary<DateOnly, decimal> ByHandMonths(IEnumerable<(DateOnly Month, BudgetItem Line)> lines, DateOnly today)
     {
         var current = new DateOnly(today.Year, today.Month, 1);
         return lines
-            .Where(l => l.Month > current)
+            .Where(l => l.Month >= current)
             .GroupBy(l => l.Month)
             .Where(g => g.Any(l => l.Line.IsPlannedByHand) && !g.Any(l => l.Line.IsSkipped))
             .ToDictionary(g => g.Key, g => g.Sum(l => l.Line.PlannedAmount));

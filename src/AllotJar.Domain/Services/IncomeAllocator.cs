@@ -46,7 +46,7 @@ public static class IncomeAllocator
                     }
 
                     steps.Add(new AllocationStep(
-                        rule.Type, rule.ResolvedTotal, shares, FellBackToEqual(rule.Split, members, totalNet)));
+                        rule.Type, rule.ResolvedTotal, shares, FellBackToEqual(rule.Split, members, totalNet, rule.ResolvedTotal)));
                     break;
                 }
 
@@ -88,7 +88,7 @@ public static class IncomeAllocator
 
                     steps.Add(new AllocationStep(
                         rule.Type, shares.Sum(s => s.Amount), shares,
-                        remainder > 0m && FellBackToEqual(rule.Split, members, totalNet)));
+                        FellBackToEqual(rule.Split, members, totalNet, remainder)));
                     break;
                 }
             }
@@ -105,9 +105,11 @@ public static class IncomeAllocator
     /// <summary>
     /// O4 (answered 1 October 2026): an income-based split when the month's income is zero has no
     /// ratio to follow, so it is shared equally instead, and the step says so for the screen's note.
+    /// Only when a split happened: something to share (<paramref name="total"/> above zero) among
+    /// more than one member (PR #305 review round 1, P3-4).
     /// </summary>
-    private static bool FellBackToEqual(SplitMethod split, IReadOnlyList<AllocationMember> members, decimal totalNet) =>
-        split == SplitMethod.ByIncomeRatio && totalNet <= 0m && members.Count > 0;
+    private static bool FellBackToEqual(SplitMethod split, IReadOnlyList<AllocationMember> members, decimal totalNet, decimal total) =>
+        split == SplitMethod.ByIncomeRatio && totalNet <= 0m && total > 0m && members.Count > 1;
 
     private static IReadOnlyList<MemberShare> Split(
         IReadOnlyList<AllocationMember> members, decimal total, SplitMethod split, decimal totalNet)
