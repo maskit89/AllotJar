@@ -118,7 +118,7 @@ public class ReportFiguresTests
         october.BaseCurrency.Should().BeNull();
         october.Spent.Should().Be(100m);
         october.SpentUncategorised.Should().Be(100m);
-        october.UncategorisedCount.Should().Be(1, "the split row's slices are counted in the amount, the row is not 'loose' itself");
+        october.UncategorisedCount.Should().Be(2, "the split whose slices are on no line is one more transaction to review (RP-P3-1)");
 
         var annual = await Annual(db, 2026);
         annual.Months.Single(m => m.Month == 10).HasBudget.Should().BeFalse();

@@ -111,4 +111,29 @@ public class LoginTests
         result.Outcome.Should().Be(LoginOutcome.Success);
         result.Role.Should().Be(HouseholdRole.Owner);
     }
+
+    [Theory]
+    [InlineData(null, HouseholdRole.Owner)]       // no choice made: the login's own household
+    [InlineData("owner-1", HouseholdRole.ReadOnly)] // the household it chose to act in
+    public async Task Success_resolves_the_role_in_the_household_the_login_acts_in(string? activeOwnerId, HouseholdRole expected)
+    {
+        // S-P3-5: a login in two households was given the role of whichever membership came first.
+        using var db = NewContext();
+        db.HouseholdMemberships.Add(new HouseholdMembership
+        {
+            OwnerId = "owner-1", UserId = UserId, Role = HouseholdRole.ReadOnly, Status = MembershipStatus.Active, InvitedEmail = Email,
+        });
+        db.HouseholdMemberships.Add(new HouseholdMembership
+        {
+            OwnerId = UserId, UserId = UserId, Role = HouseholdRole.Owner, Status = MembershipStatus.Active, InvitedEmail = Email,
+        });
+        await db.SaveChangesAsync();
+
+        var handler = new LoginCommandHandler(
+            new StubIdentity(CredentialCheckResult.Success(UserId, Email, null, "stamp-1", activeOwnerId)), db, new StubTokenGenerator());
+
+        var result = await handler.Handle(new LoginCommand(Email, "correct"), default);
+
+        result.Role.Should().Be(expected);
+    }
 }

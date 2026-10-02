@@ -13,6 +13,7 @@ using AllotJar.Api.Services;
 using AllotJar.Application.Accounts;
 using AllotJar.Application.Auth.Commands.Login;
 using AllotJar.Application.Budgets;
+using AllotJar.Application.Common.Households;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.HouseholdAccess.Commands.AcceptInvite;
 using AllotJar.Domain.Enums;
@@ -565,9 +566,19 @@ public class AuthController : ControllerBase
             return Unauthorized();
         }
 
+        // The rotation and the answer stand or fall together (#302 review P2-1): a failure after the
+        // rotation was saved (loading the login, building the answer) would leave the browser holding
+        // a cookie the server had already replaced, and its next refresh, replaying it outside the
+        // grace window, would meet the theft response and sign out every device.
+        await using var answer = _db.Database.IsRelational() ? await _db.Database.BeginTransactionAsync(ct) : null;
         var rotation = await _refreshTokens.RotateAsync(raw, ct);
         if (!rotation.Succeeded)
         {
+            if (answer is not null)
+            {
+                // A refusal may still have written (the theft response revokes every token).
+                await answer.CommitAsync(ct);
+            }
             // Superseded = a sibling tab just rotated this cookie, so the shared jar already
             // holds THAT tab's fresh token. Clearing here would delete it and sign the winning
             // tab out too, 15 minutes later, when its access token expires.
@@ -585,8 +596,13 @@ public class AuthController : ControllerBase
             return Unauthorized();
         }
 
+        var response = await BuildResponseAsync(user, ct);
+        if (answer is not null)
+        {
+            await answer.CommitAsync(ct);
+        }
         SetRefreshCookie(rotation.NewRawToken!);
-        return Ok(await BuildResponseAsync(user, ct));
+        return Ok(response);
     }
 
     /// <summary>Signs the caller out by revoking + clearing the refresh cookie.</summary>
@@ -1029,10 +1045,8 @@ public class AuthController : ControllerBase
 
     private async Task<AuthResponse> BuildResponseAsync(ApplicationUser user, CancellationToken ct)
     {
-        var role = await _db.HouseholdMemberships
-            .Where(m => m.UserId == user.Id && m.Status == MembershipStatus.Active)
-            .Select(m => (HouseholdRole?)m.Role)
-            .FirstOrDefaultAsync(ct) ?? HouseholdRole.Owner;
+        // The role in the household the login acts in, not in whichever membership comes first (S-P3-5).
+        var role = await ActiveHouseholdSelector.ActiveRoleAsync(_db, user.Id, user.ActiveOwnerId, ct);
 
         var stamp = await _userManager.GetSecurityStampAsync(user);
         var (token, expiresAt) = _tokenGenerator.Generate(user.Id, user.Email!, stamp);

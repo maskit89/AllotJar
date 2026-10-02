@@ -105,7 +105,7 @@ public static class ReportFigures
                   && t.Date.Year == year
                   && t.Date.Month == month
                   && !db.AccountPrivacies.Any(p => p.AccountId == t.AccountId)
-            select new { t.Type, Base = s.BudgetAmount ?? s.Amount })
+            select new { s.TransactionId, t.Type, Base = s.BudgetAmount ?? s.Amount })
             .ToListAsync(cancellationToken);
 
         var incomeLoose = loose.Where(t => t.Type == TransactionType.Income && !t.IsRefund).Sum(t => t.Base)
@@ -113,7 +113,10 @@ public static class ReportFigures
         var expenseLoose = loose.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Base)
                            + looseSlices.Where(s => s.Type == TransactionType.Expense).Sum(s => s.Base);
         var refundsLoose = loose.Where(t => t.IsRefund).Sum(t => t.Base);
-        var uncategorisedCount = loose.Count(t => t.Type == TransactionType.Expense || t.IsRefund);
+        // "Review N transactions" counts every transaction the row's money comes from: a split whose
+        // slice is on no line is one more to review, however many of its slices are loose.
+        var uncategorisedCount = loose.Count(t => t.Type == TransactionType.Expense || t.IsRefund)
+                                 + looseSlices.Where(s => s.Type == TransactionType.Expense).Select(s => s.TransactionId).Distinct().Count();
 
         dto.IncomeUncategorised = incomeLoose;
         dto.IncomeReceived = incomeOnLines + incomeLoose;
@@ -123,7 +126,8 @@ public static class ReportFigures
         dto.Refunds = dto.Categories.Sum(c => c.Refunds) + refundsLoose;
         dto.Spent = dto.SpentCategorised + dto.SpentUncategorised;
         dto.UncategorisedCount = uncategorisedCount;
-        dto.UncategorisedIncomeCount = loose.Count(t => t.Type == TransactionType.Income && !t.IsRefund);
+        dto.UncategorisedIncomeCount = loose.Count(t => t.Type == TransactionType.Income && !t.IsRefund)
+                                       + looseSlices.Where(s => s.Type == TransactionType.Income).Select(s => s.TransactionId).Distinct().Count();
 
         if (expenseLoose != 0m || refundsLoose != 0m)
         {

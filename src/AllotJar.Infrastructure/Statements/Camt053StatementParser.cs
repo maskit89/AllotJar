@@ -41,8 +41,16 @@ public class Camt053StatementParser : IStatementParser
         XDocument doc;
         try
         {
-            // XDocument.Parse rejects a leading BOM char as "invalid data at the root level".
-            doc = XDocument.Parse(content.TrimStart('\uFEFF'));
+            // A leading BOM char reads as "invalid data at the root level", so it is trimmed. A bank
+            // statement carries no DTD: one is refused outright rather than expanded (TX-P3-2), and
+            // nothing outside the document is ever resolved.
+            var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null };
+            using var reader = XmlReader.Create(new StringReader(content.TrimStart('\uFEFF')), settings);
+            doc = XDocument.Load(reader);
+        }
+        catch (XmlException ex) when (ex.Message.Contains("DTD", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new StatementParseException("The statement declares a DTD, which a bank statement never does.", ex);
         }
         catch (XmlException ex)
         {
