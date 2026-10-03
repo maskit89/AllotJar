@@ -324,6 +324,13 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
         _edited.Add(record);
     }
 
+    /// <inheritdoc />
+    public void DiscardChanges()
+    {
+        ChangeTracker.Clear();
+        _edited.Clear();
+    }
+
     /// <summary>
     /// An edited record whose own row this save leaves unchanged while it writes something else
     /// (only its rules, or its jar split, changed) is written back as it is, so its version moves.

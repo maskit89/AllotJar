@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
+using AllotJar.Application.Jars;
 using AllotJar.Domain.Common;
 
 namespace AllotJar.Api.Middleware;
@@ -79,8 +80,7 @@ public class ExceptionHandlingMiddleware
     /// True when a save failed on one of the jar cycles' unique indexes ((JarId, Deadline) or the
     /// payment). Matched by index name in the provider's message, as the import's reference check is.
     /// </summary>
-    public static bool IsJarCycleCollision(DbUpdateException ex) =>
-        ex.InnerException?.Message.Contains("IX_JarCycles_", StringComparison.Ordinal) == true;
+    public static bool IsJarCycleCollision(DbUpdateException ex) => JarCycles.IsCollision(ex);
 
     private static async Task WriteProblem(
         HttpContext context, int statusCode, string title, object? extensions = null)

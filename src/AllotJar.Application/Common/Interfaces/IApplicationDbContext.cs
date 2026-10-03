@@ -51,6 +51,13 @@ public interface IApplicationDbContext
     void ExpectVersion(IVersioned record, string? version);
 
     /// <summary>
+    /// Forgets every entity this context tracks, unsaved changes included, so the next read comes
+    /// from the database. For a read that wrote on the side (a cycle settled on a page load) and
+    /// lost to a concurrent write: what it meant to save is dropped rather than tried again.
+    /// </summary>
+    void DiscardChanges();
+
+    /// <summary>
     /// Begins a serialised write on <paramref name="accountId"/>'s ledger (see <see cref="ILedgerWrite"/>).
     /// Read the account's position only after this returns; commit after SaveChanges.
     /// </summary>
