@@ -141,7 +141,8 @@ public class TransactionsController : ControllerBase
             new UpdateTransferCommand(
                 id, request.FromAccountId, request.ToAccountId, request.Amount, request.DepartedOn, request.ReceivedOn,
                 request.ReturnedOn, request.Payee, request.Fee, request.FeeBudgetItemId, request.AcknowledgeCrossMonth,
-                request.FromJarId, request.JarAllocations?.Select(a => new JarAllocationInput(a.JarId, a.Amount)).ToList()),
+                request.FromJarId, request.JarAllocations?.Select(a => new JarAllocationInput(a.JarId, a.Amount)).ToList(),
+                request.Version),
             ct);
         return Ok(result);
     }
@@ -183,7 +184,7 @@ public class TransactionsController : ControllerBase
                 id, request.Date, request.Payee, request.Amount, request.Type, request.AccountId, request.MemberId,
                 request.AcknowledgeCrossMonth,
                 request.JarAllocations?.Select(a => new JarAllocationInput(a.JarId, a.Amount)).ToList(),
-                request.PaidFromJarId),
+                request.PaidFromJarId, request.Version),
             ct);
         return Ok(result);
     }
@@ -218,7 +219,7 @@ public class TransactionsController : ControllerBase
             .Select(a => new SplitAllocationInput(a.BudgetItemId, a.Amount, a.MemberId))
             .ToList();
         var result = await _mediator.Send(
-            new SplitTransactionCommand(id, allocations, request.AcknowledgeCrossMonth, request.PaidFromJarId), ct);
+            new SplitTransactionCommand(id, allocations, request.AcknowledgeCrossMonth, request.PaidFromJarId, request.Version), ct);
         return Ok(result);
     }
 
@@ -330,7 +331,9 @@ public record UpdateTransferRequest(
     Guid? FeeBudgetItemId = null,
     bool AcknowledgeCrossMonth = false,
     Guid? FromJarId = null,
-    IReadOnlyList<JarAllocationRequest>? JarAllocations = null);
+    IReadOnlyList<JarAllocationRequest>? JarAllocations = null,
+    // The version the edit form loaded (D11); null only from a client older than this deploy.
+    string? Version = null);
 
 /// <summary>Request body for confirming a transfer's missing bank legs (the id comes from the route).</summary>
 public record ConfirmTransferLegsRequest(
@@ -351,13 +354,17 @@ public record UpdateTransactionRequest(
     Guid? MemberId = null,
     bool AcknowledgeCrossMonth = false,
     IReadOnlyList<JarAllocationRequest>? JarAllocations = null,
-    Guid? PaidFromJarId = null);
+    Guid? PaidFromJarId = null,
+    // The version the edit form loaded (D11); null only from a client older than this deploy.
+    string? Version = null);
 
 /// <summary>Request body for splitting a transaction across budget lines.</summary>
 public record SplitTransactionRequest(
     IReadOnlyList<SplitAllocationRequest> Allocations,
     bool AcknowledgeCrossMonth = false,
-    Guid? PaidFromJarId = null);
+    Guid? PaidFromJarId = null,
+    // The version the split editor loaded (D11); null only from a client older than this deploy.
+    string? Version = null);
 
 /// <summary>One slice of a split: an amount attributed to a budget line and, optionally, a household member.</summary>
 public record SplitAllocationRequest(Guid BudgetItemId, decimal Amount, Guid? MemberId = null);

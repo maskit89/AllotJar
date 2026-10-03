@@ -36,6 +36,10 @@ public class ConfirmTransferLegsCommandHandler : IRequestHandler<ConfirmTransfer
         {
             throw new ForbiddenAccessException();
         }
+        // Re-sending a confirmed receipt date with a jar division rewrites only the receipt's jar
+        // postings: written back too, the transfer's version moves, so a transfer form loaded
+        // before this is refused rather than putting its old division back (D11, #308 review P2-1).
+        _db.TouchVersion(transfer);
         if (transfer.Type != TransactionType.Transfer)
         {
             throw Validation("TransactionId", "Only a transfer has bank legs to confirm.");

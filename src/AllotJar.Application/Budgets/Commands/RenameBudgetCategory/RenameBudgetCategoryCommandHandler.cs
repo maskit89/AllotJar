@@ -35,6 +35,7 @@ public class RenameBudgetCategoryCommandHandler : IRequestHandler<RenameBudgetCa
         {
             throw new ForbiddenAccessException();
         }
+        _db.ExpectVersion(category, request.Version);
 
         category.Name = request.Name.Trim();
         await _db.SaveChangesAsync(cancellationToken);

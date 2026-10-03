@@ -20,7 +20,11 @@ public record SplitTransactionCommand(
     // Set only after the user confirms budgeting a slice to a line in a different month than the
     // transaction's date (see TransactionInvariants.CrossMonthKey).
     bool AcknowledgeCrossMonth = false,
-    Guid? PaidFromJarId = null) : IRequest<TransactionDto>;
+    Guid? PaidFromJarId = null,
+    // The version the split editor loaded (D11, #308 review P2-1): a split saved over someone
+    // else's change to the transaction is refused. Null is no check, for a client loaded before
+    // the deploy that added versions.
+    string? Version = null) : IRequest<TransactionDto>;
 
 /// <summary>One requested slice: an amount attributed to a budget line and, optionally, a household member.</summary>
 public record SplitAllocationInput(Guid BudgetItemId, decimal Amount, Guid? MemberId = null);

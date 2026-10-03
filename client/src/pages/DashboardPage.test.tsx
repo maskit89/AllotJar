@@ -73,7 +73,7 @@ describe('DashboardPage optimistic editing', () => {
     // The hero flips to the balanced state and the API was called with the amount.
     expect(await screen.findByText(/every euro has a job/i, {}, { timeout: 5000 })).toBeInTheDocument()
     await waitFor(() =>
-      expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent', { plannedAmount: 3000 }),
+      expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent', { plannedAmount: 3000, version: null }),
     )
   })
 
@@ -144,7 +144,7 @@ describe('DashboardPage optimistic editing', () => {
     await user.tab()
 
     await waitFor(
-      () => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent', { plannedAmount: 50 }),
+      () => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent', { plannedAmount: 50, version: null }),
       { timeout: 5000 },
     )
   })
@@ -690,5 +690,95 @@ describe('DashboardPage month navigation', () => {
     await user.selectOptions(screen.getByLabelText('Who earns Take-home Pay'), 'mem-robin')
     expect(await screen.findByText(/Could not update who earns that income — reverted\./, {}, { timeout: 5000 })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('Who earns Take-home Pay')).toHaveValue('mem-alex'))
+  })
+})
+
+describe('DashboardPage edit conflicts (D11)', () => {
+  beforeEach(() => {
+    resetApiMocks()
+    household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
+  })
+
+  // The month as read with the Rent line at `version`, planned at `rent`.
+  const versioned = (version: string, rent: number): BudgetMonthDto =>
+    budgetMonth({
+      key: '2026-06',
+      month: 6,
+      categories: [
+        budgetCategory({ id: 'inc', name: 'Income', kind: 'Income', items: [budgetItem({ id: 'i-pay', name: 'Take-home Pay', plannedAmount: 3000 })] }),
+        budgetCategory({ id: 'c1', name: 'Housing', items: [budgetItem({ id: 'i-rent', name: 'Rent', plannedAmount: rent, version })] }),
+      ],
+    })
+
+  async function editRent(user: ReturnType<typeof userEvent.setup>, amount: string) {
+    await user.click(await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 }))
+    const input = (await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })) as HTMLInputElement
+    await user.clear(input)
+    await user.type(input, amount)
+    await user.tab()
+  }
+
+  it('a line save sends the version it was loaded at, and the next one the version the save answered', { timeout: 20000 }, async () => {
+    mockGet.mockImplementation((url: string) =>
+      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: versioned('v1', 1100) }),
+    )
+    mockPut.mockResolvedValueOnce({ data: versioned('v2', 1200) }).mockResolvedValueOnce({ data: versioned('v3', 1300) })
+    const user = userEvent.setup()
+    renderPage()
+
+    await editRent(user, '1200')
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent', { plannedAmount: 1200, version: 'v1' }))
+    // The user's own save moved the version: their next edit is not taken for someone else's.
+    await editRent(user, '1300')
+    await waitFor(() => expect(mockPut).toHaveBeenLastCalledWith('/budget/items/i-rent', { plannedAmount: 1300, version: 'v2' }))
+  })
+
+  it('a second edit made while the first is still saving waits for it and sends the version it answered', { timeout: 20000 }, async () => {
+    // #308 review P2-2: the line stays editable while it saves; the correction must not read as
+    // someone else's change.
+    mockGet.mockImplementation((url: string) =>
+      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: versioned('v1', 1100) }),
+    )
+    let answerFirst: (v: unknown) => void = () => {}
+    mockPut
+      .mockImplementationOnce(() => new Promise((resolve) => { answerFirst = resolve }))
+      .mockResolvedValueOnce({ data: versioned('v3', 1250) })
+    const user = userEvent.setup()
+    renderPage()
+
+    await editRent(user, '1200')
+    await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1))
+    // Corrected before the first answer arrives: the line is still editable ...
+    await editRent(user, '1250')
+    expect(screen.getByLabelText('Planned amount for Rent')).toHaveTextContent('1,250.00')
+    // ... and the correction waits for that answer rather than going out with the same version.
+    expect(mockPut).toHaveBeenCalledTimes(1)
+    expect(mockPut.mock.calls[0][1]).toEqual({ plannedAmount: 1200, version: 'v1' })
+
+    answerFirst({ data: versioned('v2', 1200) })
+    await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(2))
+    expect(mockPut.mock.calls[1]).toEqual(['/budget/items/i-rent', { plannedAmount: 1250, version: 'v2' }])
+    await waitFor(() => expect(screen.getByLabelText('Planned amount for Rent')).toHaveTextContent('1,250.00'))
+    expect(screen.queryByText('Someone else changed this. Reload and try again.')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Could not save/)).not.toBeInTheDocument()
+  })
+
+  it('a 409 on a line save says someone else changed it and re-reads the month', { timeout: 20000 }, async () => {
+    let reads = 0
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/budget/months') return Promise.resolve({ data: [] })
+      if (url.startsWith('/budget/2')) reads++
+      return Promise.resolve({ data: reads > 1 ? versioned('v9', 950) : versioned('v1', 1100) })
+    })
+    mockPut.mockRejectedValueOnce(
+      Object.assign(new Error('409'), { response: { status: 409, data: { title: 'Someone else changed this. Reload and try again.' } } }),
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    await editRent(user, '1200')
+    expect(await screen.findByText('Someone else changed this. Reload and try again.', {}, { timeout: 5000 })).toBeInTheDocument()
+    // The grid shows what the other login saved, not the rolled-back value.
+    await waitFor(() => expect(screen.getByLabelText('Planned amount for Rent')).toHaveTextContent('950.00'), { timeout: 5000 })
   })
 })

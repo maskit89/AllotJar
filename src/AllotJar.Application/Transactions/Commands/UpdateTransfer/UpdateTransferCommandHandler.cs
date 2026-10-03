@@ -63,6 +63,9 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
         {
             throw Validation("TransactionId", "This transfer was changed while you were editing it. Open it again and redo the change.");
         }
+        // One row carries both legs, so its version covers the departure and the receipt (D11).
+        // Checked on the row read under the lock, the one this save writes.
+        _db.ExpectVersion(transfer, request.Version);
 
         var from = await OwnedAccountAsync(request.FromAccountId, userId, cancellationToken);
         var to = await OwnedAccountAsync(request.ToAccountId, userId, cancellationToken);

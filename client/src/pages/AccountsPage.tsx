@@ -17,7 +17,7 @@ import { ACCOUNT_TYPE_LABELS, ACCOUNT_TYPE_OPTIONS, AccountType } from '../types
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { formatDate, todayIso } from '../lib/dates'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
-import { serverErrors } from '../lib/serverErrors'
+import { editConflict, serverErrors } from '../lib/serverErrors'
 import { hueColor, hueForAccountType, hueTint } from '../lib/categoryColors'
 
 // Current / Savings / Cash / Other — credit cards are not accounts (rule 75). An account
@@ -109,6 +109,8 @@ export function AccountsPage() {
   const [eOpeningDate, setEOpeningDate] = useState('')
   const [eIds, setEIds] = useState<Identifiers>(BLANK_IDS)
   const [eHolderIds, setEHolderIds] = useState<string[]>([])
+  // The version the edit was loaded from, sent back with the save (D11).
+  const [eVersion, setEVersion] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -220,7 +222,7 @@ export function AccountsPage() {
     }
   }, [name, type, opening, openingDate, budgetCurrency, ids, holderIds, keepPrivate, ownPersonal])
 
-  function startEdit(a: AccountDto) {
+  const startEdit = useCallback((a: AccountDto) => {
     setEditingId(a.id)
     setEName(a.name)
     setEType(a.type)
@@ -228,7 +230,8 @@ export function AccountsPage() {
     setEOpeningDate(a.openingDate ?? '')
     setEIds(identifiersFrom(a))
     setEHolderIds((a.holders ?? []).map((h) => h.memberId))
-  }
+    setEVersion(a.version ?? null)
+  }, [])
 
   const saveEdit = useCallback(
     async (id: string) => {
@@ -262,17 +265,29 @@ export function AccountsPage() {
           ...identifiersPayload(eIds),
           // Sent only once the people are known, so an unloaded list never clears the holders.
           ...(members.length > 0 ? { holderIds: eHolderIds } : {}),
+          version: eVersion,
         })
         setAccounts((prev) => prev.map((a) => (a.id === id ? data : a)))
         track(EVENTS.accountEdited)
         setEditingId(null)
       } catch (err) {
-        setError(serverErrors(err) ?? 'Could not save that account.')
+        const conflict = editConflict(err)
+        if (conflict) {
+          // Someone else saved this account first (D11): show what they saved in the open form.
+          const fresh = await api.get<AccountDto[]>('/accounts').then(({ data }) => data, () => null)
+          const row = Array.isArray(fresh) ? fresh.find((a) => a.id === id) : undefined
+          if (Array.isArray(fresh)) setAccounts(fresh)
+          if (row) startEdit(row)
+          else setEditingId(null)
+          setError(conflict)
+        } else {
+          setError(serverErrors(err) ?? 'Could not save that account.')
+        }
       } finally {
         setSavingId(null)
       }
     },
-    [eName, eType, eOpening, eOpeningDate, eIds, eHolderIds, members.length, accounts],
+    [eName, eType, eOpening, eOpeningDate, eIds, eHolderIds, eVersion, members.length, accounts, startEdit],
   )
 
   // Rules 31/33: the holder's own choice of who sees their personal account.

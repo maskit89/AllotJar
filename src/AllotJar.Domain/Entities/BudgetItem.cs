@@ -8,8 +8,11 @@ namespace AllotJar.Domain.Entities;
 /// Currency amounts are stored as <see cref="decimal"/> and mapped to
 /// SQL Server decimal(18,4) so no precision is lost on Euro cents.
 /// </summary>
-public class BudgetItem : BaseEntity
+public class BudgetItem : BaseEntity, IVersioned
 {
+    /// <inheritdoc />
+    public byte[] Version { get; set; } = [];
+
     public Guid BudgetCategoryId { get; set; }
     public BudgetCategory BudgetCategory { get; set; } = null!;
 

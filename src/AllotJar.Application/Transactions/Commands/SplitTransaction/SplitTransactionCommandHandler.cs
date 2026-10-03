@@ -43,6 +43,11 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
         {
             throw TransferFees.ChangedDirectly("TransactionId");
         }
+        // The split editor saves the slices whole, so one loaded before someone else's change is
+        // refused (D11). A split rewrites only the rows under the transaction, so this also writes
+        // the transaction back: its version moves, and the next stale form (a split or an edit)
+        // is refused too (#308 review P2-1).
+        _db.ExpectVersion(transaction, request.Version);
 
         // A refund's whole amount reduces the one line it lands on (rules 38/39); slicing it
         // across lines would let a refund reduce categories the purchase never touched.

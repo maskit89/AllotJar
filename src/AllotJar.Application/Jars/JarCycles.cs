@@ -90,6 +90,37 @@ public static class JarCycles
     }
 
     /// <summary>
+    /// <see cref="SettleAsync"/> as a read runs it (the jars, a schedule preview, a skip preview).
+    /// The settle saves on the side of a page load, so a concurrent write that got there first (two
+    /// page loads settling the same cycle, which collide on its unique index, or an edit of the
+    /// jar or of one of the lines the settle replants, which moves its row version, D11) is not
+    /// this read's failure: the cycle is treated as settled by that write, this context's unsaved
+    /// settle is dropped, and the read goes on from the database as it now stands.
+    /// </summary>
+    /// <returns>True when a cycle rolled forward, or may have (the settle lost to a concurrent
+    /// write): the caller reads the jar again.</returns>
+    public static async Task<bool> SettleOnReadAsync(
+        IApplicationDbContext db, string ownerId, DateOnly today, CancellationToken cancellationToken, Guid? jarId = null)
+    {
+        try
+        {
+            return await SettleAsync(db, ownerId, today, cancellationToken, jarId);
+        }
+        catch (DbUpdateException ex) when (ex is DbUpdateConcurrencyException || IsCollision(ex))
+        {
+            db.DiscardChanges();
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// True when a save failed on one of the jar cycles' unique indexes ((JarId, Deadline) or the
+    /// payment). Matched by index name in the provider's message, as the import's reference check is.
+    /// </summary>
+    public static bool IsCollision(DbUpdateException ex) =>
+        ex.InnerException?.Message.Contains("IX_JarCycles_", StringComparison.Ordinal) == true;
+
+    /// <summary>
     /// Closes the jar's open cycle with <paramref name="outcome"/> and advances it to the next
     /// deadline, replanting the current and later months from the balance it holds. The caller
     /// saves. For a paid cycle (rule 83) <paramref name="payment"/> is the transaction the user

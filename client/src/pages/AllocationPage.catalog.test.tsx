@@ -751,6 +751,7 @@ describe('AllocationPage (catalog)', () => {
         name: 'Robin',
         netMonthlyIncome: 1750, // the saved default, unchanged — not the preview's 2,000
         personalSavingsAccountId: 'accRobinSav',
+        version: null,
       }),
     )
     expect(mockPut).not.toHaveBeenCalledWith('/members/m2', expect.objectContaining({ netMonthlyIncome: 2000 }))

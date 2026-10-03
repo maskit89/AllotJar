@@ -343,7 +343,7 @@ describe('DashboardPage — income card & spending lines', () => {
     const hero = screen.getByText('Remaining to budget').closest('section')!
     await waitFor(() => expect(within(hero).getByText('Allotted').closest('div')!.textContent).toContain('€2,070.00'), { timeout: 5000 })
     expect(hero.querySelector('[aria-label="Remaining to budget: €930.00"]')).toBeTruthy()
-    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday', { plannedAmount: 300 }), { timeout: 5000 })
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday', { plannedAmount: 300, version: null }), { timeout: 5000 })
   })
 })
 
@@ -369,7 +369,7 @@ describe('DashboardPage — planned-amount parsing in-row (parseMinor seam)', ()
     )
     fireEvent.blur(input)
 
-    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-groc', { plannedAmount: 12.5 }), { timeout: 5000 })
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-groc', { plannedAmount: 12.5, version: null }), { timeout: 5000 })
   })
 
   it('DASH-040: a rejected input reverts silently — no request, no error, no flicker', { timeout: 15000 }, async () => {

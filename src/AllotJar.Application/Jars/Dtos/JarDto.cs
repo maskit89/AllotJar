@@ -1,3 +1,4 @@
+using AllotJar.Application.Common;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.Services;
@@ -14,6 +15,10 @@ namespace AllotJar.Application.Jars.Dtos;
 public class JarDto
 {
     public Guid Id { get; set; }
+
+    /// <summary>The row version the edit form sends back with its save (D11); null where the store keeps none.</summary>
+    public string? Version { get; set; }
+
     public string Name { get; set; } = string.Empty;
     public JarKind Kind { get; set; }
 
@@ -228,6 +233,7 @@ public static class JarMapping
         return new JarDto
         {
             Id = f.Id,
+            Version = EditVersions.Of(f),
             Name = f.Name,
             Kind = f.Kind,
             TargetAmount = f.TargetAmount,

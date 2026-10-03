@@ -1,3 +1,4 @@
+using AllotJar.Application.Common;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 
@@ -6,6 +7,10 @@ namespace AllotJar.Application.Transactions.Dtos;
 public class TransactionDto
 {
     public Guid Id { get; set; }
+
+    /// <summary>The row version the edit form sends back with its save (D11); null where the store keeps none.</summary>
+    public string? Version { get; set; }
+
     public DateOnly Date { get; set; }
     public string Payee { get; set; } = string.Empty;
     public decimal Amount { get; set; }
@@ -161,6 +166,7 @@ public static class TransactionMapping
     public static TransactionDto ToDto(this Transaction t) => new()
     {
         Id = t.Id,
+        Version = EditVersions.Of(t),
         Date = t.Date,
         Payee = t.Payee,
         Amount = t.Amount,

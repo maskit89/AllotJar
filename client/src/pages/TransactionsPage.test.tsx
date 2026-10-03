@@ -393,6 +393,7 @@ describe('TransactionsPage manual sheet', () => {
           { budgetItemId: 'i-rent', amount: 70, memberId: null },
           { budgetItemId: 'i-food', amount: 30, memberId: null },
         ],
+        version: null,
       }),
     )
     expect(await screen.findByText('Split', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -410,7 +411,7 @@ describe('TransactionsPage manual sheet', () => {
     await user.click(screen.getByLabelText('Save transaction'))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t1', {
-      date: '2026-06-10', payee: 'Tesco', amount: 1.234, type: 0, accountId: null, memberId: null,
+      date: '2026-06-10', payee: 'Tesco', amount: 1.234, type: 0, accountId: null, memberId: null, version: null,
     }))
   })
 
@@ -437,6 +438,7 @@ describe('TransactionsPage manual sheet', () => {
         { budgetItemId: 'i-rent', amount: 1.234, memberId: null },
         { budgetItemId: 'i-food', amount: 2.3456, memberId: null },
       ],
+      version: null,
     }))
   })
 

@@ -10,7 +10,7 @@ import { AccrualMethod, JarKind, JAR_KIND_LABELS, RECUR_MONTHS_OPTIONS } from '.
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { formatDate, monthYear, todayIso } from '../lib/dates'
-import { serverErrors } from '../lib/serverErrors'
+import { editConflict, serverErrors } from '../lib/serverErrors'
 import { deadlineMonthEligible, jarAccounts, monthIso } from '../lib/jarForm'
 
 const KIND_OPTIONS = Object.entries(JAR_KIND_LABELS).map(([value, label]) => ({ value: Number(value), label }))
@@ -150,6 +150,9 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
   const editing = jar !== null
   const eligible = useMemo(() => jarAccounts(accounts, currency, jar?.fundingAccountId), [accounts, currency, jar])
   const [form, setForm] = useState<FormState>(() => initialForm(jar, eligible))
+  // The version of the jar the form was filled from, sent back with the save (D11); a save
+  // refused because someone else changed the jar refills the form and this from the latest read.
+  const [version, setVersion] = useState(jar?.version ?? null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   // Rule 34: the server's warning when the chosen account is the user's private one, kept with the
@@ -285,7 +288,7 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
     setPrivateWarning(null)
     try {
       if (jar) {
-        const { data } = await api.put<JarDto>(`/jars/${jar.id}`, common)
+        const { data } = await api.put<JarDto>(`/jars/${jar.id}`, { ...common, version })
         track(EVENTS.fundEdited, { kind: form.kind })
         onSaved(data, 'updated')
       } else {
@@ -303,13 +306,25 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
         setPrivateWarning({ accountId: form.fundingAccountId, text: warning })
         return
       }
+      const conflict = jar ? editConflict(err) : null
+      if (jar && conflict) {
+        const fresh = await api
+          .get<JarDto[]>('/jars', { params: { includeArchived: true } })
+          .then(({ data }) => (Array.isArray(data) ? data.find((j) => j.id === jar.id) : undefined), () => undefined)
+        if (fresh) {
+          setForm(initialForm(fresh, eligible))
+          setVersion(fresh.version ?? null)
+        }
+        setError(conflict)
+        return
+      }
       // A 400 carries the server's field messages (e.g. a FundingAccountId change refused
       // while the jar holds money, rule 80; an allocation above the unallocated funds).
       setError(serverErrors(err) ?? (editing ? 'Could not save that jar.' : 'Could not add that jar.'))
     } finally {
       setSaving(false)
     }
-  }, [form, editing, jar, onSaved, byDeadline, method])
+  }, [form, editing, jar, onSaved, byDeadline, method, eligible, version])
 
   const archive = useCallback(async () => {
     if (!jar || !onArchived) return

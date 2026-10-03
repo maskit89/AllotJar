@@ -76,7 +76,7 @@ public class AccountsController : ControllerBase
     {
         var result = await _mediator.Send(
             new UpdateAccountCommand(id, request.Name, request.Type, request.OpeningBalance, request.OpeningDate,
-                request.Iban, request.Bic, request.SortCode, request.AccountNumber, request.HolderIds), ct);
+                request.Iban, request.Bic, request.SortCode, request.AccountNumber, request.HolderIds, request.Version), ct);
         return Ok(result);
     }
 
@@ -171,7 +171,9 @@ public record CreateAccountRequest(
 public record UpdateAccountRequest(
     string Name, AccountType Type, decimal OpeningBalance, DateOnly? OpeningDate = null,
     string? Iban = null, string? Bic = null, string? SortCode = null, string? AccountNumber = null,
-    IReadOnlyList<Guid>? HolderIds = null);
+    IReadOnlyList<Guid>? HolderIds = null,
+    // The version the edit form loaded (D11); null only from a client older than this deploy.
+    string? Version = null);
 
 /// <summary>Request body for the holder's sharing choice.</summary>
 public record SetAccountSharingRequest(bool IsPrivate);

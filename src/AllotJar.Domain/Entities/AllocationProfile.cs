@@ -7,8 +7,11 @@ namespace AllotJar.Domain.Entities;
 /// routed each month (the spreadsheet's "Salary Split"). Shared costs are funded first,
 /// then the surplus is split to each member's personal savings.
 /// </summary>
-public class AllocationProfile : BaseEntity
+public class AllocationProfile : BaseEntity, IVersioned
 {
+    /// <inheritdoc />
+    public byte[] Version { get; set; } = [];
+
     public string OwnerId { get; set; } = string.Empty;
 
     public string Name { get; set; } = string.Empty;

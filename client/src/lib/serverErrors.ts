@@ -22,3 +22,16 @@ export function crossMonthError(err: unknown): string | undefined {
   if (!messages) return undefined
   return messages[0] ?? 'This transaction is dated in a different month than that budget line.'
 }
+
+/** What the server says when a save was made from a record someone else has changed since (D11). */
+export const EDIT_CONFLICT_MESSAGE = 'Someone else changed this. Reload and try again.'
+
+/**
+ * The server's refusal of a save made from a stale load (a 409): its message, so the form can
+ * show it and reload the record. Null for anything else.
+ */
+export function editConflict(err: unknown): string | null {
+  const e = err as { response?: { status?: number; data?: { title?: string } } }
+  if (e?.response?.status !== 409) return null
+  return e.response.data?.title || EDIT_CONFLICT_MESSAGE
+}

@@ -29,6 +29,8 @@ export interface ItemVM {
   isPaid: boolean
   /** Who earns this income line; null = whole-household (and always null off income lines). */
   memberId: string | null
+  /** The row version an edit sends back with its save (D11); kept current from every write's answer. */
+  version?: string | null
 }
 
 export interface CategoryVM {
@@ -39,6 +41,8 @@ export interface CategoryVM {
   /** Allocation-output category (pocket money, personal savings) — see BudgetCategoryDto. */
   excludeFromAllocation: boolean
   items: ItemVM[]
+  /** The row version an edit sends back with its save (D11); kept current from every write's answer. */
+  version?: string | null
 }
 
 export interface MonthVM {
@@ -67,6 +71,7 @@ export function fromDto(dto: BudgetMonthDto): MonthVM {
       kind: c.kind === 'Income' ? 'income' : c.kind === 'Savings' ? 'savings' : 'expense',
       displayOrder: c.displayOrder,
       excludeFromAllocation: c.excludeFromAllocation ?? false,
+      version: c.version ?? null,
       items: c.items.map((i) => ({
         id: i.id,
         name: i.name,
@@ -80,6 +85,7 @@ export function fromDto(dto: BudgetMonthDto): MonthVM {
         dueDay: i.dueDay ?? null,
         isPaid: i.isPaid ?? false,
         memberId: i.memberId ?? null,
+        version: i.version ?? null,
       })),
     })),
   }
@@ -296,6 +302,42 @@ export function withoutItem(m: MonthVM, itemId: string): MonthVM {
 /** Append a (temporary) expense group — reconciled from the server response. */
 export function withNewCategory(m: MonthVM, category: CategoryVM): MonthVM {
   return { ...m, categories: [...m.categories, category] }
+}
+
+/**
+ * The versions a write's answer carries, copied onto the lines and groups shown, and nothing
+ * else: the optimistic values stay, while the next edit sends the version the server now has
+ * (D11). An answer without a month (or an unchanged one) leaves the view-model as it is.
+ */
+export function withVersions(m: MonthVM, dto: BudgetMonthDto | null | undefined): MonthVM {
+  if (!dto || !Array.isArray(dto.categories)) return m
+  const versions = new Map<string, string | null>()
+  for (const c of dto.categories) {
+    versions.set(c.id, c.version ?? null)
+    for (const i of c.items ?? []) versions.set(i.id, i.version ?? null)
+  }
+  const latest = (id: string, current: string | null | undefined) => (versions.has(id) ? versions.get(id) : current)
+  return {
+    ...m,
+    categories: m.categories.map((c) => ({
+      ...c,
+      version: latest(c.id, c.version),
+      items: c.items.map((i) => ({ ...i, version: latest(i.id, i.version) })),
+    })),
+  }
+}
+
+/**
+ * The version a write's answer gives one line (D11): undefined when the answer carries no month,
+ * or not that line, so the caller keeps the version it had.
+ */
+export function itemVersionIn(dto: BudgetMonthDto | null | undefined, itemId: string): string | null | undefined {
+  if (!dto || !Array.isArray(dto.categories)) return undefined
+  for (const c of dto.categories) {
+    const found = (c.items ?? []).find((i) => i.id === itemId)
+    if (found) return found.version ?? null
+  }
+  return undefined
 }
 
 /** Rename one category group. */
