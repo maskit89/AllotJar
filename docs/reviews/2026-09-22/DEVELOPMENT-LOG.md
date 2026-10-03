@@ -1150,4 +1150,6 @@ GitHub Actions ran jobs again from 30 September about 20:23 UTC, and Christopher
 
 **Migrations that ran at API start:** `ReceiptKnownBySourceReference` (#287, one `UPDATE`), `CounterpartyErased` (#287, column only) and `LoginMustChangePassword` (#298, column only). All additive. #299's pre-deploy query (`reviews/pr-299/pre-deploy-checks.sql`) was a condition of deploying a run that contained it; its result is recorded in #299's thread, not here. #298's emailed invites need the production email provider: the API's startup Event Log line "Outbound email provider" says whether email is configured.
 
-**Not in this deploy.** #303 to #307 merged afterwards (2 and 3 October) and are not in production: `JarLineTypedByHand` (#306), `TransactionStatementAccount` (#305) and `PersonLogins` (#307) migrate at the next Deploy.
+**Not in this deploy.** #303 to #307 merged afterwards (2 and 3 October) and are not in production: `JarLineTypedByHand` (#305), `TransactionStatementAccount` (#306) and `PersonLogins` (#307) migrate at the next Deploy.
+
+At 3 October 22:30 UTC, Deploy run 207 (`ac4a790`, #303) is waiting for approval and run 211 (`c7c5370`, #307) is queued behind it; runs 208 to 210 were superseded and cancelled.
