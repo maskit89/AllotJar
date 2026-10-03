@@ -63,6 +63,24 @@ Assert-True ((Get-R2BucketFromArgumentLine -ArgumentLine $prod) -eq 'allotjar-db
 Assert-True ((Get-R2BucketFromArgumentLine -ArgumentLine '-Foo -R2Bucket bare-bucket -Bar') -eq 'bare-bucket') 'unquoted bucket parses too'
 Assert-True ($null -eq (Get-R2BucketFromArgumentLine -ArgumentLine $null)) 'null argument line yields no bucket'
 
+Write-Host '== Assert-R2SizeMatches (post-upload verify) =='
+Assert-True ((Assert-R2SizeMatches -SizeJson '{"count":1,"bytes":8638464}' -LocalBytes 8638464 -Name 'x.bak') -eq 8638464) 'matching size passes and returns the remote bytes'
+$threw = $false; try { [void](Assert-R2SizeMatches -SizeJson '{"count":1,"bytes":100}' -LocalBytes 200 -Name 'x.bak') } catch { $threw = $true }
+Assert-True $threw 'a size mismatch throws'
+$threw = $false; try { [void](Assert-R2SizeMatches -SizeJson '{"count":0}' -LocalBytes 200 -Name 'x.bak') } catch { $threw = $true }
+Assert-True $threw 'an answer without a byte count throws'
+# Regression: the upload script once parsed the JSON into `$remote`, the same variable as its
+# [string]$Remote parameter (names ignore case), so every upload failed its own check.
+$uploadSource = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'Upload-BackupToR2.ps1') -Raw
+Assert-True ($uploadSource -notmatch '(?im)^\s*\$remote\s*=') 'Upload-BackupToR2.ps1 never assigns to $remote (the [string]$Remote parameter)'
+
+Write-Host '== Get-BackupLoginSql (SQL rights for the backup task) =='
+$sql = Get-BackupLoginSql
+Assert-True ($sql -match 'CREATE LOGIN \[NT AUTHORITY\\SYSTEM\] FROM WINDOWS') 'creates the SYSTEM login'
+Assert-True ($sql -match "ALTER SERVER ROLE \[sysadmin\] ADD MEMBER \[NT AUTHORITY\\SYSTEM\]") 'adds it to sysadmin'
+Assert-True ($sql -match 'IF NOT EXISTS' -and $sql -match 'IS_SRVROLEMEMBER') 'both steps are guarded, so re-running is safe'
+Assert-True ((Get-BackupLoginSql -Account "a'b]c") -match "N'a''b\]c'") 'quotes in the account name are escaped'
+
 if ($script:Failures -gt 0) {
     Write-Host "$($script:Failures) assertion(s) FAILED." -ForegroundColor Red
     exit 1

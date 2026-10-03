@@ -96,4 +96,49 @@ function Get-R2BucketFromArgumentLine {
     return $null
 }
 
-Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine
+<#
+.SYNOPSIS
+    The byte count in `rclone size --json` output, checked against the local file's size.
+    Throws when the JSON is unreadable or the sizes differ; returns the remote byte count
+    otherwise. Lives here (not inline in Upload-BackupToR2.ps1) so a test can drive it: the
+    inline version assigned the parsed object to `$remote`, which PowerShell treats as the
+    same variable as that script's `[string]$Remote` parameter (names ignore case), so the
+    [string] constraint turned the object into text and EVERY upload failed its own check.
+#>
+function Assert-R2SizeMatches {
+    param(
+        [Parameter(Mandatory)][string]$SizeJson,
+        [Parameter(Mandatory)][int64]$LocalBytes,
+        [Parameter(Mandatory)][string]$Name
+    )
+    $sizeInfo = $SizeJson | ConvertFrom-Json
+    if ($null -eq $sizeInfo -or $null -eq $sizeInfo.bytes) {
+        throw "Post-upload verify failed: rclone's size answer for $Name has no byte count: $SizeJson"
+    }
+    if ([int64]$sizeInfo.bytes -ne $LocalBytes) {
+        throw "Post-upload verify failed: local $LocalBytes bytes vs remote $($sizeInfo.bytes) bytes for $Name."
+    }
+    return [int64]$sizeInfo.bytes
+}
+
+<#
+.SYNOPSIS
+    T-SQL (idempotent) that lets the account a backup task runs as take backups: a Windows
+    login for it, in the sysadmin role. The task runs as NT AUTHORITY\SYSTEM, which SQL
+    Server 2012 and later no longer adds to sysadmin, so without this every nightly run
+    fails at BACKUP with a login or permission error. SYSTEM is already the machine's
+    highest local account, so this adds no reach on this host.
+#>
+function Get-BackupLoginSql {
+    param([string]$Account = 'NT AUTHORITY\SYSTEM')
+    $q = $Account.Replace("'", "''")
+    $id = $Account.Replace(']', ']]')
+    return @"
+IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'$q')
+    CREATE LOGIN [$id] FROM WINDOWS;
+IF IS_SRVROLEMEMBER(N'sysadmin', N'$q') <> 1
+    ALTER SERVER ROLE [sysadmin] ADD MEMBER [$id];
+"@
+}
+
+Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql

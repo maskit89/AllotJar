@@ -33,6 +33,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'ProvisionHelpers.psm1') -Force
 
 if (-not (Test-Path $Rclone)) {
     throw "rclone not found at $Rclone. Install it and/or pass -Rclone (see docs/deployment/README.md > Off-host backups)."
@@ -59,12 +60,15 @@ Write-Host "Uploading $File ($local bytes) -> $dest" -ForegroundColor Cyan
 & $Rclone copyto --config $RcloneConf $File $dest --s3-no-check-bucket
 if ($LASTEXITCODE -ne 0) { throw "rclone upload failed (exit $LASTEXITCODE)." }
 
-# Verify the remote object exists and its size matches the local file.
+# Verify the remote object exists and its size matches the local file. rclone may print
+# notices on stderr; under Windows PowerShell 5.1 a redirected native stderr line becomes
+# a terminating error while $ErrorActionPreference is Stop, so relax it for this one call
+# and judge by the exit code instead.
+$ErrorActionPreference = 'Continue'
 $sizeJson = & $Rclone size --config $RcloneConf $dest --json 2>$null
-if ($LASTEXITCODE -ne 0 -or -not $sizeJson) { throw "Post-upload verify failed: could not read '$dest' back from R2." }
-$remote = $sizeJson | ConvertFrom-Json
-if ([int64]$remote.bytes -ne [int64]$local) {
-    throw "Post-upload verify failed: local $local bytes vs remote $($remote.bytes) bytes for $name."
-}
+$sizeExit = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+if ($sizeExit -ne 0 -or -not $sizeJson) { throw "Post-upload verify failed: could not read '$dest' back from R2." }
+[void](Assert-R2SizeMatches -SizeJson ($sizeJson -join "`n") -LocalBytes $local -Name $name)
 
 Write-Host "Off-host copy verified in R2: $dest ($local bytes)." -ForegroundColor Green
