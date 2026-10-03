@@ -700,6 +700,61 @@ describe('PeoplePage — catalog (PPL)', () => {
     expect(screen.getByRole('button', { name: 'Remove sign-in for Robin' })).toBeInTheDocument()
   })
 
+  // D7 — "Send again" on a pending invite POSTs the resend and says the earlier link stopped working;
+  // a joined login that chose its password offers nothing to send.
+  it('PPL-038b: "Send again" on a pending invite re-sends it and says the old link no longer works', { timeout: 15000 }, async () => {
+    membersData = [
+      member({ id: 'm1', name: 'Alex' }),
+      member({ id: 'm2', name: 'Robin', incomeSharePct: 0.25 }),
+      member({ id: 'm3', name: 'Sam', incomeSharePct: 0.25 }),
+    ]
+    membershipsData = [
+      membership(),
+      membership({ id: 'mem2', email: 'robin@x.eu', displayName: 'Robin', role: 1, status: 1, memberId: 'm2', isOwner: false, isSelf: false }),
+      membership({ id: 'mem3', email: 'sam@x.eu', displayName: 'Sam', role: 1, status: 0, memberId: 'm3', isOwner: false, isSelf: false }),
+    ]
+    mockPost.mockResolvedValue({ data: { emailSent: true } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    expect(screen.queryByRole('button', { name: 'Send the email to Sam again' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Send the email to Alex again' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Send the email to Robin again' }))
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/access/members/mem2/resend'), { timeout: 5000 })
+    expect(await screen.findByRole('status', {}, { timeout: 5000 })).toHaveTextContent(
+      "We've emailed robin@x.eu a new link. The earlier one no longer works.",
+    )
+  })
+
+  it('PPL-038c: "Send again" for a login still choosing its password, and the server\'s too-soon refusal', { timeout: 15000 }, async () => {
+    membersData = [member({ id: 'm1', name: 'Alex' }), member({ id: 'm2', name: 'Sam', incomeSharePct: 0.25 })]
+    membershipsData = [
+      membership(),
+      membership({ id: 'mem2', email: 'sam@x.eu', displayName: 'Sam', role: 1, status: 0, memberId: 'm2', isOwner: false, isSelf: false, awaitingPassword: true }),
+    ]
+    mockPost.mockResolvedValueOnce({ data: { emailSent: true } })
+    mockPost.mockRejectedValueOnce({
+      isAxiosError: true,
+      response: { status: 429, data: { error: 'We sent that email less than a minute ago. Give it a moment to arrive.' } },
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await screen.findByRole('table', {}, { timeout: 5000 })
+    await user.click(screen.getByRole('button', { name: 'Send the email to Sam again' }))
+    expect(await screen.findByRole('status', {}, { timeout: 5000 })).toHaveTextContent(
+      "We've emailed sam@x.eu their link to choose a password again.",
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Send the email to Sam again' }))
+    expect(await screen.findByText(/less than a minute ago/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPost).toHaveBeenCalledTimes(2)
+  })
+
   // PPL-040 — an Admin (canWrite but not canManageHousehold ⇒ canAccess=false) sees static "No
   // sign-in", no invite pill, but keeps the table and the "+ Add person" button.
   it('PPL-040: an Admin sees "No sign-in" and no invite pill, but keeps Add person', { timeout: 15000 }, async () => {
@@ -818,7 +873,7 @@ describe('PeoplePage — catalog (PPL)', () => {
 
     const alert = await dialog.findByRole('alert', {}, { timeout: 5000 })
     expect(alert).toHaveTextContent('Invite saved, but the email failed')
-    expect(alert).toHaveTextContent(/Remove the invite and send it again later/)
+    expect(alert).toHaveTextContent(/Use "Send again" on their row to try once more/)
     expect(dialog.queryByRole('status')).not.toBeInTheDocument()
   })
 

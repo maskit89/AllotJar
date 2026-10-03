@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Accounts.Dtos;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.HouseholdAccess;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 
@@ -60,9 +61,10 @@ public static class AccountSharing
                 ? "Only a personal account can be private. Choose who holds it first: an account the household holds is visible to everyone in it."
                 : "A joint account can't be private: everyone in the household sees it (rule 33).");
         }
-        if (currentUser.UserId is null || currentUser.MemberId != holders[0].Id)
+        if (currentUser.UserId is null || currentUser.MemberId != holders[0].Id
+            || await PersonLoginRecords.BelongsToAnotherLoginAsync(db, holders[0], currentUser.UserId, ct))
         {
-            throw Invalid(field, $"Only {holders[0].Name}'s own login can make their account private.");
+            throw Invalid(field, OwnLoginOnly(holders[0].Name));
         }
         if (await BlockedReasonAsync(db, account, ct) is string reason)
         {
@@ -91,6 +93,13 @@ public static class AccountSharing
         }
         return null;
     }
+
+    /// <summary>
+    /// Why a login linked to a person can't make the person's account private: it isn't the
+    /// person's own login (S-P3-8, <see cref="PersonLoginRecords"/>).
+    /// </summary>
+    public static string OwnLoginOnly(string personName) =>
+        $"Only {personName}'s own login can make their account private.";
 
     public static string HoldsJarReason(string accountName, string jarName) =>
         $"'{accountName}' holds the jar '{jarName}'. Jars are part of the household budget, so the account behind one stays visible to everyone (rule 33).";
@@ -180,6 +189,12 @@ public static class AccountSharing
                 .Distinct()
                 .ToListAsync(ct))
             .ToHashSet();
+        // S-P3-8: a login linked to a person that another login was ever linked to (still in the
+        // household, not released) can't make that person's accounts private.
+        var myPerson = currentUser.MemberId is Guid myMemberId
+            ? await db.HouseholdMembers.FirstOrDefaultAsync(m => m.Id == myMemberId, ct)
+            : null;
+        var notMyOwn = myPerson is not null && await PersonLoginRecords.BelongsToAnotherLoginAsync(db, myPerson, currentUser.UserId, ct);
 
         foreach (var (account, dto) in rows)
         {
@@ -187,13 +202,14 @@ public static class AccountSharing
             // A private account read here is always private to the caller (the filter hides the
             // rest), and its login may always share it again, wherever it is linked (P59).
             dto.IsPrivate = privateIds.Contains(account.Id);
-            dto.CanChangeSharing = dto.IsPrivate
-                                   || (currentUser.UserId is not null
-                                       && currentUser.MemberId is Guid me
-                                       && dto.Holders.Count == 1
-                                       && dto.Holders[0].MemberId == me);
-            dto.SharingBlockedReason = !dto.CanChangeSharing || dto.IsPrivate
+            var mine = currentUser.UserId is not null
+                       && currentUser.MemberId is Guid me
+                       && dto.Holders.Count == 1
+                       && dto.Holders[0].MemberId == me;
+            dto.CanChangeSharing = dto.IsPrivate || (mine && !notMyOwn);
+            dto.SharingBlockedReason = dto.IsPrivate || !mine
                 ? null
+                : notMyOwn ? OwnLoginOnly(myPerson!.Name)
                 : jarNames.TryGetValue(account.Id, out var jar)
                     ? HoldsJarReason(account.Name, jar)
                     : heldJarMoney.Contains(account.Id) ? HeldJarMoneyReason(account.Name) : null;

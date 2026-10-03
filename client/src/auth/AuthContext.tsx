@@ -33,6 +33,8 @@ export interface PreferencesInput {
 
 interface AuthState {
   token: string | null
+  /** The signed-in login's id (from the session and /auth/me); null when signed out. */
+  userId: string | null
   email: string | null
   displayName: string | null
   firstName: string | null
@@ -86,7 +88,8 @@ interface AuthState {
   /** Create the login's own (empty) household and re-bootstrap into it to set up a first month. */
   startOwnBudget: () => Promise<void>
   /** Leave a household the login joined, then re-bootstrap into whatever remains active. */
-  leaveHousehold: (ownerId: string) => Promise<void>
+  /** Leaves a joined household; `privateAccounts` is the count the leaver was warned about (D4). */
+  leaveHousehold: (ownerId: string, privateAccounts?: number) => Promise<void>
   /** False when the login has no password (Google-created) — the account page adapts. */
   hasPassword: boolean
   /** True when a Google identity is linked to this login. */
@@ -118,9 +121,9 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | undefined>(undefined)
 
-const EMAIL_KEY = 'zbb.email'
-const ROLE_KEY = 'zbb.role'
-const NAME_KEY = 'zbb.displayName'
+// Who is signed in (email, name, role) is never kept in the browser's storage: it is read from the
+// server on load (D2, client P3-8). These keys held it in older versions and are cleared on start.
+const LEGACY_IDENTITY_KEYS = ['zbb.email', 'zbb.role', 'zbb.displayName']
 const CURRENCY_KEY = 'zbb.currency'
 const BUDGET_CURRENCY_KEY = 'zbb.budgetCurrency'
 const FORMAT_KEY = 'zbb.numberFormat'
@@ -131,16 +134,19 @@ const FORMAT_KEY = 'zbb.numberFormat'
 const DEFAULT_CURRENCY = DEFAULT_CURRENCY_CODE
 const DEFAULT_FORMAT = DEFAULT_FORMAT_KEY
 
-function storedRole(): number {
-  const raw = localStorage.getItem(ROLE_KEY)
-  const n = raw === null ? NaN : Number(raw)
-  return Number.isFinite(n) ? n : HouseholdRole.Owner
+function clearLegacyIdentity() {
+  try {
+    for (const key of LEGACY_IDENTITY_KEYS) localStorage.removeItem(key)
+  } catch {
+    // Storage unavailable (private mode, blocked site data): nothing was kept there either.
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setTokenState] = useState<string | null>(getToken())
-  const [email, setEmail] = useState<string | null>(localStorage.getItem(EMAIL_KEY))
-  const [displayName, setDisplayName] = useState<string | null>(localStorage.getItem(NAME_KEY))
+  const [userId, setUserId] = useState<string | null>(null)
+  const [email, setEmail] = useState<string | null>(null)
+  const [displayName, setDisplayName] = useState<string | null>(null)
   const [firstName, setFirstName] = useState<string | null>(null)
   const [lastName, setLastName] = useState<string | null>(null)
   const [preferredCurrency, setPreferredCurrency] = useState<string>(
@@ -155,7 +161,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
   const [currencyLocked, setCurrencyLocked] = useState(false)
   const [ownBudgetCurrencyState, setOwnBudgetCurrencyState] = useState<string | null>(null)
-  const [role, setRole] = useState<number>(storedRole())
+  const [role, setRole] = useState<number>(HouseholdRole.Owner)
+  // Whether a server answer (sign-in, refresh or /auth/me) has said which role this login has. A
+  // cold load whose /auth/me fails before any answer did falls back to the least privileged role,
+  // never Owner, so no owner controls show on a guess (PR #307 review P3-5).
+  const roleKnown = useRef(false)
   const [households, setHouseholds] = useState<HouseholdSummary[]>([])
   const [activeOwnerId, setActiveOwnerId] = useState<string | null>(null)
   const [needsConsent, setNeedsConsent] = useState(false)
@@ -176,6 +186,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const emailConfirmedLatch = useRef(false)
   // No in-memory access token on a cold load ⇒ try to restore the session from the refresh cookie.
   const [bootstrapping, setBootstrapping] = useState<boolean>(!getToken())
+  // A cold load that restored a session keeps the splash up until /auth/me answers, so the first
+  // screen paints with the server's identity and role rather than a guess (D2: none of it is
+  // stored in the browser any more).
+  const awaitingProfile = useRef(!getToken())
+  function profileSettled() {
+    if (!awaitingProfile.current) return
+    awaitingProfile.current = false
+    setBootstrapping(false)
+  }
+
+  useEffect(() => {
+    clearLegacyIdentity()
+  }, [])
 
   // Apply the persisted money format on first mount so a hard reload renders amounts in
   // the user's chosen style before /auth/me round-trips.
@@ -258,7 +281,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {})
       .finally(() => {
-        if (!cancelled) setBootstrapping(false)
+        // With a session restored, the /auth/me effect ends the bootstrap (profileSettled).
+        if (!cancelled && !getToken()) profileSettled()
       })
     return () => {
       cancelled = true
@@ -285,13 +309,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   function apply(res: AuthResponse) {
     setToken(res.token, res.expiresAtUtc)
     setTokenState(res.token)
+    setUserId(typeof res.userId === 'string' ? res.userId : null)
     setEmail(res.email)
-    setRole(res.role)
+    roleKnown.current = typeof res.role === 'number'
+    setRole(roleKnown.current ? res.role : HouseholdRole.ReadOnly)
     setDisplayName(res.displayName)
-    localStorage.setItem(EMAIL_KEY, res.email)
-    localStorage.setItem(ROLE_KEY, String(res.role))
-    if (res.displayName) localStorage.setItem(NAME_KEY, res.displayName)
-    else localStorage.removeItem(NAME_KEY)
   }
 
   // Refresh role + profile/preferences from the server whenever there's a token — a role
@@ -301,13 +323,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     const request = api.get<MeResponse>('/auth/me')
     // Guard against a non-promise (e.g. an incomplete mock) so the provider never throws.
-    if (!request || typeof request.then !== 'function') return
+    if (!request || typeof request.then !== 'function') {
+      profileSettled()
+      return
+    }
     request
       .then((res) => {
+        if (cancelled) return
+        const coldLoad = awaitingProfile.current
+        profileSettled()
         const data = res?.data
         // Only adopt a well-formed response — never let a malformed /auth/me downgrade the role.
-        if (cancelled || !data || typeof data.role !== 'number') return
+        if (!data || typeof data.role !== 'number') {
+          if (coldLoad && !roleKnown.current) setRole(HouseholdRole.ReadOnly)
+          return
+        }
+        roleKnown.current = true
         setRole(data.role)
+        if (typeof data.userId === 'string') setUserId(data.userId)
         if (typeof data.email === 'string') setEmail(data.email)
         setDisplayName(data.displayName ?? null)
         setFirstName(data.firstName ?? null)
@@ -327,9 +360,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         applyBudgetCurrency(data.budgetCurrency)
         setCurrencyLocked(data.currencyLocked === true)
         setOwnBudgetCurrencyState(typeof data.ownBudgetCurrency === 'string' && data.ownBudgetCurrency ? data.ownBudgetCurrency : null)
-        localStorage.setItem(ROLE_KEY, String(data.role))
       })
-      .catch(() => {})
+      .catch(() => {
+        if (cancelled) return
+        if (awaitingProfile.current && !roleKnown.current) setRole(HouseholdRole.ReadOnly)
+        profileSettled()
+      })
     return () => {
       cancelled = true
     }
@@ -448,8 +484,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.assign('/?started=1')
   }
 
-  async function leaveHousehold(ownerId: string) {
-    await api.post('/households/leave', { ownerId })
+  async function leaveHousehold(ownerId: string, privateAccounts = 0) {
+    // privateAccounts: how many of this login's private accounts there the leaver was warned
+    // about; the server refuses (409, with the count) while it holds more (D4).
+    await api.post('/households/leave', { ownerId, privateAccounts })
     // Active household may have changed; re-bootstrap so every screen re-scopes. The ?left=1
     // greeting explains the landing — a pure invitee's own household starts with no months,
     // and an unexplained blank dashboard would read as data loss.
@@ -461,8 +499,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setFirstName(data.firstName)
     setLastName(data.lastName)
     setDisplayName(data.displayName)
-    if (data.displayName) localStorage.setItem(NAME_KEY, data.displayName)
-    else localStorage.removeItem(NAME_KEY)
     applyPrefs(data.preferredCurrency, data.numberFormat)
     // The login's own household takes its budget currency from the preference until it has
     // accounts, months or transactions (then the server refuses a change). Adopt the server's
@@ -475,10 +511,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   function clearAuthState() {
     setToken(null)
     setTokenState(null)
+    setUserId(null)
     setEmail(null)
     setDisplayName(null)
     setFirstName(null)
     setLastName(null)
+    roleKnown.current = false
     setRole(HouseholdRole.Owner)
     setHouseholds([])
     setActiveOwnerId(null)
@@ -495,9 +533,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setOwnBudgetCurrencyState(null)
     setMemberId(null)
     setSharingReviewPending(false)
-    localStorage.removeItem(EMAIL_KEY)
-    localStorage.removeItem(ROLE_KEY)
-    localStorage.removeItem(NAME_KEY)
+    clearLegacyIdentity()
+    // A session that died while the bootstrap waited for /auth/me ends the splash too.
+    profileSettled()
   }
 
   function logout() {
@@ -510,6 +548,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthState>(
     () => ({
       token,
+      userId,
       email,
       displayName,
       firstName,
@@ -554,7 +593,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updatePreferences,
       logout,
     }),
-    [token, email, displayName, firstName, lastName, preferredCurrency, budgetCurrencyState, currencyLocked, ownBudgetCurrencyState, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, mustChangePassword, memberId, sharingReviewPending, hasPassword, hasGoogle, emailConfirmed],
+    [token, userId, email, displayName, firstName, lastName, preferredCurrency, budgetCurrencyState, currencyLocked, ownBudgetCurrencyState, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, mustChangePassword, memberId, sharingReviewPending, hasPassword, hasGoogle, emailConfirmed],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -5,7 +5,7 @@ import type { AccountDto, HouseholdMemberDto, MembershipDto } from '../types'
 
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
-import { mockGet, mockPut, resetApiMocks } from '../test/apiMock'
+import { mockGet, mockPost, mockPut, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { PeoplePage } from './PeoplePage'
 
@@ -93,5 +93,25 @@ describe('PeoplePage', () => {
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/members/m1', expect.objectContaining({ personalSavingsAccountId: null })),
     )
+  })
+
+  // D5 (PR #307 review P2-1): a sign-in once linked to a person sees "This isn't me" there and can
+  // release only its own link; nobody else gets the button.
+  it('lets a sign-in once linked to a person say it is not that person', { timeout: 15000 }, async () => {
+    membersData = [member(), member({ id: 'm2', name: 'Sam', displayOrder: 1, canReleaseMyLink: true })]
+    membershipsData = [membership()]
+    mockPost.mockResolvedValue({ data: null })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
+    expect(table.getByText(/Your sign-in was linked to Sam before/)).toBeInTheDocument()
+    expect(table.getAllByRole('button', { name: "This isn't me" })).toHaveLength(1)
+    membersData = [member(), member({ id: 'm2', name: 'Sam', displayOrder: 1 })]
+    await user.click(table.getByRole('button', { name: "This isn't me" }))
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/access/people/m2/not-me'))
+    await waitFor(() => expect(screen.queryByText(/Your sign-in was linked to Sam before/)).not.toBeInTheDocument())
   })
 })

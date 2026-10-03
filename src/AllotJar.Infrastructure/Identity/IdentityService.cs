@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.ValueObjects;
 
@@ -29,14 +30,31 @@ public class IdentityService : IIdentityService
     public async Task<UserAccount?> FindByEmailAsync(string email)
     {
         var user = await _userManager.FindByEmailAsync(email);
-        return user is null ? null : new UserAccount(user.Id, user.Email!, user.DisplayName);
+        return user is null ? null : ToAccount(user);
     }
 
     public async Task<UserAccount?> FindByIdAsync(string userId)
     {
         var user = await _userManager.FindByIdAsync(userId);
-        return user is null ? null : new UserAccount(user.Id, user.Email!, user.DisplayName);
+        return user is null ? null : ToAccount(user);
     }
+
+    public async Task<IReadOnlySet<string>> MustChangePasswordAmongAsync(IReadOnlyCollection<string> userIds)
+    {
+        if (userIds.Count == 0)
+        {
+            return new HashSet<string>();
+        }
+        var ids = userIds.ToList();
+        return (await _userManager.Users
+                .Where(u => ids.Contains(u.Id) && u.MustChangePassword)
+                .Select(u => u.Id)
+                .ToListAsync())
+            .ToHashSet();
+    }
+
+    private static UserAccount ToAccount(ApplicationUser user) =>
+        new(user.Id, user.Email!, user.DisplayName, user.EmailConfirmed, user.MustChangePassword);
 
     public async Task<CurrencyCode?> GetPreferredCurrencyAsync(string userId)
     {

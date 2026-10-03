@@ -20,12 +20,28 @@ const DEFAULT_RECORD: OnboardingRecord = {
   checklistDismissed: false,
 }
 
-const keyFor = (email: string) => `zbb.onboarding:${email}`
+// Keyed by the login's id from /auth/me, never its email, so no address is kept in the browser
+// (D2, client P3-8). Older versions keyed it by email: that record is moved across once.
+const keyFor = (userId: string) => `zbb.onboarding:${userId}`
 
-function readRecord(email: string | null): OnboardingRecord {
-  if (!email) return DEFAULT_RECORD
+/** Moves a record kept under the login's email (older versions) to its id, once, then deletes it. */
+function migrateEmailRecord(userId: string | null, email: string | null) {
+  if (!userId || !email) return
   try {
-    const raw = localStorage.getItem(keyFor(email))
+    const legacyKey = `zbb.onboarding:${email}`
+    const legacy = localStorage.getItem(legacyKey)
+    if (legacy === null) return
+    if (localStorage.getItem(keyFor(userId)) === null) localStorage.setItem(keyFor(userId), legacy)
+    localStorage.removeItem(legacyKey)
+  } catch {
+    /* storage unavailable — nothing to move */
+  }
+}
+
+function readRecord(userId: string | null): OnboardingRecord {
+  if (!userId) return DEFAULT_RECORD
+  try {
+    const raw = localStorage.getItem(keyFor(userId))
     if (raw) return { ...DEFAULT_RECORD, ...(JSON.parse(raw) as Partial<OnboardingRecord>) }
   } catch {
     /* ignore malformed storage */
@@ -75,29 +91,31 @@ export function useOnboarding(): OnboardingApi {
  * (unless they replay it from Help).
  */
 export function OnboardingProvider({ children }: { children: ReactNode }) {
-  const { email } = useAuth()
+  const { userId, email } = useAuth()
   const [phase, setPhase] = useState<Phase>('idle')
   const [tourStep, setTourStep] = useState(0)
-  const [record, setRecord] = useState<OnboardingRecord>(() => readRecord(email))
-  const emailRef = useRef(email)
+  const [record, setRecord] = useState<OnboardingRecord>(() => readRecord(userId))
+  const userIdRef = useRef(userId)
 
   // (Re)load the per-user record on mount and whenever the signed-in user
   // changes, auto-opening the welcome the first time that user is seen.
   useEffect(() => {
-    const r = readRecord(email)
-    emailRef.current = email
+    migrateEmailRecord(userId, email)
+    const r = readRecord(userId)
+    userIdRef.current = userId
     setRecord(r)
     setTourStep(0)
-    setPhase(r.welcomeSeen ? 'idle' : 'welcome')
-  }, [email])
+    // Not before the login is known (its id keys the record): what it chose couldn't be kept.
+    setPhase(r.welcomeSeen || !userId ? 'idle' : 'welcome')
+  }, [userId, email])
 
   const persist = useCallback((patch: Partial<OnboardingRecord>) => {
     setRecord((prev) => {
       const next = { ...prev, ...patch }
-      const e = emailRef.current
-      if (e) {
+      const id = userIdRef.current
+      if (id) {
         try {
-          localStorage.setItem(keyFor(e), JSON.stringify(next))
+          localStorage.setItem(keyFor(id), JSON.stringify(next))
         } catch {
           /* storage unavailable — non-fatal */
         }
@@ -150,7 +168,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     phase,
     tourStep,
     totalTourSteps: TOUR_STEP_COUNT,
-    checklistVisible: !record.checklistDismissed,
+    checklistVisible: !!userId && !record.checklistDismissed,
     startTour,
     nextTourStep,
     prevTourStep,

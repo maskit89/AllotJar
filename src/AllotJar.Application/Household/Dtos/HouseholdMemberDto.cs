@@ -34,6 +34,13 @@ public class HouseholdMemberDto
 
     /// <summary>This member's share of the household's income in the selected month's budget (0–1), the figure an income-based split uses.</summary>
     public decimal IncomeSharePct { get; set; }
+
+    /// <summary>
+    /// S-P3-8 (D5): the viewer's login was linked to this person before and still counts as one of
+    /// theirs, which stops the person's own login making their accounts private. Only the viewer can
+    /// release it ("This isn't me", <c>POST /api/access/people/{id}/not-me</c>).
+    /// </summary>
+    public bool CanReleaseMyLink { get; set; }
 }
 
 public static class HouseholdMemberMapping

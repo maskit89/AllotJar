@@ -114,8 +114,50 @@ describe('AccountPage', () => {
     await user.click(screen.getByRole('button', { name: 'Yes, leave' }))
 
     await waitFor(() =>
-      expect(mockPost).toHaveBeenCalledWith('/households/leave', { ownerId: 'owner-1' }),
+      expect(mockPost).toHaveBeenCalledWith('/households/leave', { ownerId: 'owner-1', privateAccounts: 0 }),
     )
+  })
+
+  // D4 (S-P3-7): leaving makes your private accounts there reachable by nobody, and the owner may
+  // erase them, so the confirm step says how many before you leave.
+  it('warns with the count of private accounts before a member leaves, and sends the count it showed', async () => {
+    meData = joinedMe
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/members') return Promise.resolve({ data: membersData })
+      if (url === '/households/leave-preview?ownerId=owner-1') return Promise.resolve({ data: { privateAccounts: 2 } })
+      return Promise.resolve({ data: meData })
+    })
+    mockPost.mockResolvedValue({ data: null })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Leave household' }, { timeout: 5000 }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'You keep 2 private accounts in this household. Once you leave, nobody can see them, and the owner can erase them for good.',
+    )
+    await user.click(screen.getByRole('button', { name: 'Yes, leave' }))
+
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/households/leave', { ownerId: 'owner-1', privateAccounts: 2 }),
+    )
+  })
+
+  it('shows the count when the server refuses a leave the warning did not cover', async () => {
+    meData = joinedMe
+    mockPost.mockRejectedValueOnce({
+      isAxiosError: true,
+      response: { status: 409, data: { error: 'You keep 1 private account in this household.', privateAccounts: 1 } },
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Leave household' }, { timeout: 5000 }))
+    await user.click(screen.getByRole('button', { name: 'Yes, leave' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('You keep 1 private account in this household.')
+    expect(screen.getByRole('button', { name: 'Yes, leave' })).toBeEnabled()
   })
 
   // W08: the budget and all its accounts use one currency, fixed once the budget has accounts,

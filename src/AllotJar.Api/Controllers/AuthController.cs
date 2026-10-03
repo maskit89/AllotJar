@@ -910,7 +910,7 @@ public class AuthController : ControllerBase
         var owners = await _db.Users
             .AsNoTracking()
             .Where(u => ownerIds.Contains(u.Id))
-            .Select(u => new { u.Id, u.DisplayName, u.Email })
+            .Select(u => new { u.Id, u.DisplayName })
             .ToDictionaryAsync(u => u.Id, ct);
 
         var households = memberships
@@ -918,7 +918,10 @@ public class AuthController : ControllerBase
             {
                 var isOwn = m.OwnerId == userId;
                 owners.TryGetValue(m.OwnerId, out var owner);
-                var label = isOwn ? "Your household" : owner?.DisplayName ?? owner?.Email ?? "Household";
+                // Never the owner's email: a household is named by its owner's name, else
+                // generically (S-P3-9).
+                var label = isOwn ? "Your household"
+                    : owner?.DisplayName is { } name && !string.IsNullOrWhiteSpace(name) ? name : "Household";
                 return new HouseholdSummary(m.OwnerId, label, m.Role, m.OwnerId == activeOwnerId, isOwn);
             })
             .OrderByDescending(h => h.IsOwn)

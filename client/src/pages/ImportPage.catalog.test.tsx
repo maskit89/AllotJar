@@ -35,7 +35,6 @@ async function goToReview(user: ReturnType<typeof userEvent.setup>) {
 
 describe('ImportPage (catalog)', () => {
   beforeEach(() => {
-    // The read-only case (IMP-002) writes zbb.role; clear so it never leaks into a later test.
     localStorage.clear()
     resetApiMocks()
     mockPreview.mockReset()
@@ -52,7 +51,11 @@ describe('ImportPage (catalog)', () => {
 
   // IMP-002 — a login without canWrite (Read-only) sees no upload form, just a pointer to manual entry.
   it('read-only login cannot import and is pointed at manual entry', { timeout: 15000 }, async () => {
-    localStorage.setItem('zbb.role', String(HouseholdRole.ReadOnly))
+    // The role comes from /auth/me (D2: never from storage).
+    const base = mockGet.getMockImplementation()!
+    mockGet.mockImplementation((url: string) =>
+      url === '/auth/me' ? Promise.resolve({ data: { role: HouseholdRole.ReadOnly } }) : base(url),
+    )
     renderPage()
 
     expect(

@@ -299,7 +299,7 @@ test('a pure invitee starts their own budget (nothing seeded), switches househol
   // --- PPL-065 (variant) / ROLE-033: leave the joined household from /account ---
   await guest.goto('/account')
   await guest.getByRole('button', { name: 'Leave household' }).click()
-  const left = guest.waitForResponse((r) => r.url().includes('/households/leave') && r.ok())
+  const left = guest.waitForResponse((r) => r.url().endsWith('/households/leave') && r.request().method() === 'POST' && r.ok())
   await guest.getByRole('button', { name: 'Yes, leave' }).click()
   await left
   // Lands back in their own budget, explained — and STILL never seeded (PR #170).

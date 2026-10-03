@@ -970,6 +970,9 @@ export interface HouseholdMemberDto {
   personalSavingsAccountId: string | null
   /** P53: the person has a savings account, but it is private to another login, so its id is withheld. */
   savingsPrivate?: boolean
+  /** D5: the viewer's sign-in was linked to this person before and still counts as theirs; only the
+   *  viewer can release it ("This isn't me"), so the person's own sign-in may make accounts private. */
+  canReleaseMyLink?: boolean
   displayOrder: number
   isArchived: boolean
   /** This member's share of the household's income in the selected month's budget (0–1). */
@@ -1168,11 +1171,18 @@ export interface MembershipDto {
   /** True when this row is the current login. */
   isSelf: boolean
   createdUtc: string
+  /** A login someone else created that hasn't chosen its own password yet (told to the owner only). */
+  awaitingPassword?: boolean
 }
 
 /** Returned by an invite: the new membership, and whether its email (the only copy of any link) went out. */
 export interface InviteResultDto {
   membership: MembershipDto
+  emailSent: boolean
+}
+
+/** "Send again" on People: whether the email went out. */
+export interface ResendResultDto {
   emailSent: boolean
 }
 

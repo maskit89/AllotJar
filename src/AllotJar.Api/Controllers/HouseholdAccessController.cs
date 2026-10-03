@@ -6,10 +6,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using AllotJar.Api.Features;
 using AllotJar.Api.Services;
+using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.HouseholdAccess;
 using AllotJar.Application.HouseholdAccess.Commands.ChangeMemberRole;
 using AllotJar.Application.HouseholdAccess.Commands.InviteMember;
 using AllotJar.Application.HouseholdAccess.Commands.LinkMembershipMember;
+using AllotJar.Application.HouseholdAccess.Commands.ReleasePersonLogin;
+using AllotJar.Application.HouseholdAccess.Commands.ResendInvite;
 using AllotJar.Application.HouseholdAccess.Commands.RevokeMember;
 using AllotJar.Application.HouseholdAccess.Dtos;
 using AllotJar.Application.HouseholdAccess.Queries.GetMemberships;
@@ -33,12 +36,18 @@ public class HouseholdAccessController : ControllerBase
 
     private readonly AccountEmails _accountEmails;
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly ResendCooldown _resendCooldown;
+    private readonly ICurrentUser _currentUser;
 
-    public HouseholdAccessController(ISender mediator, AccountEmails accountEmails, UserManager<ApplicationUser> userManager)
+    public HouseholdAccessController(
+        ISender mediator, AccountEmails accountEmails, UserManager<ApplicationUser> userManager,
+        ResendCooldown resendCooldown, ICurrentUser currentUser)
     {
         _mediator = mediator;
         _accountEmails = accountEmails;
         _userManager = userManager;
+        _resendCooldown = resendCooldown;
+        _currentUser = currentUser;
     }
 
     /// <summary>Lists the logins with access to the household.</summary>
@@ -83,6 +92,64 @@ public class HouseholdAccessController : ControllerBase
         return Ok(new InviteResponse(result.Membership, emailSent));
     }
 
+    /// <summary>
+    /// "Send again" (#298 R2-P2-1 follow-up): emails a pending invite a fresh link (the earlier one
+    /// stops working), or a login still on the temporary password someone else set its "choose your
+    /// password" link, to the invited address as the invite did. Owner-only. The new invite link is
+    /// saved only once its email went out, so a failed send leaves the old link working. Rate-limited per
+    /// visitor and spaced a minute apart per invite, and refused like an invite while the server
+    /// can't deliver email.
+    /// </summary>
+    [HttpPost("members/{id:guid}/resend")]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType(typeof(ResendResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    public async Task<ActionResult<ResendResponse>> Resend(Guid id, CancellationToken ct)
+    {
+        if (!_accountEmails.CanDeliver())
+        {
+            return BadRequest(new { error = EmailNotSetUp });
+        }
+        var household = _currentUser.OwnerId ?? string.Empty;
+        if (!_resendCooldown.TryClaim(household, id))
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { error = ResendTooSoon });
+        }
+
+        var emailSent = false;
+        try
+        {
+            var result = await _mediator.Send(new ResendInviteCommand(id), ct);
+            if (result.InviteToken is { } token)
+            {
+                emailSent = await _accountEmails.TrySendInviteLinkAsync(result.Email, await InviterNameAsync(), token, ct);
+                // The new link replaces the old one only once its email went out (review P3-2).
+                if (emailSent)
+                {
+                    await _mediator.Send(new CommitResentInviteCommand(id, token), ct);
+                }
+            }
+            else
+            {
+                emailSent = await _accountEmails.TrySendPasswordLinkAsync(result.Email, ct);
+            }
+            return Ok(new ResendResponse(emailSent));
+        }
+        finally
+        {
+            // Nothing went out (refused, or the provider failed): the owner may try again at once.
+            if (!emailSent)
+            {
+                _resendCooldown.Release(household, id);
+            }
+        }
+    }
+
+    public const string ResendTooSoon = "We sent that email less than a minute ago. Give it a moment to arrive.";
+
     public const string EmailNotSetUp =
         "Email isn't set up on this server yet, so invites can't be sent. Try again once it is.";
 
@@ -117,6 +184,21 @@ public class HouseholdAccessController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// "This isn't me" (S-P3-8, D5): the caller releases its own earlier link to a budget person,
+    /// so it no longer stops that person's own login making their accounts private. Only ever the
+    /// caller's own link; nobody can release another login's.
+    /// </summary>
+    [HttpPost("people/{memberId:guid}/not-me")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> NotMe(Guid memberId, CancellationToken ct)
+    {
+        await _mediator.Send(new ReleasePersonLoginCommand(memberId), ct);
+        return NoContent();
+    }
+
     /// <summary>Removes a member's access to the household. Owner-only.</summary>
     [HttpDelete("members/{id:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -134,6 +216,9 @@ public class HouseholdAccessController : ControllerBase
 /// travels only by email.
 /// </summary>
 public record InviteResponse(MembershipDto Membership, bool EmailSent);
+
+/// <summary>Whether "Send again" got its email out.</summary>
+public record ResendResponse(bool EmailSent);
 
 /// <summary>Request body for inviting a household member.</summary>
 public record InviteMemberRequest(

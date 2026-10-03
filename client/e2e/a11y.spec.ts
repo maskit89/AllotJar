@@ -214,12 +214,11 @@ for (const theme of ['light', 'dark'] as const) {
     test('onboarding welcome, tour and checklist have no WCAG A/AA violations', async ({ page }) => {
       // A brand-new user (no onboarding record) so the welcome auto-opens.
       await page.addInitScript(
-        ({ t, email }) => {
+        ({ t }) => {
           localStorage.setItem('zbb.theme', t)
           localStorage.setItem('zbb.token', 'e2e-token')
-          localStorage.setItem('zbb.email', email)
         },
-        { t: theme, email: ONBOARDING_EMAIL },
+        { t: theme },
       )
       await page.route('**/api/**', mockApi)
       await mockSignedIn(page, ONBOARDING_EMAIL)

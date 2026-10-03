@@ -21,6 +21,7 @@ using AllotJar.Application.Household.Commands.UpdateHouseholdMember;
 using AllotJar.Application.Imports;
 using AllotJar.Application.Household.Queries.GetMemberSpending;
 using AllotJar.Application.HouseholdAccess.Commands.LinkMembershipMember;
+using AllotJar.Application.HouseholdAccess.Commands.ReleasePersonLogin;
 using AllotJar.Application.HouseholdAccess.Commands.RevokeMember;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.ArchiveJar;
@@ -301,6 +302,76 @@ public class JointAccountsW13Tests
             (await db.AccountPrivacies.SingleAsync()).UserId = Household;
             var act = () => db.SaveChangesAsync();
             await act.Should().ThrowAsync<ForbiddenAccessException>();
+        }
+    }
+
+    /// <summary>
+    /// S-P3-8 (D5, "Only the person's own login may make it private"): the owner unlinks Sam's login,
+    /// links their own login to Sam's person and tries to make Sam's shared account private to
+    /// themselves. Refused while Sam's login is in the household, by every path; Sam's own login,
+    /// linked back, still can.
+    /// </summary>
+    [Fact]
+    public async Task ReLinkingPeople_NeverLetsAnotherLoginMakeAMembersAccountPrivate_OnlyTheirOwnLogin_SP3_8()
+    {
+        var shared = await CreateAccountAsync(Chris, "Sam's current", new[] { _sam }, isPrivate: false);
+        Guid samMembership, own;
+        using (var db = Seed())
+        {
+            samMembership = db.HouseholdMemberships.Single(m => m.UserId == SamLogin).Id;
+            own = db.HouseholdMemberships.Single(m => m.UserId == Household).Id;
+        }
+        await using (var db = As(Chris))
+        {
+            var handler = new LinkMembershipMemberCommandHandler(db, Chris);
+            await handler.Handle(new LinkMembershipMemberCommand(samMembership, null), CancellationToken.None);
+            await handler.Handle(new LinkMembershipMemberCommand(own, _sam), CancellationToken.None);
+            // Unlinking the owner's own login again never makes it Sam's person's login.
+            await handler.Handle(new LinkMembershipMemberCommand(own, null), CancellationToken.None);
+            await handler.Handle(new LinkMembershipMemberCommand(own, _sam), CancellationToken.None);
+        }
+        var chrisAsSam = new Viewer(Household, _sam);
+
+        await using (var db = As(chrisAsSam))
+        {
+            var act = () => new SetAccountSharingCommandHandler(db, chrisAsSam)
+                .Handle(new SetAccountSharingCommand(shared, true), CancellationToken.None);
+            (await act.Should().ThrowAsync<ValidationException>())
+                .Which.Errors["IsPrivate"].Should().ContainSingle(e => e.Contains("Only Sam's own login"));
+
+            var review = () => new CompleteSharingReviewCommandHandler(db, chrisAsSam)
+                .Handle(new CompleteSharingReviewCommand(new[] { shared }), CancellationToken.None);
+            await review.Should().ThrowAsync<ValidationException>();
+
+            var create = () => new CreateAccountCommandHandler(db, chrisAsSam).Handle(
+                new CreateAccountCommand("Hidden", AccountType.Current, "EUR", 0m, LedgerFixtures.DefaultOpening,
+                    HolderIds: new[] { _sam }, IsPrivate: true),
+                CancellationToken.None);
+            (await create.Should().ThrowAsync<ValidationException>())
+                .Which.Errors["IsPrivate"].Should().ContainSingle(e => e.Contains("Only Sam's own login"));
+
+            var asOwner = (await new GetAccountsQueryHandler(db, chrisAsSam)
+                .Handle(new GetAccountsQuery(June10), CancellationToken.None)).Single(a => a.Id == shared);
+            asOwner.CanChangeSharing.Should().BeFalse("the Accounts page offers no Make private");
+            asOwner.SharingBlockedReason.Should().Contain("Only Sam's own login", "the sharing review says why");
+        }
+        (await AccountNamesAsync(Sam)).Should().Contain("Sam's current");
+
+        // Sam's own login, linked back to Sam, still chooses once the owner's login has said it
+        // isn't Sam (D5: every login once linked to Sam counts until it releases itself).
+        await using (var db = As(Chris))
+        {
+            var handler = new LinkMembershipMemberCommandHandler(db, Chris);
+            await handler.Handle(new LinkMembershipMemberCommand(own, _chris), CancellationToken.None);
+            await handler.Handle(new LinkMembershipMemberCommand(samMembership, _sam), CancellationToken.None);
+            await new ReleasePersonLoginCommandHandler(db, Chris)
+                .Handle(new ReleasePersonLoginCommand(_sam), CancellationToken.None);
+        }
+        await using (var db = As(Sam))
+        {
+            var dto = await new SetAccountSharingCommandHandler(db, Sam)
+                .Handle(new SetAccountSharingCommand(shared, true), CancellationToken.None);
+            dto.IsPrivate.Should().BeTrue();
         }
     }
 

@@ -26,6 +26,7 @@ public interface IApplicationDbContext
     DbSet<JarArchivePeriod> JarArchivePeriods { get; }
     DbSet<HouseholdMember> HouseholdMembers { get; }
     DbSet<HouseholdMembership> HouseholdMemberships { get; }
+    DbSet<PersonLogin> PersonLogins { get; }
     DbSet<AllocationProfile> AllocationProfiles { get; }
     DbSet<AllocationRule> AllocationRules { get; }
 

@@ -62,6 +62,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<JarArchivePeriod> JarArchivePeriods => Set<JarArchivePeriod>();
     public DbSet<HouseholdMember> HouseholdMembers => Set<HouseholdMember>();
     public DbSet<HouseholdMembership> HouseholdMemberships => Set<HouseholdMembership>();
+    public DbSet<PersonLogin> PersonLogins => Set<PersonLogin>();
     public DbSet<AllocationProfile> AllocationProfiles => Set<AllocationProfile>();
     public DbSet<AllocationRule> AllocationRules => Set<AllocationRule>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
