@@ -153,7 +153,7 @@ describe('SESS: AuthContext session lifecycle', () => {
     expect(seen).not.toContain('in-owner')
   })
 
-  // A cold load whose /auth/me fails still ends the splash (signed in; the role stays the default).
+  // A cold load whose /auth/me fails still ends the splash (signed in, with the role the session answer gave).
   it('SESS-006c: a failed /auth/me after a cold load still ends the splash', async () => {
     await renderSignedIn((config) => {
       const url = config.url ?? ''
@@ -162,6 +162,22 @@ describe('SESS: AuthContext session lifecycle', () => {
       return ok({}, config)
     })
     expect(screen.getByTestId('probe')).toHaveTextContent('in')
+    expect(screen.getByTestId('role')).toHaveTextContent('role-0')
+  })
+
+  // PR #307 review P3-5: with no answer saying which role the login has (here a session answer
+  // without one, and a failed /auth/me), the role is the least privileged one, never Owner.
+  it('SESS-006d: a cold load that never learns the role falls back to read-only, not Owner', async () => {
+    const { role: _role, ...noRole } = REFRESHED
+    void _role
+    await renderSignedIn((config) => {
+      const url = config.url ?? ''
+      if (url.includes('/auth/refresh')) return ok(noRole, config)
+      if (url.includes('/auth/me')) return fail(500, config)
+      return ok({}, config)
+    })
+    expect(screen.getByTestId('probe')).toHaveTextContent('in')
+    expect(screen.getByTestId('role')).toHaveTextContent('read-only')
   })
 
   // SESS-037 — signing out via the menu: the fire-and-forget POST /auth/logout goes

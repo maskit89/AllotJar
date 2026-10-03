@@ -62,7 +62,7 @@ public static class AccountSharing
                 : "A joint account can't be private: everyone in the household sees it (rule 33).");
         }
         if (currentUser.UserId is null || currentUser.MemberId != holders[0].Id
-            || await PersonLogin.BelongsToAnotherLoginAsync(db, holders[0], currentUser.UserId, ct))
+            || await PersonLoginRecords.BelongsToAnotherLoginAsync(db, holders[0], currentUser.UserId, ct))
         {
             throw Invalid(field, OwnLoginOnly(holders[0].Name));
         }
@@ -96,7 +96,7 @@ public static class AccountSharing
 
     /// <summary>
     /// Why a login linked to a person can't make the person's account private: it isn't the
-    /// person's own login (S-P3-8, <see cref="PersonLogin"/>).
+    /// person's own login (S-P3-8, <see cref="PersonLoginRecords"/>).
     /// </summary>
     public static string OwnLoginOnly(string personName) =>
         $"Only {personName}'s own login can make their account private.";
@@ -189,12 +189,12 @@ public static class AccountSharing
                 .Distinct()
                 .ToListAsync(ct))
             .ToHashSet();
-        // S-P3-8: a login linked to a person that still has its own login in the household
-        // can't make that person's accounts private.
+        // S-P3-8: a login linked to a person that another login was ever linked to (still in the
+        // household, not released) can't make that person's accounts private.
         var myPerson = currentUser.MemberId is Guid myMemberId
             ? await db.HouseholdMembers.FirstOrDefaultAsync(m => m.Id == myMemberId, ct)
             : null;
-        var notMyOwn = myPerson is not null && await PersonLogin.BelongsToAnotherLoginAsync(db, myPerson, currentUser.UserId, ct);
+        var notMyOwn = myPerson is not null && await PersonLoginRecords.BelongsToAnotherLoginAsync(db, myPerson, currentUser.UserId, ct);
 
         foreach (var (account, dto) in rows)
         {

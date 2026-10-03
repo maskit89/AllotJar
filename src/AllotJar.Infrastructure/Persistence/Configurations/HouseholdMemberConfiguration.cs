@@ -19,9 +19,6 @@ public class HouseholdMemberConfiguration : IEntityTypeConfiguration<HouseholdMe
             .IsRequired()
             .HasMaxLength(120);
 
-        builder.Property(m => m.FormerLoginUserId)
-            .HasMaxLength(450);
-
         builder.Property(m => m.NetMonthlyIncome)
             .HasPrecision(18, 4);
 

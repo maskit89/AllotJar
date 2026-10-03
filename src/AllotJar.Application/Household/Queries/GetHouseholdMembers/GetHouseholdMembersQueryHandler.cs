@@ -5,6 +5,7 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Allocation;
 using AllotJar.Application.Household.Dtos;
+using AllotJar.Application.HouseholdAccess;
 
 namespace AllotJar.Application.Household.Queries.GetHouseholdMembers;
 
@@ -42,6 +43,13 @@ public class GetHouseholdMembersQueryHandler
         var hidden = await HiddenAccounts.AmongAsync(
             _db, _currentUser.UserId, members.Select(m => m.PersonalSavingsAccountId), cancellationToken);
 
-        return members.Select(m => m.ToDto(shares, year, month, hidden)).ToList();
+        var releasable = await PersonLoginRecords.ReleasableAsync(_db, userId, _currentUser.UserId, cancellationToken);
+
+        return members.Select(m =>
+        {
+            var dto = m.ToDto(shares, year, month, hidden);
+            dto.CanReleaseMyLink = releasable.Contains(m.Id);
+            return dto;
+        }).ToList();
     }
 }

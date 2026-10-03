@@ -3,6 +3,7 @@ using AllotJar.Application.Accounts;
 using AllotJar.Application.Allocation;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Household.Dtos;
+using AllotJar.Application.HouseholdAccess;
 using AllotJar.Domain.Entities;
 
 namespace AllotJar.Application.Household;
@@ -22,6 +23,8 @@ public static class HouseholdMemberReads
             .ToListAsync(cancellationToken);
         var shares = await MemberIncome.SharesAsync(db, ownerId, year, month, members, cancellationToken);
         var hidden = await HiddenAccounts.AmongAsync(db, viewer.UserId, new[] { member.PersonalSavingsAccountId }, cancellationToken);
-        return member.ToDto(shares, year, month, hidden);
+        var dto = member.ToDto(shares, year, month, hidden);
+        dto.CanReleaseMyLink = (await PersonLoginRecords.ReleasableAsync(db, ownerId, viewer.UserId, cancellationToken)).Contains(member.Id);
+        return dto;
     }
 }

@@ -21,8 +21,8 @@ describe('Onboarding', () => {
     mockGet.mockImplementation((url: string) => {
       if (url === '/budget/months') return Promise.resolve({ data: [] })
       if (url === '/transactions') return Promise.resolve({ data: [] })
-      // The signed-in login's email keys the onboarding record; it comes from /auth/me (D2).
-      if (url === '/auth/me') return Promise.resolve({ data: { email: 'me@test.app', role: 0 } })
+      // The signed-in login's id keys the onboarding record; it comes from /auth/me (D2).
+      if (url === '/auth/me') return Promise.resolve({ data: { userId: 'u-me', email: 'me@test.app', role: 0 } })
       return Promise.reject({ response: { status: 404 } }) // current month → none yet
     })
   })
@@ -56,7 +56,7 @@ describe('Onboarding', () => {
     expect(await screen.findByRole('region', { name: 'Getting started' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Welcome to AllotJar' })).not.toBeInTheDocument()
 
-    const raw = localStorage.getItem('zbb.onboarding:me@test.app')
+    const raw = localStorage.getItem('zbb.onboarding:u-me')
     expect(raw && JSON.parse(raw).welcomeSeen).toBe(true)
 
     // A fresh mount for the same (returning) user must not re-open the welcome.
@@ -78,7 +78,19 @@ describe('Onboarding', () => {
       expect(screen.queryByRole('region', { name: 'Getting started' })).not.toBeInTheDocument(),
     )
 
-    const raw = localStorage.getItem('zbb.onboarding:me@test.app')
+    const raw = localStorage.getItem('zbb.onboarding:u-me')
     expect(raw && JSON.parse(raw).checklistDismissed).toBe(true)
+  })
+
+  // D2 (PR #307 review P3-1): progress is kept under the login's id, never its email; a record an
+  // older version kept under the email is moved across once, so a returning user isn't welcomed again.
+  it('moves an email-keyed record to the login id once and deletes it', async () => {
+    localStorage.setItem('zbb.onboarding:me@test.app', JSON.stringify({ v: 1, welcomeSeen: true, tourDone: true, checklistDismissed: false }))
+    renderApp()
+
+    await waitFor(() => expect(localStorage.getItem('zbb.onboarding:me@test.app')).toBeNull())
+    expect(JSON.parse(localStorage.getItem('zbb.onboarding:u-me') ?? '{}').welcomeSeen).toBe(true)
+    expect(screen.queryByRole('heading', { name: 'Welcome to AllotJar' })).not.toBeInTheDocument()
+    expect(Object.keys(localStorage).some((k) => k.includes('@'))).toBe(false)
   })
 })

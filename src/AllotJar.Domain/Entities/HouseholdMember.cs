@@ -32,12 +32,4 @@ public class HouseholdMember : BaseEntity
 
     /// <summary>Archived members are hidden and excluded from allocation, but kept for history.</summary>
     public bool IsArchived { get; set; }
-
-    /// <summary>
-    /// The login that was this person's own before the owner unlinked or re-linked it (or it left).
-    /// While that login is still in the household, only it may make the person's accounts private,
-    /// so re-linking people never lets another login hide a member's account from them (S-P3-8).
-    /// Null when the person has never lost a login.
-    /// </summary>
-    public string? FormerLoginUserId { get; set; }
 }

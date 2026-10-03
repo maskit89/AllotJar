@@ -970,6 +970,9 @@ export interface HouseholdMemberDto {
   personalSavingsAccountId: string | null
   /** P53: the person has a savings account, but it is private to another login, so its id is withheld. */
   savingsPrivate?: boolean
+  /** D5: the viewer's sign-in was linked to this person before and still counts as theirs; only the
+   *  viewer can release it ("This isn't me"), so the person's own sign-in may make accounts private. */
+  canReleaseMyLink?: boolean
   displayOrder: number
   isArchived: boolean
   /** This member's share of the household's income in the selected month's budget (0–1). */

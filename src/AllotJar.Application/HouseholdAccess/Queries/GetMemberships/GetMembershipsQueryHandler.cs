@@ -41,12 +41,18 @@ public class GetMembershipsQueryHandler
             return result;
         }
 
-        // The owner's "Send again" is for a login still waiting to choose its password (S-P2-3).
+        // The owner's "Send again" is for a login still waiting to choose its password (S-P2-3),
+        // read for every login at once rather than one lookup each.
+        var logins = memberships
+            .Where(m => m.Status == MembershipStatus.Active && m.UserId is not null && m.UserId != currentUserId)
+            .Select(m => m.UserId!)
+            .ToList();
+        var waiting = await _identity.MustChangePasswordAmongAsync(logins);
         for (var i = 0; i < memberships.Count; i++)
         {
             if (memberships[i] is { UserId: string userId, Status: MembershipStatus.Active }
                 && userId != currentUserId
-                && await _identity.FindByIdAsync(userId) is { MustChangePassword: true })
+                && waiting.Contains(userId))
             {
                 result[i] = result[i] with { AwaitingPassword = true };
             }

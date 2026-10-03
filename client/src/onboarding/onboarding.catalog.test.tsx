@@ -79,7 +79,7 @@ let currentMonth: BudgetMonthDto | null = null // null → the current-month GET
 let transactionsData: unknown[] = []
 // The signed-in login as /auth/me answers: its email keys the onboarding record (D2: nothing about
 // who is signed in is read from localStorage). null → /auth/me rejects.
-const ME = { email: 'me@test.app', role: 0 }
+const ME = { userId: 'u-me', email: 'me@test.app', role: 0 }
 let meData: Record<string, unknown> | null = ME
 
 function setupGet() {
@@ -116,7 +116,7 @@ function ReplayTrigger() {
   )
 }
 
-const KEY = 'zbb.onboarding:me@test.app'
+const KEY = 'zbb.onboarding:u-me'
 const readRecord = () => JSON.parse(localStorage.getItem(KEY) || '{}')
 
 describe('Onboarding — catalog (ONBD)', () => {
@@ -161,7 +161,7 @@ describe('Onboarding — catalog (ONBD)', () => {
 
   // ONBD-005 — an invite-created user viewing a joined household gets the member copy + bullets.
   it('ONBD-005: invite-created user sees the joined-member welcome copy and bullets', { timeout: 15000 }, async () => {
-    meData = { email: 'me@test.app', role: 0, ownerId: 'inviter', preferredCurrency: 'EUR', numberFormat: 'comma-dot',
+    meData = { userId: 'u-me', email: 'me@test.app', role: 0, ownerId: 'inviter', preferredCurrency: 'EUR', numberFormat: 'comma-dot',
       households: [household({ ownerId: 'inviter', label: 'Shared', isActive: true, isOwn: false })] }
 
     renderOnboarding()
@@ -459,7 +459,7 @@ describe('Onboarding — catalog (ONBD)', () => {
   // household suppresses it entirely (absent from the DOM), while an own household shows it.
   it('ONBD-021: checklist is hidden for a joined household and shown for the own one', { timeout: 15000 }, async () => {
     // Joined household → no checklist anywhere.
-    meData = { email: 'me@test.app', role: 0, ownerId: 'inviter', preferredCurrency: 'EUR', numberFormat: 'comma-dot',
+    meData = { userId: 'u-me', email: 'me@test.app', role: 0, ownerId: 'inviter', preferredCurrency: 'EUR', numberFormat: 'comma-dot',
       households: [household({ ownerId: 'inviter', label: 'Shared', isActive: true, isOwn: false })] }
     const joined = renderOnboarding()
     fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }, { timeout: 5000 }))
@@ -471,7 +471,7 @@ describe('Onboarding — catalog (ONBD)', () => {
     localStorage.removeItem(KEY)
 
     // Own household → checklist present.
-    meData = { email: 'me@test.app', role: 0, ownerId: 'own', preferredCurrency: 'EUR', numberFormat: 'comma-dot',
+    meData = { userId: 'u-me', email: 'me@test.app', role: 0, ownerId: 'own', preferredCurrency: 'EUR', numberFormat: 'comma-dot',
       households: [household({ ownerId: 'own', label: 'Mine', isActive: true, isOwn: true })] }
     renderOnboarding()
     fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }, { timeout: 5000 }))

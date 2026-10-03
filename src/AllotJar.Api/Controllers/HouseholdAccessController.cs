@@ -11,6 +11,7 @@ using AllotJar.Application.HouseholdAccess;
 using AllotJar.Application.HouseholdAccess.Commands.ChangeMemberRole;
 using AllotJar.Application.HouseholdAccess.Commands.InviteMember;
 using AllotJar.Application.HouseholdAccess.Commands.LinkMembershipMember;
+using AllotJar.Application.HouseholdAccess.Commands.ReleasePersonLogin;
 using AllotJar.Application.HouseholdAccess.Commands.ResendInvite;
 using AllotJar.Application.HouseholdAccess.Commands.RevokeMember;
 using AllotJar.Application.HouseholdAccess.Dtos;
@@ -94,7 +95,8 @@ public class HouseholdAccessController : ControllerBase
     /// <summary>
     /// "Send again" (#298 R2-P2-1 follow-up): emails a pending invite a fresh link (the earlier one
     /// stops working), or a login still on the temporary password someone else set its "choose your
-    /// password" link, to the invited address as the invite did. Owner-only. Rate-limited per
+    /// password" link, to the invited address as the invite did. Owner-only. The new invite link is
+    /// saved only once its email went out, so a failed send leaves the old link working. Rate-limited per
     /// visitor and spaced a minute apart per invite, and refused like an invite while the server
     /// can't deliver email.
     /// </summary>
@@ -121,9 +123,19 @@ public class HouseholdAccessController : ControllerBase
         try
         {
             var result = await _mediator.Send(new ResendInviteCommand(id), ct);
-            emailSent = result.InviteToken is { } token
-                ? await _accountEmails.TrySendInviteLinkAsync(result.Email, await InviterNameAsync(), token, ct)
-                : await _accountEmails.TrySendPasswordLinkAsync(result.Email, ct);
+            if (result.InviteToken is { } token)
+            {
+                emailSent = await _accountEmails.TrySendInviteLinkAsync(result.Email, await InviterNameAsync(), token, ct);
+                // The new link replaces the old one only once its email went out (review P3-2).
+                if (emailSent)
+                {
+                    await _mediator.Send(new CommitResentInviteCommand(id, token), ct);
+                }
+            }
+            else
+            {
+                emailSent = await _accountEmails.TrySendPasswordLinkAsync(result.Email, ct);
+            }
             return Ok(new ResendResponse(emailSent));
         }
         finally
@@ -170,6 +182,21 @@ public class HouseholdAccessController : ControllerBase
     {
         var result = await _mediator.Send(new LinkMembershipMemberCommand(id, request.MemberId), ct);
         return Ok(result);
+    }
+
+    /// <summary>
+    /// "This isn't me" (S-P3-8, D5): the caller releases its own earlier link to a budget person,
+    /// so it no longer stops that person's own login making their accounts private. Only ever the
+    /// caller's own link; nobody can release another login's.
+    /// </summary>
+    [HttpPost("people/{memberId:guid}/not-me")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> NotMe(Guid memberId, CancellationToken ct)
+    {
+        await _mediator.Send(new ReleasePersonLoginCommand(memberId), ct);
+        return NoContent();
     }
 
     /// <summary>Removes a member's access to the household. Owner-only.</summary>

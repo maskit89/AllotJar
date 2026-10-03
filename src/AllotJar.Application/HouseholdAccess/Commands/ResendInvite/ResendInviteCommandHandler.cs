@@ -29,14 +29,11 @@ public class ResendInviteCommandHandler : IRequestHandler<ResendInviteCommand, R
             ?? throw new NotFoundException($"Membership {request.MembershipId} was not found.");
 
         // A pending link invite gets a new link: only the old one's hash is kept, so it can't be
-        // sent again as it was. The new one replaces it and runs for another 7 days.
+        // sent again as it was. Nothing is saved yet: the new link replaces the old one only once
+        // its email went out (CommitResentInviteCommand), so a failed send leaves the old link working.
         if (membership.Status == MembershipStatus.Invited && membership.UserId is null)
         {
-            var rawToken = InviteToken.Generate();
-            membership.InviteTokenHash = InviteToken.Hash(rawToken);
-            membership.InviteExpiresUtc = DateTime.UtcNow.AddDays(7);
-            await _db.SaveChangesAsync(cancellationToken);
-            return new ResendInviteResult(membership.InvitedEmail, rawToken);
+            return new ResendInviteResult(membership.InvitedEmail, InviteToken.Generate());
         }
 
         // A login someone else created, still on its temporary password: its "choose your

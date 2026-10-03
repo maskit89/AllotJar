@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.ValueObjects;
 
@@ -36,6 +37,20 @@ public class IdentityService : IIdentityService
     {
         var user = await _userManager.FindByIdAsync(userId);
         return user is null ? null : ToAccount(user);
+    }
+
+    public async Task<IReadOnlySet<string>> MustChangePasswordAmongAsync(IReadOnlyCollection<string> userIds)
+    {
+        if (userIds.Count == 0)
+        {
+            return new HashSet<string>();
+        }
+        var ids = userIds.ToList();
+        return (await _userManager.Users
+                .Where(u => ids.Contains(u.Id) && u.MustChangePassword)
+                .Select(u => u.Id)
+                .ToListAsync())
+            .ToHashSet();
     }
 
     private static UserAccount ToAccount(ApplicationUser user) =>

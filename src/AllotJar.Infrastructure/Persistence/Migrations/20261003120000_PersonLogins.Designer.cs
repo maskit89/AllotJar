@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AllotJar.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261003120000_PersonFormerLogin")]
-    partial class PersonFormerLogin
+    [Migration("20261003120000_PersonLogins")]
+    partial class PersonLogins
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -309,10 +309,6 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("DisplayOrder")
                         .HasColumnType("int");
-
-                    b.Property<string>("FormerLoginUserId")
-                        .HasMaxLength(450)
-                        .HasColumnType("nvarchar(450)");
 
                     b.Property<bool>("IsArchived")
                         .HasColumnType("bit");
@@ -677,6 +673,26 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("JarRevisions", (string)null);
+                });
+
+            modelBuilder.Entity("AllotJar.Domain.Entities.PersonLogin", b =>
+                {
+                    b.Property<Guid>("HouseholdMemberId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("UserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("LinkedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("ReleasedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("HouseholdMemberId", "UserId");
+
+                    b.ToTable("PersonLogins", (string)null);
                 });
 
             modelBuilder.Entity("AllotJar.Domain.Entities.RefreshToken", b =>
@@ -1300,6 +1316,15 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Jar");
+                });
+
+            modelBuilder.Entity("AllotJar.Domain.Entities.PersonLogin", b =>
+                {
+                    b.HasOne("AllotJar.Domain.Entities.HouseholdMember", null)
+                        .WithMany()
+                        .HasForeignKey("HouseholdMemberId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("AllotJar.Domain.Entities.Transaction", b =>

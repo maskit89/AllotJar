@@ -97,6 +97,7 @@ public class InviteMemberCommandHandler : IRequestHandler<InviteMemberCommand, I
         }
 
         _db.HouseholdMemberships.Add(membership);
+        await PersonLoginRecords.RecordLinkAsync(_db, membership.MemberId, membership.UserId, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
 
         return new InviteResultDto(membership.ToDto(_currentUser.UserId), rawToken);

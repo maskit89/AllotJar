@@ -193,4 +193,45 @@ public class PeopleFollowUpsHttpTests
         (await HttpApiFixture.ReadJsonAsync(again)).RootElement.GetProperty("emailSent").GetBoolean().Should().BeTrue();
         await WaitForLinksAsync(email, "/reset-password?", 2);
     }
+
+    /// <summary>
+    /// D5 over HTTP (PR #307 review round 1, P2-1): the owner unlinks Sam's login and links its own
+    /// login to Sam; making an account of Sam's private is refused while Sam's login is in the household,
+    /// "This isn't me" only releases the caller's own link, and once Sam's login leaves it no longer blocks.
+    /// </summary>
+    [Fact]
+    public async Task Relinking_Sam_to_the_owner_never_lets_the_owner_make_Sams_account_private_until_Sams_login_leaves_D5()
+    {
+        using var client = _fixture.CreateClient();
+        var (ownerToken, ownerId, _) = await RegisterNamelessOwnerAsync(client);
+        var (samToken, samMembership, personId, _) = await DirectInviteAsync(client, ownerToken);
+
+        var list = await HttpApiFixture.SendAsync(client, HttpMethod.Get, "/api/access/members", ownerToken);
+        var own = (await HttpApiFixture.ReadJsonAsync(list)).RootElement.EnumerateArray()
+            .Single(m => m.GetProperty("isSelf").GetBoolean()).GetProperty("id").GetGuid();
+        (await HttpApiFixture.SendAsync(client, HttpMethod.Put, $"/api/access/members/{samMembership}/link", ownerToken, new { memberId = (Guid?)null }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await HttpApiFixture.SendAsync(client, HttpMethod.Put, $"/api/access/members/{own}/link", ownerToken, new { memberId = personId }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        object PrivateAccount() => new { name = $"Hidden {Guid.NewGuid():N}"[..14], type = 0, currency = "EUR", openingBalance = 0m, openingDate = "2026-01-01", holderIds = new[] { personId }, isPrivate = true };
+        var refused = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/accounts", ownerToken, PrivateAccount());
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadAsStringAsync()).Should().Contain("own login can make their account private");
+
+        // The owner can't release a link while linked, and never anyone else's.
+        (await HttpApiFixture.SendAsync(client, HttpMethod.Post, $"/api/access/people/{personId}/not-me", ownerToken))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await HttpApiFixture.SendAsync(client, HttpMethod.Post, $"/api/access/people/{Guid.NewGuid()}/not-me", ownerToken))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        var left = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/households/leave", samToken, new { ownerId });
+        left.StatusCode.Should().Be(HttpStatusCode.NoContent, await left.Content.ReadAsStringAsync());
+        // Sam, now back in their own household, can't reach the person they left.
+        (await HttpApiFixture.SendAsync(client, HttpMethod.Post, $"/api/access/people/{personId}/not-me", samToken))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        var allowed = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/accounts", ownerToken, PrivateAccount());
+        allowed.StatusCode.Should().Be(HttpStatusCode.Created, await allowed.Content.ReadAsStringAsync());
+    }
 }

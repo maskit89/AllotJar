@@ -475,6 +475,24 @@ export function PeoplePage() {
     }
   }, [])
 
+  // D5: "This isn't me" — releases this sign-in's own earlier link to the person, so it no
+  // longer stops the person's own sign-in making their accounts private. Never anyone else's link.
+  const releaseMyLink = useCallback(
+    async (memberId: string) => {
+      setSavingId(memberId)
+      setError(null)
+      try {
+        await api.post(`/access/people/${memberId}/not-me`)
+        await reloadAll()
+      } catch (err) {
+        setError(serverErrors(err) ?? 'Could not save that.')
+      } finally {
+        setSavingId(null)
+      }
+    },
+    [reloadAll],
+  )
+
   const linkLoginToPerson = useCallback(
     async (membershipId: string, memberId: string) => {
       setSavingId(membershipId)
@@ -580,6 +598,20 @@ export function PeoplePage() {
                                 <div className="min-w-0">
                                   <div className="truncate font-semibold text-slate-900">{m.name}</div>
                                   {isSelf && <div className="text-xs text-slate-500">You</div>}
+                                  {m.canReleaseMyLink && (
+                                    <div className="mt-1 text-xs text-slate-500">
+                                      Your sign-in was linked to {m.name} before.{' '}
+                                      <button
+                                        type="button"
+                                        onClick={() => releaseMyLink(m.id)}
+                                        disabled={savingId === m.id}
+                                        title={`Only ${m.name}'s own sign-in can make their accounts private. Until you say you aren't ${m.name}, yours counts too.`}
+                                        className="font-semibold text-brand-700 underline hover:text-brand-800 disabled:opacity-50 dark:text-brand-200"
+                                      >
+                                        {"This isn't me"}
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             )}

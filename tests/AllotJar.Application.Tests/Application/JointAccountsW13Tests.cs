@@ -21,6 +21,7 @@ using AllotJar.Application.Household.Commands.UpdateHouseholdMember;
 using AllotJar.Application.Imports;
 using AllotJar.Application.Household.Queries.GetMemberSpending;
 using AllotJar.Application.HouseholdAccess.Commands.LinkMembershipMember;
+using AllotJar.Application.HouseholdAccess.Commands.ReleasePersonLogin;
 using AllotJar.Application.HouseholdAccess.Commands.RevokeMember;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.ArchiveJar;
@@ -356,12 +357,15 @@ public class JointAccountsW13Tests
         }
         (await AccountNamesAsync(Sam)).Should().Contain("Sam's current");
 
-        // Sam's own login, linked back to Sam, still chooses.
+        // Sam's own login, linked back to Sam, still chooses once the owner's login has said it
+        // isn't Sam (D5: every login once linked to Sam counts until it releases itself).
         await using (var db = As(Chris))
         {
             var handler = new LinkMembershipMemberCommandHandler(db, Chris);
             await handler.Handle(new LinkMembershipMemberCommand(own, _chris), CancellationToken.None);
             await handler.Handle(new LinkMembershipMemberCommand(samMembership, _sam), CancellationToken.None);
+            await new ReleasePersonLoginCommandHandler(db, Chris)
+                .Handle(new ReleasePersonLoginCommand(_sam), CancellationToken.None);
         }
         await using (var db = As(Sam))
         {

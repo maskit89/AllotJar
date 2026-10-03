@@ -192,8 +192,9 @@ public class HouseholdsController : ControllerBase
             return Conflict(new { error = LeavingPrivateAccounts(privateAccounts), privateAccounts });
         }
 
-        // S-P3-8: the person stays this login's, should it be given access again.
-        await PersonLogin.RecordUnlinkAsync(_db, request.OwnerId, membership.MemberId, userId, ct);
+        // S-P3-8: the link stays on record, should this login be given access again; while it is
+        // gone it doesn't count.
+        await PersonLoginRecords.RecordUnlinkAsync(_db, membership.MemberId, userId, ct);
         _db.HouseholdMemberships.Remove(membership);
         await _db.SaveChangesAsync(ct);
 

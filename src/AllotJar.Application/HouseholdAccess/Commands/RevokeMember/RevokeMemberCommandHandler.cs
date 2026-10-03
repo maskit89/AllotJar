@@ -31,8 +31,9 @@ public class RevokeMemberCommandHandler : IRequestHandler<RevokeMemberCommand>
             throw new ForbiddenAccessException("The owner cannot be removed from the household.");
         }
 
-        // S-P3-8: a login given access again is still its person's own (P59 keeps its privacy too).
-        await PersonLogin.RecordUnlinkAsync(_db, ownerId, membership.MemberId, membership.UserId, cancellationToken);
+        // S-P3-8: the link stays on record; a removed login stops counting while it is gone, and is
+        // still its person's own if given access again (P59 keeps its privacy too).
+        await PersonLoginRecords.RecordUnlinkAsync(_db, membership.MemberId, membership.UserId, cancellationToken);
         _db.HouseholdMemberships.Remove(membership);
         await _db.SaveChangesAsync(cancellationToken);
     }

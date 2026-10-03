@@ -66,6 +66,7 @@ public class AcceptInviteCommandHandler : IRequestHandler<AcceptInviteCommand, A
             membership.UserId = userId;
             var joinedName = me.DisplayName ?? request.DisplayName;
             Activate(membership, joinedName);
+            await PersonLoginRecords.RecordLinkAsync(_db, membership.MemberId, userId, cancellationToken);
             await _db.SaveChangesAsync(cancellationToken);
 
             // Land the accepter in the household they just joined — otherwise the app resolves
@@ -102,6 +103,7 @@ public class AcceptInviteCommandHandler : IRequestHandler<AcceptInviteCommand, A
 
         membership.UserId = created.UserId;
         Activate(membership, displayName);
+        await PersonLoginRecords.RecordLinkAsync(_db, membership.MemberId, membership.UserId, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
 
         // Their only household is the one they just joined; make that explicit so it stays their

@@ -450,6 +450,12 @@ public class HouseholdAccessTests
         result.Email.Should().Be("sam@x.com");
         result.InviteToken.Should().NotBeNullOrEmpty().And.NotBe(oldToken);
         var saved = await db.HouseholdMemberships.SingleAsync(m => m.Id == membership.Id);
+        saved.InviteTokenHash.Should().Be(InviteToken.Hash(oldToken),
+            "until its email went out, the old link keeps working (review P3-2)");
+
+        // The email went out: the new link replaces the old one.
+        await new CommitResentInviteCommandHandler(db, new CurrentUserStub(OwnerId))
+            .Handle(new CommitResentInviteCommand(membership.Id, result.InviteToken!), default);
         saved.InviteTokenHash.Should().Be(InviteToken.Hash(result.InviteToken!));
         saved.InviteExpiresUtc.Should().BeCloseTo(DateTime.UtcNow.AddDays(7), TimeSpan.FromMinutes(1));
 

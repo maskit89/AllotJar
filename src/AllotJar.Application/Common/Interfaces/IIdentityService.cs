@@ -15,6 +15,23 @@ public interface IIdentityService
     Task<UserAccount?> FindByIdAsync(string userId);
 
     /// <summary>
+    /// Which of <paramref name="userIds"/> are logins still on a temporary password someone else set
+    /// (<see cref="UserAccount.MustChangePassword"/>). The real service reads them in one query.
+    /// </summary>
+    async Task<IReadOnlySet<string>> MustChangePasswordAmongAsync(IReadOnlyCollection<string> userIds)
+    {
+        var waiting = new HashSet<string>();
+        foreach (var id in userIds)
+        {
+            if (await FindByIdAsync(id) is { MustChangePassword: true })
+            {
+                waiting.Add(id);
+            }
+        }
+        return waiting;
+    }
+
+    /// <summary>
     /// The login's preferred (home) currency, already validated. Null only for an unknown user
     /// whose default cannot be resolved — callers fall back to EUR.
     /// </summary>
