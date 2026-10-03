@@ -654,6 +654,8 @@ function SchedulePreview({
   const uniform = months.length > 0 && months.every((m) => m.planned === months[0].planned)
   const over = months.filter((m) => m.shortfall !== null && m.shortfall > 0)
   const skipped = months.filter((m) => m.skipped)
+  // O3b: later months whose amount was typed by hand keep it when this is saved.
+  const byHand = [...months.filter((m) => m.byHand), ...(schedule.byHandLater ?? [])]
 
   let summary: string
   if (!schedule.hasSchedule) {
@@ -704,6 +706,12 @@ function SchedulePreview({
             <li className="col-span-full text-slate-500">… and {months.length - listed.length} more months</li>
           )}
         </ul>
+      )}
+      {byHand.length > 0 && (
+        <p className="mt-1.5">
+          Kept as typed: {byHand.map((m) => `${monthYear(monthIso(m.year, m.month))} ${money(m.planned)}`).join(', ')}. The other months
+          carry the rest.
+        </p>
       )}
       {schedule.unplanned > 0 && months.some((m) => m.planned > 0) && (
         <p role="status" className="mt-1.5 text-rose-600 dark:text-rose-400">

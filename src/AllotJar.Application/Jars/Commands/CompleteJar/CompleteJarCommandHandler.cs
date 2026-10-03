@@ -55,10 +55,16 @@ public class CompleteJarCommandHandler : IRequestHandler<CompleteJarCommand, Jar
         }
         if (balance < 0m)
         {
-            // Open question (HANDOVER O3): what completing an overdrawn jar means. Until it is
-            // answered the shortfall is covered first — nothing is invented to close it.
+            // P41, kept by O3a (answered 1 October 2026): an overdrawn Goal is not completed; the
+            // refusal says how much to cover first, in the budget currency (the jar's account is
+            // in it, rule 85). Nothing is invented to close the shortfall.
+            var currency = await _db.Accounts.AsNoTracking()
+                .Where(a => a.Id == jar.FundingAccountId)
+                .Select(a => a.Currency)
+                .FirstAsync(cancellationToken);
+            var shortfall = $"{-balance.Value:0.00} {currency.Value}";
             throw JarAccounts.Validation("Id",
-                $"{jar.Name} is {(-balance.Value):0.##} overdrawn. Cover the shortfall from another jar or unallocated funds before completing it.");
+                $"{jar.Name} is {shortfall} overdrawn. Cover the {shortfall} shortfall from another jar or unallocated funds first, then mark it completed.");
         }
 
         // Rule 55: no more planned contributions, from this month on; rule 56: the balance stays.

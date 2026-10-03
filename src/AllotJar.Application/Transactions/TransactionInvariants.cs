@@ -161,7 +161,8 @@ public static class TransactionInvariants
         bool acknowledgeCrossMonth,
         string errorKey,
         CancellationToken cancellationToken,
-        Guid? accountId = null)
+        Guid? accountId = null,
+        IReadOnlySet<Guid>? refundOfJars = null)
     {
         var item = await db.BudgetItems
             .Include(i => i.BudgetCategory)
@@ -176,7 +177,7 @@ public static class TransactionInvariants
         }
 
         var stretches = await StretchesAsync(db, new[] { item }, accountId, transactionDate, cancellationToken);
-        EnsureWholeLineAssignable(item, userId, type, transactionDate, acknowledgeCrossMonth, errorKey, accountId, stretches);
+        EnsureWholeLineAssignable(item, userId, type, transactionDate, acknowledgeCrossMonth, errorKey, accountId, stretches, refundOfJars);
         return item;
     }
 
@@ -186,7 +187,10 @@ public static class TransactionInvariants
     /// The <paramref name="item"/> must be loaded with its category and month, and — for a jar
     /// line — its jar and that jar's account. <paramref name="stretches"/> must hold the jar's
     /// departures when the payment's account is not the one holding it on that date
-    /// (<see cref="StretchesAsync"/>); null reads none.
+    /// (<see cref="StretchesAsync"/>); null reads none. <paramref name="refundOfJars"/> are, for a
+    /// refund, the jars its purchase was budgeted to (<see cref="RefundRules.PurchaseJarsAsync"/>):
+    /// the refund may sit on their lines from any account it reached, since money coming back never
+    /// enters a jar by its line (O9a).
     /// </summary>
     public static void EnsureWholeLineAssignable(
         BudgetItem item,
@@ -196,7 +200,8 @@ public static class TransactionInvariants
         bool acknowledgeCrossMonth,
         string errorKey,
         Guid? accountId = null,
-        JarStretches? stretches = null)
+        JarStretches? stretches = null,
+        IReadOnlySet<Guid>? refundOfJars = null)
     {
         if (type == TransactionType.Transfer)
         {
@@ -204,7 +209,10 @@ public static class TransactionInvariants
         }
 
         EnsureOwned(item, userId);
-        EnsureJarAccount(item, accountId, transactionDate, errorKey, stretches);
+        if (!(accountId is not null && item.SavingsId is Guid lineJar && refundOfJars?.Contains(lineJar) == true))
+        {
+            EnsureJarAccount(item, accountId, transactionDate, errorKey, stretches);
+        }
 
         if (!LineKindMatches(item.BudgetCategory.Kind, type))
         {

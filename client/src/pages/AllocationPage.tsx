@@ -530,6 +530,15 @@ export function AllocationPage() {
             </p>
           )}
 
+          {preview.equalSplitNote && (
+            <p
+              role="note"
+              className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-200"
+            >
+              {preview.equalSplitNote}
+            </p>
+          )}
+
           {(showReconcile || doubleCounted) && (
             <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
               <p>

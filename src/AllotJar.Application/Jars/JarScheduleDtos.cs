@@ -15,7 +15,7 @@ public static class JarScheduleDtos
         // Rule 59: where a planned month already has a budget, say how far the full contribution
         // would push it over its income — shown, never trimmed.
         var months = plan.Months
-            .Select(m => new JarScheduleMonthDto { Year = m.Year, Month = m.Month, Planned = m.Planned, Skipped = m.Skipped })
+            .Select(m => new JarScheduleMonthDto { Year = m.Year, Month = m.Month, Planned = m.Planned, Skipped = m.Skipped, ByHand = m.ByHand })
             .ToList();
         if (months.Count > 0)
         {
@@ -57,6 +57,9 @@ public static class JarScheduleDtos
             FundingCompletesOn = plan.FundingCompletesOn,
             EstimatedMonths = plan.EstimatedMonths,
             Unplanned = plan.Unplanned,
+            ByHandLater = plan.ByHandLater
+                .Select(m => new JarScheduleMonthDto { Year = m.Year, Month = m.Month, Planned = m.Planned, ByHand = true, HasBudget = true })
+                .ToList(),
         };
     }
 }

@@ -378,6 +378,8 @@ export async function mockApi(route: Route) {
   if (/^\/budget\/items\/[^/]+\/skip$/.test(path)) return json(budgetMonth(2026, 6))
   // W04: completing returns the jar; deleting answers 204.
   if (/^\/jars\/[^/]+\/complete$/.test(path)) return json(jars()[0])
+  // O3c: reopening a completed Goal returns the jar.
+  if (/^\/jars\/[^/]+\/reopen$/.test(path)) return json(jars()[0])
   if (/^\/jars\/[^/]+$/.test(path) && route.request().method() === 'DELETE') return route.fulfill({ status: 204 })
   if (/^\/jars\/[^/]+\/payments$/.test(path)) return json(jarPayments())
   if (path === '/members') return json(householdMembers())

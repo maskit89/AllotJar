@@ -58,9 +58,14 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
             // Owner + direction/kind + month coherence. Cross-month is allowed only when the
             // request explicitly acknowledges it (the client sets that after a confirm dialog).
             // A refund follows its purchase onto expense/savings lines, never income (rule 38).
+            // A refund may sit on its purchase's jar line from any account it reached (O9a).
+            var refundOfJars = transaction.RefundOfTransactionId is Guid purchaseId
+                && await _db.Transactions.FirstOrDefaultAsync(t => t.Id == purchaseId, cancellationToken) is { } purchase
+                ? await RefundRules.PurchaseJarsAsync(_db, purchase, cancellationToken)
+                : null;
             var item = await TransactionInvariants.ValidateWholeLineAsync(
                 _db, userId, TransactionInvariants.LineDirection(transaction), itemId, transaction.Date,
-                request.AcknowledgeCrossMonth, "BudgetItemId", cancellationToken, transaction.AccountId);
+                request.AcknowledgeCrossMonth, "BudgetItemId", cancellationToken, transaction.AccountId, refundOfJars);
 
             transaction.BudgetItem = item;
             transaction.BudgetItemId = item.Id;

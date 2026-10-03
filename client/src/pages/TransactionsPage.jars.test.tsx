@@ -132,6 +132,24 @@ describe('TransactionsPage jar prompts', () => {
     expect(mockPost.mock.calls[0][1]).not.toHaveProperty('paidFromJarId')
   })
 
+  // O9b (answered 1 October 2026): left empty, a refund of a payment from a completed jar or a
+  // paid cycle goes back into that jar on the server; the prompt says so instead of "unallocated".
+  it('O9b: a refund\'s jar prompt says what leaving it empty does', { timeout: 15000 }, async () => {
+    mockLoad([tx({ id: 't-sofa', payee: 'Sofa shop', amount: 150, budgetItemId: 'i-holiday', budgetItemName: 'Holiday' })])
+    const user = userEvent.setup()
+    renderPage()
+
+    await openAddModal(user)
+    await user.selectOptions(screen.getByLabelText('Transaction type'), '-1')
+    await user.selectOptions(await screen.findByLabelText('Transaction account', {}, { timeout: 5000 }), 'a2')
+
+    const prompt = await screen.findByTestId('add-jar-allocation')
+    expect(prompt).toHaveTextContent(
+      'Left empty, a refund of a payment from a completed jar, or of the payment a cycle was marked paid with, goes back into that jar; any other stays unallocated.',
+    )
+    expect(prompt).not.toHaveTextContent('Leave a jar empty to keep that money unallocated.')
+  })
+
   it('leaves income unallocated when the prompt is dismissed (no jarAllocations sent)', { timeout: 15000 }, async () => {
     mockLoad([])
     mockPost.mockResolvedValue({ data: tx({ payee: 'Salary', amount: 500, type: 1 }) })

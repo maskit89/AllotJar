@@ -59,14 +59,18 @@ public class GetJarScheduleQueryHandler : IRequestHandler<GetJarScheduleQuery, J
             FundingAccountId = existing?.FundingAccountId ?? Guid.Empty,
         };
 
-        // An edit previews over the months the user has skipped (rule 60), exactly as saving it
-        // would replant them; a new jar has none.
+        // An edit previews over the months the user has skipped (rule 60) and the later months
+        // whose amount was typed by hand (O3b), exactly as saving it would replant them; a new jar
+        // has none.
         var extra = existing is null ? request.InitialAllocation : 0m;
         var balances = await JarPlanner.BalancesAsync(_db, userId, jar, today, extra, cancellationToken);
         var skipped = existing is null
             ? new HashSet<DateOnly>()
             : await SavingsLines.SkippedMonthsAsync(_db, userId, jar.Id, today, cancellationToken);
-        var plan = JarSchedule.Plan(jar, today, balances.Planning, new JarPlanOptions(skipped, balances.Now));
+        var byHand = existing is null
+            ? null
+            : (await SavingsLines.ByHandMonthsByJarAsync(_db, userId, new[] { jar.Id }, today, cancellationToken)).GetValueOrDefault(jar.Id);
+        var plan = JarSchedule.Plan(jar, today, balances.Planning, new JarPlanOptions(skipped, balances.Now, ByHandMonths: byHand));
         return await JarScheduleDtos.BuildAsync(_db, userId, jar, plan, balances.Planning, cancellationToken);
     }
 }

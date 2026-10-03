@@ -224,11 +224,16 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         if (transaction.BudgetItemId is Guid retainedLineId
             && (request.Type != transaction.Type || monthChanged || accountChanged))
         {
+            // A refund may stay on its purchase's jar line from any account (O9a).
+            var refundOfJars = transaction.RefundOfTransactionId is Guid purchaseId
+                && await _db.Transactions.FirstOrDefaultAsync(t => t.Id == purchaseId, cancellationToken) is { } purchase
+                ? await RefundRules.PurchaseJarsAsync(_db, purchase, cancellationToken)
+                : null;
             await TransactionInvariants.ValidateWholeLineAsync(
                 _db, userId, TransactionInvariants.LineDirection(request.Type, transaction.IsRefund), retainedLineId,
                 request.Date, request.AcknowledgeCrossMonth,
                 accountChanged && !monthChanged && request.Type == transaction.Type ? "AccountId" : "Type",
-                cancellationToken, request.AccountId);
+                cancellationToken, request.AccountId, refundOfJars);
         }
 
         // Same rule for a split: moving the transaction to another month moves every slice's
@@ -260,8 +265,9 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         // A date edit within the month skips those checks, but a payment on a jar's line from the
         // jar's account still can't move to before the day the jar arrived there (P2-20): the
         // ledger would take it off the jar without a word. A date in an earlier stretch the jar
-        // spent in this account (it moved away and back) is its departure's (P51).
-        if (request.Date != transaction.Date)
+        // spent in this account (it moved away and back) is its departure's (P51). A refund never
+        // draws from a jar by its line (rule 78), so it has nothing to check here (O9a).
+        if (request.Date != transaction.Date && !transaction.IsRefund)
         {
             var lineIds = transaction.Splits.Count > 0
                 ? transaction.Splits.Where(s => s.BudgetItemId is not null).Select(s => s.BudgetItemId!.Value).Distinct().ToList()

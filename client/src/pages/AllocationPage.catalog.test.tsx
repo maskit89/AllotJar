@@ -1184,6 +1184,25 @@ describe('AllocationPage (catalog)', () => {
     expect(screen.queryByText(/default incomes from the People page/)).not.toBeInTheDocument()
   })
 
+  // O4 (answered 1 October 2026): a by-income split with no income falls back to an equal split,
+  // and the page shows the server's note saying so.
+  it('O4: a by-income split in a month with zero income shows the equal-split note', async () => {
+    profileData = profile()
+    previewData = {
+      ...workedPreview(),
+      incomeFromBudget: true,
+      unattributedIncome: 0,
+      equalSplitNote: "This month's income is zero, so the by-income split was shared equally instead.",
+    }
+
+    renderPage()
+    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+
+    expect(screen.getByRole('note')).toHaveTextContent(
+      "This month's income is zero, so the by-income split was shared equally instead.",
+    )
+  })
+
   // ALLOC-073 (rewritten for rule 28) — there is no People-page fallback any more: a month whose
   // budget has no income lines has a pool of 0 and the page says to add income lines to the Dashboard.
   it('ALLOC-073: a month with no income in its budget shows the add-income notice, never a People-page fallback', async () => {

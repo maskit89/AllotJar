@@ -35,6 +35,10 @@ public class BudgetItemConfiguration : IEntityTypeConfiguration<BudgetItem>
         builder.Property(i => i.IsSkipped)
             .HasDefaultValue(false);
 
+        // O3b: a jar line whose planned amount the user typed by hand.
+        builder.Property(i => i.IsPlannedByHand)
+            .HasDefaultValue(false);
+
         // Stable id linking a sinking fund's monthly instances; indexed for the
         // cross-month balance roll-up. Null for ordinary income/expense lines.
         builder.HasIndex(i => i.SavingsId);

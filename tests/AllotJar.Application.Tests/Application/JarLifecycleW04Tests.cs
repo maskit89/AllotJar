@@ -175,12 +175,14 @@ public class JarLifecycleW04Tests
         (await FluentActions.Awaiting(() => CompleteAsync(db, archived)).Should().ThrowAsync<ValidationException>())
             .Which.Errors["Id"].Single().Should().Contain("archived");
 
-        // Overdrawn (HANDOVER O3 stays open): 50 spent from a jar holding nothing.
+        // Overdrawn (P41, kept by O3a on 1 October 2026): 50 spent from a jar holding nothing; the
+        // refusal says how much to cover first, in the budget currency.
         var overdrawn = SeedGoal(db, account);
         var line = SeedMonth(db, Current.AddMonths(-1), overdrawn, 100m);
         LedgerFixtures.Expense(db, Owner, account.Id, 50m, Today.AddDays(-1), line.Id);
         (await FluentActions.Awaiting(() => CompleteAsync(db, overdrawn)).Should().ThrowAsync<ValidationException>())
-            .Which.Errors["Id"].Single().Should().Contain("overdrawn");
+            .Which.Errors["Id"].Single().Should().Be(
+                $"{overdrawn.Name} is 50.00 EUR overdrawn. Cover the 50.00 EUR shortfall from another jar or unallocated funds first, then mark it completed.");
         (await db.Jars.SingleAsync(j => j.Id == overdrawn.Id)).CompletedOn.Should().BeNull();
     }
 

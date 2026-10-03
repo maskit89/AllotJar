@@ -9,7 +9,8 @@ namespace AllotJar.Application.Jars.Commands.CompleteJar;
 /// cancelled, and neither an emptied nor a spent balance ever restarts a plan. Whatever the jar
 /// still holds stays in it, visible, until the user reallocates it; completion records no
 /// payment and moves no money. Only a Goal with a known, non-negative balance can be completed
-/// (an overdrawn one is covered first — HANDOVER O3 leaves negative-balance completion open);
-/// a Recurring jar's cycles end by being marked paid (rule 83). Returns the jar.
+/// (an overdrawn one is covered first, and the refusal says how much — P41, O3a); a Recurring
+/// jar's cycles end by being marked paid (rule 83). A completed Goal can be reopened (O3c).
+/// Returns the jar.
 /// </summary>
 public record CompleteJarCommand(Guid Id) : IRequest<JarDto>;

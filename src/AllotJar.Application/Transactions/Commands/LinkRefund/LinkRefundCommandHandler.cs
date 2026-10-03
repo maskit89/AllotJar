@@ -2,8 +2,11 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Transactions.Dtos;
+using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.Services;
 
 namespace AllotJar.Application.Transactions.Commands.LinkRefund;
 
@@ -73,11 +76,13 @@ public class LinkRefundCommandHandler : IRequestHandler<LinkRefundCommand, Trans
             // The row now matches expense/savings lines only (rules 38/39): a chosen line is
             // validated as such; otherwise it leaves any income line for the purchase's line in
             // its own month, or stays uncategorised for the user to place.
+            // A refund may sit on its purchase's jar line from any account it reached (O9a).
             if (request.BudgetItemId is Guid itemId)
             {
                 var item = await TransactionInvariants.ValidateWholeLineAsync(
                     _db, userId, TransactionType.Expense, itemId, transaction.Date, request.AcknowledgeCrossMonth,
-                    "BudgetItemId", cancellationToken, transaction.AccountId);
+                    "BudgetItemId", cancellationToken, transaction.AccountId,
+                    await RefundRules.PurchaseJarsAsync(_db, original, cancellationToken));
                 transaction.BudgetItem = item;
                 transaction.BudgetItemId = item.Id;
             }
@@ -87,6 +92,24 @@ public class LinkRefundCommandHandler : IRequestHandler<LinkRefundCommand, Trans
                     _db, userId, original, transaction.Date, transaction.AccountId, cancellationToken);
                 transaction.BudgetItem = item;
                 transaction.BudgetItemId = item?.Id;
+            }
+
+            // O9b: money back from a completed Goal's purchase, or a paid cycle's payment, goes back
+            // into the jar when it reached the jar's account and nothing was answered for it yet.
+            // The receipt is already in the ledger as unallocated money, which may have been spent
+            // or moved since it arrived: the refill is a move out of unallocated funds on the
+            // receipt's date, made only when unallocated stays at or above zero (and no jar is left
+            // unbacked) on that date and every later one; otherwise the money stays unallocated
+            // for the user to place (PR #305 review round 1, P2-2).
+            if (transaction.AccountId is Guid refundAccountId
+                && await RefundRules.JarToRefillAsync(_db, original, refundAccountId, transaction.Date, cancellationToken) is { } jar
+                && !await _db.JarAllocations.AnyAsync(a => a.TransactionId == transaction.Id, cancellationToken)
+                && await _db.Accounts.FirstAsync(a => a.Id == refundAccountId, cancellationToken) is var account
+                && await RefillKeepsUnallocatedAsync(userId, account, jar.Id, transaction, cancellationToken))
+            {
+                await JarMovements.ApplyIncomingAsync(
+                    _db, userId, transaction, account, transaction.Date, transaction.Amount,
+                    new[] { new JarAllocationInput(jar.Id, transaction.Amount) }, RefundRules.Key, cancellationToken);
             }
         }
         else
@@ -118,6 +141,22 @@ public class LinkRefundCommandHandler : IRequestHandler<LinkRefundCommand, Trans
         }
 
         return await TransactionReads.ReadDtoAsync(_db, transaction.Id, cancellationToken);
+    }
+
+    /// <summary>
+    /// Whether moving the receipt's amount from the account's unallocated money into
+    /// <paramref name="jarId"/> on the receipt's date holds on every date from it (rules 68, 70
+    /// across history, as a dated reallocation is checked): unallocated never drops below zero and
+    /// no jar is left unbacked.
+    /// </summary>
+    private async Task<bool> RefillKeepsUnallocatedAsync(
+        string userId, Account account, Guid jarId, Transaction receipt, CancellationToken cancellationToken)
+    {
+        var ledger = await JarLedgerReader.LoadAsync(_db, userId, cancellationToken, new[] { account.Id }, includeUnbacked: true);
+        var postings = new[] { new JarLedgerPosting(null, -receipt.Amount), new JarLedgerPosting(jarId, receipt.Amount) };
+        return JarHistoryChecks.FirstRefusal(
+            ledger, account, receipt.Date, includeFrom: true, sourceJarId: null, "Unallocated funds",
+            receipt.Amount, 0m, postings) is null;
     }
 
     private static ValidationException Refuse(string message) =>

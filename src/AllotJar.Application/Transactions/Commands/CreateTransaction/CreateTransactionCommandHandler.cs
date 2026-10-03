@@ -84,9 +84,11 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
         {
             // Owner + direction/kind + month coherence (cross-month allowed only when the
             // request acknowledges it). A refund matches expense/savings lines, never income.
+            // A refund may sit on its purchase's jar line from any account it reached (O9a).
             item = await TransactionInvariants.ValidateWholeLineAsync(
                 _db, userId, TransactionInvariants.LineDirection(request.Type, isRefund), itemId, request.Date,
-                request.AcknowledgeCrossMonth, "BudgetItemId", cancellationToken, request.AccountId);
+                request.AcknowledgeCrossMonth, "BudgetItemId", cancellationToken, request.AccountId,
+                original is null ? null : await RefundRules.PurchaseJarsAsync(_db, original, cancellationToken));
         }
         else if (original is not null)
         {
@@ -193,6 +195,15 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
                 await JarMovements.ApplyIncomingAsync(
                     _db, userId, transaction, account, transaction.Date, transaction.Amount, request.JarAllocations,
                     "JarAllocations", cancellationToken);
+            }
+            else if (original is not null
+                     && await RefundRules.JarToRefillAsync(_db, original, account.Id, transaction.Date, cancellationToken) is { } refilled)
+            {
+                // O9b: money back from a completed Goal's purchase, or a paid cycle's payment, goes
+                // back into the jar when it reached the jar's account and the prompt named no jar.
+                await JarMovements.ApplyIncomingAsync(
+                    _db, userId, transaction, account, transaction.Date, transaction.Amount,
+                    new[] { new JarAllocationInput(refilled.Id, transaction.Amount) }, "JarAllocations", cancellationToken);
             }
         }
 

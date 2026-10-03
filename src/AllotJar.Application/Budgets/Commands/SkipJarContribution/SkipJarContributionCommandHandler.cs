@@ -31,6 +31,8 @@ public class SkipJarContributionCommandHandler : IRequestHandler<SkipJarContribu
         await JarCycles.SettleAsync(_db, userId, today, cancellationToken, jar.Id);
 
         item.IsSkipped = request.Skipped;
+        // Skipping, or planning the month again, hands it back to the schedule (O3b).
+        item.IsPlannedByHand = false;
         if (request.Skipped)
         {
             item.PlannedAmount = 0m;

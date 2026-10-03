@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Jars;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 
@@ -138,12 +139,78 @@ public static class RefundRules
     public static decimal Refunded(IEnumerable<RefundRecord> refunds) => refunds.Where(r => !r.Waiting).Sum(r => r.Amount);
 
     /// <summary>
+    /// The jars whose lines the purchase was budgeted to (its line, or its slices' lines). A refund
+    /// of it may sit on any month's line of one of these jars from whatever account it reached
+    /// (O9a, answered 1 October 2026): it nets the spending there (rules 38/39), and its money stays
+    /// in the account it arrived in, because incoming money never enters a jar by its line
+    /// (rule 78), unlike a payment, which draws from the jar it is budgeted to (rule 79).
+    /// </summary>
+    public static async Task<IReadOnlySet<Guid>> PurchaseJarsAsync(
+        IApplicationDbContext db, Transaction original, CancellationToken cancellationToken)
+    {
+        var lineIds = await db.TransactionSplits.AsNoTracking()
+            .Where(s => s.TransactionId == original.Id && s.BudgetItemId != null)
+            .Select(s => s.BudgetItemId!.Value)
+            .ToListAsync(cancellationToken);
+        if (original.BudgetItemId is Guid lineId)
+        {
+            lineIds.Add(lineId);
+        }
+        if (lineIds.Count == 0)
+        {
+            return new HashSet<Guid>();
+        }
+        return (await db.BudgetItems.AsNoTracking()
+                .Where(i => lineIds.Contains(i.Id) && i.SavingsId != null)
+                .Select(i => i.SavingsId!.Value)
+                .ToListAsync(cancellationToken))
+            .ToHashSet();
+    }
+
+    /// <summary>
+    /// O9b (answered 1 October 2026): the jar a refund's money goes back into on its own. When the
+    /// purchase was paid from a jar (its whole line was the jar's, from the account holding it,
+    /// rule 79) that has since been completed (rule 55), or it is the payment a Recurring cycle was
+    /// marked paid with (rule 83), and the refund reached the account holding the jar that day, the
+    /// money returns to the jar: a completed Goal reads more left to move, and the paid cycle stays
+    /// paid. Null otherwise, including an archived jar (rule 26), and the refund is unallocated
+    /// until the user answers the rule 78 prompt.
+    /// </summary>
+    public static async Task<Jar?> JarToRefillAsync(
+        IApplicationDbContext db, Transaction original, Guid? refundAccountId, DateOnly refundDate, CancellationToken cancellationToken)
+    {
+        if (refundAccountId is not Guid accountId || original.BudgetItemId is not Guid lineId || original.AccountId is not Guid paidFrom)
+        {
+            return null;
+        }
+        var jarId = await db.BudgetItems.AsNoTracking()
+            .Where(i => i.Id == lineId)
+            .Select(i => i.SavingsId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (jarId is null)
+        {
+            return null;
+        }
+        var jar = await db.Jars.AsNoTracking().FirstOrDefaultAsync(j => j.Id == jarId, cancellationToken);
+        if (jar is null || jar.IsArchived
+            || !JarLedgerReader.HeldOn(jar.FundingAccountId, jar.FundingAccountSince, paidFrom, original.Date)
+            || !JarLedgerReader.HeldOn(jar.FundingAccountId, jar.FundingAccountSince, accountId, refundDate))
+        {
+            return null;
+        }
+        var paidCycle = await db.JarCycles.AsNoTracking()
+            .AnyAsync(c => c.JarId == jar.Id && c.PaymentTransactionId == original.Id, cancellationToken);
+        return jar.IsCompleted || paidCycle ? jar : null;
+    }
+
+    /// <summary>
     /// The line a refund lands on when the user picks none: the line in the refund's own month
     /// that continues the original's line — the same jar, else the same category (kind and name)
     /// and line name — so the refund reduces net spending in that category in the month it is
-    /// received (rules 38/39). Null when the original is unassigned, the refund's month has no
-    /// such line, or the line is a jar whose account the refund did not reach (rule 79); the
-    /// refund is then left uncategorised for the user to place.
+    /// received (rules 38/39). A jar's line is taken whatever account the refund reached: its money
+    /// stays there (O9a, answered 1 October 2026; P19 left it uncategorised before). Null when the
+    /// original is unassigned, the refund's month has no such line, or the refund reached no
+    /// account; the refund is then left uncategorised for the user to place.
     /// </summary>
     public static async Task<BudgetItem?> DefaultLineAsync(
         IApplicationDbContext db,
@@ -202,9 +269,12 @@ public static class RefundRules
         {
             return null;
         }
-        // A jar line's money lives in the jar's account (rule 79): a refund that reached another
-        // account, or none, cannot land on it by default.
-        if (line.SavingsId is not null && line.Jar is not null && line.Jar.FundingAccountId != refundAccountId)
+        // A refund that reached the jar's account lands on its line (rule 79), and so, from now on,
+        // does one that reached another account, when the line is the purchase's own jar's: it
+        // nets the spending there while its money stays where it arrived (O9a). One that reached
+        // no account is left for the user.
+        if (line.SavingsId is Guid lineJar && line.Jar is not null && line.Jar.FundingAccountId != refundAccountId
+            && (refundAccountId is null || lineJar != originalLine.SavingsId))
         {
             return null;
         }

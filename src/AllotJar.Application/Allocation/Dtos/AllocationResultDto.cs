@@ -32,12 +32,22 @@ public class AllocationResultDto
     /// Budgeted income not attributed to any active person, shared equally across members.
     /// </summary>
     public decimal UnattributedIncome { get; set; }
+
+    /// <summary>
+    /// O4: set when a by-income step had no income to follow (the month's income is zero) and was
+    /// shared equally instead; null otherwise.
+    /// </summary>
+    public string? EqualSplitNote { get; set; }
 }
 
 public class AllocationStepDto
 {
     public AllocationRuleType Type { get; set; }
     public decimal Total { get; set; }
+
+    /// <summary>O4: asked to split by income, shared equally because the month's income is zero.</summary>
+    public bool FellBackToEqual { get; set; }
+
     public IReadOnlyList<MemberShareDto> PerMember { get; set; } = Array.Empty<MemberShareDto>();
 }
 
@@ -91,11 +101,15 @@ public static class AllocationResultMapping
         TransfersRetained = transfersRetained,
         IncomeFromBudget = incomeFromBudget,
         UnattributedIncome = unattributedIncome,
+        EqualSplitNote = r.Steps.Any(s => s.FellBackToEqual)
+            ? "This month's income is zero, so the by-income split was shared equally instead."
+            : null,
         Steps = r.Steps
             .Select(s => new AllocationStepDto
             {
                 Type = s.Type,
                 Total = s.Total,
+                FellBackToEqual = s.FellBackToEqual,
                 PerMember = s.PerMember
                     .Select(m => new MemberShareDto { MemberId = m.MemberId, Name = m.Name, Amount = m.Amount })
                     .ToList(),
