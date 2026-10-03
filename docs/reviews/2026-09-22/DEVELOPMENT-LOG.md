@@ -1168,3 +1168,17 @@ Decided by Christopher on 1 October 2026, all with the recommended option (`plan
 **Validation (this machine: .NET SDK 10.0, SQL Server 2022 in Docker; after review round 1).** On main `c7c5370` (#307 merged) plus this change: `dotnet build` with only the two existing `CommitImportCommandHandler` warnings; unit suite **1459 passed**; SQL integration suite, `Http/` included, **151 passed** (a fresh database migrated through `20261003190000_AddEditVersions`); client `npx vitest run` **938 passed** (76 files), `npm run lint` clean apart from the existing `AuthContext` warning.
 
 **Deploy.** One migration, additive (`rowversion` columns are filled by SQL Server as they are added); no data step. A client loaded before the deploy sends no version and is not checked.
+
+## Release record: #289 to #302 deployed to production — 1 October 2026
+
+GitHub Actions ran jobs again from 30 September about 20:23 UTC, and Christopher started a Deploy by hand ([run 36772323402](https://github.com/maskit89/AllotJar/actions/runs/36772323402), `46412e6`, #289). Production deploys one run at a time (the `production-deploy` group), so each later merge to `main` started a newer Deploy run and its queued production job replaced the pending one behind that approval; those superseded runs ended cancelled. Staging deployed every run.
+
+**Merged since #289 (UTC, squash commits):** #289 `46412e6` (30 Sep 20:09:23); #295 `5413241` (1 Oct 10:43, tests only: the receipt test's date and the journey specs clicking Dashboard); the Dependabot bumps #290 to #294; #297 `6bb0e77` (12:35); #296 `670c441` (12:52); #298 `ad02b71` (13:28); #299 `0d84d22` (13:42); #300 `bfbe860` (17:02); #301 `0bae18b` (17:33); #302 `7614994` (21:47).
+
+**Deployed (1 October).** Christopher approved production twice, a minute apart. Run 36772323402's production job (`46412e6`, #289) ran 21:55:47 to 21:56:20 UTC and succeeded, then [Deploy run 36931029061](https://github.com/maskit89/AllotJar/actions/runs/36931029061) (number 206, `7614994`, #302) ran 21:56:52 to 21:57:26 and succeeded; staging had it at 21:49. `Deploy.ps1` polls `/health` until it answers 200 and fails the job otherwise, so both successes mean the API started and answered; this record did not call `/health` itself. Production now runs `7614994`, moved from #280 (`5e36d91`): #281 to #302 shipped, including the Budget to Dashboard rename.
+
+**Migrations that ran at API start:** `ReceiptKnownBySourceReference` (#287, one `UPDATE`), `CounterpartyErased` (#287, column only) and `LoginMustChangePassword` (#298, column only). All additive. #299's pre-deploy query (`reviews/pr-299/pre-deploy-checks.sql`) was a condition of deploying a run that contained it; its result is recorded in #299's thread, not here. #298's emailed invites need the production email provider: the API's startup Event Log line "Outbound email provider" says whether email is configured.
+
+**Not in this deploy.** #303 to #307 merged afterwards (2 and 3 October) and are not in production: `JarLineTypedByHand` (#305), `TransactionStatementAccount` (#306) and `PersonLogins` (#307) migrate at the next Deploy.
+
+At 3 October 22:30 UTC, Deploy run 207 (`ac4a790`, #303) is waiting for approval and run 211 (`c7c5370`, #307) is queued behind it; runs 208 to 210 were superseded and cancelled.
