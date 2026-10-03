@@ -112,7 +112,8 @@ function Assert-R2SizeMatches {
         [Parameter(Mandatory)][string]$Name
     )
     $sizeInfo = $SizeJson | ConvertFrom-Json
-    if ($null -eq $sizeInfo -or $null -eq $sizeInfo.bytes) {
+    # PSObject.Properties, not .bytes: a missing property throws under Set-StrictMode.
+    if ($null -eq $sizeInfo -or -not $sizeInfo.PSObject.Properties['bytes'] -or $null -eq $sizeInfo.bytes) {
         throw "Post-upload verify failed: rclone's size answer for $Name has no byte count: $SizeJson"
     }
     if ([int64]$sizeInfo.bytes -ne $LocalBytes) {
@@ -148,6 +149,8 @@ function Get-BackupDbUserSql {
     $q = $Account.Replace("'", "''")
     $id = $Account.Replace(']', ']]')
     return @"
+IF EXISTS (SELECT 1 FROM sys.databases WHERE name = DB_NAME() AND owner_sid = SUSER_SID(N'$q'))
+    RETURN; -- the account owns this database (it maps to dbo), which can already back it up
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'$q')
     CREATE USER [$id] FOR LOGIN [$id];
 IF IS_ROLEMEMBER(N'db_backupoperator', N'$q') <> 1

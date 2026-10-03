@@ -11,7 +11,8 @@
     RESTORE VERIFYONLY, then deletes backups older than -RetentionDays. Uses
     Windows auth (-E), so the calling identity needs BACKUP rights on the
     instance. NT AUTHORITY\SYSTEM is NOT a sysadmin by default on SQL Server 2012+;
-    Register-BackupTask.ps1 grants it a login in the sysadmin role.
+    Register-BackupTask.ps1 grants it CREATE ANY DATABASE and db_backupoperator
+    (no sysadmin).
 
     When -R2Bucket is set, the verified backup is also copied off-host to Cloudflare
     R2 (via Upload-BackupToR2.ps1 next to this script) so a disk/host/ransomware event
@@ -53,6 +54,8 @@ function Send-BackupOutcome {
             -EventId $(if ($Ok) { 4000 } else { 4001 }) -Message $Message
     } catch { Write-Warning "Could not write the event log entry: $_" }
     if ($PingUrl) {
+        # Windows PowerShell 5.1 defaults to TLS 1.0/1.1, which https endpoints refuse.
+        try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
         try { [void](Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 -Uri $(if ($Ok) { $PingUrl } else { $PingUrl.TrimEnd('/') + '/fail' })) }
         catch { Write-Warning "Could not reach -PingUrl: $_" }
     }
