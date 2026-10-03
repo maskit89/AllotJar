@@ -97,7 +97,7 @@ Add these **Actions secrets** (Settings → Secrets and variables → Actions):
 | `VPS_SSH_KEY` | the **private** key from step 2 (full file contents) |
 | `VPS_SSH_PORT` | `22` (or your custom SSH port) |
 
-Recommended: **branch protection** on `main` requiring the existing `backend` / `frontend` / `a11y` CI checks, so only green code can merge and deploy. Optionally add a required reviewer on the `production` environment to gate the deploy job.
+Production deploys only on a hand-started Deploy run with **Also deploy to production** ticked, and only when CI passed on that commit (see [staging-prod.md](staging-prod.md)). The repo is private on GitHub Free, where branch protection and environment required reviewers do not apply.
 
 ---
 

@@ -41,7 +41,10 @@ Cloudflare zone ──┬─ allotjar.com + www ──►  VPS IIS site 'ZeroBud
   then deploys the same commit to production. Until 3 Oct 2026 the gate was the
   `production` environment's required reviewer; GitHub ignores environment
   protection rules on a private repo on the Free, Pro and Team plans, so it stopped
-  applying when the repo went private.
+  applying when the repo went private. The production jobs first check that CI
+  passed on main for that commit and stop if it failed or is still running. If a
+  merge lands while the run waits for staging, the run shows as cancelled; start
+  it again.
 
 ## What's in the repo
 
