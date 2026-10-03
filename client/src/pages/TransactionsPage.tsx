@@ -774,6 +774,9 @@ export function TransactionsPage() {
         }
         const { data } = await api.put<TransactionDto>(`/transactions/${editing.id}/transfer`, body)
         setTransactions((prev) => prev.map((x) => (x.id === editing.id ? data : x)))
+        // Saved either way; a receipt lowered, re-dated or re-pointed after its jar money moved on
+        // leaves the jars unbacked, and the answer says so (D10).
+        setNotice(data.warning ?? null)
         track(EVENTS.transactionEdited)
         resetTransferForm()
       } else {

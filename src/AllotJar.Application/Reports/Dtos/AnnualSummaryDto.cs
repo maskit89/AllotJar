@@ -37,7 +37,8 @@ public class AnnualSummaryDto
     /// <summary>
     /// The calendar months the per-category averages divide by (D12): from the year's first month
     /// with a budget or a figure up to the current UTC month (December for a past year), or up to
-    /// a later month that already has one. A month in that span with no budget counts, as zero.
+    /// a later month that already has a figure (a later month with only a budget doesn't count).
+    /// A month in that span with no budget counts, as zero.
     /// </summary>
     public int CountedMonths { get; set; }
 

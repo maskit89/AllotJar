@@ -38,9 +38,10 @@ public class GetAnnualSummaryQueryHandler : IRequestHandler<GetAnnualSummaryQuer
         // Uncategorised row accumulates under its own key (rule 37).
         var categoryTotals = new Dictionary<(string Name, string Kind), (decimal Net, decimal Refunds)>();
         var budgetedMonths = 0;
-        // The first and last months of the year with a budget or a figure, for the averages' span.
+        // The first month of the year with a budget or a figure, and the last with a figure, for
+        // the averages' span.
         int? firstWithData = null;
-        var lastWithData = 0;
+        var lastWithFigure = 0;
 
         var result = new AnnualSummaryDto { Year = request.Year };
         for (var month = 1; month <= 12; month++)
@@ -53,10 +54,14 @@ public class GetAnnualSummaryQueryHandler : IRequestHandler<GetAnnualSummaryQuer
             {
                 budgetedMonths++;
             }
-            if (figures.HasBudget || figures.IncomeReceived != 0m || figures.Spent != 0m || figures.Refunds != 0m)
+            var hasFigure = figures.IncomeReceived != 0m || figures.Spent != 0m || figures.Refunds != 0m;
+            if (figures.HasBudget || hasFigure)
             {
                 firstWithData ??= month;
-                lastWithData = month;
+            }
+            if (hasFigure)
+            {
+                lastWithFigure = month;
             }
 
             result.Months.Add(new AnnualMonthDto
@@ -91,11 +96,12 @@ public class GetAnnualSummaryQueryHandler : IRequestHandler<GetAnnualSummaryQuer
         result.BudgetedMonths = budgetedMonths;
         // The averages divide by calendar months, not budgeted ones (D12, review RP-P3-2): from the
         // first month with a budget or a figure up to the current UTC month (P14), which counts
-        // while it runs (all of a past year), or up to a later month that already has one. A month
-        // in between with no budget counts, as zero.
+        // while it runs (all of a past year), or up to a later month that already has a figure
+        // (a dated-ahead entry). A later month with only a budget hasn't happened and doesn't
+        // count (O2, #306 review P2-4). A month in between with no budget counts, as zero.
         var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
         var thisFar = request.Year < today.Year ? 12 : request.Year == today.Year ? today.Month : 0;
-        var countedMonths = firstWithData is int first ? Math.Max(thisFar, lastWithData) - first + 1 : 0;
+        var countedMonths = firstWithData is int first ? Math.Max(0, Math.Max(thisFar, lastWithFigure) - first + 1) : 0;
         result.CountedMonths = countedMonths;
 
         result.Categories = categoryTotals

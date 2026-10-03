@@ -82,7 +82,16 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         // jars unbacked (D10): the one losing the row, a former destination, the one receiving it.
         var losing = new[] { previousAccount, previousDestination, account }.OfType<Account>().DistinctBy(a => a.Id).ToList();
         var deficitFrom = new[] { transaction.Date, request.Date, transaction.DepartedOn ?? transaction.Date, transaction.ReceivedOn ?? transaction.Date }.Min();
-        var beforeEdit = losing.Count == 0 ? null : await JarHistoryChecks.BeforeWriteAsync(_db, userId, losing, cancellationToken);
+        // An edit that leaves the money where and when it was, and the jar answers as stored (a
+        // payee, member or note edit), can't take money from under the jars, so the ledgers aren't
+        // walked (#306 review P3-2).
+        var moneyMoves = request.Amount != transaction.Amount || request.Date != transaction.Date
+            || request.Type != transaction.Type || request.AccountId != transaction.AccountId
+            || (account is not null && await JarHistoryChecks.JarAnswersMayChangeAsync(_db, transaction.Id,
+                request.Type == TransactionType.Expense ? new[] { (account.Id, request.PaidFromJarId) } : Array.Empty<(Guid, Guid?)>(),
+                request.Type == TransactionType.Income ? new[] { (account.Id, request.JarAllocations) } : Array.Empty<(Guid, IReadOnlyList<JarAllocationInput>?)>(),
+                cancellationToken));
+        var beforeEdit = losing.Count == 0 || !moneyMoves ? null : await JarHistoryChecks.BeforeWriteAsync(_db, userId, losing, cancellationToken);
 
         // Moving a transaction onto an account of a different currency would corrupt that
         // account's (currency-blind) balance — reject it. The transaction's currency is not

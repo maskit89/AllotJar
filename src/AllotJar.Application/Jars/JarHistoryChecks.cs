@@ -128,6 +128,34 @@ public static class JarHistoryChecks
     }
 
     /// <summary>
+    /// Whether an edit's jar answers may differ from what <paramref name="transactionId"/> stored,
+    /// for an edit that otherwise leaves its money where and when it was (#306 review P3-2): only
+    /// then can it skip the D10 check. Conservative: true unless every leg's named jars are the
+    /// stored ones exactly (an outgoing leg the one jar it names, or none; an incoming leg the same
+    /// shares), so an answer left to a default the stored one doesn't spell out is still checked.
+    /// </summary>
+    public static async Task<bool> JarAnswersMayChangeAsync(
+        IApplicationDbContext db, Guid transactionId,
+        IEnumerable<(Guid AccountId, Guid? JarId)> outgoing,
+        IEnumerable<(Guid AccountId, IReadOnlyList<JarAllocationInput>? Shares)> incoming,
+        CancellationToken cancellationToken)
+    {
+        var stored = await db.JarAllocations.AsNoTracking()
+            .Where(a => a.TransactionId == transactionId)
+            .SelectMany(a => a.Postings.Where(p => p.JarId != null && p.Amount != 0m)
+                .Select(p => new { a.AccountId, JarId = p.JarId!.Value, p.Amount }))
+            .ToListAsync(cancellationToken);
+        var storedOut = stored.Where(p => p.Amount < 0m).Select(p => (p.AccountId, p.JarId)).ToHashSet();
+        var askedOut = outgoing.Where(l => l.JarId is not null).Select(l => (l.AccountId, l.JarId!.Value)).ToHashSet();
+        var storedIn = stored.Where(p => p.Amount > 0m).GroupBy(p => (p.AccountId, p.JarId))
+            .Select(g => (g.Key.AccountId, g.Key.JarId, g.Sum(p => p.Amount))).ToHashSet();
+        var askedIn = incoming.SelectMany(l => (l.Shares ?? Array.Empty<JarAllocationInput>())
+                .Where(s => s.Amount != 0m).GroupBy(s => s.JarId).Select(g => (l.AccountId, g.Key, g.Sum(s => s.Amount))))
+            .ToHashSet();
+        return !storedOut.SetEquals(askedOut) || !storedIn.SetEquals(askedIn);
+    }
+
+    /// <summary>
     /// The ledgers of <paramref name="accounts"/> before a write that may take money out of them
     /// from under their jars, for <see cref="NewBackingDeficitAsync"/> to compare with once it is saved.
     /// </summary>

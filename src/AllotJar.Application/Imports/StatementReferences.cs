@@ -169,7 +169,6 @@ public static class StatementReferences
             .Where(t => t.OwnerId == ownerId
                         && ((t.AccountId == accountId
                              && (t.BankReference != null || t.ReturnBankReference != null))
-                            || (accountId != null && t.StatementAccountId == accountId && t.BankReference != null)
                             || (accountId != null && t.Type == TransactionType.Transfer
                                 && t.TransferAccountId == accountId
                                 && (t.ReceiptBankReference != null
@@ -177,7 +176,7 @@ public static class StatementReferences
             .Select(t => new
             {
                 t.Type, t.AccountId, t.Amount, t.Date, t.DepartedOn, t.ReceivedOn, t.ReturnedOn,
-                t.BankReference, t.ReceiptBankReference, t.ReturnBankReference, t.BankEntry, t.StatementAccountId,
+                t.BankReference, t.ReceiptBankReference, t.ReturnBankReference, t.BankEntry,
                 Fee = t.Fee != null ? t.Fee.Amount : 0m,
             })
             .ToListAsync(cancellationToken);
@@ -185,8 +184,7 @@ public static class StatementReferences
         var entries = new Dictionary<string, KnownEntry>(StringComparer.OrdinalIgnoreCase);
         foreach (var t in rows)
         {
-            // A row moved by hand to another account is still this statement's entry (D8).
-            if (t.AccountId == accountId || (accountId != null && t.StatementAccountId == accountId))
+            if (t.AccountId == accountId)
             {
                 if (t.BankReference is not null)
                 {
@@ -205,6 +203,26 @@ public static class StatementReferences
             else
             {
                 entries.TryAdd(t.ReceiptBankReference ?? t.BankReference!, new KnownEntry(t.ReceivedOn ?? t.Date, t.Amount, true));
+            }
+        }
+
+        // A row moved by hand to another account is still this statement's entry (D8, rule 88),
+        // even when it now sits on another login's private account off the budget, where the
+        // privacy filter hides it from this viewer (#306 review P2-2). Read past the filter,
+        // within the owner, and only the reference and the entry it recorded: the statement is
+        // this account's own, and the only effect is that the entry is skipped. Only an income
+        // or expense row is moved this way (a statement-confirmed transfer leg keeps its account).
+        if (accountId != null)
+        {
+            var moved = await db.Transactions
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(t => t.OwnerId == ownerId && t.StatementAccountId == accountId && t.BankReference != null)
+                .Select(t => new { t.BankReference, t.Type, t.Date, t.Amount, t.BankEntry })
+                .ToListAsync(cancellationToken);
+            foreach (var t in moved)
+            {
+                entries.TryAdd(t.BankReference!, new KnownEntry(t.Date, t.Amount, t.Type == TransactionType.Income, t.BankEntry));
             }
         }
         return new KnownReferences(entries);

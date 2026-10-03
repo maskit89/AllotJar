@@ -1,4 +1,5 @@
 using FluentValidation;
+using AllotJar.Application.Common;
 
 namespace AllotJar.Application.Allocation.Commands.UpsertAllocationProfile;
 
@@ -22,7 +23,9 @@ public class UpsertAllocationProfileCommandValidator : AbstractValidator<UpsertA
             r.RuleFor(x => x.Split).IsInEnum();
             r.RuleFor(x => x.FixedAmountPerMember)
                 .InclusiveBetween(0m, MaxAmount)
-                .WithMessage("Fixed amount is out of range.");
+                .WithMessage("Fixed amount is out of range.")
+                // The pocket-money amount is typed: whole cents, as in the browser (D1, #306 review P3-1).
+                .WholeCents();
         });
     }
 }

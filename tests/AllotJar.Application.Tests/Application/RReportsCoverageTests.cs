@@ -192,10 +192,13 @@ public class RReportsCoverageTests
         october.CountedMonths.Should().Be(3);
         october.Categories.Single(c => c.Name == "Uncategorised").AveragePerMonth.Should().Be(133.33m);
 
-        // A past year counts up to December; a budget already made for a later month counts up to it.
+        // A past year counts up to December; a budget already made for a later month doesn't count
+        // before that month comes (O2, #306 review P2-4): the average stays 200 a month.
         (await Annual(db, user, 2026, today: new DateOnly(2027, 2, 1))).CountedMonths.Should().Be(5);
         SeedMonth(db, "user-1", 2026, 12, incomePlanned: 3000m);
-        (await Annual(db, user, 2026, today: new DateOnly(2026, 9, 20))).CountedMonths.Should().Be(5);
+        var withDecember = await Annual(db, user, 2026, today: new DateOnly(2026, 9, 20));
+        withDecember.CountedMonths.Should().Be(2);
+        withDecember.Categories.Single(c => c.Name == "Uncategorised").AveragePerMonth.Should().Be(200m);
     }
 
     // ── RPT-010: the client always asks for 6, so nine consecutive budgets return the six most

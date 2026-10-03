@@ -1379,6 +1379,24 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     await waitFor(() => expect(mockGet.mock.calls.filter(([url]) => url === '/transactions')).toHaveLength(2))
   })
 
+  // D10 (#306 review P2-1): a transfer edit that leaves the receipt's jars unbacked is saved and says so.
+  it('shows the warning a transfer edit answers with (D10)', { timeout: 20000 }, async () => {
+    mockLoad([transfer()], accountsFixture())
+    const warning = 'Saved. From 2026-07-10 Rainy day’s jars hold 500 while the account holds 200.'
+    mockPut.mockResolvedValue({ data: { ...transfer({ amount: 50 }), warning } })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
+    await user.clear(within(dialog).getByLabelText('Transfer amount'))
+    await user.type(within(dialog).getByLabelText('Transfer amount'), '50')
+    await user.click(within(dialog).getByRole('button', { name: 'Save transfer' }))
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t-tr/transfer', expect.objectContaining({ amount: 50 })))
+    expect(await screen.findByRole('status', {}, { timeout: 5000 })).toHaveTextContent(warning)
+  })
+
   it('fetches the departure month for the fee line when it is not the loaded month', { timeout: 20000 }, async () => {
     mockLoad([transfer({ departedOn: '2026-06-28', date: '2026-06-28' })], accountsFixture())
     const user = userEvent.setup()
