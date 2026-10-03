@@ -219,7 +219,7 @@ public class TransactionsController : ControllerBase
             .Select(a => new SplitAllocationInput(a.BudgetItemId, a.Amount, a.MemberId))
             .ToList();
         var result = await _mediator.Send(
-            new SplitTransactionCommand(id, allocations, request.AcknowledgeCrossMonth, request.PaidFromJarId), ct);
+            new SplitTransactionCommand(id, allocations, request.AcknowledgeCrossMonth, request.PaidFromJarId, request.Version), ct);
         return Ok(result);
     }
 
@@ -362,7 +362,9 @@ public record UpdateTransactionRequest(
 public record SplitTransactionRequest(
     IReadOnlyList<SplitAllocationRequest> Allocations,
     bool AcknowledgeCrossMonth = false,
-    Guid? PaidFromJarId = null);
+    Guid? PaidFromJarId = null,
+    // The version the split editor loaded (D11); null only from a client older than this deploy.
+    string? Version = null);
 
 /// <summary>One slice of a split: an amount attributed to a budget line and, optionally, a household member.</summary>
 public record SplitAllocationRequest(Guid BudgetItemId, decimal Amount, Guid? MemberId = null);

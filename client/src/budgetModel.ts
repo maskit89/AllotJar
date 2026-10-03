@@ -327,6 +327,19 @@ export function withVersions(m: MonthVM, dto: BudgetMonthDto | null | undefined)
   }
 }
 
+/**
+ * The version a write's answer gives one line (D11): undefined when the answer carries no month,
+ * or not that line, so the caller keeps the version it had.
+ */
+export function itemVersionIn(dto: BudgetMonthDto | null | undefined, itemId: string): string | null | undefined {
+  if (!dto || !Array.isArray(dto.categories)) return undefined
+  for (const c of dto.categories) {
+    const found = (c.items ?? []).find((i) => i.id === itemId)
+    if (found) return found.version ?? null
+  }
+  return undefined
+}
+
 /** Rename one category group. */
 export function withCategoryName(m: MonthVM, categoryId: string, name: string): MonthVM {
   return {

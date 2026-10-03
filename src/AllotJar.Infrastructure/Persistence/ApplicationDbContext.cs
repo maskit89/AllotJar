@@ -321,8 +321,11 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
         // form is refused here and a change committed between this read and the save is refused by
         // the UPDATE itself (DbUpdateConcurrencyException).
         EditVersions.Ensure(record, version);
-        _edited.Add(record);
+        TouchVersion(record);
     }
+
+    /// <inheritdoc />
+    public void TouchVersion(IVersioned record) => _edited.Add(record);
 
     /// <inheritdoc />
     public void DiscardChanges()

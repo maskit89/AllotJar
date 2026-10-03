@@ -51,6 +51,15 @@ public interface IApplicationDbContext
     void ExpectVersion(IVersioned record, string? version);
 
     /// <summary>
+    /// Makes <paramref name="record"/>'s version move with this save, as <see cref="ExpectVersion"/>
+    /// does, without checking it: for a one-click action that may rewrite only the rows under a
+    /// transaction (its slices or jar postings), so an edit form loaded before it is refused
+    /// (#308 review P2-1). Only the user's own transaction commands call it, never a settle,
+    /// backfill or allocation run, so a page load never makes an open form stale.
+    /// </summary>
+    void TouchVersion(IVersioned record);
+
+    /// <summary>
     /// Forgets every entity this context tracks, unsaved changes included, so the next read comes
     /// from the database. For a read that wrote on the side (a cycle settled on a page load) and
     /// lost to a concurrent write: what it meant to save is dropped rather than tried again.

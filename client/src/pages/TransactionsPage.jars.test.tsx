@@ -586,6 +586,7 @@ describe('TransactionsPage jar prompts', () => {
           { budgetItemId: 'i-rent', amount: 30, memberId: null },
         ],
         paidFromJarId: 'j-car',
+        version: null,
       }),
     )
   })

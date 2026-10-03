@@ -39,6 +39,11 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
         {
             throw new ForbiddenAccessException();
         }
+        // Clearing a split, or a new "paid from" answer on the line the row already has, rewrites
+        // only the rows under the transaction: written back too, its version moves, so an edit or
+        // split form loaded before this is refused rather than putting its answers back (D11,
+        // #308 review P2-1). A one-click action, so nothing is checked.
+        _db.TouchVersion(transaction);
 
         // A refund stays on the line it landed on, so moving its purchase to another line (or off
         // every line, or folding its split onto one) would leave that line reading the refund with

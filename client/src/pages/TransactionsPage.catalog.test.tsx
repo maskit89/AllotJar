@@ -782,6 +782,7 @@ describe('TransactionsPage catalog — split editor', () => {
           { budgetItemId: 'i-internet', amount: 3.33, memberId: null },
           { budgetItemId: 'i-emergency', amount: 3.34, memberId: null },
         ],
+        version: null,
       }),
     )
   })

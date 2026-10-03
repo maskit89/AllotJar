@@ -7,6 +7,7 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 
 import { mockGet, mockPut, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
+import { budgetCategory, budgetItem, budgetMonth } from '../test/fixtures/budget'
 import { TransactionsPage } from './TransactionsPage'
 import { AccountsPage } from './AccountsPage'
 
@@ -111,6 +112,52 @@ describe('edit conflicts (D11)', () => {
     expect(within(reopened).getByLabelText('Transfer receipt date')).toHaveValue('2026-10-06')
     expect(within(reopened).getByLabelText('Transfer note')).toHaveValue('Top up')
     expect(within(reopened).getByLabelText('Transfer amount')).toHaveValue('100')
+  })
+
+  it('a split sends its version; a 409 shows why and reopens the split editor on the slices saved since', { timeout: 20000 }, async () => {
+    // #308 review P2-1: the split editor loads the slices and saves them back whole.
+    const lines = budgetMonth({
+      key: '2026-10',
+      month: 10,
+      categories: [
+        budgetCategory({
+          id: 'c-living', name: 'Living',
+          items: [budgetItem({ id: 'i-food', name: 'Food' }), budgetItem({ id: 'i-home', name: 'Home' }), budgetItem({ id: 'i-fun', name: 'Fun' })],
+        }),
+      ],
+    })
+    const slice = (id: string, budgetItemId: string, budgetItemName: string, amount: number) =>
+      ({ id, budgetItemId, budgetItemName, memberId: null, memberName: null, amount })
+    const loaded = tx({ isSplit: true, splits: [slice('s1', 'i-food', 'Food', 7.5), slice('s2', 'i-home', 'Home', 5)] })
+    const theirs = tx({ isSplit: true, splits: [slice('s3', 'i-food', 'Food', 2.5), slice('s4', 'i-fun', 'Fun', 10)], version: 'AAAAAAAAB+A=' })
+    let reads = 0
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/transactions') return Promise.resolve({ data: reads++ === 0 ? [loaded] : [theirs] })
+      if (url === '/accounts' || url === '/members') return Promise.resolve({ data: [] })
+      return Promise.resolve({ data: lines })
+    })
+    mockPut.mockRejectedValueOnce(conflict()).mockResolvedValueOnce({ data: { ...theirs, version: 'AAAAAAAAB+E=' } })
+    const user = userEvent.setup()
+    renderWithProviders(<TransactionsPage />)
+
+    await user.click(await screen.findByLabelText('Split transaction: Tesco', {}, { timeout: 5000 }))
+    await user.clear(screen.getByLabelText('Split line 1 amount'))
+    await user.type(screen.getByLabelText('Split line 1 amount'), '10')
+    await user.clear(screen.getByLabelText('Split line 2 amount'))
+    await user.type(screen.getByLabelText('Split line 2 amount'), '2.5')
+    await user.click(screen.getByLabelText('Save split'))
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t1/splits', expect.objectContaining({ version: 'AAAAAAAAB9E=' })))
+    expect(await screen.findByText(MESSAGE, {}, { timeout: 5000 })).toBeInTheDocument()
+    // The editor stays open on the split the other login saved, to redo the change on top.
+    await waitFor(() => expect(screen.getByLabelText('Split line 2 category')).toHaveValue('i-fun'), { timeout: 5000 })
+    expect(screen.getByLabelText('Split line 2 amount')).toHaveValue('10')
+
+    // Saved again, the split carries the version just read and goes through.
+    await user.click(screen.getByLabelText('Save split'))
+    await waitFor(() => expect(mockPut).toHaveBeenLastCalledWith('/transactions/t1/splits', expect.objectContaining({ version: 'AAAAAAAAB+A=' })))
+    await waitFor(() => expect(screen.queryByLabelText('Save split')).not.toBeInTheDocument())
+    expect(screen.queryByText(MESSAGE)).not.toBeInTheDocument()
   })
 
   it('an account edit sends its version; a 409 shows why and refills the form from the latest read', { timeout: 20000 }, async () => {

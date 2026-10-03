@@ -733,6 +733,36 @@ describe('DashboardPage edit conflicts (D11)', () => {
     await waitFor(() => expect(mockPut).toHaveBeenLastCalledWith('/budget/items/i-rent', { plannedAmount: 1300, version: 'v2' }))
   })
 
+  it('a second edit made while the first is still saving waits for it and sends the version it answered', { timeout: 20000 }, async () => {
+    // #308 review P2-2: the line stays editable while it saves; the correction must not read as
+    // someone else's change.
+    mockGet.mockImplementation((url: string) =>
+      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: versioned('v1', 1100) }),
+    )
+    let answerFirst: (v: unknown) => void = () => {}
+    mockPut
+      .mockImplementationOnce(() => new Promise((resolve) => { answerFirst = resolve }))
+      .mockResolvedValueOnce({ data: versioned('v3', 1250) })
+    const user = userEvent.setup()
+    renderPage()
+
+    await editRent(user, '1200')
+    await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1))
+    // Corrected before the first answer arrives: the line is still editable ...
+    await editRent(user, '1250')
+    expect(screen.getByLabelText('Planned amount for Rent')).toHaveTextContent('1,250.00')
+    // ... and the correction waits for that answer rather than going out with the same version.
+    expect(mockPut).toHaveBeenCalledTimes(1)
+    expect(mockPut.mock.calls[0][1]).toEqual({ plannedAmount: 1200, version: 'v1' })
+
+    answerFirst({ data: versioned('v2', 1200) })
+    await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(2))
+    expect(mockPut.mock.calls[1]).toEqual(['/budget/items/i-rent', { plannedAmount: 1250, version: 'v2' }])
+    await waitFor(() => expect(screen.getByLabelText('Planned amount for Rent')).toHaveTextContent('1,250.00'))
+    expect(screen.queryByText('Someone else changed this. Reload and try again.')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Could not save/)).not.toBeInTheDocument()
+  })
+
   it('a 409 on a line save says someone else changed it and re-reads the month', { timeout: 20000 }, async () => {
     let reads = 0
     mockGet.mockImplementation((url: string) => {

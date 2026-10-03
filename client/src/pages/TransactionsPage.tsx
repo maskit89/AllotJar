@@ -1083,22 +1083,25 @@ export function TransactionsPage() {
     [eDate, ePayee, eAmount, eType, eAccount, eMember, eJarAlloc, ePaidFrom, ledgersLoaded, ledgerOf, hasNonJarLine, isJarLineFor, reloadLedgers, reloadAfterConflict, startEdit],
   )
 
-  function startSplit(t: TransactionDto) {
-    setEditingId(null)
-    setSplittingId(t.id)
-    setSplitPaidFrom(paidFromJarOf(t.jarAllocations, t.accountId, lineJarIdsOf(t)) ?? PAID_FROM_UNALLOCATED)
-    if (t.isSplit && t.splits.length > 0) {
-      setSplitRows(
-        t.splits.map((s) => ({
-          budgetItemId: s.budgetItemId ?? '',
-          amount: toEditString(fromAmount(s.amount)),
-          memberId: s.memberId ?? '',
-        })),
-      )
-    } else {
-      setSplitRows(startSplitRows({ budgetItemId: t.budgetItemId ?? '', memberId: t.memberId ?? '' }))
-    }
-  }
+  const startSplit = useCallback(
+    (t: TransactionDto) => {
+      setEditingId(null)
+      setSplittingId(t.id)
+      setSplitPaidFrom(paidFromJarOf(t.jarAllocations, t.accountId, lineJarIdsOf(t)) ?? PAID_FROM_UNALLOCATED)
+      if (t.isSplit && t.splits.length > 0) {
+        setSplitRows(
+          t.splits.map((s) => ({
+            budgetItemId: s.budgetItemId ?? '',
+            amount: toEditString(fromAmount(s.amount)),
+            memberId: s.memberId ?? '',
+          })),
+        )
+      } else {
+        setSplitRows(startSplitRows({ budgetItemId: t.budgetItemId ?? '', memberId: t.memberId ?? '' }))
+      }
+    },
+    [lineJarIdsOf],
+  )
 
   function cancelSplit() {
     setSplittingId(null)
@@ -1177,6 +1180,9 @@ export function TransactionsPage() {
           })),
           ...(acknowledgeCrossMonth ? { acknowledgeCrossMonth: true } : {}),
           ...(paidFromApplies ? { paidFromJarId: splitPaidFrom || null } : {}),
+          // The version the slices were loaded from: a split saved over someone else's change is
+          // refused (D11, #308 review P2-1).
+          version: t.version ?? null,
         })
         setTransactions((prev) => prev.map((x) => (x.id === t.id ? data : x)))
         cancelSplit()
@@ -1186,7 +1192,16 @@ export function TransactionsPage() {
         // Splitting an older transaction across this month's lines is the same confirmable
         // cross-month choice as a whole assignment.
         const crossMonth = crossMonthError(err)
-        if (crossMonth && !acknowledgeCrossMonth) {
+        const conflict = editConflict(err)
+        if (conflict) {
+          // Someone else changed this row first: reopen the editor on what they saved, to redo
+          // the split on top.
+          setCrossMonthPrompt(null)
+          const fresh = await reloadAfterConflict(t.id)
+          if (fresh) startSplit(fresh)
+          else cancelSplit()
+          setError(conflict)
+        } else if (crossMonth && !acknowledgeCrossMonth) {
           setCrossMonthPrompt({ message: crossMonth, retry: () => saveSplit(t, true) })
         } else {
           setError(serverErrors(err) ?? 'Could not save that split.')
@@ -1195,7 +1210,7 @@ export function TransactionsPage() {
         setSavingId(null)
       }
     },
-    [splitRows, splitPaidFrom, ledgerOf, isJarLineFor, reloadLedgers],
+    [splitRows, splitPaidFrom, ledgerOf, isJarLineFor, reloadLedgers, reloadAfterConflict, startSplit],
   )
 
   // Split rows only ever target expense/savings lines (the add modal offers splits for expenses).

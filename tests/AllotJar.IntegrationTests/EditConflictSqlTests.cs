@@ -11,11 +11,16 @@ using AllotJar.Application.Budgets.Commands.UpdateBudgetItem;
 using AllotJar.Application.Common;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Household.Commands.UpdateHouseholdMember;
+using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Commands.UpdateJar;
 using AllotJar.Application.Transactions;
+using AllotJar.Application.Transactions.Commands.AssignTransaction;
+using AllotJar.Application.Transactions.Commands.ConfirmTransferLegs;
 using AllotJar.Application.Transactions.Commands.CreateTransfer;
+using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Application.Transactions.Commands.UpdateTransaction;
 using AllotJar.Application.Transactions.Commands.UpdateTransfer;
+using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Domain.Common;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -171,6 +176,132 @@ public class EditConflictSqlTests(SqlServerFixture fixture)
                 Version: current), Ct))).Should().BeNull();
     }
 
+    /// <summary>A purchase with no line yet, and three September lines to split it across.</summary>
+    private async Task<(string Owner, Account Account, Transaction Purchase, BudgetItem Food, BudgetItem Home, BudgetItem Fun)> SeedPurchaseAsync()
+    {
+        var owner = NewOwner();
+        var account = await SeedAccountAsync(owner, "Everyday");
+        var food = new BudgetItem { Name = "Food", PlannedAmount = 300m, DisplayOrder = 0 };
+        var home = new BudgetItem { Name = "Home", PlannedAmount = 100m, DisplayOrder = 1 };
+        var fun = new BudgetItem { Name = "Fun", PlannedAmount = 50m, DisplayOrder = 2 };
+        await SeedAsync(new BudgetMonth
+        {
+            OwnerId = owner, Year = 2026, Month = 9, BaseCurrency = CurrencyCode.Eur,
+            Categories = new List<BudgetCategory>
+            {
+                new() { Name = "Living", Kind = CategoryKind.Expense, Items = new List<BudgetItem> { food, home, fun } },
+            },
+        });
+        var purchase = await SeedAsync(new Transaction
+        {
+            OwnerId = owner, Date = new DateOnly(2026, 9, 3), Payee = "Supermarket", Amount = 40m, Currency = CurrencyCode.Eur,
+            Type = TransactionType.Expense, AccountId = account.Id,
+        });
+        return (owner, account, purchase, food, home, fun);
+    }
+
+    private static Task<TransactionDto> SplitAsync(
+        Infrastructure.Persistence.ApplicationDbContext db, string owner, Guid transactionId, string? version,
+        params (BudgetItem Line, decimal Amount)[] slices) =>
+        new SplitTransactionCommandHandler(db, new CurrentUserStub(owner)).Handle(new SplitTransactionCommand(
+            transactionId, slices.Select(x => new SplitAllocationInput(x.Line.Id, x.Amount)).ToList(), Version: version), Ct);
+
+    private async Task<List<(Guid?, decimal)>> SlicesAsync(Guid transactionId)
+    {
+        await using var db = fixture.CreateContext();
+        return (await db.TransactionSplits.AsNoTracking().Where(x => x.TransactionId == transactionId).ToListAsync(Ct))
+            .Select(x => (x.BudgetItemId, x.Amount)).ToList();
+    }
+
+    [Fact]
+    public async Task A_split_saved_from_a_stale_load_is_refused_and_keeps_the_other_logins_split()
+    {
+        // #308 review P2-1: the split editor loads the slices and saves them back whole.
+        var s = await SeedPurchaseAsync();
+        var loaded = await LoadVersionAsync<Transaction>(s.Purchase.Id);
+
+        // Sam splits the purchase Food 30 / Home 10 ...
+        (await SaveAsync(db => SplitAsync(db, s.Owner, s.Purchase.Id, loaded, (s.Food, 30m), (s.Home, 10m)))).Should().BeNull();
+
+        // ... so Alex's split editor, opened before that, would replace Sam's split: refused.
+        var stale = await SaveAsync(db => SplitAsync(db, s.Owner, s.Purchase.Id, loaded, (s.Food, 20m), (s.Fun, 20m)));
+
+        stale.Should().BeOfType<EditConflictException>();
+        (await AnswerAsync(stale!)).Should().Be((StatusCodes.Status409Conflict, "Someone else changed this. Reload and try again."));
+        (await SlicesAsync(s.Purchase.Id)).Should().BeEquivalentTo(new (Guid?, decimal)[] { (s.Food.Id, 30m), (s.Home.Id, 10m) });
+
+        // Reloaded, Alex's split carries the current version and goes through.
+        var current = await LoadVersionAsync<Transaction>(s.Purchase.Id);
+        (await SaveAsync(db => SplitAsync(db, s.Owner, s.Purchase.Id, current, (s.Food, 20m), (s.Fun, 20m)))).Should().BeNull();
+        (await SlicesAsync(s.Purchase.Id)).Should().BeEquivalentTo(new (Guid?, decimal)[] { (s.Food.Id, 20m), (s.Fun.Id, 20m) });
+    }
+
+    [Fact]
+    public async Task A_split_moves_the_transactions_version_so_an_edit_form_loaded_before_it_is_refused()
+    {
+        // The purchase had no line, so the split writes only the rows under it (slices, jar
+        // postings); the row is written back too, so its version moves (#308 review P2-1).
+        var s = await SeedPurchaseAsync();
+        var loaded = await LoadVersionAsync<Transaction>(s.Purchase.Id);
+
+        (await SaveAsync(db => SplitAsync(db, s.Owner, s.Purchase.Id, loaded, (s.Food, 30m), (s.Home, 10m)))).Should().BeNull();
+        (await LoadVersionAsync<Transaction>(s.Purchase.Id)).Should().NotBe(loaded);
+
+        // The edit form opened before the split would put back its own answers (its "paid from"
+        // is written for a split row too): refused.
+        var stale = await SaveAsync(db => new UpdateTransactionCommandHandler(db, new CurrentUserStub(s.Owner)).Handle(
+            new UpdateTransactionCommand(s.Purchase.Id, s.Purchase.Date, "Supermarket (Alex)", 40m, TransactionType.Expense,
+                s.Account.Id, Version: loaded), Ct));
+
+        stale.Should().BeOfType<EditConflictException>();
+        await using var verify = fixture.CreateContext();
+        (await verify.Transactions.AsNoTracking().SingleAsync(t => t.Id == s.Purchase.Id, Ct)).Payee.Should().Be("Supermarket");
+        (await SlicesAsync(s.Purchase.Id)).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task One_click_writes_under_a_transaction_move_its_version()
+    {
+        // "Remove split" (an assignment to no line) on a row with no line removes only its slices.
+        var s = await SeedPurchaseAsync();
+        (await SaveAsync(db => SplitAsync(db, s.Owner, s.Purchase.Id, null, (s.Food, 30m), (s.Home, 10m)))).Should().BeNull();
+        var loaded = await LoadVersionAsync<Transaction>(s.Purchase.Id);
+
+        (await SaveAsync(db => new AssignTransactionCommandHandler(db, new CurrentUserStub(s.Owner)).Handle(
+            new AssignTransactionCommand(s.Purchase.Id, null), Ct))).Should().BeNull();
+
+        (await LoadVersionAsync<Transaction>(s.Purchase.Id)).Should().NotBe(loaded);
+        (await SaveAsync(db => SplitAsync(db, s.Owner, s.Purchase.Id, loaded, (s.Food, 20m), (s.Fun, 20m))))
+            .Should().BeOfType<EditConflictException>("the split editor opened before the split was removed would put it back");
+        (await SlicesAsync(s.Purchase.Id)).Should().BeEmpty();
+
+        // Re-sending a confirmed receipt date with a jar division rewrites only the receipt's postings.
+        var from = await SeedAccountAsync(s.Owner, "Current");
+        var to = await SeedAccountAsync(s.Owner, "Savings", 0m);
+        var jar = await SeedAsync(new Jar
+        {
+            OwnerId = s.Owner, Name = "Holiday", Kind = JarKind.Goal, TargetAmount = 1000m,
+            Accrual = AccrualMethod.TargetByDate, FundingAccountId = to.Id,
+        });
+        Guid transferId;
+        await using (var seed = fixture.CreateContext())
+        {
+            transferId = (await new CreateTransferCommandHandler(seed, new CurrentUserStub(s.Owner)).Handle(
+                new CreateTransferCommand(new DateOnly(2026, 1, 15), 100m, from.Id, to.Id, ReceivedOn: new DateOnly(2026, 1, 16)), Ct)).Id;
+        }
+        var transferLoaded = await LoadVersionAsync<Transaction>(transferId);
+
+        (await SaveAsync(db => new ConfirmTransferLegsCommandHandler(db, new CurrentUserStub(s.Owner)).Handle(
+            new ConfirmTransferLegsCommand(transferId, ReceivedOn: new DateOnly(2026, 1, 16),
+                JarAllocations: new[] { new JarAllocationInput(jar.Id, 60m) }), Ct))).Should().BeNull();
+
+        (await LoadVersionAsync<Transaction>(transferId)).Should().NotBe(transferLoaded);
+        (await SaveAsync(db => new UpdateTransferCommandHandler(db, new CurrentUserStub(s.Owner)).Handle(
+            new UpdateTransferCommand(transferId, from.Id, to.Id, 100m, new DateOnly(2026, 1, 15), new DateOnly(2026, 1, 16),
+                Version: transferLoaded), Ct)))
+            .Should().BeOfType<EditConflictException>("the transfer form opened before would put back its old division");
+    }
+
     [Fact]
     public async Task A_jar_edit_is_checked_on_the_jar_read_under_its_ledger_lock()
     {
@@ -294,6 +425,24 @@ public class EditConflictSqlTests(SqlServerFixture fixture)
             .Should().Be((StatusCodes.Status409Conflict, "Something else changed this at the same moment. Reload and try again."));
         await using var verify = fixture.CreateContext();
         (await verify.Accounts.AsNoTracking().SingleAsync(a => a.Id == account.Id, Ct)).Name.Should().Be("Joint");
+    }
+
+    [Fact]
+    public async Task A_malformed_version_is_a_bad_request_not_a_conflict()
+    {
+        // #308 review P3-2: a value no DTO carried (not base64, or not a row version's length) is
+        // a 400, so a caller is told its request is wrong rather than to reload.
+        var owner = NewOwner();
+        var member = await SeedAsync(new HouseholdMember { OwnerId = owner, Name = "Sam" });
+        foreach (var malformed in new[] { "not-a-version", Convert.ToBase64String(new byte[12]), Convert.ToBase64String(new byte[4]), "" })
+        {
+            var refused = await SaveAsync(db => new UpdateHouseholdMemberCommandHandler(db, new CurrentUserStub(owner)).Handle(
+                new UpdateHouseholdMemberCommand(member.Id, "Sammy", 0m, null, malformed), Ct));
+            refused.Should().BeOfType<ValidationException>(malformed);
+            (await AnswerAsync(refused!)).Status.Should().Be(StatusCodes.Status400BadRequest);
+        }
+        await using var verify = fixture.CreateContext();
+        (await verify.HouseholdMembers.AsNoTracking().SingleAsync(m => m.Id == member.Id, Ct)).Name.Should().Be("Sam");
     }
 
     [Fact]

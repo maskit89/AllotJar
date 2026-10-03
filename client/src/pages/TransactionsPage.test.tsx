@@ -393,6 +393,7 @@ describe('TransactionsPage manual sheet', () => {
           { budgetItemId: 'i-rent', amount: 70, memberId: null },
           { budgetItemId: 'i-food', amount: 30, memberId: null },
         ],
+        version: null,
       }),
     )
     expect(await screen.findByText('Split', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -437,6 +438,7 @@ describe('TransactionsPage manual sheet', () => {
         { budgetItemId: 'i-rent', amount: 1.234, memberId: null },
         { budgetItemId: 'i-food', amount: 2.3456, memberId: null },
       ],
+      version: null,
     }))
   })
 
