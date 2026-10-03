@@ -244,7 +244,7 @@ describe('AccountsPage', () => {
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/a1', {
       name: 'Everyday', type: 0, openingBalance, openingDate: '2026-01-01',
-      iban: null, bic: null, sortCode: null, accountNumber: null,
+      iban: null, bic: null, sortCode: null, accountNumber: null, version: null,
     }))
   })
 
@@ -282,6 +282,7 @@ describe('AccountsPage', () => {
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/a1', {
       name: 'Everyday', type: 0, openingBalance: 100, openingDate: '2026-01-01',
       iban: 'MT84MALT011000012345MTLCAST001S', bic: 'VALLMTMT', sortCode: '40-47-84', accountNumber: '87654321',
+      version: null,
     }))
   })
 
@@ -333,7 +334,7 @@ describe('AccountsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Save Everyday' }))
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/a1', {
       name: 'Everyday', type: 0, openingBalance: 100, openingDate: '2026-03-01',
-      iban: null, bic: null, sortCode: null, accountNumber: null,
+      iban: null, bic: null, sortCode: null, accountNumber: null, version: null,
     }))
     expect((await screen.findAllByText(/250\.00/, {}, { timeout: 5000 })).length).toBeGreaterThan(0)
   })

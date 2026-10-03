@@ -20,15 +20,20 @@ test('a forgotten password is recovered via the emailed link', async ({ page }) 
   await page.request.post('/api/auth/logout')
   await page.goto('/login')
 
-  // The login page's escape hatch → the reset flow. Wait for the SPA navigation to commit before
-  // filling: /login ALSO has an "Email" field, so filling before the route swaps would land on the
-  // login page's input and be lost when /forgot-password mounts (fine locally, races in slower CI).
+  // The login page's escape hatch → the reset flow. Wait for the reset form itself before filling:
+  // /login ALSO has an "Email" field (same label, id and placeholder), so a fill made before the
+  // route swaps lands on the login page's input and is lost when /forgot-password mounts. The URL
+  // alone doesn't prove the swap: React Router renders a navigation in a React transition, so the
+  // address changes first and the login form stays on screen until the new route commits (on a
+  // busy CI runner the fill landed in that gap and the reset form's field read "").
   await page.getByRole('link', { name: 'Forgot password?' }).click()
   await expect(page).toHaveURL(/\/forgot-password$/)
+  const sendLink = page.getByRole('button', { name: 'Email me a reset link' })
+  await expect(sendLink).toBeVisible()
   const emailField = page.getByLabel('Email')
   await emailField.fill(email)
   await expect(emailField).toHaveValue(email)
-  await page.getByRole('button', { name: 'Email me a reset link' }).click()
+  await sendLink.click()
   await expect(page.getByRole('status')).toContainText('If an account exists')
 
   // Read the email a real recipient would have received and follow its link verbatim.

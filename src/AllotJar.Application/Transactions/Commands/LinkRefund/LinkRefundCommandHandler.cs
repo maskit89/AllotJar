@@ -41,6 +41,10 @@ public class LinkRefundCommandHandler : IRequestHandler<LinkRefundCommand, Trans
         {
             throw new ForbiddenAccessException();
         }
+        // Linking the purchase it already follows can still refill a jar (O9b), a write under the
+        // receipt alone: written back too, its version moves, so an edit form loaded before this
+        // can't replace the refill with its old jar answer (D11, #308 review P2-1).
+        _db.TouchVersion(transaction);
 
         // The line chosen below can be a jar's (rule 79): its account is locked before the line's
         // jar is checked, so a move or archive of the jar can't slip in between (P11).

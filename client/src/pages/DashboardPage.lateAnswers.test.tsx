@@ -241,7 +241,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
     await user.clear(input)
     await user.type(input, '1200')
     await goToPreviousMonth(user)
-    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent', { plannedAmount: 1200 }))
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent', { plannedAmount: 1200, version: null }))
 
     await act(async () => { save.fail(new Error('network')) })
 
@@ -318,7 +318,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
     // The name commits on blur: the click on the month button both renames and changes month.
     await user.type(screen.getByLabelText('Rename Rent'), 'al')
     await goToPreviousMonth(user)
-    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent', { plannedAmount: 1100, name: 'Rental' }))
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent', { plannedAmount: 1100, name: 'Rental', version: null }))
 
     await act(async () => { save.fail(new Error('network')) })
 
@@ -493,7 +493,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
     // The group name commits on blur: the click on the month button both renames and changes month.
     await user.type(screen.getByLabelText('Rename group Housing'), ' costs')
     await goToPreviousMonth(user)
-    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/categories/c-house', { name: 'Housing costs' }))
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/categories/c-house', { name: 'Housing costs', version: null }))
 
     await act(async () => { save.fail(new Error('network')) })
 

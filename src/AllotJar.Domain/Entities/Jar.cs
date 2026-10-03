@@ -20,8 +20,11 @@ namespace AllotJar.Domain.Entities;
 /// jar's live definition; an edit that changes it is also dated as a <see cref="JarRevision"/>,
 /// so a month that is over keeps the definition it had (P49).
 /// </summary>
-public class Jar : BaseEntity
+public class Jar : BaseEntity, IVersioned
 {
+    /// <inheritdoc />
+    public byte[] Version { get; set; } = [];
+
     /// <summary>Identity user id that owns this fund (the household).</summary>
     public string OwnerId { get; set; } = string.Empty;
 

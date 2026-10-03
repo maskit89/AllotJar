@@ -8,8 +8,11 @@ namespace AllotJar.Domain.Entities;
 /// A real money movement. Expenses are typically linked to the budget line
 /// they were spent against; income transactions may stand alone.
 /// </summary>
-public class Transaction : BaseEntity
+public class Transaction : BaseEntity, IVersioned
 {
+    /// <inheritdoc />
+    public byte[] Version { get; set; } = [];
+
     /// <summary>Identity user id that owns this transaction (denormalised for fast, secure filtering).</summary>
     public string OwnerId { get; set; } = string.Empty;
 

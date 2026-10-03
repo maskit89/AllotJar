@@ -1,3 +1,4 @@
+using AllotJar.Application.Common;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 
@@ -35,6 +36,7 @@ public static class BudgetMonthMapping
             .Select(c => new BudgetCategoryDto
             {
                 Id = c.Id,
+                Version = EditVersions.Of(c),
                 Name = c.Name,
                 Kind = c.Kind.ToString(),
                 DisplayOrder = c.DisplayOrder,
@@ -46,6 +48,7 @@ public static class BudgetMonthMapping
                     .Select(i => new BudgetItemDto
                     {
                         Id = i.Id,
+                        Version = EditVersions.Of(i),
                         Name = i.Name,
                         DisplayOrder = i.DisplayOrder,
                         PlannedAmount = i.PlannedAmount,

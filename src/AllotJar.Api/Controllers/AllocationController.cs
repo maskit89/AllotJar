@@ -54,7 +54,7 @@ public class AllocationController : ControllerBase
             .ToList();
         var result = await _mediator.Send(
             new UpsertAllocationProfileCommand(
-                request.Id, request.Name, request.SourceAccountId, rules, request.BalanceLeanPercent), ct);
+                request.Id, request.Name, request.SourceAccountId, rules, request.BalanceLeanPercent, request.Version), ct);
         return Ok(result);
     }
 
@@ -124,7 +124,9 @@ public record UpsertAllocationProfileRequest(
     string Name,
     Guid? SourceAccountId,
     List<AllocationRuleSpecRequest> Rules,
-    int BalanceLeanPercent = 25);
+    int BalanceLeanPercent = 25,
+    // The version the edit form loaded (D11); null only from a client older than this deploy.
+    string? Version = null);
 
 /// <summary>One rule in the allocation waterfall.</summary>
 public record AllocationRuleSpecRequest(

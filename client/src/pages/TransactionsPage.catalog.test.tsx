@@ -782,6 +782,7 @@ describe('TransactionsPage catalog — split editor', () => {
           { budgetItemId: 'i-internet', amount: 3.33, memberId: null },
           { budgetItemId: 'i-emergency', amount: 3.34, memberId: null },
         ],
+        version: null,
       }),
     )
   })
@@ -1372,6 +1373,7 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
         departedOn: '2026-07-10', receivedOn: '2026-07-12', returnedOn: null,
         payee: 'Top up', fee: 1.5, feeBudgetItemId: 'i-groceries', acknowledgeCrossMonth: false,
         fromJarId: null, jarAllocations: null,
+        version: null,
       }),
     )
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())

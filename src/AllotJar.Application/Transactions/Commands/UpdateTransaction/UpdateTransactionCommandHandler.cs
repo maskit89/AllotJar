@@ -53,6 +53,7 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             throw TransferFees.ChangedDirectly("TransactionId");
         }
         MoneyInput.EnsureAccepted(("Amount", request.Amount, transaction.Amount));
+        _db.ExpectVersion(transaction, request.Version);
 
         Account? account = null;
         if (request.AccountId is Guid accountId)

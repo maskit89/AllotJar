@@ -26,7 +26,7 @@ import { accountOptionLabel, formatNames, savingsFirst } from '../lib/accountOpt
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { activeJars, useJarLedgers } from '../lib/jarLedgers'
 import { toJarAllocations } from '../lib/jarAllocationFields'
-import { serverErrors } from '../lib/serverErrors'
+import { editConflict, serverErrors } from '../lib/serverErrors'
 import { JarAllocationFields } from '../components/jars/JarAllocationFields'
 import { PRIVATE_ACCOUNT } from '../lib/accountHolders'
 import { todayIso } from '../lib/dates'
@@ -162,6 +162,18 @@ export function AllocationPage() {
     }
   }, [year, month, loadPreview])
 
+  /** The settings form as a saved profile describes it. */
+  const fillForm = useCallback((p: AllocationProfileDto | null) => {
+    setSourceAccountId(sourceChoice(p))
+    const pocketRule = p?.rules.find((r) => r.type === AllocationRuleType.FixedPerMember)
+    setPocket(pocketRule ? toEditString(fromAmount(pocketRule.fixedAmountPerMember)) : '')
+    const fundRule = p?.rules.find((r) => r.type === AllocationRuleType.FundEnvelopes)
+    setSplit(fundRule?.split ?? SplitMethod.Equal)
+    const savingsRule = p?.rules.find((r) => r.type === AllocationRuleType.SplitRemainderToMembers)
+    setSavingsSplit(savingsRule?.split ?? SplitMethod.BalanceTilt)
+    setLean(String(p?.balanceLeanPercent ?? 25))
+  }, [])
+
   const saveProfile = useCallback(async () => {
     const pocketAmount = pocket.trim() === '' ? 0 : parseMinor(pocket)
     if (pocketAmount === null) {
@@ -189,6 +201,8 @@ export function AllocationPage() {
         sourceAccountId: sourceAccountId === PRIVATE_SOURCE ? null : sourceAccountId || null,
         balanceLeanPercent: leanValue,
         rules: standardRules(split, toAmount(pocketAmount as number), savingsSplit),
+        // The version the settings were loaded from: a save over someone else's change is refused (D11).
+        version: profile?.version ?? null,
       })
       setProfile(data)
       // A prior "Allocated" banner is now stale (the numbers just changed) — clear it.
@@ -197,11 +211,22 @@ export function AllocationPage() {
       await loadPreview(period.year, period.month)
       setShowSettings(false)
     } catch (err) {
-      setError(serverErrors(err) ?? 'Could not save the allocation profile.')
+      const conflict = editConflict(err)
+      if (conflict) {
+        // Someone else saved the profile first: refill the open settings with what they saved.
+        const fresh = await api.get<AllocationProfileDto | null>('/allocation/profile').then(({ data }) => data || null, () => null)
+        if (fresh) {
+          setProfile(fresh)
+          fillForm(fresh)
+        }
+        setError(conflict)
+      } else {
+        setError(serverErrors(err) ?? 'Could not save the allocation profile.')
+      }
     } finally {
       setBusy(false)
     }
-  }, [pocket, lean, split, savingsSplit, sourceAccountId, profile, period, loadPreview])
+  }, [pocket, lean, split, savingsSplit, sourceAccountId, profile, period, loadPreview, fillForm])
 
   // One click materializes the profile's pocket money as flagged budget lines (server-side,
   // idempotent) — the flag combination that lets the budget zero out WITHOUT the engine
@@ -242,12 +267,13 @@ export function AllocationPage() {
           name: current.name,
           netMonthlyIncome: current.netMonthlyIncome,
           personalSavingsAccountId: accountId,
+          version: current.version ?? null,
         })
         // The balance-tilt figures change once the link lands; a prior banner is stale.
         setCommitted(null)
         await loadPreview(period.year, period.month)
       } catch (err) {
-        setError(serverErrors(err) ?? `Could not link a savings account for ${m.name}.`)
+        setError(editConflict(err) ?? serverErrors(err) ?? `Could not link a savings account for ${m.name}.`)
       } finally {
         setLinkingId(null)
       }
@@ -303,15 +329,8 @@ export function AllocationPage() {
   // can't quietly commit a value the user thought they'd cancelled).
   const syncFormFromProfile = useCallback(() => {
     setError(null)
-    setSourceAccountId(sourceChoice(profile))
-    const pocketRule = profile?.rules.find((r) => r.type === AllocationRuleType.FixedPerMember)
-    setPocket(pocketRule ? toEditString(fromAmount(pocketRule.fixedAmountPerMember)) : '')
-    const fundRule = profile?.rules.find((r) => r.type === AllocationRuleType.FundEnvelopes)
-    setSplit(fundRule?.split ?? SplitMethod.Equal)
-    const savingsRule = profile?.rules.find((r) => r.type === AllocationRuleType.SplitRemainderToMembers)
-    setSavingsSplit(savingsRule?.split ?? SplitMethod.BalanceTilt)
-    setLean(String(profile?.balanceLeanPercent ?? 25))
-  }, [profile])
+    fillForm(profile)
+  }, [profile, fillForm])
 
   const openSettings = useCallback(() => {
     syncFormFromProfile()

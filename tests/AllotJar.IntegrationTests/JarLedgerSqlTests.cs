@@ -83,11 +83,12 @@ public class JarLedgerSqlTests
         // Delete from a context that has not loaded the jar, so EF's client-side required-
         // relationship check cannot pre-empt the database: the constraint itself must refuse.
         await using var deleter = _fixture.CreateContext();
-        deleter.Accounts.Remove(new Account { Id = account.Id });
+        // The stub carries the row version the seed read back, so only the constraint can refuse (D11).
+        deleter.Accounts.Remove(new Account { Id = account.Id, Version = account.Version });
         var act = () => deleter.SaveChangesAsync();
 
         // FK_Jars_Accounts_FundingAccountId is Restrict: the jar's money would be orphaned.
-        await act.Should().ThrowAsync<DbUpdateException>();
+        (await act.Should().ThrowAsync<DbUpdateException>()).Which.Should().NotBeOfType<DbUpdateConcurrencyException>();
 
         await using var verify = _fixture.CreateContext();
         (await verify.Accounts.AnyAsync(a => a.Id == account.Id)).Should().BeTrue();
@@ -157,7 +158,7 @@ public class JarLedgerSqlTests
 
         await using (var remove = _fixture.CreateContext())
         {
-            remove.Transactions.Remove(new Transaction { Id = deposit.Id });
+            remove.Transactions.Remove(new Transaction { Id = deposit.Id, Version = deposit.Version });
             await remove.SaveChangesAsync();
         }
 

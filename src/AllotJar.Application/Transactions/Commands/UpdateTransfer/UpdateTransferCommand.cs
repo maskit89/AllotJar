@@ -28,4 +28,7 @@ public record UpdateTransferCommand(
     Guid? FeeBudgetItemId = null,
     bool AcknowledgeCrossMonth = false,
     Guid? FromJarId = null,
-    IReadOnlyList<JarAllocationInput>? JarAllocations = null) : IRequest<TransactionDto>;
+    IReadOnlyList<JarAllocationInput>? JarAllocations = null,
+    // The version the edit form loaded (D11): a save of a record changed since is refused. Null is
+    // no check, for a client loaded before the deploy that added versions.
+    string? Version = null) : IRequest<TransactionDto>;

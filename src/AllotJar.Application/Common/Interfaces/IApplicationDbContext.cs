@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Domain.Common;
 using AllotJar.Domain.Entities;
 
 namespace AllotJar.Application.Common.Interfaces;
@@ -39,6 +40,31 @@ public interface IApplicationDbContext
     /// that no login in the household can see the account.
     /// </summary>
     void AllowErasing(Guid accountId);
+
+    /// <summary>
+    /// An edit form's save of <paramref name="record"/> (D11): refuses it (<see cref="Exceptions.EditConflictException"/>)
+    /// when the tracked record is no longer the <paramref name="version"/> the form loaded, and makes
+    /// the record's version move with this save even when only the rows under it change (a profile's
+    /// rules, an income's jar split), so the next stale form is refused too. Call it on the tracked
+    /// entity that is actually saved. A null version (a client from before the deploy) is no check.
+    /// </summary>
+    void ExpectVersion(IVersioned record, string? version);
+
+    /// <summary>
+    /// Makes <paramref name="record"/>'s version move with this save, as <see cref="ExpectVersion"/>
+    /// does, without checking it: for a one-click action that may rewrite only the rows under a
+    /// transaction (its slices or jar postings), so an edit form loaded before it is refused
+    /// (#308 review P2-1). Only the user's own transaction commands call it, never a settle,
+    /// backfill or allocation run, so a page load never makes an open form stale.
+    /// </summary>
+    void TouchVersion(IVersioned record);
+
+    /// <summary>
+    /// Forgets every entity this context tracks, unsaved changes included, so the next read comes
+    /// from the database. For a read that wrote on the side (a cycle settled on a page load) and
+    /// lost to a concurrent write: what it meant to save is dropped rather than tried again.
+    /// </summary>
+    void DiscardChanges();
 
     /// <summary>
     /// Begins a serialised write on <paramref name="accountId"/>'s ledger (see <see cref="ILedgerWrite"/>).

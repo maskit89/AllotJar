@@ -46,7 +46,7 @@ import {
   useJarLedgers,
 } from '../lib/jarLedgers'
 import { fromJarAllocations, jarAllocationsProblem, toJarAllocations } from '../lib/jarAllocationFields'
-import { crossMonthError, serverErrors } from '../lib/serverErrors'
+import { crossMonthError, editConflict, serverErrors } from '../lib/serverErrors'
 import { PRIVATE_ACCOUNT } from '../lib/accountHolders'
 import { fetchConversionSuggestion, formatForeign, suggestionHint } from '../lib/conversion'
 
@@ -771,6 +771,8 @@ export function TransactionsPage() {
               (tDate || null) === (editing.departedOn ?? null)),
           fromJarId: (!ledgersLoaded || tFromJars.length > 0) && tDate ? tFromJar || null : null,
           jarAllocations: incomingApplies && (ledgersLoaded ? tToJars.length > 0 : incoming.length > 0) ? incoming : null,
+          // One version covers both legs: an edit of either since this form loaded refuses the save (D11).
+          version: editing.version ?? null,
         }
         const { data } = await api.put<TransactionDto>(`/transactions/${editing.id}/transfer`, body)
         setTransactions((prev) => prev.map((x) => (x.id === editing.id ? data : x)))
@@ -819,7 +821,15 @@ export function TransactionsPage() {
     } catch (err) {
       // A fee put on a line in another month than its date is the same confirmable choice.
       const crossMonth = crossMonthError(err)
-      if (crossMonth && !acknowledgeCrossMonth) {
+      const conflict = editing ? editConflict(err) : null
+      if (editing && conflict) {
+        // Someone else saved this transfer first: reopen the form on what they saved.
+        setCrossMonthPrompt(null)
+        const fresh = await reloadAfterConflict(editing.id)
+        if (fresh) startTransferEdit(fresh)
+        else closeAddModal()
+        setError(conflict)
+      } else if (crossMonth && !acknowledgeCrossMonth) {
         setCrossMonthPrompt({ message: crossMonth, retry: () => submitTransfer(true) })
       } else {
         setError(serverErrors(err) ?? (editing ? 'Could not save that transfer.' : 'Could not record that transfer.'))
@@ -934,20 +944,39 @@ export function TransactionsPage() {
     [reloadTransactions],
   )
 
-  function startEdit(t: TransactionDto) {
-    setSplittingId(null)
-    setEditingId(t.id)
-    setEDate(t.date)
-    setEPayee(t.payee)
-    setEAmount(toEditString(fromAmount(t.amount)))
-    setEType(t.type)
-    setEAccount(t.accountId ?? '')
-    setEMember(t.memberId ?? '')
-    // The edit re-answers the jar prompts, so pre-fill them from the stored split (an omitted
-    // answer would reset the leg to its default on save).
-    setEJarAlloc(fromJarAllocations(incomingAllocationsOf(t.jarAllocations, t.accountId)))
-    setEPaidFrom(paidFromJarOf(t.jarAllocations, t.accountId, lineJarIdsOf(t)) ?? PAID_FROM_UNALLOCATED)
-  }
+  const startEdit = useCallback(
+    (t: TransactionDto) => {
+      setSplittingId(null)
+      setEditingId(t.id)
+      setEDate(t.date)
+      setEPayee(t.payee)
+      setEAmount(toEditString(fromAmount(t.amount)))
+      setEType(t.type)
+      setEAccount(t.accountId ?? '')
+      setEMember(t.memberId ?? '')
+      // The edit re-answers the jar prompts, so pre-fill them from the stored split (an omitted
+      // answer would reset the leg to its default on save).
+      setEJarAlloc(fromJarAllocations(incomingAllocationsOf(t.jarAllocations, t.accountId)))
+      setEPaidFrom(paidFromJarOf(t.jarAllocations, t.accountId, lineJarIdsOf(t)) ?? PAID_FROM_UNALLOCATED)
+    },
+    [lineJarIdsOf],
+  )
+
+  /**
+   * D11: someone else saved this row after it was loaded. Re-read the register so the page shows
+   * what they saved, and hand the latest row back to the form that was editing it (null when it
+   * is gone, or the register can't be read).
+   */
+  const reloadAfterConflict = useCallback(async (id: string) => {
+    try {
+      const { data } = await api.get<TransactionDto[]>('/transactions')
+      if (!Array.isArray(data)) return null
+      setTransactions(data)
+      return data.find((x) => x.id === id) ?? null
+    } catch {
+      return null
+    }
+  }, [])
 
   const saveEdit = useCallback(
     async (t: TransactionDto, acknowledgeCrossMonth = false) => {
@@ -1021,6 +1050,8 @@ export function TransactionsPage() {
           // account backs jars, because omitting it would reset the leg to its default.
           ...(backsJars && eType === TransactionType.Income ? { jarAllocations: toJarAllocations(eJarAlloc) } : {}),
           ...(backsJars && eType === TransactionType.Expense ? { paidFromJarId: sendsPaidFrom ? ePaidFrom || null : null } : {}),
+          // The version this form was loaded from: a save over someone else's change is refused (D11).
+          version: t.version ?? null,
         })
         setTransactions((prev) => prev.map((x) => (x.id === id ? data : x)))
         setNotice(data.warning ?? null)
@@ -1032,7 +1063,15 @@ export function TransactionsPage() {
         // Moving an assigned/split transaction into another month keeps it budgeted to the
         // original month's line — a confirmable choice, not a failure.
         const crossMonth = crossMonthError(err)
-        if (crossMonth && !acknowledgeCrossMonth) {
+        const conflict = editConflict(err)
+        if (conflict) {
+          // Someone else saved this row first: show theirs in the form, to redo the change on top.
+          setCrossMonthPrompt(null)
+          const fresh = await reloadAfterConflict(id)
+          if (fresh) startEdit(fresh)
+          else setEditingId(null)
+          setError(conflict)
+        } else if (crossMonth && !acknowledgeCrossMonth) {
           setCrossMonthPrompt({ message: crossMonth, retry: () => saveEdit(t, true) })
         } else {
           setError(serverErrors(err) ?? 'Could not save that change.')
@@ -1041,25 +1080,28 @@ export function TransactionsPage() {
         setSavingId(null)
       }
     },
-    [eDate, ePayee, eAmount, eType, eAccount, eMember, eJarAlloc, ePaidFrom, ledgersLoaded, ledgerOf, hasNonJarLine, isJarLineFor, reloadLedgers],
+    [eDate, ePayee, eAmount, eType, eAccount, eMember, eJarAlloc, ePaidFrom, ledgersLoaded, ledgerOf, hasNonJarLine, isJarLineFor, reloadLedgers, reloadAfterConflict, startEdit],
   )
 
-  function startSplit(t: TransactionDto) {
-    setEditingId(null)
-    setSplittingId(t.id)
-    setSplitPaidFrom(paidFromJarOf(t.jarAllocations, t.accountId, lineJarIdsOf(t)) ?? PAID_FROM_UNALLOCATED)
-    if (t.isSplit && t.splits.length > 0) {
-      setSplitRows(
-        t.splits.map((s) => ({
-          budgetItemId: s.budgetItemId ?? '',
-          amount: toEditString(fromAmount(s.amount)),
-          memberId: s.memberId ?? '',
-        })),
-      )
-    } else {
-      setSplitRows(startSplitRows({ budgetItemId: t.budgetItemId ?? '', memberId: t.memberId ?? '' }))
-    }
-  }
+  const startSplit = useCallback(
+    (t: TransactionDto) => {
+      setEditingId(null)
+      setSplittingId(t.id)
+      setSplitPaidFrom(paidFromJarOf(t.jarAllocations, t.accountId, lineJarIdsOf(t)) ?? PAID_FROM_UNALLOCATED)
+      if (t.isSplit && t.splits.length > 0) {
+        setSplitRows(
+          t.splits.map((s) => ({
+            budgetItemId: s.budgetItemId ?? '',
+            amount: toEditString(fromAmount(s.amount)),
+            memberId: s.memberId ?? '',
+          })),
+        )
+      } else {
+        setSplitRows(startSplitRows({ budgetItemId: t.budgetItemId ?? '', memberId: t.memberId ?? '' }))
+      }
+    },
+    [lineJarIdsOf],
+  )
 
   function cancelSplit() {
     setSplittingId(null)
@@ -1138,6 +1180,9 @@ export function TransactionsPage() {
           })),
           ...(acknowledgeCrossMonth ? { acknowledgeCrossMonth: true } : {}),
           ...(paidFromApplies ? { paidFromJarId: splitPaidFrom || null } : {}),
+          // The version the slices were loaded from: a split saved over someone else's change is
+          // refused (D11, #308 review P2-1).
+          version: t.version ?? null,
         })
         setTransactions((prev) => prev.map((x) => (x.id === t.id ? data : x)))
         cancelSplit()
@@ -1147,7 +1192,16 @@ export function TransactionsPage() {
         // Splitting an older transaction across this month's lines is the same confirmable
         // cross-month choice as a whole assignment.
         const crossMonth = crossMonthError(err)
-        if (crossMonth && !acknowledgeCrossMonth) {
+        const conflict = editConflict(err)
+        if (conflict) {
+          // Someone else changed this row first: reopen the editor on what they saved, to redo
+          // the split on top.
+          setCrossMonthPrompt(null)
+          const fresh = await reloadAfterConflict(t.id)
+          if (fresh) startSplit(fresh)
+          else cancelSplit()
+          setError(conflict)
+        } else if (crossMonth && !acknowledgeCrossMonth) {
           setCrossMonthPrompt({ message: crossMonth, retry: () => saveSplit(t, true) })
         } else {
           setError(serverErrors(err) ?? 'Could not save that split.')
@@ -1156,7 +1210,7 @@ export function TransactionsPage() {
         setSavingId(null)
       }
     },
-    [splitRows, splitPaidFrom, ledgerOf, isJarLineFor, reloadLedgers],
+    [splitRows, splitPaidFrom, ledgerOf, isJarLineFor, reloadLedgers, reloadAfterConflict, startSplit],
   )
 
   // Split rows only ever target expense/savings lines (the add modal offers splits for expenses).

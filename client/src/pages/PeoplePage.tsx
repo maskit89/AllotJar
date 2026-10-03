@@ -31,7 +31,7 @@ import {
   type PocketMoneyMonthDto,
 } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
-import { serverErrors } from '../lib/serverErrors'
+import { editConflict, serverErrors } from '../lib/serverErrors'
 import { accountOptionLabel, savingsFirst } from '../lib/accountOptions'
 import { PRIVATE_ACCOUNT } from '../lib/accountHolders'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
@@ -128,6 +128,8 @@ export function PeoplePage() {
   const [eName, setEName] = useState('')
   const [eIncome, setEIncome] = useState('')
   const [eSavings, setESavings] = useState('')
+  // The version the edit was loaded from, sent back with the save (D11).
+  const [eVersion, setEVersion] = useState<string | null>(null)
 
   // Invite form (owner-only). `invitePersonId` links the new login to a budget person.
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -172,7 +174,7 @@ export function PeoplePage() {
         .get<MemberIncomeResultDto>(`/members/income/${year}/${month}`)
         .catch(() => ({ data: null as MemberIncomeResultDto | null })),
     ])
-    if (viewedMonth.current !== shown) return
+    if (viewedMonth.current !== shown) return null
     setMembers(Array.isArray(m?.data) ? m.data : [])
     setAccounts(Array.isArray(acc?.data) ? acc.data : [])
     setAccountsLoaded(Array.isArray(acc?.data))
@@ -181,6 +183,7 @@ export function PeoplePage() {
     // Accept only a well-shaped payload — a failed/foreign response falls back to null (the
     // members' own month figures still carry the page), never a partial object.
     setMonthIncome(Array.isArray(inc?.data?.items) ? inc.data : null)
+    return Array.isArray(m?.data) ? m.data : null
   }, [])
 
   useEffect(() => {
@@ -284,12 +287,13 @@ export function PeoplePage() {
     }
   }, [name, income, savings, reloadAll, refreshHousehold])
 
-  function startEdit(m: HouseholdMemberDto) {
+  const startEdit = useCallback((m: HouseholdMemberDto) => {
     setEditingId(m.id)
     setEName(m.name)
     setEIncome(toEditString(fromAmount(m.netMonthlyIncome)))
     setESavings(m.savingsPrivate ? PRIVATE_SAVINGS : (m.personalSavingsAccountId ?? ''))
-  }
+    setEVersion(m.version ?? null)
+  }, [])
 
   const saveEdit = useCallback(
     async (id: string) => {
@@ -316,17 +320,27 @@ export function PeoplePage() {
           netMonthlyIncome,
           // The server keeps a private savings account it was sent no id for (P53/P56).
           personalSavingsAccountId: eSavings === PRIVATE_SAVINGS ? null : eSavings || null,
+          version: eVersion,
         })
         track(EVENTS.memberEdited)
         await reloadAll()
         setEditingId(null)
       } catch (err) {
-        setError(serverErrors(err) ?? 'Could not save that person.')
+        const conflict = editConflict(err)
+        if (conflict) {
+          // Someone else saved this person first (D11): show what they saved in the open form.
+          const fresh = (await reloadAll().catch(() => null))?.find((m) => m.id === id)
+          if (fresh) startEdit(fresh)
+          else setEditingId(null)
+          setError(conflict)
+        } else {
+          setError(serverErrors(err) ?? 'Could not save that person.')
+        }
       } finally {
         setSavingId(null)
       }
     },
-    [eName, eIncome, eSavings, members, reloadAll],
+    [eName, eIncome, eSavings, eVersion, members, reloadAll, startEdit],
   )
 
   /**

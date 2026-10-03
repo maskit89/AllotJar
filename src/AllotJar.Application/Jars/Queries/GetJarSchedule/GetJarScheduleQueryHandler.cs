@@ -38,7 +38,7 @@ public class GetJarScheduleQueryHandler : IRequestHandler<GetJarScheduleQuery, J
                 throw new ForbiddenAccessException();
             }
             // The preview of an edit starts from the cycle the jar is actually in (rule 21).
-            if (await JarCycles.SettleAsync(_db, userId, today, cancellationToken, existing.Id))
+            if (await JarCycles.SettleOnReadAsync(_db, userId, today, cancellationToken, existing.Id))
             {
                 existing = await _db.Jars.AsNoTracking().FirstAsync(j => j.Id == id, cancellationToken);
             }

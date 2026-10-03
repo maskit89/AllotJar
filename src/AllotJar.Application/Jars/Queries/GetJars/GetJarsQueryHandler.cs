@@ -33,7 +33,7 @@ public class GetJarsQueryHandler
         // was short stays open as Deadline missed (rule 20). Settlement is a write to the jar's
         // lifecycle, so it runs on the real date: an as-of read is a projection and must never
         // close a cycle whose deadline has not actually come.
-        await JarCycles.SettleAsync(_db, userId, today, cancellationToken);
+        await JarCycles.SettleOnReadAsync(_db, userId, today, cancellationToken);
 
         // A month that is over is history (rule 46): a jar archived since still had its line and
         // its money there, and the grid still shows that line, so the shelf shows the jar too.

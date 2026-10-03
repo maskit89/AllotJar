@@ -26,7 +26,7 @@ public class GetJarSkipPreviewQueryHandler : IRequestHandler<GetJarSkipPreviewQu
 
         var (item, jar) = await JarLineLoader.LoadAsync(_db, userId, request.BudgetItemId, today, cancellationToken);
         // The preview plans toward the cycle the jar is actually in (rule 21).
-        if (await JarCycles.SettleAsync(_db, userId, today, cancellationToken, jar.Id))
+        if (await JarCycles.SettleOnReadAsync(_db, userId, today, cancellationToken, jar.Id))
         {
             jar = await _db.Jars.AsNoTracking().FirstAsync(j => j.Id == jar.Id, cancellationToken);
         }

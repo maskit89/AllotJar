@@ -8,8 +8,11 @@ namespace AllotJar.Domain.Entities;
 /// Each carries the net monthly income and personal savings destination the income
 /// allocation engine needs to fund shared costs and split the surplus.
 /// </summary>
-public class HouseholdMember : BaseEntity
+public class HouseholdMember : BaseEntity, IVersioned
 {
+    /// <inheritdoc />
+    public byte[] Version { get; set; } = [];
+
     /// <summary>Identity user id that owns the household this member belongs to.</summary>
     public string OwnerId { get; set; } = string.Empty;
 

@@ -37,6 +37,7 @@ public class UpdateHouseholdMemberCommandHandler
             throw new ForbiddenAccessException();
         }
         MoneyInput.EnsureAccepted((nameof(request.NetMonthlyIncome), request.NetMonthlyIncome, member.NetMonthlyIncome));
+        _db.ExpectVersion(member, request.Version);
 
         // A personal-savings account must exist and belong to this household. It's a soft hint with
         // no FK, so validate here — otherwise a stale or foreign id would be stored and later booked

@@ -1,3 +1,4 @@
+using AllotJar.Application.Common;
 using AllotJar.Application.Allocation;
 using AllotJar.Domain.Entities;
 
@@ -6,6 +7,10 @@ namespace AllotJar.Application.Household.Dtos;
 public class HouseholdMemberDto
 {
     public Guid Id { get; set; }
+
+    /// <summary>The row version the edit form sends back with its save (D11); null where the store keeps none.</summary>
+    public string? Version { get; set; }
+
     public string Name { get; set; } = string.Empty;
 
     /// <summary>The saved default income: a helper for filling in a new budget, never a figure any calculation uses (rule 28).</summary>
@@ -51,6 +56,7 @@ public static class HouseholdMemberMapping
         this HouseholdMember m, MemberIncomeShares shares, int year, int month, IReadOnlySet<Guid> hiddenAccounts) => new()
     {
         Id = m.Id,
+        Version = EditVersions.Of(m),
         Name = m.Name,
         NetMonthlyIncome = m.NetMonthlyIncome,
         BudgetIncome = shares.Income.GetValueOrDefault(m.Id),

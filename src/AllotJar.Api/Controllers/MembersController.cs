@@ -93,7 +93,7 @@ public class MembersController : ControllerBase
     public async Task<ActionResult<HouseholdMemberDto>> Update(Guid id, UpdateMemberRequest request, CancellationToken ct)
     {
         var result = await _mediator.Send(
-            new UpdateHouseholdMemberCommand(id, request.Name, request.NetMonthlyIncome, request.PersonalSavingsAccountId), ct);
+            new UpdateHouseholdMemberCommand(id, request.Name, request.NetMonthlyIncome, request.PersonalSavingsAccountId, request.Version), ct);
         return Ok(result);
     }
 
@@ -133,7 +133,8 @@ public class MembersController : ControllerBase
 public record CreateMemberRequest(string Name, decimal NetMonthlyIncome, Guid? PersonalSavingsAccountId);
 
 /// <summary>Request body for editing a member (the id comes from the route).</summary>
-public record UpdateMemberRequest(string Name, decimal NetMonthlyIncome, Guid? PersonalSavingsAccountId);
+/// <param name="Version">The version the edit form loaded (D11); null only from a client older than this deploy.</param>
+public record UpdateMemberRequest(string Name, decimal NetMonthlyIncome, Guid? PersonalSavingsAccountId, string? Version = null);
 
 /// <summary>Request body for archiving/restoring a member; the decision is only read when archiving.</summary>
 public record ArchiveMemberRequest(bool Archived = true, PocketMoneyDecision? PocketMoneyThisMonth = null);

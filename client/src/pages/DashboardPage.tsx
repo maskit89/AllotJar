@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
-import { serverErrors } from '../lib/serverErrors'
+import { editConflict, serverErrors } from '../lib/serverErrors'
 import { EVENTS, track } from '../analytics'
 import { useAuth } from '../auth/AuthContext'
 import { AppShell } from '../components/AppShell'
@@ -22,6 +22,7 @@ import {
   isBalanced,
   isSavings,
   isIncome,
+  itemVersionIn,
   monthPlanned,
   remainingToBudget,
   totalIncome,
@@ -37,6 +38,7 @@ import {
   withoutItem,
   withReorderedExpenseCategories,
   withReorderedItems,
+  withVersions,
   type ItemVM,
   type MonthVM,
 } from '../budgetModel'
@@ -61,6 +63,18 @@ const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
+
+/** One line's writes in progress (D11): see `saveLine` in the page. */
+interface LineWrites {
+  /** Settles when the line's latest write has its answer; the next write starts after it. */
+  tail: Promise<unknown>
+  /** Writes of the line waiting or in flight, this one included. */
+  waiting: number
+  /** Writes of the line sent since it last had none waiting. */
+  sent: number
+  /** The version the line's next write sends: the latest answer's, or the one loaded. */
+  version: string | null
+}
 
 export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // Building/editing the budget (groups, lines, months) needs Admin+ (canWrite).
@@ -297,6 +311,67 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     [year, monthNum, refreshMonths, refreshJars, isViewed],
   )
 
+  // One line's writes go one after another (D11, #308 review P2-2). Every write moves the line's
+  // version, so a second edit made while the first is still saving would otherwise send the
+  // version the first is replacing, and the server would refuse the user's own correction as
+  // someone else's change. Instead it waits for the first answer and sends the version that
+  // answer returned. The line stays editable meanwhile, and its saving dot stays until the last
+  // answer. `send` makes the request with the version to send; `failed` words a refusal that
+  // is not a conflict. Resolves true once saved.
+  const lineWrites = useRef(new Map<string, LineWrites>())
+  const saveLine = useCallback(
+    (
+      itemId: string,
+      snapshot: MonthVM,
+      onMonth: () => boolean,
+      send: (version: string | null) => Promise<{ data: BudgetMonthDto }>,
+      failed: (err: unknown) => string,
+    ): Promise<boolean> => {
+      let writes = lineWrites.current.get(itemId)
+      if (!writes) {
+        writes = { tail: Promise.resolve(), waiting: 0, sent: 0, version: findItem(snapshot, itemId)?.version ?? null }
+        lineWrites.current.set(itemId, writes)
+      }
+      const line = writes
+      line.waiting++
+      setSavingItemId(itemId)
+      const run = line.tail
+        .then(async () => {
+          const followsAnother = line.sent++ > 0
+          try {
+            const { data } = await send(line.version)
+            const version = itemVersionIn(data, itemId)
+            if (version !== undefined) line.version = version
+            if (onMonth()) setMonth((m) => (m ? withVersions(m, data) : m))
+            return true
+          } catch (err) {
+            // A later edit of this line is waiting: it carries what the user typed last and
+            // settles the line, so nothing is rolled back or reported for this one.
+            if (line.waiting > 1) return false
+            const conflict = editConflict(err)
+            if (onMonth()) {
+              setMonth(snapshot) // roll back to the state before this edit
+              // Someone else changed the line first: show what they saved. After an earlier write
+              // of this line the snapshot need not be what the server holds either.
+              if (conflict || followsAnother) void refreshMonth()
+            }
+            setError(conflict ?? failed(err))
+            return false
+          }
+        })
+        .finally(() => {
+          line.waiting--
+          if (line.waiting === 0) {
+            lineWrites.current.delete(itemId)
+            setSavingItemId((saving) => (saving === itemId ? null : saving))
+          }
+        })
+      line.tail = run.catch(() => false)
+      return run
+    },
+    [refreshMonth],
+  )
+
   // Optimistic commit: apply the edit locally and recompute the banner instantly
   // (exact integer math), then persist. The server stores precisely what we send,
   // so success keeps the optimistic state; a failure rolls back and explains why.
@@ -306,25 +381,26 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       if (!month) return
 
       const snapshot = month // captured synchronously for a clean rollback
+      const jarLine = !!findItem(month, itemId)?.savingsId
       setError(null)
-      setSavingItemId(itemId)
       setMonth(withItemPlanned(month, itemId, plannedMinor)) // optimistic
 
-      try {
-        await api.put(`/budget/items/${itemId}`, { plannedAmount: toAmount(plannedMinor) })
-        track(EVENTS.budgetItemEdited, { context: 'planned' })
-        // A jar line's planned amount is the plan the shelf shows for the month (rule 14), and
-        // typing one un-skips the month: re-read the shelf so it never goes stale (J6).
-        if (findItem(month, itemId)?.savingsId) refreshJars()
-      } catch (err) {
-        if (onMonth()) setMonth(snapshot) // roll back to the pre-edit state
+      const saved = await saveLine(
+        itemId,
+        snapshot,
+        onMonth,
+        // The line's version goes with the save (D11): the one its previous write answered with.
+        (version) => api.put<BudgetMonthDto>(`/budget/items/${itemId}`, { plannedAmount: toAmount(plannedMinor), version }),
         // A refusal says why (an archived jar's line plans nothing, D18).
-        setError(serverErrors(err) ?? 'Could not save that change — reverted to the previous value.')
-      } finally {
-        setSavingItemId(null)
-      }
+        (err) => serverErrors(err) ?? 'Could not save that change — reverted to the previous value.',
+      )
+      if (!saved) return
+      track(EVENTS.budgetItemEdited, { context: 'planned' })
+      // A jar line's planned amount is the plan the shelf shows for the month (rule 14), and
+      // typing one un-skips the month: re-read the shelf so it never goes stale (J6).
+      if (jarLine) refreshJars()
     },
-    [month, refreshJars, stillOn],
+    [month, refreshJars, saveLine, stillOn],
   )
 
   // Attribute an income line to the household member who earns it (or clear with null).
@@ -335,19 +411,16 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
 
       const snapshot = month
       setError(null)
-      setSavingItemId(itemId)
       setMonth(withItemMember(month, itemId, memberId)) // optimistic
-
-      try {
-        await api.put(`/budget/items/${itemId}/member`, { memberId })
-      } catch {
-        if (onMonth()) setMonth(snapshot)
-        setError('Could not update who earns that income — reverted.')
-      } finally {
-        setSavingItemId(null)
-      }
+      await saveLine(
+        itemId,
+        snapshot,
+        onMonth,
+        () => api.put<BudgetMonthDto>(`/budget/items/${itemId}/member`, { memberId }),
+        () => 'Could not update who earns that income — reverted.',
+      )
     },
-    [month, stillOn],
+    [month, saveLine, stillOn],
   )
 
   // Mark a line as a bill due on a day of the month (or clear it with null).
@@ -358,19 +431,16 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
 
       const snapshot = month
       setError(null)
-      setSavingItemId(itemId)
       setMonth(withItemBill(month, itemId, dueDay)) // optimistic
-
-      try {
-        await api.put(`/budget/items/${itemId}/bill`, { dueDay })
-      } catch {
-        if (onMonth()) setMonth(snapshot)
-        setError('Could not update that bill — reverted.')
-      } finally {
-        setSavingItemId(null)
-      }
+      await saveLine(
+        itemId,
+        snapshot,
+        onMonth,
+        () => api.put<BudgetMonthDto>(`/budget/items/${itemId}/bill`, { dueDay }),
+        () => 'Could not update that bill — reverted.',
+      )
     },
-    [month, stillOn],
+    [month, saveLine, stillOn],
   )
 
   // Toggle a bill line's paid status for this month.
@@ -381,19 +451,16 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
 
       const snapshot = month
       setError(null)
-      setSavingItemId(itemId)
       setMonth(withItemPaid(month, itemId, isPaid)) // optimistic
-
-      try {
-        await api.put(`/budget/items/${itemId}/paid`, { isPaid })
-      } catch {
-        if (onMonth()) setMonth(snapshot)
-        setError('Could not update that bill — reverted.')
-      } finally {
-        setSavingItemId(null)
-      }
+      await saveLine(
+        itemId,
+        snapshot,
+        onMonth,
+        () => api.put<BudgetMonthDto>(`/budget/items/${itemId}/paid`, { isPaid }),
+        () => 'Could not update that bill — reverted.',
+      )
     },
-    [month, stillOn],
+    [month, saveLine, stillOn],
   )
 
   // Rename a line. The update endpoint takes the planned amount too, so we send
@@ -407,22 +474,16 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
 
       const snapshot = month
       setError(null)
-      setSavingItemId(itemId)
       setMonth(withItemName(month, itemId, name)) // optimistic
-
-      try {
-        await api.put(`/budget/items/${itemId}`, {
-          plannedAmount: toAmount(current.plannedMinor),
-          name,
-        })
-      } catch {
-        if (onMonth()) setMonth(snapshot)
-        setError('Could not rename that line — reverted to the previous name.')
-      } finally {
-        setSavingItemId(null)
-      }
+      await saveLine(
+        itemId,
+        snapshot,
+        onMonth,
+        (version) => api.put<BudgetMonthDto>(`/budget/items/${itemId}`, { plannedAmount: toAmount(current.plannedMinor), name, version }),
+        () => 'Could not rename that line — reverted to the previous name.',
+      )
     },
-    [month, stillOn],
+    [month, saveLine, stillOn],
   )
 
   // Add a line to a category. We show a temp row instantly, then reconcile from
@@ -570,13 +631,23 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setMonth(withCategoryName(month, categoryId, name)) // optimistic
 
       try {
-        await api.put(`/budget/categories/${categoryId}`, { name })
-      } catch {
+        const { data } = await api.put<BudgetMonthDto>(`/budget/categories/${categoryId}`, {
+          name,
+          version: month.categories.find((c) => c.id === categoryId)?.version ?? null,
+        })
+        if (onMonth()) setMonth((m) => (m ? withVersions(m, data) : m))
+      } catch (err) {
         if (onMonth()) setMonth(snapshot)
-        setError('Could not rename that group — reverted to the previous name.')
+        const conflict = editConflict(err)
+        if (conflict) {
+          setError(conflict)
+          if (onMonth()) void refreshMonth()
+        } else {
+          setError('Could not rename that group — reverted to the previous name.')
+        }
       }
     },
-    [month, stillOn],
+    [month, refreshMonth, stillOn],
   )
 
   const deleteCategory = useCallback(

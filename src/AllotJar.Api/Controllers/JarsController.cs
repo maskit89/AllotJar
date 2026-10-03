@@ -117,7 +117,7 @@ public class JarsController : ControllerBase
         var result = await _mediator.Send(new UpdateJarCommand(
             id, request.Name, request.Kind, request.TargetAmount, request.TargetDate, request.Accrual,
             request.FundingAccountId, request.RecurMonths, request.MonthlyContribution, request.IncludeDeadlineMonth,
-            request.ShareAccount), ct);
+            request.ShareAccount, request.Version), ct);
         return Ok(result);
     }
 
@@ -265,7 +265,9 @@ public record UpdateJarRequest(
     int? RecurMonths = null,
     decimal? MonthlyContribution = null,
     bool IncludeDeadlineMonth = false,
-    bool ShareAccount = false);
+    bool ShareAccount = false,
+    // The version the edit form loaded (D11); null only from a client older than this deploy.
+    string? Version = null);
 
 /// <summary>Request body for previewing a jar definition's schedule; JarId is set when editing an existing jar.</summary>
 public record JarScheduleRequest(
