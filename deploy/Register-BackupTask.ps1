@@ -29,7 +29,7 @@ param(
     [string]$R2Prefix      = 'db-backups',
 
     # The account the task runs as must be able to take backups. By default this script
-    # gives NT AUTHORITY\SYSTEM a SQL login in the sysadmin role (idempotent; needs the
+    # gives NT AUTHORITY\SYSTEM the SQL rights to back up -Database (idempotent; needs the
     # CALLING identity to be a sysadmin, as the installing admin is). Pass -SkipSqlLogin
     # if you manage SQL permissions yourself.
     [switch]$SkipSqlLogin,
@@ -66,16 +66,20 @@ $argLine = New-BackupTaskArgumentLine -ScriptPath $target -Server $Server -Datab
 if ($PingUrl) { $argLine += ' -PingUrl "{0}"' -f $PingUrl }
 
 if (-not $SkipSqlLogin) {
-    # BACKUP runs under the task's account, which on SQL Server 2012+ is NOT a sysadmin by default.
+    # BACKUP runs under the task's account, which on SQL Server 2012+ has no backup rights by
+    # default (its login exists, empty). Two batches: server level in master, then the
+    # backup-operator role inside the target database.
     Add-Type -AssemblyName System.Data
-    $cn = New-Object System.Data.SqlClient.SqlConnection
-    $cn.ConnectionString = "Server=$Server;Database=master;Integrated Security=True;TrustServerCertificate=True"
-    $cn.Open()
-    try {
-        $cmd = $cn.CreateCommand(); $cmd.CommandText = (Get-BackupLoginSql -Account 'NT AUTHORITY\SYSTEM')
-        [void]$cmd.ExecuteNonQuery()
-    } finally { $cn.Close() }
-    Write-Host "SQL login: NT AUTHORITY\SYSTEM can take backups on $Server (sysadmin)." -ForegroundColor Green
+    foreach ($batch in @(@('master', (Get-BackupLoginSql)), @($Database, (Get-BackupDbUserSql)))) {
+        $cn = New-Object System.Data.SqlClient.SqlConnection
+        $cn.ConnectionString = "Server=$Server;Database=$($batch[0]);Integrated Security=True;TrustServerCertificate=True"
+        $cn.Open()
+        try {
+            $cmd = $cn.CreateCommand(); $cmd.CommandText = $batch[1]
+            [void]$cmd.ExecuteNonQuery()
+        } finally { $cn.Close() }
+    }
+    Write-Host "SQL rights: NT AUTHORITY\SYSTEM can back up [$Database] on $Server (db_backupoperator + CREATE ANY DATABASE)." -ForegroundColor Green
 }
 
 $action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argLine

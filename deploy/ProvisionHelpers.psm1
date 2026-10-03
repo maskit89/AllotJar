@@ -123,11 +123,14 @@ function Assert-R2SizeMatches {
 
 <#
 .SYNOPSIS
-    T-SQL (idempotent) that lets the account a backup task runs as take backups: a Windows
-    login for it, in the sysadmin role. The task runs as NT AUTHORITY\SYSTEM, which SQL
-    Server 2012 and later no longer adds to sysadmin, so without this every nightly run
-    fails at BACKUP with a login or permission error. SYSTEM is already the machine's
-    highest local account, so this adds no reach on this host.
+    T-SQL (idempotent) that lets the account a backup task runs as take backups, in two
+    batches because the second must run inside the database being backed up.
+    Get-BackupLoginSql (run in master): a Windows login for the account, and CREATE ANY
+    DATABASE, which RESTORE VERIFYONLY needs. Get-BackupDbUserSql (run in the target
+    database): a user for that login in the db_backupoperator role, which BACKUP DATABASE
+    needs. The task runs as NT AUTHORITY\SYSTEM, which SQL Server 2012 and later no longer
+    makes a sysadmin: on the production VPS its login existed with no rights at all, so every
+    nightly run failed at BACKUP. Least privilege: no sysadmin.
 #>
 function Get-BackupLoginSql {
     param([string]$Account = 'NT AUTHORITY\SYSTEM')
@@ -136,9 +139,20 @@ function Get-BackupLoginSql {
     return @"
 IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'$q')
     CREATE LOGIN [$id] FROM WINDOWS;
-IF IS_SRVROLEMEMBER(N'sysadmin', N'$q') <> 1
-    ALTER SERVER ROLE [sysadmin] ADD MEMBER [$id];
+GRANT CREATE ANY DATABASE TO [$id];
 "@
 }
 
-Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql
+function Get-BackupDbUserSql {
+    param([string]$Account = 'NT AUTHORITY\SYSTEM')
+    $q = $Account.Replace("'", "''")
+    $id = $Account.Replace(']', ']]')
+    return @"
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'$q')
+    CREATE USER [$id] FOR LOGIN [$id];
+IF IS_ROLEMEMBER(N'db_backupoperator', N'$q') <> 1
+    ALTER ROLE [db_backupoperator] ADD MEMBER [$id];
+"@
+}
+
+Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql
