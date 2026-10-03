@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AllotJar.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261001220000_PersonFormerLogin")]
+    [Migration("20261003120000_PersonFormerLogin")]
     partial class PersonFormerLogin
     {
         /// <inheritdoc />
@@ -232,6 +232,11 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("IsPaid")
                         .HasColumnType("bit");
+
+                    b.Property<bool>("IsPlannedByHand")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
 
                     b.Property<bool>("IsSkipped")
                         .ValueGeneratedOnAdd()
@@ -811,6 +816,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
                     b.Property<DateOnly?>("ReturnedOn")
                         .HasColumnType("date");
+
+                    b.Property<Guid?>("StatementAccountId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("TransferAccountId")
                         .HasColumnType("uniqueidentifier");
