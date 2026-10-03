@@ -18,10 +18,12 @@
 [CmdletBinding()]
 param(
     [string]$Source  = 'Server=(localdb)\MSSQLLocalDB;Database=ZeroBudget;Trusted_Connection=True;TrustServerCertificate=True',
-    [string]$OutFile = (Join-Path $PSScriptRoot 'ZeroBudget.bacpac')
+    [string]$OutFile   # default: ZeroBudget.bacpac beside this script (set below)
 )
 
 $ErrorActionPreference = 'Stop'
+# $PSScriptRoot is empty inside a param() default under `powershell -File` on Windows PowerShell 5.1.
+if (-not $OutFile) { $OutFile = Join-Path $PSScriptRoot 'ZeroBudget.bacpac' }
 
 if (-not (Get-Command sqlpackage -ErrorAction SilentlyContinue)) {
     throw "sqlpackage not found. Install it with: dotnet tool install -g microsoft.sqlpackage"

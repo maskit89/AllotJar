@@ -10,8 +10,8 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$BackupScript  = (Join-Path $PSScriptRoot 'Backup-Database.ps1'),
-    [string]$UploadScript  = (Join-Path $PSScriptRoot 'Upload-BackupToR2.ps1'),
+    [string]$BackupScript,    # default: Backup-Database.ps1 beside this script (set below)
+    [string]$UploadScript,    # default: Upload-BackupToR2.ps1 beside this script (set below)
     [string]$InstallDir    = 'C:\deploy',
     [string]$Time          = '02:30',
     [string]$Server        = '.\SQLEXPRESS',
@@ -41,6 +41,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# $PSScriptRoot is empty inside a param() default under `powershell -File` on Windows PowerShell 5.1
+# ("Cannot bind argument to parameter 'Path' because it is an empty string"), so the defaults are
+# resolved here, where it is always set.
+if (-not $BackupScript) { $BackupScript = Join-Path $PSScriptRoot 'Backup-Database.ps1' }
+if (-not $UploadScript) { $UploadScript = Join-Path $PSScriptRoot 'Upload-BackupToR2.ps1' }
 Import-Module (Join-Path $PSScriptRoot 'ProvisionHelpers.psm1') -Force
 
 if (-not (Test-Path $BackupScript)) { throw "Backup script not found: $BackupScript" }
