@@ -96,4 +96,66 @@ function Get-R2BucketFromArgumentLine {
     return $null
 }
 
-Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine
+<#
+.SYNOPSIS
+    The byte count in `rclone size --json` output, checked against the local file's size.
+    Throws when the JSON is unreadable or the sizes differ; returns the remote byte count
+    otherwise. Lives here (not inline in Upload-BackupToR2.ps1) so a test can drive it: the
+    inline version assigned the parsed object to `$remote`, which PowerShell treats as the
+    same variable as that script's `[string]$Remote` parameter (names ignore case), so the
+    [string] constraint turned the object into text and EVERY upload failed its own check.
+#>
+function Assert-R2SizeMatches {
+    param(
+        [Parameter(Mandatory)][string]$SizeJson,
+        [Parameter(Mandatory)][int64]$LocalBytes,
+        [Parameter(Mandatory)][string]$Name
+    )
+    $sizeInfo = $SizeJson | ConvertFrom-Json
+    # PSObject.Properties, not .bytes: a missing property throws under Set-StrictMode.
+    if ($null -eq $sizeInfo -or -not $sizeInfo.PSObject.Properties['bytes'] -or $null -eq $sizeInfo.bytes) {
+        throw "Post-upload verify failed: rclone's size answer for $Name has no byte count: $SizeJson"
+    }
+    if ([int64]$sizeInfo.bytes -ne $LocalBytes) {
+        throw "Post-upload verify failed: local $LocalBytes bytes vs remote $($sizeInfo.bytes) bytes for $Name."
+    }
+    return [int64]$sizeInfo.bytes
+}
+
+<#
+.SYNOPSIS
+    T-SQL (idempotent) that lets the account a backup task runs as take backups, in two
+    batches because the second must run inside the database being backed up.
+    Get-BackupLoginSql (run in master): a Windows login for the account, and CREATE ANY
+    DATABASE, which RESTORE VERIFYONLY needs. Get-BackupDbUserSql (run in the target
+    database): a user for that login in the db_backupoperator role, which BACKUP DATABASE
+    needs. The task runs as NT AUTHORITY\SYSTEM, which SQL Server 2012 and later no longer
+    makes a sysadmin: on the production VPS its login existed with no rights at all, so every
+    nightly run failed at BACKUP. Least privilege: no sysadmin.
+#>
+function Get-BackupLoginSql {
+    param([string]$Account = 'NT AUTHORITY\SYSTEM')
+    $q = $Account.Replace("'", "''")
+    $id = $Account.Replace(']', ']]')
+    return @"
+IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'$q')
+    CREATE LOGIN [$id] FROM WINDOWS;
+GRANT CREATE ANY DATABASE TO [$id];
+"@
+}
+
+function Get-BackupDbUserSql {
+    param([string]$Account = 'NT AUTHORITY\SYSTEM')
+    $q = $Account.Replace("'", "''")
+    $id = $Account.Replace(']', ']]')
+    return @"
+IF EXISTS (SELECT 1 FROM sys.databases WHERE name = DB_NAME() AND owner_sid = SUSER_SID(N'$q'))
+    RETURN; -- the account owns this database (it maps to dbo), which can already back it up
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'$q')
+    CREATE USER [$id] FOR LOGIN [$id];
+IF IS_ROLEMEMBER(N'db_backupoperator', N'$q') <> 1
+    ALTER ROLE [db_backupoperator] ADD MEMBER [$id];
+"@
+}
+
+Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql

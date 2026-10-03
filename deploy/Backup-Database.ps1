@@ -10,7 +10,9 @@
     Writes a fresh <Database>_<timestamp>.bak under -BackupDir, verifies it with
     RESTORE VERIFYONLY, then deletes backups older than -RetentionDays. Uses
     Windows auth (-E), so the calling identity needs BACKUP rights on the
-    instance (NT AUTHORITY\SYSTEM is a sysadmin by default on SQL Server).
+    instance. NT AUTHORITY\SYSTEM is NOT a sysadmin by default on SQL Server 2012+;
+    Register-BackupTask.ps1 grants it CREATE ANY DATABASE and db_backupoperator
+    (no sysadmin).
 
     When -R2Bucket is set, the verified backup is also copied off-host to Cloudflare
     R2 (via Upload-BackupToR2.ps1 next to this script) so a disk/host/ransomware event
@@ -30,10 +32,36 @@ param(
     [string]$Rclone        = 'C:\deploy\rclone\rclone.exe',
     [string]$RcloneConf    = 'C:\deploy\rclone.conf',
     [string]$R2Remote      = 'r2',
-    [string]$R2Prefix      = 'db-backups'
+    [string]$R2Prefix      = 'db-backups',
+
+    # Optional dead-man's-switch URL (healthchecks.io style): GET after a successful run,
+    # GET <url>/fail after a failed one. Never makes the backup itself fail.
+    [string]$PingUrl
 )
 
 $ErrorActionPreference = 'Stop'
+
+# A scheduled task that fails is silent: nobody looks at Task Scheduler. Every outcome goes to
+# the Windows Application event log (source 'AllotJar Backup', Error on failure) and, when
+# -PingUrl is set, to that URL. Reporting problems never change the backup's own result.
+function Send-BackupOutcome {
+    param([bool]$Ok, [string]$Message)
+    try {
+        if (-not [System.Diagnostics.EventLog]::SourceExists('AllotJar Backup')) {
+            New-EventLog -LogName Application -Source 'AllotJar Backup'
+        }
+        Write-EventLog -LogName Application -Source 'AllotJar Backup' -EntryType $(if ($Ok) { 'Information' } else { 'Error' }) `
+            -EventId $(if ($Ok) { 4000 } else { 4001 }) -Message $Message
+    } catch { Write-Warning "Could not write the event log entry: $_" }
+    if ($PingUrl) {
+        # Windows PowerShell 5.1 defaults to TLS 1.0/1.1, which https endpoints refuse.
+        try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
+        try { [void](Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 -Uri $(if ($Ok) { $PingUrl } else { $PingUrl.TrimEnd('/') + '/fail' })) }
+        catch { Write-Warning "Could not reach -PingUrl: $_" }
+    }
+}
+
+try {
 New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
 
 $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
@@ -79,3 +107,8 @@ Get-ChildItem -Path $BackupDir -Filter "$($Database)_*.bak" |
     }
 
 Write-Host "Backup complete." -ForegroundColor Green
+Send-BackupOutcome -Ok $true -Message "Backup of [$Database] completed and verified: $file"
+} catch {
+    Send-BackupOutcome -Ok $false -Message "Backup of [$Database] FAILED: $($_.Exception.Message)"
+    throw
+}
