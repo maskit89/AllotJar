@@ -272,14 +272,14 @@
 - **Expected:** Accepted. `POST /jars` sends `kind:1`, `targetAmount:0`, `targetDate:null`, `accrual:2`, `monthlyContribution:50`, `recurMonths:null`. The card reads "Plan €50.00 · in €0.00 · to go €50.00" with the horizon "Ongoing", no `%` pill and no "of €…". Each new month seeds 50 (JarPlannerTests rule 16); a missed month never raises a later one. A target of 0 with **no** monthly amount is refused (JAR-014).
 - **Automated:** Yes (JarsPage.catalog.test.tsx — JAR-027; JarScheduleTests — `Rule16_AnOngoingJar_…`; JarPlannerTests — `Rule16_AnOngoingJar_SeedsItsFixedAmount_EveryMonth`)
 
-### JAR-028 - Target with many decimals rounds to 4 dp
+### JAR-028 - Target with more decimals than cents is refused (D1)
 - **Priority:** P2
 - **Type:** Boundary
 - **Preconditions:** Owner; New-jar modal, Type "Goal".
 - **Steps:**
   1. Type `100.123456` into "Target amount", "Add jar".
-- **Expected:** `parseMinor` rounds HALF-UP to scale 4 → wire `targetAmount:100.1235`. No validation error (value is in range). Card shows the rounded target.
-- **Automated:** Partial (lib/money.test.ts — parseMinor >4dp rounding, not on this page)
+- **Expected:** Refused with "Enter at most 2 decimal places."; nothing is sent and nothing is rounded (D1, 1 Oct 2026). `100.12` is then sent as `targetAmount:100.12`. An edit that leaves a stored target with more decimals unchanged still saves (W10).
+- **Automated:** Yes (client/src/pages/JarsPage.catalog.test.tsx)
 
 ### JAR-029 - Out-of-range target or over-long name is rejected server-side
 - **Priority:** P2

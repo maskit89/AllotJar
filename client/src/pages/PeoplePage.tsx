@@ -29,7 +29,7 @@ import {
   type MembershipDto,
   type PocketMoneyMonthDto,
 } from '../types'
-import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import { formatMoney, fromAmount, parseMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { serverErrors } from '../lib/serverErrors'
 import { accountOptionLabel, savingsFirst } from '../lib/accountOptions'
 import { PRIVATE_ACCOUNT } from '../lib/accountHolders'
@@ -255,6 +255,10 @@ export function PeoplePage() {
       setError('Enter a valid monthly income.')
       return
     }
+    if (tooPrecise(income)) {
+      setError(TOO_MANY_DECIMALS)
+      return
+    }
     setAdding(true)
     setError(null)
     try {
@@ -295,6 +299,12 @@ export function PeoplePage() {
         setError('Enter a valid monthly income.')
         return
       }
+      // A typed amount is whole cents (D1); the saved one goes back as it is.
+      const saved = members.find((m) => m.id === id)
+      if (tooPrecise(eIncome, saved ? fromAmount(saved.netMonthlyIncome) : null)) {
+        setError(TOO_MANY_DECIMALS)
+        return
+      }
       setSavingId(id)
       setError(null)
       try {
@@ -313,7 +323,7 @@ export function PeoplePage() {
         setSavingId(null)
       }
     },
-    [eName, eIncome, eSavings, reloadAll],
+    [eName, eIncome, eSavings, members, reloadAll],
   )
 
   /**

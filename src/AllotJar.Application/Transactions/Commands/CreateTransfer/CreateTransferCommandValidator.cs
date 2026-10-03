@@ -1,4 +1,5 @@
 using FluentValidation;
+using AllotJar.Application.Common;
 using AllotJar.Application.Jars;
 
 namespace AllotJar.Application.Transactions.Commands.CreateTransfer;
@@ -11,7 +12,8 @@ public class CreateTransferCommandValidator : AbstractValidator<CreateTransferCo
     {
         RuleFor(x => x.Amount)
             .GreaterThan(0m).WithMessage("A transfer amount must be greater than zero.")
-            .LessThanOrEqualTo(MaxAmount).WithMessage("Transfer amount is out of range.");
+            .LessThanOrEqualTo(MaxAmount).WithMessage("Transfer amount is out of range.")
+            .WholeCents();
 
         RuleFor(x => x.FromAccountId).NotEmpty();
         RuleFor(x => x.ToAccountId).NotEmpty();
@@ -30,6 +32,7 @@ public class CreateTransferCommandValidator : AbstractValidator<CreateTransferCo
         RuleFor(x => x.Fee)
             .GreaterThanOrEqualTo(0m).WithMessage("A fee can't be negative.")
             .LessThanOrEqualTo(MaxAmount).WithMessage("Fee is out of range.")
+            .WholeCents()
             .When(x => x.Fee.HasValue);
         RuleFor(x => x.FeeBudgetItemId)
             .Null().When(x => x.Fee is not > 0m)
@@ -37,5 +40,6 @@ public class CreateTransferCommandValidator : AbstractValidator<CreateTransferCo
 
         RuleFor(x => x.Payee).MaximumLength(200);
         RuleFor(x => x.JarAllocations).JarAllocationsWellFormed();
+        RuleFor(x => x.JarAllocations).JarAllocationsInCents();
     }
 }

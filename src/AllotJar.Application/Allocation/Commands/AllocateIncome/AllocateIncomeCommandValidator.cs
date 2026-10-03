@@ -1,4 +1,5 @@
 using FluentValidation;
+using AllotJar.Application.Common;
 
 namespace AllotJar.Application.Allocation.Commands.AllocateIncome;
 
@@ -26,5 +27,8 @@ public class AllocateIncomeCommandValidator : AbstractValidator<AllocateIncomeCo
         RuleFor(x => x.JarAllocations)
             .Must(list => list is null || list.All(a => a.MemberId != Guid.Empty && a.JarId != Guid.Empty && a.Amount >= 0m))
             .WithMessage("Each jar amount needs a member, a jar and an amount of zero or more.");
+        RuleFor(x => x.JarAllocations)
+            .Must(list => list is null || list.All(a => MoneyInput.IsWholeCents(a.Amount)))
+            .WithMessage(MoneyInput.TooPrecise);
     }
 }

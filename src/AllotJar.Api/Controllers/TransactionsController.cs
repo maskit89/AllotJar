@@ -188,15 +188,19 @@ public class TransactionsController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Deletes one of the user's transactions.</summary>
+    /// <summary>
+    /// Deletes one of the user's transactions. 204 when nothing needs saying; 200 with a
+    /// <c>warning</c> when the delete left something for the user to settle (D10).
+    /// </summary>
     [HttpDelete("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(DeleteTransactionResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
-        await _mediator.Send(new DeleteTransactionCommand(id), ct);
-        return NoContent();
+        var result = await _mediator.Send(new DeleteTransactionCommand(id), ct);
+        return result.Warning is null ? NoContent() : Ok(result);
     }
 
     /// <summary>Splits a transaction across two or more budget lines (replaces any prior split / whole assignment).</summary>

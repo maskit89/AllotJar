@@ -7,7 +7,7 @@ import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import type { AccountDto, JarDto, JarScheduleDto, JarScheduleRequest } from '../types'
 import { AccrualMethod, JarKind, JAR_KIND_LABELS, RECUR_MONTHS_OPTIONS } from '../types'
-import { formatMoney, fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import { formatMoney, fromAmount, parseMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { formatDate, monthYear, todayIso } from '../lib/dates'
 import { serverErrors } from '../lib/serverErrors'
@@ -222,6 +222,15 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
     const initialAllocation = editing ? 0 : parseAmount(form.initialAllocation)
     if (targetAmount === null || initialAllocation === null || monthlyContribution === null) {
       setError('Enter valid amounts.')
+      return
+    }
+    // A typed amount is whole cents (D1); one the jar was saved with goes back as it is.
+    if (
+      tooPrecise(form.target, jar ? fromAmount(jar.targetAmount) : null) ||
+      tooPrecise(form.monthly, jar?.monthlyContribution != null ? fromAmount(jar.monthlyContribution) : null) ||
+      (!editing && tooPrecise(form.initialAllocation))
+    ) {
+      setError(TOO_MANY_DECIMALS)
       return
     }
     if (!form.fundingAccountId) {

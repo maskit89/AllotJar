@@ -100,16 +100,16 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 - **Expected:** The `Spent` bar renders at `max(2, round(value/max×100))` = **2%** height (a visible sliver) rather than a near-invisible hairline. A truly zero value renders 0% (no bar). Same rule applies to every `pct()`-driven bar on the page.
 - **Automated:** No
 
-### RPT-009 - Trends window is the most recent N budgets, not the last N calendar months
+### RPT-009 - Trends window is the last N calendar months up to the latest budget
 - **Priority:** P1
 - **Type:** Regression
-- **Origin:** reports-landing map gotcha #7 — window = "most recent N budgets" (Year desc, Month desc, take N), output sorted chronologically; calendar gaps are skipped.
-- **Preconditions:** Owner whose ONLY budgets are **Jan 2026** and **Jun 2026** (five calendar months apart).
+- **Origin:** reports-landing map gotcha #7; changed by D12 (1 Oct 2026, review RP-P3-2) — window = the last N calendar months up to the latest budget, none before the first month with a budget or a recorded row; a month with no budget is a point of its own, as in the annual table.
+- **Preconditions:** Owner whose ONLY budgets are **Jan 2026** and **Jun 2026** (five calendar months apart), with spending in March.
 - **Steps:**
   1. Load `/reports`.
   2. Inspect the trend columns and the breakdown `<select>` options.
-- **Expected:** Exactly **two** columns, labelled `Jan` and `Jun`, sitting side-by-side (Feb–May are NOT rendered as empty gaps). Columns are in chronological order (Jan then Jun). The breakdown select offers only `Jun 2026` and `Jan 2026` (newest first). Default breakdown = `2026-06`, default annual year = 2026.
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/BudgetTrendsTests.cs) — chronological ordering + window cap.
+- **Expected:** Six columns, `Jan` to `Jun`, in chronological order; Feb–May carry no budgeted figures (`hasBudget: false`) and March shows its spending. The breakdown select offers `Jun 2026` back to `Jan 2026` (newest first). Default breakdown = `2026-06`, default annual year = 2026.
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/RReportsCoverageTests.cs `Trends_Window_IsCalendarMonths_SoAMonthWithNoBudgetIsAPointOfItsOwn`).
 
 ### RPT-010 - Trends window caps at the client-requested 6 (and the server clamps 1..24)
 - **Priority:** P2
@@ -195,20 +195,20 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 ### RPT-017 - Average card lists categories by descending average with totals and Fund badge
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Owner with H2; 2026 has 2 budgeted months.
+- **Preconditions:** Owner with H2; 2026 counts 2 calendar months (D12: `countedMonths`, from the first month with a budget or a figure to the current UTC month).
 - **Steps:**
   1. Load `/reports`, view `Average monthly spending by category` (year 2026).
-- **Expected:** Subtitle `Each category's spend averaged over the 2 budgeted months of 2026.` (plural). Rows ordered by average desc: `Housing` → `€1,400.00/mo · €2,800.00 total`; `Food` → `€850.00/mo · €1,700.00 total`; `Emergency Fund` with a violet `Fund` badge → `€300.00/mo · €600.00 total`. Each row wrapper `aria-label="Average spending for {name}"`, sky-blue bar `aria-label="Average for {name}"`; the largest average fills the bar to 100%.
+- **Expected:** Subtitle `Each category's spend averaged over 2 months of 2026, counting a month with no budget as a month too.` (plural). Rows ordered by average desc: `Housing` → `€1,400.00/mo · €2,800.00 total`; `Food` → `€850.00/mo · €1,700.00 total`; `Emergency Fund` with a violet `Fund` badge → `€300.00/mo · €600.00 total`. Each row wrapper `aria-label="Average spending for {name}"`, sky-blue bar `aria-label="Average for {name}"`; the largest average fills the bar to 100%.
 - **Automated:** Partial (client/src/pages/ReportsPage.test.tsx)
 
-### RPT-018 - Subtitle uses the singular "budgeted month" for a single-month year
+### RPT-018 - Subtitle uses the singular "month" for a single-month year
 - **Priority:** P2
 - **Type:** Boundary
 - **Preconditions:** Owner whose only 2026 budget is June.
 - **Steps:**
   1. Load `/reports`, read the average-card subtitle.
-- **Expected:** `Each category's spend averaged over the 1 budgeted month of 2026.` (singular `budgeted month`, switched on `budgetedMonths === 1`). Averages equal that single month's actuals.
-- **Automated:** No
+- **Expected:** `Each category's spend averaged over 1 month of 2026, counting a month with no budget as a month too.` (singular `month`, switched on `countedMonths === 1`, read in June). Averages equal that single month's actuals.
+- **Automated:** Yes (client/src/pages/ReportsPage.catalog.test.tsx)
 
 ### RPT-019 - Categories are keyed by (Name, Kind): renames split history and same-name kinds separate
 - **Priority:** P1

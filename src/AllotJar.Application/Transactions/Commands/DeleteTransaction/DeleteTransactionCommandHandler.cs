@@ -7,7 +7,7 @@ using AllotJar.Domain.Entities;
 
 namespace AllotJar.Application.Transactions.Commands.DeleteTransaction;
 
-public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransactionCommand>
+public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransactionCommand, DeleteTransactionResult>
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
@@ -18,7 +18,7 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
         _currentUser = currentUser;
     }
 
-    public async Task Handle(DeleteTransactionCommand request, CancellationToken cancellationToken)
+    public async Task<DeleteTransactionResult> Handle(DeleteTransactionCommand request, CancellationToken cancellationToken)
     {
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
@@ -82,6 +82,10 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
         await using var write = locked.Count == 0
             ? null
             : await _db.BeginLedgerWriteAsync(locked, cancellationToken);
+        // The accounts as they stand, to say afterwards whether the delete left their jars
+        // unbacked (D10).
+        var beforeDelete = affected.Count == 0 ? null : await Jars.JarHistoryChecks.BeforeWriteAsync(_db, userId, affected, cancellationToken);
+        var deficitFrom = new[] { transaction.Date, transaction.DepartedOn ?? transaction.Date, transaction.ReceivedOn ?? transaction.Date }.Min();
         if (affected.Count > 0)
         {
             // A transfer's fee goes with it.
@@ -123,9 +127,15 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
             }
             await _db.SaveChangesAsync(cancellationToken);
         }
+        // Deleted either way: an income whose jar money was moved on since leaves jars the
+        // account no longer backs (rule 70 lets that stand); the answer says so.
+        var warning = beforeDelete is null
+            ? null
+            : await Jars.JarHistoryChecks.NewBackingDeficitAsync(_db, userId, beforeDelete, affected, deficitFrom, "Deleted.", cancellationToken);
         if (write is not null)
         {
             await write.CommitAsync(cancellationToken);
         }
+        return new DeleteTransactionResult(warning);
     }
 }

@@ -166,6 +166,8 @@ export function ReportsPage() {
 
   /** A month with no budget and nothing recorded reads as a dash across the row. */
   const annualRowIsBlank = (m: AnnualMonthDto) => !m.hasBudget && m.incomeReceived === 0 && m.spent === 0
+  // The calendar months the server averaged over (D12); an older server sent only the budgeted ones.
+  const averagedMonths = annual?.countedMonths ?? annual?.budgetedMonths ?? 0
 
   return (
     <AppShell active="reports" title="Reports">
@@ -360,8 +362,8 @@ export function ReportsPage() {
                   Average monthly spending by category
                 </h3>
                 <p className="mb-4 text-xs text-slate-500">
-                  Each category’s spend averaged over the {annual.budgetedMonths}{' '}
-                  {annual.budgetedMonths === 1 ? 'budgeted month' : 'budgeted months'} of {annual.year}.
+                  Each category’s spend averaged over {averagedMonths} {averagedMonths === 1 ? 'month' : 'months'} of{' '}
+                  {annual.year}, counting a month with no budget as a month too.
                 </p>
                 <div className="space-y-3">
                   {annual.categories.map((c) => {

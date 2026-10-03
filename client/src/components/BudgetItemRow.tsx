@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { BillStatus, ItemVM } from '../budgetModel'
 import { itemRemaining } from '../budgetModel'
-import { currencySymbol, formatMoney, parseMinor, toEditString, type Minor } from '../lib/money'
+import { currencySymbol, formatMoney, parseMinor, toEditString, tooPrecise, TOO_MANY_DECIMALS, type Minor } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { hueColor, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { useAuth } from '../auth/AuthContext'
@@ -89,6 +89,8 @@ export function BudgetItemRow({
   const { canWrite, canEnterData } = useAuth()
   const [name, setName] = useState(item.name)
   const [draft, setDraft] = useState(toEditString(item.plannedMinor))
+  // A typed amount with more decimals than cents stays in the field with this message (D1).
+  const [plannedError, setPlannedError] = useState<string | null>(null)
   // The planned amount reads as clean "€spent of €planned" text (matching the
   // design) and only becomes an input once clicked — so the row never carries a
   // ragged inline field at rest.
@@ -128,6 +130,12 @@ export function BudgetItemRow({
   }
 
   function commitPlanned() {
+    if (tooPrecise(draft, item.plannedMinor)) {
+      setPlannedError(TOO_MANY_DECIMALS)
+      setEditingPlanned(true) // keep the typed amount open for correction, never rounded
+      return
+    }
+    setPlannedError(null)
     const parsed = parseMinor(draft)
     if (parsed === null) {
       setDraft(toEditString(item.plannedMinor)) // revert invalid input
@@ -224,11 +232,17 @@ export function BudgetItemRow({
             if (e.key === 'Escape') {
               setDraft(toEditString(item.plannedMinor))
               setEditingPlanned(false)
+              setPlannedError(null)
             }
           }}
           size={Math.max(3, draft.length)}
           className="rounded border border-brand-500 bg-surface px-1 text-right text-[11.5px] tabular-nums text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-500/30"
         />
+        {plannedError && (
+          <span role="alert" className="ml-1 text-[11px] font-normal text-rose-600">
+            {plannedError}
+          </span>
+        )}
       </span>
     ) : (
       <button

@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Accounts.Dtos;
+using AllotJar.Application.Common;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
@@ -38,6 +39,7 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
         {
             throw new ForbiddenAccessException();
         }
+        MoneyInput.EnsureAccepted((nameof(request.OpeningBalance), request.OpeningBalance, account.OpeningBalance));
 
         // The validators enforce both; a bypassing caller must still not create a credit-card
         // account (rule 75) or a negative opening (rule 74).

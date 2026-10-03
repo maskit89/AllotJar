@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Common;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports;
@@ -51,6 +52,7 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         {
             throw TransferFees.ChangedDirectly("TransactionId");
         }
+        MoneyInput.EnsureAccepted(("Amount", request.Amount, transaction.Amount));
 
         Account? account = null;
         if (request.AccountId is Guid accountId)
@@ -76,6 +78,20 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         await using var write = locked.Count == 0
             ? null
             : await _db.BeginLedgerWriteAsync(locked, cancellationToken);
+        // The accounts the edit touches, as they stand, to say afterwards whether it left their
+        // jars unbacked (D10): the one losing the row, a former destination, the one receiving it.
+        var losing = new[] { previousAccount, previousDestination, account }.OfType<Account>().DistinctBy(a => a.Id).ToList();
+        var deficitFrom = new[] { transaction.Date, request.Date, transaction.DepartedOn ?? transaction.Date, transaction.ReceivedOn ?? transaction.Date }.Min();
+        // An edit that leaves the money where and when it was, and the jar answers as stored (a
+        // payee, member or note edit), can't take money from under the jars, so the ledgers aren't
+        // walked (#306 review P3-2).
+        var moneyMoves = request.Amount != transaction.Amount || request.Date != transaction.Date
+            || request.Type != transaction.Type || request.AccountId != transaction.AccountId
+            || (account is not null && await JarHistoryChecks.JarAnswersMayChangeAsync(_db, transaction.Id,
+                request.Type == TransactionType.Expense ? new[] { (account.Id, request.PaidFromJarId) } : Array.Empty<(Guid, Guid?)>(),
+                request.Type == TransactionType.Income ? new[] { (account.Id, request.JarAllocations) } : Array.Empty<(Guid, IReadOnlyList<JarAllocationInput>?)>(),
+                cancellationToken));
+        var beforeEdit = losing.Count == 0 || !moneyMoves ? null : await JarHistoryChecks.BeforeWriteAsync(_db, userId, losing, cancellationToken);
 
         // Moving a transaction onto an account of a different currency would corrupt that
         // account's (currency-blind) balance — reject it. The transaction's currency is not
@@ -321,6 +337,17 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
             await TransferReturns.ClearAsync(_db, transaction.Id, cancellationToken);
             transaction.AllocationKey = null;
         }
+        // An imported row moved by hand to another account (or off every account) is still its
+        // statement's entry: that account keeps knowing it, so importing the statement again
+        // skips it instead of offering it anew (D8, rule 88). Moved back, it is simply there again.
+        if (transaction.BankReference is not null && transaction.AccountId != account?.Id)
+        {
+            transaction.StatementAccountId ??= transaction.AccountId;
+            if (transaction.StatementAccountId == account?.Id)
+            {
+                transaction.StatementAccountId = null;
+            }
+        }
         transaction.Account = account;
         transaction.AccountId = account?.Id;
         transaction.Member = member;
@@ -372,11 +399,19 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        // Saved either way: lowering, re-dating or moving an income whose jar money was moved on
+        // since takes money the jars still count (rule 70 lets that stand, as it lets a payment
+        // overdraw them); the answer says so.
+        var warning = beforeEdit is null
+            ? null
+            : await JarHistoryChecks.NewBackingDeficitAsync(_db, userId, beforeEdit, losing, deficitFrom, "Saved.", cancellationToken);
         if (write is not null)
         {
             await write.CommitAsync(cancellationToken);
         }
 
-        return await TransactionReads.ReadDtoAsync(_db, transaction.Id, cancellationToken);
+        var dto = await TransactionReads.ReadDtoAsync(_db, transaction.Id, cancellationToken);
+        dto.Warning = warning;
+        return dto;
     }
 }

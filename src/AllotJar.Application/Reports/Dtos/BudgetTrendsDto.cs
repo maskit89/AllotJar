@@ -1,7 +1,8 @@
 namespace AllotJar.Application.Reports.Dtos;
 
 /// <summary>
-/// A multi-month rollup for the reports page: one point per budgeted month (chronological)
+/// A multi-month rollup for the reports page: one point per calendar month (chronological, a
+/// month with no budget included, as in the annual table)
 /// plus window totals. Income/Planned come from the budgeted amounts; IncomeReceived and Spent
 /// are derived from what actually happened, by the rules of <see cref="MonthReportDto"/>: spending
 /// includes what no line carries yet and is net of refunds; received income leaves out transfers
@@ -37,6 +38,9 @@ public class BudgetTrendPointDto
 
     /// <summary>"2026-06".</summary>
     public string Key { get; set; } = string.Empty;
+
+    /// <summary>False for a month with no budget: its budgeted figures are 0 and its transactions still count (P21).</summary>
+    public bool HasBudget { get; set; }
 
     /// <summary>Budgeted income for the month (Σ income-group planned lines).</summary>
     public decimal Income { get; set; }

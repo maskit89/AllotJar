@@ -40,6 +40,29 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
             throw new ForbiddenAccessException();
         }
 
+        // A refund stays on the line it landed on, so moving its purchase to another line (or off
+        // every line, or folding its split onto one) would leave that line reading the refund with
+        // no purchase (D9, #306 review P2-3). Refused as a split is: the user unlinks the refunds
+        // first; one in another login's private account counts too (W13).
+        if (request.BudgetItemId != transaction.BudgetItemId || transaction.Splits.Count > 0)
+        {
+            var refunds = await RefundRules.AllRefundsAsync(_db, transaction.Id, cancellationToken);
+            if (refunds.Count > 0)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["BudgetItemId"] = new[]
+                    {
+                        refunds.Any(r => r.Hidden)
+                            ? "This purchase has a refund linked to it in a private account. Its holder must unlink it before the purchase can be moved to another line."
+                            : refunds.Count == 1
+                                ? "This purchase has a refund linked to it. Unlink the refund before moving the purchase to another line."
+                                : $"This purchase has {refunds.Count} refunds linked to it. Unlink them before moving the purchase to another line.",
+                    },
+                });
+            }
+        }
+
         // Under the account's ledger lock before the line's jar is checked, so the jar can't be
         // archived or moved between the check and the save (P11, #300 review P2-1).
         await using var write = transaction.Account is not null && transaction.Type == TransactionType.Expense

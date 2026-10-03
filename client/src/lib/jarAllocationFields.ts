@@ -1,5 +1,5 @@
 import type { JarAllocationRequest } from '../types'
-import { fromAmount, parseMinor, toAmount, toEditString } from './money'
+import { fromAmount, parseMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from './money'
 
 /** Parses the typed jar amounts into the request rows the API takes; empty and zero fields are left out. */
 export function toJarAllocations(value: Record<string, string>): JarAllocationRequest[] {
@@ -23,11 +23,18 @@ export function jarAllocationsTotal(value: Record<string, string>): number | nul
 
 /**
  * Why the typed jar amounts can't be sent, or null when they can. A field that doesn't parse
- * would otherwise be left out and its money stay unallocated without a word.
+ * would otherwise be left out and its money stay unallocated without a word. A typed amount is
+ * whole cents (D1); `stored`, the fields as an edit opened them, may go back unchanged (W10).
  */
-export function jarAllocationsProblem(value: Record<string, string>, amount: number | null): string | null {
+export function jarAllocationsProblem(
+  value: Record<string, string>,
+  amount: number | null,
+  stored?: Record<string, string>,
+): string | null {
   const total = jarAllocationsTotal(value)
   if (total === null) return 'Enter each jar amount as a number, or leave it blank.'
+  const was = (jarId: string) => (stored?.[jarId] !== undefined ? parseMinor(stored[jarId]) : null)
+  if (Object.entries(value).some(([jarId, text]) => tooPrecise(text, was(jarId)))) return TOO_MANY_DECIMALS
   if (amount !== null && fromAmount(total) > fromAmount(amount)) return 'The jar amounts add up to more than the amount received.'
   return null
 }

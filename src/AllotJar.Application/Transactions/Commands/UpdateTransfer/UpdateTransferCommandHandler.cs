@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Common;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Accounts;
@@ -55,6 +56,9 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
         {
             throw Validation("TransactionId", "Only a transfer can be edited here.");
         }
+        MoneyInput.EnsureAccepted(
+            (nameof(request.Amount), request.Amount, transfer.Amount),
+            (nameof(request.Fee), request.Fee, transfer.Fee?.Amount));
         if (transfer.AccountId != sides.AccountId || transfer.TransferAccountId != sides.TransferAccountId)
         {
             throw Validation("TransactionId", "This transfer was changed while you were editing it. Open it again and redo the change.");
@@ -88,6 +92,22 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
         // What the stored return (if any) was decided from: kept unless one of these changes.
         var previousReturn = await TransferReturns.BasisAsync(_db, transfer, cancellationToken);
 
+        // The accounts the edit touches, as they stand, to say afterwards whether it left their
+        // jars unbacked (D10): a receipt divided among jars is income to them (rule 78), so a
+        // transfer lowered, re-dated or re-pointed after its jar money moved on takes money the
+        // jars still count, as an income edited the same way does (#306 review P2-1). An edit
+        // that leaves the money where and when it was, and the jar answers as stored, is not
+        // checked (P3-2).
+        var moneyMoves = request.Amount != transfer.Amount || (request.Fee ?? 0m) != (transfer.Fee?.Amount ?? 0m)
+            || request.FromAccountId != transfer.AccountId || request.ToAccountId != transfer.TransferAccountId
+            || request.DepartedOn != transfer.DepartedOn || request.ReceivedOn != transfer.ReceivedOn
+            || request.ReturnedOn != transfer.ReturnedOn
+            || await JarHistoryChecks.JarAnswersMayChangeAsync(_db, transfer.Id,
+                new[] { (from.Id, request.FromJarId) }, new[] { (to.Id, request.JarAllocations) }, cancellationToken);
+        var touched = new[] { previousSource, previousDestination, from, to }.OfType<Account>().DistinctBy(a => a.Id).ToList();
+        var deficitFrom = new[] { transfer.Date, transfer.DepartedOn, transfer.ReceivedOn, transfer.ReturnedOn, request.DepartedOn, request.ReceivedOn, request.ReturnedOn }
+            .OfType<DateOnly>().Min();
+        var beforeEdit = moneyMoves ? await JarHistoryChecks.BeforeWriteAsync(_db, userId, touched, cancellationToken) : null;
 
         transfer.Account = from;
         transfer.AccountId = from.Id;
@@ -171,11 +191,17 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
             _db, affected, fee is null ? new[] { transfer } : new[] { transfer, fee }, removed, nameof(request.Amount), cancellationToken);
 
         await _db.SaveChangesAsync(cancellationToken);
+        // Saved either way (D10, rule 70): the answer says when the jars are left unbacked.
+        var warning = beforeEdit is null
+            ? null
+            : await JarHistoryChecks.NewBackingDeficitAsync(_db, userId, beforeEdit, touched, deficitFrom, "Saved.", cancellationToken);
         if (write is not null)
         {
             await write.CommitAsync(cancellationToken);
         }
-        return await TransactionReads.ReadDtoAsync(_db, transfer.Id, cancellationToken);
+        var dto = await TransactionReads.ReadDtoAsync(_db, transfer.Id, cancellationToken);
+        dto.Warning = warning;
+        return dto;
     }
 
     /// <summary>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ItemVM } from '../budgetModel'
 import type { HouseholdMemberDto } from '../types'
-import { currencySymbol, formatMoney, parseMinor, toEditString, type Minor } from '../lib/money'
+import { currencySymbol, formatMoney, parseMinor, toEditString, tooPrecise, TOO_MANY_DECIMALS, type Minor } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { hueColor, hueTint } from '../lib/categoryColors'
 import { useAuth } from '../auth/AuthContext'
@@ -40,6 +40,8 @@ export function IncomeLineRow({
   const { canWrite } = useAuth()
   const [name, setName] = useState(item.name)
   const [draft, setDraft] = useState(toEditString(item.plannedMinor))
+  // A typed amount with more decimals than cents stays in the field with this message (D1).
+  const [plannedError, setPlannedError] = useState<string | null>(null)
   // The planned amount reads as clean "€X" text and only becomes an input on click.
   const [editingPlanned, setEditingPlanned] = useState(false)
 
@@ -56,6 +58,12 @@ export function IncomeLineRow({
   }
 
   function commitPlanned() {
+    if (tooPrecise(draft, item.plannedMinor)) {
+      setPlannedError(TOO_MANY_DECIMALS)
+      setEditingPlanned(true) // keep the typed amount open for correction, never rounded
+      return
+    }
+    setPlannedError(null)
     const parsed = parseMinor(draft)
     if (parsed === null) {
       setDraft(toEditString(item.plannedMinor))
@@ -147,11 +155,17 @@ export function IncomeLineRow({
                     if (e.key === 'Escape') {
                       setDraft(toEditString(item.plannedMinor))
                       setEditingPlanned(false)
+                      setPlannedError(null)
                     }
                   }}
                   size={Math.max(3, draft.length)}
                   className="rounded border border-brand-500 bg-surface px-1 text-right text-sm font-semibold tabular-nums text-slate-900 focus:outline-none focus:ring-1 focus:ring-brand-500/30"
                 />
+                {plannedError && (
+                  <span role="alert" className="ml-1 text-[11px] font-normal text-rose-600">
+                    {plannedError}
+                  </span>
+                )}
               </span>
             ) : (
               <button

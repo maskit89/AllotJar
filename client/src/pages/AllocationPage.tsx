@@ -20,7 +20,7 @@ import type {
   MemberAllocationDto,
 } from '../types'
 import { AccountType, AllocationRuleType, SplitMethod } from '../types'
-import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount, toEditString } from '../lib/money'
+import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { categoryPlanned, fromDto, remainingToBudget, totalIncome, type MonthVM } from '../budgetModel'
 import { accountOptionLabel, formatNames, savingsFirst } from '../lib/accountOptions'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
@@ -166,6 +166,12 @@ export function AllocationPage() {
     const pocketAmount = pocket.trim() === '' ? 0 : parseMinor(pocket)
     if (pocketAmount === null) {
       setError('Enter a valid pocket-money amount.')
+      return
+    }
+    // A typed amount is whole cents (D1); the saved one goes back as it is.
+    const savedPocket = profile?.rules.find((r) => r.type === AllocationRuleType.FixedPerMember)
+    if (tooPrecise(pocket, savedPocket ? fromAmount(savedPocket.fixedAmountPerMember) : null)) {
+      setError(TOO_MANY_DECIMALS)
       return
     }
     const leanValue = lean.trim() === '' ? 25 : Number.parseInt(lean, 10)

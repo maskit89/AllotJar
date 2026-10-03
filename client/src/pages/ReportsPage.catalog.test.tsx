@@ -119,7 +119,12 @@ function annualMonth(mo: number, hasBudget: boolean, income = 0, spent = 0, plan
 }
 
 // H2 annual 2026: May + June budgeted; Budgeted income 3000 next to the 2900/2950 received (rule 41).
-function annual2026(year = 2026, categories?: AnnualCategoryDto[], budgetedMonths = 2): AnnualSummaryDto {
+function annual2026(
+  year = 2026,
+  categories?: AnnualCategoryDto[],
+  budgetedMonths = 2,
+  countedMonths = budgetedMonths,
+): AnnualSummaryDto {
   const months = Array.from({ length: 12 }, (_, i) => {
     const m = i + 1
     if (m === 5) return annualMonth(5, true, 3000, 2700, 2400, 2900)
@@ -135,6 +140,7 @@ function annual2026(year = 2026, categories?: AnnualCategoryDto[], budgetedMonth
     totalPlanned: 5000,
     totalSpent: 5100,
     budgetedMonths,
+    countedMonths,
     categories: categories ?? [
       { name: 'Housing', kind: 'Expense', total: 2800, averagePerMonth: 1400 },
       { name: 'Food', kind: 'Expense', total: 1700, averagePerMonth: 850 },
@@ -516,7 +522,7 @@ describe('ReportsPage — catalog (RPT)', () => {
 
     expect(await screen.findByText('Average monthly spending by category', {}, W)).toBeInTheDocument()
     // Plural subtitle for a 2-month year.
-    expect(screen.getByText(/over the 2 budgeted months of 2026\./)).toBeInTheDocument()
+    expect(screen.getByText(/averaged over 2 months of 2026, counting a month with no budget/)).toBeInTheDocument()
 
     const rows = screen.getAllByLabelText(/^Average spending for /)
     expect(rows.map((r) => r.getAttribute('aria-label'))).toEqual([
@@ -559,7 +565,32 @@ describe('ReportsPage — catalog (RPT)', () => {
     expect(opts.map((o) => o.textContent)).toEqual(['Jun 2026'])
 
     // Singular subtitle (wait for the annual-driven average card first).
-    expect(await screen.findByText(/over the 1 budgeted month of 2026\./, {}, W)).toBeInTheDocument()
+    expect(await screen.findByText(/averaged over 1 month of 2026,/, {}, W)).toBeInTheDocument()
+  })
+
+  // D12 (review RP-P3-2): the averages count calendar months, a month with no budget included,
+  // so the subtitle names the months the server divided by, not the budgeted ones.
+  it('names the calendar months the averages divide by, a month with no budget included (D12)', T, async () => {
+    wire({
+      trends: h2Trends(),
+      months: { '2026-6': juneBreakdown() },
+      annuals: { 2026: annual2026(2026, undefined, 2, 5) },
+    })
+    renderPage()
+
+    expect(await screen.findByText(/averaged over 5 months of 2026, counting a month with no budget as a month too\./, {}, W)).toBeInTheDocument()
+    expect(screen.queryByText(/budgeted months/)).not.toBeInTheDocument()
+  })
+
+  it('falls back to the budgeted months from a server that sends no counted months (D12)', T, async () => {
+    wire({
+      trends: h2Trends(),
+      months: { '2026-6': juneBreakdown() },
+      annuals: { 2026: { ...annual2026(2026, undefined, 2, 5), countedMonths: undefined } },
+    })
+    renderPage()
+
+    expect(await screen.findByText(/averaged over 2 months of 2026,/, {}, W)).toBeInTheDocument()
   })
 
   // RPT-019 — categories keyed by (Name, Kind): same-name kinds render as

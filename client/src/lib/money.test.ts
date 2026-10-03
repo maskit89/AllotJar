@@ -11,7 +11,35 @@ import {
   currencyNoun,
   detectLocaleDefaults,
   NUMBER_FORMAT_OPTIONS,
+  tooPrecise,
 } from './money'
+
+// D1 (review CL-P3-7): a typed amount is whole cents; one stored with more decimals goes back unchanged (W10).
+describe('money — tooPrecise', () => {
+  afterEach(() => setMoneyFormat('comma-dot'))
+
+  it('flags a typed third decimal that matters, never one that is only zeros', () => {
+    expect(tooPrecise('12.345')).toBe(true)
+    expect(tooPrecise('0.0001')).toBe(true)
+    expect(tooPrecise('12.34')).toBe(false)
+    expect(tooPrecise('12.340')).toBe(false)
+    expect(tooPrecise('12')).toBe(false)
+    expect(tooPrecise('')).toBe(false)
+    expect(tooPrecise('abc')).toBe(false)
+  })
+
+  it('lets the stored amount go back as it opened', () => {
+    expect(tooPrecise('12.3456', fromAmount(12.3456))).toBe(false)
+    expect(tooPrecise('12.3455', fromAmount(12.3456))).toBe(true)
+  })
+
+  it('reads the separators as the active format does', () => {
+    setMoneyFormat('dot-comma')
+    expect(tooPrecise('12,345')).toBe(true)
+    expect(tooPrecise('12.345')).toBe(false) // grouping: twelve thousand three hundred and forty-five
+    expect(tooPrecise('1.234,567')).toBe(true)
+  })
+})
 
 describe('money — integer minor units', () => {
   it('round-trips amount <-> minor at scale 4', () => {

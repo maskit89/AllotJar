@@ -248,31 +248,27 @@ describe('AccountsPage — catalog (ACCT)', () => {
     }
   })
 
-  it('ACCT-015: a many-decimal opening rounds half-up to 4dp; European grouping is tolerated', { timeout: 15000 }, async () => {
+  it('ACCT-015 (D1): a many-decimal opening is refused with a message, never rounded; European grouping is tolerated', { timeout: 15000 }, async () => {
     mockLoads({ accounts: [] })
-    mockPost
-      .mockResolvedValueOnce({ data: acct({ id: 'p1', name: 'Precise', openingBalance: 1234.5679, currentBalance: 1234.5679 }) })
-      .mockResolvedValueOnce({ data: acct({ id: 'g1', name: 'Grouped', openingBalance: 1234.5, currentBalance: 1234.5 }) })
+    mockPost.mockResolvedValueOnce({ data: acct({ id: 'g1', name: 'Grouped', openingBalance: 1234.5, currentBalance: 1234.5 }) })
     const user = userEvent.setup()
 
     renderPage()
 
-    // 1234.56785 → 4dp half-up on the 5th digit → 1234.5679.
-    let dialog = await openAddModal(user)
-    await user.type(dialog.getByLabelText('Account name'), 'Precise')
+    // 1234.56785 has more decimals than cents: refused, nothing sent.
+    const dialog = await openAddModal(user)
+    await user.type(dialog.getByLabelText('Account name'), 'Grouped')
     await user.type(dialog.getByLabelText('Opening balance'), '1234.56785')
     await user.click(dialog.getByRole('button', { name: 'Add account' }))
-    await waitFor(() =>
-      expect(mockPost).toHaveBeenNthCalledWith(1, '/accounts', expect.objectContaining({ openingBalance: 1234.5679 })),
-    )
+    expect(await dialog.findByText('Enter at most 2 decimal places.')).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
 
     // "1.234,50" → right-most separator (comma) is the decimal → 1234.50.
-    dialog = await openAddModal(user)
-    await user.type(dialog.getByLabelText('Account name'), 'Grouped')
+    await user.clear(dialog.getByLabelText('Opening balance'))
     await user.type(dialog.getByLabelText('Opening balance'), '1.234,50')
     await user.click(dialog.getByRole('button', { name: 'Add account' }))
     await waitFor(() =>
-      expect(mockPost).toHaveBeenNthCalledWith(2, '/accounts', expect.objectContaining({ openingBalance: 1234.5 })),
+      expect(mockPost).toHaveBeenNthCalledWith(1, '/accounts', expect.objectContaining({ openingBalance: 1234.5 })),
     )
   })
 

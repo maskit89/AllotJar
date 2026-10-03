@@ -810,6 +810,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly?>("ReturnedOn")
                         .HasColumnType("date");
 
+                    b.Property<Guid?>("StatementAccountId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("TransferAccountId")
                         .HasColumnType("uniqueidentifier");
 

@@ -101,6 +101,26 @@ describe('DashboardPage optimistic editing', () => {
     )
   })
 
+  // D1: a planned amount with more decimals than cents stays in the editor with a message.
+  it('refuses a planned amount with a third decimal, keeping it open with a message', { timeout: 15000 }, async () => {
+    mockGet.mockImplementation((url: string) =>
+      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: budget() }),
+    )
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 }))
+    const input = (await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })) as HTMLInputElement
+    await user.clear(input)
+    await user.type(input, '1100.555')
+    await user.tab()
+
+    expect(await screen.findByRole('alert', {}, { timeout: 5000 })).toHaveTextContent('Enter at most 2 decimal places.')
+    expect(screen.getByLabelText('Planned amount for Rent')).toHaveValue('1100.555')
+    expect(mockPut).not.toHaveBeenCalled()
+  })
+
   it('typing into the planned editor replaces the selected value — no leading-zero amounts', { timeout: 15000 }, async () => {
     mockGet.mockImplementation((url: string) =>
       url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: budget() }),

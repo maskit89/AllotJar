@@ -3,7 +3,7 @@ import { Modal } from './Modal'
 import { Button, ErrorBanner, Input } from './ui'
 import { api } from '../lib/api'
 import { fetchConversionSuggestion, formatForeign, suggestionHint } from '../lib/conversion'
-import { fromAmount, parseMinor, toAmount, toEditString } from '../lib/money'
+import { fromAmount, parseMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { formatDate } from '../lib/dates'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { serverErrors } from '../lib/serverErrors'
@@ -50,6 +50,10 @@ export function ConvertedAmountModal({
     const minor = parseMinor(amount)
     if (minor === null || minor <= 0) {
       setError(`Enter the amount in ${budgetCurrency}, greater than zero.`)
+      return
+    }
+    if (tooPrecise(amount)) {
+      setError(TOO_MANY_DECIMALS)
       return
     }
     setSaving(true)

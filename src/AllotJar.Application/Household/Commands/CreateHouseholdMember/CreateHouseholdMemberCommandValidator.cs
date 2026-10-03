@@ -1,4 +1,5 @@
 using FluentValidation;
+using AllotJar.Application.Common;
 
 namespace AllotJar.Application.Household.Commands.CreateHouseholdMember;
 
@@ -14,6 +15,7 @@ public class CreateHouseholdMemberCommandValidator : AbstractValidator<CreateHou
 
         RuleFor(x => x.NetMonthlyIncome)
             .InclusiveBetween(0m, MaxAmount)
-            .WithMessage("Net monthly income is out of range.");
+            .WithMessage("Net monthly income is out of range.")
+            .WholeCents();
     }
 }

@@ -118,6 +118,14 @@ public class Transaction : BaseEntity
     public string? BankReference { get; set; }
 
     /// <summary>
+    /// The account whose statement carried <see cref="BankReference"/>, kept when the user moves
+    /// the row by hand to another account (or off every account), so importing that statement
+    /// again still knows the entry (D8, rule 88). Null while the row is on that account. Not a
+    /// foreign key: only the import of that account's statement reads it.
+    /// </summary>
+    public Guid? StatementAccountId { get; set; }
+
+    /// <summary>
     /// For a <see cref="TransactionType.Transfer"/>: the date the source bank posted the debit,
     /// as confirmed by the user or the source statement. Null while the departure is unknown —
     /// a receipt-first import held for review (rule 72). Never inferred from <see cref="Date"/>.

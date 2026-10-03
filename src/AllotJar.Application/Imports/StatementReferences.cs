@@ -147,7 +147,9 @@ public sealed class KnownReferences
 /// references existed stored an inbound transfer's reference on the source leg (the migration
 /// marked them received on their date): those, and only those, are marked
 /// <see cref="Transaction.ReceiptKnownBySourceReference"/> and still honoured on the destination
-/// side by their source reference. A receipt confirmed by hand carries nothing for the
+/// side by their source reference. A row the user moved by hand to another account keeps its
+/// statement's account in <see cref="Transaction.StatementAccountId"/> and is still known there
+/// (D8). A receipt confirmed by hand carries nothing for the
 /// destination, so when both banks print one reference the destination's credit confirms the
 /// receipt instead of being skipped; neither does a transfer whose receipt is still unknown:
 /// its source reference is the other bank's, and the receipt row that shares it is the very row
@@ -201,6 +203,26 @@ public static class StatementReferences
             else
             {
                 entries.TryAdd(t.ReceiptBankReference ?? t.BankReference!, new KnownEntry(t.ReceivedOn ?? t.Date, t.Amount, true));
+            }
+        }
+
+        // A row moved by hand to another account is still this statement's entry (D8, rule 88),
+        // even when it now sits on another login's private account off the budget, where the
+        // privacy filter hides it from this viewer (#306 review P2-2). Read past the filter,
+        // within the owner, and only the reference and the entry it recorded: the statement is
+        // this account's own, and the only effect is that the entry is skipped. Only an income
+        // or expense row is moved this way (a statement-confirmed transfer leg keeps its account).
+        if (accountId != null)
+        {
+            var moved = await db.Transactions
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(t => t.OwnerId == ownerId && t.StatementAccountId == accountId && t.BankReference != null)
+                .Select(t => new { t.BankReference, t.Type, t.Date, t.Amount, t.BankEntry })
+                .ToListAsync(cancellationToken);
+            foreach (var t in moved)
+            {
+                entries.TryAdd(t.BankReference!, new KnownEntry(t.Date, t.Amount, t.Type == TransactionType.Income, t.BankEntry));
             }
         }
         return new KnownReferences(entries);

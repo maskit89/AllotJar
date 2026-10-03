@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Common;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Dtos;
@@ -40,6 +41,9 @@ public class UpdateJarCommandHandler
         {
             throw new ForbiddenAccessException();
         }
+        MoneyInput.EnsureAccepted(
+            (nameof(request.TargetAmount), request.TargetAmount, jar.TargetAmount),
+            (nameof(request.MonthlyContribution), request.MonthlyContribution, jar.MonthlyContribution));
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         // A funded cycle whose deadline has arrived rolls forward before the edit is compared
