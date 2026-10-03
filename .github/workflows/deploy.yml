@@ -3,16 +3,20 @@ name: Deploy
 # One pipeline, two environments, every merge to main:
 #
 #   build-staging ──► deploy-staging (auto)          staging.allotjar.com
-#                                    └► deploy-production (PAUSES for approval)
+#                                    └► deploy-production (manual run only)
 #   build-production ────────────────┘               allotjar.com / www
 #
 # * STAGING auto-deploys on every merge. It is the IP-allowlisted test environment
 #   (Cloudflare WAF rule) with the amber staging banner + data-loss signup consent
 #   (VITE_APP_ENV=staging) and NO GA measurement ID (analytics stays inert there).
-# * PRODUCTION deploys the SAME commit after a manual approval: the `production`
-#   GitHub environment has a required reviewer, so the deploy-production job waits
-#   until it is approved in the Actions UI. It always runs AFTER deploy-staging,
-#   so nothing reaches production that staging didn't get first.
+# * PRODUCTION deploys only when the owner starts this workflow by hand (Actions >
+#   Deploy > Run workflow, branch main, "Also deploy to production" ticked). A
+#   merge never reaches production on its own. This replaces the `production`
+#   environment's required reviewer: GitHub ignores environment protection rules
+#   on a private repository on the Free, Pro and Team plans, so that gate stopped
+#   applying when the repo went private (3 Oct 2026). The production job still
+#   runs AFTER deploy-staging in the same run, so nothing reaches production that
+#   staging didn't get first.
 # * Both stacks live on the same VPS (separate IIS sites/pools/DBs; API on :5000
 #   staging, :5001 production) and reuse the same repo-level VPS_* SSH secrets.
 #
@@ -27,7 +31,13 @@ on:
     paths-ignore:
       - 'docs/**'
       - '**.md'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      production:
+        description: 'Also deploy to production (after staging). Leave unticked to redeploy staging only.'
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   build-staging:
@@ -91,8 +101,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: staging
-    # Serialize staging deploys without ever blocking on the (possibly long)
-    # production approval below - hence job-level, not workflow-level, groups.
+    # Serialize staging deploys without ever blocking on a production deploy
+    # below - hence job-level, not workflow-level, groups.
     concurrency:
       group: staging-deploy
       cancel-in-progress: false
@@ -153,6 +163,9 @@ jobs:
 
   build-production:
     name: build release (production)
+    # Production builds and deploys only on a hand-started run from main with the
+    # production box ticked; a merge (push) skips both production jobs.
+    if: github.event_name == 'workflow_dispatch' && inputs.production && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -205,12 +218,12 @@ jobs:
           retention-days: 7
 
   deploy-production:
-    name: deploy to production (needs approval)
-    # Staging must have deployed this commit first; the `production` environment's
-    # required reviewer is the manual gate - the job PAUSES here until approved.
-    # Unapproved runs are superseded: at most one production deploy is pending, and
-    # a newer run replaces it, so approving always ships the newest main.
+    name: deploy to production (manual run)
+    # Staging must have deployed this commit first. The manual gate is the hand-started
+    # run itself; the condition is repeated from build-production so this job can never
+    # run on a merge. Production deploys queue one at a time.
     needs: [build-production, deploy-staging]
+    if: github.event_name == 'workflow_dispatch' && inputs.production && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production

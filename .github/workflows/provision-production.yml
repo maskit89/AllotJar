@@ -15,8 +15,9 @@ name: Provision production stack
 # DNS cutover, run it again with trim_staging_bindings=true to strip the retired
 # hostnames (catch-all/apex/www/app) off the staging site.
 #
-# Gated behind the `production` environment (required reviewer) because it
-# reshapes live IIS/SQL state.
+# Runs only by hand (workflow_dispatch) because it reshapes live IIS/SQL state. The
+# `production` environment's required reviewer no longer applies: GitHub ignores
+# environment protection rules on a private repo on the Free, Pro and Team plans.
 on:
   workflow_dispatch:
     inputs:

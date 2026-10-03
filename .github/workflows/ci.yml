@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Run the full suite (journey and a11y included) on any branch by hand.
+  workflow_dispatch: {}
 
 # Superseded pull-request runs are cancelled. Pushes to main are never cancelled and never
 # share a group, so every merge keeps its own complete CI result (the release record
@@ -86,6 +88,9 @@ jobs:
   # webServer (playwright.journey.config.ts).
   journey:
     name: journey
+    # Browser suites cost about half of CI's minutes, and the repo is private (2,000
+    # free minutes a month), so they run on main and on hand-started runs, not on PRs.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -192,6 +197,9 @@ jobs:
 
   a11y:
     name: a11y
+    # Browser suites cost about half of CI's minutes, and the repo is private (2,000
+    # free minutes a month), so they run on main and on hand-started runs, not on PRs.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
