@@ -5,11 +5,12 @@
     Actions workflow, or by hand in an elevated session.
 
 .DESCRIPTION
-    The box already runs the staging stack (IIS site 'ZeroBudget' = SPA front +
-    'ZeroBudget-Api' on 127.0.0.1:5000, SQL Express DB 'ZeroBudget'). This script
-    stands up a parallel, fully separate production stack:
+    The box already runs the staging stack (IIS site 'ZeroBudget-Staging' = SPA front +
+    'ZeroBudget-Staging-Api' on 127.0.0.1:5000, SQL Express DB 'ZeroBudgetStaging',
+    settings appsettings.Staging.json). This script stands up a parallel, fully
+    separate production stack:
 
-      * dirs        C:\inetpub\zerobudget-prod\{api,web}  (+ C:\deploy\incoming-prod / staging-prod)
+      * dirs        C:\inetpub\zerobudget-prod\{api,web}  (+ C:\deploy\incoming-production / release-production)
       * app pools   ZeroBudget-Prod-Web / ZeroBudget-Prod-Api  (No Managed Code, AlwaysRunning)
       * IIS sites   'ZeroBudget-Prod'      -> the SPA front, host-bound to allotjar.com + www.allotjar.com
                     'ZeroBudget-Prod-Api'  -> ANCM API on 127.0.0.1:5001
@@ -20,8 +21,8 @@
                     Cloudflare 526 under SSL mode Full (strict). Use ONE origin cert
                     covering '*.allotjar.com' AND 'allotjar.com'.
       * SQL         database 'ZeroBudgetProd' + db_owner for the prod app-pool identity
-      * config      appsettings.Production.json cloned from the staging API's copy
-                    with the prod DB name and a FRESH random JWT signing key
+      * config      appsettings.Production.json cloned from the staging API's
+                    appsettings.Staging.json with the prod DB name and a FRESH random JWT signing key
                     (never overwritten if it already exists)
       * backups     daily backup tasks re-registered for BOTH databases; the PROD task
                     always ships off-host to R2 (-ProdR2Bucket, else preserved from the
@@ -46,9 +47,11 @@ param(
     [string]$ProdApiSite   = 'ZeroBudget-Prod-Api',
     [string[]]$ProdHosts   = @('allotjar.com', 'www.allotjar.com'),
 
-    [string]$StagingSite    = 'ZeroBudget',
-    [string]$StagingApiRoot = 'C:\inetpub\zerobudget\api',
-    [string]$StagingHost    = 'staging.allotjar.com',
+    [string]$StagingSite     = 'ZeroBudget-Staging',
+    [string]$StagingApiRoot  = 'C:\inetpub\zerobudget-staging\api',
+    [string]$StagingDatabase = 'ZeroBudgetStaging',
+    [string]$StagingTaskName = 'ZeroBudget-Staging-DbBackup',
+    [string]$StagingHost     = 'staging.allotjar.com',
 
     [string]$SqlServer     = '.\SQLEXPRESS',
 
@@ -140,7 +143,7 @@ if ($TrimStagingBindings) {
 # 1. Folders
 # =============================================================================
 Info 'Creating production folder layout'
-foreach ($d in @($ProdWebRoot, $ProdApiRoot, 'C:\deploy\incoming-prod', 'C:\deploy\staging-prod')) {
+foreach ($d in @($ProdWebRoot, $ProdApiRoot, 'C:\deploy\incoming-production', 'C:\deploy\release-production')) {
     New-Item -ItemType Directory -Force -Path $d | Out-Null
 }
 
@@ -321,15 +324,15 @@ $prodSettings = Join-Path $ProdApiRoot 'appsettings.Production.json'
 if (Test-Path $prodSettings) {
     Info 'appsettings.Production.json already exists for prod - leaving it untouched.'
 } else {
-    Info 'Generating prod appsettings.Production.json from the staging copy'
-    $stagingSettings = Join-Path $StagingApiRoot 'appsettings.Production.json'
+    Info 'Generating prod appsettings.Production.json from the staging appsettings.Staging.json'
+    $stagingSettings = Join-Path $StagingApiRoot 'appsettings.Staging.json'
     if (-not (Test-Path $stagingSettings)) { throw "Staging settings not found at $stagingSettings" }
     $json = [System.IO.File]::ReadAllText($stagingSettings) | ConvertFrom-Json
 
     # Same server, its own database.
     $cs = [string]$json.ConnectionStrings.DefaultConnection
     if (-not $cs) { throw 'Staging settings have no ConnectionStrings.DefaultConnection' }
-    $json.ConnectionStrings.DefaultConnection = ($cs -replace 'Database=[^;]+', "Database=$ProdDatabase")
+    $json.ConnectionStrings.DefaultConnection = Set-ConnectionStringDatabase -ConnectionString $cs -Database $ProdDatabase
 
     # Fresh signing key so staging tokens can never be replayed against prod.
     $bytes = New-Object byte[] 64
@@ -371,8 +374,8 @@ if (Test-Path $registerScript) {
     }
 
     Info 'Registering daily backup tasks (staging local-only by design; prod ships to R2)'
-    & $registerScript -Server $SqlServer -Database 'ZeroBudget'    -TaskName 'ZeroBudget-DbBackup'
-    & $registerScript -Server $SqlServer -Database $ProdDatabase   -TaskName $prodTaskName `
+    & $registerScript -Server $SqlServer -Database $StagingDatabase -TaskName $StagingTaskName
+    & $registerScript -Server $SqlServer -Database $ProdDatabase    -TaskName $prodTaskName `
         -R2Bucket $effectiveR2Bucket -Rclone $Rclone -RcloneConf $RcloneConf `
         -R2Remote $R2Remote -R2Prefix $R2Prefix
 

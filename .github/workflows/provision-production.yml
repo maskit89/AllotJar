@@ -7,7 +7,7 @@ name: Provision production stack
 #   * SNI 443 bindings for allotjar.com/www (prod) + staging.allotjar.com (staging),
 #     pinned to the ORIGIN_CERT_THUMBPRINT secret (a differing bound cert is REBOUND)
 #   * SQL database ZeroBudgetProd + app-pool grant
-#   * prod appsettings.Production.json (cloned, own DB + fresh JWT key)
+#   * prod appsettings.Production.json (cloned from staging's appsettings.Staging.json, own DB + fresh JWT key)
 #   * daily backup tasks for BOTH databases — the prod task always ships off-host to the
 #     BACKUP_R2_BUCKET secret's R2 bucket (the job fails closed if the secret is missing)
 #

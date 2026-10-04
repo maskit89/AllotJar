@@ -6,7 +6,7 @@
 .DESCRIPTION
     BACPAC import CREATES the target database, so it must NOT already exist.
     Order of operations for a data-migrated install:
-        1. Import-ToServer.ps1   (creates ZeroBudget with all data)
+        1. Import-ToServer.ps1   (creates ZeroBudgetStaging with all data)
         2. Setup-Database.sql     (adds the app-pool login/grant on the new DB)
         3. Deploy (API auto-migrate finds nothing pending - history is current)
 
@@ -17,7 +17,7 @@
 param(
     [Parameter(Mandatory)] [string]$BacpacPath,
     [string]$Server   = '.\SQLEXPRESS',
-    [string]$Database = 'ZeroBudget'
+    [string]$Database = 'ZeroBudgetStaging'
 )
 
 $ErrorActionPreference = 'Stop'
