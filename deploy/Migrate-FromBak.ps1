@@ -56,6 +56,12 @@ if (-not $Database)  { $Database  = $tuple.Database }
 if (-not $ApiPool)   { $ApiPool   = $tuple.ApiPool }
 if (-not $HealthUrl) { $HealthUrl = $tuple.HealthUrl }
 if (-not $AppLogin)  { $AppLogin  = "IIS APPPOOL\$ApiPool" }
+# An override may rename within its environment, never cross into the other one: a "staging" run
+# whose -Database or -ApiPool is production's would stop staging's pool and overwrite production.
+foreach ($other in @($envMap.Keys | Where-Object { $_ -ne $Environment })) {
+    if ($Database -ieq $envMap[$other].Database) { throw "Database [$Database] belongs to the $other environment; -Environment $Environment cannot restore over it." }
+    if ($ApiPool  -ieq $envMap[$other].ApiPool)  { throw "App pool $ApiPool belongs to the $other environment; -Environment $Environment cannot use it." }
+}
 
 if (-not (Test-Path $BakPath)) { throw "Backup file not found: $BakPath" }
 
@@ -114,11 +120,18 @@ if ((Get-WebAppPoolState $ApiPool -ErrorAction SilentlyContinue).Value -eq 'Star
 }
 
 # --- 3. Single connection: drop connections, restore, rename files, re-grant --
+# The backup carries the SOURCE environment's pool user (db_owner). On this shared instance that maps to
+# the other environment's live pool login, so drop it: only this environment's pool owns this database.
+$dropOthers = foreach ($other in @($envMap.Keys | Where-Object { $_ -ne $Environment })) {
+    $u = "IIS APPPOOL\$($envMap[$other].ApiPool)"
+    if ($u -ine $AppLogin) { "IF USER_ID(N'$u') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM sys.schemas WHERE principal_id = USER_ID(N'$u')) DROP USER [$u];" }
+}
 $grant = @"
 USE [$Database];
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'$AppLogin')
     CREATE USER [$AppLogin] FOR LOGIN [$AppLogin];
 ALTER ROLE [db_owner] ADD MEMBER [$AppLogin];
+$($dropOthers -join "`n")
 "@
 
 # The restored database keeps the source's logical file names (ZeroBudgetProd, ...); rename them
@@ -129,7 +142,9 @@ if ($bakData.Count -ge 1 -and [string]$bakData[0].LogicalName -ne $Database)    
 if ($bakLogs.Count -ge 1 -and [string]$bakLogs[0].LogicalName -ne "${Database}_log") { $renames += "ALTER DATABASE [$Database] MODIFY FILE (NAME = N'$($bakLogs[0].LogicalName)', NEWNAME = N'${Database}_log')" }
 
 $steps = @(
-    "IF DB_ID('$Database') IS NOT NULL ALTER DATABASE [$Database] SET SINGLE_USER WITH ROLLBACK IMMEDIATE",
+    # Only an ONLINE database can be set SINGLE_USER; one left RESTORING by a failed earlier run (error 5052
+    # otherwise) is simply restored over, so this script is also the way to retry.
+    "IF DB_ID(N'$Database') IS NOT NULL AND DATABASEPROPERTYEX(N'$Database', 'Status') = 'ONLINE' ALTER DATABASE [$Database] SET SINGLE_USER WITH ROLLBACK IMMEDIATE",
     "RESTORE DATABASE [$Database] FROM DISK = N'$BakPath' WITH REPLACE, RECOVERY$checksum, $($moves -join ', ')",
     "ALTER DATABASE [$Database] SET MULTI_USER"
 ) + $renames + @($grant)
