@@ -188,8 +188,27 @@ One-time setup on the VPS:
    ```
 
 Remote retention is enforced by the bucket's Object Lock + lifecycle rules (set in the Cloudflare
-dashboard), independent of the local `-RetentionDays` prune. Periodically restore from R2 into a
-scratch SQL instance to prove the off-host copies are usable.
+dashboard), independent of the local `-RetentionDays` prune.
+
+### Restore test (prove the off-host copies are usable)
+
+A backup nobody has restored is a hope, not a backup. Restore production's newest nightly `.bak`
+from R2 onto **staging** every so often (staging is offline for about a minute; production is not
+touched). On the VPS, in an elevated Windows PowerShell, from a copy of this `deploy` folder:
+```powershell
+# 1. keep staging's own data so it can be put back afterwards
+powershell -File .\Backup-Database.ps1 -Database ZeroBudgetStaging
+# 2. fetch the newest production backup from R2
+C:\deploy\rclone\rclone.exe copy --config C:\deploy\rclone.conf r2:allotjar/db-backups/ZeroBudgetProd_<stamp>.bak C:\deploy\restore-test\
+# 3. restore it onto staging (asks you to type the target database name)
+powershell -File .\Migrate-FromBak.ps1 -Environment staging -BakPath C:\deploy\restore-test\ZeroBudgetProd_<stamp>.bak
+# 4. afterwards, put staging's own data back the same way, from the file step 1 wrote
+```
+`Migrate-FromBak.ps1` verifies the file first (`RESTORE VERIFYONLY WITH CHECKSUM`), restores onto
+the target database's **own** files (never the source's: production's `.mdf` is a live file of
+another database on the same instance, and the script refuses any destination that is), renames the
+logical files after the target, re-grants the app-pool login and health-checks the API. Record each
+restore test (date, backup used, result) in the development log.
 
 **Provisioning can no longer downgrade this.** `Provision-Production.ps1` re-registers the daily
 tasks, and `Register-ScheduledTask -Force` overwrites — so a re-run used to silently replace an
@@ -206,9 +225,9 @@ Re-run a previous successful **Deploy** workflow from the Actions tab (it re-pus
 ```powershell
 powershell -File C:\deploy\Backup-Database.ps1 -Database ZeroBudgetProd
 ```
-Restore a `.bak` if needed:
+Restore a `.bak` if needed (stops the API pool, verifies the file, restores onto the database's own files, re-grants the pool login, health-checks):
 ```powershell
-sqlcmd -S .\SQLEXPRESS -E -Q "RESTORE DATABASE [ZeroBudgetProd] FROM DISK='C:\deploy\backups\ZeroBudgetProd_<stamp>.bak' WITH REPLACE"
+powershell -File C:\deploy\Migrate-FromBak.ps1 -Environment production -BakPath C:\deploy\backups\ZeroBudgetProd_<stamp>.bak
 ```
 
 ## Troubleshooting
