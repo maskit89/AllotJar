@@ -1181,7 +1181,7 @@ GitHub Actions ran jobs again from 30 September about 20:23 UTC, and Christopher
 
 **Not in this deploy.** #303 to #307 merged afterwards (2 and 3 October) and are not in production: `JarLineTypedByHand` (#305), `TransactionStatementAccount` (#306) and `PersonLogins` (#307) migrate at the next Deploy.
 
-At 3 October 22:30 UTC, Deploy run 207 (`ac4a790`, #303) is waiting for approval and run 211 (`c7c5370`, #307) is queued behind it; runs 208 to 210 were superseded and cancelled.
+At 3 October 22:30 UTC, Deploy run 207 (`ac4a790`, #303) is waiting for approval and run 211 (`c7c5370`, #307) is queued behind it; runs 208 to 210 were superseded and cancelled. (Later: run 207 was cancelled and run 212 deployed; see the record for 3 and 4 October below.)
 
 ## Release record: #303 to #311, production on `8872a46` — 3 and 4 October 2026
 
@@ -1197,4 +1197,4 @@ At 3 October 22:30 UTC, Deploy run 207 (`ac4a790`, #303) is waiting for approval
 
 **Backups.** On the VPS, the production backup task was fixed by hand on 3 October at 23:07 UTC (`plans/2026-10-03-r2-backup-runbook.md` in the project files): `NT AUTHORITY\SYSTEM` got its SQL rights, the task ships each backup to R2 (bucket `allotjar`, `db-backups/`), and its test run returned `0x0` and stored `ZeroBudgetProd_20261003_160619.bak`. Its first nightly run was due 4 October at 02:30 VPS time (09:30 UTC). Re-registering both tasks with #310's merged scripts (`plans/2026-10-03-reregister-backup-tasks.md`) is still to do; until then the VPS runs the hand-patched copies, which write no event log entry.
 
-**Still open:** the API's startup Event Log line "Outbound email provider", which says whether #298's invites can be emailed, has not been confirmed.
+**Still open:** the API's startup Event Log line "Outbound email provider", which says whether #298's invites can be emailed, has not been confirmed; nor has the first nightly backup in R2 (`db-backups/ZeroBudgetProd_20261004_0230xx.bak`, due 09:30 UTC on 4 October).
