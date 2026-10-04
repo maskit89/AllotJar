@@ -26,7 +26,8 @@ Every server-side name carries its environment, so nothing of staging's is calle
 | `ASPNETCORE_ENVIRONMENT` (pinned by `Deploy.ps1` in the API's `web.config`) | `Staging` | `Production` |
 | Settings file (server-only, gitignored) | `appsettings.Staging.json` | `appsettings.Production.json` |
 | Database | `ZeroBudgetStaging` | `ZeroBudgetProd` |
-| Backup task | `ZeroBudget-Staging-DbBackup` (local only) | `ZeroBudget-Prod-DbBackup` (shipped to R2) |
+| Backup task | `ZeroBudget-Staging-DbBackup` (local only, 03:30 server time) | `ZeroBudget-Prod-DbBackup` (shipped to R2, 02:30) |
+| DataProtection key folder (`DataProtection:KeysPath`) | `C:\inetpub\zerobudget-staging-dp-keys` | `C:\inetpub\zerobudget-dp-keys` |
 | Release unpacked in | `C:\deploy\release-staging` (from `C:\deploy\incoming-staging`) | `C:\deploy\release-production` (from `C:\deploy\incoming-production`) |
 
 Until 4 October 2026 staging kept the names of the original single stack (`ZeroBudget`, `C:\inetpub\zerobudget`, database `ZeroBudget`) and, because nothing set its ASP.NET Core environment, read `appsettings.Production.json`. `deploy/Rename-StagingStack.ps1` renamed it in place (run once, on the VPS; `-Check` only reports).

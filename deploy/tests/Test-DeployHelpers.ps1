@@ -130,6 +130,14 @@ $vars2 = @(([xml]$again).configuration.location.'system.webServer'.aspNetCore.en
 Assert-True ($vars2.Count -eq 1 -and $vars2[0].value -eq 'Production') 're-running replaces the value instead of adding a second variable'
 $threw = $false; try { [void](Set-AncmEnvironmentVariable -WebConfigXml '<configuration><system.webServer /></configuration>' -Name 'X' -Value 'Y') } catch { $threw = $true }
 Assert-True $threw 'a web.config without <aspNetCore> (the front site has none) is refused'
+# Regression (PR #313 review P1-1): the result is written to disk as UTF-8 by Deploy.ps1, so its
+# declaration must say utf-8 and the FILE must load, not just the in-memory string.
+$tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("ancm-{0}.config" -f [guid]::NewGuid())
+[System.IO.File]::WriteAllText($tmp, $staging, (New-Object System.Text.UTF8Encoding($false)))
+Assert-True ((Get-Content $tmp -First 1) -match 'encoding="utf-8"') 'the written web.config declares utf-8'
+$loaded = $false; try { $d2 = New-Object System.Xml.XmlDocument; $d2.Load($tmp); $loaded = $null -ne $d2.SelectSingleNode('//aspNetCore/environmentVariables/environmentVariable[@name="ASPNETCORE_ENVIRONMENT"]') } catch { $loaded = $false }
+Assert-True $loaded 'the web.config file on disk loads with XmlDocument.Load and holds the variable'
+Remove-Item $tmp -Force -ErrorAction SilentlyContinue
 
 Write-Host '== Staging is called staging (no stack component of staging is left with a bare or prod name) =='
 $deployDir = Split-Path $PSScriptRoot -Parent

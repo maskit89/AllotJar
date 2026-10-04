@@ -128,7 +128,6 @@ function Set-AncmEnvironmentVariable {
         [Parameter(Mandatory)][string]$Value
     )
     $doc = New-Object System.Xml.XmlDocument
-    $doc.PreserveWhitespace = $true
     $doc.LoadXml($WebConfigXml)
     $aspNetCore = $doc.SelectSingleNode('/configuration/location/system.webServer/aspNetCore')
     if (-not $aspNetCore) { $aspNetCore = $doc.SelectSingleNode('/configuration/system.webServer/aspNetCore') }
@@ -147,15 +146,18 @@ function Set-AncmEnvironmentVariable {
     }
     $var.SetAttribute('value', $Value)
 
+    # Serialise through a MemoryStream, not a StringWriter: XmlWriter takes a TextWriter's
+    # encoding (a StringWriter says UTF-16), so the declaration would read encoding="utf-16"
+    # while the callers write UTF-8 bytes, and IIS could not parse the file (500.19).
     $settings = New-Object System.Xml.XmlWriterSettings
     $settings.Indent = $true
     $settings.OmitXmlDeclaration = $false
     $settings.Encoding = New-Object System.Text.UTF8Encoding($false)
-    $sw = New-Object System.IO.StringWriter
-    $writer = [System.Xml.XmlWriter]::Create($sw, $settings)
+    $ms = New-Object System.IO.MemoryStream
+    $writer = [System.Xml.XmlWriter]::Create($ms, $settings)
     $doc.Save($writer)
     $writer.Close()
-    return $sw.ToString()
+    return [System.Text.Encoding]::UTF8.GetString($ms.ToArray())
 }
 
 <#

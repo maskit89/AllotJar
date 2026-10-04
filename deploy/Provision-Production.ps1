@@ -374,7 +374,8 @@ if (Test-Path $registerScript) {
     }
 
     Info 'Registering daily backup tasks (staging local-only by design; prod ships to R2)'
-    & $registerScript -Server $SqlServer -Database $StagingDatabase -TaskName $StagingTaskName
+    # Staging backs up an hour after production so the two never contend for the Express instance.
+    & $registerScript -Server $SqlServer -Database $StagingDatabase -TaskName $StagingTaskName -Time '03:30'
     & $registerScript -Server $SqlServer -Database $ProdDatabase    -TaskName $prodTaskName `
         -R2Bucket $effectiveR2Bucket -Rclone $Rclone -RcloneConf $RcloneConf `
         -R2Remote $R2Remote -R2Prefix $R2Prefix

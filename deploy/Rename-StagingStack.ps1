@@ -40,6 +40,22 @@
     Run this BEFORE merging the pull request that renames the workflow (or right after: the
     first staging deploy under the new names fails its preflight until this has run, and
     production is unaffected either way).
+
+    Before the real run:
+      * close SSMS / Azure Data Studio windows on the ZeroBudget database (the rename needs
+        the only connection; a reconnecting query window makes it fail, and the script then
+        puts the database back to MULTI_USER and stops);
+      * do not run it while a Deploy workflow run is in progress (it removes the old
+        C:\deploy scratch folders of both stacks);
+      * run it from THIS pull request's deploy folder or a newer one: re-registering the
+        staging backup task copies Backup-Database.ps1, Upload-BackupToR2.ps1 and
+        ProvisionHelpers.psm1 into C:\deploy, the folder production's nightly backup task
+        runs from too (the copies are the same files production already runs from #310).
+
+    The DataProtection key folder: if staging's settings name the same KeysPath as
+    production's (the production settings were cloned from staging's, so that is likely),
+    staging gets its own folder, -NewKeysPath, and the shared one is left to production;
+    staging's outstanding emailed links stop working, which the pool rename causes anyway.
 #>
 [CmdletBinding()]
 param(
@@ -62,6 +78,11 @@ param(
     [string]$SqlServer     = '.\SQLEXPRESS',
     [string]$BackupDir     = 'C:\deploy\backups',
     [string]$HealthUrl     = 'http://127.0.0.1:5000/health',
+    # The staging backup task's time; production's runs at 02:30, so staging takes a later slot.
+    [string]$StagingBackupTime = '03:30',
+    # Staging's own DataProtection key folder when the current one is shared with production
+    # or carries no environment name.
+    [string]$NewKeysPath   = 'C:\inetpub\zerobudget-staging-dp-keys',
 
     # Production, named only so the script can refuse to touch it and prove it stayed up.
     [string]$ProductionApiPool   = 'ZeroBudget-Prod-Api',
@@ -162,7 +183,19 @@ function Read-StagingSettings {
     if (-not $m.Success) { throw "$path has no ConnectionStrings.DefaultConnection." }
     $cs = $m.Groups[2].Value -replace '\\\\', '\'
     $db = if ($cs -match '(?i)(?:^|;)\s*(?:Database|Initial Catalog)\s*=\s*([^;]*)') { $Matches[1].Trim() } else { '' }
-    return @{ Path = $path; Text = $text; Match = $m; ConnectionString = $cs; Database = $db }
+    return @{ Path = $path; Text = $text; Match = $m; ConnectionString = $cs; Database = $db; KeysPath = (Get-KeysPathFromJson $text) }
+}
+function Get-KeysPathFromJson([string]$Json) {
+    $kp = $null
+    try { $kp = (ConvertFrom-Json $Json).DataProtection.KeysPath } catch { }
+    if (-not $kp -and $Json -match '"KeysPath"\s*:\s*"((?:[^"\\]|\\.)*)"') { $kp = $Matches[1] -replace '\\\\', '\' }
+    return $kp
+}
+# Production's settings are READ here, only to know whether staging shares its key folder.
+function Get-ProductionKeysPath {
+    $path = Join-Path $ProductionRoot 'api\appsettings.Production.json'
+    if (-not (Test-Path $path)) { return $null }
+    return Get-KeysPathFromJson ([System.IO.File]::ReadAllText($path))
 }
 
 Info 'Staging stack, current state'
@@ -170,6 +203,17 @@ $state = Get-State
 Show-State $state
 $settings = Read-StagingSettings
 Write-Host ("    settings file: {0}, connection string names Database={1}" -f $settings.Path, $settings.Database)
+$prodKeysPath = Get-ProductionKeysPath
+$keysShared = $settings.KeysPath -and $prodKeysPath -and ($settings.KeysPath.TrimEnd('\') -ieq $prodKeysPath.TrimEnd('\'))
+if (-not $settings.KeysPath) {
+    Write-Host '    DataProtection KeysPath: not set (keys live under the pool identity; the rename starts a fresh ring, so outstanding staging links stop working)'
+} elseif ($keysShared) {
+    Write-Host ("    DataProtection KeysPath: {0}, SHARED with production; staging will get its own folder {1}" -f $settings.KeysPath, $NewKeysPath)
+} elseif ($settings.KeysPath.TrimEnd('\') -ine $NewKeysPath.TrimEnd('\')) {
+    Write-Host ("    DataProtection KeysPath: {0} (staging's own); it will move to {1}" -f $settings.KeysPath, $NewKeysPath)
+} else {
+    Write-Host ("    DataProtection KeysPath: {0}" -f $settings.KeysPath)
+}
 if ($settings.Database -ieq $ProductionDatabase) {
     throw "STOP: staging's settings point at the PRODUCTION database ($ProductionDatabase). That is a separate problem to fix first; this script only renames staging."
 }
@@ -183,6 +227,9 @@ if (-not $SkipProductionCheck) {
 if ($Check) { Write-Host 'Check only; nothing changed.'; return }
 
 foreach ($k in $state.Keys) {
+    # Both SQL logins may exist after a run that left the old one (step 10 says so); every other
+    # pair is ambiguous and the script never guesses which one is staging.
+    if ($k -eq 'sql login') { continue }
     if ($state[$k].old -and $state[$k].new) {
         throw "Both the old and the new $k exist. Decide which one is staging and remove the other before re-running (this script never guesses)."
     }
@@ -234,10 +281,6 @@ if ($settings.Database -ieq $NewDatabase) {
     [System.IO.File]::WriteAllText($newSettings, $text, (New-Object System.Text.UTF8Encoding($false)))
     Done "connection string now names Database=$NewDatabase"
 }
-# The DataProtection key folder, if staging uses one (its pool identity must be able to write it).
-$keysPath = $null
-try { $keysPath = (ConvertFrom-Json $text).DataProtection.KeysPath } catch { }
-if (-not $keysPath -and $text -match '"KeysPath"\s*:\s*"((?:[^"\\]|\\.)*)"') { $keysPath = $Matches[1] -replace '\\\\', '\' }
 
 # --- 3. Remember the old pool identities' SIDs (resolvable only while the pools exist) ----
 $oldSids = @{}
@@ -257,14 +300,93 @@ if ((Test-Path $OldRoot) -and -not (Test-Path $NewRoot)) {
     Done "moved $OldRoot -> $NewRoot"
 } elseif (Test-Path $NewRoot) { Skip "$NewRoot exists" }
 else { throw "Neither $OldRoot nor $NewRoot exists." }
+$newSettings = Join-Path $NewApiRoot 'appsettings.Staging.json'
 
-# --- 5. IIS: rename sites and pools, repoint applications and physical paths -------------
+# --- 5. DataProtection key folder: staging's own, named staging ---------------------------
+Info 'DataProtection key folder'
+$settings = Read-StagingSettings
+$keysPath = $settings.KeysPath
+$keysFolderToAcl = $null       # the folder whose ACL step 9 may edit (never one production names)
+if (-not $keysPath) {
+    Write-Host '    no KeysPath in staging settings; nothing to do'
+} elseif ($keysPath.TrimEnd('\') -ieq $NewKeysPath.TrimEnd('\')) {
+    Skip "KeysPath is $NewKeysPath"
+    $keysFolderToAcl = $NewKeysPath
+} else {
+    if ($keysShared) {
+        # Leave the shared folder to production; staging starts a fresh ring of its own.
+        New-Item -ItemType Directory -Force -Path $NewKeysPath | Out-Null
+        Done "created $NewKeysPath for staging (the shared $keysPath stays production's, untouched)"
+    } elseif (Test-Path $keysPath) {
+        if (Test-Path $NewKeysPath) { throw "$NewKeysPath already exists next to staging's current key folder $keysPath; merge or remove one by hand, then re-run." }
+        Move-Item $keysPath $NewKeysPath
+        Done "moved $keysPath -> $NewKeysPath (keys kept)"
+    } else {
+        New-Item -ItemType Directory -Force -Path $NewKeysPath | Out-Null
+        Done "created $NewKeysPath (the configured $keysPath did not exist)"
+    }
+    # Rewrite the one setting as text, as for the connection string.
+    $text = $settings.Text
+    $km = [regex]::Match($text, '("KeysPath"\s*:\s*")((?:[^"\\]|\\.)*)(")')
+    if (-not $km.Success) { throw "Could not find the DataProtection:KeysPath line in $newSettings to rewrite; set it to $NewKeysPath by hand, then re-run." }
+    $text = $text.Substring(0, $km.Groups[2].Index) + ($NewKeysPath -replace '\\', '\\') + $text.Substring($km.Groups[2].Index + $km.Groups[2].Length)
+    [System.IO.File]::WriteAllText($newSettings, $text, (New-Object System.Text.UTF8Encoding($false)))
+    Done "appsettings.Staging.json DataProtection:KeysPath = $NewKeysPath"
+    $keysFolderToAcl = $NewKeysPath
+}
+
+# --- 6. ASPNETCORE_ENVIRONMENT=Staging in the API web.config, BEFORE the pools can start ----
+# (Deploy.ps1 re-pins it on every deploy; this covers the gap until the next one.)
+Info 'API web.config'
+$apiWebConfig = Join-Path $NewApiRoot 'web.config'
+if (Test-Path $apiWebConfig) {
+    $xml = Set-AncmEnvironmentVariable -WebConfigXml ([System.IO.File]::ReadAllText($apiWebConfig)) -Name 'ASPNETCORE_ENVIRONMENT' -Value 'Staging'
+    [System.IO.File]::WriteAllText($apiWebConfig, $xml, (New-Object System.Text.UTF8Encoding($false)))
+    Done 'ASPNETCORE_ENVIRONMENT=Staging pinned'
+} else { Write-Warning "$apiWebConfig not found (no build deployed yet?); the next deploy writes it." }
+
+# --- 7. SQL: rename the database (before anything can connect to it under a new identity) ---
+Info 'SQL Server: database'
+$oldDbExists = Test-Db $OldDatabase; $newDbExists = Test-Db $NewDatabase
+if ($oldDbExists -and -not $newDbExists) {
+    # One batch; if MODIFY NAME fails (a reconnecting SSMS window took the single-user slot),
+    # the database is put back to MULTI_USER before the error is rethrown.
+    Invoke-Sql -Database master -Query @"
+ALTER DATABASE [$OldDatabase] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+BEGIN TRY
+    ALTER DATABASE [$OldDatabase] MODIFY NAME = [$NewDatabase];
+END TRY
+BEGIN CATCH
+    ALTER DATABASE [$OldDatabase] SET MULTI_USER;
+    THROW;
+END CATCH
+ALTER DATABASE [$NewDatabase] SET MULTI_USER;
+"@
+    Done "database $OldDatabase -> $NewDatabase"
+} elseif ($newDbExists) { Skip "database $NewDatabase" }
+else { throw "Neither database $OldDatabase nor $NewDatabase exists on $SqlServer." }
+
+# Logical file names too, so a RESTORE FILELISTONLY of a staging backup says staging.
+foreach ($f in @(Invoke-Sql -Database $NewDatabase -Query "SELECT name, type_desc FROM sys.database_files" -Rows)) {
+    $logical = [string]$f.name
+    $want = $null
+    if ($logical -ieq $OldDatabase) { $want = $NewDatabase } elseif ($logical -ieq "${OldDatabase}_log") { $want = "${NewDatabase}_log" }
+    if ($want) {
+        Invoke-Sql -Database master -Query "ALTER DATABASE [$NewDatabase] MODIFY FILE (NAME = [$logical], NEWNAME = [$want]);"
+        Done "logical file $logical -> $want (the .mdf/.ldf files on disk keep their names)"
+    }
+}
+
+# --- 8. IIS: rename sites and pools, repoint applications and physical paths -------------
+# The renamed pools are committed with autoStart OFF: a renamed pool is a new object to WAS
+# and would start at once (AlwaysRunning), before its SQL login exists. Step 13 turns
+# autoStart back on and starts them.
 Info 'IIS sites and pools'
 $sm = New-Object Microsoft.Web.Administration.ServerManager
 $changed = $false
 foreach ($pair in @(@($OldApiPool, $NewApiPool), @($OldWebPool, $NewWebPool))) {
     $p = $sm.ApplicationPools[$pair[0]]
-    if ($p -and -not $sm.ApplicationPools[$pair[1]]) { $p.Name = $pair[1]; $changed = $true; Done "pool $($pair[0]) -> $($pair[1])" }
+    if ($p -and -not $sm.ApplicationPools[$pair[1]]) { $p.Name = $pair[1]; $p.AutoStart = $false; $changed = $true; Done "pool $($pair[0]) -> $($pair[1])" }
     elseif ($sm.ApplicationPools[$pair[1]]) { Skip "pool $($pair[1])" }
     else { throw "App pool $($pair[0]) not found." }
 }
@@ -292,9 +414,10 @@ foreach ($siteName in @($NewWebSite, $NewApiSite)) {
     Done ("site {0}: pool {1}, path {2}" -f $siteName, $app.ApplicationPoolName, $app.VirtualDirectories['/'].PhysicalPath)
 }
 
-# --- 6. File permissions: whatever the old pool identities held, the new ones hold ----------
+# --- 9. File permissions: whatever the old pool identities held, the new ones hold ----------
+# Never on a folder production names (the shared key folder stays as it is).
 Info 'File permissions for the renamed pool identities'
-$aclTargets = @($NewApiRoot, $NewWebRoot, $BackupDir) + @($keysPath) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+$aclTargets = @($NewApiRoot, $NewWebRoot, $BackupDir) + @($keysFolderToAcl) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
 $newIds = @{ $OldApiPool = "IIS AppPool\$NewApiPool"; $OldWebPool = "IIS AppPool\$NewWebPool" }
 foreach ($path in $aclTargets) {
     $acl = Get-Acl $path
@@ -315,40 +438,18 @@ foreach ($path in $aclTargets) {
     if ($aclChanged) { Set-Acl $path $acl }
 }
 # The DataProtection key ring must stay writable by the API, or emailed links die on every restart.
-if ($keysPath -and (Test-Path $keysPath)) {
-    $acl = Get-Acl $keysPath
+if ($keysFolderToAcl -and (Test-Path $keysFolderToAcl)) {
+    $acl = Get-Acl $keysFolderToAcl
     $has = @($acl.Access | Where-Object { $_.IdentityReference.Value -ieq "IIS AppPool\$NewApiPool" -and $_.AccessControlType -eq 'Allow' -and ($_.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::Modify) })
     if ($has.Count -eq 0) {
         $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("IIS AppPool\$NewApiPool", 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
-        Set-Acl $keysPath $acl
-        Done "${keysPath}: Modify granted to IIS AppPool\$NewApiPool"
-    } else { Skip "${keysPath}: IIS AppPool\$NewApiPool can modify" }
+        Set-Acl $keysFolderToAcl $acl
+        Done "${keysFolderToAcl}: Modify granted to IIS AppPool\$NewApiPool"
+    } else { Skip "${keysFolderToAcl}: IIS AppPool\$NewApiPool can modify" }
 }
 
-# --- 7. SQL: rename the database, move the app-pool grant to the new identity -------------
-Info 'SQL Server'
-$oldDbExists = Test-Db $OldDatabase; $newDbExists = Test-Db $NewDatabase
-if ($oldDbExists -and -not $newDbExists) {
-    Invoke-Sql -Database master -Query @"
-ALTER DATABASE [$OldDatabase] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-ALTER DATABASE [$OldDatabase] MODIFY NAME = [$NewDatabase];
-ALTER DATABASE [$NewDatabase] SET MULTI_USER;
-"@
-    Done "database $OldDatabase -> $NewDatabase"
-} elseif ($newDbExists) { Skip "database $NewDatabase" }
-else { throw "Neither database $OldDatabase nor $NewDatabase exists on $SqlServer." }
-
-# Logical file names too, so a RESTORE FILELISTONLY of a staging backup says staging.
-foreach ($f in @(Invoke-Sql -Database $NewDatabase -Query "SELECT name, type_desc FROM sys.database_files" -Rows)) {
-    $logical = [string]$f.name
-    $want = $null
-    if ($logical -ieq $OldDatabase) { $want = $NewDatabase } elseif ($logical -ieq "${OldDatabase}_log") { $want = "${NewDatabase}_log" }
-    if ($want) {
-        Invoke-Sql -Database master -Query "ALTER DATABASE [$NewDatabase] MODIFY FILE (NAME = [$logical], NEWNAME = [$want]);"
-        Done "logical file $logical -> $want (the .mdf/.ldf files on disk keep their names)"
-    }
-}
-
+# --- 10. SQL: move the app-pool grant to the new identity (it exists now that the pool does) --
+Info 'SQL Server: app-pool login'
 $newLogin = "IIS APPPOOL\$NewApiPool"; $oldLogin = "IIS APPPOOL\$OldApiPool"
 Invoke-Sql -Database master -Query "IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'$newLogin') CREATE LOGIN [$newLogin] FROM WINDOWS;"
 Invoke-Sql -Database $NewDatabase -Query @"
@@ -373,16 +474,7 @@ if (Test-Login $oldLogin) {
     }
 }
 
-# --- 8. ASPNETCORE_ENVIRONMENT=Staging in the API web.config (Deploy.ps1 re-pins it every deploy) --
-Info 'API web.config'
-$apiWebConfig = Join-Path $NewApiRoot 'web.config'
-if (Test-Path $apiWebConfig) {
-    $xml = Set-AncmEnvironmentVariable -WebConfigXml ([System.IO.File]::ReadAllText($apiWebConfig)) -Name 'ASPNETCORE_ENVIRONMENT' -Value 'Staging'
-    [System.IO.File]::WriteAllText($apiWebConfig, $xml, (New-Object System.Text.UTF8Encoding($false)))
-    Done 'ASPNETCORE_ENVIRONMENT=Staging pinned'
-} else { Write-Warning "$apiWebConfig not found (no build deployed yet?); the next deploy writes it." }
-
-# --- 9. Backup task ------------------------------------------------------------------------
+# --- 11. Backup task ------------------------------------------------------------------------
 Info 'Backup task'
 $registerScript = Join-Path $PSScriptRoot 'Register-BackupTask.ps1'
 if (Get-ScheduledTask -TaskName $OldTaskName -ErrorAction SilentlyContinue) {
@@ -390,24 +482,27 @@ if (Get-ScheduledTask -TaskName $OldTaskName -ErrorAction SilentlyContinue) {
     Done "removed task $OldTaskName"
 }
 if (-not (Get-ScheduledTask -TaskName $NewTaskName -ErrorAction SilentlyContinue)) {
-    if (-not (Test-Path $registerScript)) { throw "Register-BackupTask.ps1 not found beside this script; run it by hand: -Database $NewDatabase -TaskName $NewTaskName" }
-    & $registerScript -Server $SqlServer -Database $NewDatabase -TaskName $NewTaskName -BackupDir $BackupDir
-    Done "registered task $NewTaskName (local-only, daily, as the old staging task was)"
+    if (-not (Test-Path $registerScript)) { throw "Register-BackupTask.ps1 not found beside this script; run it by hand: -Database $NewDatabase -TaskName $NewTaskName -Time $StagingBackupTime" }
+    & $registerScript -Server $SqlServer -Database $NewDatabase -TaskName $NewTaskName -BackupDir $BackupDir -Time $StagingBackupTime
+    Done "registered task $NewTaskName (local-only, daily at $StagingBackupTime; production's stays at 02:30)"
 } else { Skip "task $NewTaskName" }
 $oldBaks = @(Get-ChildItem -Path $BackupDir -Filter "${OldDatabase}_*.bak" -ErrorAction SilentlyContinue)
 if ($oldBaks.Count -gt 0) {
     Write-Host ("    {0} older staging backup(s) named {1}_*.bak stay in {2}; retention no longer prunes them, delete them when you like." -f $oldBaks.Count, $OldDatabase, $BackupDir)
 }
 
-# --- 10. Deploy scratch folders (recreated by the workflow under their new names) -----------
+# --- 12. Deploy scratch folders (recreated by the workflow under their new names) -----------
 Info 'Deploy scratch folders'
 foreach ($d in @('C:\deploy\incoming', 'C:\deploy\staging', 'C:\deploy\incoming-prod', 'C:\deploy\staging-prod')) {
     if (Test-Path $d) { Remove-Item $d -Recurse -Force; Done "removed $d" }
 }
 
-# --- 11. Start staging and verify -------------------------------------------------------------
+# --- 13. Start staging and verify -------------------------------------------------------------
 Info 'Starting staging'
 $sm = New-Object Microsoft.Web.Administration.ServerManager
+$changed = $false
+foreach ($pool in @($NewApiPool, $NewWebPool)) { if (-not $sm.ApplicationPools[$pool].AutoStart) { $sm.ApplicationPools[$pool].AutoStart = $true; $changed = $true } }
+if ($changed) { $sm.CommitChanges(); Start-Sleep -Seconds 2; $sm = New-Object Microsoft.Web.Administration.ServerManager }
 foreach ($pool in @($NewApiPool, $NewWebPool)) { if ($sm.ApplicationPools[$pool].State -ne 'Started') { [void]$sm.ApplicationPools[$pool].Start() } }
 foreach ($site in @($NewApiSite, $NewWebSite)) { if ($sm.Sites[$site].State -ne 'Started') { [void]$sm.Sites[$site].Start() } }
 if (Wait-Health $HealthUrl) { Done "staging answers $HealthUrl" } else { throw "Staging does not answer $HealthUrl after the rename. Check the Application event log for the API's startup error." }
@@ -420,5 +515,5 @@ Show-State (Get-State)
 Write-Host @"
 Staging is now named staging everywhere on this server. Next:
   1. Merge the pull request that renames the Deploy workflow (its staging job uses these names).
-  2. Task Scheduler should list $NewTaskName (staging, local) and ZeroBudget-Prod-DbBackup (production, R2).
+  2. Task Scheduler should list $NewTaskName (staging, local, $StagingBackupTime) and ZeroBudget-Prod-DbBackup (production, R2, 02:30).
 "@ -ForegroundColor Green
