@@ -116,8 +116,11 @@ foreach ($n in @($NewWebSite, $NewApiSite, $NewWebPool, $NewApiPool, $NewDatabas
 }
 if ($NewRoot.TrimEnd('\') -ieq $ProductionRoot.TrimEnd('\')) { throw 'Refusing to run: the new root is the production root.' }
 
-function Test-Health([string]$Url) {
-    try { return ((Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5).StatusCode -eq 200) } catch { return $false }
+# An idle API answers its first /health only after the app has started (EF, startup
+# backfills), which can take longer than a few seconds, so every check retries with a
+# generous timeout rather than calling a cold site "down".
+function Test-Health([string]$Url, [int]$TimeoutSec = 30) {
+    try { return ((Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec $TimeoutSec).StatusCode -eq 200) } catch { return $false }
 }
 function Wait-Health([string]$Url, [int]$Tries = 20) {
     for ($i = 1; $i -le $Tries; $i++) { if (Test-Health $Url) { return $true }; Start-Sleep -Seconds 3 }
@@ -225,8 +228,9 @@ if ($settings.Database -ine $OldDatabase -and $settings.Database -ine $NewDataba
     throw "The staging connection string names '$($settings.Database)', neither $OldDatabase nor $NewDatabase; edit it by hand, then re-run."
 }
 if (-not $SkipProductionCheck) {
-    $prodUp = Test-Health $ProductionHealthUrl
-    Write-Host ("    production /health ({0}): {1}" -f $ProductionHealthUrl, $(if ($prodUp) { 'OK' } else { 'NOT answering' }))
+    Write-Host "    checking production /health (an idle API can take up to a minute to answer its first request)..."
+    $prodUp = Wait-Health $ProductionHealthUrl -Tries 5
+    Write-Host ("    production /health ({0}): {1}" -f $ProductionHealthUrl, $(if ($prodUp) { 'OK' } else { 'NOT answering after 5 tries; check https://www.allotjar.com in a browser' }))
 }
 if ($Check) { Write-Host 'Check only; nothing changed.'; return }
 
@@ -511,7 +515,7 @@ foreach ($pool in @($NewApiPool, $NewWebPool)) { if ($sm.ApplicationPools[$pool]
 foreach ($site in @($NewApiSite, $NewWebSite)) { if ($sm.Sites[$site].State -ne 'Started') { [void]$sm.Sites[$site].Start() } }
 if (Wait-Health $HealthUrl) { Done "staging answers $HealthUrl" } else { throw "Staging does not answer $HealthUrl after the rename. Check the Application event log for the API's startup error." }
 if (-not $SkipProductionCheck) {
-    if (Test-Health $ProductionHealthUrl) { Done "production still answers $ProductionHealthUrl" } else { throw "Production stopped answering $ProductionHealthUrl during the rename." }
+    if (Wait-Health $ProductionHealthUrl -Tries 5) { Done "production still answers $ProductionHealthUrl" } else { throw "Production stopped answering $ProductionHealthUrl during the rename." }
 }
 
 Info 'Final state'
