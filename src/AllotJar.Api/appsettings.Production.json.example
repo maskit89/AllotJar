@@ -1,9 +1,9 @@
 {
-  "//": "TEMPLATE - copy to 'appsettings.Production.json' ON THE SERVER ONLY and fill in real values. Never commit the filled-in file (it is gitignored). The deploy script preserves it across redeploys (robocopy /XF).",
+  "//": "TEMPLATE - copy ON THE SERVER ONLY to 'appsettings.Production.json' for the production API or 'appsettings.Staging.json' for the staging API (Deploy.ps1 pins ASPNETCORE_ENVIRONMENT per stack, so each API reads only its own file) and fill in real values. Never commit a filled-in file (both names are gitignored). The deploy script preserves both across redeploys (robocopy /XF).",
 
   "ConnectionStrings": {
-    "//": "SQL Server Express on the same box. Trusted_Connection uses the API app-pool identity (IIS APPPOOL\\ZeroBudget-Api), which Setup-Database.sql grants db_owner - so there is no DB password to store. Adjust the instance name (\\SQLEXPRESS) if you installed a default instance.",
-    "DefaultConnection": "Server=localhost\\SQLEXPRESS;Database=ZeroBudget;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
+    "//": "SQL Server Express on the same box. Trusted_Connection uses the API app-pool identity (IIS APPPOOL\\ZeroBudget-Prod-Api for production, IIS APPPOOL\\ZeroBudget-Staging-Api for staging), which Provision-Production.ps1 / Setup-Database.sql grant db_owner - so there is no DB password to store. Database is ZeroBudgetProd for production and ZeroBudgetStaging for staging. Adjust the instance name (\\SQLEXPRESS) if you installed a default instance.",
+    "DefaultConnection": "Server=localhost\\SQLEXPRESS;Database=ZeroBudgetProd;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
   },
 
   "Jwt": {

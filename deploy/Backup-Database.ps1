@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Timestamped backup of a target database with retention pruning. Pass -Database
-    explicitly (staging = ZeroBudget, production = ZeroBudgetProd) — there is no
+    explicitly (staging = ZeroBudgetStaging, production = ZeroBudgetProd) — there is no
     default, so a by-hand run can't back up the wrong environment silently.
     Intended to run as a daily Scheduled Task (see Register-BackupTask.ps1),
     but can also be run by hand before a risky deploy.

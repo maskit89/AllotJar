@@ -1,7 +1,9 @@
 <#
 .SYNOPSIS
     One-time bootstrap of a fresh Windows Server VPS to host ZeroBudget natively
-    (IIS + ASP.NET Core Module + SQL Server Express + OpenSSH for CI/CD).
+    (IIS + ASP.NET Core Module + SQL Server Express + OpenSSH for CI/CD). It creates
+    the STAGING stack (every name says staging); Provision-Production.ps1 adds the
+    production stack next to it later.
 
 .DESCRIPTION
     Idempotent: safe to re-run. Installs IIS + the modules the app needs
@@ -14,7 +16,8 @@
 
     NOT covered here (do these separately, see docs/deployment/README.md):
       * Install SQL Server Express + run Setup-Database.sql
-      * Drop your real appsettings.Production.json into the API folder
+      * Drop your real appsettings.Staging.json into the API folder (the staging API
+        runs with ASPNETCORE_ENVIRONMENT=Staging, pinned by Deploy.ps1)
       * Generate the SSH deploy key and add the public half to the server
       * TLS via win-acme, and the public DNS A-record
 #>
@@ -23,10 +26,14 @@ param(
     # Leave blank to bind the site to the server IP over HTTP (no domain needed).
     # Pass a hostname later (and run win-acme) to add a domain + HTTPS.
     [string]$Domain      = '',
-    [string]$WebRoot     = 'C:\inetpub\zerobudget\web',
-    [string]$ApiRoot     = 'C:\inetpub\zerobudget\api',
+    [string]$WebRoot     = 'C:\inetpub\zerobudget-staging\web',
+    [string]$ApiRoot     = 'C:\inetpub\zerobudget-staging\api',
     [string]$DeployRoot  = 'C:\deploy',
     [int]   $ApiPort     = 5000,
+    [string]$WebSite     = 'ZeroBudget-Staging',
+    [string]$ApiSite     = 'ZeroBudget-Staging-Api',
+    [string]$WebPool     = 'ZeroBudget-Staging-Web',
+    [string]$ApiPool     = 'ZeroBudget-Staging-Api',
 
     # External installers. URL Rewrite + ARR links are the long-stable Microsoft
     # download URLs. Verify the Hosting Bundle URL is the latest .NET 10 build.
@@ -79,13 +86,13 @@ Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' `
 
 # --- 4. Folder layout -------------------------------------------------------
 Info 'Creating folder layout'
-foreach ($d in @($WebRoot, $ApiRoot, $DeployRoot, "$DeployRoot\incoming", "$DeployRoot\staging")) {
+foreach ($d in @($WebRoot, $ApiRoot, $DeployRoot, "$DeployRoot\incoming-staging", "$DeployRoot\release-staging")) {
     New-Item -ItemType Directory -Force -Path $d | Out-Null
 }
 
 # --- 5. App pools (both "No Managed Code" - .NET Core doesn't load the CLR) --
 Info 'Creating app pools'
-foreach ($pool in @('ZeroBudget-Web', 'ZeroBudget-Api')) {
+foreach ($pool in @($WebPool, $ApiPool)) {
     if (-not (Test-Path "IIS:\AppPools\$pool")) { New-WebAppPool -Name $pool | Out-Null }
     Set-ItemProperty "IIS:\AppPools\$pool" -Name managedRuntimeVersion -Value ''
     Set-ItemProperty "IIS:\AppPools\$pool" -Name startMode -Value 'AlwaysRunning'
@@ -95,15 +102,15 @@ foreach ($pool in @('ZeroBudget-Web', 'ZeroBudget-Api')) {
 Info 'Creating IIS sites'
 # Front site: public, serves the SPA + reverse-proxies /api. With no -Domain it
 # binds to all hosts on :80 so it answers on the raw server IP.
-if (-not (Get-Website -Name 'ZeroBudget' -ErrorAction SilentlyContinue)) {
+if (-not (Get-Website -Name $WebSite -ErrorAction SilentlyContinue)) {
     if ([string]::IsNullOrWhiteSpace($Domain)) {
-        New-Website -Name 'ZeroBudget' -PhysicalPath $WebRoot -ApplicationPool 'ZeroBudget-Web' -Port 80 | Out-Null
+        New-Website -Name $WebSite -PhysicalPath $WebRoot -ApplicationPool $WebPool -Port 80 | Out-Null
     } else {
-        New-Website -Name 'ZeroBudget' -PhysicalPath $WebRoot -ApplicationPool 'ZeroBudget-Web' `
+        New-Website -Name $WebSite -PhysicalPath $WebRoot -ApplicationPool $WebPool `
             -HostHeader $Domain -Port 80 | Out-Null
     }
 } else {
-    Set-ItemProperty 'IIS:\Sites\ZeroBudget' -Name physicalPath -Value $WebRoot
+    Set-ItemProperty "IIS:\Sites\$WebSite" -Name physicalPath -Value $WebRoot
 }
 # Remove the stock Default Web Site so it doesn't squat on port 80.
 if (Get-Website -Name 'Default Web Site' -ErrorAction SilentlyContinue) {
@@ -111,11 +118,11 @@ if (Get-Website -Name 'Default Web Site' -ErrorAction SilentlyContinue) {
 }
 
 # API site: internal only, bound to localhost:$ApiPort, hosted via ANCM.
-if (-not (Get-Website -Name 'ZeroBudget-Api' -ErrorAction SilentlyContinue)) {
-    New-Website -Name 'ZeroBudget-Api' -PhysicalPath $ApiRoot -ApplicationPool 'ZeroBudget-Api' `
+if (-not (Get-Website -Name $ApiSite -ErrorAction SilentlyContinue)) {
+    New-Website -Name $ApiSite -PhysicalPath $ApiRoot -ApplicationPool $ApiPool `
         -IPAddress '127.0.0.1' -Port $ApiPort | Out-Null
 } else {
-    Set-ItemProperty 'IIS:\Sites\ZeroBudget-Api' -Name physicalPath -Value $ApiRoot
+    Set-ItemProperty "IIS:\Sites\$ApiSite" -Name physicalPath -Value $ApiRoot
 }
 
 # --- 7. OpenSSH Server (used by the GitHub Actions deploy) ------------------
@@ -176,7 +183,8 @@ Write-Host @"
 
 Next steps (see docs/deployment/README.md):
   1. Install SQL Server Express, then run:  sqlcmd -S .\SQLEXPRESS -E -i Setup-Database.sql
-  2. Copy appsettings.Production.json.example -> $ApiRoot\appsettings.Production.json and fill in secrets.
+  2. Copy appsettings.Production.json.example -> $ApiRoot\appsettings.Staging.json and fill in secrets
+     (Database=ZeroBudgetStaging; the staging API runs as ASPNETCORE_ENVIRONMENT=Staging).
   3. Add your CI public key to C:\ProgramData\ssh\administrators_authorized_keys.
 $tlsNote
 "@ -ForegroundColor Green

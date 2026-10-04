@@ -98,6 +98,70 @@ function Get-R2BucketFromArgumentLine {
 
 <#
 .SYNOPSIS
+    The connection string with its Database= (or Initial Catalog=) pointed at $Database.
+    Throws when the string names no database, so a settings file can never be rewritten
+    into one that silently falls back to the login's default database.
+#>
+function Set-ConnectionStringDatabase {
+    param(
+        [Parameter(Mandatory)][string]$ConnectionString,
+        [Parameter(Mandatory)][string]$Database
+    )
+    if ($ConnectionString -notmatch '(?i)(^|;)\s*(Database|Initial Catalog)\s*=') {
+        throw "Connection string names no database (no Database= or Initial Catalog=): $ConnectionString"
+    }
+    return [regex]::Replace($ConnectionString, '(?i)((?:^|;)\s*(?:Database|Initial Catalog)\s*=)[^;]*', ('${1}' + $Database))
+}
+
+<#
+.SYNOPSIS
+    The ANCM web.config (as emitted by `dotnet publish`) with <aspNetCore> carrying the
+    environment variable $Name=$Value. Creates <environmentVariables> when absent and
+    replaces the value when the variable is already there, so a deploy can pin
+    ASPNETCORE_ENVIRONMENT per stack (Staging reads appsettings.Staging.json, Production
+    appsettings.Production.json) without a hand-edited web.config on the server.
+#>
+function Set-AncmEnvironmentVariable {
+    param(
+        [Parameter(Mandatory)][string]$WebConfigXml,
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Value
+    )
+    $doc = New-Object System.Xml.XmlDocument
+    $doc.LoadXml($WebConfigXml)
+    $aspNetCore = $doc.SelectSingleNode('/configuration/location/system.webServer/aspNetCore')
+    if (-not $aspNetCore) { $aspNetCore = $doc.SelectSingleNode('/configuration/system.webServer/aspNetCore') }
+    if (-not $aspNetCore) { throw 'web.config has no <aspNetCore> element: is this the API''s ANCM web.config?' }
+
+    $vars = $aspNetCore.SelectSingleNode('environmentVariables')
+    if (-not $vars) {
+        $vars = $doc.CreateElement('environmentVariables')
+        [void]$aspNetCore.AppendChild($vars)
+    }
+    $var = $vars.SelectNodes('environmentVariable') | Where-Object { $_.GetAttribute('name') -eq $Name } | Select-Object -First 1
+    if (-not $var) {
+        $var = $doc.CreateElement('environmentVariable')
+        $var.SetAttribute('name', $Name)
+        [void]$vars.AppendChild($var)
+    }
+    $var.SetAttribute('value', $Value)
+
+    # Serialise through a MemoryStream, not a StringWriter: XmlWriter takes a TextWriter's
+    # encoding (a StringWriter says UTF-16), so the declaration would read encoding="utf-16"
+    # while the callers write UTF-8 bytes, and IIS could not parse the file (500.19).
+    $settings = New-Object System.Xml.XmlWriterSettings
+    $settings.Indent = $true
+    $settings.OmitXmlDeclaration = $false
+    $settings.Encoding = New-Object System.Text.UTF8Encoding($false)
+    $ms = New-Object System.IO.MemoryStream
+    $writer = [System.Xml.XmlWriter]::Create($ms, $settings)
+    $doc.Save($writer)
+    $writer.Close()
+    return [System.Text.Encoding]::UTF8.GetString($ms.ToArray())
+}
+
+<#
+.SYNOPSIS
     The byte count in `rclone size --json` output, checked against the local file's size.
     Throws when the JSON is unreadable or the sizes differ; returns the remote byte count
     otherwise. Lives here (not inline in Upload-BackupToR2.ps1) so a test can drive it: the
@@ -158,4 +222,73 @@ IF IS_ROLEMEMBER(N'db_backupoperator', N'$q') <> 1
 "@
 }
 
-Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql
+<#
+.SYNOPSIS
+    Plan the MOVE clauses for restoring a backup onto -Database, so that a restore onto a
+    DIFFERENT database on the SAME instance never points at the source database's live files.
+
+.DESCRIPTION
+    A .bak carries the SOURCE database's physical file names (ZeroBudgetProd.mdf, ...). Restoring
+    it onto another database with "MOVE ... TO <default data folder>\<same leaf>" targets the files
+    the live source database is using, and SQL Server refuses (error 1834/3156). So:
+      - when the target database exists and has the same number of data and log files as the
+        backup, each backup file is moved onto the target's OWN existing file, in file order
+        (data onto ROWS files, log onto LOG files): the target keeps its files, nothing else is touched;
+      - otherwise the target gets fresh names in the instance's default folders:
+        <Database>.mdf, <Database>_<n>.ndf, <Database>_log.ldf, <Database>_log<n>.ldf.
+    Every planned destination is then checked against the other databases' files (-OtherFiles) and
+    the function throws if any would overwrite one of them.
+
+    Pure: takes rows (RESTORE FILELISTONLY, sys.master_files) and returns the plan; runs no SQL.
+#>
+function Get-RestoreFileMoves {
+    param(
+        [Parameter(Mandatory)][string]$Database,
+        # RESTORE FILELISTONLY rows: LogicalName, PhysicalName, Type ('D' data, 'L' log, other = data).
+        [Parameter(Mandatory)][object[]]$BackupFiles,
+        # sys.master_files rows of the TARGET database: type_desc ('ROWS' / 'LOG'), physical_name. Empty when it does not exist.
+        [object[]]$TargetFiles = @(),
+        # sys.master_files rows of every OTHER database: db, physical_name.
+        [object[]]$OtherFiles = @(),
+        [Parameter(Mandatory)][string]$DataDir,
+        [string]$LogDir
+    )
+    if (-not $LogDir) { $LogDir = $DataDir }
+    # Not Join-Path: this also runs in the CI tests on Linux, where a Windows drive letter is not a PSDrive.
+    function Join-WinPath([string]$dir, [string]$leaf) { return $dir.TrimEnd('\', '/') + '\' + $leaf }
+    $bakData = @($BackupFiles | Where-Object { [string]$_.Type -ne 'L' })
+    $bakLogs = @($BackupFiles | Where-Object { [string]$_.Type -eq 'L' })
+    $ownRows = @($TargetFiles | Where-Object { [string]$_.type_desc -eq 'ROWS' } | ForEach-Object { [string]$_.physical_name })
+    $ownLogs = @($TargetFiles | Where-Object { [string]$_.type_desc -eq 'LOG' }  | ForEach-Object { [string]$_.physical_name })
+    $reuse = ($TargetFiles.Count -gt 0) -and ($ownRows.Count -eq $bakData.Count) -and ($ownLogs.Count -eq $bakLogs.Count)
+
+    $moves = New-Object System.Collections.Generic.List[string]
+    $targets = New-Object System.Collections.Generic.List[string]
+    for ($i = 0; $i -lt $bakData.Count; $i++) {
+        $dest = if ($reuse) { $ownRows[$i] }
+                elseif ($i -eq 0) { Join-WinPath $DataDir "$Database.mdf" }
+                else { Join-WinPath $DataDir ('{0}_{1}.ndf' -f $Database, $i) }
+        $moves.Add(("MOVE N'{0}' TO N'{1}'" -f ([string]$bakData[$i].LogicalName).Replace("'", "''"), $dest.Replace("'", "''")))
+        $targets.Add($dest)
+    }
+    for ($i = 0; $i -lt $bakLogs.Count; $i++) {
+        $dest = if ($reuse) { $ownLogs[$i] }
+                elseif ($i -eq 0) { Join-WinPath $LogDir "${Database}_log.ldf" }
+                else { Join-WinPath $LogDir ('{0}_log{1}.ldf' -f $Database, $i) }
+        $moves.Add(("MOVE N'{0}' TO N'{1}'" -f ([string]$bakLogs[$i].LogicalName).Replace("'", "''"), $dest.Replace("'", "''")))
+        $targets.Add($dest)
+    }
+    foreach ($t in $targets) {
+        $hit = @($OtherFiles | Where-Object { [string]$_.physical_name -ieq $t })
+        if ($hit.Count -gt 0) {
+            throw "Refusing to restore: $t is a live file of database [$($hit[0].db)], not of [$Database]."
+        }
+    }
+    return [pscustomobject]@{
+        Moves             = @($moves)
+        Targets           = @($targets)
+        ReusedTargetFiles = $reuse
+    }
+}
+
+Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql, Set-ConnectionStringDatabase, Set-AncmEnvironmentVariable, Get-RestoreFileMoves

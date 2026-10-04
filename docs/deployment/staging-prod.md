@@ -16,7 +16,7 @@ took us here at the 2026-07 GA cutover. For the base IIS/SQL deploy mechanics, s
 ```
 Cloudflare zone ──┬─ allotjar.com + www ──►  VPS IIS site 'ZeroBudget-Prod'  ─► API :5001 ─► SQL 'ZeroBudgetProd'
 (allotjar.com)    │                          = PRODUCTION (public)
-                  └─ staging.allotjar.com ─► VPS IIS site 'ZeroBudget'       ─► API :5000 ─► SQL 'ZeroBudget'
+                  └─ staging.allotjar.com ─► VPS IIS site 'ZeroBudget-Staging' ─► API :5000 ─► SQL 'ZeroBudgetStaging'
                        ▲                     = STAGING (the old beta stack + its data)
                        │
                 WAF custom rule 'staging-ip-allowlist':
@@ -26,7 +26,11 @@ Cloudflare zone ──┬─ allotjar.com + www ──►  VPS IIS site 'ZeroBud
                                 └► PRODUCTION only on a hand-started run ("Also deploy to production")
 ```
 
-- **Staging** = the original VPS stack **with its historical data**. Only
+- **Staging** = the original VPS stack **with its historical data**, renamed on 4 October
+  2026 so that every part of it says staging (`deploy/Rename-StagingStack.ps1`): sites
+  `ZeroBudget-Staging` / `ZeroBudget-Staging-Api`, pools `ZeroBudget-Staging-Web` / `-Api`,
+  `C:\inetpub\zerobudget-staging`, database `ZeroBudgetStaging`, settings
+  `appsettings.Staging.json` (the API runs as `ASPNETCORE_ENVIRONMENT=Staging`). Only
   allowlisted IPs get through Cloudflare; everyone else is blocked at the edge.
   The bundle is built with `VITE_APP_ENV=staging` (amber banner + data-loss signup
   consent) and **no GA measurement ID** (analytics inert).
@@ -53,9 +57,10 @@ Cloudflare zone ──┬─ allotjar.com + www ──►  VPS IIS site 'ZeroBud
 | Release pipeline (staging auto + prod on a manual run) | `.github/workflows/deploy.yml` |
 | Prod stack provisioning (manual run) | `.github/workflows/provision-production.yml` + `deploy/Provision-Production.ps1` |
 | Cloudflare DNS/WAF automation | `deploy/Setup-Cloudflare.ps1` |
-| Server-side deploy (parametrised per stack) | `deploy/Deploy.ps1` (`-ApiProxyPort` patches the ARR port) |
+| Server-side deploy (parametrised per stack) | `deploy/Deploy.ps1` (`-ApiProxyPort` patches the ARR port, `-AspNetEnvironment` pins which `appsettings.<Env>.json` the API reads) |
+| One-time rename of the staging stack to staging names | `deploy/Rename-StagingStack.ps1` (idempotent; `-Check` reports only) |
 | Staging banner + signup consent | `client/src/components/StagingBanner.tsx`, `client/src/lib/env.ts`, `LoginPage.tsx` |
-| Daily DB backups (both databases) | `deploy/Backup-Database.ps1` + `deploy/Register-BackupTask.ps1` (tasks `ZeroBudget-DbBackup`, `ZeroBudget-Prod-DbBackup`) |
+| Daily DB backups (both databases) | `deploy/Backup-Database.ps1` + `deploy/Register-BackupTask.ps1` (tasks `ZeroBudget-Staging-DbBackup`, `ZeroBudget-Prod-DbBackup`) |
 | Retired coming-soon page (archived source) | `marketing/coming-soon/` |
 
 ## Outbound email (password reset)
@@ -66,7 +71,8 @@ it logs instead of sending (fine for staging — the reset flow is then effectiv
 which the IP-allowlisted audience can live with).
 
 Provider is config, not code: switching (e.g. falling back off Cloudflare's beta) is an
-`appsettings.Production.json` edit + an app-pool recycle, never a redeploy.
+`appsettings.Production.json` edit (`appsettings.Staging.json` on staging) + an app-pool
+recycle, never a redeploy.
 
 ### One-time production setup
 
@@ -82,8 +88,8 @@ Provider is config, not code: switching (e.g. falling back off Cloudflare's beta
 
 Either way, verification must complete before any send from `no-reply@allotjar.com` is accepted.
 
-**2. Put the provider config in the server's `appsettings.Production.json`** (preserved across
-deploys by `Deploy.ps1`'s robocopy exclude):
+**2. Put the provider config in the server's `appsettings.Production.json`** (`appsettings.Staging.json`
+for the staging API; both preserved across deploys by `Deploy.ps1`'s robocopy exclude):
 
 ```jsonc
 // Cloudflare
@@ -210,7 +216,7 @@ One-time setup:
    support email + the privacy/terms links already at allotjar.com) or Google shows an "unverified
    app" warning.
 2. Copy the client id (`….apps.googleusercontent.com`).
-3. **Server**: add to `appsettings.Production.json` (preserved across deploys):
+3. **Server**: add to `appsettings.Production.json` (`appsettings.Staging.json` on staging; preserved across deploys):
    `"Google": { "ClientId": "….apps.googleusercontent.com" }`, then **recycle the app pool** (the
    validator's audience is read via `IOptions` at startup — see the email note above for the
    recycle rationale).
@@ -267,7 +273,7 @@ be bypassed by hitting the VPS directly.
    the staging site so each site answers exactly its own hostnames.
 8. **Verify**: `www.allotjar.com` serves the app with no banner; `staging.allotjar.com`
    works from an allowlisted IP and is blocked elsewhere; `app.allotjar.com` no
-   longer resolves; `Get-ScheduledTask ZeroBudget-DbBackup, ZeroBudget-Prod-DbBackup`
+   longer resolves; `Get-ScheduledTask ZeroBudget-Staging-DbBackup, ZeroBudget-Prod-DbBackup`
    both exist and run.
 
 Rollback: the coming-soon Worker still exists (custom domains can be re-added in

@@ -49,7 +49,7 @@ Assert-True ((Get-SslBindingAction -ExistingThumbprint 'CCDD' -DesiredThumbprint
 
 Write-Host '== New-BackupTaskArgumentLine / Get-R2BucketFromArgumentLine (R2 round-trip) =='
 $local = New-BackupTaskArgumentLine -ScriptPath 'C:\deploy\Backup-Database.ps1' -Server '.\SQLEXPRESS' `
-    -Database 'ZeroBudget' -BackupDir 'C:\deploy\backups' -RetentionDays 14
+    -Database 'ZeroBudgetStaging' -BackupDir 'C:\deploy\backups' -RetentionDays 14
 Assert-True ($local -notmatch '-R2Bucket') 'local-only line carries no R2 arguments'
 Assert-True ($null -eq (Get-R2BucketFromArgumentLine -ArgumentLine $local)) 'no bucket parsed from a local-only line'
 
@@ -96,6 +96,96 @@ foreach ($script in 'Register-BackupTask.ps1', 'Export-DevData.ps1', 'Backup-Dat
     $text = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) $script) -Raw
     Assert-True ($text -notmatch '(?m)^\s*\[\w+\]\s*\$\w+\s*=.*\$PSScriptRoot') "$script resolves PSScriptRoot-based defaults in the body, not in param()"
 }
+
+Write-Host '== Set-ConnectionStringDatabase (settings rewrite keeps everything but the database) =='
+$cs = 'Server=localhost\SQLEXPRESS;Database=ZeroBudget;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true'
+$renamed = Set-ConnectionStringDatabase -ConnectionString $cs -Database 'ZeroBudgetStaging'
+Assert-True ($renamed -eq ($cs -replace 'Database=ZeroBudget;', 'Database=ZeroBudgetStaging;')) 'only the Database= value changes'
+Assert-True ((Set-ConnectionStringDatabase -ConnectionString 'Server=.;Initial Catalog=A;Integrated Security=True' -Database 'B') -eq 'Server=.;Initial Catalog=B;Integrated Security=True') 'Initial Catalog= is handled too'
+$threw = $false; try { [void](Set-ConnectionStringDatabase -ConnectionString 'Server=.;Integrated Security=True' -Database 'B') } catch { $threw = $true }
+Assert-True $threw 'a connection string without a database throws instead of being left pointing at the default database'
+
+Write-Host '== Set-AncmEnvironmentVariable (ASPNETCORE_ENVIRONMENT pinned per stack in the API web.config) =='
+# The web.config `dotnet publish` emits for the API: a self-closing <aspNetCore> under <location>.
+$published = @'
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <location path="." inheritInChildApplications="false">
+    <system.webServer>
+      <handlers>
+        <add name="aspNetCore" path="*" verb="*" modules="AspNetCoreModuleV2" resourceType="Unspecified" />
+      </handlers>
+      <aspNetCore processPath="dotnet" arguments=".\AllotJar.Api.dll" stdoutLogEnabled="false" stdoutLogFile=".\logs\stdout" hostingModel="inprocess" />
+    </system.webServer>
+  </location>
+</configuration>
+'@
+$staging = Set-AncmEnvironmentVariable -WebConfigXml $published -Name 'ASPNETCORE_ENVIRONMENT' -Value 'Staging'
+$doc = [xml]$staging
+$vars = @($doc.configuration.location.'system.webServer'.aspNetCore.environmentVariables.environmentVariable)
+Assert-True ($vars.Count -eq 1 -and $vars[0].name -eq 'ASPNETCORE_ENVIRONMENT' -and $vars[0].value -eq 'Staging') 'adds ASPNETCORE_ENVIRONMENT=Staging to a published web.config'
+Assert-True ($doc.configuration.location.'system.webServer'.aspNetCore.hostingModel -eq 'inprocess') 'the other aspNetCore attributes survive'
+$again = Set-AncmEnvironmentVariable -WebConfigXml $staging -Name 'ASPNETCORE_ENVIRONMENT' -Value 'Production'
+$vars2 = @(([xml]$again).configuration.location.'system.webServer'.aspNetCore.environmentVariables.environmentVariable)
+Assert-True ($vars2.Count -eq 1 -and $vars2[0].value -eq 'Production') 're-running replaces the value instead of adding a second variable'
+$threw = $false; try { [void](Set-AncmEnvironmentVariable -WebConfigXml '<configuration><system.webServer /></configuration>' -Name 'X' -Value 'Y') } catch { $threw = $true }
+Assert-True $threw 'a web.config without <aspNetCore> (the front site has none) is refused'
+# Regression (PR #313 review P1-1): the result is written to disk as UTF-8 by Deploy.ps1, so its
+# declaration must say utf-8 and the FILE must load, not just the in-memory string.
+$tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("ancm-{0}.config" -f [guid]::NewGuid())
+[System.IO.File]::WriteAllText($tmp, $staging, (New-Object System.Text.UTF8Encoding($false)))
+Assert-True ((Get-Content $tmp -First 1) -match 'encoding="utf-8"') 'the written web.config declares utf-8'
+$loaded = $false; try { $d2 = New-Object System.Xml.XmlDocument; $d2.Load($tmp); $loaded = $null -ne $d2.SelectSingleNode('//aspNetCore/environmentVariables/environmentVariable[@name="ASPNETCORE_ENVIRONMENT"]') } catch { $loaded = $false }
+Assert-True $loaded 'the web.config file on disk loads with XmlDocument.Load and holds the variable'
+Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+
+Write-Host '== Staging is called staging (no stack component of staging is left with a bare or prod name) =='
+$deployDir = Split-Path $PSScriptRoot -Parent
+$deployScript = Get-Content (Join-Path $deployDir 'Deploy.ps1') -Raw
+Assert-True ($deployScript -match 'appsettings\.Staging\.json' -and $deployScript -match 'appsettings\.Production\.json') 'Deploy.ps1 preserves the settings files of both environments across the robocopy mirror'
+Assert-True ($deployScript -notmatch "'C:\\inetpub\\zerobudget\\") 'Deploy.ps1 no longer defaults to the unsuffixed (pre-rename) staging folders'
+$workflow = Get-Content (Join-Path (Split-Path $deployDir -Parent) '.github/workflows/deploy.yml') -Raw
+Assert-True ($workflow -notmatch 'staging-prod\b' -and $workflow -notmatch 'incoming-prod\b') 'deploy.yml does not unpack production in a folder called staging-prod'
+Assert-True ($workflow -match '-AspNetEnvironment Staging' -and $workflow -match '-AspNetEnvironment Production') 'deploy.yml pins the ASP.NET Core environment of each stack'
+
+Write-Host '== Get-RestoreFileMoves (restoring one database''s backup onto another on the same instance) =='
+$data = 'C:\SQL\DATA\'
+$prodBak = @(
+    [pscustomobject]@{ LogicalName = 'ZeroBudgetProd';     PhysicalName = 'C:\SQL\DATA\ZeroBudgetProd.mdf';     Type = 'D' },
+    [pscustomobject]@{ LogicalName = 'ZeroBudgetProd_log'; PhysicalName = 'C:\SQL\DATA\ZeroBudgetProd_log.ldf'; Type = 'L' }
+)
+$stagingFiles = @(
+    [pscustomobject]@{ type_desc = 'ROWS'; physical_name = 'C:\SQL\DATA\ZeroBudget.mdf' },
+    [pscustomobject]@{ type_desc = 'LOG';  physical_name = 'C:\SQL\DATA\ZeroBudget_log.ldf' }
+)
+$prodFiles = @(
+    [pscustomobject]@{ db = 'ZeroBudgetProd'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd.mdf' },
+    [pscustomobject]@{ db = 'ZeroBudgetProd'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd_log.ldf' }
+)
+# The restore test: production's nightly .bak onto the (renamed) staging database, which keeps its own files.
+$plan = Get-RestoreFileMoves -Database ZeroBudgetStaging -BackupFiles $prodBak -TargetFiles $stagingFiles -OtherFiles $prodFiles -DataDir $data
+Assert-True $plan.ReusedTargetFiles 'an existing target with matching file counts keeps its own files'
+Assert-True ($plan.Moves[0] -eq "MOVE N'ZeroBudgetProd' TO N'C:\SQL\DATA\ZeroBudget.mdf'") 'the data file lands on the target''s own .mdf'
+Assert-True ($plan.Moves[1] -eq "MOVE N'ZeroBudgetProd_log' TO N'C:\SQL\DATA\ZeroBudget_log.ldf'") 'the log file lands on the target''s own .ldf'
+Assert-True (-not ($plan.Targets -contains 'C:\SQL\DATA\ZeroBudgetProd.mdf')) 'production''s live .mdf is never a destination'
+# A target that does not exist yet gets its own names, never the backup's leaf names.
+$plan = Get-RestoreFileMoves -Database ZeroBudgetStaging -BackupFiles $prodBak -OtherFiles $prodFiles -DataDir $data -LogDir 'C:\SQL\LOG\'
+Assert-True (-not $plan.ReusedTargetFiles) 'a missing target does not reuse files'
+Assert-True ($plan.Targets[0] -eq 'C:\SQL\DATA\ZeroBudgetStaging.mdf') 'a missing target gets <Database>.mdf in the data folder'
+Assert-True ($plan.Targets[1] -eq 'C:\SQL\LOG\ZeroBudgetStaging_log.ldf') 'a missing target gets <Database>_log.ldf in the log folder'
+# The old behaviour (default folder + the backup's own leaf names) is exactly what must be refused.
+$collide = @([pscustomobject]@{ type_desc = 'ROWS'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd.mdf' }, [pscustomobject]@{ type_desc = 'LOG'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd_log.ldf' })
+$threw = $false
+try { Get-RestoreFileMoves -Database ZeroBudgetStaging -BackupFiles $prodBak -TargetFiles $collide -OtherFiles $prodFiles -DataDir $data | Out-Null } catch { $threw = $_.Exception.Message -match 'ZeroBudgetProd' }
+Assert-True $threw 'a destination that is another database''s live file is refused, naming that database'
+# Restoring production's own backup over production (rollback) still reuses production's files.
+$prodOwn = @([pscustomobject]@{ type_desc = 'ROWS'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd.mdf' }, [pscustomobject]@{ type_desc = 'LOG'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd_log.ldf' })
+$plan = Get-RestoreFileMoves -Database ZeroBudgetProd -BackupFiles $prodBak -TargetFiles $prodOwn -OtherFiles @() -DataDir $data
+Assert-True ($plan.ReusedTargetFiles -and $plan.Targets[0] -eq 'C:\SQL\DATA\ZeroBudgetProd.mdf') 'restoring a database over itself keeps its files'
+# A file count mismatch falls back to fresh names rather than guessing a pairing.
+$twoData = $prodBak + @([pscustomobject]@{ LogicalName = 'ZeroBudgetProd_2'; PhysicalName = 'C:\SQL\DATA\ZeroBudgetProd_2.ndf'; Type = 'D' })
+$plan = Get-RestoreFileMoves -Database ZeroBudgetStaging -BackupFiles $twoData -TargetFiles $stagingFiles -OtherFiles $prodFiles -DataDir $data
+Assert-True ((-not $plan.ReusedTargetFiles) -and $plan.Targets[1] -eq 'C:\SQL\DATA\ZeroBudgetStaging_1.ndf') 'a file-count mismatch uses fresh <Database>_n.ndf names'
 
 if ($script:Failures -gt 0) {
     Write-Host "$($script:Failures) assertion(s) FAILED." -ForegroundColor Red
