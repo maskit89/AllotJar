@@ -401,8 +401,8 @@ Info 'Production provisioning complete.'
 Write-Host @"
 
 Next steps:
-  1. Approve the pending 'production' deploy job (or re-run the Deploy workflow) so the
-     prod stack gets its first build; Deploy.ps1 health-checks http://127.0.0.1:$ProdApiPort/health.
+  1. Start the Deploy workflow by hand on main with 'Also deploy to production' ticked so
+     the prod stack gets its first build; Deploy.ps1 health-checks http://127.0.0.1:$ProdApiPort/health.
   2. Apply the Cloudflare changes (deploy/Setup-Cloudflare.ps1 + docs/deployment/staging-prod.md):
      staging WAF allowlist + DNS, then move apex/www off the coming-soon Worker onto the origin.
   3. AFTER DNS is flipped, re-run this script with -TrimStagingBindings.

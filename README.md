@@ -467,10 +467,11 @@ staging/production split.
   a11y gate) on every push/PR.
 - **`deploy.yml`** is the release pipeline: every merge to `main` auto-deploys
   **staging** (`staging.allotjar.com`, IP-allowlisted via a Cloudflare WAF rule,
-  `VITE_APP_ENV=staging` with the amber banner + data-loss signup consent), then the
-  **production** job (`allotjar.com` / `www`, `VITE_APP_ENV=production`) waits for a
-  manual approval on the `production` GitHub environment.
-- **`provision-production.yml`** is the manual, reviewer-gated infra workflow that
+  `VITE_APP_ENV=staging` with the amber banner + data-loss signup consent).
+  **Production** (`allotjar.com` / `www`, `VITE_APP_ENV=production`) deploys only on
+  a hand-started Deploy run from `main` with **Also deploy to production** ticked, and
+  only if CI passed on that commit.
+- **`provision-production.yml`** is the manual infra workflow that
   stood up (and can re-shape) the production IIS/SQL stack on the VPS.
 - Both stacks share one VPS: separate IIS sites/pools, API on `:5000` (staging) and
   `:5001` (production), separate SQL databases (`ZeroBudget` / `ZeroBudgetProd`).

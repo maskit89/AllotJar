@@ -23,7 +23,7 @@ Cloudflare zone ──┬─ allotjar.com + www ──►  VPS IIS site 'ZeroBud
                 block staging.allotjar.com unless ip.src is allowlisted
 
   merge to main ──► deploy.yml: build+deploy STAGING (auto)
-                                └► deploy PRODUCTION (pauses for approval in the Actions UI)
+                                └► PRODUCTION only on a hand-started run ("Also deploy to production")
 ```
 
 - **Staging** = the original VPS stack **with its historical data**. Only
@@ -35,17 +35,23 @@ Cloudflare zone ──┬─ allotjar.com + www ──►  VPS IIS site 'ZeroBud
   with a fresh JWT signing key). Public at `allotjar.com`/`www`. Accounts do NOT
   carry over from staging — production started empty.
 - **One pipeline** (`.github/workflows/deploy.yml`): every merge to `main` deploys
-  staging automatically, then the production job waits on the `production`
-  environment's required reviewer. Approving it ships the same commit to prod.
-  Unapproved production jobs are superseded by newer runs (job-level concurrency
-  group `production-deploy`), so approving always deploys the newest `main`.
+  staging automatically and never touches production. To ship production, run the
+  Deploy workflow by hand on `main` (Actions > Deploy > Run workflow) with **Also
+  deploy to production** ticked: that run redeploys staging with the newest `main`,
+  then deploys the same commit to production. Until 3 Oct 2026 the gate was the
+  `production` environment's required reviewer; GitHub ignores environment
+  protection rules on a private repo on the Free, Pro and Team plans, so it stopped
+  applying when the repo went private. The production jobs first check that CI
+  passed on main for that commit and stop if it failed or is still running. If a
+  merge lands while the run waits for staging, the run shows as cancelled; start
+  it again.
 
 ## What's in the repo
 
 | Piece | Where |
 |---|---|
-| Release pipeline (staging auto + prod approval) | `.github/workflows/deploy.yml` |
-| Prod stack provisioning (manual, reviewer-gated) | `.github/workflows/provision-production.yml` + `deploy/Provision-Production.ps1` |
+| Release pipeline (staging auto + prod on a manual run) | `.github/workflows/deploy.yml` |
+| Prod stack provisioning (manual run) | `.github/workflows/provision-production.yml` + `deploy/Provision-Production.ps1` |
 | Cloudflare DNS/WAF automation | `deploy/Setup-Cloudflare.ps1` |
 | Server-side deploy (parametrised per stack) | `deploy/Deploy.ps1` (`-ApiProxyPort` patches the ARR port) |
 | Staging banner + signup consent | `client/src/components/StagingBanner.tsx`, `client/src/lib/env.ts`, `LoginPage.tsx` |

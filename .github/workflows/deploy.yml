@@ -3,16 +3,20 @@ name: Deploy
 # One pipeline, two environments, every merge to main:
 #
 #   build-staging ──► deploy-staging (auto)          staging.allotjar.com
-#                                    └► deploy-production (PAUSES for approval)
+#                                    └► deploy-production (manual run only)
 #   build-production ────────────────┘               allotjar.com / www
 #
 # * STAGING auto-deploys on every merge. It is the IP-allowlisted test environment
 #   (Cloudflare WAF rule) with the amber staging banner + data-loss signup consent
 #   (VITE_APP_ENV=staging) and NO GA measurement ID (analytics stays inert there).
-# * PRODUCTION deploys the SAME commit after a manual approval: the `production`
-#   GitHub environment has a required reviewer, so the deploy-production job waits
-#   until it is approved in the Actions UI. It always runs AFTER deploy-staging,
-#   so nothing reaches production that staging didn't get first.
+# * PRODUCTION deploys only when the owner starts this workflow by hand (Actions >
+#   Deploy > Run workflow, branch main, "Also deploy to production" ticked). A
+#   merge never reaches production on its own. This replaces the `production`
+#   environment's required reviewer: GitHub ignores environment protection rules
+#   on a private repository on the Free, Pro and Team plans, so that gate stopped
+#   applying when the repo went private (3 Oct 2026). The production job still
+#   runs AFTER deploy-staging in the same run, so nothing reaches production that
+#   staging didn't get first.
 # * Both stacks live on the same VPS (separate IIS sites/pools/DBs; API on :5000
 #   staging, :5001 production) and reuse the same repo-level VPS_* SSH secrets.
 #
@@ -22,12 +26,18 @@ name: Deploy
 on:
   push:
     branches: [main]
-    # A docs-only merge changes nothing that ships, so it neither rebuilds nor asks
-    # for another production approval. Run the workflow by hand to force a deploy.
+    # A docs-only merge changes nothing that ships, so it does not redeploy staging.
+    # Run the workflow by hand to force a deploy.
     paths-ignore:
       - 'docs/**'
       - '**.md'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      production:
+        description: 'Also deploy to production (after staging). Leave unticked to redeploy staging only.'
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   build-staging:
@@ -91,8 +101,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: staging
-    # Serialize staging deploys without ever blocking on the (possibly long)
-    # production approval below - hence job-level, not workflow-level, groups.
+    # Serialize staging deploys without ever blocking on a production deploy
+    # below - hence job-level, not workflow-level, groups.
     concurrency:
       group: staging-deploy
       cancel-in-progress: false
@@ -151,8 +161,39 @@ jobs:
             "$USER@$HOST" \
             'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\staging\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming\release.zip -DestinationPath C:\deploy\staging -Force; & C:\deploy\staging\Deploy.ps1"'
 
+  # Production ships only a commit whose CI on main passed. Journey and a11y run on
+  # main, not on PRs, and this workflow never waited for CI, so without this check a
+  # red main could reach production.
+  ci-passed:
+    name: CI passed on this commit
+    if: github.event_name == 'workflow_dispatch' && inputs.production && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Check the CI run for this commit on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          result=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&event=push&per_page=1" \
+            --jq '.workflow_runs[0] | if . == null then "missing" else "\(.status) \(.conclusion // "")" end')
+          echo "CI on main for $SHA: $result"
+          case "$result" in
+            "completed success") ;;
+            missing) echo "::error::No CI run on main for $SHA. Production is not deployed."; exit 1 ;;
+            completed*) echo "::error::CI on main for $SHA did not pass ($result). Production is not deployed."; exit 1 ;;
+            *) echo "::error::CI on main for $SHA has not finished ($result). Start this run again once it has."; exit 1 ;;
+          esac
+
   build-production:
     name: build release (production)
+    needs: ci-passed
+    # Production builds and deploys only on a hand-started run from main with the
+    # production box ticked; a merge (push) skips both production jobs.
+    if: github.event_name == 'workflow_dispatch' && inputs.production && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -205,12 +246,12 @@ jobs:
           retention-days: 7
 
   deploy-production:
-    name: deploy to production (needs approval)
-    # Staging must have deployed this commit first; the `production` environment's
-    # required reviewer is the manual gate - the job PAUSES here until approved.
-    # Unapproved runs are superseded: at most one production deploy is pending, and
-    # a newer run replaces it, so approving always ships the newest main.
+    name: deploy to production (manual run)
+    # Staging must have deployed this commit first. The manual gate is the hand-started
+    # run itself; the condition is repeated from build-production so this job can never
+    # run on a merge. Production deploys queue one at a time.
     needs: [build-production, deploy-staging]
+    if: github.event_name == 'workflow_dispatch' && inputs.production && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
