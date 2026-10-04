@@ -180,21 +180,39 @@ jobs:
     permissions:
       actions: read
     steps:
+      # Docs-only commits do not run CI (ci.yml paths-ignore), so for a docs-only head
+      # this looks back to the newest earlier commit that did run it and requires every
+      # commit since to touch docs only. Code that never ran CI is refused.
       - name: Check the CI run for this commit on main
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
         run: |
-          result=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&event=push&per_page=1" \
-            --jq '.workflow_runs[0] | if . == null then "missing" else "\(.status) \(.conclusion // "")" end')
-          echo "CI on main for $SHA: $result"
-          case "$result" in
-            "completed success") ;;
-            missing) echo "::error::No CI run on main for $SHA. Production is not deployed."; exit 1 ;;
-            completed*) echo "::error::CI on main for $SHA did not pass ($result). Production is not deployed."; exit 1 ;;
-            *) echo "::error::CI on main for $SHA has not finished ($result). Start this run again once it has."; exit 1 ;;
-          esac
+          runs=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=30" \
+            --jq '.workflow_runs[] | "\(.head_sha) \(.status) \(.conclusion // "")"')
+          while read -r run_sha status conclusion; do
+            [ -z "$run_sha" ] && continue
+            cmp=$(gh api "repos/$REPO/compare/$run_sha...$SHA" --jq '"\(.status) \(.total_commits)"' 2>/dev/null || echo "none 0")
+            case "${cmp%% *}" in identical|ahead) ;; *) continue ;; esac
+            if [ "${cmp%% *}" = ahead ]; then
+              code=$(gh api --paginate "repos/$REPO/compare/$run_sha...$SHA" \
+                --jq '.files[].filename' | grep -vE '^docs/|\.md$' || true)
+              if [ -n "$code" ]; then
+                echo "::error::Code changed since the last CI run on main ($run_sha) and $SHA has no CI run. Production is not deployed."
+                echo "$code"; exit 1
+              fi
+              echo "$SHA is docs-only after $run_sha; using that CI run."
+            fi
+            result="$status $conclusion"
+            echo "CI on main for $run_sha: $result"
+            case "$result" in
+              "completed success") exit 0 ;;
+              completed*) echo "::error::CI on main for $run_sha did not pass ($result). Production is not deployed."; exit 1 ;;
+              *) echo "::error::CI on main for $run_sha has not finished ($result). Start this run again once it has."; exit 1 ;;
+            esac
+          done <<< "$runs"
+          echo "::error::No CI run found on main at or before $SHA. Production is not deployed."; exit 1
 
   build-production:
     name: build release (production)

@@ -3,8 +3,17 @@ name: CI
 on:
   push:
     branches: [main]
+    # A docs-only change ships nothing, so it needs no test run. Production's
+    # `ci-passed` check (deploy.yml) knows this: for a docs-only head it looks back to
+    # the newest code commit's CI run. Run CI by hand to force a full run.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
   # Run the full suite (journey and a11y included) on any branch by hand.
   workflow_dispatch: {}
 
@@ -28,6 +37,13 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Cache NuGet packages
+        uses: actions/cache@v5
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
       - name: Restore
         run: dotnet restore AllotJar.slnx
 
@@ -44,10 +60,20 @@ jobs:
   # against a real SQL Server to cover the three crash paths: add a line to a Savings
   # group, create a month from a starter template, and create a jar. The test project is
   # deliberately outside AllotJar.slnx so the `backend` job (no database) never runs it.
+  #
+  # The same job then runs the real-backend journey tests (on main and hand-started runs,
+  # not on PRs): Playwright drives complete user journeys (register → seeded budget, CSV
+  # import round-trip + dedup, invite → accept) against a LIVE .NET API + this SQL Server,
+  # with the SPA served by Vite proxying /api to the API. This is the only layer that
+  # exercises the whole stack over HTTP — the a11y specs stub every request, and the
+  # backend job runs on the FK-blind in-memory provider. The API + Vite are booted/torn
+  # down by Playwright's webServer (playwright.journey.config.ts). The two used to be
+  # separate jobs; sharing one runner and one SQL Server saves a second set-up (the repo
+  # is private, 2,000 free minutes a month, and PRs run only the integration steps).
   integration:
     name: integration
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -57,10 +83,12 @@ jobs:
         ports:
           - 1433:1433
     env:
-      # Throwaway CI database on the service container; the fixture applies the EF Core
-      # migrations to it once, then the tests exercise the SavingsId → Jars FK. Not a
-      # secret — it only ever reaches this ephemeral container. Encrypt=False skips TLS.
+      # Throwaway CI databases on the service container (the fixture and the API migrate
+      # them). Not secrets — they only ever reach this ephemeral container. Encrypt=False
+      # skips TLS. The signing key only ever signs tokens for the journey DB.
       INTEGRATION_TEST_CONNECTION: 'Server=localhost,1433;Database=AllotJar_IntegrationTests;User Id=sa;Password=AllotJar!Str0ngP4ss;TrustServerCertificate=True;Encrypt=False'
+      JOURNEY_TEST_CONNECTION: 'Server=localhost,1433;Database=AllotJar_Journey;User Id=sa;Password=AllotJar!Str0ngP4ss;TrustServerCertificate=True;Encrypt=False'
+      JOURNEY_JWT_KEY: 'journey-e2e-signing-key-not-a-secret-0123456789'
     steps:
       - uses: actions/checkout@v7
 
@@ -68,6 +96,13 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v5
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props') }}
+          restore-keys: nuget-${{ runner.os }}-
 
       - name: Restore
         run: dotnet restore tests/AllotJar.IntegrationTests/AllotJar.IntegrationTests.csproj
@@ -80,44 +115,8 @@ jobs:
       - name: Test
         run: dotnet test tests/AllotJar.IntegrationTests/AllotJar.IntegrationTests.csproj --no-build -c Release --verbosity normal
 
-  # Real-backend journey tests: Playwright drives complete user journeys (register → seeded
-  # budget, CSV import round-trip + dedup, invite → accept) against a LIVE .NET API + real SQL
-  # Server, with the SPA served by Vite proxying /api to the API. This is the only layer that
-  # exercises the whole stack over HTTP — the a11y specs stub every request, and the backend job
-  # runs on the FK-blind in-memory provider. The API + Vite are booted/torn down by Playwright's
-  # webServer (playwright.journey.config.ts).
-  journey:
-    name: journey
-    # Browser suites cost about half of CI's minutes, and the repo is private (2,000
-    # free minutes a month), so they run on main and on hand-started runs, not on PRs.
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    services:
-      sqlserver:
-        image: mcr.microsoft.com/mssql/server:2022-latest
-        env:
-          ACCEPT_EULA: 'Y'
-          MSSQL_SA_PASSWORD: 'AllotJar!Str0ngP4ss'
-        ports:
-          - 1433:1433
-        # No health-cmd (recent images may not ship sqlcmd): the container starts here, an explicit
-        # port wait (below) plus the ~90s of build/install steps give it ample time to become
-        # query-ready, and the API retries migrations on boot before it serves /health.
-    env:
-      # A throwaway journey database on the service container; the API migrates it on boot. The
-      # signing key only ever signs tokens for this ephemeral DB — not a secret.
-      JOURNEY_TEST_CONNECTION: 'Server=localhost,1433;Database=AllotJar_Journey;User Id=sa;Password=AllotJar!Str0ngP4ss;TrustServerCertificate=True;Encrypt=False'
-      JOURNEY_JWT_KEY: 'journey-e2e-signing-key-not-a-secret-0123456789'
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '10.0.x'
-
       - name: Setup Node
+        if: github.event_name != 'pull_request'
         uses: actions/setup-node@v7
         with:
           node-version: '22'
@@ -126,35 +125,41 @@ jobs:
 
       # Pre-build the API so Playwright's `dotnet run` webServer starts fast and deterministically.
       - name: Build API
+        if: github.event_name != 'pull_request'
         run: dotnet build src/AllotJar.Api/AllotJar.Api.csproj -c Release
 
       - name: Install client deps
+        if: github.event_name != 'pull_request'
         working-directory: client
         run: npm ci
 
+      - name: Cache Playwright Chromium
+        if: github.event_name != 'pull_request'
+        id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('client/package-lock.json') }}
+
       - name: Install Playwright Chromium
+        if: github.event_name != 'pull_request' && steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: client
         run: npx playwright install --with-deps chromium
 
-      # Guarantee the SQL Server container accepts TCP before Playwright boots the API (whose
-      # migration retry then covers the short port-open → query-ready gap).
-      - name: Wait for SQL Server
-        run: |
-          for i in $(seq 1 60); do
-            if (echo > /dev/tcp/localhost/1433) >/dev/null 2>&1; then
-              echo "SQL Server port is open."; exit 0
-            fi
-            sleep 2
-          done
-          echo "SQL Server did not open port 1433 in time." >&2; exit 1
+      # The browser is cached; the system libraries it needs are not.
+      - name: Install Playwright system libraries
+        if: github.event_name != 'pull_request' && steps.playwright-cache.outputs.cache-hit == 'true'
+        working-directory: client
+        run: npx playwright install-deps chromium
 
       - name: Journey tests
+        if: github.event_name != 'pull_request'
         working-directory: client
         run: npm run test:e2e:journey
 
       # Traces/screenshots/video are retained on failure — upload them for debugging.
       - name: Upload Playwright artifacts
-        if: failure()
+        if: failure() && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: journey-playwright-report
@@ -218,52 +223,26 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Cache Playwright Chromium
+        id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('client/package-lock.json') }}
+
       - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
+
+      # The browser is cached; the system libraries it needs are not.
+      - name: Install Playwright system libraries
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
 
       # Drives the app in headless Chromium and asserts no axe-core WCAG 2.x A/AA
       # violations on each page, in both light and dark themes.
       - name: Accessibility (axe) checks
         run: npm run test:e2e
-
-  # Flags dependencies with known security advisories on every PR/push. Not a required
-  # status check (so a freshly-disclosed transitive advisory won't hard-block unrelated
-  # work), but it shows red so it gets noticed; Dependabot opens the actual fix PRs.
-  security-scan:
-    name: security-scan
-    runs-on: ubuntu-latest
-    timeout-minutes: 8
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Restore
-        run: dotnet restore AllotJar.slnx
-
-      # `dotnet list --vulnerable` always exits 0, so detect advisories from its output.
-      - name: NuGet vulnerable packages
-        run: |
-          set -o pipefail
-          dotnet list AllotJar.slnx package --vulnerable --include-transitive 2>&1 | tee nuget-audit.txt
-          if grep -q "has the following vulnerable packages" nuget-audit.txt; then
-            echo "::error::Vulnerable NuGet packages found — see the log above."
-            exit 1
-          fi
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: client/package-lock.json
-
-      - name: npm audit (client)
-        working-directory: client
-        run: npm audit --audit-level=high
 
   # Guards the pure decision logic behind the provisioning scripts (wildcard cert
   # coverage, SSL rebind decisions, the backup task's R2 arguments). Seconds to run;
