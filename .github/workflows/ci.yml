@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
-    # A docs-only change ships nothing, so it needs no test run. Production's
+    # A docs-only push ships nothing, so it needs no test run. Production's
     # `ci-passed` check (deploy.yml) knows this: for a docs-only head it looks back to
     # the newest code commit's CI run. Run CI by hand to force a full run.
     paths-ignore:
@@ -11,9 +11,6 @@ on:
       - '**.md'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '**.md'
   # Run the full suite (journey and a11y included) on any branch by hand.
   workflow_dispatch: {}
 
@@ -25,8 +22,36 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Pull requests cannot use paths-ignore: the main ruleset requires the `backend` and
+  # `frontend` checks, and a workflow filtered out by paths never reports them, which
+  # blocks the merge. Instead every PR starts this 2-minute job, and a docs-only PR skips
+  # the heavy jobs with `if:` (a job skipped by `if:` counts as passed for required checks).
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -z "$BASE" ] || git diff --name-only "$BASE" HEAD | grep -qvE '^docs/|\.md$'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "Docs-only change: tests skipped."
+          fi
+
   backend:
     name: backend
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -41,7 +66,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props') }}
+          key: nuget-${{ runner.os }}-${{ github.job }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props') }}
           restore-keys: nuget-${{ runner.os }}-
 
       - name: Restore
@@ -72,8 +97,10 @@ jobs:
   # is private, 2,000 free minutes a month, and PRs run only the integration steps).
   integration:
     name: integration
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -101,7 +128,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props') }}
+          key: nuget-${{ runner.os }}-${{ github.job }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props') }}
           restore-keys: nuget-${{ runner.os }}-
 
       - name: Restore
@@ -170,6 +197,8 @@ jobs:
 
   frontend:
     name: frontend
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
