@@ -4,8 +4,10 @@
     Run once on the VPS AFTER SQL Server Express is installed. Idempotent (-Force).
 
 .DESCRIPTION
-    Copies Backup-Database.ps1 to a stable location (so the deploy/staging churn
-    can't break the task), then schedules it daily. Re-run this script to change
+    Copies Backup-Database.ps1 to a stable location (so the deploy's release-folder
+    churn can't break the task), then schedules it daily. The defaults are the staging
+    task (local-only); Provision-Production.ps1 registers the production task
+    (ZeroBudget-Prod-DbBackup, database ZeroBudgetProd, shipped to R2). Re-run this script to change
     the schedule/retention or to pick up an updated backup script.
 #>
 [CmdletBinding()]
@@ -15,10 +17,10 @@ param(
     [string]$InstallDir    = 'C:\deploy',
     [string]$Time          = '02:30',
     [string]$Server        = '.\SQLEXPRESS',
-    [string]$Database      = 'ZeroBudget',
+    [string]$Database      = 'ZeroBudgetStaging',
     [string]$BackupDir     = 'C:\deploy\backups',
     [int]   $RetentionDays = 14,
-    [string]$TaskName      = 'ZeroBudget-DbBackup',
+    [string]$TaskName      = 'ZeroBudget-Staging-DbBackup',
 
     # Set -R2Bucket to have the daily task also ship each verified backup off-host to
     # Cloudflare R2. Leave empty for a local-only backup task (e.g. staging).
@@ -51,7 +53,7 @@ Import-Module (Join-Path $PSScriptRoot 'ProvisionHelpers.psm1') -Force
 if (-not (Test-Path $BackupScript)) { throw "Backup script not found: $BackupScript" }
 New-Item -ItemType Directory -Force -Path $InstallDir, $BackupDir | Out-Null
 
-# Stable copies, decoupled from C:\deploy\staging which is wiped on every deploy.
+# Stable copies, decoupled from C:\deploy\release-* which is wiped on every deploy.
 $target = Join-Path $InstallDir 'Backup-Database.ps1'
 Copy-Item $BackupScript $target -Force
 # The upload script imports the helpers module beside it; keep that copy next to the task's scripts.

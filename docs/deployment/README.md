@@ -4,16 +4,33 @@ AllotJar runs **natively on a Windows Server VPS** (no Docker):
 
 | Tier | Host | Notes |
 |------|------|-------|
-| SPA (React `dist`) | IIS site **ZeroBudget** on :80/:443 | also reverse-proxies `/api` → the API |
-| API (.NET 10) | IIS site **ZeroBudget-Api** on `localhost:5000`, hosted via the ASP.NET Core Module (ANCM) | IIS owns the process lifecycle |
-| Database | **SQL Server Express** Windows service | data files on disk → survive every deploy |
+| SPA (React `dist`) | IIS site **ZeroBudget-Staging** / **ZeroBudget-Prod** on :80/:443 | also reverse-proxies `/api` → the API |
+| API (.NET 10) | IIS site **ZeroBudget-Staging-Api** on `localhost:5000` / **ZeroBudget-Prod-Api** on `localhost:5001`, hosted via the ASP.NET Core Module (ANCM) | IIS owns the process lifecycle |
+| Database | **SQL Server Express** Windows service (`ZeroBudgetStaging`, `ZeroBudgetProd`) | data files on disk → survive every deploy |
 
 ```
-Internet :443 ──► IIS "ZeroBudget" (SPA + URL Rewrite)
-                      │  proxy ^api/(.*) ──► http://localhost:5000/api/{R:1}
+Internet :443 ──► IIS "ZeroBudget-Staging" / "ZeroBudget-Prod" (SPA + URL Rewrite)
+                      │  proxy ^api/(.*) ──► http://localhost:5000 (staging) or :5001 (production) /api/{R:1}
                       ▼
-                 IIS "ZeroBudget-Api" (ANCM) ──► SQL Server Express (Windows auth)
+                 IIS "ZeroBudget-Staging-Api" / "ZeroBudget-Prod-Api" (ANCM) ──► SQL Server Express (Windows auth)
 ```
+
+Every server-side name carries its environment, so nothing of staging's is called production:
+
+| | Staging | Production |
+|---|---|---|
+| Folders | `C:\inetpub\zerobudget-staging\{api,web}` | `C:\inetpub\zerobudget-prod\{api,web}` |
+| IIS sites | `ZeroBudget-Staging`, `ZeroBudget-Staging-Api` | `ZeroBudget-Prod`, `ZeroBudget-Prod-Api` |
+| App pools | `ZeroBudget-Staging-Web`, `ZeroBudget-Staging-Api` | `ZeroBudget-Prod-Web`, `ZeroBudget-Prod-Api` |
+| API port | 5000 | 5001 |
+| `ASPNETCORE_ENVIRONMENT` (pinned by `Deploy.ps1` in the API's `web.config`) | `Staging` | `Production` |
+| Settings file (server-only, gitignored) | `appsettings.Staging.json` | `appsettings.Production.json` |
+| Database | `ZeroBudgetStaging` | `ZeroBudgetProd` |
+| Backup task | `ZeroBudget-Staging-DbBackup` (local only, 03:30 server time) | `ZeroBudget-Prod-DbBackup` (shipped to R2, 02:30) |
+| DataProtection key folder (`DataProtection:KeysPath`) | `C:\inetpub\zerobudget-staging-dp-keys` | `C:\inetpub\zerobudget-dp-keys` |
+| Release unpacked in | `C:\deploy\release-staging` (from `C:\deploy\incoming-staging`) | `C:\deploy\release-production` (from `C:\deploy\incoming-production`) |
+
+Until 4 October 2026 staging kept the names of the original single stack (`ZeroBudget`, `C:\inetpub\zerobudget`, database `ZeroBudget`) and, because nothing set its ASP.NET Core environment, read `appsettings.Production.json`. `deploy/Rename-StagingStack.ps1` renamed it in place (run once, on the VPS; `-Check` only reports).
 
 The React client already calls the same-origin `/api` prefix, so the proxy needs **no frontend changes** and there is **no CORS** in production.
 
@@ -33,7 +50,8 @@ The React client already calls the same-origin `/api` prefix, so the proxy needs
 | `deploy/Backup-Database.ps1` | VPS | timestamped `.bak` + retention pruning |
 | `deploy/Register-BackupTask.ps1` | VPS, once | register the daily backup as a Scheduled Task (runs as SYSTEM) |
 | `.github/workflows/deploy.yml` | GitHub Actions | build → SSH-push → deploy on merge to `main` |
-| `src/AllotJar.Api/appsettings.Production.json.example` | template | copy to the server, fill in secrets (gitignored) |
+| `src/AllotJar.Api/appsettings.Production.json.example` | template | copy to the server as `appsettings.Production.json` (production) or `appsettings.Staging.json` (staging), fill in secrets (both gitignored) |
+| `deploy/Rename-StagingStack.ps1` | VPS, once (done 4 Oct 2026) | renamed the original stack's sites, pools, folders, database, settings file and backup task to their staging names |
 
 ---
 
@@ -45,7 +63,7 @@ The React client already calls the same-origin `/api` prefix, so the proxy needs
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Bootstrap.ps1
 ```
-This runs IIS + module install, SQL Server Express install, the database + grant, writes `appsettings.Production.json` with an **auto-generated `Jwt:Key`**, and registers the daily backup task. It's **idempotent** — if a step fails (e.g. a stale download URL), fix it and re-run; completed steps are skipped.
+This runs IIS + module install, SQL Server Express install, the database + grant, writes `appsettings.Staging.json` with an **auto-generated `Jwt:Key`**, and registers the daily backup task (a fresh box starts as the staging stack; `Provision-Production.ps1` adds production). It's **idempotent** — if a step fails (e.g. a stale download URL), fix it and re-run; completed steps are skipped.
 
 Notes:
 - **No domain needed.** The site binds to the server IP over HTTP; the app will be reachable at `http://<vps-ip>` after the first deploy. (Add a domain + HTTPS later — see *Adding a domain + TLS* below.)
@@ -82,7 +100,7 @@ powershell -ExecutionPolicy Bypass -File .\Bootstrap.ps1   # skips SQL install; 
 ### Adding a domain + TLS (later)
 Once you have a domain:
 - Point a DNS **A record** at the VPS public IP, then re-run `Setup-Server.ps1 -Domain "budget.yourdomain.com"` to bind the host header.
-- Install free Let's Encrypt TLS with **win-acme** (`wacs.exe`): pick the `ZeroBudget` site; it creates the 443 binding **and** offers the HTTP->HTTPS redirect, and schedules auto-renewal. (The IIS-native equivalent of Caddy's auto-HTTPS.)
+- Install free Let's Encrypt TLS with **win-acme** (`wacs.exe`): pick the `ZeroBudget-Staging` site; it creates the 443 binding **and** offers the HTTP->HTTPS redirect, and schedules auto-renewal. (The IIS-native equivalent of Caddy's auto-HTTPS.)
 
 ---
 
@@ -104,11 +122,13 @@ Production deploys only on a hand-started Deploy run with **Also deploy to produ
 ## The deploy flow (automatic)
 
 1. You merge a PR into `main`.
-2. `deploy.yml` builds the release on an Ubuntu runner: `dotnet publish` (win-x64) + `npm run build`, zipped as `release.zip` (`api/`, `web/`, `Deploy.ps1`).
-3. `scp` copies the zip to `C:\deploy\incoming` on the VPS.
-4. `ssh` extracts it to `C:\deploy\staging` and runs `Deploy.ps1`, which:
+2. `deploy.yml` builds the release on an Ubuntu runner: `dotnet publish` (win-x64) + `npm run build`, zipped as `release.zip` (`api/`, `web/`, `Deploy.ps1`, `ProvisionHelpers.psm1`).
+3. `scp` copies the zip to `C:\deploy\incoming-staging` on the VPS (`incoming-production` for the production job).
+4. `ssh` extracts it to `C:\deploy\release-staging` (`release-production`) and runs `Deploy.ps1` with that stack's folders, pools, port and `-AspNetEnvironment`, which:
+   - checks the pools and the stack's `appsettings.<Env>.json` exist (a clear error, not a failed health check, if not),
    - drops `app_offline.htm` (releases the API's file locks),
-   - `robocopy /MIR`s the new files — **preserving** `appsettings.Production.json`, the offline marker, and the ANCM `logs` folder,
+   - `robocopy /MIR`s the new files — **preserving** `appsettings.Staging.json` / `appsettings.Production.json`, the offline marker, and the ANCM `logs` folder,
+   - pins `ASPNETCORE_ENVIRONMENT` in the API's `web.config` (so staging reads `appsettings.Staging.json`) and the `/api` proxy port in the SPA's,
    - removes the marker, recycles both app pools,
    - polls `http://localhost:5000/health` until `200` (EF migrations run on first hit), failing the job otherwise.
 
@@ -116,8 +136,8 @@ Production deploys only on a hand-started Deploy run with **Also deploy to produ
 
 ---
 
-> **Environment names (post-GA cutover):** production DB = `ZeroBudgetProd` (API :5001,
-> pool `ZeroBudget-Prod-Api`); `ZeroBudget` (API :5000) is now **staging**. See
+> **Environment names:** production DB = `ZeroBudgetProd` (API :5001, pool `ZeroBudget-Prod-Api`);
+> staging DB = `ZeroBudgetStaging` (API :5000, pool `ZeroBudget-Staging-Api`). See
 > [`staging-prod.md`](staging-prod.md) for the authoritative topology — the commands below
 > name the **production** database explicitly; swap in the staging values when targeting staging.
 
@@ -218,4 +238,5 @@ powershell -File C:\deploy\Migrate-FromBak.ps1 -Environment production -BakPath 
 | `/api` returns 404 from the SPA site | ARR proxy not enabled at server level (re-run `Setup-Server.ps1`), or URL Rewrite missing. |
 | API up but DB errors at startup | app-pool login not granted — re-run `Setup-Database.sql`; check the connection string instance name (`\SQLEXPRESS`). |
 | Deploy fails on file-in-use | `app_offline.htm` step didn't take — confirm the app pool exists and ANCM is installed. |
-| Health check times out | check ANCM stdout logs in `C:\inetpub\zerobudget\api\logs`. |
+| Health check times out | check ANCM stdout logs in `C:\inetpub\zerobudget-staging\api\logs` (`zerobudget-prod` for production). |
+| Deploy stops at "App pool ... does not exist" or "appsettings.Staging.json is missing" | the staging stack still has its pre-rename names: run `deploy\Rename-StagingStack.ps1` once. |

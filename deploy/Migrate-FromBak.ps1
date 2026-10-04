@@ -6,8 +6,8 @@
 .DESCRIPTION
     -Environment resolves the whole tuple (DB name, app pool, health port) so they
     cannot drift apart. Post-GA-cutover:
-        staging     -> DB ZeroBudget,     pool ZeroBudget-Api,      health :5000
-        production  -> DB ZeroBudgetProd, pool ZeroBudget-Prod-Api, health :5001
+        staging     -> DB ZeroBudgetStaging, pool ZeroBudget-Staging-Api, health :5000
+        production  -> DB ZeroBudgetProd,    pool ZeroBudget-Prod-Api,    health :5001
     The target DB already exists (created empty + EF-migrated by the first deploy).
     This RESTORE ... WITH REPLACE overwrites it with the .bak's data, keeping the target's
     own data/log files (a new target gets <Database>.mdf / <Database>_log.ldf in the
@@ -26,7 +26,7 @@
     Prompts for the target DB name to confirm before overwriting; pass -Force to skip.
 
     Example:
-        .\Migrate-FromBak.ps1 -Environment production -BakPath C:\deploy\incoming\migrate.bak
+        .\Migrate-FromBak.ps1 -Environment production -BakPath C:\deploy\migrate.bak
 #>
 [CmdletBinding()]
 param(
@@ -48,8 +48,8 @@ function Info($m) { Write-Host "==> $m" -ForegroundColor Cyan }
 
 # Resolve the environment tuple so DB / pool / health port cannot be mixed across envs.
 $envMap = @{
-    staging    = @{ Database = 'ZeroBudget';     ApiPool = 'ZeroBudget-Api';      HealthUrl = 'http://127.0.0.1:5000/health' }
-    production = @{ Database = 'ZeroBudgetProd'; ApiPool = 'ZeroBudget-Prod-Api'; HealthUrl = 'http://127.0.0.1:5001/health' }
+    staging    = @{ Database = 'ZeroBudgetStaging'; ApiPool = 'ZeroBudget-Staging-Api'; HealthUrl = 'http://127.0.0.1:5000/health' }
+    production = @{ Database = 'ZeroBudgetProd';    ApiPool = 'ZeroBudget-Prod-Api';    HealthUrl = 'http://127.0.0.1:5001/health' }
 }
 $tuple = $envMap[$Environment]
 if (-not $Database)  { $Database  = $tuple.Database }
