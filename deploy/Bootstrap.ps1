@@ -9,7 +9,7 @@
          sites/firewall                                    (Setup-Server.ps1)
       2. SQL Server Express install (skipped if already present)
       3. Database create + app-pool grant                  (Setup-Database.sql)
-      4. Production secrets file with an auto-generated JWT key
+      4. Staging secrets file (appsettings.Staging.json) with an auto-generated JWT key
       5. Daily backup Scheduled Task                        (Register-BackupTask.ps1)
 
     Run ONCE in an ELEVATED PowerShell on the VPS, from the deploy folder:
@@ -27,7 +27,7 @@
 [CmdletBinding()]
 param(
     [string]$Domain      = '',                          # blank = IP-only / HTTP
-    [string]$ApiRoot     = 'C:\inetpub\zerobudget\api',
+    [string]$ApiRoot     = 'C:\inetpub\zerobudget-staging\api',
     [string]$SqlInstance = '.\SQLEXPRESS',
 
     # SQL Server 2022 Express bootstrapper (small downloader). If this 404s, grab
@@ -99,15 +99,17 @@ if (Test-Sql) {
 Step 'Database + app-pool grant (Setup-Database.sql)'
 Invoke-SqlScript -ScriptPath "$PSScriptRoot\Setup-Database.sql"
 
-# --- 4. Production secrets file (generated once; never overwritten) ----------
-Step 'Production secrets (appsettings.Production.json)'
+# --- 4. Staging secrets file (generated once; never overwritten) -------------
+# The staging API runs as ASPNETCORE_ENVIRONMENT=Staging (Deploy.ps1 pins it), so its
+# settings file is appsettings.Staging.json; production's is appsettings.Production.json.
+Step 'Staging secrets (appsettings.Staging.json)'
 New-Item -ItemType Directory -Force -Path $ApiRoot | Out-Null
-$prod = Join-Path $ApiRoot 'appsettings.Production.json'
+$prod = Join-Path $ApiRoot 'appsettings.Staging.json'
 if (Test-Path $prod) {
     Write-Host "$prod already exists - leaving it untouched."
 } else {
     $key  = [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Maximum 256 }))
-    $conn = "Server=$SqlInstance;Database=ZeroBudget;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
+    $conn = "Server=$SqlInstance;Database=ZeroBudgetStaging;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
     $cfg  = [ordered]@{
         ConnectionStrings = [ordered]@{ DefaultConnection = $conn }
         Jwt               = [ordered]@{ Key = $key }

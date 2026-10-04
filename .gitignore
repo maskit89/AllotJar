@@ -9,6 +9,8 @@
 # Production secrets live ONLY on the server, never in git (template: *.example)
 appsettings.Production.json
 src/AllotJar.Api/appsettings.Production.json
+appsettings.Staging.json
+src/AllotJar.Api/appsettings.Staging.json
 
 # Database export artifacts produced by the data-migration scripts
 *.bacpac

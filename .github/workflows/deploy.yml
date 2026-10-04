@@ -17,8 +17,14 @@ name: Deploy
 #   applying when the repo went private (3 Oct 2026). The production job still
 #   runs AFTER deploy-staging in the same run, so nothing reaches production that
 #   staging didn't get first.
-# * Both stacks live on the same VPS (separate IIS sites/pools/DBs; API on :5000
-#   staging, :5001 production) and reuse the same repo-level VPS_* SSH secrets.
+# * Both stacks live on the same VPS and reuse the same repo-level VPS_* SSH secrets.
+#   Every server-side name says which stack it belongs to:
+#     staging     C:\inetpub\zerobudget-staging\{api,web}, pools ZeroBudget-Staging-Api/-Web,
+#                 API :5000, ASPNETCORE_ENVIRONMENT=Staging (appsettings.Staging.json),
+#                 database ZeroBudgetStaging, release unpacked in C:\deploy\release-staging
+#     production  C:\inetpub\zerobudget-prod\{api,web}, pools ZeroBudget-Prod-Api/-Web,
+#                 API :5001, ASPNETCORE_ENVIRONMENT=Production (appsettings.Production.json),
+#                 database ZeroBudgetProd, release unpacked in C:\deploy\release-production
 #
 # The staging and production bundles differ at build time (banner/consent/GA are
 # inlined by Vite), so each environment builds its own artifact - "build once,
@@ -86,6 +92,7 @@ jobs:
           cp -r client/dist/. release/web/
           cp deploy/web/web.config release/web/web.config
           cp deploy/Deploy.ps1 release/Deploy.ps1
+          cp deploy/ProvisionHelpers.psm1 release/ProvisionHelpers.psm1
           cd release && zip -qr ../release.zip . && cd ..
 
       - name: Upload release artifact
@@ -124,8 +131,8 @@ jobs:
           printf '%s\n' "$KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-      # The scp below writes straight into C:\deploy\incoming, so that folder (and
-      # the staging folder the extract step expands into) must exist, or the scp
+      # The scp below writes straight into C:\deploy\incoming-staging, so that folder
+      # (and the release folder the extract step expands into) must exist, or the scp
       # fails with "dest open ...: No such file or directory".
       - name: Ensure VPS deploy dirs exist
         env:
@@ -136,7 +143,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key -p "$PORT" \
             -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             "$USER@$HOST" \
-            'powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path C:\deploy\incoming, C:\deploy\staging | Out-Null"'
+            'powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path C:\deploy\incoming-staging, C:\deploy\release-staging | Out-Null"'
 
       - name: Copy release to VPS
         env:
@@ -146,10 +153,11 @@ jobs:
         run: |
           scp -i ~/.ssh/deploy_key -P "$PORT" \
             -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            release.zip "$USER@$HOST:C:/deploy/incoming/release.zip"
+            release.zip "$USER@$HOST:C:/deploy/incoming-staging/release.zip"
 
-      # Deploy.ps1 with no args targets the staging IIS stack (C:\inetpub\zerobudget\*,
-      # pools ZeroBudget-Api/-Web, API/proxy on :5000).
+      # Deploy.ps1's defaults are the staging stack; they are passed anyway so this job
+      # and the production one below read the same way. -AspNetEnvironment Staging makes
+      # the API read appsettings.Staging.json.
       - name: Extract and deploy on VPS
         env:
           PORT: ${{ secrets.VPS_SSH_PORT }}
@@ -159,7 +167,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key -p "$PORT" \
             -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             "$USER@$HOST" \
-            'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\staging\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming\release.zip -DestinationPath C:\deploy\staging -Force; & C:\deploy\staging\Deploy.ps1"'
+            'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\release-staging\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming-staging\release.zip -DestinationPath C:\deploy\release-staging -Force; & C:\deploy\release-staging\Deploy.ps1 -ApiDir C:\inetpub\zerobudget-staging\api -WebDir C:\inetpub\zerobudget-staging\web -ApiPool ZeroBudget-Staging-Api -WebPool ZeroBudget-Staging-Web -HealthUrl http://127.0.0.1:5000/health -ApiProxyPort 5000 -AspNetEnvironment Staging"'
 
   # Production ships only a commit whose CI on main passed. Journey and a11y run on
   # main, not on PRs, and this workflow never waited for CI, so without this check a
@@ -236,6 +244,7 @@ jobs:
           cp -r client/dist/. release/web/
           cp deploy/web/web.config release/web/web.config
           cp deploy/Deploy.ps1 release/Deploy.ps1
+          cp deploy/ProvisionHelpers.psm1 release/ProvisionHelpers.psm1
           cd release && zip -qr ../release.zip . && cd ..
 
       - name: Upload release artifact
@@ -281,7 +290,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key -p "$PORT" \
             -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             "$USER@$HOST" \
-            'powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path C:\deploy\incoming-prod, C:\deploy\staging-prod | Out-Null"'
+            'powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path C:\deploy\incoming-production, C:\deploy\release-production | Out-Null"'
 
       - name: Copy release to VPS
         env:
@@ -291,11 +300,12 @@ jobs:
         run: |
           scp -i ~/.ssh/deploy_key -P "$PORT" \
             -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            release.zip "$USER@$HOST:C:/deploy/incoming-prod/release.zip"
+            release.zip "$USER@$HOST:C:/deploy/incoming-production/release.zip"
 
-      # The production stack is Deploy.ps1 with different dirs/pools/ports; the SQL
+      # The production stack is Deploy.ps1 with the production dirs/pools/ports; the SQL
       # database is never touched by a deploy. -ApiProxyPort patches the copied
-      # web.config so the front site proxies /api to the prod API on :5001.
+      # web.config so the front site proxies /api to the prod API on :5001, and
+      # -AspNetEnvironment Production makes the API read appsettings.Production.json.
       - name: Extract and deploy on VPS
         env:
           PORT: ${{ secrets.VPS_SSH_PORT }}
@@ -305,4 +315,4 @@ jobs:
           ssh -i ~/.ssh/deploy_key -p "$PORT" \
             -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             "$USER@$HOST" \
-            'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\staging-prod\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming-prod\release.zip -DestinationPath C:\deploy\staging-prod -Force; & C:\deploy\staging-prod\Deploy.ps1 -ApiDir C:\inetpub\zerobudget-prod\api -WebDir C:\inetpub\zerobudget-prod\web -ApiPool ZeroBudget-Prod-Api -WebPool ZeroBudget-Prod-Web -HealthUrl http://127.0.0.1:5001/health -ApiProxyPort 5001"'
+            'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\release-production\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming-production\release.zip -DestinationPath C:\deploy\release-production -Force; & C:\deploy\release-production\Deploy.ps1 -ApiDir C:\inetpub\zerobudget-prod\api -WebDir C:\inetpub\zerobudget-prod\web -ApiPool ZeroBudget-Prod-Api -WebPool ZeroBudget-Prod-Web -HealthUrl http://127.0.0.1:5001/health -ApiProxyPort 5001 -AspNetEnvironment Production"'
