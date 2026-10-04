@@ -73,6 +73,52 @@ public class ErrorAlertsTests
     }
 
     [Fact]
+    public void Two_bugs_throwing_the_same_exception_type_through_the_middleware_are_two_errors()
+    {
+        // Review P2-1: every 500 shares one template, so the exception's app frame must tell them apart.
+        var throttle = new ErrorAlertThrottle(new ErrorAlertSettings { Recipient = "x@y" }, new StubClock(T0));
+        var a = Middleware500(ThrowFromA());
+        var b = Middleware500(ThrowFromB());
+        var aAgain = Middleware500(ThrowFromA());
+
+        a.Origin.Should().Contain("ThrowFromA").And.NotContain(" in ");
+        b.Origin.Should().Contain("ThrowFromB");
+        throttle.Take([a]).SendsEmail.Should().BeTrue();
+        throttle.Take([b]).SendsEmail.Should().BeTrue("a different bug, even with the same type and template");
+        throttle.Take([aAgain]).SendsEmail.Should().BeFalse("the same bug again is counted, with the file and line ignored");
+    }
+
+    [Fact]
+    public void An_exception_with_no_app_frame_is_told_apart_by_the_start_of_its_message()
+    {
+        var one = ErrorEventFactory.Origin(new InvalidOperationException("Sequence contains no elements"));
+        var other = ErrorEventFactory.Origin(new InvalidOperationException("A second operation was started on this context instance before a previous operation completed. Id 123"));
+
+        one.Should().Be("Sequence contains no elements");
+        other!.Length.Should().Be(ErrorEventFactory.OriginMessageChars);
+        one.Should().NotBe(other);
+    }
+
+    [Fact]
+    public void The_app_frame_is_found_inside_a_wrapping_library_exception()
+    {
+        // The outer exception stands for a library's (no app frame of its own; here, never thrown).
+        Exception inner;
+        try { ThrowingHelper.Boom(); throw null!; } catch (Exception ex) { inner = ex; }
+        var wrapped = new AggregateException("db", inner);
+
+        ErrorEventFactory.Origin(wrapped).Should().Contain("ThrowingHelper.Boom");
+    }
+
+    [Fact]
+    public void An_hourly_cap_of_zero_means_one_not_never()
+    {
+        new ErrorAlertSettings { MaxEmailsPerHour = 0 }.MaxEmailsPerHour.Should().Be(1);
+        new ErrorAlertSettings { MaxEmailsPerHour = -3 }.MaxEmailsPerHour.Should().Be(1);
+        new ErrorAlertSettings { MaxEmailsPerHour = 4 }.MaxEmailsPerHour.Should().Be(4);
+    }
+
+    [Fact]
     public void The_hourly_cap_announces_the_pause_then_counts_until_the_hour_turns()
     {
         var clock = new StubClock(T0);
@@ -233,6 +279,25 @@ public class ErrorAlertsTests
     }
 
     [Fact]
+    public async Task Errors_still_in_the_batch_window_when_the_host_stops_are_sent_anyway()
+    {
+        // Review P3-1: the errors just before a stop are the ones most worth having.
+        var sent = new RecordingSender();
+        await using var sp = BuildAlerting(sent, batchSeconds: 60);
+        var mailer = sp.GetServices<IHostedService>().OfType<ErrorAlertMailer>().Single();
+        await mailer.StartAsync(CancellationToken.None);
+
+        sp.GetRequiredService<ILoggerFactory>().CreateLogger("Program").LogError("Jar-departure backfill failed");
+        await Task.Delay(100);
+        sent.Attempts.Should().Be(0, "the batch window is still open");
+
+        await mailer.StopAsync(CancellationToken.None);
+
+        var mail = await sent.WaitForMessages(1);
+        mail.Should().ContainSingle().Which.TextBody.Should().Contain("Jar-departure backfill failed");
+    }
+
+    [Fact]
     public async Task A_sender_that_fails_and_logs_an_error_does_not_alert_about_itself()
     {
         var sent = new RecordingSender { FailAndLogError = true };
@@ -250,6 +315,28 @@ public class ErrorAlertsTests
     }
 
     // --- Helpers --------------------------------------------------------------------------------
+
+    private static ErrorEvent Middleware500(Exception ex) => ErrorEventFactory.Create(
+        T0, LogLevel.Error, "AllotJar.Api.Middleware.ExceptionHandlingMiddleware",
+        new List<KeyValuePair<string, object?>> { new("Path", "/api/x"), new("{OriginalFormat}", "Unhandled exception processing {Path}") },
+        ex, "Unhandled exception processing /api/x");
+
+    private static Exception ThrowFromA()
+    {
+        try { throw new InvalidOperationException("Sequence contains no elements"); }
+        catch (Exception ex) { return ex; }
+    }
+
+    private static Exception ThrowFromB()
+    {
+        try { throw new InvalidOperationException("The instance of entity type cannot be tracked"); }
+        catch (Exception ex) { return ex; }
+    }
+
+    private static class ThrowingHelper
+    {
+        public static void Boom() => throw new InvalidOperationException("boom");
+    }
 
     private static ServiceProvider BuildAlerting(RecordingSender sender, int batchSeconds)
     {

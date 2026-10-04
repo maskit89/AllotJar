@@ -88,13 +88,44 @@ public static class ErrorEventFactory
 
         string? exceptionType = null;
         string? detail = null;
+        string? origin = null;
         if (exception is not null)
         {
             exceptionType = exception.GetType().FullName;
             var text = exception.ToString();
             detail = text.Length <= MaxExceptionChars ? text : text[..MaxExceptionChars] + "\n… (cut)";
+            origin = Origin(exception);
         }
 
-        return new ErrorEvent(at, level, category, message, template, exceptionType, detail);
+        return new ErrorEvent(at, level, category, message, template, exceptionType, detail, origin);
+    }
+
+    /// <summary>How many characters of the exception message stand in for a missing app frame.</summary>
+    public const int OriginMessageChars = 60;
+
+    /// <summary>
+    /// Where in the app an exception came from: the first stack frame inside an <c>AllotJar.</c>
+    /// namespace, without its file and line (which change with every edit), searched through the
+    /// inner exceptions too since EF and HTTP wrap the app's. An exception with no app frame at all
+    /// (thrown and caught inside a library) falls back to the start of its message, which for a
+    /// library's own messages is constant enough to tell two faults apart without letting a
+    /// request's ids defeat the cooldown.
+    /// </summary>
+    public static string? Origin(Exception exception)
+    {
+        for (var ex = exception; ex is not null; ex = ex.InnerException)
+        {
+            var trace = ex.StackTrace;
+            if (trace is null) continue;
+            foreach (var rawLine in trace.Split('\n'))
+            {
+                var line = rawLine.Trim();
+                if (!line.StartsWith("at AllotJar.", StringComparison.Ordinal)) continue;
+                var cut = line.IndexOf(" in ", StringComparison.Ordinal);
+                return cut > 0 ? line[..cut] : line;
+            }
+        }
+        var m = exception.Message;
+        return m.Length <= OriginMessageChars ? m : m[..OriginMessageChars];
     }
 }

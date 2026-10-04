@@ -176,18 +176,22 @@ provider cannot alert about itself for ever.
 3. Set `TestOnStartup` back to `false` (or remove it) and recycle again, or every start sends one.
 
 **What it cannot tell you:** that the API is down. A stopped app pool, a failed start (migrations
-that never succeed) or a VPS that is off runs nothing to send the email. For that,
-`deploy/Register-HealthPingTask.ps1` registers a Scheduled Task that GETs `/health` every five
-minutes and pings a free [healthchecks.io](https://healthchecks.io) check (the same kind the nightly
-backup pings): a `/fail` ping or a missed ping emails you. Create the check (period 5 minutes, grace
-5 minutes, your email), then on the VPS:
+that never succeed), a database that stopped answering or a VPS that is off runs nothing to send the
+email. For that, `deploy/Register-HealthPingTask.ps1` registers a Scheduled Task that GETs
+`/health/ready` (200 only while the API is up **and** SQL Server answers; `/health` stays the
+database-free liveness probe the deploy polls) every five minutes and pings a free
+[healthchecks.io](https://healthchecks.io) check (the same kind the nightly backup pings): a `/fail`
+ping or a missed ping emails you. A failed GET is retried three times, 20 seconds apart, before
+`/fail` is pinged, so a deploy's offline minute or a cold start is at most one late ping; keep the
+check's grace at 5 minutes or more so that late ping is not an email. Create the check (period 5
+minutes, grace 5 minutes, your email), then on the VPS:
 
 ```powershell
 .\Register-HealthPingTask.ps1 -PingUrl https://hc-ping.com/<uuid>   # production API on port 5001
 ```
 
-Pass `-HealthUrl http://127.0.0.1:5000/health -TaskName ZeroBudget-Staging-HealthPing` with a second
-check for staging. `Start-ScheduledTask -TaskName ZeroBudget-Prod-HealthPing` runs it at once; stop
+Pass `-HealthUrl http://127.0.0.1:5000/health/ready -TaskName ZeroBudget-Staging-HealthPing` with a
+second check for staging. `Start-ScheduledTask -TaskName ZeroBudget-Prod-HealthPing` runs it at once; stop
 the API's app pool for a minute to watch the check go red and come back.
 
 ## Sign in with Google

@@ -22,9 +22,16 @@ public class ErrorAlertSettings
 
     /// <summary>
     /// The most alert emails in any rolling hour. The email that reaches the cap says so; later
-    /// errors in that hour are counted and reported when alerts resume.
+    /// errors in that hour are counted and reported when alerts resume. Never below 1: a zero
+    /// would turn alerts off while the startup line says they are on (review P3-2).
     /// </summary>
-    public int MaxEmailsPerHour { get; set; } = 6;
+    public int MaxEmailsPerHour
+    {
+        get => _maxEmailsPerHour;
+        set => _maxEmailsPerHour = Math.Max(1, value);
+    }
+
+    private int _maxEmailsPerHour = 6;
 
     /// <summary>
     /// How long to wait after the first error before emailing, so the other errors one incident

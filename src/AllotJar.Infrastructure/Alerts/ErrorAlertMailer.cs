@@ -48,11 +48,11 @@ public sealed class ErrorAlertMailer : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var reader = _queue.Reader;
+        var batch = new List<ErrorEvent>();
         try
         {
             while (await reader.WaitToReadAsync(stoppingToken))
             {
-                var batch = new List<ErrorEvent>();
                 while (reader.TryRead(out var e)) batch.Add(e);
 
                 // Give the rest of the incident time to arrive, then take whatever else is there.
@@ -63,13 +63,25 @@ public sealed class ErrorAlertMailer : BackgroundService
                 }
 
                 await SendAsync(_throttle.Take(batch), stoppingToken);
+                batch.Clear();
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            // Shutting down.
+            // Shutting down. The errors just before a stop (a crash's forerunners, a recycle) are
+            // the ones most worth having, so what is in hand goes out on its own short clock
+            // rather than with the cancelled one (review P3-1).
+            while (reader.TryRead(out var e)) batch.Add(e);
+            if (batch.Count > 0)
+            {
+                using var flush = new CancellationTokenSource(ShutdownFlush);
+                await SendAsync(_throttle.Take(batch), flush.Token);
+            }
         }
     }
+
+    /// <summary>How long the last send may take once the host is stopping.</summary>
+    public static readonly TimeSpan ShutdownFlush = TimeSpan.FromSeconds(5);
 
     private async Task SendAsync(AlertDecision decision, CancellationToken ct)
     {
@@ -83,7 +95,11 @@ public sealed class ErrorAlertMailer : BackgroundService
             var sender = scope.ServiceProvider.GetRequiredService<IEmailSender>();
             await sender.SendAsync(message, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The host is stopping (or the shutdown flush ran out of time): nothing to report to.
+        }
+        catch (Exception ex)
         {
             // Warning, not Error: this provider's own entries are filtered out of alerts, and the
             // guard above drops anything the sender logged, but an Error here would still be a

@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -45,8 +46,10 @@ builder.Services.AddSingleton<ResendCooldown>();
 builder.Services.AddControllers();
 builder.Services.AddAuthorization();
 
-// Liveness probe (no DB dependency) consumed by the deploy pipeline's smoke test.
-builder.Services.AddHealthChecks();
+// Liveness probe (no DB dependency) consumed by the deploy pipeline's smoke test, plus a readiness
+// check tagged "ready" that asks SQL Server whether it answers, for the health ping task below.
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("database", tags: [DatabaseHealthCheck.Tag]);
 
 // Feature toggles for the features beyond core zero-based budgeting (all default ON).
 builder.Services.Configure<FeatureFlags>(builder.Configuration.GetSection(FeatureFlags.SectionName));
@@ -208,8 +211,16 @@ app.UseMiddleware<HouseholdResolutionMiddleware>();
 app.MapControllers();
 
 // Liveness endpoint: returns 200 once the app is up. The deploy script polls
-// http://localhost:5000/health to verify a new build before completing.
-app.MapHealthChecks("/health");
+// http://localhost:5000/health to verify a new build before completing. No checks run here on
+// purpose: a database that is down must not read as a failed deploy of a build that started fine.
+app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false });
+
+// Readiness: 200 only while the database answers too. deploy/Ping-Health.ps1 asks this one, so
+// SQL Server being down while the API is up reaches the health check's email (review P3-3).
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains(DatabaseHealthCheck.Tag),
+});
 
 app.Run();
 
