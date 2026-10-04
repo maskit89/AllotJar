@@ -163,8 +163,7 @@ provider cannot alert about itself for ever.
 
 **Turn it on (per stack, on the server):**
 
-1. Add to `appsettings.Production.json` (`appsettings.Staging.json` for staging once it runs as
-   that environment), next to `Email`:
+1. Add to `appsettings.Production.json` (`appsettings.Staging.json` for staging), next to `Email`:
    ```json
    "ErrorAlerts": { "Recipient": "you@example.com", "TestOnStartup": true }
    ```

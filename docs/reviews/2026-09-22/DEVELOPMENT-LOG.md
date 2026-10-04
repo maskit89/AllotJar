@@ -1181,7 +1181,7 @@ Stage 0 of the paid plan asked for app error alerts: the API wrote errors to the
 
 **Tests.** `tests/AllotJar.Application.Tests/Infrastructure/ErrorAlertsTests.cs`: the cooldown counts a repeat and reports it in the next email; a batch sends each distinct error once with its count; a different exception type is a different error; the hourly cap announces the pause, counts, and resumes after the hour; a request the visitor abandoned (a cancellation) is not an alert but a timeout is; only Error and Critical are queued, with template and exception; entries logged during a send and the alerting code's own are dropped; long stack traces are cut; the email's subject, counts, pause line and HTML encoding; no registration without a recipient; an error logged anywhere reaches the recipient through the sender; a sender that fails and logs an Error does not alert about itself.
 
-**Deploy.** Code only, no migration. Alerts stay off until `ErrorAlerts:Recipient` is set on the server (steps in the deployment doc); staging will say `Production` in its subject until #313's rename pins its environment to Staging.
+**Deploy.** Code only, no migration. Alerts stay off until `ErrorAlerts:Recipient` is set on the server (steps in the deployment doc: `appsettings.Production.json` for production, `appsettings.Staging.json` for staging, which runs as `Staging` since #313's rename on 4 October).
 
 ## Release record: #289 to #302 deployed to production — 1 October 2026
 
