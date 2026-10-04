@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +13,7 @@ using AllotJar.Api.Services;
 using AllotJar.Application;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Infrastructure;
+using AllotJar.Infrastructure.Alerts;
 using AllotJar.Infrastructure.Email;
 using AllotJar.Infrastructure.Identity;
 using AllotJar.Infrastructure.Persistence;
@@ -26,6 +28,13 @@ const string RefreshRateLimitPolicy = "auth-refresh";
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
+// Error alerts: with ErrorAlerts:Recipient set, every Error-level log entry (an unhandled exception
+// answered as a 500, a rejected email send, a startup step that failed and let the API go on) is
+// emailed there through the outbound email provider, batched per incident and capped per hour. The
+// Event Log on the VPS records the same entries, but nobody reads it unprompted; this is what tells
+// Christopher something broke. Off (nothing registered) when no recipient is configured.
+builder.Services.AddErrorAlerts(builder.Configuration);
+
 // HTTP-context-backed implementation of the Application's ICurrentUser. The per-request
 // HouseholdContext is populated by HouseholdResolutionMiddleware and read back by CurrentUser.
 builder.Services.AddHttpContextAccessor();
@@ -37,8 +46,10 @@ builder.Services.AddSingleton<ResendCooldown>();
 builder.Services.AddControllers();
 builder.Services.AddAuthorization();
 
-// Liveness probe (no DB dependency) consumed by the deploy pipeline's smoke test.
-builder.Services.AddHealthChecks();
+// Liveness probe (no DB dependency) consumed by the deploy pipeline's smoke test, plus a readiness
+// check tagged "ready" that asks SQL Server whether it answers, for the health ping task below.
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("database", tags: [DatabaseHealthCheck.Tag]);
 
 // Feature toggles for the features beyond core zero-based budgeting (all default ON).
 builder.Services.Configure<FeatureFlags>(builder.Configuration.GetSection(FeatureFlags.SectionName));
@@ -158,6 +169,10 @@ await BackfillJarDeparturesAsync(app);
 // misconfigured provider silently degrades to log-only (see AddInfrastructure).
 LogEmailProvider(app);
 
+// Likewise for error alerts: say where they go, or that they are off, and fire the test alert when
+// asked (ErrorAlerts:TestOnStartup), so the whole path is checked from the inbox after a config change.
+LogErrorAlerts(app);
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -196,8 +211,16 @@ app.UseMiddleware<HouseholdResolutionMiddleware>();
 app.MapControllers();
 
 // Liveness endpoint: returns 200 once the app is up. The deploy script polls
-// http://localhost:5000/health to verify a new build before completing.
-app.MapHealthChecks("/health");
+// http://localhost:5000/health to verify a new build before completing. No checks run here on
+// purpose: a database that is down must not read as a failed deploy of a build that started fine.
+app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false });
+
+// Readiness: 200 only while the database answers too. deploy/Ping-Health.ps1 asks this one, so
+// SQL Server being down while the API is up reaches the health check's email (review P3-3).
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains(DatabaseHealthCheck.Tag),
+});
 
 app.Run();
 
@@ -332,6 +355,46 @@ static void LogEmailProvider(WebApplication app)
     catch (Exception ex)
     {
         logger.LogWarning(ex, "Could not resolve the outbound email provider; continuing startup.");
+    }
+}
+
+// Reports where error alerts go. Warning for the same reason as LogEmailProvider: on the production
+// host it is the only level that reaches the Event Log. "Off" is a Warning outside Development only,
+// since a laptop or the test host is not expected to email anyone.
+static void LogErrorAlerts(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    var settings = scope.ServiceProvider.GetRequiredService<IOptions<ErrorAlertSettings>>().Value;
+    if (!settings.Enabled)
+    {
+        if (!app.Environment.IsDevelopment())
+        {
+            logger.LogWarning("Error alerts are OFF: set ErrorAlerts:Recipient to be emailed about errors.");
+        }
+        return;
+    }
+
+    var sender = scope.ServiceProvider.GetRequiredService<IEmailSender>();
+    if (sender is LoggingEmailSender)
+    {
+        logger.LogWarning(
+            "Error alerts are configured for {Recipient} but outbound email is not, so they are only logged.",
+            settings.Recipient);
+    }
+    else
+    {
+        logger.LogWarning(
+            "Error alerts: emailing {Recipient} about Error-level log entries ({Environment}; one email per distinct error every {Cooldown} min, at most {Max} an hour).",
+            settings.Recipient, app.Environment.EnvironmentName, settings.CooldownMinutes, settings.MaxEmailsPerHour);
+    }
+
+    if (settings.TestOnStartup)
+    {
+        // Deliberately an Error: it must travel the same path a real one does.
+        logger.LogError(
+            "Error alerts test: this email means alerts from {Environment} reach {Recipient}. Remove ErrorAlerts:TestOnStartup now, or every start sends one.",
+            app.Environment.EnvironmentName, settings.Recipient);
     }
 }
 
