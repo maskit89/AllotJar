@@ -52,10 +52,14 @@
         ProvisionHelpers.psm1 into C:\deploy, the folder production's nightly backup task
         runs from too (the copies are the same files production already runs from #310).
 
-    The DataProtection key folder: if staging's settings name the same KeysPath as
-    production's (the production settings were cloned from staging's, so that is likely),
-    staging gets its own folder, -NewKeysPath, and the shared one is left to production;
-    staging's outstanding emailed links stop working, which the pool rename causes anyway.
+    The DataProtection key folder: -Check reads production's appsettings.Production.json
+    (read only; only the KeysPath value is printed) to see whether staging shares its
+    KeysPath. If it does (production's settings were cloned from staging's, so that is
+    likely), staging gets its own folder, -NewKeysPath, and the shared one is left to
+    production, keeping an orphaned permission entry for the old staging pool SID that is
+    harmless and can be removed by hand. Staging's outstanding emailed links then stop
+    working (a fresh key ring). If staging has its own folder it is moved and its keys, and
+    links, stay valid; with no KeysPath at all the pool rename starts a fresh ring anyway.
 #>
 [CmdletBinding()]
 param(
@@ -316,7 +320,7 @@ if (-not $keysPath) {
     if ($keysShared) {
         # Leave the shared folder to production; staging starts a fresh ring of its own.
         New-Item -ItemType Directory -Force -Path $NewKeysPath | Out-Null
-        Done "created $NewKeysPath for staging (the shared $keysPath stays production's, untouched)"
+        Done "created $NewKeysPath for staging (the shared $keysPath stays production's, untouched; its entry for the old staging pool SID is harmless, remove it by hand if you like). Staging's outstanding emailed links stop working."
     } elseif (Test-Path $keysPath) {
         if (Test-Path $NewKeysPath) { throw "$NewKeysPath already exists next to staging's current key folder $keysPath; merge or remove one by hand, then re-run." }
         Move-Item $keysPath $NewKeysPath
