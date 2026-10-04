@@ -41,7 +41,9 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
-          if [ -z "$BASE" ] || git diff --name-only "$BASE" HEAD | grep -qvE '^docs/|\.md$'; then
+          # No pipe: under bash -eo pipefail, `git diff | grep -q` can die of SIGPIPE
+          # on a large diff and read as "no code changed".
+          if [ -z "$BASE" ] || ! git diff --quiet "$BASE" HEAD -- . ':(exclude)docs' ':(exclude)*.md' ':(exclude)**/*.md'; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
@@ -51,7 +53,8 @@ jobs:
   backend:
     name: backend
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.code == 'true'
+    # Run when `changes` failed too: a skipped job would read as passed to the ruleset.
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -98,7 +101,8 @@ jobs:
   integration:
     name: integration
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.code == 'true'
+    # Run when `changes` failed too: a skipped job would read as passed to the ruleset.
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -198,7 +202,8 @@ jobs:
   frontend:
     name: frontend
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.code == 'true'
+    # Run when `changes` failed too: a skipped job would read as passed to the ruleset.
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
