@@ -32,6 +32,12 @@
     "AppBaseUrl": "https://www.allotjar.com"
   },
 
+  "ErrorAlerts": {
+    "//": "Every Error-level log entry (an unhandled exception answered as a 500, a rejected email send, a startup step that failed) is emailed here through the Email provider above, batched per incident, one email per distinct error every CooldownMinutes and at most MaxEmailsPerHour an hour (the rest are counted and reported in the next email). Empty Recipient = off. Set TestOnStartup to true, recycle the app pool, wait for the test email, then set it back to false and recycle again.",
+    "Recipient": "you@example.com",
+    "TestOnStartup": false
+  },
+
   "DataProtection": {
     "//": "Persistent folder for the DataProtection key ring (grant the API app-pool identity modify rights). Without it, emailed password-reset links die on every app restart/deploy.",
     "KeysPath": "C:\\inetpub\\zerobudget-dp-keys"

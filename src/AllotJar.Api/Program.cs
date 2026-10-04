@@ -12,6 +12,7 @@ using AllotJar.Api.Services;
 using AllotJar.Application;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Infrastructure;
+using AllotJar.Infrastructure.Alerts;
 using AllotJar.Infrastructure.Email;
 using AllotJar.Infrastructure.Identity;
 using AllotJar.Infrastructure.Persistence;
@@ -25,6 +26,13 @@ const string RefreshRateLimitPolicy = "auth-refresh";
 // --- Layer composition ------------------------------------------------------
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// Error alerts: with ErrorAlerts:Recipient set, every Error-level log entry (an unhandled exception
+// answered as a 500, a rejected email send, a startup step that failed and let the API go on) is
+// emailed there through the outbound email provider, batched per incident and capped per hour. The
+// Event Log on the VPS records the same entries, but nobody reads it unprompted; this is what tells
+// Christopher something broke. Off (nothing registered) when no recipient is configured.
+builder.Services.AddErrorAlerts(builder.Configuration);
 
 // HTTP-context-backed implementation of the Application's ICurrentUser. The per-request
 // HouseholdContext is populated by HouseholdResolutionMiddleware and read back by CurrentUser.
@@ -157,6 +165,10 @@ await BackfillJarDeparturesAsync(app);
 // live?" is only answerable by triggering a reset and waiting to see if one arrives — and a
 // misconfigured provider silently degrades to log-only (see AddInfrastructure).
 LogEmailProvider(app);
+
+// Likewise for error alerts: say where they go, or that they are off, and fire the test alert when
+// asked (ErrorAlerts:TestOnStartup), so the whole path is checked from the inbox after a config change.
+LogErrorAlerts(app);
 
 if (app.Environment.IsDevelopment())
 {
@@ -332,6 +344,46 @@ static void LogEmailProvider(WebApplication app)
     catch (Exception ex)
     {
         logger.LogWarning(ex, "Could not resolve the outbound email provider; continuing startup.");
+    }
+}
+
+// Reports where error alerts go. Warning for the same reason as LogEmailProvider: on the production
+// host it is the only level that reaches the Event Log. "Off" is a Warning outside Development only,
+// since a laptop or the test host is not expected to email anyone.
+static void LogErrorAlerts(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    var settings = scope.ServiceProvider.GetRequiredService<IOptions<ErrorAlertSettings>>().Value;
+    if (!settings.Enabled)
+    {
+        if (!app.Environment.IsDevelopment())
+        {
+            logger.LogWarning("Error alerts are OFF: set ErrorAlerts:Recipient to be emailed about errors.");
+        }
+        return;
+    }
+
+    var sender = scope.ServiceProvider.GetRequiredService<IEmailSender>();
+    if (sender is LoggingEmailSender)
+    {
+        logger.LogWarning(
+            "Error alerts are configured for {Recipient} but outbound email is not, so they are only logged.",
+            settings.Recipient);
+    }
+    else
+    {
+        logger.LogWarning(
+            "Error alerts: emailing {Recipient} about Error-level log entries ({Environment}; one email per distinct error every {Cooldown} min, at most {Max} an hour).",
+            settings.Recipient, app.Environment.EnvironmentName, settings.CooldownMinutes, settings.MaxEmailsPerHour);
+    }
+
+    if (settings.TestOnStartup)
+    {
+        // Deliberately an Error: it must travel the same path a real one does.
+        logger.LogError(
+            "Error alerts test: this email means alerts from {Environment} reach {Recipient}. Remove ErrorAlerts:TestOnStartup now, or every start sends one.",
+            app.Environment.EnvironmentName, settings.Recipient);
     }
 }
 
