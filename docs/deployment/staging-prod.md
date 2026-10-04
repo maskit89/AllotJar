@@ -149,6 +149,56 @@ already has an *unverified* account. So once the email provider is configured, v
 reclaim work automatically. With NO provider configured, accounts still register and work — they
 just stay unverified (the in-app banner shows, but there's nothing to click).
 
+## Error alerts
+
+The API logs to the Windows Application event log, but nobody reads it unprompted: an unhandled
+exception answered as a 500, a rejected email send or a startup step that failed and let the API go
+on were all silent until someone looked. With `ErrorAlerts:Recipient` set, every log entry at
+**Error** or above is emailed there through the outbound email provider above (`AddErrorAlerts`,
+`src/AllotJar.Infrastructure/Alerts/`). Nothing else about logging changes; it is one more sink.
+
+What arrives is one email per incident, not per entry: the first error waits `BatchSeconds`
+(default 10) for the rest of its incident, each distinct error (same logger, same message template,
+same exception type) is sent once per `CooldownMinutes` (default 15) and counted in between, and at
+most `MaxEmailsPerHour` (default 6) emails go out in any rolling hour; the one that reaches the cap
+says so, and the first email after a quiet spell says how many errors it swallowed. The subject names
+the environment (`[AllotJar Production] Error: …`) and the body names the site (`Email:AppBaseUrl`),
+so staging and production emails are told apart even when both are on. The sender's own failures
+are not alerts (its log entries are dropped while an alert is being sent), so a broken email
+provider cannot alert about itself for ever.
+
+**Turn it on (per stack, on the server):**
+
+1. Add to `appsettings.Production.json` (`appsettings.Staging.json` for staging), next to `Email`:
+   ```json
+   "ErrorAlerts": { "Recipient": "you@example.com", "TestOnStartup": true }
+   ```
+2. Recycle the API app pool. The Event Log gets `Error alerts: emailing you@example.com about
+   Error-level log entries (Production; …)` at Warning, or `Error alerts are configured for … but
+   outbound email is not, so they are only logged` when `Email` is incomplete, or `Error alerts are
+   OFF` when no recipient is set. `TestOnStartup` logs one Error, so within about `BatchSeconds` a
+   test email arrives: `[AllotJar Production] Error: Error alerts test: …`.
+3. Set `TestOnStartup` back to `false` (or remove it) and recycle again, or every start sends one.
+
+**What it cannot tell you:** that the API is down. A stopped app pool, a failed start (migrations
+that never succeed), a database that stopped answering or a VPS that is off runs nothing to send the
+email. For that, `deploy/Register-HealthPingTask.ps1` registers a Scheduled Task that GETs
+`/health/ready` (200 only while the API is up **and** SQL Server answers; `/health` stays the
+database-free liveness probe the deploy polls) every five minutes and pings a free
+[healthchecks.io](https://healthchecks.io) check (the same kind the nightly backup pings): a `/fail`
+ping or a missed ping emails you. A failed GET is retried three times, 20 seconds apart, before
+`/fail` is pinged, so a deploy's offline minute or a cold start is at most one late ping; keep the
+check's grace at 5 minutes or more so that late ping is not an email. Create the check (period 5
+minutes, grace 5 minutes, your email), then on the VPS:
+
+```powershell
+.\Register-HealthPingTask.ps1 -PingUrl https://hc-ping.com/<uuid>   # production API on port 5001
+```
+
+Pass `-HealthUrl http://127.0.0.1:5000/health/ready -TaskName ZeroBudget-Staging-HealthPing` with a
+second check for staging. `Start-ScheduledTask -TaskName ZeroBudget-Prod-HealthPing` runs it at once; stop
+the API's app pool for a minute to watch the check go red and come back.
+
 ## Sign in with Google
 
 Google sign-in is OFF until a client id is configured, on both the server (`Google:ClientId`, for

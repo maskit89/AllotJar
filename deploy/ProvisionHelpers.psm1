@@ -222,4 +222,73 @@ IF IS_ROLEMEMBER(N'db_backupoperator', N'$q') <> 1
 "@
 }
 
-Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql, Set-ConnectionStringDatabase, Set-AncmEnvironmentVariable
+<#
+.SYNOPSIS
+    Plan the MOVE clauses for restoring a backup onto -Database, so that a restore onto a
+    DIFFERENT database on the SAME instance never points at the source database's live files.
+
+.DESCRIPTION
+    A .bak carries the SOURCE database's physical file names (ZeroBudgetProd.mdf, ...). Restoring
+    it onto another database with "MOVE ... TO <default data folder>\<same leaf>" targets the files
+    the live source database is using, and SQL Server refuses (error 1834/3156). So:
+      - when the target database exists and has the same number of data and log files as the
+        backup, each backup file is moved onto the target's OWN existing file, in file order
+        (data onto ROWS files, log onto LOG files): the target keeps its files, nothing else is touched;
+      - otherwise the target gets fresh names in the instance's default folders:
+        <Database>.mdf, <Database>_<n>.ndf, <Database>_log.ldf, <Database>_log<n>.ldf.
+    Every planned destination is then checked against the other databases' files (-OtherFiles) and
+    the function throws if any would overwrite one of them.
+
+    Pure: takes rows (RESTORE FILELISTONLY, sys.master_files) and returns the plan; runs no SQL.
+#>
+function Get-RestoreFileMoves {
+    param(
+        [Parameter(Mandatory)][string]$Database,
+        # RESTORE FILELISTONLY rows: LogicalName, PhysicalName, Type ('D' data, 'L' log, other = data).
+        [Parameter(Mandatory)][object[]]$BackupFiles,
+        # sys.master_files rows of the TARGET database: type_desc ('ROWS' / 'LOG'), physical_name. Empty when it does not exist.
+        [object[]]$TargetFiles = @(),
+        # sys.master_files rows of every OTHER database: db, physical_name.
+        [object[]]$OtherFiles = @(),
+        [Parameter(Mandatory)][string]$DataDir,
+        [string]$LogDir
+    )
+    if (-not $LogDir) { $LogDir = $DataDir }
+    # Not Join-Path: this also runs in the CI tests on Linux, where a Windows drive letter is not a PSDrive.
+    function Join-WinPath([string]$dir, [string]$leaf) { return $dir.TrimEnd('\', '/') + '\' + $leaf }
+    $bakData = @($BackupFiles | Where-Object { [string]$_.Type -ne 'L' })
+    $bakLogs = @($BackupFiles | Where-Object { [string]$_.Type -eq 'L' })
+    $ownRows = @($TargetFiles | Where-Object { [string]$_.type_desc -eq 'ROWS' } | ForEach-Object { [string]$_.physical_name })
+    $ownLogs = @($TargetFiles | Where-Object { [string]$_.type_desc -eq 'LOG' }  | ForEach-Object { [string]$_.physical_name })
+    $reuse = ($TargetFiles.Count -gt 0) -and ($ownRows.Count -eq $bakData.Count) -and ($ownLogs.Count -eq $bakLogs.Count)
+
+    $moves = New-Object System.Collections.Generic.List[string]
+    $targets = New-Object System.Collections.Generic.List[string]
+    for ($i = 0; $i -lt $bakData.Count; $i++) {
+        $dest = if ($reuse) { $ownRows[$i] }
+                elseif ($i -eq 0) { Join-WinPath $DataDir "$Database.mdf" }
+                else { Join-WinPath $DataDir ('{0}_{1}.ndf' -f $Database, $i) }
+        $moves.Add(("MOVE N'{0}' TO N'{1}'" -f ([string]$bakData[$i].LogicalName).Replace("'", "''"), $dest.Replace("'", "''")))
+        $targets.Add($dest)
+    }
+    for ($i = 0; $i -lt $bakLogs.Count; $i++) {
+        $dest = if ($reuse) { $ownLogs[$i] }
+                elseif ($i -eq 0) { Join-WinPath $LogDir "${Database}_log.ldf" }
+                else { Join-WinPath $LogDir ('{0}_log{1}.ldf' -f $Database, $i) }
+        $moves.Add(("MOVE N'{0}' TO N'{1}'" -f ([string]$bakLogs[$i].LogicalName).Replace("'", "''"), $dest.Replace("'", "''")))
+        $targets.Add($dest)
+    }
+    foreach ($t in $targets) {
+        $hit = @($OtherFiles | Where-Object { [string]$_.physical_name -ieq $t })
+        if ($hit.Count -gt 0) {
+            throw "Refusing to restore: $t is a live file of database [$($hit[0].db)], not of [$Database]."
+        }
+    }
+    return [pscustomobject]@{
+        Moves             = @($moves)
+        Targets           = @($targets)
+        ReusedTargetFiles = $reuse
+    }
+}
+
+Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql, Set-ConnectionStringDatabase, Set-AncmEnvironmentVariable, Get-RestoreFileMoves

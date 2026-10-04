@@ -148,6 +148,45 @@ $workflow = Get-Content (Join-Path (Split-Path $deployDir -Parent) '.github/work
 Assert-True ($workflow -notmatch 'staging-prod\b' -and $workflow -notmatch 'incoming-prod\b') 'deploy.yml does not unpack production in a folder called staging-prod'
 Assert-True ($workflow -match '-AspNetEnvironment Staging' -and $workflow -match '-AspNetEnvironment Production') 'deploy.yml pins the ASP.NET Core environment of each stack'
 
+Write-Host '== Get-RestoreFileMoves (restoring one database''s backup onto another on the same instance) =='
+$data = 'C:\SQL\DATA\'
+$prodBak = @(
+    [pscustomobject]@{ LogicalName = 'ZeroBudgetProd';     PhysicalName = 'C:\SQL\DATA\ZeroBudgetProd.mdf';     Type = 'D' },
+    [pscustomobject]@{ LogicalName = 'ZeroBudgetProd_log'; PhysicalName = 'C:\SQL\DATA\ZeroBudgetProd_log.ldf'; Type = 'L' }
+)
+$stagingFiles = @(
+    [pscustomobject]@{ type_desc = 'ROWS'; physical_name = 'C:\SQL\DATA\ZeroBudget.mdf' },
+    [pscustomobject]@{ type_desc = 'LOG';  physical_name = 'C:\SQL\DATA\ZeroBudget_log.ldf' }
+)
+$prodFiles = @(
+    [pscustomobject]@{ db = 'ZeroBudgetProd'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd.mdf' },
+    [pscustomobject]@{ db = 'ZeroBudgetProd'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd_log.ldf' }
+)
+# The restore test: production's nightly .bak onto the (renamed) staging database, which keeps its own files.
+$plan = Get-RestoreFileMoves -Database ZeroBudgetStaging -BackupFiles $prodBak -TargetFiles $stagingFiles -OtherFiles $prodFiles -DataDir $data
+Assert-True $plan.ReusedTargetFiles 'an existing target with matching file counts keeps its own files'
+Assert-True ($plan.Moves[0] -eq "MOVE N'ZeroBudgetProd' TO N'C:\SQL\DATA\ZeroBudget.mdf'") 'the data file lands on the target''s own .mdf'
+Assert-True ($plan.Moves[1] -eq "MOVE N'ZeroBudgetProd_log' TO N'C:\SQL\DATA\ZeroBudget_log.ldf'") 'the log file lands on the target''s own .ldf'
+Assert-True (-not ($plan.Targets -contains 'C:\SQL\DATA\ZeroBudgetProd.mdf')) 'production''s live .mdf is never a destination'
+# A target that does not exist yet gets its own names, never the backup's leaf names.
+$plan = Get-RestoreFileMoves -Database ZeroBudgetStaging -BackupFiles $prodBak -OtherFiles $prodFiles -DataDir $data -LogDir 'C:\SQL\LOG\'
+Assert-True (-not $plan.ReusedTargetFiles) 'a missing target does not reuse files'
+Assert-True ($plan.Targets[0] -eq 'C:\SQL\DATA\ZeroBudgetStaging.mdf') 'a missing target gets <Database>.mdf in the data folder'
+Assert-True ($plan.Targets[1] -eq 'C:\SQL\LOG\ZeroBudgetStaging_log.ldf') 'a missing target gets <Database>_log.ldf in the log folder'
+# The old behaviour (default folder + the backup's own leaf names) is exactly what must be refused.
+$collide = @([pscustomobject]@{ type_desc = 'ROWS'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd.mdf' }, [pscustomobject]@{ type_desc = 'LOG'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd_log.ldf' })
+$threw = $false
+try { Get-RestoreFileMoves -Database ZeroBudgetStaging -BackupFiles $prodBak -TargetFiles $collide -OtherFiles $prodFiles -DataDir $data | Out-Null } catch { $threw = $_.Exception.Message -match 'ZeroBudgetProd' }
+Assert-True $threw 'a destination that is another database''s live file is refused, naming that database'
+# Restoring production's own backup over production (rollback) still reuses production's files.
+$prodOwn = @([pscustomobject]@{ type_desc = 'ROWS'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd.mdf' }, [pscustomobject]@{ type_desc = 'LOG'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd_log.ldf' })
+$plan = Get-RestoreFileMoves -Database ZeroBudgetProd -BackupFiles $prodBak -TargetFiles $prodOwn -OtherFiles @() -DataDir $data
+Assert-True ($plan.ReusedTargetFiles -and $plan.Targets[0] -eq 'C:\SQL\DATA\ZeroBudgetProd.mdf') 'restoring a database over itself keeps its files'
+# A file count mismatch falls back to fresh names rather than guessing a pairing.
+$twoData = $prodBak + @([pscustomobject]@{ LogicalName = 'ZeroBudgetProd_2'; PhysicalName = 'C:\SQL\DATA\ZeroBudgetProd_2.ndf'; Type = 'D' })
+$plan = Get-RestoreFileMoves -Database ZeroBudgetStaging -BackupFiles $twoData -TargetFiles $stagingFiles -OtherFiles $prodFiles -DataDir $data
+Assert-True ((-not $plan.ReusedTargetFiles) -and $plan.Targets[1] -eq 'C:\SQL\DATA\ZeroBudgetStaging_1.ndf') 'a file-count mismatch uses fresh <Database>_n.ndf names'
+
 if ($script:Failures -gt 0) {
     Write-Host "$($script:Failures) assertion(s) FAILED." -ForegroundColor Red
     exit 1
