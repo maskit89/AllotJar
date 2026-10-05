@@ -315,6 +315,9 @@ function parseSingleMinor(input: string): Minor | null {
   const [intPart, fracRaw = ''] = canonical.split('.')
   const frac4 = fracRaw.slice(0, 4).padEnd(4, '0')
   let minor = Number(intPart) * FACTOR + Number(frac4)
+  // A pasted run of 305 or more digits overflows to Infinity; refuse it as any invalid amount
+  // (review P3-5: inside an expression it threw out of parseMinor instead).
+  if (!Number.isFinite(minor)) return null
 
   // Round half-up on a 5th fractional digit.
   const fifth = fracRaw.charAt(4)
@@ -395,27 +398,43 @@ export function expressionTerms(input: string): ReadonlyArray<ExpressionTerm> | 
 }
 
 /**
- * A pasted date, which must never save as a number (PR #321 review P3-1): three whole-number
- * parts joined by the same "-" or "/" where one part is a four-digit year ("2026-03-10",
- * "10/03/2026") or every part is one or two digits ("10-03-26"). A genuine "2026-3-10" is not
- * an amount anyone types.
+ * A pasted date, which must never save as a number (PR #321 review P3-1, P3-7), anywhere in the
+ * expression ("2026-03-10+0" is a date with a stray key, not 2013). Three whole-number parts
+ * joined by the same "-" or "/" where one part is a four-digit year ("2026-03-10",
+ * "10/03/2026") or every part is one or two digits ("10-03-26"): a genuine "2026-3-10" is not
+ * an amount anyone types. Or two parts, a year 1900-2099 and a month 1-12, joined by "-" or "/"
+ * ("2026-10", "10/2026"); "1500/4" and "2000-50" are arithmetic.
  */
 function looksLikeDate(terms: ReadonlyArray<ExpressionTerm>): boolean {
-  if (terms.length !== 3 || terms[0].op !== '+') return false
-  const joiner = terms[1].op
-  if ((joiner !== '-' && joiner !== '/') || terms[2].op !== joiner) return false
-  const parts = terms.map((t) => t.term)
-  if (!parts.every((p) => /^\d{1,4}$/.test(p))) return false
-  return parts.some((p) => p.length === 4) || parts.every((p) => p.length <= 2)
+  const whole = (t: ExpressionTerm): boolean => /^\d{1,4}$/.test(t.term)
+  const year = (t: ExpressionTerm): boolean => /^(19|20)\d\d$/.test(t.term)
+  const month = (t: ExpressionTerm): boolean => /^(0?[1-9]|1[0-2])$/.test(t.term)
+  for (let i = 0; i < terms.length - 1; i++) {
+    if (i > 0 && terms[i].op !== '+') continue
+    const joiner = terms[i + 1].op
+    if (joiner !== '-' && joiner !== '/') continue
+    const a = terms[i]
+    const b = terms[i + 1]
+    if (!whole(a) || !whole(b)) continue
+    const c = terms[i + 2]
+    if (c !== undefined && c.op === joiner && whole(c)) {
+      const parts = [a, b, c].map((t) => t.term)
+      if (parts.some((p) => p.length === 4) || parts.every((p) => p.length <= 2)) return true
+    }
+    if ((year(a) && month(b)) || (month(a) && year(b))) return true
+  }
+  return false
 }
 
 /**
  * Works a typed expression out in integer minor units: "*" and "/" first, then "+" and "-",
- * left to right, like a calculator with precedence. A product or quotient is rounded half-up
- * to whole cents (D1: an amount never carries more than two decimals, and 10/3 cannot be fixed
- * by typing). Refused (null): any term that is not an amount, a division by zero, a result
- * below zero (an amount is a magnitude; the transaction's type says which way it goes), or a
- * pasted date (looksLikeDate). A zero result is 0, which the forms refuse where they must.
+ * left to right, like a calculator with precedence. Each step keeps the four decimals the
+ * units carry (half-up), and only the result is rounded half-up to whole cents (D1: an amount
+ * never carries more than two decimals, and 10/3 cannot be fixed by typing), so 10/3 is 3.33
+ * and 10/3*3 is 10.00 as on a calculator (review P3-6). Refused (null): any term that is not
+ * an amount, a division by zero, a result below zero (an amount is a magnitude; the
+ * transaction's type says which way it goes), or a pasted date (looksLikeDate). A zero result
+ * is 0, which the forms refuse where they must.
  */
 function evaluateExpression(terms: ReadonlyArray<ExpressionTerm>): Minor | null {
   if (looksLikeDate(terms)) return null
@@ -444,14 +463,14 @@ function evaluateExpression(terms: ReadonlyArray<ExpressionTerm>): Minor | null 
     }
     if (current === null) return null
     if (op === '*') {
-      current = roundToCents((current * value + factor / 2n) / factor)
+      current = (current * value + factor / 2n) / factor
     } else {
       if (value === 0n) return null
-      current = roundToCents((current * factor + value / 2n) / value)
+      current = (current * factor + value / 2n) / value
     }
   }
   if (current !== null) groups.push(sign * current)
-  const total = groups.reduce((sum, g) => sum + g, 0n)
+  const total = roundToCents(groups.reduce((sum, g) => sum + g, 0n))
   if (total < 0n) return null
   return Number(total)
 }

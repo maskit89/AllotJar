@@ -87,12 +87,17 @@ describe('parseMinor', () => {
       ['100−1', 990_000],
       ['2+3*4', 140_000], // precedence, not left to right
       ['10-2*3+1', 50_000],
-      ['10/3', 33_300], // a quotient is rounded half-up to cents (D1)
+      ['10/3', 33_300], // the result is rounded half-up to cents (D1)
       ['2/3', 6_700],
+      ['10/3*3', 100_000], // only the result is rounded, as on a calculator (review P3-6)
+      ['1/3*3', 10_000],
+      ['100/3*3', 1_000_000],
       ['1.25*1.25', 15_600], // 1.5625 → 1.56
       ['0.005*3', 200], // 0.015 → 0.02
       ['10-10', 0],
       ['100/8/5', 25_000], // left to right
+      ['1500/4', 3_750_000], // not a year and a month (review P3-7)
+      ['2000-50', 19_500_000],
     ])('works %s out to %i', (input, expected) => {
       expect(parseMinor(input)).toBe(expected)
       expect(isExpression(input)).toBe(true)
@@ -103,6 +108,9 @@ describe('parseMinor', () => {
       '5-10', '-5', '10-20+5', // below zero: an amount is a magnitude
       '5/0', '5/0.00', // division by zero
       '2026-03-10', '10/03/2026', '10-03-26', '10/03/26', '2026/03/10', // a pasted date (review P3-1)
+      '2026-10', '10/2026', '2026/10', '2026-3', // a pasted month (review P3-7)
+      '2026-03-10+0', '2026-10*2', '5+2026-03-10', // a date with an operator around it
+      '1'.repeat(400) + '*0', '1'.repeat(400) + '+1', // a run of digits that overflows (review P3-5)
     ])('refuses %s', (input) => {
       expect(parseMinor(input)).toBeNull()
     })
@@ -111,7 +119,15 @@ describe('parseMinor', () => {
       expect(parseMinor('12-5')).toBe(70_000)
       expect(parseMinor('1-2-3')).toBeNull() // every part one or two digits reads as a date
       expect(parseMinor('100-20-3')).toBe(770_000) // a three-digit part is not a date part
-      expect(parseMinor('2026-03-10.50')).toBe(20_125_000) // a decimal is never a date part
+      expect(parseMinor('20.26-3-10')).toBe(72_600) // a decimal is never a date part
+      expect(parseMinor('2026-03-10.50')).toBeNull() // but it starts with a year and a month
+      expect(parseMinor('2024/4')).toBeNull() // a year and a month, even without the zero
+      expect(parseMinor('1899-10')).toBe(18_890_000) // not a year
+      expect(parseMinor('2026-13')).toBe(20_130_000) // not a month
+    })
+
+    it('refuses a plain run of digits that overflows, rather than saving Infinity', () => {
+      expect(parseMinor('1'.repeat(400))).toBeNull()
     })
 
     it('is not an expression when there is nothing to work out', () => {
