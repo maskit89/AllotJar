@@ -1,8 +1,6 @@
 import type { HouseholdMemberDto } from '../types'
 import type { ItemOptionGroup } from '../lib/transactions'
-import { useRef } from 'react'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
-import { PlusButton } from './PlusButton'
 
 export interface SplitRowDraft {
   budgetItemId: string
@@ -46,7 +44,16 @@ export function SplitLinesEditor({ rows, options, members, onChangeRow, onRemove
               </optgroup>
             ))}
           </select>
-          <SplitAmount index={index} value={row.amount} onChange={(amount) => onChangeRow(index, { amount })} />
+          <input
+            type="text"
+            inputMode="decimal"
+            {...selectOnFocusProps}
+            value={row.amount}
+            placeholder="0,00"
+            aria-label={`Split line ${index + 1} amount`}
+            onChange={(e) => onChangeRow(index, { amount: e.target.value })}
+            className="w-28 rounded-md border border-slate-300 px-2 py-1 text-right text-sm tabular-nums focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+          />
           {members.length >= 2 && (
             <select
               value={row.memberId}
@@ -89,27 +96,6 @@ export function SplitRemainderChip({ remainderMinor, format }: { remainderMinor:
       }`}
     >
       {remainderMinor === 0 ? 'Fully allocated' : `${format(remainderMinor)} left`}
-    </span>
-  )
-}
-
-/** One slice's amount with its "+" (a sum, "20+30", also on a phone's number pad). */
-function SplitAmount({ index, value, onChange }: { index: number; value: string; onChange: (amount: string) => void }) {
-  const ref = useRef<HTMLInputElement>(null)
-  return (
-    <span className="flex gap-1">
-      <input
-        ref={ref}
-        type="text"
-        inputMode="decimal"
-        {...selectOnFocusProps}
-        value={value}
-        placeholder="0,00"
-        aria-label={`Split line ${index + 1} amount`}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-28 rounded-md border border-slate-300 px-2 py-1 text-right text-sm tabular-nums focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
-      />
-      <PlusButton value={value} onChange={onChange} inputRef={ref} label={`Add to split line ${index + 1} amount`} />
     </span>
   )
 }

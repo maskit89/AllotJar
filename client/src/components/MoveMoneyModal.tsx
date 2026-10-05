@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Badge, Button, ErrorBanner, Input, Select } from './ui'
 import { Modal } from './Modal'
-import { PlusButton } from './PlusButton'
 import { api } from '../lib/api'
 import { readLedgers } from '../lib/jarLedgers'
 import type { AccountDto, CreateTransferRequest, JarAccountLedgerDto, JarDto, TransactionDto } from '../types'
@@ -61,7 +60,6 @@ export function MoveMoneyModal({ jar, currency, accounts = [], onClose, onMoved 
   const [source, setSource] = useState<string>(jar.id)
   const [destination, setDestination] = useState<string>(`${UNALLOCATED_PREFIX}${jar.fundingAccountId}`)
   const [amount, setAmount] = useState('')
-  const amountRef = useRef<HTMLInputElement>(null)
   // The move date inside one account; the departure date of a transfer between two.
   const [date, setDate] = useState(todayIso)
   // Cross-account only: when the destination bank posted it. Cleared = still in transit.
@@ -295,20 +293,16 @@ export function MoveMoneyModal({ jar, currency, accounts = [], onClose, onMoved 
             </label>
             <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
               Amount
-              <span className="flex gap-1">
-                <Input
-                  ref={amountRef}
-                  type="text"
-                  inputMode="decimal"
-                  {...selectOnFocusProps}
-                  value={amount}
-                  placeholder="0.00"
-                  aria-label="Move amount"
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="w-full min-w-0 text-right tabular-nums"
-                />
-                <PlusButton value={amount} onChange={setAmount} inputRef={amountRef} label="Add to the move amount" />
-              </span>
+              <Input
+                type="text"
+                inputMode="decimal"
+                {...selectOnFocusProps}
+                value={amount}
+                placeholder="0.00"
+                aria-label="Move amount"
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full text-right tabular-nums"
+              />
             </label>
             {crossAccount ? (
               <>
