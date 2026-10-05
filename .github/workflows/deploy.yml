@@ -242,6 +242,9 @@ jobs:
             if [ "${cmp%% *}" = ahead ]; then
               files=$(gh_api --paginate "repos/$REPO/compare/$run_sha...$SHA" --jq '.files[].filename') \
                 || refuse "Could not list the files changed since $run_sha."
+              # A range that is ahead by commits must list files; an empty answer is not "docs only".
+              [ -n "$files" ] \
+                || refuse "GitHub listed no files changed since the last CI run on main ($run_sha), so it cannot be checked as docs only."
               # The compare API lists at most 300 files: past that the list is incomplete.
               [ "$(printf '%s' "$files" | grep -c .)" -lt 300 ] \
                 || refuse "Too many files changed since the last CI run on main ($run_sha) to check that they are docs only."
