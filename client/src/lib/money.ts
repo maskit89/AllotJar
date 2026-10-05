@@ -302,15 +302,15 @@ function isGroupedInteger(str: string, sep: string): boolean {
 export function parseMinor(input: string): Minor | null {
   const terms = sumTerms(input)
   if (terms !== null) {
-    // A sum ("20+30", "100-12.50"): each term is an amount in its own right, added or taken away
-    // in whole minor units, so the result is exactly what the user would have worked out by hand.
+    // A sum ("20+30"): each term is an amount in its own right, added up in whole minor units, so
+    // the result is exactly what the user would have worked out by hand.
     let total = 0
-    for (const { sign, term } of terms) {
+    for (const { term } of terms) {
       const minor = parseSingleMinor(term)
       if (minor === null) return null
-      total += sign * minor
+      total += minor
     }
-    return total < 0 ? null : total
+    return total
   }
   return parseSingleMinor(input)
 }
@@ -357,35 +357,17 @@ export function tooPrecise(input: string, stored?: Minor | null): boolean {
 }
 
 /**
- * A sum typed into an amount field ("20+30", "50 - 12.50", "10+10+5"), split into its signed terms.
- * Null when the input is a single amount (nothing to add up). A term is whatever sits between
- * two operators; an empty term ("20+", "+-5") makes the whole input invalid, which parseMinor
- * then refuses, so a half-typed sum never saves as something else. A leading "-" is a sign on
- * the first term, so "-5+10" is a sum too (and comes to 5); a lone "-5" stays a plain negative
- * amount, refused as before.
+ * A sum typed into an amount field ("20+30", "10 + 10 + 5"), split into its terms. Null when the
+ * input is a single amount (nothing to add up). A term is whatever sits between two plus signs;
+ * an empty term ("20+", "20++30") makes the whole input invalid, which parseMinor then refuses,
+ * so a half-typed sum never saves as something else. Only "+" adds up: a "-" is refused as it
+ * always was, so a pasted date ("2026-03-10") or a typed range ("12-5") never turns into an
+ * amount (PR #321 review P3-1).
  */
-export function sumTerms(input: string): ReadonlyArray<{ sign: 1 | -1; term: string }> | null {
+export function sumTerms(input: string): ReadonlyArray<{ sign: 1; term: string }> | null {
   const trimmed = input.trim()
-  if (!/[+-]/.test(trimmed.slice(1))) return null
-  const terms: { sign: 1 | -1; term: string }[] = []
-  let sign: 1 | -1 = 1
-  let term = ''
-  for (let i = 0; i < trimmed.length; i++) {
-    const ch = trimmed[i]
-    if ((ch === '+' || ch === '-') && (i > 0 || ch === '+')) {
-      terms.push({ sign, term: term.trim() })
-      sign = ch === '-' ? -1 : 1
-      term = ''
-      continue
-    }
-    if (ch === '-' && i === 0) {
-      sign = -1
-      continue
-    }
-    term += ch
-  }
-  terms.push({ sign, term: term.trim() })
-  return terms
+  if (!trimmed.includes('+')) return null
+  return trimmed.split('+').map((term) => ({ sign: 1 as const, term: term.trim() }))
 }
 
 /** True when the typed text is a sum ("20+30") rather than a single amount. */

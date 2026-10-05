@@ -162,7 +162,7 @@ The register of real money movements.
 
 ### Adding a transaction
 
-Use the **Add a transaction** form: date, payee, amount, type (**Expense** or **Income**), optionally assign it to a budget line right away, and — if you use [Accounts](#5-accounts) — the account it happened on. Amounts accept a decimal point or comma ("12.50" or "12,50"), and tolerate thousands separators. An amount can also be typed as a sum: "20+30" saves as 50.00, "50-12.50" as 37.50, in any amount field (a transaction, a split slice, a move between jars, a jar's target).
+Use the **Add a transaction** form: date, payee, amount, type (**Expense** or **Income**), optionally assign it to a budget line right away, and — if you use [Accounts](#5-accounts) — the account it happened on. Amounts accept a decimal point or comma ("12.50" or "12,50"), and tolerate thousands separators. An amount can also be typed as a sum: "20+30" saves as 50.00, in any amount field (a transaction, a split slice, a move between jars, a jar's target). On a phone the number pad has no plus key, so the transaction amount, split slices and Move money carry a small **+** button that adds one for you.
 
 If you don't pick a budget line, AllotJar quietly fills one in for you: it assigns the new transaction to the same line as your **most recent earlier transaction with the same description**. So once you've categorised "REWE" or your landlord once, repeat payees sort themselves — with no rules to set up. Whatever it can't match is left *Unassigned* for you to place.
 

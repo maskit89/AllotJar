@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { Badge, Button, Card, EmptyState, ErrorBanner, Input, SegmentedControl, Select } from '../components/ui'
@@ -26,6 +26,7 @@ import type {
 import { TransactionType } from '../types'
 import { formatMoney, formatPlain, fromAmount, parseMinor, sumMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
+import { PlusButton } from '../components/PlusButton'
 import { formatDate, monthYear, shortDate, todayIso } from '../lib/dates'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import { buildItemOptions, jarLinesOf, transactionTypeLabel } from '../lib/transactions'
@@ -154,6 +155,7 @@ export function TransactionsPage() {
   const [date, setDate] = useState(todayIso)
   const [payee, setPayee] = useState('')
   const [amount, setAmount] = useState('')
+  const amountRef = useRef<HTMLInputElement>(null)
   const [type, setType] = useState<number>(TransactionType.Expense)
   // The purchase a new refund comes back from (rules 38/39); only read when type is ADD_REFUND.
   const [refundOf, setRefundOf] = useState('')
@@ -1415,19 +1417,23 @@ export function TransactionsPage() {
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
                 Amount
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  {...selectOnFocusProps}
-                  value={amount}
-                  placeholder="0.00"
-                  aria-label="Transaction amount"
-                  onChange={(e) => setAmount(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') addTransaction()
-                  }}
-                  className="w-full text-right tabular-nums"
-                />
+                <span className="flex gap-1">
+                  <Input
+                    ref={amountRef}
+                    type="text"
+                    inputMode="decimal"
+                    {...selectOnFocusProps}
+                    value={amount}
+                    placeholder="0.00"
+                    aria-label="Transaction amount"
+                    onChange={(e) => setAmount(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') addTransaction()
+                    }}
+                    className="w-full min-w-0 text-right tabular-nums"
+                  />
+                  <PlusButton value={amount} onChange={setAmount} inputRef={amountRef} label="Add to the transaction amount" />
+                </span>
               </label>
               {accounts.length > 0 && (
                 <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">

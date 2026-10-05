@@ -3,9 +3,9 @@ import type {
   ComponentPropsWithoutRef,
   ElementType,
   HTMLAttributes,
-  InputHTMLAttributes,
   ReactNode,
   SelectHTMLAttributes,
+  ComponentPropsWithRef,
 } from 'react'
 
 /**
@@ -74,7 +74,7 @@ export function Button({
  * in the budget grid. No width baked in, so callers add `w-full` (forms) or a
  * fixed width (inline form fields). Forwards every native input prop.
  */
-export function Input({ className = '', ...rest }: InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ className = '', ...rest }: ComponentPropsWithRef<'input'>) {
   return (
     <input
       className={`rounded-lg border border-slate-400 bg-surface px-3 py-2 text-sm text-slate-800 transition placeholder:text-slate-500 focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/40 disabled:opacity-50 ${className}`}

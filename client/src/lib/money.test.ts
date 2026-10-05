@@ -73,8 +73,6 @@ describe('parseMinor', () => {
       ['20+30', 500_000],
       ['20 + 30', 500_000],
       ['10+10+5', 250_000],
-      ['50-12.50', 375_000],
-      ['-5+10', 50_000],
       ['1,500+0.50', 15_005_000], // a grouped term under comma-dot
       ['12,50+1', 135_000], // the sibling separator read as a decimal, as alone
     ])('adds %s up to %i', (input, expected) => {
@@ -82,7 +80,9 @@ describe('parseMinor', () => {
       expect(isSum(input)).toBe(true)
     })
 
-    it.each(['20+', '+-5', '20++30', '20+abc', '5-10', '-5'])('refuses %s', (input) => {
+    // Only "+" adds up: a "-" is refused as before, so a pasted date or a typed range never
+    // becomes an amount (review P3-1).
+    it.each(['20+', '+5', '20++30', '20+abc', '5-10', '-5', '50-12.50', '2026-03-10', '12-5', '-5+10'])('refuses %s', (input) => {
       expect(parseMinor(input)).toBeNull()
     })
 
