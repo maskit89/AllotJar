@@ -705,6 +705,35 @@ export interface AnnualSummaryDto {
 }
 
 /**
+ * What was spent from each jar in one calendar year, month by month: every expense that drew from
+ * the jar (rule 79), by its own date, net of the refunds that came back (rule 38). A move between
+ * jars is not spending. Mirrors AllotJar.Application.Reports.Dtos.JarSpendingReportDto.
+ */
+export interface JarSpendingReportDto {
+  year: number
+  /** Live jars first, then archived, each in name order. */
+  jars: JarSpendingRowDto[]
+  /** Rows in another currency still waiting for their budget-currency amount, which drew from a jar and are left out. */
+  waitingCount: number
+}
+
+export interface JarSpendingRowDto {
+  jarId: string
+  name: string
+  /** The currency of the account that holds the jar; the figures are in it. */
+  currency: string
+  isArchived: boolean
+  /** Always 12 entries, January → December: spent net of refunds. */
+  months: number[]
+  /** Always 12 entries, January → December: the refunds already netted out of `months`. */
+  refunds: number[]
+  /** Σ months. */
+  total: number
+  /** Σ refunds. */
+  totalRefunds: number
+}
+
+/**
  * One calendar month as the reports read it (rules 37–39, 41): line-derived figures plus what no
  * line carries yet, by the transaction's own date. Mirrors AllotJar.Application.Reports.Dtos.
  */

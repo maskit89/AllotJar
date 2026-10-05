@@ -6,7 +6,7 @@ import { Hero } from '../components/Hero'
 import { ReportsIcon } from '../components/icons'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
-import type { AnnualMonthDto, AnnualSummaryDto, BudgetTrendsDto, MonthReportDto } from '../types'
+import type { AnnualMonthDto, AnnualSummaryDto, BudgetTrendsDto, JarSpendingReportDto, JarSpendingRowDto, MonthReportDto } from '../types'
 import { formatMoney, fromAmount, type Minor } from '../lib/money'
 import { hueColor, hueForIndex, hueTint } from '../lib/categoryColors'
 import { currentMonth, todayIso } from '../lib/dates'
@@ -54,6 +54,7 @@ export function ReportsPage() {
   const [breakdownKey, setBreakdownKey] = useState<string | null>(null)
   const [annual, setAnnual] = useState<AnnualSummaryDto | null>(null)
   const [annualYear, setAnnualYear] = useState<number | null>(null)
+  const [jarSpending, setJarSpending] = useState<JarSpendingReportDto | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -101,6 +102,20 @@ export function ReportsPage() {
       .get<AnnualSummaryDto>(`/reports/annual/${annualYear}`)
       .then(({ data }) => !cancelled && setAnnual(data))
       .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [annualYear])
+
+  // Load what was spent from each jar in the same year as the annual overview (the one year
+  // navigator drives both). An older server has no such report; the card is then left out.
+  useEffect(() => {
+    if (annualYear === null) return
+    let cancelled = false
+    api
+      .get<JarSpendingReportDto>(`/reports/jars/${annualYear}`)
+      .then(({ data }) => !cancelled && setJarSpending(data && Array.isArray(data.jars) ? data : null))
+      .catch(() => !cancelled && setJarSpending(null))
     return () => {
       cancelled = true
     }
@@ -355,6 +370,12 @@ export function ReportsPage() {
               </Card>
             )}
 
+            {/* What each jar paid out, month by month, in the annual overview's year: a payment
+                draws from the jar its line names (rule 79), a move between jars is not spending. */}
+            {jarSpending && jarSpending.year === annualYear && jarSpending.jars.length > 0 && (
+              <JarSpendingCard report={jarSpending} fallbackCurrency={currency} />
+            )}
+
             {/* Average monthly spend per category across the year (the workbook's AVERAGE column). */}
             {annual?.categories && annual.categories.length > 0 && (
               <Card as="section" className="px-6 py-[22px]">
@@ -480,6 +501,85 @@ export function ReportsPage() {
           </>
         )}
     </AppShell>
+  )
+}
+
+/**
+ * Spending from jars, one row per jar and a column per month (5 October 2026, from the jar
+ * notes: "how much I am actually spending from each jar monthly/yearly"). A payment counts
+ * wholly against the jar it was paid from: 50 for the vet from the Pets jar reads as 50 under
+ * Pets, and the 30 moved in from Food to cover it is not spending from Food. A refund back into
+ * the jar reduces the month it was received, and the total says so (rules 38/39). A live jar
+ * with nothing spent shows dashes; an archived jar is listed only while the year has a figure.
+ */
+function JarSpendingCard({ report, fallbackCurrency }: { report: JarSpendingReportDto; fallbackCurrency: string }) {
+  const currencyOf = (row: JarSpendingRowDto) => row.currency || fallbackCurrency
+  const currencies = new Set(report.jars.map(currencyOf))
+  // A year total across jars only reads when every jar counts in one currency.
+  const totalCurrency = currencies.size === 1 ? [...currencies][0] : null
+  const grandMonths = Array.from({ length: 12 }, (_, i) => report.jars.reduce((s, j) => s + fromAmount(j.months[i] ?? 0), 0))
+  const grandTotal = report.jars.reduce((s, j) => s + fromAmount(j.total), 0)
+  const cell = (minor: Minor, currency: string) => (minor === 0 ? '—' : formatMoney(minor, currency))
+  return (
+    <Card as="section" className="px-6 py-[22px]">
+      <h3 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Spending from jars</h3>
+      <p className="mb-4 mt-1 text-xs text-slate-500">
+        What each jar paid out in {report.year}, by the month it was paid. Money moved between jars is not spending.
+      </p>
+      {report.waitingCount > 0 && <WaitingRowsNote count={report.waitingCount} currency={fallbackCurrency} what="paid from a jar" />}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[960px] text-sm" aria-label={`Spending from jars in ${report.year}`}>
+          <thead>
+            <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
+              <th scope="col" className="py-1.5 font-medium">Jar</th>
+              {SHORT_MONTHS.map((m) => (
+                <th key={m} scope="col" className="py-1.5 text-right font-medium">
+                  {m}
+                </th>
+              ))}
+              <th scope="col" className="py-1.5 text-right font-medium">Total</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {report.jars.map((row) => {
+              const rowCurrency = currencyOf(row)
+              const totalMinor = fromAmount(row.total)
+              const refundsMinor = fromAmount(row.totalRefunds)
+              return (
+                <tr key={row.jarId} className={row.isArchived ? 'text-slate-500' : ''}>
+                  <th scope="row" className="py-1.5 text-left font-normal">
+                    {row.name}
+                    {row.isArchived && <span className="ml-1 text-xs text-slate-400">(archived)</span>}
+                  </th>
+                  {Array.from({ length: 12 }, (_, i) => (
+                    <td key={i} className="py-1.5 text-right tabular-nums">
+                      {cell(fromAmount(row.months[i] ?? 0), rowCurrency)}
+                    </td>
+                  ))}
+                  <td className="py-1.5 text-right font-medium tabular-nums" title={refundsMinor > 0 ? `after ${formatMoney(refundsMinor, rowCurrency)} refunded` : undefined}>
+                    {cell(totalMinor, rowCurrency)}
+                    {refundsMinor > 0 && <span className="sr-only"> after {formatMoney(refundsMinor, rowCurrency)} refunded</span>}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+          {totalCurrency !== null && report.jars.length > 1 && (
+            <tfoot>
+              <tr className="border-t-2 border-slate-200 font-semibold text-slate-800">
+                <th scope="row" className="py-2 text-left">All jars</th>
+                {grandMonths.map((minor, i) => (
+                  <td key={i} className="py-2 text-right tabular-nums">
+                    {cell(minor, totalCurrency)}
+                  </td>
+                ))}
+                <td className="py-2 text-right tabular-nums">{cell(grandTotal, totalCurrency)}</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </Card>
   )
 }
 

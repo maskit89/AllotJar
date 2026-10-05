@@ -475,3 +475,24 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
   2. On `/transactions` click **Enter amount** on London Cab and confirm **53.26**; reload `/reports`.
 - **Expected:** Step 1: every figure is as if the two rows did not exist — Food €700.00, no Uncategorised spending from them, June Spent unchanged in the trend, annual and hero (the trends, annual overview and breakdown all derive from `ReportFigures.ForMonthAsync`). `GET /reports/month/2026/6` returns `fxPendingCount: 2`; the page shows no count or notice for it (the dashboard does — CURR-052). Step 2: Food reads **€753.26**, June Spent rises by 53.26 everywhere, and `fxPendingCount` drops to 1; the other row still counts nowhere.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/ReportFiguresTests.cs — `MonthReport_LeavesPendingFxRowsOut_AndCountsThem`; FxPendingAggregatesTests — `A_confirmed_amount_counts_on_its_line_and_leaves_the_waiting_count`; the page itself unasserted)
+
+## Spending from jars (5 October 2026, the jar notes)
+
+### RPT-043 - A jar's spending counts wholly against the jar that paid, month by month; a move between jars is not spending
+- **Priority:** P1
+- **Type:** Happy
+- **Origin:** Christopher's note of 5 October 2026: "I spent 50 for pets and not a 20/30 split"; "how much I am actually spending from each jar monthly/yearly".
+- **Preconditions:** Report household with a Savings account holding jars **Pets** (€20.00) and **Food** (€300.00). On 9 March 2026 move €30.00 from Food to Pets (Move money); on 10 March record a €50.00 expense "Vet" on the Pets Savings line.
+- **Steps:**
+  1. Load `/reports`; with the annual overview on 2026 read the `Spending from jars` card.
+- **Expected:** A table labelled `Spending from jars in 2026` with a `Jar` column, `Jan` … `Dec` and `Total`. Row `Pets`: `€50.00` under Mar and in Total, dashes elsewhere. Row `Food`: dashes throughout (the move is not spending). An `All jars` footer row sums the jars when they share one currency (`€50.00` under Mar and Total). The card's note reads "Money moved between jars is not spending." Server: `GET /api/reports/jars/2026` returns `JarSpendingReportDto` (`jars[]` with `months[12]`, `refunds[12]`, `total`, `totalRefunds`, `currency`, `isArchived`; live jars first, then archived, each in name order; `waitingCount`), read through `JarLedgerSource.SpendingBetween`, the same ledger operations the jar's balance is read from (rule 79: the jar's line, a slice on it, or a payment answered "from this jar", in whichever account paid). It is wider than the Jars page's **Mark paid** list, which leaves out the payment that closed a cycle and transfer fees: both are the jar's spending here.
+- **Automated:** Full (client `ReportsPage.jars.test.tsx`; backend `JarSpendingReportTests.TheVetBill_CountsWhollyAgainstThePetsJar_AndTheMoveFromFoodIsNotSpending`, `Draws_CountByTheirOwnDate_FromAnyLine_NetOfRefunds_AndOnlyInTheYear`)
+
+### RPT-044 - Refunds, archived jars, waiting rows and the year navigator on the jars card
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** As RPT-043, plus an archived jar **Old sofa** that paid €400.00 in January and had €20.00 refunded back in February; a live jar **Car** that paid nothing; a jar **Trip** in a GBP account with one expense still waiting for its EUR amount.
+- **Steps:**
+  1. Read the card on 2026; then click `Previous year` twice.
+- **Expected:** `Old sofa (archived)` is listed, muted, with `-€20.00` under Feb and a Total of `€380.00` whose title and visually-hidden text say `after €20.00 refunded`. `Car` is listed with dashes (a live jar always appears). The `All jars` footer is left out when the jars are in more than one currency. A note above the table reads "1 transaction paid from a jar is in another currency, waiting for its amount in EUR, and not counted in these figures." The card follows the annual overview's year: on 2025 it shows that year's figures, and on a year with no figure and no live jar (or when the request fails, or on an older server without the endpoint) the card is left out rather than shown empty.
+- **Automated:** Full (client `ReportsPage.jars.test.tsx`; backend `JarSpendingReportTests.ListsEveryLiveJarAtZero_AnArchivedJarOnlyWithAFigure_AndLeavesWaitingRowsOut`)

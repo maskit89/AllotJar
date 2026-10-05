@@ -300,12 +300,24 @@ function isGroupedInteger(str: string, sep: string): boolean {
  * Anything beyond 4 dp is rounded half-up to scale 4.
  */
 export function parseMinor(input: string): Minor | null {
+  const expression = expressionTerms(input)
+  if (expression !== null) {
+    return evaluateExpression(expression)
+  }
+  return parseSingleMinor(input)
+}
+
+/** One plain amount (no arithmetic) as integer minor units; see parseMinor. */
+function parseSingleMinor(input: string): Minor | null {
   const canonical = canonicalAmount(input)
   if (canonical === null) return null
 
   const [intPart, fracRaw = ''] = canonical.split('.')
   const frac4 = fracRaw.slice(0, 4).padEnd(4, '0')
   let minor = Number(intPart) * FACTOR + Number(frac4)
+  // A pasted run of 305 or more digits overflows to Infinity; refuse it as any invalid amount
+  // (review P3-5: inside an expression it threw out of parseMinor instead).
+  if (!Number.isFinite(minor)) return null
 
   // Round half-up on a 5th fractional digit.
   const fifth = fracRaw.charAt(4)
@@ -327,10 +339,147 @@ export const TOO_MANY_DECIMALS = 'Enter at most 2 decimal places.'
  * unchanged when the field is left as it opened (W10). The server refuses the same.
  */
 export function tooPrecise(input: string, stored?: Minor | null): boolean {
+  const terms = expressionTerms(input)
+  if (terms !== null) {
+    // An expression is always typed, never the amount a field opened with: any term with a third
+    // decimal that matters is refused, whatever the result comes to (a product or quotient is
+    // rounded to cents by the evaluator).
+    return terms.some(({ term }) => tooPrecise(term))
+  }
   const canonical = canonicalAmount(input)
   if (canonical === null) return false
   const decimals = (canonical.split('.')[1] ?? '').replace(/0+$/, '')
   return decimals.length > 2 && parseMinor(input) !== stored
+}
+
+/** One term of a typed expression and the operator in front of it ('+' for the first). */
+export interface ExpressionTerm {
+  op: '+' | '-' | '*' | '/'
+  term: string
+}
+
+/** The operator characters an amount field accepts, with the keyboard and Unicode spellings of each. */
+const OPERATOR_OF: Record<string, ExpressionTerm['op']> = { '+': '+', '-': '-', '−': '-', '*': '*', '×': '*', '/': '/', '÷': '/' }
+
+/**
+ * Arithmetic typed into an amount field ("20+30", "100-12.50", "3*19.99", "120/4"), split into
+ * its terms, each with the operator in front of it. Null when the input is a single amount. The
+ * keyboard operators and their Unicode forms (−, ×, ÷) are read alike; "x" is not an operator
+ * (it would clash with nothing today, but a typed "x" is more often a slip). A term is whatever
+ * sits between two operators; an empty term ("20+", "20**30") makes the whole input invalid,
+ * which parseMinor then refuses, so a half-typed expression never saves as something else. A
+ * leading "-" is a sign on the first term ("-5+10" comes to 5); a lone "-5" is refused as before.
+ */
+export function expressionTerms(input: string): ReadonlyArray<ExpressionTerm> | null {
+  const trimmed = input.trim()
+  if (!/[+\-−*×/÷]/.test(trimmed.slice(1))) return null
+  const terms: ExpressionTerm[] = []
+  let op: ExpressionTerm['op'] = '+'
+  let term = ''
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i]
+    const operator = OPERATOR_OF[ch]
+    if (operator === undefined) {
+      term += ch
+      continue
+    }
+    if (i === 0) {
+      // A sign on the first term; only "-" means anything there.
+      if (operator !== '-') return [{ op: '+', term: '' }]
+      op = '-'
+      continue
+    }
+    terms.push({ op, term: term.trim() })
+    op = operator
+    term = ''
+  }
+  terms.push({ op, term: term.trim() })
+  return terms
+}
+
+/**
+ * A pasted date, which must never save as a number (PR #321 review P3-1, P3-7), anywhere in the
+ * expression ("2026-03-10+0" is a date with a stray key, not 2013). Three whole-number parts
+ * joined by the same "-" or "/" where one part is a four-digit year ("2026-03-10",
+ * "10/03/2026") or every part is one or two digits ("10-03-26"): a genuine "2026-3-10" is not
+ * an amount anyone types. Or a year 1900-2099 and a month 1-12 as a month key: year first with
+ * "-" ("2026-10"), or month first with either ("10/2026", "10-2026"; the latter would otherwise
+ * save as 0.01). A year-first slash ("2000/12") is a yearly bill split into months, which nobody
+ * pastes as a date, so it parses (review P3-8); "1500/4" and "2000-50" are arithmetic.
+ */
+function looksLikeDate(terms: ReadonlyArray<ExpressionTerm>): boolean {
+  const whole = (t: ExpressionTerm): boolean => /^\d{1,4}$/.test(t.term)
+  const year = (t: ExpressionTerm): boolean => /^(19|20)\d\d$/.test(t.term)
+  const month = (t: ExpressionTerm): boolean => /^(0?[1-9]|1[0-2])$/.test(t.term)
+  for (let i = 0; i < terms.length - 1; i++) {
+    if (i > 0 && terms[i].op !== '+') continue
+    const joiner = terms[i + 1].op
+    if (joiner !== '-' && joiner !== '/') continue
+    const a = terms[i]
+    const b = terms[i + 1]
+    if (!whole(a) || !whole(b)) continue
+    const c = terms[i + 2]
+    if (c !== undefined && c.op === joiner && whole(c)) {
+      const parts = [a, b, c].map((t) => t.term)
+      if (parts.some((p) => p.length === 4) || parts.every((p) => p.length <= 2)) return true
+    }
+    if ((year(a) && month(b) && joiner === '-') || (month(a) && year(b))) return true
+  }
+  return false
+}
+
+/**
+ * Works a typed expression out in integer minor units: "*" and "/" first, then "+" and "-",
+ * left to right, like a calculator with precedence. Each step keeps the four decimals the
+ * units carry (half-up), and only the result is rounded half-up to whole cents (D1: an amount
+ * never carries more than two decimals, and 10/3 cannot be fixed by typing), so 10/3 is 3.33
+ * and 10/3*3 is 10.00 as on a calculator (review P3-6). Refused (null): any term that is not
+ * an amount, a division by zero, a result below zero (an amount is a magnitude; the
+ * transaction's type says which way it goes), or a pasted date (looksLikeDate). A zero result
+ * is 0, which the forms refuse where they must.
+ */
+function evaluateExpression(terms: ReadonlyArray<ExpressionTerm>): Minor | null {
+  if (looksLikeDate(terms)) return null
+  const factor = BigInt(FACTOR)
+  const cent = BigInt(FACTOR / 100)
+  const roundToCents = (value: bigint): bigint => {
+    // Half-up on the magnitude, then back to the sign.
+    const negative = value < 0n
+    const magnitude = negative ? -value : value
+    const rounded = ((magnitude + cent / 2n) / cent) * cent
+    return negative ? -rounded : rounded
+  }
+  // First pass: multiply and divide into the running product; each product ends a group.
+  const groups: bigint[] = []
+  let current: bigint | null = null
+  let sign = 1n
+  for (const { op, term } of terms) {
+    const minor = parseSingleMinor(term)
+    if (minor === null) return null
+    const value = BigInt(minor)
+    if (op === '+' || op === '-') {
+      if (current !== null) groups.push(sign * current)
+      sign = op === '-' ? -1n : 1n
+      current = value
+      continue
+    }
+    if (current === null) return null
+    if (op === '*') {
+      current = (current * value + factor / 2n) / factor
+    } else {
+      if (value === 0n) return null
+      current = (current * factor + value / 2n) / value
+    }
+  }
+  if (current !== null) groups.push(sign * current)
+  const total = roundToCents(groups.reduce((sum, g) => sum + g, 0n))
+  if (total < 0n) return null
+  return Number(total)
+}
+
+/** True when the typed text is arithmetic ("20+30", "3*19.99") rather than a single amount. */
+export function isExpression(input: string): boolean {
+  return expressionTerms(input) !== null
 }
 
 /** The typed amount as plain digits with a '.' decimal point ("1234.5"), or null when it isn't one. */

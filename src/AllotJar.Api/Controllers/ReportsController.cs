@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using AllotJar.Application.Reports.Dtos;
 using AllotJar.Application.Reports.Queries.GetAnnualSummary;
 using AllotJar.Application.Reports.Queries.GetBudgetTrends;
+using AllotJar.Application.Reports.Queries.GetJarSpending;
 using AllotJar.Application.Reports.Queries.GetMonthReport;
 using AllotJar.Api.Features;
 
@@ -50,6 +51,19 @@ public class ReportsController : ControllerBase
     public async Task<ActionResult<MonthReportDto>> Month(int year, int month, CancellationToken ct)
     {
         var result = await _mediator.Send(new GetMonthReportQuery(year, month), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// What was spent from each jar in one calendar year, month by month (rule 79 draws, net of
+    /// refunds; moves between jars are not spending), every live jar listed.
+    /// </summary>
+    [HttpGet("jars/{year:int}")]
+    [ProducesResponseType(typeof(JarSpendingReportDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<JarSpendingReportDto>> Jars(int year, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new GetJarSpendingQuery(year), ct);
         return Ok(result);
     }
 

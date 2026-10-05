@@ -270,6 +270,9 @@ public static class JarLedgerReader
 /// any date without touching the database again. A write that changes the ledger needs a fresh
 /// load to see it.
 /// </summary>
+/// <summary>One jar's share of one expense (or refund) on its date, as <see cref="JarLedgerSource.SpendingBetween"/> reads it: a positive amount paid out of the jar, or a positive amount refunded back into it.</summary>
+public readonly record struct JarSpendingPosting(Guid JarId, DateOnly Date, decimal Amount, bool IsRefund);
+
 public sealed class JarLedgerSource
 {
     private readonly string _ownerId;
@@ -309,6 +312,13 @@ public sealed class JarLedgerSource
             .ToDictionary(g => g.Key, g => g.SelectMany(a => a.Postings).Where(p => p.JarId is not null).Select(p => p.JarId!.Value).ToHashSet());
         _isComplete = isComplete;
     }
+
+    /// <summary>Every jar of the owner, archived ones included (they still own history).</summary>
+    public IReadOnlyList<Jar> Jars => _jars;
+
+    /// <summary>The currency of a loaded account, or null when it was not loaded.</summary>
+    public string? AccountCurrency(Guid accountId) =>
+        _accounts.FirstOrDefault(a => a.Id == accountId)?.Currency.Value;
 
     /// <summary>Every jar-backed account as of <paramref name="asOf"/>.</summary>
     public JarLedgerSnapshot At(DateOnly asOf)
@@ -382,6 +392,65 @@ public sealed class JarLedgerSource
     /// </summary>
     public IReadOnlyDictionary<Guid, decimal> SetAsideBetween(DateOnly from, DateOnly to) =>
         SumPostings(from, to, kind => kind is JarAllocationKind.InitialAllocation, (_, _) => true);
+
+    /// <summary>
+    /// What each jar paid out between <paramref name="from"/> and <paramref name="to"/> (both
+    /// inclusive), one posting per jar per operation: the jar's share of every expense that drew
+    /// from it, by the expense's own date (a payment on its Savings line, a slice on that line, or
+    /// a payment on another line answered "from this jar", rule 79, in whichever account paid it),
+    /// and the share of every refund that came back into it (rule 38; a refund's jar answer, rule
+    /// 78), flagged <c>IsRefund</c>. Transfers, moves between jars, income, departures and returns
+    /// are not spending and are left out, and so is a row still waiting for its amount in the
+    /// budget currency (<see cref="Transaction.FxPending"/>), which counts nowhere until entered;
+    /// <c>Waiting</c> says how many such rows touched a jar.
+    /// </summary>
+    public (IReadOnlyList<JarSpendingPosting> Postings, int Waiting) SpendingBetween(DateOnly from, DateOnly to)
+    {
+        var postings = new List<JarSpendingPosting>();
+        var waiting = new HashSet<Guid>();
+        if (to < from)
+        {
+            return (postings, 0);
+        }
+        foreach (var account in _accounts)
+        {
+            if (account.OpeningDate is not DateOnly openingDate || to < openingDate)
+            {
+                continue;
+            }
+            var (operations, _, _) = OperationsOf(account, openingDate, to);
+            foreach (var op in operations)
+            {
+                if (op.Date < from || op.Date < openingDate
+                    || op.TransactionId is not Guid transactionId
+                    || !_byId.TryGetValue(transactionId, out var transaction)
+                    || transaction.Type == TransactionType.Transfer)
+                {
+                    continue;
+                }
+                var isRefund = transaction.IsRefund;
+                if (transaction.Type == TransactionType.Income && !isRefund)
+                {
+                    continue;
+                }
+                foreach (var posting in op.Postings)
+                {
+                    if (posting.JarId is not Guid jarId || posting.Amount == 0m)
+                    {
+                        continue;
+                    }
+                    if (transaction.FxPending)
+                    {
+                        waiting.Add(transactionId);
+                        continue;
+                    }
+                    // An expense's share is negative in the ledger; report it as what was paid.
+                    postings.Add(new JarSpendingPosting(jarId, op.Date, isRefund ? posting.Amount : -posting.Amount, isRefund));
+                }
+            }
+        }
+        return (postings, waiting.Count);
+    }
 
     /// <summary>The jar postings dated between <paramref name="from"/> and <paramref name="to"/> of the operations whose kind <paramref name="include"/> accepts, summed per jar where <paramref name="counts"/> says so; positive totals only.</summary>
     private IReadOnlyDictionary<Guid, decimal> SumPostings(
