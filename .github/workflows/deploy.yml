@@ -179,6 +179,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       actions: read
+      contents: read # the compare API below answers 404 without it, and every CI run was skipped
     steps:
       # Docs-only commits do not run CI (ci.yml paths-ignore), so for a docs-only head
       # this looks back to the newest earlier commit that did run it and requires every
