@@ -98,6 +98,9 @@ describe('parseMinor', () => {
       ['100/8/5', 25_000], // left to right
       ['1500/4', 3_750_000], // not a year and a month (review P3-7)
       ['2000-50', 19_500_000],
+      ['2000/12', 1_666_700], // a yearly bill split into months (review P3-8)
+      ['2024/4', 5_060_000],
+      ['2026/10', 2_026_000], // a year-first slash is never pasted as a date
     ])('works %s out to %i', (input, expected) => {
       expect(parseMinor(input)).toBe(expected)
       expect(isExpression(input)).toBe(true)
@@ -108,7 +111,7 @@ describe('parseMinor', () => {
       '5-10', '-5', '10-20+5', // below zero: an amount is a magnitude
       '5/0', '5/0.00', // division by zero
       '2026-03-10', '10/03/2026', '10-03-26', '10/03/26', '2026/03/10', // a pasted date (review P3-1)
-      '2026-10', '10/2026', '2026/10', '2026-3', // a pasted month (review P3-7)
+      '2026-10', '10/2026', '12/2026', '10-2026', '2026-3', // a pasted month (review P3-7, P3-8)
       '2026-03-10+0', '2026-10*2', '5+2026-03-10', // a date with an operator around it
       '1'.repeat(400) + '*0', '1'.repeat(400) + '+1', // a run of digits that overflows (review P3-5)
     ])('refuses %s', (input) => {
@@ -121,7 +124,7 @@ describe('parseMinor', () => {
       expect(parseMinor('100-20-3')).toBe(770_000) // a three-digit part is not a date part
       expect(parseMinor('20.26-3-10')).toBe(72_600) // a decimal is never a date part
       expect(parseMinor('2026-03-10.50')).toBeNull() // but it starts with a year and a month
-      expect(parseMinor('2024/4')).toBeNull() // a year and a month, even without the zero
+      expect(parseMinor('2024-4')).toBeNull() // a year and a month, even without the zero
       expect(parseMinor('1899-10')).toBe(18_890_000) // not a year
       expect(parseMinor('2026-13')).toBe(20_130_000) // not a month
     })

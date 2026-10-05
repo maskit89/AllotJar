@@ -402,8 +402,10 @@ export function expressionTerms(input: string): ReadonlyArray<ExpressionTerm> | 
  * expression ("2026-03-10+0" is a date with a stray key, not 2013). Three whole-number parts
  * joined by the same "-" or "/" where one part is a four-digit year ("2026-03-10",
  * "10/03/2026") or every part is one or two digits ("10-03-26"): a genuine "2026-3-10" is not
- * an amount anyone types. Or two parts, a year 1900-2099 and a month 1-12, joined by "-" or "/"
- * ("2026-10", "10/2026"); "1500/4" and "2000-50" are arithmetic.
+ * an amount anyone types. Or a year 1900-2099 and a month 1-12 as a month key: year first with
+ * "-" ("2026-10"), or month first with either ("10/2026", "10-2026"; the latter would otherwise
+ * save as 0.01). A year-first slash ("2000/12") is a yearly bill split into months, which nobody
+ * pastes as a date, so it parses (review P3-8); "1500/4" and "2000-50" are arithmetic.
  */
 function looksLikeDate(terms: ReadonlyArray<ExpressionTerm>): boolean {
   const whole = (t: ExpressionTerm): boolean => /^\d{1,4}$/.test(t.term)
@@ -421,7 +423,7 @@ function looksLikeDate(terms: ReadonlyArray<ExpressionTerm>): boolean {
       const parts = [a, b, c].map((t) => t.term)
       if (parts.some((p) => p.length === 4) || parts.every((p) => p.length <= 2)) return true
     }
-    if ((year(a) && month(b)) || (month(a) && year(b))) return true
+    if ((year(a) && month(b) && joiner === '-') || (month(a) && year(b))) return true
   }
   return false
 }
