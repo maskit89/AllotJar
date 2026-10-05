@@ -21,10 +21,16 @@ concurrency:
   group: ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Nothing in CI writes to the repository (the cache and artifact actions use their own
+# token), so the workflow token is read-only: a compromised job on a persistent
+# self-hosted runner then cannot do more than read.
+permissions:
+  contents: read
+
 # Where the jobs run. Unset, they run on GitHub's own runners (billed minutes). To use the
 # self-hosted runner (docs/ops/ci-self-hosted-runner.md), set the repository variable
-# CI_RUNS_ON (Settings > Secrets and variables > Actions > Variables) to
-# ["self-hosted","linux","allotjar-ci"]; delete the variable to go back. deploy.yml never
+# CI_RUNS_ON (Settings > Secrets and variables > Actions > Variables) to the plain label
+# allotjar-ci; delete the variable to go back. deploy.yml never
 # uses it: the jobs that hold deploy credentials stay on GitHub's runners.
 jobs:
   # Pull requests cannot use paths-ignore: the main ruleset requires the `backend` and
@@ -33,7 +39,7 @@ jobs:
   # the heavy jobs with `if:` (a job skipped by `if:` counts as passed for required checks).
   changes:
     name: changes
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 2
     outputs:
       code: ${{ steps.diff.outputs.code }}
@@ -60,7 +66,7 @@ jobs:
     needs: changes
     # Run when `changes` failed too: a skipped job would read as passed to the ruleset.
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -108,7 +114,7 @@ jobs:
     needs: changes
     # Run when `changes` failed too: a skipped job would read as passed to the ruleset.
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 20
     services:
       sqlserver:
@@ -210,7 +216,7 @@ jobs:
     needs: changes
     # Run when `changes` failed too: a skipped job would read as passed to the ruleset.
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -245,7 +251,7 @@ jobs:
     # Browser suites cost about half of CI's minutes, and the repo is private (2,000
     # free minutes a month), so they run on main and on hand-started runs, not on PRs.
     if: github.event_name != 'pull_request'
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -291,7 +297,7 @@ jobs:
   # or downgrade the off-host backup task.
   deploy-scripts:
     name: deploy-scripts
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7

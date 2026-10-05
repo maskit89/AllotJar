@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One-time setup of a GitHub Actions self-hosted runner for AllotJar's CI (ci.yml and
-# security-scan.yml). Run as root on a fresh x64 Ubuntu 22.04/24.04 machine that holds
-# nothing else: CI runs the repository's code, Dependabot's included.
+# security-scan.yml). Run as root on a fresh x64 Ubuntu 22.04/24.04 VM that holds
+# nothing else: CI runs the repository's code, Dependabot's included, and the runner user
+# is in the docker group, which is root on that machine.
 #
 #   sudo RUNNER_TOKEN=<registration token> ./setup-runner.sh
 #
@@ -66,11 +67,20 @@ if [ ! -f "$RUNNER_DIR/.runner" ]; then
     --name "$RUNNER_NAME" --labels "$RUNNER_LABELS" --work _work --replace
 fi
 
+# actions/setup-dotnet installs to /usr/share/dotnet unless told otherwise, which the
+# runner user (no sudo) cannot write. The runner exports .env into every job.
+runner_home=$(getent passwd "$RUNNER_USER" | cut -d: -f6)
+touch "$RUNNER_DIR/.env"
+grep -q '^DOTNET_INSTALL_DIR=' "$RUNNER_DIR/.env" || echo "DOTNET_INSTALL_DIR=$runner_home/.dotnet" >> "$RUNNER_DIR/.env"
+grep -q '^DOTNET_CLI_TELEMETRY_OPTOUT=' "$RUNNER_DIR/.env" || echo "DOTNET_CLI_TELEMETRY_OPTOUT=1" >> "$RUNNER_DIR/.env"
+chown "$RUNNER_USER":"$RUNNER_USER" "$RUNNER_DIR/.env"
+
 # Run as a service that survives reboots.
 cd "$RUNNER_DIR"
 if ! ls /etc/systemd/system/actions.runner.*.service >/dev/null 2>&1; then
   ./svc.sh install "$RUNNER_USER"
 fi
+./svc.sh stop >/dev/null 2>&1 || true   # a re-run picks up a changed .env
 ./svc.sh start
 
 # Weekly clean-up of images and the runner's work folder leftovers (disk fills otherwise).
@@ -83,4 +93,4 @@ chmod +x /etc/cron.weekly/allotjar-ci-prune
 echo
 echo "Runner '$RUNNER_NAME' is installed and started."
 echo "Next: GitHub > repository Settings > Actions > Runners should show it Idle, then set the"
-echo "variable CI_RUNS_ON to [\"self-hosted\",\"linux\",\"$RUNNER_LABELS\"] (see docs/ops/ci-self-hosted-runner.md)."
+echo "variable CI_RUNS_ON to the label: $RUNNER_LABELS (see docs/ops/ci-self-hosted-runner.md)."
