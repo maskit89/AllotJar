@@ -392,6 +392,7 @@ export async function mockApi(route: Route) {
   if (path === '/allocation/profile') return json(allocationProfile())
   if (/^\/allocation\/preview\/\d+\/\d+$/.test(path)) return json(allocationPreview())
   if (path === '/reports/trends') return json(budgetTrends())
+  if (/^\/reports\/jars\/\d+$/.test(path)) return json({ year: Number(path.split('/').pop()), jars: [], waitingCount: 0 })
   if (/^\/reports\/annual\/\d+$/.test(path)) {
     const year = Number(path.split('/').pop())
     return json(annualSummary(year))

@@ -12,6 +12,8 @@ import {
   detectLocaleDefaults,
   NUMBER_FORMAT_OPTIONS,
   tooPrecise,
+  isSum,
+  sumTerms,
 } from './money'
 
 // D1 (review CL-P3-7): a typed amount is whole cents; one stored with more decimals goes back unchanged (W10).
@@ -63,6 +65,39 @@ describe('money — integer minor units', () => {
 describe('parseMinor', () => {
   // Reset to the app default (comma-dot / en-GB) so a per-test format can't leak.
   afterEach(() => setMoneyFormat('comma-dot'))
+
+  // A sum typed into the field (5 October 2026, Christopher's note "monetary amounts to be able
+  // to enter a summation"): 50 for the vet is typed as 20+30 and saves as 50.
+  describe('sums', () => {
+    it.each([
+      ['20+30', 500_000],
+      ['20 + 30', 500_000],
+      ['10+10+5', 250_000],
+      ['50-12.50', 375_000],
+      ['-5+10', 50_000],
+      ['1,500+0.50', 15_005_000], // a grouped term under comma-dot
+      ['12,50+1', 135_000], // the sibling separator read as a decimal, as alone
+    ])('adds %s up to %i', (input, expected) => {
+      expect(parseMinor(input)).toBe(expected)
+      expect(isSum(input)).toBe(true)
+    })
+
+    it.each(['20+', '+-5', '20++30', '20+abc', '5-10', '-5'])('refuses %s', (input) => {
+      expect(parseMinor(input)).toBeNull()
+    })
+
+    it('is not a sum when there is nothing to add', () => {
+      expect(isSum('20')).toBe(false)
+      expect(isSum('20.50')).toBe(false)
+      expect(sumTerms('1,500')).toBeNull()
+    })
+
+    it('refuses a term with a third decimal that matters, never a total that happens to have one', () => {
+      expect(tooPrecise('20.005+1')).toBe(true)
+      expect(tooPrecise('20.50+1.25')).toBe(false)
+      expect(tooPrecise('20.500+1')).toBe(false)
+    })
+  })
 
   // Format-agnostic cases: no separator, a dot decimal (the default format's
   // decimal), and dual-separator amounts whose right-most separator is the decimal.

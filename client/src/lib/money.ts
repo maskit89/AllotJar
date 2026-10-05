@@ -300,6 +300,23 @@ function isGroupedInteger(str: string, sep: string): boolean {
  * Anything beyond 4 dp is rounded half-up to scale 4.
  */
 export function parseMinor(input: string): Minor | null {
+  const terms = sumTerms(input)
+  if (terms !== null) {
+    // A sum ("20+30", "100-12.50"): each term is an amount in its own right, added or taken away
+    // in whole minor units, so the result is exactly what the user would have worked out by hand.
+    let total = 0
+    for (const { sign, term } of terms) {
+      const minor = parseSingleMinor(term)
+      if (minor === null) return null
+      total += sign * minor
+    }
+    return total < 0 ? null : total
+  }
+  return parseSingleMinor(input)
+}
+
+/** One plain amount (no arithmetic) as integer minor units; see parseMinor. */
+function parseSingleMinor(input: string): Minor | null {
   const canonical = canonicalAmount(input)
   if (canonical === null) return null
 
@@ -327,10 +344,53 @@ export const TOO_MANY_DECIMALS = 'Enter at most 2 decimal places.'
  * unchanged when the field is left as it opened (W10). The server refuses the same.
  */
 export function tooPrecise(input: string, stored?: Minor | null): boolean {
+  const terms = sumTerms(input)
+  if (terms !== null) {
+    // A sum is always typed, never the amount a field opened with: any term with a third decimal
+    // that matters is refused, whatever the total comes to.
+    return terms.some(({ term }) => tooPrecise(term))
+  }
   const canonical = canonicalAmount(input)
   if (canonical === null) return false
   const decimals = (canonical.split('.')[1] ?? '').replace(/0+$/, '')
   return decimals.length > 2 && parseMinor(input) !== stored
+}
+
+/**
+ * A sum typed into an amount field ("20+30", "50 - 12.50", "10+10+5"), split into its signed terms.
+ * Null when the input is a single amount (nothing to add up). A term is whatever sits between
+ * two operators; an empty term ("20+", "+-5") makes the whole input invalid, which parseMinor
+ * then refuses, so a half-typed sum never saves as something else. A leading "-" is a sign on
+ * the first term, so "-5+10" is a sum too (and comes to 5); a lone "-5" stays a plain negative
+ * amount, refused as before.
+ */
+export function sumTerms(input: string): ReadonlyArray<{ sign: 1 | -1; term: string }> | null {
+  const trimmed = input.trim()
+  if (!/[+-]/.test(trimmed.slice(1))) return null
+  const terms: { sign: 1 | -1; term: string }[] = []
+  let sign: 1 | -1 = 1
+  let term = ''
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i]
+    if ((ch === '+' || ch === '-') && (i > 0 || ch === '+')) {
+      terms.push({ sign, term: term.trim() })
+      sign = ch === '-' ? -1 : 1
+      term = ''
+      continue
+    }
+    if (ch === '-' && i === 0) {
+      sign = -1
+      continue
+    }
+    term += ch
+  }
+  terms.push({ sign, term: term.trim() })
+  return terms
+}
+
+/** True when the typed text is a sum ("20+30") rather than a single amount. */
+export function isSum(input: string): boolean {
+  return sumTerms(input) !== null
 }
 
 /** The typed amount as plain digits with a '.' decimal point ("1234.5"), or null when it isn't one. */

@@ -162,7 +162,7 @@ The register of real money movements.
 
 ### Adding a transaction
 
-Use the **Add a transaction** form: date, payee, amount, type (**Expense** or **Income**), optionally assign it to a budget line right away, and — if you use [Accounts](#5-accounts) — the account it happened on. Amounts accept a decimal point or comma ("12.50" or "12,50"), and tolerate thousands separators.
+Use the **Add a transaction** form: date, payee, amount, type (**Expense** or **Income**), optionally assign it to a budget line right away, and — if you use [Accounts](#5-accounts) — the account it happened on. Amounts accept a decimal point or comma ("12.50" or "12,50"), and tolerate thousands separators. An amount can also be typed as a sum: "20+30" saves as 50.00, "50-12.50" as 37.50, in any amount field (a transaction, a split slice, a move between jars, a jar's target).
 
 If you don't pick a budget line, AllotJar quietly fills one in for you: it assigns the new transaction to the same line as your **most recent earlier transaction with the same description**. So once you've categorised "REWE" or your landlord once, repeat payees sort themselves — with no rules to set up. Whatever it can't match is left *Unassigned* for you to place.
 
@@ -313,6 +313,7 @@ The **Reports** page summarises your recent months (up to the last six budgets):
 - **Income vs spending** — two bars per month: the income you actually received and what you spent.
 - **Annual overview** — a January-to-December table for any year (‹ / › to change year) with **Budgeted** income, **Received** income, the **Variance** between them (received − budgeted, shown signed: `+€200.00` when more came in than planned, `-€200.00` when less), **Spent** and **Net** (received − spent), with year totals. A month without a budget shows dashes for Budgeted and Variance but still shows what you received and spent if anything was recorded.
 - **Average monthly spending by category** — each category's yearly average and total; a category that received refunds says "after €X refunded".
+- **Spending from jars** — what each jar paid out in the overview's year, one row per jar and a column per month, with each jar's total and a total across the jars. A payment counts wholly against the jar it was paid from: €50 at the vet paid from the Pets jar reads as €50 under Pets, and the €30 you moved in from Food to cover it is not spending from Food (money moved between jars is never spending). A refund back into a jar reduces the month it was received, and the total says "after €X refunded". A jar with nothing paid shows dashes; an archived jar stays on the list while the year still has a figure for it. The card is left out when you have no jars.
 - **Spending by category** — where the month's money went (pick any month from the dropdown), largest first with each category's share. Savings count as spending here; income groups don't.
 
 Two things keep the reports honest:

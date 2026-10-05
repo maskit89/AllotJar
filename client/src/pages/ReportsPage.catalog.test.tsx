@@ -186,6 +186,10 @@ function wire(w: Wiring) {
       return Promise.resolve({ data: provided ?? emptyMonth(y, mo) })
     }
 
+    // The spending-from-jars card (5 October 2026): an empty report keeps the card off the page.
+    const jMatch = url?.match(/^\/reports\/jars\/(\d+)$/)
+    if (jMatch) return Promise.resolve({ data: { year: Number(jMatch[1]), jars: [], waitingCount: 0 } })
+
     const aMatch = url?.match(/^\/reports\/annual\/(\d+)$/)
     if (aMatch) {
       const y = Number(aMatch[1])
