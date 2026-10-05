@@ -12,8 +12,8 @@ import {
   detectLocaleDefaults,
   NUMBER_FORMAT_OPTIONS,
   tooPrecise,
-  isSum,
-  sumTerms,
+  isExpression,
+  expressionTerms,
 } from './money'
 
 // D1 (review CL-P3-7): a typed amount is whole cents; one stored with more decimals goes back unchanged (W10).
@@ -68,34 +68,63 @@ describe('parseMinor', () => {
 
   // A sum typed into the field (5 October 2026, Christopher's note "monetary amounts to be able
   // to enter a summation"): 50 for the vet is typed as 20+30 and saves as 50.
-  describe('sums', () => {
+  // Arithmetic typed into the field (5 October 2026, Christopher's note "monetary amounts to be
+  // able to enter a summation", then at 14:53 "add the other basic arithmetic symbols as well"):
+  // 50 for the vet is typed as 20+30 and saves as 50; * and / first, then + and -, left to right.
+  describe('arithmetic', () => {
     it.each([
       ['20+30', 500_000],
       ['20 + 30', 500_000],
       ['10+10+5', 250_000],
       ['1,500+0.50', 15_005_000], // a grouped term under comma-dot
       ['12,50+1', 135_000], // the sibling separator read as a decimal, as alone
-    ])('adds %s up to %i', (input, expected) => {
+      ['50-12.50', 375_000],
+      ['-5+10', 50_000],
+      ['3*19.99', 599_700],
+      ['3×19.99', 599_700],
+      ['120/4', 300_000],
+      ['120÷4', 300_000],
+      ['100−1', 990_000],
+      ['2+3*4', 140_000], // precedence, not left to right
+      ['10-2*3+1', 50_000],
+      ['10/3', 33_300], // a quotient is rounded half-up to cents (D1)
+      ['2/3', 6_700],
+      ['1.25*1.25', 15_600], // 1.5625 → 1.56
+      ['0.005*3', 200], // 0.015 → 0.02
+      ['10-10', 0],
+      ['100/8/5', 25_000], // left to right
+    ])('works %s out to %i', (input, expected) => {
       expect(parseMinor(input)).toBe(expected)
-      expect(isSum(input)).toBe(true)
+      expect(isExpression(input)).toBe(true)
     })
 
-    // Only "+" adds up: a "-" is refused as before, so a pasted date or a typed range never
-    // becomes an amount (review P3-1).
-    it.each(['20+', '+5', '20++30', '20+abc', '5-10', '-5', '50-12.50', '2026-03-10', '12-5', '-5+10'])('refuses %s', (input) => {
+    it.each([
+      '20+', '+5', '20++30', '20*/3', '20+abc', '*5', // half-typed or not an amount
+      '5-10', '-5', '10-20+5', // below zero: an amount is a magnitude
+      '5/0', '5/0.00', // division by zero
+      '2026-03-10', '10/03/2026', '10-03-26', '10/03/26', '2026/03/10', // a pasted date (review P3-1)
+    ])('refuses %s', (input) => {
       expect(parseMinor(input)).toBeNull()
     })
 
-    it('is not a sum when there is nothing to add', () => {
-      expect(isSum('20')).toBe(false)
-      expect(isSum('20.50')).toBe(false)
-      expect(sumTerms('1,500')).toBeNull()
+    it('tells a date from a sum or a range of amounts', () => {
+      expect(parseMinor('12-5')).toBe(70_000)
+      expect(parseMinor('1-2-3')).toBeNull() // every part one or two digits reads as a date
+      expect(parseMinor('100-20-3')).toBe(770_000) // a three-digit part is not a date part
+      expect(parseMinor('2026-03-10.50')).toBe(20_125_000) // a decimal is never a date part
     })
 
-    it('refuses a term with a third decimal that matters, never a total that happens to have one', () => {
+    it('is not an expression when there is nothing to work out', () => {
+      expect(isExpression('20')).toBe(false)
+      expect(isExpression('20.50')).toBe(false)
+      expect(expressionTerms('1,500')).toBeNull()
+    })
+
+    it('refuses a term with a third decimal that matters, never a result that happens to have one', () => {
       expect(tooPrecise('20.005+1')).toBe(true)
       expect(tooPrecise('20.50+1.25')).toBe(false)
       expect(tooPrecise('20.500+1')).toBe(false)
+      expect(tooPrecise('10/3')).toBe(false)
     })
   })
 
