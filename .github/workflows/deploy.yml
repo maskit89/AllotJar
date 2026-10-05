@@ -190,30 +190,71 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
         run: |
-          runs=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?branch=main&per_page=30" \
-            --jq '.workflow_runs[] | "\(.head_sha) \(.status) \(.conclusion // "")"')
+          set -euo pipefail
+
+          # Every GitHub call goes through here: retried, and a call that still fails
+          # stops the gate with GitHub's own error. A failed call is never read as an
+          # empty or "unrelated" answer, so the gate cannot approve on a call it did not get.
+          gh_api() {
+            local out err n
+            err=$(mktemp)
+            for n in 1 2 3; do
+              if out=$(gh api "$@" 2>"$err"); then printf '%s' "$out"; rm -f "$err"; return 0; fi
+              echo "GitHub API call failed (attempt $n of 3): gh api $*" >&2; cat "$err" >&2
+              [ "$n" -lt 3 ] && sleep $((n * 3))
+            done
+            rm -f "$err"
+            return 1
+          }
+          refuse() { echo "::error::$1 Production is not deployed."; exit 1; }
+          verdict() { # $1 run sha, $2 status, $3 conclusion
+            echo "CI on main for $1: $2 $3"
+            case "$2 $3" in
+              "completed success") exit 0 ;;
+              completed*) refuse "CI on main for $1 did not pass ($2 $3)." ;;
+              *) refuse "CI on main for $1 has not finished ($2 $3). Start this run again once it has." ;;
+            esac
+          }
+          FIELDS='.workflow_runs[] | "\(.head_sha) \(.status) \(.conclusion // "")"'
+
+          # The run for this exact commit, asked for by SHA: the newest-first list below
+          # is sometimes served stale and can miss it.
+          own=$(gh_api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=10" --jq "$FIELDS") \
+            || refuse "Could not read the CI runs for $SHA."
           while read -r run_sha status conclusion; do
             [ -z "$run_sha" ] && continue
-            cmp=$(gh api "repos/$REPO/compare/$run_sha...$SHA" --jq '"\(.status) \(.total_commits)"' 2>/dev/null || echo "none 0")
-            case "${cmp%% *}" in identical|ahead) ;; *) continue ;; esac
+            verdict "$run_sha" "$status" "$conclusion"
+          done <<< "$own"
+
+          # No run for this commit (docs-only head): the newest earlier run it descends
+          # from, provided nothing but docs changed since.
+          runs=$(gh_api "repos/$REPO/actions/workflows/ci.yml/runs?branch=main&per_page=30" --jq "$FIELDS") \
+            || refuse "Could not list the CI runs on main."
+          while read -r run_sha status conclusion; do
+            [ -z "$run_sha" ] && continue
+            cmp=$(gh_api "repos/$REPO/compare/$run_sha...$SHA" --jq '"\(.status) \(.total_commits)"') \
+              || refuse "Could not compare $run_sha with $SHA."
+            case "${cmp%% *}" in
+              identical|ahead) ;;
+              diverged|behind) continue ;; # a real answer: this run is not an ancestor of the commit
+              *) refuse "Unexpected compare status '${cmp%% *}' for $run_sha...$SHA." ;;
+            esac
             if [ "${cmp%% *}" = ahead ]; then
-              code=$(gh api --paginate "repos/$REPO/compare/$run_sha...$SHA" \
-                --jq '.files[].filename' | grep -vE '^docs/|\.md$' || true)
+              files=$(gh_api --paginate "repos/$REPO/compare/$run_sha...$SHA" --jq '.files[].filename') \
+                || refuse "Could not list the files changed since $run_sha."
+              # The compare API lists at most 300 files: past that the list is incomplete.
+              [ "$(printf '%s' "$files" | grep -c .)" -lt 300 ] \
+                || refuse "Too many files changed since the last CI run on main ($run_sha) to check that they are docs only."
+              code=$(printf '%s\n' "$files" | grep -vE '^docs/|\.md$' | grep . || true)
               if [ -n "$code" ]; then
-                echo "::error::Code changed since the last CI run on main ($run_sha) and $SHA has no CI run. Production is not deployed."
-                echo "$code"; exit 1
+                echo "$code"
+                refuse "Code changed since the last CI run on main ($run_sha) and $SHA has no CI run."
               fi
               echo "$SHA is docs-only after $run_sha; using that CI run."
             fi
-            result="$status $conclusion"
-            echo "CI on main for $run_sha: $result"
-            case "$result" in
-              "completed success") exit 0 ;;
-              completed*) echo "::error::CI on main for $run_sha did not pass ($result). Production is not deployed."; exit 1 ;;
-              *) echo "::error::CI on main for $run_sha has not finished ($result). Start this run again once it has."; exit 1 ;;
-            esac
+            verdict "$run_sha" "$status" "$conclusion"
           done <<< "$runs"
-          echo "::error::No CI run found on main at or before $SHA. Production is not deployed."; exit 1
+          refuse "No CI run found on main at or before $SHA."
 
   build-production:
     name: build release (production)
