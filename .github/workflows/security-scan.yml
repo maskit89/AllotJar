@@ -9,10 +9,13 @@ on:
     - cron: '30 7 * * 4'
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
 jobs:
   security-scan:
     name: security-scan
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v7
