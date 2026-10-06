@@ -6,19 +6,23 @@ import { InfoHint } from './InfoHint'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import type { AccountDto, JarDto, JarScheduleDto, JarScheduleRequest } from '../types'
-import { AccrualMethod, JarKind, JAR_KIND_LABELS, RECUR_MONTHS_OPTIONS } from '../types'
+import { AccrualMethod, JarKind, RECUR_MONTHS_OPTIONS } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { formatDate, monthYear, todayIso } from '../lib/dates'
 import { editConflict, serverErrors } from '../lib/serverErrors'
 import { deadlineMonthEligible, jarAccounts, monthIso } from '../lib/jarForm'
 
-const KIND_OPTIONS = Object.entries(JAR_KIND_LABELS).map(([value, label]) => ({ value: Number(value), label }))
-
-/** How a Goal saves (rule 17); a Recurring jar always saves toward its next due date. */
-const METHOD_OPTIONS = [
-  { value: AccrualMethod.TargetByDate, label: 'By a deadline' },
-  { value: AccrualMethod.FixedMonthly, label: 'A fixed amount each month' },
+/**
+ * The "Repeats" answers. The form never asks for a jar type: a jar that repeats is a Recurring
+ * jar (it saves toward each due date, then starts again), one that doesn't is a Goal, and the
+ * fixed-monthly switch is the Goal that saves a set amount each month (rule 17). Nothing else
+ * changes: the server, the rules and the cards keep the two kinds.
+ */
+const NO_REPEAT = 0
+const REPEAT_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
+  { value: NO_REPEAT, label: 'Doesn\u2019t repeat' },
+  ...[...RECUR_MONTHS_OPTIONS].reverse(),
 ]
 
 /** How long the form waits after a keystroke before asking the server for the schedule. */
@@ -33,17 +37,17 @@ function parseAmount(input: string): number | null {
 
 interface FormState {
   name: string
-  kind: number
-  /** AccrualMethod: how a Goal saves. A Recurring jar is always TargetByDate. */
-  method: number
+  /** Months between due dates; NO_REPEAT for a one-off jar. Kept while the fixed switch hides it. */
+  repeats: number
+  /** The switch: no date in mind, set aside a fixed amount each month instead (a FixedMonthly Goal). */
+  fixedMonthly: boolean
   target: string
-  /** The deadline (a Recurring jar's next due date). */
+  /** The date the money is needed by (a repeating jar's next due date). */
   targetDate: string
   /** Rule 36: plan a contribution in the deadline month too. */
   includeDeadlineMonth: boolean
   /** The fixed monthly amount (FixedMonthly only). */
   monthly: string
-  recurMonths: number
   /** Create only: money already in the account to divide into this jar (rule 77). */
   initialAllocation: string
   initialAllocationDate: string
@@ -54,15 +58,14 @@ function initialForm(jar: JarDto | null, accounts: AccountDto[]): FormState {
   if (jar) {
     return {
       name: jar.name,
-      kind: jar.kind,
-      method: jar.accrual === AccrualMethod.FixedMonthly ? AccrualMethod.FixedMonthly : AccrualMethod.TargetByDate,
+      repeats: jar.kind === JarKind.Recurring ? jar.recurMonths ?? 12 : NO_REPEAT,
+      fixedMonthly: jar.kind !== JarKind.Recurring && jar.accrual === AccrualMethod.FixedMonthly,
       target: jar.targetAmount > 0 ? toEditString(fromAmount(jar.targetAmount)) : '',
       // A Recurring jar's "Next due" is its open cycle (W03) — sent back unchanged it keeps the
       // cycle; a Goal's date is its deadline.
       targetDate: (jar.kind === JarKind.Recurring ? jar.deadline ?? jar.targetDate : jar.targetDate) ?? '',
       includeDeadlineMonth: jar.includeDeadlineMonth,
       monthly: jar.monthlyContribution !== null && jar.monthlyContribution > 0 ? toEditString(fromAmount(jar.monthlyContribution)) : '',
-      recurMonths: jar.recurMonths ?? 12,
       initialAllocation: '',
       initialAllocationDate: todayIso(),
       fundingAccountId: jar.fundingAccountId,
@@ -70,13 +73,12 @@ function initialForm(jar: JarDto | null, accounts: AccountDto[]): FormState {
   }
   return {
     name: '',
-    kind: JarKind.Recurring,
-    method: AccrualMethod.TargetByDate,
+    repeats: 12,
+    fixedMonthly: false,
     target: '',
     targetDate: '',
     includeDeadlineMonth: false,
     monthly: '',
-    recurMonths: 12,
     initialAllocation: '',
     initialAllocationDate: todayIso(),
     // The select has no blank option, so the form starts on the first eligible account.
@@ -84,9 +86,20 @@ function initialForm(jar: JarDto | null, accounts: AccountDto[]): FormState {
   }
 }
 
+/** The jar kind the answers describe: it repeats, so it is Recurring; otherwise a Goal. */
+function kindOf(form: FormState): number {
+  return form.repeats !== NO_REPEAT && !form.fixedMonthly ? JarKind.Recurring : JarKind.Goal
+}
+
+/** How it saves (rule 17): a fixed amount each month, or toward its date. */
+function methodOf(form: FormState): number {
+  return form.fixedMonthly ? AccrualMethod.FixedMonthly : AccrualMethod.TargetByDate
+}
+
 /** The definition the form describes, or null while it can't be planned yet (rule 17). */
 function definition(form: FormState, jar: JarDto | null, editing: boolean): JarScheduleRequest | null {
-  const method = form.kind === JarKind.Recurring ? AccrualMethod.TargetByDate : form.method
+  const kind = kindOf(form)
+  const method = methodOf(form)
   const targetMinor = form.target.trim() === '' ? 0 : parseMinor(form.target)
   if (targetMinor === null || targetMinor < 0) return null
   const initialMinor = editing || form.initialAllocation.trim() === '' ? 0 : parseMinor(form.initialAllocation)
@@ -95,13 +108,13 @@ function definition(form: FormState, jar: JarDto | null, editing: boolean): JarS
     if (targetMinor <= 0 || !form.targetDate) return null
     return {
       jarId: jar?.id ?? null,
-      kind: form.kind,
+      kind,
       targetAmount: toAmount(targetMinor),
       targetDate: form.targetDate,
       accrual: method,
       monthlyContribution: null,
       includeDeadlineMonth: form.includeDeadlineMonth && deadlineMonthEligible(form.targetDate),
-      recurMonths: form.kind === JarKind.Recurring ? form.recurMonths : null,
+      recurMonths: kind === JarKind.Recurring ? form.repeats : null,
       initialAllocation: toAmount(initialMinor),
     }
   }
@@ -109,7 +122,7 @@ function definition(form: FormState, jar: JarDto | null, editing: boolean): JarS
   if (monthlyMinor === null || monthlyMinor <= 0) return null
   return {
     jarId: jar?.id ?? null,
-    kind: form.kind,
+    kind,
     targetAmount: toAmount(targetMinor),
     targetDate: null,
     accrual: method,
@@ -175,16 +188,18 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
     [eligible, form.fundingAccountId],
   )
 
-  const method = form.kind === JarKind.Recurring ? AccrualMethod.TargetByDate : form.method
+  const kind = kindOf(form)
+  const recurring = kind === JarKind.Recurring
+  const method = methodOf(form)
   const byDeadline = method === AccrualMethod.TargetByDate
 
-  // The cycle dropdown offers the common cadences; if an edited jar carries a value
+  // The Repeats dropdown offers the common cadences; if an edited jar carries a value
   // set via the API that isn't one of them (e.g. 24), keep it as an option so the
   // select shows it rather than silently rewriting it on the next save.
-  const recurOptions = useMemo(() => {
-    if (RECUR_MONTHS_OPTIONS.some((o) => o.value === form.recurMonths)) return RECUR_MONTHS_OPTIONS
-    return [...RECUR_MONTHS_OPTIONS, { value: form.recurMonths, label: `Every ${form.recurMonths} months` }]
-  }, [form.recurMonths])
+  const repeatOptions = useMemo(() => {
+    if (REPEAT_OPTIONS.some((o) => o.value === form.repeats)) return REPEAT_OPTIONS
+    return [...REPEAT_OPTIONS, { value: form.repeats, label: `Every ${form.repeats} months` }]
+  }, [form.repeats])
 
   // Ask the server for the schedule whenever the definition can be planned, a moment after
   // typing stops. Hidden while it can't (blank/invalid target, no deadline or monthly amount)
@@ -244,24 +259,19 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
       setError('Enter the date the money was set aside.')
       return
     }
-    // Rule 17: a target is saved by a deadline or at a fixed monthly amount; a recurring jar
+    // Rule 17: a target is saved by a deadline or at a fixed monthly amount; a repeating jar
     // rolls its date forward each cycle, so it needs a date (and a real target) to roll.
-    if (form.kind === JarKind.Recurring) {
+    if (byDeadline) {
       if (targetAmount <= 0) {
-        setError('Give the recurring jar a target amount.')
+        setError('Give the jar a target amount.')
         return
       }
       if (!form.targetDate) {
-        setError('Give the recurring jar its next due date.')
-        return
-      }
-    } else if (byDeadline) {
-      if (targetAmount <= 0) {
-        setError('Give the goal a target amount.')
-        return
-      }
-      if (!form.targetDate) {
-        setError('Give the goal a deadline, or save a fixed amount each month instead.')
+        setError(
+          recurring
+            ? 'Give the jar its next due date.'
+            : 'Give the jar the date the money is needed by, or set aside a fixed amount each month instead.',
+        )
         return
       }
     } else if (monthlyContribution <= 0) {
@@ -271,14 +281,14 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
 
     const common = {
       name: form.name.trim(),
-      kind: form.kind,
+      kind,
       targetAmount,
       targetDate: byDeadline ? form.targetDate : null,
       accrual: method,
       monthlyContribution: byDeadline ? null : monthlyContribution,
       includeDeadlineMonth: byDeadline && form.includeDeadlineMonth && deadlineMonthEligible(form.targetDate),
       fundingAccountId: form.fundingAccountId,
-      recurMonths: form.kind === JarKind.Recurring ? form.recurMonths : null,
+      recurMonths: recurring ? form.repeats : null,
       // Sent only as the user's answer to the rule 34 warning.
       ...(shareAccount ? { shareAccount: true } : {}),
     }
@@ -289,7 +299,7 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
     try {
       if (jar) {
         const { data } = await api.put<JarDto>(`/jars/${jar.id}`, { ...common, version })
-        track(EVENTS.fundEdited, { kind: form.kind })
+        track(EVENTS.fundEdited, { kind })
         onSaved(data, 'updated')
       } else {
         const { data } = await api.post<JarDto>('/jars', {
@@ -297,7 +307,7 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
           initialAllocation,
           initialAllocationDate: initialAllocation > 0 ? form.initialAllocationDate : null,
         })
-        track(EVENTS.fundCreated, { kind: form.kind })
+        track(EVENTS.fundCreated, { kind })
         onSaved(data, 'created')
       }
     } catch (err) {
@@ -324,7 +334,7 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
     } finally {
       setSaving(false)
     }
-  }, [form, editing, jar, onSaved, byDeadline, method, eligible, version])
+  }, [form, editing, jar, onSaved, byDeadline, method, kind, recurring, eligible, version])
 
   const archive = useCallback(async () => {
     if (!jar || !onArchived) return
@@ -410,42 +420,6 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
           />
         </label>
         <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1">
-            <span className="flex items-center gap-1 text-xs font-medium text-slate-500">
-              <label htmlFor="jar-type">Type</label>
-              <InfoHint label="About jar types">
-                <span className="block font-semibold text-slate-700">Recurring</span>
-                Saves toward a due date, then repeats: mark each cycle paid when the bill
-                is settled and it moves on to the next due date; a cycle that reaches its
-                target rolls on by itself, one that falls short says so until you act
-                (insurance, road tax, holiday).
-                <span className="mt-2 block font-semibold text-slate-700">Goal</span>
-                A one-off savings target — once it&rsquo;s funded, it&rsquo;s done (new kitchen,
-                sofa, wedding) — or an ongoing pot you top up by a fixed amount each month.
-              </InfoHint>
-            </span>
-            <Select id="jar-type" value={form.kind} aria-label="Jar type" onChange={(e) => set('kind', Number(e.target.value))} className="w-full">
-              {KIND_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-          {form.kind === JarKind.Goal && (
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Save
-              <Select value={form.method} aria-label="How to save" onChange={(e) => set('method', Number(e.target.value))} className="w-full">
-                {METHOD_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          )}
-        </div>
-        <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
             {byDeadline ? 'Target' : 'Target (optional)'}
             <Input
@@ -459,45 +433,29 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
               className="w-full text-right tabular-nums"
             />
           </label>
-          {form.kind === JarKind.Recurring ? (
-            <>
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Next due
-                <Input
-                  type="date"
-                  value={form.targetDate}
-                  aria-label="Next due date"
-                  onChange={(e) => set('targetDate', e.target.value)}
-                  className="w-full"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Repeats
-                <Select
-                  value={form.recurMonths}
-                  aria-label="Repeat cycle"
-                  onChange={(e) => set('recurMonths', Number(e.target.value))}
-                  className="w-full"
-                >
-                  {recurOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-            </>
-          ) : byDeadline ? (
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Deadline
-              <Input
-                type="date"
-                value={form.targetDate}
-                aria-label="Deadline"
-                onChange={(e) => set('targetDate', e.target.value)}
-                className="w-full"
-              />
-            </label>
+          {byDeadline ? (
+            <div className="flex flex-col gap-1">
+              <span className="flex items-center gap-1 text-xs font-medium text-slate-500">
+                <label htmlFor="jar-repeats">Repeats</label>
+                <InfoHint label="What repeating means">
+                  <span className="block font-semibold text-slate-700">A jar that repeats</span>
+                  is for a cost that comes round again (insurance, road tax, school fees): it
+                  saves toward each due date, you mark it paid when the bill is settled, and it
+                  starts again toward the next one.
+                  <span className="mt-2 block font-semibold text-slate-700">One that doesn&rsquo;t</span>
+                  is for saving up once (a sofa, a kitchen, a trip): it&rsquo;s done when it&rsquo;s
+                  funded. For a pot you simply top up every month, tick the fixed amount option
+                  below instead.
+                </InfoHint>
+              </span>
+              <Select id="jar-repeats" value={form.repeats} aria-label="Repeats" onChange={(e) => set('repeats', Number(e.target.value))} className="w-full">
+                {repeatOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
           ) : (
             <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
               Each month
@@ -510,6 +468,18 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
                 aria-label="Monthly amount"
                 onChange={(e) => set('monthly', e.target.value)}
                 className="w-full text-right tabular-nums"
+              />
+            </label>
+          )}
+          {byDeadline && (
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              {recurring ? 'Next due' : 'Needed by'}
+              <Input
+                type="date"
+                value={form.targetDate}
+                aria-label={recurring ? 'Next due date' : 'Needed by'}
+                onChange={(e) => set('targetDate', e.target.value)}
+                className="w-full"
               />
             </label>
           )}
@@ -544,6 +514,22 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
             )}
           </label>
         </div>
+        <label className="flex items-start gap-2 text-xs font-medium text-slate-500">
+          <input
+            type="checkbox"
+            checked={form.fixedMonthly}
+            aria-label="Set aside a fixed amount each month"
+            onChange={(e) => set('fixedMonthly', e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+          />
+          <span>
+            No date in mind: set aside a fixed amount each month instead.
+            <span className="block font-normal">
+              A pot you keep topping up (emergencies, a rainy day). The target is optional; with one, the jar says roughly how
+              many months it will take.
+            </span>
+          </span>
+        </label>
         {deadlineMonthOption && (
           <label className="flex items-start gap-2 text-xs font-medium text-slate-500">
             <input
@@ -596,7 +582,7 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
           </div>
         )}
         {completed && <p className="text-xs text-slate-500">Completed, so nothing more is planned for it.</p>}
-        {schedule && <SchedulePreview schedule={schedule} currency={currency} recurring={form.kind === JarKind.Recurring} recurMonths={form.recurMonths} />}
+        {schedule && <SchedulePreview schedule={schedule} currency={currency} recurring={recurring} recurMonths={form.repeats} />}
         <div className="flex items-center justify-between gap-2 pt-1">
           {jar && (onArchived || (onDeleted && jar.canDelete)) ? (
             <span className="flex flex-wrap gap-1">
