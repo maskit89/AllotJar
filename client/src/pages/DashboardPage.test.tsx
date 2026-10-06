@@ -465,14 +465,16 @@ describe('DashboardPage jars and first-run checklist', () => {
     expect(screen.queryByLabelText('Add a savings goal to Savings')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Add a jar to Savings' }))
 
-    // The SAME jar form as the Jars page: account required, initial allocation on create.
+    // The SAME jar form as the Jars page: account required, initial allocation on create
+    // (under "More options"), and no Type question — Repeats decides the kind.
     const dialog = within(await screen.findByRole('dialog', { name: 'New jar' }, { timeout: 5000 }))
     expect(dialog.getByLabelText('Funding account')).toHaveValue('acc1')
+    await user.click(dialog.getByRole('button', { name: 'More options' }))
     expect(dialog.getByLabelText('Already set aside')).toBeInTheDocument()
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
+    await user.selectOptions(dialog.getByLabelText('Repeats'), '0') // Doesn’t repeat: a Goal
     await user.type(dialog.getByLabelText('Jar name'), 'Car')
     await user.type(dialog.getByLabelText('Target amount'), '600')
-    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-03-01' } })
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2027-03-01' } })
     // After the POST the page re-reads the month (the server planted the line) and the jars.
     mockGet.mockImplementation((url: string) => {
       if (url === '/jars') return Promise.resolve({ data: [HOLIDAY, { ...HOLIDAY, id: 'jar-car', name: 'Car' }] })

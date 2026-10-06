@@ -797,11 +797,6 @@ export interface BudgetTemplateDto {
 // Matches Domain.Enums.JarKind (serialized as a number).
 export const JarKind = { Recurring: 0, Goal: 1 } as const
 
-export const JAR_KIND_LABELS: Record<number, string> = {
-  0: 'Recurring',
-  1: 'Goal',
-}
-
 // Matches Domain.Enums.AccrualMethod (serialized as a number): how a jar plans its monthly
 // contribution (rules 16–17) — toward a deadline, or a fixed amount each month.
 export const AccrualMethod = { TargetByDate: 1, FixedMonthly: 2 } as const

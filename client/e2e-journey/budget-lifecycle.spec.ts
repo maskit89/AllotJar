@@ -72,10 +72,11 @@ async function setPlanned(page: Page, lineName: string, value: string): Promise<
 }
 
 /**
- * Create a Goal jar through the one jar form: saving by a deadline twelve months out (so twelve
- * contribution months plan target ÷ 12), or — with `monthly` — a fixed amount each month (an
- * ongoing pot when `target` is empty, rule 16). Every jar is held in an account (rule 73), so
- * the household's "Pot" account is created on first use.
+ * Create a Goal jar (Repeats "Doesn’t repeat") through the one jar form: saving by a "Needed by"
+ * date twelve months out (so twelve contribution months plan target ÷ 12), or — with `monthly` —
+ * ticking "Set aside a fixed amount each month" (an ongoing pot when `target` is empty, rule 16).
+ * Every jar is held in an account (rule 73), so the household's "Pot" account is created on
+ * first use.
  */
 async function createGoalJar(
   page: Page,
@@ -192,8 +193,9 @@ test('a jar-owning household’s blank month is born over-budgeted with an accru
 }) => {
   await register(page)
 
-  // Own a jar before any month exists: Goal, target 1,200.00, due the 1st of the month twelve
-  // months out → twelve contribution months plan 1,200 ÷ 12 = 100.00/mo (rules 12, 35, 36).
+  // Own a jar before any month exists: one that doesn't repeat (a Goal), target 1,200.00, needed
+  // by the 1st of the month twelve months out → twelve contribution months plan 1,200 ÷ 12 =
+  // 100.00/mo (rules 12, 35, 36).
   // (Held in the Pot account, rule 73.)
   await createGoalJar(page, 'Holiday', '1200')
 
@@ -396,8 +398,8 @@ test('month navigation moves every screen together; the jars shelf follows the m
   const next = monthAt(1)
 
   // Nothing is seeded (rule 81): build a real current month from the Essentials template, then
-  // add an ongoing pot — a Goal with no target that saves 250.00 each month (rule 16), held in
-  // the Pot account — whose line lands in the month.
+  // add an ongoing pot — a Goal with no target that sets aside a fixed 250.00 each month
+  // (rule 16), held in the Pot account — whose line lands in the month.
   await register(page, { starterBudget: true })
   await createGoalJar(page, 'Emergency Fund', '', { monthly: '250' })
   await page.getByRole('link', { name: 'Dashboard' }).click()

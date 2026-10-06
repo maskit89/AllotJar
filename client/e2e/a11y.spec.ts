@@ -55,28 +55,32 @@ for (const theme of ['light', 'dark'] as const) {
       await page.goto('/jars')
       await page.getByRole('heading', { level: 1 }).first().waitFor()
 
-      // New-jar modal — Recurring by default, so Next due + Repeats render.
+      // New-jar modal — the form asks no Type: Repeats starts at "Doesn’t repeat" (a Goal), so
+      // Needed by + Repeats (with its "What repeating means" hint) render.
       await page.getByRole('button', { name: 'New jar' }).click()
       const dialog = page.getByRole('dialog')
+      await dialog.getByLabel('Needed by').waitFor()
+      await dialog.getByLabel('Repeats').waitFor()
+      await expectNoViolations(page)
+
+      // Pick a cadence → the jar repeats (Recurring), so the date swaps to "Next due".
+      await dialog.getByLabel('Repeats').selectOption('12')
       await dialog.getByLabel('Next due date').waitFor()
       await expectNoViolations(page)
 
-      // Switch to Goal → the conditional fields swap to "How to save" + a Deadline.
-      // Exact match: "Jar type" would otherwise also catch the "About jar types" info button.
-      await dialog.getByLabel('Jar type', { exact: true }).selectOption('1')
-      await dialog.getByLabel('Deadline').waitFor()
-      await expectNoViolations(page)
-
-      // A target with a mid-month deadline renders the server's schedule preview (the mocked
-      // POST /jars/schedule) and the "Include the deadline month" option; scan both (W02).
+      // Back to one that doesn't repeat: a target with a mid-month "Needed by" date renders the
+      // server's schedule preview (the mocked POST /jars/schedule) and, under "More options",
+      // the "Include the deadline month" tick box; scan both (W02).
+      await dialog.getByLabel('Repeats').selectOption('0')
       await dialog.getByLabel('Target amount').fill('300')
-      await dialog.getByLabel('Deadline').fill('2026-12-15')
+      await dialog.getByLabel('Needed by').fill('2026-12-15')
       await dialog.getByTestId('jar-schedule-preview').waitFor()
+      await dialog.getByRole('button', { name: 'More options' }).click()
       await dialog.getByLabel('Include the deadline month').waitFor()
       await expectNoViolations(page)
 
-      // The fixed-monthly method swaps the Deadline for a Monthly amount.
-      await dialog.getByLabel('How to save').selectOption('2')
+      // The fixed-monthly switch swaps the date (and Repeats) for a Monthly amount.
+      await dialog.getByLabel('Set aside a fixed amount each month').check()
       await dialog.getByLabel('Monthly amount').waitFor()
       await expectNoViolations(page)
 

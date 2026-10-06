@@ -55,7 +55,7 @@ export function jarMonthLabel(jar: JarDto, currency: string): string {
     const left = fromAmount(jar.currentBalance ?? 0)
     return left > 0 ? `Completed · ${formatMoney(left, currency)} left to move` : 'Completed'
   }
-  if (jar.status === 'Unscheduled') return 'Add a deadline or a monthly amount to plan contributions'
+  if (jar.status === 'Unscheduled') return 'Give it a date or a monthly amount'
   // Rule 60: a skipped month plans nothing; the rest of the schedule carries on.
   if (jar.skippedThisMonth) return 'Skipped this month'
   // Rule 20: the missed deadline and what is still short stay in view until the user acts;
@@ -88,16 +88,31 @@ export function jarHorizonLabel(jar: JarDto): string | null {
   if (jar.status === 'DeadlineMissed' || jar.status === 'FundedLate') return 'Mark the cycle paid, or dismiss it to save toward the next one'
   if (jar.status === 'Ongoing') return 'Ongoing'
   if (jar.fundingCompletesOn) {
-    const due = jar.deadline ? ` · due ${formatDate(jar.deadline)}` : ''
-    const repeats = jar.recurMonths ? ', then it repeats' : ''
-    return `Funded by ${monthYear(jar.fundingCompletesOn)}${due}${repeats}`
+    const due = jar.deadline ? ` · ${dueLabel(jar)} ${formatDate(jar.deadline)}` : ''
+    return `Funded by ${monthYear(jar.fundingCompletesOn)}${due}${repeatsLabel(jar)}`
   }
   if (jar.estimatedMonthsToTarget !== null && jar.estimatedMonthsToTarget > 0) {
     const n = jar.estimatedMonthsToTarget
     return `About ${n} more month${n === 1 ? '' : 's'} at this rate (an estimate, not a deadline)`
   }
-  if (jar.deadline) return `Due ${formatDate(jar.deadline)}`
+  if (jar.deadline) return `${capitalise(dueLabel(jar))} ${formatDate(jar.deadline)}${repeatsLabel(jar)}`
   return null
+}
+
+/** A Recurring jar's date is the next due date; a Goal's is when the money is needed by. */
+function dueLabel(jar: JarDto): string {
+  return jar.recurMonths !== null ? 'next due' : 'needed by'
+}
+
+/** " · repeats every year" for a Recurring jar, in the words the form uses; nothing for a Goal. */
+function repeatsLabel(jar: JarDto): string {
+  const n = jar.recurMonths
+  if (n === null) return ''
+  return ` · repeats every ${n === 12 ? 'year' : n === 1 ? 'month' : `${n} months`}`
+}
+
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 /**

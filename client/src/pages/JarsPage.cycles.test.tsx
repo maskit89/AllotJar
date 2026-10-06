@@ -167,7 +167,7 @@ describe('JarsPage — recurring cycles (W03)', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
     expect(screen.queryByText('Deadline missed')).not.toBeInTheDocument()
     expect(screen.getByText(/^Last cycle · due .*Sep.*2026 · paid .*Sep.*2026 \(€580\.00\), after the deadline$/)).toBeInTheDocument()
-    expect(screen.getByText(/^Funded by Aug 2027 · due .*Sep.*2027, then it repeats$/)).toBeInTheDocument()
+    expect(screen.getByText(/^Funded by Aug 2027 · next due .*Sep.*2027 · repeats every year$/)).toBeInTheDocument()
   })
 
   it('JAR-114: a payment still waiting for its budget-currency amount is listed but cannot be chosen', { timeout: 15000 }, async () => {
@@ -254,7 +254,7 @@ describe('JarsPage — recurring cycles (W03)', () => {
     expect(screen.queryByText('Deadline missed')).not.toBeInTheDocument()
     expect(screen.queryByLabelText("Dismiss Road tax's missed deadline")).not.toBeInTheDocument()
     expect(screen.getByText(/^Last cycle · due .*Sep.*2026 · missed$/)).toBeInTheDocument()
-    expect(screen.getByText(/^Funded by Aug 2027 · due .*Sep.*2027, then it repeats$/)).toBeInTheDocument()
+    expect(screen.getByText(/^Funded by Aug 2027 · next due .*Sep.*2027 · repeats every year$/)).toBeInTheDocument()
   })
 
   it('JAR-091: the dismiss dialog hands over to Mark paid for a bill that was in fact paid', { timeout: 15000 }, async () => {

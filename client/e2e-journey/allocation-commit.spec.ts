@@ -143,18 +143,20 @@ async function addAccount(page: Page, acc: { name: string; opening: string }) {
 }
 
 /**
- * Create a Goal jar held in a funding account through the real /jars modal. It saves by a
- * deadline twelve months out (rule 17), so twelve contribution months plan target ÷ 12 per
- * month when the jar's line is appended into a newly created budget month (rules 12, 35, 36).
+ * Create a Goal jar — one that doesn't repeat — held in a funding account through the real /jars
+ * modal. The form asks no type (Repeats "Doesn’t repeat" makes it a Goal); it saves by a
+ * "Needed by" date twelve months out (rule 17), so twelve contribution months plan target ÷ 12
+ * per month when the jar's line is appended into a newly created budget month (rules 12, 35, 36).
  */
 async function createGoalJar(page: Page, jar: { name: string; target: string; heldIn: string }) {
   await page.getByRole('button', { name: 'New jar' }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Jar name').fill(jar.name)
-  // exact — the adjacent InfoHint is aria-labelled "About jar types" (a superstring).
-  await dialog.getByLabel('Jar type', { exact: true }).selectOption({ label: 'Goal' })
+  // A new jar already starts here; said explicitly so the jar's kind never rides on the default
+  // (the option's apostrophe is U+2019, as the form writes it).
+  await dialog.getByLabel('Repeats').selectOption({ label: 'Doesn\u2019t repeat' })
   await dialog.getByLabel('Target amount').fill(jar.target)
-  await dialog.getByLabel('Deadline').fill(firstOfMonthAhead(12))
+  await dialog.getByLabel('Needed by').fill(firstOfMonthAhead(12))
   await dialog.getByLabel('Funding account').selectOption({ label: jar.heldIn })
   // Exactly the create — the form's schedule preview posts to /api/jars/schedule.
   await committed(page, 'POST', (u) => u.endsWith('/api/jars'), () =>

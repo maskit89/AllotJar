@@ -23,17 +23,25 @@ function jarCard(page: Page, name: string) {
   return page.locator('.rounded-2xl').filter({ has: page.getByRole('heading', { name, exact: true }) }).last()
 }
 
-/** Create a Recurring jar through the one jar form (rule 73) on the Jars page. */
+/**
+ * Create a Recurring jar — one that repeats yearly — through the one jar form (rule 73) on the
+ * Jars page. The form asks no type: picking a cadence in Repeats makes the jar Recurring and
+ * turns its date into "Next due".
+ */
 async function createRecurringJar(page: Page, jar: { name: string; target: string; nextDue: string; heldIn: string; setAside?: string }) {
   await page.getByRole('link', { name: 'Jars' }).click()
   await page.getByRole('button', { name: 'New jar' }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Jar name').fill(jar.name)
-  await dialog.getByLabel('Jar type', { exact: true }).selectOption({ label: 'Recurring' })
+  await dialog.getByLabel('Repeats').selectOption({ label: 'Yearly' })
   await dialog.getByLabel('Target amount').fill(jar.target)
   await dialog.getByLabel('Next due date').fill(jar.nextDue)
   await dialog.getByLabel('Funding account').selectOption({ label: jar.heldIn })
-  if (jar.setAside) await dialog.getByLabel('Already set aside').fill(jar.setAside)
+  if (jar.setAside) {
+    // "Already set aside" is folded under More options (rule 77).
+    await dialog.getByRole('button', { name: 'More options' }).click()
+    await dialog.getByLabel('Already set aside').fill(jar.setAside)
+  }
   const posted = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/api/jars') && r.ok())
   await dialog.getByRole('button', { name: 'Add jar' }).click()
   await posted
@@ -83,7 +91,7 @@ test('a recurring cycle is marked paid with its payment; a goal is skipped for t
   await expect(jarCard(page, 'Road tax')).toContainText(/Last cycle · due .* · paid .*120\.00/)
   await expect(jarCard(page, 'Road tax').getByRole('button', { name: 'Mark Road tax paid' })).toBeVisible()
 
-  // --- W04 rules 60–61: "Sofa" 300.00 by a deadline three months out → 100.00 a month ---
+  // --- W04 rules 60–61: "Sofa" 300.00 needed by a date three months out → 100.00 a month ---
   await createGoalJar(page, { name: 'Sofa', target: '300', heldIn: 'Savings', deadline: firstOfMonthAhead(3) })
   await page.getByRole('link', { name: 'Dashboard' }).click()
   const planned = page.getByRole('button', { name: 'Planned amount for Sofa' })

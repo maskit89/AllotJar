@@ -111,9 +111,9 @@ export async function addAccount(
 
 /**
  * The first day of the month `monthsAhead` months from the real current month (the app's clock),
- * as a date input wants it. As a jar deadline it plans exactly `monthsAhead` contribution months:
- * the deadline day itself is never a contribution day, and a 1st-of-month deadline leaves the
- * deadline month out (rules 12, 36).
+ * as a date input wants it. As a jar's date (Needed by / Next due) it plans exactly `monthsAhead`
+ * contribution months: the deadline day itself is never a contribution day, and a 1st-of-month
+ * deadline leaves the deadline month out (rules 12, 36).
  */
 export function firstOfMonthAhead(monthsAhead: number): string {
   const now = new Date()
@@ -124,12 +124,14 @@ export function firstOfMonthAhead(monthsAhead: number): string {
 }
 
 /**
- * Create a Goal jar through the one jar form (rule 73) on the Jars page (navigates there).
- * A goal saves by a deadline or at a fixed monthly amount (rule 17): `monthly` makes it a fixed
- * monthly plan (an ongoing pot when `target` is empty, rule 16); otherwise it saves by `deadline`,
- * which defaults to the 1st of the month twelve months out, so twelve contribution months plan
- * (target − set aside) ÷ 12 (rule 35). `heldIn` names the account that holds its money;
- * `setAside` divides money already in that account into the jar (rule 77) as of today.
+ * Create a Goal jar — one that doesn't repeat — through the one jar form (rule 73) on the Jars
+ * page (navigates there). The form asks no type: Repeats "Doesn’t repeat" (a new jar's default)
+ * makes it a Goal, which saves by its "Needed by" date or at a fixed monthly amount (rule 17):
+ * `monthly` ticks "Set aside a fixed amount each month" (an ongoing pot when `target` is empty,
+ * rule 16); otherwise it saves by `deadline`, which defaults to the 1st of the month twelve
+ * months out, so twelve contribution months plan (target − set aside) ÷ 12 (rule 35). `heldIn`
+ * names the account that holds its money; `setAside` (under "More options") divides money
+ * already in that account into the jar (rule 77) as of today.
  */
 export async function createGoalJar(
   page: Page,
@@ -146,17 +148,22 @@ export async function createGoalJar(
   await page.getByRole('button', { name: 'New jar' }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Jar name').fill(jar.name)
-  // exact — the adjacent InfoHint is aria-labelled "About jar types" (a superstring).
-  await dialog.getByLabel('Jar type', { exact: true }).selectOption({ label: 'Goal' })
+  // A new jar already starts here; said explicitly so the jar's kind never rides on the default.
+  // The option's apostrophe is U+2019, as the form writes it.
+  await dialog.getByLabel('Repeats').selectOption({ label: 'Doesn\u2019t repeat' })
   await dialog.getByLabel('Target amount').fill(jar.target)
   if (jar.monthly) {
-    await dialog.getByLabel('How to save').selectOption({ label: 'A fixed amount each month' })
+    await dialog.getByLabel('Set aside a fixed amount each month').check()
     await dialog.getByLabel('Monthly amount').fill(jar.monthly)
   } else {
-    await dialog.getByLabel('Deadline').fill(jar.deadline ?? firstOfMonthAhead(12))
+    await dialog.getByLabel('Needed by').fill(jar.deadline ?? firstOfMonthAhead(12))
   }
   await dialog.getByLabel('Funding account').selectOption({ label: jar.heldIn })
-  if (jar.setAside) await dialog.getByLabel('Already set aside').fill(jar.setAside)
+  if (jar.setAside) {
+    // "Already set aside" is folded under More options (rule 77).
+    await dialog.getByRole('button', { name: 'More options' }).click()
+    await dialog.getByLabel('Already set aside').fill(jar.setAside)
+  }
   const posted = page.waitForResponse(
     (r) => r.request().method() === 'POST' && r.url().endsWith('/api/jars') && r.ok(),
   )

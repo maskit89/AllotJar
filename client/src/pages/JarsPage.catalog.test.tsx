@@ -126,7 +126,7 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(within(slush).getByText('€500.00')).toBeInTheDocument()
     expect(within(slush).queryByText(/of €/)).not.toBeInTheDocument()
     expect(within(slush).getByText('Needs a plan')).toBeInTheDocument()
-    expect(within(slush).getByText('Add a deadline or a monthly amount to plan contributions')).toBeInTheDocument()
+    expect(within(slush).getByText('Give it a date or a monthly amount')).toBeInTheDocument()
   })
 
   it('JAR-009: a failed /jars load shows the error banner and no cards', { timeout: 15000 }, async () => {
@@ -156,17 +156,18 @@ describe('JarsPage — catalog (JAR)', () => {
 
   // --- Creating a jar (New jar modal) --------------------------------------
 
-  it('JAR-013: a Goal create sends kind:1, recurMonths:null and the chosen deadline', { timeout: 15000 }, async () => {
+  it('JAR-013: a jar that doesn\'t repeat (a Goal) by its Needed by date sends kind:1, recurMonths:null and that date', { timeout: 15000 }, async () => {
     mockPost.mockResolvedValue({ data: jar({ id: 'f9', name: 'New kitchen', kind: 1, targetAmount: 5000, recurMonths: null, targetDate: '2027-01-01', status: 'OnTrack' }) })
     const user = userEvent.setup()
 
     renderPage()
     const dialog = await openNewJar(user)
 
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
+    // The form asks no Type: a new jar's Repeats is "Doesn’t repeat", so its date is "Needed by".
+    expect(dialog.getByLabelText('Repeats')).toHaveValue('0')
     await user.type(dialog.getByLabelText('Jar name'), 'New kitchen')
     await user.type(dialog.getByLabelText('Target amount'), '5000')
-    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-01-01' } })
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2027-01-01' } })
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
     await waitFor(
@@ -187,10 +188,12 @@ describe('JarsPage — catalog (JAR)', () => {
     renderPage()
     const dialog = await openNewJar(user)
 
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Jar name'), 'Later')
     await user.type(dialog.getByLabelText('Target amount'), '600')
-    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-03-01' } })
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2027-03-01' } })
+    // "Already set aside" sits under More options; opened only to confirm it is left blank.
+    await user.click(dialog.getByRole('button', { name: 'More options' }))
+    expect(dialog.getByLabelText('Already set aside')).toHaveValue('')
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
     await waitFor(
@@ -199,17 +202,23 @@ describe('JarsPage — catalog (JAR)', () => {
     )
   })
 
-  it('JAR-020: Recurring offers the four cadence options, defaulting to Yearly (12)', { timeout: 15000 }, async () => {
+  it('JAR-020: Repeats offers "Doesn’t repeat", Monthly, Every 3 months, Every 6 months, Yearly; a new jar defaults to "Doesn’t repeat"', { timeout: 15000 }, async () => {
     const user = userEvent.setup()
 
     renderPage()
-    const dialog = await openNewJar(user) // Recurring is the default type
+    const dialog = await openNewJar(user)
 
-    const repeats = dialog.getByLabelText('Repeat cycle') as HTMLSelectElement
-    for (const label of ['Yearly', 'Every 6 months', 'Every 3 months', 'Monthly']) {
-      expect(within(repeats).getByRole('option', { name: label })).toBeInTheDocument()
-    }
-    expect(repeats.value).toBe('12') // Yearly selected by default
+    const repeats = dialog.getByLabelText('Repeats') as HTMLSelectElement
+    // The five answers, in this order (the apostrophe is U+2019); no "Jar type" is asked.
+    expect(within(repeats).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Doesn’t repeat',
+      'Monthly',
+      'Every 3 months',
+      'Every 6 months',
+      'Yearly',
+    ])
+    expect(repeats.value).toBe('0') // "Doesn’t repeat" selected by default
+    expect(dialog.queryByLabelText('Jar type')).not.toBeInTheDocument()
   })
 
   it('JAR-021: with no accounts, the form says to add one first (link to /accounts) and disables Add', { timeout: 15000 }, async () => {
@@ -259,16 +268,15 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
-  it('JAR-027: a Goal with no target saves as an ongoing pot at a fixed monthly amount (rule 16)', { timeout: 15000 }, async () => {
+  it('JAR-027: the fixed-monthly switch with no target saves an ongoing pot (kind 1, accrual 2, rule 16)', { timeout: 15000 }, async () => {
     mockPost.mockResolvedValue({ data: jar({ id: 'f9', name: 'Someday', kind: 1, accrual: 2, monthlyContribution: 50, targetAmount: 0, targetDate: null, recurMonths: null, currentBalance: 0, plannedThisMonth: 50, contributedThisMonth: 0, remainingThisMonth: 50, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, status: 'Ongoing' }) })
     const user = userEvent.setup()
 
     renderPage()
     const dialog = await openNewJar(user)
 
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Jar name'), 'Someday')
-    await user.selectOptions(dialog.getByLabelText('How to save'), '2') // a fixed amount each month
+    await user.click(dialog.getByLabelText('Set aside a fixed amount each month')) // the switch
     // The target is optional for this method; the monthly amount is what plans it.
     expect(dialog.getByText('Target (optional)')).toBeInTheDocument()
     await user.type(dialog.getByLabelText('Monthly amount'), '50')
@@ -296,10 +304,9 @@ describe('JarsPage — catalog (JAR)', () => {
     renderPage()
     const dialog = await openNewJar(user)
 
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Jar name'), 'Precise')
     await user.type(dialog.getByLabelText('Target amount'), '100.123456')
-    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-03-01' } })
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2027-03-01' } })
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
     expect(await dialog.findByText('Enter at most 2 decimal places.')).toBeInTheDocument()
@@ -321,10 +328,9 @@ describe('JarsPage — catalog (JAR)', () => {
     renderPage()
     const dialog = await openNewJar(user)
 
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Jar name'), 'Doomed')
     await user.type(dialog.getByLabelText('Target amount'), '100')
-    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-03-01' } })
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2027-03-01' } })
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
     expect(await dialog.findByText('Could not add that jar.', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -359,7 +365,7 @@ describe('JarsPage — catalog (JAR)', () => {
     renderPage()
     const dialog = await openNewJar(user)
 
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal isolates the amount check
+    // The amount check comes before any date check, whatever Repeats says.
     await user.type(dialog.getByLabelText('Jar name'), 'Bad target')
     await user.type(dialog.getByLabelText('Target amount'), '-5')
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
@@ -374,25 +380,32 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(mockPost).not.toHaveBeenCalled()
   })
 
-  it('JAR-025: a Recurring create with target ≤ 0 is blocked client-side', { timeout: 15000 }, async () => {
+  it('JAR-025: a by-date create with target ≤ 0 is blocked with "Give the jar a target amount."', { timeout: 15000 }, async () => {
     const user = userEvent.setup()
 
     renderPage()
-    const dialog = await openNewJar(user) // Recurring is the default
+    const dialog = await openNewJar(user)
 
     await user.type(dialog.getByLabelText('Jar name'), 'Road tax')
-    // Leave Target blank (parses to 0) — the create-only Recurring guard demands a real target.
+    await user.selectOptions(dialog.getByLabelText('Repeats'), '12') // Yearly: a repeating jar
+    // Leave Target blank (parses to 0) — a jar saving by a date demands a real target.
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
-    expect(await dialog.findByText('Give the recurring jar a target amount.', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await dialog.findByText('Give the jar a target amount.', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+
+    // The same guard, in the same words, for a jar that doesn't repeat.
+    await user.selectOptions(dialog.getByLabelText('Repeats'), '0') // Doesn’t repeat
+    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
+    expect(dialog.getByText('Give the jar a target amount.')).toBeInTheDocument()
     expect(mockPost).not.toHaveBeenCalled()
   })
 
   // --- Editing a jar --------------------------------------------------------
 
-  it('JAR-035: editing echoes the stored plan — a rename keeps the fixed monthly method and amount', { timeout: 15000 }, async () => {
+  it('JAR-035: editing echoes the stored plan — a rename keeps the fixed-monthly switch ticked and its amount', { timeout: 15000 }, async () => {
     // A rename must send the jar's own plan back (accrual 2 + its monthly amount), never
-    // silently switch it to "by a deadline".
+    // silently switch it to saving by a date.
     mockLoads({ jars: [jar({ kind: 1, recurMonths: null, accrual: 2, monthlyContribution: 40, targetAmount: 480, targetDate: null, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: 9 })] })
     mockPut.mockResolvedValue({ data: jar({ kind: 1, recurMonths: null, accrual: 2, monthlyContribution: 40, name: 'Living Costs' }) })
     const user = userEvent.setup()
@@ -401,8 +414,9 @@ describe('JarsPage — catalog (JAR)', () => {
 
     await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    expect(dialog.getByLabelText('How to save')).toHaveValue('2')
+    expect(dialog.getByLabelText('Set aside a fixed amount each month')).toBeChecked()
     expect(dialog.getByLabelText('Monthly amount')).toHaveValue('40')
+    expect(dialog.getByText('Target (optional)')).toBeInTheDocument()
     await user.clear(dialog.getByLabelText('Jar name'))
     await user.type(dialog.getByLabelText('Jar name'), 'Living Costs')
     await user.click(dialog.getByRole('button', { name: 'Save jar' }))
@@ -417,7 +431,7 @@ describe('JarsPage — catalog (JAR)', () => {
     )
   })
 
-  it('JAR-037: a Recurring jar\'s form shows its open cycle\'s date (W03), and switching it to Goal sends that date', { timeout: 15000 }, async () => {
+  it('JAR-037: a Recurring jar\'s form shows its open cycle\'s date (W03), and switching Repeats to "Doesn’t repeat" sends that date as the Goal\'s deadline', { timeout: 15000 }, async () => {
     // The DTO carries both the stored anchor (2026-01-01) and the open cycle the server keeps
     // (2027-01-01, after a funded cycle rolled forward); the form works in cycle dates.
     mockLoads({ jars: [jar({ kind: 0, targetAmount: 500, targetDate: '2026-01-01', deadline: '2027-01-01', recurMonths: 12 })] })
@@ -430,8 +444,12 @@ describe('JarsPage — catalog (JAR)', () => {
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     // The prefilled "Next due" is the open cycle's date, not the old anchor.
     expect(dialog.getByLabelText('Next due date')).toHaveValue('2027-01-01')
+    expect(dialog.getByLabelText('Repeats')).toHaveValue('12')
 
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // → Goal
+    await user.selectOptions(dialog.getByLabelText('Repeats'), '0') // Doesn’t repeat → a Goal
+    // The date carries across: the field is now "Needed by", still showing the cycle's date.
+    expect(dialog.getByLabelText('Needed by')).toHaveValue('2027-01-01')
+    expect(dialog.queryByLabelText('Next due date')).not.toBeInTheDocument()
     await user.click(dialog.getByRole('button', { name: 'Save jar' }))
 
     // The Goal keeps the date the user saw; a Goal has no cycle, so that date is its deadline.
@@ -450,7 +468,7 @@ describe('JarsPage — catalog (JAR)', () => {
 
     await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    const repeats = dialog.getByLabelText('Repeat cycle') as HTMLSelectElement
+    const repeats = dialog.getByLabelText('Repeats') as HTMLSelectElement
     // The stored 24 shows as an extra, pre-selected option so a save can't silently rewrite it.
     expect(within(repeats).getByRole('option', { name: 'Every 24 months' })).toBeInTheDocument()
     expect(repeats.value).toBe('24')
@@ -500,10 +518,11 @@ describe('JarsPage — catalog (JAR)', () => {
     renderPage()
     const dialog = await openNewJar(user)
 
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
     await user.type(dialog.getByLabelText('Target amount'), '1200')
-    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2026-12-01' } })
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-12-01' } })
     expect(await dialog.findByText(/Sets aside €400\.00 a month/, {}, { timeout: 5000 })).toBeInTheDocument()
+    // "Already set aside" lives under More options (rule 77).
+    await user.click(dialog.getByRole('button', { name: 'More options' }))
     await user.type(dialog.getByLabelText('Already set aside'), '600')
     expect(await dialog.findByText(/Sets aside €200\.00 a month/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ jarId: null, kind: 1, targetAmount: 1200, targetDate: '2026-12-01', recurMonths: null, initialAllocation: 600 }))
@@ -526,9 +545,9 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(mockPost).not.toHaveBeenCalled()
   })
 
-  it('JAR-042: no preview without a deadline or a monthly amount; either one brings it (rule 17)', { timeout: 15000 }, async () => {
+  it('JAR-042: no preview without a date or a monthly amount; either one brings it (rule 17)', { timeout: 15000 }, async () => {
     // A goal with a target but no way to save it can't be planned: nothing is asked or shown
-    // until a deadline or a fixed monthly amount is given.
+    // until a date or a fixed monthly amount is given.
     mockLoads({ jars: [jar({ kind: 1, recurMonths: null, targetAmount: 300, targetDate: null, deadline: null, fundingCompletesOn: null, plannedThisMonth: 0, remainingThisMonth: 0, status: 'Unscheduled' })] })
     mockPosts((request) =>
       request.accrual === 2
@@ -548,14 +567,14 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(mockPost).not.toHaveBeenCalled()
 
     // A fixed monthly amount plans it: the estimate is worded as an estimate (rule 58).
-    await user.selectOptions(dialog.getByLabelText('How to save'), '2')
+    await user.click(dialog.getByLabelText('Set aside a fixed amount each month')) // tick the switch
     await user.type(dialog.getByLabelText('Monthly amount'), '50')
     expect(await dialog.findByText('Sets aside €50.00 a month — about 4 more months to reach the target (an estimate, not a deadline).', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ jarId: 'f1', accrual: 2, monthlyContribution: 50, targetDate: null }))
 
-    // …and so does a deadline.
-    await user.selectOptions(dialog.getByLabelText('How to save'), '1')
-    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2026-12-01' } })
+    // …and so does a date (untick the switch to save by one again).
+    await user.click(dialog.getByLabelText('Set aside a fixed amount each month'))
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-12-01' } })
     expect(await dialog.findByText(/Sets aside €60\.00 a month from Sep 2026 to Nov 2026/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
 

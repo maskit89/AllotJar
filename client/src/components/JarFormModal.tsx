@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Button, ErrorBanner, Input, Select } from './ui'
 import { Modal } from './Modal'
 import { InfoHint } from './InfoHint'
+import { ChevronDownIcon } from './icons'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
 import type { AccountDto, JarDto, JarScheduleDto, JarScheduleRequest } from '../types'
@@ -73,7 +74,7 @@ function initialForm(jar: JarDto | null, accounts: AccountDto[]): FormState {
   }
   return {
     name: '',
-    repeats: 12,
+    repeats: NO_REPEAT,
     fixedMonthly: false,
     target: '',
     targetDate: '',
@@ -179,6 +180,8 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
   // The server's schedule for the definition it was asked about (`key`), so a stale answer is
   // never shown for a definition that can no longer be planned.
   const [preview, setPreview] = useState<{ key: string; schedule: JarScheduleDto | null } | null>(null)
+  // The fold under "More options" starts open only when the jar already uses something in it.
+  const [moreOpen, setMoreOpen] = useState(() => !!jar?.includeDeadlineMonth)
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -372,6 +375,8 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
   const noAccounts = eligible.length === 0
   const today = todayIso()
   const deadlineMonthOption = byDeadline && form.targetDate !== '' && deadlineMonthEligible(form.targetDate)
+  // "Already set aside" is a new-jar question (rule 77); the deadline-month tick box needs a date.
+  const hasMoreOptions = !editing || deadlineMonthOption
 
   return (
     <Modal title={editing ? 'Edit jar' : 'New jar'} onClose={onClose} size="lg">
@@ -434,6 +439,32 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
             />
           </label>
           {byDeadline ? (
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              {recurring ? 'Next due' : 'Needed by'}
+              <Input
+                type="date"
+                value={form.targetDate}
+                aria-label={recurring ? 'Next due date' : 'Needed by'}
+                onChange={(e) => set('targetDate', e.target.value)}
+                className="w-full"
+              />
+            </label>
+          ) : (
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Each month
+              <Input
+                type="text"
+                inputMode="decimal"
+                {...selectOnFocusProps}
+                value={form.monthly}
+                placeholder="0.00"
+                aria-label="Monthly amount"
+                onChange={(e) => set('monthly', e.target.value)}
+                className="w-full text-right tabular-nums"
+              />
+            </label>
+          )}
+          {byDeadline && (
             <div className="flex flex-col gap-1">
               <span className="flex items-center gap-1 text-xs font-medium text-slate-500">
                 <label htmlFor="jar-repeats">Repeats</label>
@@ -456,32 +487,6 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
                 ))}
               </Select>
             </div>
-          ) : (
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Each month
-              <Input
-                type="text"
-                inputMode="decimal"
-                {...selectOnFocusProps}
-                value={form.monthly}
-                placeholder="0.00"
-                aria-label="Monthly amount"
-                onChange={(e) => set('monthly', e.target.value)}
-                className="w-full text-right tabular-nums"
-              />
-            </label>
-          )}
-          {byDeadline && (
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              {recurring ? 'Next due' : 'Needed by'}
-              <Input
-                type="date"
-                value={form.targetDate}
-                aria-label={recurring ? 'Next due date' : 'Needed by'}
-                onChange={(e) => set('targetDate', e.target.value)}
-                className="w-full"
-              />
-            </label>
           )}
           <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
             Held in
@@ -530,59 +535,78 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
             </span>
           </span>
         </label>
-        {deadlineMonthOption && (
-          <label className="flex items-start gap-2 text-xs font-medium text-slate-500">
-            <input
-              type="checkbox"
-              checked={form.includeDeadlineMonth}
-              aria-label="Include the deadline month"
-              onChange={(e) => set('includeDeadlineMonth', e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-            />
-            <span>
-              Also set aside money in {monthYear(form.targetDate)}, the deadline month.
-              <span className="block font-normal">
-                By default the plan finishes the month before, so the money is already in {heldIn?.name ?? 'the account'} on{' '}
-                {formatDate(form.targetDate)}. Tick this only if that month&rsquo;s contribution will reach the account before the deadline.
-              </span>
-            </span>
-          </label>
-        )}
-        {!editing && (
-          <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Already set aside
-              <Input
-                type="text"
-                inputMode="decimal"
-                {...selectOnFocusProps}
-                value={form.initialAllocation}
-                placeholder="0.00"
-                aria-label="Already set aside"
-                disabled={noAccounts}
-                onChange={(e) => set('initialAllocation', e.target.value)}
-                className="w-full text-right tabular-nums"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Set aside on
-              <Input
-                type="date"
-                value={form.initialAllocationDate}
-                max={today}
-                aria-label="Set aside on"
-                disabled={noAccounts}
-                onChange={(e) => set('initialAllocationDate', e.target.value)}
-                className="w-full"
-              />
-            </label>
-            <p className="col-span-2 text-[11px] font-normal text-slate-500">
-              Divides money already in {heldIn?.name ?? 'the account'} into this jar. It doesn&rsquo;t add money.
-            </p>
-          </div>
-        )}
         {completed && <p className="text-xs text-slate-500">Completed, so nothing more is planned for it.</p>}
         {schedule && <SchedulePreview schedule={schedule} currency={currency} recurring={recurring} recurMonths={form.repeats} />}
+        {hasMoreOptions && (
+          <div className="space-y-3">
+            {/* The refinements a first jar rarely needs (rules 36 and 77) stay one tap away. */}
+            <button
+              type="button"
+              onClick={() => setMoreOpen((open) => !open)}
+              aria-expanded={moreOpen}
+              aria-controls="jar-more-options"
+              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-slate-600 transition hover:text-slate-900"
+            >
+              <ChevronDownIcon className={`h-4 w-4 transition-transform ${moreOpen ? 'rotate-180' : ''}`} />
+              More options
+            </button>
+            {moreOpen && (
+              <div id="jar-more-options" className="space-y-3">
+                {!editing && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                      Already set aside
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        {...selectOnFocusProps}
+                        value={form.initialAllocation}
+                        placeholder="0.00"
+                        aria-label="Already set aside"
+                        disabled={noAccounts}
+                        onChange={(e) => set('initialAllocation', e.target.value)}
+                        className="w-full text-right tabular-nums"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                      Set aside on
+                      <Input
+                        type="date"
+                        value={form.initialAllocationDate}
+                        max={today}
+                        aria-label="Set aside on"
+                        disabled={noAccounts}
+                        onChange={(e) => set('initialAllocationDate', e.target.value)}
+                        className="w-full"
+                      />
+                    </label>
+                    <p className="col-span-2 text-[11px] font-normal text-slate-500">
+                      Divides money already in {heldIn?.name ?? 'the account'} into this jar. It doesn&rsquo;t add money.
+                    </p>
+                  </div>
+                )}
+                {deadlineMonthOption && (
+                  <label className="flex items-start gap-2 text-xs font-medium text-slate-500">
+                    <input
+                      type="checkbox"
+                      checked={form.includeDeadlineMonth}
+                      aria-label="Include the deadline month"
+                      onChange={(e) => set('includeDeadlineMonth', e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                    />
+                    <span>
+                      Also set aside money in {monthYear(form.targetDate)}, the deadline month.
+                      <span className="block font-normal">
+                        By default the plan finishes the month before, so the money is already in {heldIn?.name ?? 'the account'} on{' '}
+                        {formatDate(form.targetDate)}. Tick this only if that month&rsquo;s contribution will reach the account before the deadline.
+                      </span>
+                    </span>
+                  </label>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <div className="flex items-center justify-between gap-2 pt-1">
           {jar && (onArchived || (onDeleted && jar.canDelete)) ? (
             <span className="flex flex-wrap gap-1">
@@ -669,7 +693,7 @@ function SchedulePreview({
 
   let summary: string
   if (!schedule.hasSchedule) {
-    summary = 'Add a deadline or a monthly amount to plan contributions.'
+    summary = 'Add a date or a monthly amount to plan contributions.'
   } else if (schedule.isOngoing) {
     summary = `Sets aside ${money(monthly)} every month, ongoing.`
   } else if (months.length === 0 || months.every((m) => m.skipped || m.planned === 0)) {
@@ -687,7 +711,7 @@ function SchedulePreview({
         : `from ${monthYear(monthIso(months[0].year, months[0].month))} to ${monthYear(monthIso(months[months.length - 1].year, months[months.length - 1].month))}`
     const amount = uniform ? `${money(months[0].planned)} a month` : `${money(schedule.total)} in total`
     const completes = schedule.fundingCompletesOn ? `, funded by ${formatDate(schedule.fundingCompletesOn)}` : ''
-    const due = schedule.deadline ? ` for the deadline on ${formatDate(schedule.deadline)}` : ''
+    const due = schedule.deadline ? `, ${recurring ? 'due' : 'needed by'} ${formatDate(schedule.deadline)}` : ''
     const repeats = recurring ? `, then it repeats every ${recurMonths === 12 ? 'year' : `${recurMonths} months`}` : ''
     summary = `Sets aside ${amount} ${span}${completes}${due}${repeats}.`
   }
