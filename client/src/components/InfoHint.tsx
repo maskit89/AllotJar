@@ -18,7 +18,7 @@ export function InfoHint({
   children,
   className = '',
 }: {
-  /** Accessible name for the trigger, e.g. "About jar types". */
+  /** Accessible name for the trigger, e.g. "What repeating means". */
   label: string
   /** Popover body — keep it short. */
   children: ReactNode

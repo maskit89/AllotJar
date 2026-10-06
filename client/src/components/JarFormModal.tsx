@@ -13,6 +13,7 @@ import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { formatDate, monthYear, todayIso } from '../lib/dates'
 import { editConflict, serverErrors } from '../lib/serverErrors'
 import { deadlineMonthEligible, jarAccounts, monthIso } from '../lib/jarForm'
+import { cadenceLabel } from '../lib/jarStatus'
 
 /**
  * The "Repeats" answers. The form never asks for a jar type: a jar that repeats is a Recurring
@@ -327,6 +328,8 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
         if (fresh) {
           setForm(initialForm(fresh, eligible))
           setVersion(fresh.version ?? null)
+          // The refilled jar may use the deadline-month option the other editor ticked: show it.
+          setMoreOpen((open) => open || fresh.includeDeadlineMonth)
         }
         setError(conflict)
         return
@@ -712,7 +715,7 @@ function SchedulePreview({
     const amount = uniform ? `${money(months[0].planned)} a month` : `${money(schedule.total)} in total`
     const completes = schedule.fundingCompletesOn ? `, funded by ${formatDate(schedule.fundingCompletesOn)}` : ''
     const due = schedule.deadline ? `, ${recurring ? 'due' : 'needed by'} ${formatDate(schedule.deadline)}` : ''
-    const repeats = recurring ? `, then it repeats every ${recurMonths === 12 ? 'year' : `${recurMonths} months`}` : ''
+    const repeats = recurring ? `, then it repeats every ${cadenceLabel(recurMonths)}` : ''
     summary = `Sets aside ${amount} ${span}${completes}${due}${repeats}.`
   }
 

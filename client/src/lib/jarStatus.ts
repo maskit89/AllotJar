@@ -55,7 +55,8 @@ export function jarMonthLabel(jar: JarDto, currency: string): string {
     const left = fromAmount(jar.currentBalance ?? 0)
     return left > 0 ? `Completed · ${formatMoney(left, currency)} left to move` : 'Completed'
   }
-  if (jar.status === 'Unscheduled') return 'Give it a date or a monthly amount'
+  // A jar can't be planned by a date without a target, so a target-less one is asked for both.
+  if (jar.status === 'Unscheduled') return jar.targetAmount > 0 ? 'Give it a date or a monthly amount' : 'Give it a target and a date, or a monthly amount'
   // Rule 60: a skipped month plans nothing; the rest of the schedule carries on.
   if (jar.skippedThisMonth) return 'Skipped this month'
   // Rule 20: the missed deadline and what is still short stay in view until the user acts;
@@ -106,9 +107,15 @@ function dueLabel(jar: JarDto): string {
 
 /** " · repeats every year" for a Recurring jar, in the words the form uses; nothing for a Goal. */
 function repeatsLabel(jar: JarDto): string {
-  const n = jar.recurMonths
-  if (n === null) return ''
-  return ` · repeats every ${n === 12 ? 'year' : n === 1 ? 'month' : `${n} months`}`
+  return jar.recurMonths === null ? '' : ` · repeats every ${cadenceLabel(jar.recurMonths)}`
+}
+
+/**
+ * A Recurring jar's cadence as the card and the form's preview both word it after "every":
+ * "year", "month" or "6 months".
+ */
+export function cadenceLabel(recurMonths: number): string {
+  return recurMonths === 12 ? 'year' : recurMonths === 1 ? 'month' : `${recurMonths} months`
 }
 
 function capitalise(text: string): string {
