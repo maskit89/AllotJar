@@ -1,7 +1,8 @@
 import type { BadgeTone } from '../components/ui'
 import type { JarDto } from '../types'
+import { RECUR_MONTHS_OPTIONS } from '../types'
 import { formatMoney, fromAmount } from './money'
-import { formatDate, monthYear } from './dates'
+import { formatDate } from './dates'
 
 // Mirrors the server's JarDto.Status (Unavailable | Completed | DeadlineMissed | FundedLate |
 // Overspent | Ongoing | Unscheduled | FullyFunded | Behind | OnTrack — see
@@ -55,7 +56,8 @@ export function jarMonthLabel(jar: JarDto, currency: string): string {
     const left = fromAmount(jar.currentBalance ?? 0)
     return left > 0 ? `Completed · ${formatMoney(left, currency)} left to move` : 'Completed'
   }
-  if (jar.status === 'Unscheduled') return 'Add a deadline or a monthly amount to plan contributions'
+  // A jar can't be planned by a date without a target, so a target-less one is asked for both.
+  if (jar.status === 'Unscheduled') return jar.targetAmount > 0 ? 'Give it a date or a monthly amount' : 'Give it a target and a date, or a monthly amount'
   // Rule 60: a skipped month plans nothing; the rest of the schedule carries on.
   if (jar.skippedThisMonth) return 'Skipped this month'
   // Rule 20: the missed deadline and what is still short stay in view until the user acts;
@@ -76,55 +78,66 @@ export function jarMonthLabel(jar: JarDto, currency: string): string {
 }
 
 /**
- * Where the plan is heading: the funding-completion month and the deadline it serves (rule 36
- * keeps them distinct), the estimated months for a fixed monthly target (rule 58, never a
- * deadline), or "ongoing". Null when there is nothing to say.
+ * Where the plan is heading, in a few words: the date the money is due or needed by, and how
+ * often a repeating jar comes round; a fixed monthly target's estimate (rule 58, never a
+ * deadline); an ongoing pot's monthly amount. Null when the other lines already say it: a
+ * completed jar (the chip and the month line, rule 56) and a missed deadline (the month line
+ * and the card's own buttons, rules 20 and 57). The month the funding completes isn't repeated
+ * here: the form's preview shows it, and the deadline stays the deadline (rule 36).
  */
-export function jarHorizonLabel(jar: JarDto): string | null {
-  if (jar.status === 'Unavailable' || jar.status === 'Unscheduled') return null
-  if (jar.status === 'Completed') {
-    return jar.completedOn ? `Completed on ${formatDate(jar.completedOn)} · no more contributions planned` : 'No more contributions planned'
-  }
-  if (jar.status === 'DeadlineMissed' || jar.status === 'FundedLate') return 'Mark the cycle paid, or dismiss it to save toward the next one'
-  if (jar.status === 'Ongoing') return 'Ongoing'
-  if (jar.fundingCompletesOn) {
-    const due = jar.deadline ? ` · due ${formatDate(jar.deadline)}` : ''
-    const repeats = jar.recurMonths ? ', then it repeats' : ''
-    return `Funded by ${monthYear(jar.fundingCompletesOn)}${due}${repeats}`
+export function jarHorizonLabel(jar: JarDto, currency: string): string | null {
+  switch (jar.status) {
+    case 'Unavailable':
+    case 'Unscheduled':
+    case 'Completed':
+    case 'DeadlineMissed':
+    case 'FundedLate':
+      return null
+    case 'Ongoing': {
+      const monthly = jar.monthlyContribution ?? 0
+      return monthly > 0 ? `${formatMoney(fromAmount(monthly), currency)} every month` : null
+    }
   }
   if (jar.estimatedMonthsToTarget !== null && jar.estimatedMonthsToTarget > 0) {
     const n = jar.estimatedMonthsToTarget
-    return `About ${n} more month${n === 1 ? '' : 's'} at this rate (an estimate, not a deadline)`
+    return `About ${n} month${n === 1 ? '' : 's'} to go (estimate)`
   }
-  if (jar.deadline) return `Due ${formatDate(jar.deadline)}`
-  return null
+  if (!jar.deadline) return null
+  return jar.recurMonths === null
+    ? `Needed by ${formatDate(jar.deadline)}`
+    : `Due ${formatDate(jar.deadline)} · ${cadenceLabel(jar.recurMonths)}`
+}
+
+/** A Recurring jar's cadence in the Repeats field's words: "yearly", "monthly", "every 6 months". */
+export function cadenceLabel(recurMonths: number): string {
+  const option = RECUR_MONTHS_OPTIONS.find((o) => o.value === recurMonths)
+  return option ? option.label.toLowerCase() : `every ${recurMonths} months`
 }
 
 /**
- * How a Recurring jar's last cycle ended (W03), in one line: "Last cycle · due 1 Dec 2025 ·
- * paid 28 Nov 2025 (€550.00)", "… · funded on time", "… · funded late", "… · missed", "… · waiting
- * for the deadline" (unpaid and not yet judged). Null when no cycle has closed yet, or for a Goal.
+ * How a Recurring jar's last cycle ended (W03), in a few words: "Last cycle paid 28 Nov 2025
+ * (€550.00)", "… funded on time", "… funded late", "… missed", "… waiting for its deadline"
+ * (unpaid and not yet judged). Null when no cycle has closed yet, or for a Goal.
  */
 export function jarLastCycleLabel(jar: JarDto, currency: string): string | null {
   const cycle = jar.lastCycle
   if (!cycle || jar.recurMonths === null) return null
-  const due = `Last cycle · due ${formatDate(cycle.deadline)}`
   switch (cycle.outcome) {
     case 'Paid': {
-      const paid = cycle.paidOn ? `paid ${formatDate(cycle.paidOn)}` : 'paid'
+      const paid = cycle.paidOn ? `Last cycle paid ${formatDate(cycle.paidOn)}` : 'Last cycle paid'
       const amount = cycle.paidAmount !== null ? ` (${formatMoney(fromAmount(cycle.paidAmount), currency)})` : ''
-      return `${due} · ${paid}${amount}${cycle.paidOn && !cycle.paidOnTime ? ', after the deadline' : ''}`
+      return `${paid}${amount}${cycle.paidOn && !cycle.paidOnTime ? ', late' : ''}`
     }
     case 'Funded':
-      return `${due} · funded on time, payment not recorded`
+      return 'Last cycle funded on time'
     case 'Waiting':
       // Its payment was removed before the deadline: judged only when the deadline comes (D17).
-      return `${due} · waiting for the deadline`
+      return 'Last cycle waiting for its deadline'
     case 'FundedLate':
-      return `${due} · funded late`
+      return 'Last cycle funded late'
     case 'Missed':
-      return `${due} · missed`
+      return 'Last cycle missed'
     default:
-      return due
+      return `Last cycle due ${formatDate(cycle.deadline)}`
   }
 }

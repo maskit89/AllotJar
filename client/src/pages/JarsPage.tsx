@@ -272,7 +272,7 @@ export function JarsPage() {
                 </Button>
               )}
             </div>
-            <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
+            <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))]">
               {jars.map((f, i) => (
                 <JarCard
                   key={f.id}
@@ -397,7 +397,7 @@ function JarCard({
       ? Math.min(100, Math.max(0, Math.round((balanceMinor / targetMinor) * 100)))
       : 0
   const chip = jarStatusChip(jar.status)
-  const horizon = jarHorizonLabel(jar)
+  const horizon = jarHorizonLabel(jar, currency)
   const lastCycle = jarLastCycleLabel(jar, currency)
   // W03: a Recurring jar with an open cycle can be marked paid at any time (rule 83); the
   // missed-deadline notice can also be dismissed (rule 20). A last cycle that rolled forward
@@ -452,7 +452,8 @@ function JarCard({
           <div className="h-full rounded-full" style={{ width: `${pct}%`, background: hueColor(hue) }} />
         </div>
 
-        <div className="mt-3 flex items-center justify-between gap-2">
+        {/* The lines run the card's full width, the actions sit in a row underneath. */}
+        <div className="mt-3 flex flex-col gap-2.5">
           <span className="min-w-0 text-[12.5px] font-medium tabular-nums text-slate-500">
             <span className={`block ${missed ? 'text-rose-700 dark:text-rose-300' : ''}`}>{jarMonthLabel(jar, currency)}</span>
             {horizon && <span className="block text-[11.5px] font-normal">{horizon}</span>}
@@ -464,12 +465,12 @@ function JarCard({
                 aria-label={`Record the payment for ${jar.name}'s cycle due ${formatDate(unpaidLastCycle.deadline)}`}
                 className="block text-[11.5px] font-semibold text-slate-500 underline transition hover:text-brand-700 dark:hover:text-brand-200"
               >
-                Paid it? Record the payment
+                Record the payment
               </button>
             )}
           </span>
           {canManage && (
-            <span className="flex flex-wrap justify-end gap-3">
+            <span className="flex flex-wrap justify-end gap-x-4 gap-y-1">
               {recurring && missed && (
                 <button
                   type="button"

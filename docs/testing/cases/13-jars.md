@@ -1,6 +1,6 @@
 # Jars (savings)
 
-**ID prefix:** JAR | **Scope:** Everything on the Jars screen at `/jars` (`client/src/pages/JarsPage.tsx`) and the money math behind it: the **Total saved / This month / Active jars** hero; the jar-card grid (jar graphic with clamped fill %, name, status chip, `%` pill, `€X of €Y` balance, progressbar, the month line **Plan · in · to go** and the horizon line, Edit link); the **New jar** / **Edit jar** modal (`JarFormModal`: Name, Type Recurring vs Goal, **Save** = By a deadline | A fixed amount each month, Target, Next due + Repeats | Deadline | Each month, Include the deadline month, Held in — required, non-credit-card, Already set aside + Set aside on) with its client-side and server-side validation and its **schedule preview** (`POST /jars/schedule`); the two-click **Archive** flow; how a jar's **actual balance** is read from its designated account's ledger (`JarLedgerReader` / `ActualSavingsLedger`: initial allocation, same-account moves, expenses from that account on the jar's line — never planned contributions; PR jar-ledger slice, rules 1–6, 26, 68, 70, 73–80); the schedule engine (`Domain/Services/JarSchedule` — TargetByDate: exact split to the month before the deadline, remainder last, deadline-month opt-in, rule 62 clamp; FixedMonthly: fixed amount, capped final month, estimate, ongoing; rules 12–18, 35–36, 58, 62, 82, 86) and the planner that seeds, previews and replants Savings lines from it (`Application/Jars/JarPlanner`, rules 46, 59; W02); the recurrence-as-pure-view invariant (stored anchor never advanced); status derivation (`JarDto` / `lib/jarStatus.ts`); archived-jar exclusion from lists / copy / reconciliation; and the dashboard **Your jars** shelf (`DashboardPage.tsx`, current-month-only). | **Out of scope:** The **Allocation** engine (`/allocation`, `AllocationPage`, allocation profiles, income waterfall, member savings transfers, BalanceTilt/WaterFill) → the allocation sibling file; the budget grid's Savings-group UI (inline rename, add/delete a savings line, `SavingsAvailable` "avail." column rendering) and month create/copy/template mechanics → `08-categories-budget-lines.md` and `07-month-lifecycle.md` (jar-relevant seeding/copy behaviour is asserted here); the **Held in** account's reconciliation panel (Account/Balance/In jars/Float) → `12-accounts-reconciliation.md`; whole-transaction assignment / splits that move jar spend → `10-transactions.md`; the dashboard hero, bills strip and empty-month prompt → `06-dashboard-budget-view.md`; the full role matrix, cross-tab logout, silent refresh → the session & roles sibling files (only jar-page `canWrite` gating and the jar commands' 403/404 appear here); responsive / dark-mode / a11y sweeps live in their own files (referenced only where behaviour is jar-specific, e.g. the modal's 375px fit); the **Recurring cycle lifecycle** (W03: the persisted open cycle, rule 21 rollover, **Deadline missed** / **Funded late**, **Mark paid** choosing the payment, **Dismiss**, the *Last cycle* line — `Application/Jars/JarCycles`, `MarkCyclePaidModal`, `DismissCycleModal`; rules 19–24, 57, 83) is in scope here as JAR-088–093.
+**ID prefix:** JAR | **Scope:** Everything on the Jars screen at `/jars` (`client/src/pages/JarsPage.tsx`) and the money math behind it: the **Total saved / This month / Active jars** hero; the jar-card grid (jar graphic with clamped fill %, name, status chip, `%` pill, `€X of €Y` balance, progressbar, the month line **Plan · in · to go** and the horizon line, Edit link); the **New jar** / **Edit jar** modal (`JarFormModal`: Name, Target, Needed by | Next due, **Repeats** = Doesn’t repeat | Monthly | Every 3 months | Every 6 months | Yearly with its "What repeating means" InfoHint, Held in — required, non-credit-card, the **Set aside a fixed amount each month** switch that swaps the date and Repeats for Each month, and under **More options** Already set aside + Set aside on and Include the deadline month — no Type is asked: Repeats and the switch decide the kind) with its client-side and server-side validation and its **schedule preview** (`POST /jars/schedule`); the two-click **Archive** flow; how a jar's **actual balance** is read from its designated account's ledger (`JarLedgerReader` / `ActualSavingsLedger`: initial allocation, same-account moves, expenses from that account on the jar's line — never planned contributions; PR jar-ledger slice, rules 1–6, 26, 68, 70, 73–80); the schedule engine (`Domain/Services/JarSchedule` — TargetByDate: exact split to the month before the deadline, remainder last, deadline-month opt-in, rule 62 clamp; FixedMonthly: fixed amount, capped final month, estimate, ongoing; rules 12–18, 35–36, 58, 62, 82, 86) and the planner that seeds, previews and replants Savings lines from it (`Application/Jars/JarPlanner`, rules 46, 59; W02); the recurrence-as-pure-view invariant (stored anchor never advanced); status derivation (`JarDto` / `lib/jarStatus.ts`); archived-jar exclusion from lists / copy / reconciliation; and the dashboard **Your jars** shelf (`DashboardPage.tsx`, current-month-only). | **Out of scope:** The **Allocation** engine (`/allocation`, `AllocationPage`, allocation profiles, income waterfall, member savings transfers, BalanceTilt/WaterFill) → the allocation sibling file; the budget grid's Savings-group UI (inline rename, add/delete a savings line, `SavingsAvailable` "avail." column rendering) and month create/copy/template mechanics → `08-categories-budget-lines.md` and `07-month-lifecycle.md` (jar-relevant seeding/copy behaviour is asserted here); the **Held in** account's reconciliation panel (Account/Balance/In jars/Float) → `12-accounts-reconciliation.md`; whole-transaction assignment / splits that move jar spend → `10-transactions.md`; the dashboard hero, bills strip and empty-month prompt → `06-dashboard-budget-view.md`; the full role matrix, cross-tab logout, silent refresh → the session & roles sibling files (only jar-page `canWrite` gating and the jar commands' 403/404 appear here); responsive / dark-mode / a11y sweeps live in their own files (referenced only where behaviour is jar-specific, e.g. the modal's 375px fit); the **Recurring cycle lifecycle** (W03: the persisted open cycle, rule 21 rollover, **Deadline missed** / **Funded late**, **Mark paid** choosing the payment, **Dismiss**, the *Last cycle* line — `Application/Jars/JarCycles`, `MarkCyclePaidModal`, `DismissCycleModal`; rules 19–24, 57, 83) is in scope here as JAR-088–093.
 
 **Test data setup:** Unless a case says otherwise, assume an authenticated **Owner** (`canWrite = true`, `canEnterData = true`) of a **shared EUR household "Home"** with **2 members** *Alex* and *Robin*. Today (server UTC and browser clock) is **2026-07-15**, so the app-wide viewed month is **July 2026**, the schedule's planning month is July and its opening balance is the ledger as of **2026-06-30** (rule 82: plain calendar dates; the current month counts until it ends). The `jars` feature flag is **on**; a single EUR account **Joint** exists. By PR #170 a fresh account is **empty** (zero jars, zero months) — cases that need jars/months say so. Money is `decimal(18,4)` server-side and integer minor units at scale 4 (`FACTOR = 10_000`) client-side; a jar's `currentBalance`, `plannedThisMonth`/`contributedThisMonth`/`remainingThisMonth`, `deadline`, `fundingCompletesOn`, `estimatedMonthsToTarget` and `status` are **always derived at read time**, never stored (this month's plan is the saved Savings line when the month exists, else the schedule from the month-start balance). Enum fields (`kind`, `accrual`) go over the wire as **numbers** (JarKind: Recurring=0, Goal=1; AccrualMethod: TargetByDate=1, FixedMonthly=2 — StraightLine/ProportionalPool/DailyRate are retired, rule 86). The modal's amount fields use `parseAmount` → `parseMinor` ('' → 0; strips spaces/apostrophes; right-most of a mixed `,/.` pair is the decimal; rounds HALF-UP beyond 4 dp; rejects negatives / whitespace-only / `abc` / `1.2.3` / `1,2,3` → the modal shows "Enter valid amounts."). Client wiring is exercised by `client/src/pages/JarsPage.test.tsx` and the two `JarsPage.catalog*.test.tsx` files; jar domain/handler behaviour by `tests/AllotJar.Application.Tests/Domain/JarScheduleTests.cs`, `Application/{JarPlannerTests,JarsTests,JarBudgetLinkTests,JarLifecycleTests,JJarsCoverageTests,CreateBudgetMonthTests}.cs`, and the enforced-FK writers by `tests/AllotJar.IntegrationTests/SavingsForeignKeyTests.cs`.
 
@@ -23,7 +23,7 @@
 - **Preconditions:** Owner with two jars: "Home insurance" (currentBalance 120.00, plannedThisMonth 25.00) and "Holiday" (currentBalance 300.00, plannedThisMonth 50.00).
 - **Steps:**
   1. Open `/jars`.
-- **Expected:** Hero "Total saved" = **€420.00** (Σ currentBalance), tile "This month" = **+€75.00** (Σ plannedThisMonth, rule 14), tile "Active jars" = **2**. Section heading "Your jars" with a "+ New jar" button; one `JarCard` per jar in a responsive grid.
+- **Expected:** Hero "Total saved" = **€420.00** (Σ currentBalance), tile "This month" = **+€75.00** (Σ plannedThisMonth, rule 14), tile "Active jars" = **2**. Section heading "Your jars" with a "+ New jar" button; one `JarCard` per jar in a responsive grid (`repeat(auto-fit,minmax(min(100%,340px),1fr))`, was 280px: two cards a row on a 1280-wide desktop, each line on one row; one a row on a phone).
 - **Automated:** Yes (JarsPage.catalog.test.tsx — JAR-002)
 
 ### JAR-003 - Jar card anatomy (balance, of-target, progressbar, month line, horizon)
@@ -32,7 +32,7 @@
 - **Preconditions:** One jar "Home insurance" (Recurring, yearly): target 300.00, currentBalance 120.00, plannedThisMonth 25.00, contributedThisMonth 10.00, remainingThisMonth 15.00, deadline 2026-12-01, fundingCompletesOn 2026-11-30, status OnTrack.
 - **Steps:**
   1. Open `/jars` and read the card.
-- **Expected:** Jar graphic with `aria-label` "Home insurance: 40% funded" (120/300); title "Home insurance"; no status chip (OnTrack is quiet); a `40%` pill; balance line "**€120.00** of €300.00"; a `progressbar` (aria-label "Home insurance funding progress", `aria-valuenow=40`, min 0 max 100) filled 40%; the month line "**Plan €25.00 · in €10.00 · to go €15.00**" (rule 14: three figures, the plan never shrinking because money landed) and under it the horizon "Funded by Nov 2026 · due 1 Dec 2026, then it repeats" (rule 36: the funding-completion month and the deadline it serves are distinct); an "Edit" link (aria-label "Edit Home insurance") because `canManage`.
+- **Expected:** Jar graphic with `aria-label` "Home insurance: 40% funded" (120/300); title "Home insurance"; no status chip (OnTrack is quiet); a `40%` pill; balance line "**€120.00** of €300.00"; a `progressbar` (aria-label "Home insurance funding progress", `aria-valuenow=40`, min 0 max 100) filled 40%; the month line "**Plan €25.00 · in €10.00 · to go €15.00**" (rule 14: three figures, the plan never shrinking because money landed) and under it the horizon "Due 1 Dec 2026 · yearly" (the deadline stays the deadline, rule 36; the funding-completion month, Nov 2026, is not on the card — the form's preview shows it); the lines run the card's full width, and the actions sit in their own right-aligned row under them: **Mark paid**, **Move money** and an "Edit" link (aria-label "Edit Home insurance") because `canManage`.
 - **Automated:** Yes (JarsPage.test.tsx — cards + "shows a status chip, this month's plan and the funding horizon")
 
 ### JAR-004 - Fill % clamps to 0–100
@@ -50,7 +50,7 @@
 - **Preconditions:** Two jars: "Sofa" (target 300.00, currentBalance 300.00, status FullyFunded) and "Slush" (Goal, target 0.00, no deadline, no monthly amount, currentBalance 500.00, status Unscheduled).
 - **Steps:**
   1. Open `/jars`.
-- **Expected:** "Sofa" shows the teal "Funded" chip and **no** `%` pill (redundant next to Funded); its balance line shows "€300.00" plus "of €300.00". "Slush" (target ≤ 0) shows **no** `%` pill and **no** "of €…" suffix — just "€500.00"; the amber **Needs a plan** chip and the month line "Add a deadline or a monthly amount to plan contributions" (rule 17).
+- **Expected:** "Sofa" shows the teal "Funded" chip and **no** `%` pill (redundant next to Funded); its balance line shows "€300.00" plus "of €300.00". "Slush" (target ≤ 0) shows **no** `%` pill and **no** "of €…" suffix — just "€500.00"; the amber **Needs a plan** chip and the month line "Give it a target and a date, or a monthly amount" (rule 17: with no target a date alone can't plan it; an Unscheduled jar that has a target reads "Give it a date or a monthly amount").
 - **Automated:** Yes (JarsPage.catalog.test.tsx — JAR-005)
 
 ### JAR-006 - Status chips: Behind / Overspent / Funded / Needs a plan / Unavailable only
@@ -65,11 +65,11 @@
 ### JAR-007 - Month-line and horizon variants for every state
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** Jars covering: (a) a deadline plan in progress (planned 25, in 10, to go 15; funded by Nov 2026, due 1 Dec 2026, recurring); (b) a fixed monthly target (planned 100, estimatedMonthsToTarget 6, no deadline); (c) an ongoing pot (status Ongoing, planned 50); (d) FullyFunded with planned 0 and balance 400 of 300; (e) Unscheduled; (f) Unavailable; (g) OnTrack with planned 0 for another reason.
+- **Preconditions:** Jars covering: (a) a deadline plan in progress (planned 25, in 10, to go 15; funded by Nov 2026, due 1 Dec 2026, recurring); (b) a fixed monthly target (planned 100, estimatedMonthsToTarget 6, no deadline); (c) an ongoing pot (status Ongoing, planned 50); (d) FullyFunded with planned 0 and balance 400 of 300; (e) Unscheduled, once with a target and once with target 0; (f) Unavailable; (g) OnTrack with planned 0 for another reason.
 - **Steps:**
   1. Open `/jars` and read each card's month line and horizon.
-- **Expected:** (a) "Plan €25.00 · in €10.00 · to go €15.00" / "Funded by Nov 2026 · due 1 Dec 2026, then it repeats" (a Goal drops ", then it repeats"); (b) "Plan €100.00 · in €0.00 · to go €100.00" / "About 6 more months at this rate (an estimate, not a deadline)" (rule 58); (c) "Plan €50.00 · …" / "Ongoing" (rule 16); (d) "Fully funded · €100.00 above target" (rule 47) and no horizon; (e) "Add a deadline or a monthly amount to plan contributions", no horizon; (f) "Balance not available", no horizon; (g) "Nothing to set aside this month". Never a bare "—".
-- **Automated:** Yes (lib/jarStatus.test.ts — jarMonthLabel / jarHorizonLabel variants)
+- **Expected:** (a) "Plan €25.00 · in €10.00 · to go €15.00" / "Due 1 Dec 2026 · yearly" (the cadence in the Repeats select's words, lowercased — `cadenceLabel`: "monthly", "every 3 months", "every 6 months", "yearly", and "every N months" for a value the select doesn't offer; a Goal reads "Needed by 1 Dec 2026"; the "Funded by Nov 2026" month is no longer shown, before or after funding completes); (b) "Plan €100.00 · in €0.00 · to go €100.00" / "About 6 months to go (estimate)" (rule 58; "About 1 month to go (estimate)" for one); (c) "Plan €50.00 · …" / "€50.00 every month" (rule 16; no horizon at all if the jar has no monthly amount); (d) "Fully funded · €100.00 above target" (rule 47) and no horizon; (e) "Give it a date or a monthly amount" when the jar has a target, "Give it a target and a date, or a monthly amount" when `targetAmount` is 0 (a date alone can't plan it), no horizon; (f) "Balance not available", no horizon; (g) "Nothing to set aside this month". Never a bare "—".
+- **Automated:** Yes (lib/jarStatus.test.ts — jarMonthLabel / jarHorizonLabel variants, both Unscheduled lines, `cadenceLabel` 1/3/6/12/24)
 
 ### JAR-008 - Loading state
 - **Priority:** P3
@@ -119,90 +119,90 @@
   1. Open `/jars`, click "New jar".
   2. In the dialog type "Vacation" into "Jar name".
   3. Type `1200` into "Target amount".
-  4. Leave Type = "Recurring"; set "Next due date" to `2027-06-01`; leave "Repeats" = Yearly.
+  4. Set "Repeats" to Yearly (a new jar starts on "Doesn’t repeat"; the date is now labelled "Next due"); set "Next due date" to `2027-06-01`.
   5. Click "Add jar".
 - **Expected:** A `POST /jars` fires with body containing `name:"Vacation"`, `kind:0`, `targetAmount:1200`, `accrual:1` (TargetByDate), `targetDate:"2027-06-01"`, `recurMonths:12`, `coverStart:null`, `coverEnd:null`, `openingBalance:0`. Modal closes; a "Vacation" card appears; `EVENTS.fundCreated` fires with `{kind:0}`. Server also plants the jar's contribution line into July 2026 and any later existing months (see the CreateJar-planting case under Jar filling).
 - **Automated:** Yes (JarsPage.test.tsx — "adds a fund from the New jar modal")
 
-### JAR-013 - Create a Goal jar by a deadline
+### JAR-013 - Create a jar that doesn't repeat (a Goal) by its Needed by date
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Owner; no jars.
 - **Steps:**
-  1. "New jar" → set Type = "Goal" (Save stays on "By a deadline").
-  2. Name "New kitchen", Target `5000`, "Deadline" `2027-01-01`.
+  1. "New jar" → leave "Repeats" on "Doesn’t repeat" (the default for a new jar; no Type is asked) and the fixed-monthly switch unticked.
+  2. Name "New kitchen", Target `5000`, "Needed by" `2027-01-01`.
   3. Click "Add jar".
-- **Expected:** The Recurring-only fields ("Next due"/"Repeats") are replaced by the **Save** select ("By a deadline" | "A fixed amount each month") and a "Deadline" input. `POST /jars` sends `kind:1`, `recurMonths:null`, `targetDate:"2027-01-01"`, `accrual:1`, `monthlyContribution:null`, `includeDeadlineMonth:false`. Card "New kitchen" appears; a Goal reads Behind only once past its deadline (Goals never re-arm).
-- **Automated:** Yes (JarsPage.catalog.test.tsx — JAR-013; JarsPage.test.tsx — "offers Recurring/Goal …" asserts the Save select and the Deadline/Monthly amount swap)
+- **Expected:** With Repeats on "Doesn’t repeat" the date field is labelled "Needed by" (aria "Needed by"), not "Next due"; there is no "How to save" select and no "Deadline" field. `POST /jars` sends `kind:1`, `recurMonths:null`, `targetDate:"2027-01-01"`, `accrual:1`, `monthlyContribution:null`, `includeDeadlineMonth:false`. Card "New kitchen" appears; a Goal reads Behind only once past its deadline (Goals never re-arm).
+- **Automated:** Yes (JarsPage.catalog.test.tsx — JAR-013; JarsPage.test.tsx — "asks no Type …" asserts the Needed by / Next due relabel and the switch's Each month swap)
 
 ### JAR-014 - A Goal needs a deadline or a monthly amount — no twelve-month default (rule 17)
 - **Priority:** P1
 - **Type:** Negative
 - **Preconditions:** Owner; no jars.
 - **Steps:**
-  1. "New jar" → Type "Goal", Name "Buffer", Target `1200`, leave "Deadline" blank; "Add jar".
+  1. "New jar" → Name "Buffer", Target `1200`, leave "Repeats" on "Doesn’t repeat" and "Needed by" blank; "Add jar".
   2. `POST /jars` directly with `kind:1, targetAmount:1200, targetDate:null, accrual:1`.
-- **Expected:** 1: no preview renders and no `/jars/schedule` request is made; the modal shows "Give the goal a deadline, or save a fixed amount each month instead." and nothing is posted. 2: 400 on `TargetDate` — "Give the jar a deadline, or save a fixed amount each month instead." The old "remainder spreads over 12 months" behaviour is gone; a legacy jar in this state plans 0 and reads **Needs a plan** (JAR-005).
-- **Automated:** Yes (JarsPage.catalog.test.tsx — JAR-042 for the missing preview; JarLifecycleTests — `Validator_RequiresADeadlinePlan_ForARecurringJar_AndAPlan_ForAGoal`; JarScheduleTests — `Rule17_…_NoTwelveMonthDefault`)
+- **Expected:** 1: no preview renders and no `/jars/schedule` request is made; the modal shows "Give the jar the date the money is needed by, or set aside a fixed amount each month instead." and nothing is posted. 2: 400 on `TargetDate` — "Give the jar a deadline, or save a fixed amount each month instead." The old "remainder spreads over 12 months" behaviour is gone; a legacy jar in this state plans 0 and reads **Needs a plan** (JAR-005).
+- **Automated:** Yes (JarsPage.catalog.test.tsx — JAR-014 for step 1: name + target, Repeats "Doesn’t repeat", no date, "Add jar" → the "Give the jar the date the money is needed by…" message and no `POST`; JAR-042 for the missing preview; JarLifecycleTests — `Validator_RequiresADeadlinePlan_ForARecurringJar_AndAPlan_ForAGoal`; JarScheduleTests — `Rule17_…_NoTwelveMonthDefault`)
 
-### JAR-015 - "Saved so far" seeds the opening balance on create
+### JAR-015 - "Already set aside" sits under More options on create and seeds the jar from money already in the account
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Owner; no jars.
 - **Steps:**
-  1. "New jar" → Name "Car repairs", Target `600`, Type "Goal", "Saved so far" = `150`.
-  2. "Add jar".
-- **Expected:** The opening field is labelled "**Saved so far**" (create mode, no "Before tracking began…" helper). `POST /jars` sends `openingBalance:150`. The returned card balance = opening + any planted contributions (opening 150 at minimum); fill % reflects 150/600 = 25% before contributions.
-- **Automated:** Partial (JarsPage.test.tsx — "labels the opening amount 'Saved so far' on create…" asserts the label; openingBalance value not asserted)
+  1. "New jar" → Name "Car repairs", Target `600`, "Needed by" `2027-03-01`; click "More options".
+  2. "Already set aside" = `150`, "Set aside on" today; "Add jar".
+- **Expected:** Before the click neither "Already set aside" nor "Set aside on" is visible; "More options" (a `<button>` with `aria-expanded`, closed by default on create) reveals both (aria "Already set aside" / "Set aside on", max today); "Already set aside" has an InfoHint "What setting money aside does" whose popover reads "Divides money already in Joint into this jar. It doesn’t add money." (no longer a visible line under the fields). `POST /jars` sends `initialAllocation:150` and `initialAllocationDate` today; left blank it sends `initialAllocation:0`, `initialAllocationDate:null`. The returned card balance reflects the 150 (25% of 600) before contributions. On edit the two fields are absent (rule 77; what the server checks is JAR-074/075).
+- **Automated:** Yes (JarsPage.catalog.test.tsx — JAR-015 asserts the blank case; JarsPage.test.tsx — "offers "Already set aside" + "Set aside on" under More options on create only" and "sends the initial allocation and its date with the create payload (rule 77)")
 
-### JAR-016 - Schedule preview phrasing (Recurring vs Goal; deadline vs fixed monthly)
+### JAR-016 - Schedule preview phrasing (repeats vs doesn't; by date vs fixed monthly)
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Owner; today 2026-09-27; the server answers `POST /jars/schedule` (P28: the preview is the planner).
 - **Steps:**
-  1. "New jar" (Type Recurring), Target `300`, "Next due date" `2026-12-01`; read the preview.
-  2. Change "Repeats" to every 3 months; read it again.
-  3. Switch Type to "Goal" with the same deadline; read it again.
-  4. Set Save = "A fixed amount each month", Each month `50`; read it again.
-- **Expected:** 1: "Sets aside **€100.00 a month** from Sep 2026 to Nov 2026, funded by 30 Nov 2026 for the deadline on 1 Dec 2026, then it repeats every year." (the months come from the server; the deadline day is not a contribution day, rule 12). 2: "… then it repeats every 3 months." 3: the same sentence without ", then it repeats …". 4: "Sets aside €50.00 a month — about 6 more months to reach the target (an estimate, not a deadline)." (rule 58). Each change re-asks the server with the form's definition (`kind`, `targetAmount`, `targetDate`, `accrual`, `monthlyContribution`, `includeDeadlineMonth`, `recurMonths`, `initialAllocation`, `jarId` null on create) 250 ms after typing stops.
+  1. "New jar", "Repeats" = Yearly, Target `300`, "Next due date" `2026-12-01`; read the preview.
+  2. Change "Repeats" to "Every 3 months"; read it again.
+  3. Change "Repeats" to "Doesn’t repeat" (the same date, now labelled "Needed by"); read it again.
+  4. Tick "Set aside a fixed amount each month", Each month `50`; read it again.
+- **Expected:** 1: one short line, "**€100.00 a month** · Sep 2026 – Nov 2026" (the months come from the server; the last one is when funding completes and the deadline day is not a contribution day, rules 12, 36), and no month list (an even plan needs none). It no longer says "Sets aside", "funded by …", "next due …" or "then it repeats every …": the date and Repeats fields above say those. 2: the same line; the request now carries `recurMonths:3` and the Repeats field shows the cadence. 3: the same line; the request now carries `kind:1`, `recurMonths:null`. 4: "€50.00 a month · about 6 months to go (estimate)" (rule 58). Each change re-asks the server with the form's definition (`kind`, `targetAmount`, `targetDate`, `accrual`, `monthlyContribution`, `includeDeadlineMonth`, `recurMonths`, `initialAllocation`, `jarId` null on create) 250 ms after typing stops.
 - **Automated:** Yes (JarsPage.catalog.supplemental.test.tsx — JAR-016; JarsPage.test.tsx — "previews the schedule the server plans as you type" asserts the request body)
 
 ### JAR-017 - Preview hides, and nothing is asked, while the definition can't be planned
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Owner; New-jar modal open (Recurring), "Next due date" `2026-12-01`.
+- **Preconditions:** Owner; New-jar modal open, "Repeats" = Yearly, "Next due date" `2026-12-01`.
 - **Steps:**
   1. Leave Target blank, then type `0`, then type `abc`; then `300`.
-- **Expected:** No preview and **no** `POST /jars/schedule` in the first three states (empty → 0 → `targetMinor <= 0`; `abc` → `parseMinor` null). Typing `300` brings the preview and one request with `targetAmount:300`. The same gate hides the preview while a recurring jar has no due date, a by-deadline goal has no deadline, a fixed plan has no monthly amount, or the edited jar's balance is unavailable (rule 67).
+- **Expected:** No preview and **no** `POST /jars/schedule` in the first three states (empty → 0 → `targetMinor <= 0`; `abc` → `parseMinor` null). Typing `300` brings the preview and one request with `targetAmount:300`. The same gate hides the preview while a repeating jar has no next due date, a jar that doesn't repeat has no Needed by date, a fixed plan has no monthly amount, or the edited jar's balance is unavailable (rule 67).
 - **Automated:** Yes (JarsPage.catalog.supplemental.test.tsx — JAR-017; JarsPage.catalog.test.tsx — JAR-041 unavailable, JAR-042)
 
-### JAR-018 - Type select shows Recurring/Goal, with no renews checkbox or Accrual dropdown
+### JAR-018 - The form asks no Type: Repeats (default "Doesn’t repeat") and the fixed-monthly switch decide the kind; no renews checkbox, no Accrual/How-to-save dropdown
 - **Priority:** P1
 - **Type:** Regression
-- **Origin:** PR #149 / Accrual dropdown removed, `RecurAnnually` replaced by `RecurMonths` (recurrence became a real, derived concept)
+- **Origin:** PR #149 / Accrual dropdown removed, `RecurAnnually` replaced by `RecurMonths` (recurrence became a real, derived concept); PR 1 (type-free form) dropped the "Type" select, its "About jar types" InfoHint and the "How to save" select — the kind is worked out from the answers.
 - **Preconditions:** Owner; New-jar modal open.
 - **Steps:**
-  1. Inspect the "Jar type" select and the surrounding fields.
-- **Expected:** "Jar type" offers exactly options "Recurring" and "Goal". There is **no** "Renews each year" checkbox and **no** "Accrual method" dropdown (new jars always save `accrual:1` TargetByDate; imported jars keep their stored method — see the accrual-echo edit case). An InfoHint "About jar types" button sits beside the Type label (not inside the `<label>`).
-- **Automated:** Yes (JarsPage.test.tsx — "offers Recurring/Goal as the jar Type and drops the renews checkbox")
+  1. Inspect the fields around Target.
+- **Expected:** There is **no** "Jar type" select, **no** "Renews each year" checkbox, **no** "Accrual method" dropdown and **no** "How to save" select. "Repeats" (aria "Repeats", default "Doesn’t repeat") and the checkbox "Set aside a fixed amount each month" (visible text "Fixed amount each month", JAR-019) decide the kind: a cadence with the switch off → `kind:0`, `recurMonths` = the cadence; "Doesn’t repeat" with the switch off → `kind:1`, `recurMonths:null`; the switch on (whatever Repeats said) → `kind:1`, `accrual:2`, `recurMonths:null`, `targetDate:null`. New jars save `accrual:1` TargetByDate unless the switch is ticked; imported jars keep their stored method — see the accrual-echo edit case. An InfoHint "What repeating means" button sits beside the Repeats label (not inside the `<label>`).
+- **Automated:** Yes (JarsPage.test.tsx — "asks no Type: Repeats (default "Doesn’t repeat") and the fixed-monthly switch decide the kind; no renews checkbox, no Accrual/How-to-save dropdown"; JarsPage.catalog.test.tsx — JAR-020)
 
-### JAR-019 - Type toggle swaps Next-due/Repeats vs Target-date
+### JAR-019 - Repeats swaps the date label: "Needed by" when it doesn't repeat, "Next due" when it does; the fixed-monthly switch swaps the date for "Each month"
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Owner; New-jar modal open.
 - **Steps:**
-  1. With Type = "Recurring", note the fields; select "Goal"; note the change.
-- **Expected:** Recurring shows "Next due" (aria "Next due date") + "Repeats" (aria "Repeat cycle") and no method choice (a recurring jar always saves by its due date). Switching to Goal removes "Repeat cycle" and shows the **Save** select (aria "How to save": "By a deadline" | "A fixed amount each month") with a "Deadline" (aria "Deadline") for the default method; choosing the fixed method swaps the Deadline for "Each month" (aria "Monthly amount") and relabels Target "Target (optional)". The already-typed `targetDate` value carries across the type swap (shared form field).
-- **Automated:** Yes (JarsPage.test.tsx — "offers Recurring/Goal as the jar Type and drops the renews checkbox")
+  1. With "Repeats" = "Doesn’t repeat", note the fields; select "Yearly"; note the change; tick "Set aside a fixed amount each month"; note the change.
+- **Expected:** "Doesn’t repeat" shows the date as "Needed by" (aria "Needed by"); a cadence relabels the same field "Next due" (aria "Next due date") and the already-typed date carries across (shared `targetDate`). Neither state offers a method choice: a jar with a date always saves toward it. The switch's visible text is just "Fixed amount each month" (contained in its name "Set aside a fixed amount each month"), followed by an InfoHint "What a fixed amount means" whose popover reads "No date in mind? Set aside the same amount every month, for a pot you keep topping up (an emergency fund). The target is optional."; the old visible sentence "No date in mind: set aside a fixed amount each month instead." and its hint paragraph are no longer shown. Ticking the switch removes the date and "Repeats" and shows "Each month" (aria "Monthly amount") in their place, relabelling Target "Target (optional)"; unticking brings the date and Repeats back with the cadence that was chosen (kept while hidden). The old "How to save" select and "Deadline" aria-label no longer exist.
+- **Automated:** Yes (JarsPage.test.tsx — "asks no Type: Repeats (default "Doesn’t repeat") and the fixed-monthly switch decide the kind; no renews checkbox, no Accrual/How-to-save dropdown" for the relabels and the Each-month swap; "keeps the cadence while the fixed-monthly switch hides it (JAR-019)" for the switch's visible text, its "What a fixed amount means" popover and the round trip: choose "Every 6 months", tick the switch, untick it → Repeats is back at "Every 6 months" and the date is labelled "Next due" again)
 
-### JAR-020 - Repeats cycle options
+### JAR-020 - Repeats offers "Doesn’t repeat", Monthly, Every 3 months, Every 6 months, Yearly; a new jar defaults to "Doesn’t repeat"
 - **Priority:** P2
 - **Type:** Happy
-- **Preconditions:** Owner; New-jar modal, Type "Recurring".
+- **Preconditions:** Owner; New-jar modal.
 - **Steps:**
-  1. Open the "Repeats" select.
-- **Expected:** Options are "Yearly" (12), "Every 6 months" (6), "Every 3 months" (3), "Monthly" (1) — from `RECUR_MONTHS_OPTIONS`. Default selected = "Yearly". Chosen value is sent as `recurMonths`.
-- **Automated:** No
+  1. Open the "Repeats" select (`id="jar-repeats"`, aria "Repeats").
+- **Expected:** Options, in order: "Doesn’t repeat" (0; the apostrophe is U+2019), "Monthly" (1), "Every 3 months" (3), "Every 6 months" (6), "Yearly" (12) — "Doesn’t repeat" followed by `RECUR_MONTHS_OPTIONS` reversed. Default selected = "Doesn’t repeat" (so a create with just a target and a date sends `kind:1`). A cadence is sent as `recurMonths` with `kind:0`; "Doesn’t repeat" sends `recurMonths:null` with `kind:1`. The select is hidden while the fixed-monthly switch is ticked. No "Jar type" select exists.
+- **Automated:** Yes (JarsPage.catalog.test.tsx — JAR-020)
 
 ### JAR-021 - "Held in" account select and no-account helper
 - **Priority:** P2
@@ -213,14 +213,14 @@
 - **Expected:** A "Held in" select (aria "Funding account") defaulting to option "No account" then each account name ("Joint"). Selecting "Joint" sends its id as `fundingAccountId`; "No account" sends `null`. Case B: the select shows only "No account" plus helper text "Add accounts to earmark a jar's cash." `fundingAccountId` is a soft hint, not an FK (deleting the account later leaves it dangling — reconciliation just stops counting the jar; see `12-accounts-reconciliation.md`).
 - **Automated:** No
 
-### JAR-022 - Jar-types InfoHint copy
+### JAR-022 - "What repeating means" InfoHint copy
 - **Priority:** P3
 - **Type:** Edge
 - **Preconditions:** Owner; New-jar modal open.
 - **Steps:**
-  1. Activate the "About jar types" InfoHint.
-- **Expected:** Popover explains **Recurring** ("Saves toward a due date, then repeats: when the date passes, it rolls forward a cycle and keeps going (insurance, road tax, holiday).") and **Goal** ("A one-off savings target — once it's funded, it's done (new kitchen, sofa, wedding)."). The trigger is a `<button>` outside any `<label>`.
-- **Automated:** Partial (a11y.spec.ts scans the modal incl. the InfoHint for axe, not the copy)
+  1. Activate the "What repeating means" InfoHint beside the Repeats label.
+- **Expected:** Popover reads, in two short sentences: "For a bill that comes round again (insurance, road tax): once you mark it paid, it saves toward the next one. A jar that doesn’t repeat is for saving up once (a sofa, a trip)." The bold headings "A jar that repeats" / "One that doesn’t" and the pointer to the fixed amount option are no longer shown. The trigger is a `<button>` outside any `<label>`; there is no "About jar types" hint any more.
+- **Automated:** Yes (JarsPage.catalog.supplemental.test.tsx — JAR-022; a11y.spec.ts scans the modal incl. the InfoHint for axe)
 
 ---
 
@@ -229,7 +229,7 @@
 ### JAR-023 - Empty or whitespace-only name is rejected
 - **Priority:** P1
 - **Type:** Negative
-- **Preconditions:** Owner; New-jar modal open, Type "Goal", Target `100`.
+- **Preconditions:** Owner; New-jar modal open, Target `100`, "Needed by" `2027-01-01`.
 - **Steps:**
   1. Leave "Jar name" blank and click "Add jar".
   2. Repeat with only spaces ("   ") in "Jar name".
@@ -242,40 +242,41 @@
 - **Preconditions:** Owner; New-jar modal, valid name.
 - **Steps:**
   1. Type `-5` (or `abc`, or `1.2.3`) into "Target amount", "Add jar".
-- **Expected:** "Enter valid amounts." (`parseAmount` → `parseMinor` returns null for negatives/malformed); no `POST`. The same message covers an unparseable "Saved so far".
+- **Expected:** "Enter valid amounts." (`parseAmount` → `parseMinor` returns null for negatives/malformed); no `POST`. The same message covers an unparseable "Already set aside" (under More options).
 - **Automated:** No
 
-### JAR-025 - Recurring jar with target ≤ 0 is blocked client-side
+### JAR-025 - A by-date jar with target ≤ 0 is blocked client-side with "Give the jar a target amount."
 - **Priority:** P1
 - **Type:** Negative
-- **Preconditions:** Owner; New-jar modal, Type "Recurring", name "Road tax".
+- **Preconditions:** Owner; New-jar modal, name "Road tax", "Repeats" = Yearly.
 - **Steps:**
   1. Leave Target blank (parses to 0), set "Next due date" `2027-01-01`, "Add jar".
-- **Expected:** "Give the recurring jar a target amount." (create-only guard: `!editingId && kind===Recurring && targetAmount <= 0`); no `POST`. The server itself stays permissive here (see the permissive-server-validators case).
-- **Automated:** No
+  2. Switch "Repeats" to "Doesn’t repeat", "Add jar".
+- **Expected:** "Give the jar a target amount." in both cases — the same words whether the jar repeats or not (the guard covers every jar saving toward a date: `byDeadline && targetAmount <= 0`, create and edit alike; the old "Give the recurring jar a target amount." is gone); no `POST`. The server enforces the same rule 17 (400 on `TargetAmount` — "A deadline needs a target amount to save toward.", JAR-055).
+- **Automated:** Yes (JarsPage.catalog.test.tsx — JAR-025)
 
 ### JAR-026 - Recurring jar with no due date is blocked client-side
 - **Priority:** P1
 - **Type:** Negative
-- **Preconditions:** Owner; New-jar modal, Type "Recurring", name "Road tax", Target `150`.
+- **Preconditions:** Owner; New-jar modal, "Repeats" = Yearly, name "Road tax", Target `150`.
 - **Steps:**
   1. Leave "Next due date" empty, "Add jar".
-- **Expected:** "Give the recurring jar its next due date."; no `POST`. This guard is form-only — the server accepts date-less recurring jars so importer/legacy jars stay editable (the edit path skips these create-guards).
+- **Expected:** "Give the jar its next due date." (a jar that doesn't repeat gets "Give the jar the date the money is needed by, or set aside a fixed amount each month instead." instead, JAR-014); no `POST`. The guard covers every jar saving toward a date, create and edit alike (JAR-025, JAR-036): a legacy date-less recurring jar must be given its date (or archived) on its next save, and the server enforces the same rule 17 (400 on `TargetDate` — "A recurring jar saves toward its next due date.", JAR-036/JAR-055).
 - **Automated:** Yes (JarsPage.test.tsx — "blocks a recurring jar without a due date, client-side")
 
-### JAR-027 - A Goal with no target saves as an ongoing pot at a fixed monthly amount (rule 16)
+### JAR-027 - The fixed-monthly switch with no target saves an ongoing pot (kind 1, accrual 2; rule 16)
 - **Priority:** P2
 - **Type:** Boundary
-- **Preconditions:** Owner; New-jar modal, Type "Goal", name "Someday".
+- **Preconditions:** Owner; New-jar modal, name "Someday".
 - **Steps:**
-  1. Save = "A fixed amount each month" (the Target label becomes "Target (optional)"), leave Target blank, Each month `50`, "Add jar".
-- **Expected:** Accepted. `POST /jars` sends `kind:1`, `targetAmount:0`, `targetDate:null`, `accrual:2`, `monthlyContribution:50`, `recurMonths:null`. The card reads "Plan €50.00 · in €0.00 · to go €50.00" with the horizon "Ongoing", no `%` pill and no "of €…". Each new month seeds 50 (JarPlannerTests rule 16); a missed month never raises a later one. A target of 0 with **no** monthly amount is refused (JAR-014).
+  1. Tick "Set aside a fixed amount each month" (the date and Repeats disappear, "Each month" appears, the Target label becomes "Target (optional)"), leave Target blank, Each month `50`, "Add jar".
+- **Expected:** Accepted. `POST /jars` sends `kind:1`, `targetAmount:0`, `targetDate:null`, `accrual:2`, `monthlyContribution:50`, `recurMonths:null`. The card reads "Plan €50.00 · in €0.00 · to go €50.00" with the horizon "€50.00 every month", no `%` pill and no "of €…". Each new month seeds 50 (JarPlannerTests rule 16); a missed month never raises a later one. A target of 0 with **no** monthly amount is refused (JAR-014).
 - **Automated:** Yes (JarsPage.catalog.test.tsx — JAR-027; JarScheduleTests — `Rule16_AnOngoingJar_…`; JarPlannerTests — `Rule16_AnOngoingJar_SeedsItsFixedAmount_EveryMonth`)
 
 ### JAR-028 - Target with more decimals than cents is refused (D1)
 - **Priority:** P2
 - **Type:** Boundary
-- **Preconditions:** Owner; New-jar modal, Type "Goal".
+- **Preconditions:** Owner; New-jar modal, "Needed by" `2027-01-01`.
 - **Steps:**
   1. Type `100.123456` into "Target amount", "Add jar".
 - **Expected:** Refused with "Enter at most 2 decimal places."; nothing is sent and nothing is rounded (D1, 1 Oct 2026). `100.12` is then sent as `targetAmount:100.12`. An edit that leaves a stored target with more decimals unchanged still saves (W10).
@@ -284,7 +285,7 @@
 ### JAR-029 - Out-of-range target or over-long name is rejected server-side
 - **Priority:** P2
 - **Type:** Boundary
-- **Preconditions:** Owner; New-jar modal, Type "Goal".
+- **Preconditions:** Owner; New-jar modal, "Needed by" `2027-01-01`.
 - **Steps:**
   1. Enter a target above 99,999,999,999,999.9999 (e.g. `100000000000000`) and click "Add jar".
   2. Separately, with Target `100`, paste a 121-character name and click "Add jar".
@@ -294,7 +295,7 @@
 ### JAR-030 - Unicode / emoji jar name accepted
 - **Priority:** P3
 - **Type:** Boundary
-- **Preconditions:** Owner; New-jar modal, Type "Goal", Target `50`.
+- **Preconditions:** Owner; New-jar modal, Target `50`, "Needed by" `2027-01-01`.
 - **Steps:**
   1. Name the jar "Café ☕ fund 🎉", "Add jar".
 - **Expected:** Accepted and round-tripped verbatim (trimmed only); the card title and any planted savings line carry the exact string. No mojibake.
@@ -305,7 +306,7 @@
 - **Type:** Negative
 - **Preconditions:** Owner; `POST /jars` returns 500.
 - **Steps:**
-  1. Fill a valid Goal jar and click "Add jar".
+  1. Fill a valid jar (a name, a target and a "Needed by" date) and click "Add jar".
 - **Expected:** The modal stays open showing "Could not add that jar."; no card is added; `saving` clears (button re-enabled). Edit-mode failures show "Could not save that jar." instead.
 - **Automated:** No
 
@@ -313,14 +314,14 @@
 
 ## Editing a jar (Edit modal & round-trip invariants)
 
-### JAR-032 - Edit prefill and the "Opening balance" relabel
+### JAR-032 - Edit prefill; no "Already set aside" on an edit
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Owner; jar "Home insurance" (kind Recurring, target 300, targetDate 2026-12-01, recurMonths 12, openingBalance 0, currentBalance 120).
 - **Steps:**
   1. Click "Edit Home insurance".
-- **Expected:** Modal titled "Edit jar" prefilled: Name "Home insurance", Type "Recurring", Target "300.00", "Next due" 2026-12-01, "Repeats" Yearly. The opening field is labelled "**Opening balance**" (not "Saved so far") with helper "Before tracking began — the card shows the live total." to stop users retyping the card's live €120 (a double-count trap).
-- **Automated:** Yes (JarsPage.test.tsx — "labels the opening amount … 'Opening balance' on edit")
+- **Expected:** Modal titled "Edit jar" prefilled: Name "Home insurance", Target "300.00", "Repeats" Yearly (so the date is labelled "Next due", aria "Next due date") 2026-12-01, the "Set aside a fixed amount each month" switch unticked. There is no opening field on an edit: "Already set aside" / "Set aside on" are create-only (under "More options", rule 77), and with a 1st-of-month date there is nothing else to fold away, so no "More options" button renders at all; the old "Saved so far" / "Opening balance" labels no longer exist, so the card's live €120 is never retyped (the double-count trap). "Held in" (aria "Funding account") stays enabled, with no hint under it: the edit-only "The account can change only while the jar holds nothing." is no longer shown (the server's refusal explains it when a jar that holds money is moved, rule 80).
+- **Automated:** Yes (JarsPage.test.tsx — "offers "Already set aside" + "Set aside on" under More options on create only — no allocation field on edit")
 
 ### JAR-033 - Rename round-trips via a whole-resource PUT
 - **Priority:** P1
@@ -337,40 +338,40 @@
 - **Origin:** PR #142 / audit finding #5 (an unrelated edit must not wipe stored schedule inputs) — now about `includeDeadlineMonth`; the cover window it used to protect was dropped with the retired modes (rule 86).
 - **Preconditions:** Owner; a jar with `targetDate:2026-12-15`, `includeDeadlineMonth:true`.
 - **Steps:**
-  1. "Edit" the jar; the "Include the deadline month" box is ticked; change nothing else, click "Save jar".
+  1. "Edit" the jar; "More options" is already open (`aria-expanded="true"` — the fold starts open when the jar uses something in it) and the "Include the deadline month" box inside it is ticked; change nothing else, click "Save jar".
 - **Expected:** `PUT /jars/{id}` body contains `targetDate:"2026-12-15"`, `accrual:1`, `includeDeadlineMonth:true`, `fundingAccountId` unchanged — echoed from the jar, not reset. Nothing is replanted because no schedule input changed (rule 46 / P29).
 - **Automated:** Yes (JarsPage.test.tsx — "echoes the stored deadline-month option and account when editing")
 
-### JAR-035 - Edit echoes the stored plan (a fixed monthly method and amount survive a rename)
+### JAR-035 - Edit echoes the stored plan (the fixed-monthly switch and amount survive a rename)
 - **Priority:** P0
 - **Type:** Regression
-- **Origin:** PR #149 (the form must send the jar's own accrual, never force the default) — re-based on the two remaining methods.
+- **Origin:** PR #149 (the form must send the jar's own accrual, never force the default) — re-based on the two remaining methods, now the fixed-monthly switch.
 - **Preconditions:** Owner; a Goal with `accrual:2`, `monthlyContribution:40`, `targetAmount:480`, `targetDate:null`.
 - **Steps:**
-  1. "Edit" the jar — Save shows "A fixed amount each month" and Each month `40`; rename it, "Save jar".
-- **Expected:** `PUT` body has `accrual:2`, `monthlyContribution:40`, `targetAmount:480`, `targetDate:null` alongside the new name; the jar keeps its fixed plan. Only a jar whose Save is switched to "By a deadline" sends `accrual:1` (and then needs a deadline).
+  1. "Edit" the jar — the "Set aside a fixed amount each month" switch is ticked, "Each month" (aria "Monthly amount") shows `40`, Target reads "Target (optional)" and there is no date and no "Repeats"; rename it, "Save jar".
+- **Expected:** `PUT` body has `accrual:2`, `monthlyContribution:40`, `targetAmount:480`, `targetDate:null` alongside the new name; the jar keeps its fixed plan. Only a jar whose switch is unticked sends `accrual:1` (and then needs a date).
 - **Automated:** Yes (JarsPage.catalog.test.tsx — JAR-035; JarsPage.test.tsx — "edits a Goal that saves a fixed amount each month")
 
 ### JAR-036 - A recurring jar can't be saved without its target and due date (edit included)
 - **Priority:** P1
 - **Type:** Negative
 - **Origin:** PR #149 kept the guards create-only for imported jars; rule 17 (W02) makes the plan mandatory everywhere, so a legacy date-less recurring jar must be given a date (or archived) on its next save.
-- **Preconditions:** Owner; a legacy jar kind Recurring, `targetDate:null`, `targetAmount:0`, `recurMonths:12` (reads **Needs a plan**).
+- **Preconditions:** Owner; a legacy jar kind Recurring, `targetDate:null`, `targetAmount:0`, `recurMonths:12` (reads **Needs a plan**, month line "Give it a target and a date, or a monthly amount").
 - **Steps:**
   1. "Edit" it, rename to "Living Costs", "Save jar". 2. `PUT /jars/{id}` directly with `kind:0, targetDate:null`.
-- **Expected:** 1: the modal shows "Give the recurring jar a target amount." (then, with a target, "Give the recurring jar its next due date."); nothing is sent until both are given, after which the save replants its lines (rule 46). 2: 400 on `TargetDate` — "A recurring jar saves toward its next due date." Archiving the jar instead remains available.
+- **Expected:** 1: the modal shows "Give the jar a target amount." (then, with a target, "Give the jar its next due date."); nothing is sent until both are given, after which the save replants its lines (rule 46). 2: 400 on `TargetDate` — "A recurring jar saves toward its next due date." Archiving the jar instead remains available.
 - **Automated:** Partial (JarsPage.test.tsx — "blocks a recurring jar without a due date, client-side" exercises the same submit guard on create; JarLifecycleTests — `Validator_RequiresADeadlinePlan_ForARecurringJar_AndAPlan_ForAGoal`)
 
-### JAR-037 - Switching a passed Recurring jar to Goal keeps the real anchor date
+### JAR-037 - Switching a Recurring jar's Repeats to "Doesn’t repeat" sends the date it showed as the Goal's deadline
 - **Priority:** P1
 - **Type:** Regression
-- **Origin:** PR #149 — the DTO returns the stored anchor (not the rolled date); switching to Goal must keep that anchor and clear the cycle.
-- **Preconditions:** Owner; today 2026-07-15; Recurring jar with anchor `targetDate:2026-01-01`, recurMonths 12 (effective due rolled to 2027-01-01 for status, but the DTO/prefill carries 2026-01-01).
+- **Origin:** PR #149 — the DTO returns the stored anchor; W03 gave the form the open cycle's date instead (JAR-093); switching to a Goal must send the date the user saw and clear the cycle.
+- **Preconditions:** Owner; today 2026-07-15; Recurring jar with anchor `targetDate:2026-01-01`, recurMonths 12, whose funded cycle rolled forward so the open cycle (the DTO's `deadline`) is 2027-01-01.
 - **Steps:**
-  1. "Edit" the jar; the "Next due" field shows **2026-01-01** (the anchor, not 2027-01-01).
-  2. Switch Type to "Goal"; "Save jar".
-- **Expected:** `PUT` sends `kind:1`, `recurMonths:null`, `targetDate:"2026-01-01"` (the anchor is preserved, not a rolled date the user never chose). As a Goal the past-due date now reads Behind (Goals don't re-arm).
-- **Automated:** Partial (JarLifecycleTests — anchor never rewritten, switching to Goal clears the cycle; prefill-shows-anchor on the client not asserted)
+  1. "Edit" the jar; "Repeats" shows Yearly and the "Next due" field shows **2027-01-01** (the open cycle, W03 — not the anchor).
+  2. Switch "Repeats" to "Doesn’t repeat"; the same field is now labelled "Needed by" and still shows 2027-01-01; "Save jar".
+- **Expected:** `PUT` sends `kind:1`, `recurMonths:null`, `targetDate:"2027-01-01"` — the date the user saw becomes the Goal's deadline (a Goal has no cycle), never a date they never chose; the server clears the cycle. A Goal past its date reads Behind (Goals don't re-arm).
+- **Automated:** Yes (JarsPage.catalog.test.tsx — JAR-037; JarLifecycleTests — anchor never rewritten, switching to Goal clears the cycle)
 
 ### JAR-038 - An edit round-trip never advances the anchor date
 - **Priority:** P1
@@ -406,17 +407,17 @@
 - **Type:** Edge
 - **Preconditions:** Owner; jar "Home insurance" target 300, currentBalance 120, targetDate 2026-12-01, accrual TargetByDate; today 2026-09-27.
 - **Steps:**
-  1. "Edit" it; read the preview. 2. Change the Target to `900`; read it again. 3. On a new jar, type Target `1200`, Deadline `2026-12-01`, then Already set aside `600`.
-- **Expected:** 1: `POST /jars/schedule` with `jarId:"f1"`, `targetAmount:300`, `initialAllocation:0` — the server plans from the jar's balance entering the month (rule 1; there is no opening field to retype) → "Sets aside €60.00 a month from Sep 2026 to Nov 2026 …". 2: a new request with `targetAmount:900` → "€260.00 a month"; the old figure is gone. 3: the create preview sends `jarId:null`, `initialAllocation:600` and the server folds it in (€400.00 → €200.00 a month). With `currentBalance:null` (Unavailable) no preview renders and nothing is asked.
+  1. "Edit" it; read the preview. 2. Change the Target to `900`; read it again. 3. On a new jar, type Target `1200`, "Needed by" `2026-12-01`, then click "More options" and type Already set aside `600`.
+- **Expected:** 1: `POST /jars/schedule` with `jarId:"f1"`, `targetAmount:300`, `initialAllocation:0` — the server plans from the jar's balance entering the month (rule 1; there is no opening field to retype) → "€60.00 a month · Sep 2026 – Nov 2026". 2: a new request with `targetAmount:900` → "€260.00 a month · …"; the old figure is gone. 3: the create preview sends `jarId:null`, `initialAllocation:600` and the server folds it in (€400.00 → €200.00 a month). With `currentBalance:null` (Unavailable) no preview renders and nothing is asked.
 - **Automated:** Yes (JarsPage.catalog.test.tsx — JAR-041 ×3; JarPlannerTests — `ThePreview_OfAnEdit_StartsFromTheJarsBalanceEnteringTheMonth_AndOfANewJar_FromWhatIsSetAside`)
 
-### JAR-042 - No preview without a deadline or a monthly amount; either one brings it (rule 17)
+### JAR-042 - No preview without a date or a monthly amount; either one brings it (rule 17)
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Owner; a legacy Goal with `targetAmount:300`, `targetDate:null`, `accrual:1` (Unscheduled).
+- **Preconditions:** Owner; a legacy Goal with `targetAmount:300`, `targetDate:null`, `accrual:1` (Unscheduled: "Give it a date or a monthly amount").
 - **Steps:**
-  1. "Edit" the jar and change the Target to `900`. 2. Set Save = "A fixed amount each month", Each month `50`. 3. Set Save back to "By a deadline" and a Deadline `2026-12-01`.
-- **Expected:** 1: **no** preview and no `/jars/schedule` request — there is nothing to plan. 2: a request with `accrual:2`, `monthlyContribution:50`, `targetDate:null` → "Sets aside €50.00 a month — about 4 more months to reach the target (an estimate, not a deadline)." 3: a request with `accrual:1`, `targetDate:"2026-12-01"` → the deadline schedule.
+  1. "Edit" the jar and change the Target to `900`. 2. Tick "Set aside a fixed amount each month", Each month `50`. 3. Untick it and give a "Needed by" date `2026-12-01`.
+- **Expected:** 1: **no** preview and no `/jars/schedule` request — there is nothing to plan. 2: a request with `accrual:2`, `monthlyContribution:50`, `targetDate:null` → "€50.00 a month · about 4 months to go (estimate)". 3: a request with `accrual:1`, `targetDate:"2026-12-01"` → the deadline schedule, "€60.00 a month · Sep 2026 – Nov 2026".
 - **Automated:** Yes (JarsPage.catalog.test.tsx — JAR-042)
 
 ### JAR-043 - Edit save failure keeps the modal open
@@ -556,7 +557,7 @@
 - **Preconditions:** Owner; today 2026-07-15; two Recurring jars, target 600, anchor 2026-01-01, recurMonths 12: (a) held 600 on 31 Dec 2025; (b) held 450 on 31 Dec 2025 and still.
 - **Steps:**
   1. Read both jars on `/jars`.
-- **Expected:** (a) the cycle due 1 Jan 2026 closes as Funded with balance 600 and the jar's deadline is **2027-01-01**; status OnTrack (no chip), the contribution spread over the months to Dec 2026, the *Last cycle* line "Last cycle · due 1 Jan 2026 · funded on time, payment not recorded" with a **Paid it? Record the payment** link; the anchor `targetDate` is still 2026-01-01 and the day of month is preserved across cycles (a 31st never drifts to the 28th, rule 62). (b) the deadline stays **2026-01-01**, status **Deadline missed** (rose chip), month line "Deadline 1 Jan 2026 missed · €150.00 short", this month's plan is the whole 150, and nothing changes on later reads; no money moves in either case. A deposit on the deadline day itself does not count for the rollover (rule 82: the balance at the end of the day before).
+- **Expected:** (a) the cycle due 1 Jan 2026 closes as Funded with balance 600 and the jar's deadline is **2027-01-01**; status OnTrack (no chip), the contribution spread over the months to Dec 2026, the horizon "Due 1 Jan 2027 · yearly", the *Last cycle* line "Last cycle funded on time" with a **Record the payment** link; the anchor `targetDate` is still 2026-01-01 and the day of month is preserved across cycles (a 31st never drifts to the 28th, rule 62). (b) the deadline stays **2026-01-01**, status **Deadline missed** (rose chip), month line "Deadline 1 Jan 2026 missed · €150.00 short", this month's plan is the whole 150, and nothing changes on later reads; no money moves in either case. A deposit on the deadline day itself does not count for the rollover (rule 82: the balance at the end of the day before).
 - **Automated:** Yes (JarCycleTests — `Rule21_ACycleHeldInFull_WhenItsDeadlineArrives_RollsForward_AndMovesNoMoney`, `Rule21_TheRolloverCountsWhatWasHeldTheDayBefore_NotMoneyThatArrivedOnTheDeadline`, `Rule21_SeveralFundedCyclesPassedUnseen_EachRollsForward_InOrder`, `Rule20_ACycleShortAtItsDeadline_ReadsDeadlineMissed_WithTheShortfall_AndStaysThatWay`; JarLifecycleTests — `Status_PastDueRecurring_ReadsDeadlineMissed_WithTheShortfall_ThenFundedLate`; JarScheduleTests — `ARecurringJar_PlansTowardItsOpenCycle_NotTheAnchor`, `Rule20_AMissedRecurringCycle_NeverRollsOnItsOwn_AndPlansTheShortfallNow`, `Rule62_TheNextCycle_IsSteppedFromTheAnchor_SoAShorterMonthClampsOnlyThatOccurrence`)
 
 ### JAR-057 - Past-due Goal stays Behind; funded Goal is Funded
@@ -820,46 +821,46 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
 ### JAR-083 - The preview lists each month's amount, with the rounding remainder visibly in the last month (rule 35)
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Owner; New-jar modal (Recurring), Target `100`, Next due `2026-12-01`; today 2026-09-27.
+- **Preconditions:** Owner; New-jar modal, "Repeats" = Yearly, Target `100`, Next due `2026-12-01`; today 2026-09-27.
 - **Steps:**
   1. Read the preview.
-- **Expected:** Uneven months are summarised by their total — "Sets aside **€100.00 in total** from Sep 2026 to Nov 2026, funded by 30 Nov 2026 for the deadline on 1 Dec 2026, then it repeats every year." — and listed one per month: Sep 2026 €33.33, Oct 2026 €33.33, **Nov 2026 €33.34**. Even months read "€X a month" and are listed only when there are six or fewer. What is listed is what `POST /jars` plants on the Savings lines (JarPlannerTests — `ThePreview_IsExactlyWhatCreatingTheJarPlants_…`).
+- **Expected:** Uneven months are summarised by their total — "**€100.00 in total** · Sep 2026 – Nov 2026" — and listed one per month: Sep 2026 €33.33, Oct 2026 €33.33, **Nov 2026 €33.34**. Even months read "€X a month · …" and are not listed: the list shows only when the months differ, a month is skipped or a month is over budget (an even plan of six months or fewer is no longer listed). What is listed is what `POST /jars` plants on the Savings lines (JarPlannerTests — `ThePreview_IsExactlyWhatCreatingTheJarPlants_…`).
 - **Automated:** Yes (JarsPage.catalog.supplemental.test.tsx — JAR-083)
 
 ### JAR-084 - The preview flags the months whose budget the contribution would push over its income (rule 59)
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** Owner; October 2026's budget exists with income 1,000 and 920 planned; New-jar modal, Target `300`, Next due `2026-12-01`.
+- **Preconditions:** Owner; October 2026's budget exists with income 1,000 and 920 planned; New-jar modal, "Repeats" = Yearly, Target `300`, Next due `2026-12-01`.
 - **Steps:**
   1. Read the preview.
-- **Expected:** The schedule carries each existing month's `shortfall` (total planned − the jar's current line + the new contribution − income, floored at zero): October's 100 leaves it 20 over. The preview keeps "Sets aside €100.00 a month …", lists the months with October's €100.00 in rose, and shows the status "**Over budget: Oct 2026 by €20.00.** The full contribution stays planned; adjust other lines if you need to." Nothing is trimmed to fit; months without a budget carry `shortfall:null`.
+- **Expected:** The schedule carries each existing month's `shortfall` (total planned − the jar's current line + the new contribution − income, floored at zero): October's 100 leaves it 20 over. The preview keeps "€100.00 a month · Sep 2026 – Nov 2026", lists the months (an over-budget month brings the list even for an even plan) with October's full €100.00 in rose, and shows the status "**Over budget: Oct 2026 by €20.00**" (the old tail ". The full contribution stays planned; adjust other lines if you need to." is no longer shown). Nothing is trimmed to fit; months without a budget carry `shortfall:null`.
 - **Automated:** Yes (JarsPage.catalog.supplemental.test.tsx — JAR-084; JarPlannerTests — `ThePreview_IsExactlyWhatCreatingTheJarPlants_AndFlagsAMonthItOverBudgets`)
 
 ### JAR-085 - Ongoing and already-funded preview wording
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Owner; New-jar modal, Type Goal.
+- **Preconditions:** Owner; New-jar modal ("Repeats" on "Doesn’t repeat").
 - **Steps:**
-  1. Save = "A fixed amount each month", Each month `50`, no target. 2. Save = "By a deadline", Target `300`, Deadline `2026-12-01`, Already set aside `300`.
-- **Expected:** 1: "Sets aside €50.00 every month, ongoing." with no month list (`isOngoing`). 2: "Already funded — nothing more to set aside." (the schedule has no months; the jar will read Funded). A fixed plan with a target reads "Sets aside €50.00 a month — about N more months to reach the target (an estimate, not a deadline)." (JAR-016 step 4).
+  1. Tick "Set aside a fixed amount each month", Each month `50`, no target. 2. Untick it, Target `300`, "Needed by" `2026-12-01`, then "More options" → Already set aside `300`.
+- **Expected:** 1: "€50.00 every month" with no month list (`isOngoing`). 2: "Already funded" (the schedule has no months; the jar will read Funded). A fixed plan with a target reads "€50.00 a month · about N months to go (estimate)" (JAR-016 step 4), and a definition the server answers with no plan (`hasSchedule:false`) reads "Add a date or a monthly amount.".
 - **Automated:** Yes (JarsPage.catalog.supplemental.test.tsx — JAR-085)
 
-### JAR-086 - "Include the deadline month" is offered only when the deadline is not the 1st, defaults off, and is sent when ticked (rule 36)
+### JAR-086 - "Include the deadline month" sits under More options, is offered only when the deadline is not the 1st, defaults off, and is sent when ticked (rule 36)
 - **Priority:** P1
 - **Type:** Happy / Edge
-- **Preconditions:** Owner; New-jar modal (Recurring), Target `300`, today 2026-09-27.
+- **Preconditions:** Owner; New-jar modal, "Repeats" = Yearly, Target `300`, today 2026-09-27.
 - **Steps:**
-  1. Next due `2026-12-01`. 2. Next due `2026-12-15`. 3. Tick the box. 4. Name it and "Add jar".
-- **Expected:** 1: no option (the money must be there before the month begins). 2: the checkbox "Include the deadline month" appears unticked with "Also set aside money in Dec 2026, the deadline month. By default the plan finishes the month before, so the money is already in Joint Current on 15 Dec 2026. Tick this only if that month's contribution will reach the account before the deadline."; the preview runs Sep→Nov (€100.00 a month, `includeDeadlineMonth:false`). 3: re-asked with `includeDeadlineMonth:true` → Sep→Dec, €75.00 a month, funded by 31 Dec 2026. 4: `POST /jars` carries `includeDeadlineMonth:true`; on edit the box echoes the stored value (JAR-034). Switching the deadline back to a 1st hides the option and the server ignores the flag for it (`FundingCompletionMonth`).
+  1. Next due `2026-12-01`; click "More options". 2. Next due `2026-12-15`. 3. Tick the box. 4. Name it and "Add jar".
+- **Expected:** 1: "More options" starts closed for a new jar (`aria-expanded="false"`, `aria-controls="jar-more-options"`) and opens on the click; with a 1st-of-month date there is no option inside it (the money must be there before the month begins). 2: the checkbox appears inside the fold, unticked, its visible text "Include the deadline month" (also its accessible name), followed by an InfoHint "What including the deadline month means" whose popover reads "By default the plan finishes the month before, so the money is in Joint Current by 15 Dec 2026. Tick this only if Dec 2026’s contribution will reach the account before then." (the old visible "Also set aside money in Dec 2026, the deadline month." and its paragraph are no longer shown); the preview reads "€100.00 a month · Sep 2026 – Nov 2026" (`includeDeadlineMonth:false`). 3: re-asked with `includeDeadlineMonth:true` → "€75.00 a month · Sep 2026 – Dec 2026" (the last month is when funding completes). 4: `POST /jars` carries `includeDeadlineMonth:true`; on edit the fold starts open and the box echoes the stored value (JAR-034). Switching the deadline back to a 1st hides the option and the server ignores the flag for it (`FundingCompletionMonth`); an edit with nothing left to show in the fold (no deadline-month option) has no "More options" button at all.
 - **Automated:** Yes (JarsPage.catalog.supplemental.test.tsx — JAR-086; JarScheduleTests — the three rule 36 cases)
 
 ### JAR-087 - Long schedules: twelve months listed plus a count, or a summary alone when the months are even
 - **Priority:** P3
 - **Type:** Edge
-- **Preconditions:** Owner; New-jar modal (Recurring), Next due `2027-11-01`.
+- **Preconditions:** Owner; New-jar modal, "Repeats" = Yearly, Next due `2027-11-01`.
 - **Steps:**
   1. Target `140.1` (fourteen months, the last carrying the extra cent). 2. Target `140`.
-- **Expected:** 1: "Sets aside €140.10 in total from Sep 2026 to Oct 2027 …", twelve month rows and "… and 2 more months". 2: "Sets aside €10.00 a month from Sep 2026 to Oct 2027 …" with no list (even months beyond six need none). A fixed monthly plan lists at most 120 months (ten years) but its estimate counts the whole span.
+- **Expected:** 1: "€140.10 in total · Sep 2026 – Oct 2027", twelve month rows and "… and 2 more months". 2: "€10.00 a month · Sep 2026 – Oct 2027" with no list (even months need none, however many). A fixed monthly plan lists at most 120 months (ten years) but its estimate counts the whole span.
 - **Automated:** Yes (JarsPage.catalog.supplemental.test.tsx — JAR-087; JarScheduleTests — `AFixedMonthlyPlan_ListsAtMostTenYears_ButEstimatesTheWholeSpan`)
 
 ### JAR-088 - Deadline missed and Funded late on the card (rules 20, 57)
@@ -868,7 +869,7 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
 - **Preconditions:** Owner; Recurring jar "Road tax" target 600 due 1 Sep 2026 yearly; today 2026-09-27; (a) balance 450; (b) balance 600 (the last 150 arrived on 8 Sep).
 - **Steps:**
   1. Open `/jars` for (a). 2. For (b).
-- **Expected:** (a) rose chip **Deadline missed**; month line (rose) "Deadline 1 Sep 2026 missed · €150.00 short"; horizon line "Mark the cycle paid, or dismiss it to save toward the next one"; the card offers **Dismiss** (aria "Dismiss Road tax's missed deadline") and **Mark paid** (aria "Mark Road tax paid") beside Move money; the `%` pill reads 75%. (b) amber chip **Funded late**; month line "Funded after the deadline on 1 Sep 2026"; the same two actions; the notice stays on every reload until the user acts (rule 57 — late funding never rewrites the cycle as met on time). The dashboard's jar shelf shows the same chips.
+- **Expected:** (a) rose chip **Deadline missed**; month line (rose) "Deadline 1 Sep 2026 missed · €150.00 short"; no horizon line (the old "Mark the cycle paid, or dismiss it to save toward the next one" is no longer shown: the month line keeps the deadline and shortfall, and the buttons say what to do); the card's action row offers **Dismiss** (aria "Dismiss Road tax's missed deadline") and **Mark paid** (aria "Mark Road tax paid") beside Move money and Edit; the `%` pill reads 75%. (b) amber chip **Funded late**; month line "Funded after the deadline on 1 Sep 2026"; no horizon line; the same two actions; the notice stays on every reload until the user acts (rule 57 — late funding never rewrites the cycle as met on time). The dashboard's jar shelf shows the same chips.
 - **Automated:** Yes (JarsPage.cycles.test.tsx — JAR-088 ×2; jarStatus.test.ts; JarCycleTests — `Rule57_FundedAfterTheDeadline_ReadsFundedLate_AndKeepsTheNoticeUntilDismissed`)
 
 ### JAR-089 - Mark paid: choose the payment; the cycle closes and the jar moves on (rules 22–24, 83)
@@ -877,7 +878,7 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
 - **Preconditions:** Owner; the JAR-088 (a) jar; two expenses recorded from Joint Current on the jar's Savings line: Transport Malta €580.00 on 3 Sep 2026 and Insurance Co €120.00 on 30 Aug 2026; neither linked to a cycle.
 - **Steps:**
   1. Click **Mark paid**. 2. Read the list. 3. Click **Mark paid** (confirm) before choosing. 4. Choose "Transport Malta on 3 Sep 2026, €580.00" and confirm.
-- **Expected:** 1: the dialog "Mark Road tax paid" asks "Which payment settled the cycle due 1 Sep 2026? The jar then saves toward its next due date with whatever it still holds; nothing is moved." and requests `GET /jars/{id}/payments` (the jar's own payments only). 2: both payments as radios, newest first, each with the date, account and line and a teal **From this jar** badge. 3: the confirm button is disabled until a payment is chosen — the user picks, the app never infers (rule 83). 4: `POST /jars/{id}/cycles/paid` with `{ deadline: "2026-09-01", paymentTransactionId }`; the dialog closes and the card shows the next cycle (due 1 Sep 2027, "Funded by Aug 2027 · due 1 Sep 2027, then it repeats", plan €12.50 a month from the €450 held: rule 23 carries only the actual remainder; rule 24 keeps the €600 target) and "Last cycle · due 1 Sep 2026 · paid 3 Sep 2026 (€580.00), after the deadline". No money moved. A payment dated before the deadline that emptied the jar reads "paid 28 Nov 2025 (€600.00)" with no "after the deadline" and the cycle counts as met on time (rule 22).
+- **Expected:** 1: the dialog "Mark Road tax paid" asks "Which payment settled the cycle due 1 Sep 2026? The jar then saves toward its next due date with whatever it still holds; nothing is moved." and requests `GET /jars/{id}/payments` (the jar's own payments only). 2: both payments as radios, newest first, each with the date, account and line and a teal **From this jar** badge. 3: the confirm button is disabled until a payment is chosen — the user picks, the app never infers (rule 83). 4: `POST /jars/{id}/cycles/paid` with `{ deadline: "2026-09-01", paymentTransactionId }`; the dialog closes and the card shows the next cycle (due 1 Sep 2027, "Due 1 Sep 2027 · yearly", plan €12.50 a month from the €450 held: rule 23 carries only the actual remainder; rule 24 keeps the €600 target) and "Last cycle paid 3 Sep 2026 (€580.00), late". No money moved. A payment dated before the deadline that emptied the jar reads "Last cycle paid 28 Nov 2025 (€600.00)" with no ", late" and the cycle counts as met on time (rule 22).
 - **Automated:** Yes (JarsPage.cycles.test.tsx — JAR-089; JarCycleTests — `Rule22_PaidBeforeTheDeadline_AndMarkedPaid_CountsAsMetOnTime_EvenAtZeroBalance`, `Rule23_ALowerBill_CarriesOnlyTheActualRemainder_IntoTheNextCycle`, `Rule83_AMissedCycle_MarkedPaidWithAnEarlierPayment_IsPaidNotMissed`, `Payments_ListTheJarsOwnPayments_LeaveOutFulfilledOnes_AndOfferTheRestOnRequest`)
 
 ### JAR-090 - Mark paid: payments from other accounts on request; refusals shown verbatim
@@ -895,16 +896,16 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
 - **Preconditions:** Owner; the JAR-088 (a) jar (450 of 600, 150 short).
 - **Steps:**
   1. Click **Dismiss**. 2. Cancel. 3. Click **Dismiss** again and **Move on**. 4. In the dialog, click **Mark the cycle paid** instead. 5. Direct `POST /jars/{id}/cycles/dismiss` with a deadline that is not the open cycle, and for a cycle not yet passed.
-- **Expected:** 1: "Move Road tax on to its next cycle?" — "Road tax missed its deadline on 1 Sep 2026 — €150.00 short. Dismissing keeps the €450.00 it holds for the next cycle, records nothing as paid and makes up no shortfall; the jar simply saves toward its next due date." with "Paid the bill? Mark the cycle paid and choose the payment instead." 2: nothing posted; the notice stays. 3: `POST /jars/{id}/cycles/dismiss` with `{ deadline: "2026-09-01" }`; the card moves on: no chip, "Funded by Aug 2027 · due 1 Sep 2027, then it repeats", plan €12.50 a month, "Last cycle · due 1 Sep 2026 · missed"; Dismiss is gone; balances unchanged. A jar that had reached its target late is recorded as "funded late" instead. 4: the dismiss dialog is replaced by the Mark paid dialog for the same cycle; nothing posted yet. 5: 400 "Road tax has no missed cycle due …" / "…has not been missed; there is nothing to dismiss."
+- **Expected:** 1: "Move Road tax on to its next cycle?" — "Road tax missed its deadline on 1 Sep 2026 — €150.00 short. Dismissing keeps the €450.00 it holds for the next cycle, records nothing as paid and makes up no shortfall; the jar simply saves toward its next due date." with "Paid the bill? Mark the cycle paid and choose the payment instead." 2: nothing posted; the notice stays. 3: `POST /jars/{id}/cycles/dismiss` with `{ deadline: "2026-09-01" }`; the card moves on: no chip, "Due 1 Sep 2027 · yearly", plan €12.50 a month, "Last cycle missed"; Dismiss is gone; balances unchanged. A jar that had reached its target late is recorded as funded late instead ("Last cycle funded late"). 4: the dismiss dialog is replaced by the Mark paid dialog for the same cycle; nothing posted yet. 5: 400 "Road tax has no missed cycle due …" / "…has not been missed; there is nothing to dismiss."
 - **Automated:** Yes (JarsPage.cycles.test.tsx — JAR-091 ×2; JarCycleTests — `Rule20_Dismissing_ResumesSavingTowardTheNextDeadline_FromWhatIsHeld_AndMovesNoMoney`, `Dismiss_RefusesACycleThatIsNotMissed_OrNotTheOpenOne`)
 
-### JAR-092 - A cycle that rolled forward funded can still be given its payment ("Paid it?")
+### JAR-092 - A cycle that rolled forward funded can still be given its payment ("Record the payment")
 - **Priority:** P2
 - **Type:** Happy
 - **Preconditions:** Owner; Recurring jar whose cycle due 1 Sep 2026 was held in full and rolled forward (JAR-056 (a)); an expense from the jar on 3 Sep 2026.
 - **Steps:**
-  1. Read the card. 2. Click **Paid it? Record the payment**. 3. Choose the payment and confirm.
-- **Expected:** 1: no chip; "Last cycle · due 1 Sep 2026 · funded on time, payment not recorded" and the link (aria "Record the payment for Road tax's cycle due 1 Sep 2026"). 2: the Mark paid dialog for the **closed** cycle: "Which payment settled the cycle due 1 Sep 2026? This only records the payment against that cycle; nothing is moved." 3: `POST /jars/{id}/cycles/paid` with `deadline: "2026-09-01"` (the closed cycle, not the open 2027 one); the open cycle is untouched; the line becomes "Last cycle · due 1 Sep 2026 · paid 3 Sep 2026 (€580.00), after the deadline" and the link is gone. Deleting that transaction later clears the link but keeps the recorded date and amount.
+  1. Read the card. 2. Click **Record the payment**. 3. Choose the payment and confirm.
+- **Expected:** 1: no chip; "Last cycle funded on time" and under it the link "Record the payment" (aria "Record the payment for Road tax's cycle due 1 Sep 2026"; it used to read "Paid it? Record the payment"). 2: the Mark paid dialog for the **closed** cycle: "Which payment settled the cycle due 1 Sep 2026? This only records the payment against that cycle; nothing is moved." 3: `POST /jars/{id}/cycles/paid` with `deadline: "2026-09-01"` (the closed cycle, not the open 2027 one); the open cycle is untouched; the line becomes "Last cycle paid 3 Sep 2026 (€580.00), late" and the link is gone. Deleting that transaction later clears the link but keeps the recorded date and amount.
 - **Automated:** Yes (JarsPage.cycles.test.tsx — JAR-092; JarCycleTests — `Rule83_APaymentCanBeLinkedToTheLastCycle_AfterItRolledForwardFunded`)
 
 ### JAR-093 - Cycle actions exist only for a Recurring jar with a balance, and only for writers; editing echoes the open cycle's date
@@ -913,7 +914,7 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
 - **Preconditions:** Owner and a read-only viewer; a Goal, a Recurring jar whose account balance is unavailable (rule 67), the JAR-088 (a) jar; a Recurring jar with anchor 2026-01-01 whose open cycle is 2027-01-01.
 - **Steps:**
   1. Read the Goal and the unavailable jar as Owner. 2. Read the missed jar as the viewer. 3. Edit the advanced jar; save without changes; save with Next due 2027-03-01.
-- **Expected:** 1: no Mark paid, no Dismiss, no "Paid it?" (a Goal has no cycle; an unavailable balance cannot settle one). 2: the chip and the rose line are shown, the actions are not. 3: "Next due" is prefilled with **2027-01-01** (the open cycle, not the anchor); saving it back keeps both the anchor and the cycle (a rename never resets an advanced cycle — the preview also plans toward the open cycle); 2027-03-01 becomes the new anchor and the open cycle. Switching the jar to a Goal keeps the date the user saw as the Goal's deadline (JAR-037).
+- **Expected:** 1: no Mark paid, no Dismiss, no "Record the payment" link (a Goal has no cycle; an unavailable balance cannot settle one). 2: the chip and the rose line are shown, the actions are not. 3: "Next due" is prefilled with **2027-01-01** (the open cycle, not the anchor); saving it back keeps both the anchor and the cycle (a rename never resets an advanced cycle — the preview also plans toward the open cycle); 2027-03-01 becomes the new anchor and the open cycle. Switching the jar to a Goal keeps the date the user saw as the Goal's deadline (JAR-037).
 - **Automated:** Yes (JarsPage.cycles.test.tsx — JAR-093 ×2; JarsPage.catalog.test.tsx — JAR-037; JarCycleTests — `Update_EchoingTheOpenCyclesDate_KeepsTheCycle_AndANewDateRestartsIt`, `ThePreviewOfAnEdit_PlansTowardTheOpenCycle_WhenTheDateIsEchoed`)
 
 ---
@@ -926,7 +927,7 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
 - **Preconditions:** Owner; Goal "New laptop" (target 1,000, deadline in six months) holds 400, plans 100 this month; the current and two later months exist with its lines.
 - **Steps:**
   1. On the card click **Mark completed** (aria "Mark New laptop completed"). 2. Read the dialog; click **Mark completed** (aria "Confirm complete New laptop").
-- **Expected:** The dialog says the jar holds €400.00 of its €1,000.00 target (€600.00 short), that completing stops the planned contributions from this month on and that the money stays in the jar. `POST /jars/{id}/complete` returns the jar: `status: "Completed"`, `completedOn` = today, `plannedThisMonth` = what went in this month, `canDelete: false`. The card shows the **Completed** chip, "Completed · €400.00 left to move" and "Completed on 27 Sep 2026 · no more contributions planned"; Move money and Edit remain, Mark completed does not; the hero's Active jars count drops by one. Server-side (P40): this month's line is cut to what went in since the month began, later months' lines are removed (kept at 0 where a transaction sits on one); no money moves. Month creation and copy leave the completed jar out (BUDG-017/032).
+- **Expected:** The dialog says the jar holds €400.00 of its €1,000.00 target (€600.00 short), that completing stops the planned contributions from this month on and that the money stays in the jar. `POST /jars/{id}/complete` returns the jar: `status: "Completed"`, `completedOn` = today, `plannedThisMonth` = what went in this month, `canDelete: false`. The card shows the **Completed** chip and "Completed · €400.00 left to move", and no horizon line (the old "Completed on 27 Sep 2026 · no more contributions planned" is no longer shown: the chip and the month line say it); its Edit form says "Completed: nothing more is planned." and offers no Repeats; Move money and Edit remain, Mark completed does not; the hero's Active jars count drops by one. Server-side (P40): this month's line is cut to what went in since the month began, later months' lines are removed (kept at 0 where a transaction sits on one); no money moves. Month creation and copy leave the completed jar out (BUDG-017/032).
 - **Automated:** Yes (JarsPage.lifecycle.test.tsx — JAR-094, JAR-095; JarLifecycleW04Tests — `Rule55_Completing_StopsThePlan_FromThisMonthOn_AndKeepsTheMoney`, `Rule55_ACompletedGoal_IsLeftOutOfTheNextMonthsPlanning_AndStillListed`; jar-lifecycle journey)
 
 ### JAR-095 - Completing is refused for a recurring jar, an overdrawn or unavailable balance, and twice
@@ -971,7 +972,7 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
 - **Preconditions:** Owner and a read-only viewer; Goal "Sofa" whose current-month line is skipped (BUDG-060).
 - **Steps:**
   1. Read Sofa's card. 2. "Edit Sofa" and read the schedule preview. 3. Read the page as the viewer.
-- **Expected:** 1: the month line reads **Skipped this month** (`skippedThisMonth:true`, `plannedThisMonth: 0`); the deadline and funded-by month are unchanged. 2: the preview lists the current month as "Skipped" and the later months carrying the remainder (rule 61); when every month left is skipped it says what stays **unplanned** (P45). 3: no Mark completed, no Edit (so no Delete) for the viewer.
+- **Expected:** 1: the month line reads **Skipped this month** (`skippedThisMonth:true`, `plannedThisMonth: 0`); the deadline (the horizon's "Needed by …") and the funding-completion month (shown in the form's preview) are unchanged. 2: the preview lists the current month as "Skipped" and the later months carrying the remainder (rule 61; a skipped month always brings the list); when skipping leaves money **unplanned** it says so in rose — "€X unplanned because of skipped months", or, when every month left is skipped, "Nothing planned: every month is skipped, €X unplanned" (P45). 3: no Mark completed, no Edit (so no Delete) for the viewer.
 - **Automated:** Yes (lib/jarStatus.test.ts — "Skipped this month"; JarsPage.lifecycle.test.tsx — JAR-093; JarLifecycleW04Tests — `Rule61_Skipping_ThisMonth_…` asserts `SkippedThisMonth`; jar-lifecycle journey)
 
 ### JAR-100 - A goal completed this month reads as it was on a past month
@@ -1101,7 +1102,7 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
 - **Preconditions:** Sam's login; "Sam's current" private to Sam.
 - **Steps:**
   1. As Sam, **New jar** "Bike", Held in "Sam's current", Save. 2. **Pick another account**. 3. Save again with "Sam's current"; **Share the account and continue**. 4. Move an existing jar to a private account from its Edit form. 5. With the warning showing for one private account, switch **Held in** to another account.
-- **Expected:** 1: nothing is saved; a warning: "'Sam's current' is private. A jar is part of the household budget, so the account it lives in is visible to everyone: sharing this jar shows the household 'Sam's current', its balance and all its transactions. Share the account, or pick another account for the jar." The form notes the account is private beforehand. 2: the warning closes, the form stays. 3: the account becomes shared and the jar is created in it; no money moves. 4: the same warning and choices. 5: the warning goes, so it can never share an account it didn't name; saving with another private account warns about that one.
+- **Expected:** 1: nothing is saved; a warning: "'Sam's current' is private. A jar is part of the household budget, so the account it lives in is visible to everyone: sharing this jar shows the household 'Sam's current', its balance and all its transactions. Share the account, or pick another account for the jar." The form notes the account is private beforehand, under Held in: "Private: saving asks you to share it." 2: the warning closes, the form stays. 3: the account becomes shared and the jar is created in it; no money moves. 4: the same warning and choices. 5: the warning goes, so it can never share an account it didn't name; saving with another private account warns about that one.
 - **Automated:** Yes (JointAccountsW13Tests — `AJarOnAPrivateAccount_WarnsFirst_ThenSharesTheAccount_Rule34`; JarsPage tests, including `drops the rule 34 warning when the account changes, so it never shares another account`)
 
 ### JAR-115 - Restoring a jar keeps the months it spent archived
@@ -1173,7 +1174,7 @@ Cases from the jar-ledger slice. `currentBalance` is **actual money** — `null`
 - **Origin:** W08 (one budget currency). New accounts are always in the budget currency (ACCT-079), so this only bites on a legacy account created before W08 in another currency.
 - **Preconditions:** Owner; budget in EUR; a legacy account "UK savings" in GBP and an EUR account "Main"; a jar "Rainy day" held in "Main".
 - **Steps:**
-  1. `/jars` → **New jar** "Holiday", Goal, target 1000, Held in "UK savings" → Save. 2. Edit "Rainy day" → Held in "UK savings" → Save. 3. `POST /api/jars/reallocations` with `accountId` = UK savings (reallocating jar money within that account).
+  1. `/jars` → **New jar** "Holiday", target 1000, Needed by `2027-07-01` (Repeats: Doesn’t repeat), Held in "UK savings" → Save. 2. Edit "Rainy day" → Held in "UK savings" → Save. 3. `POST /api/jars/reallocations` with `accountId` = UK savings (reallocating jar money within that account).
 - **Expected:** 1 and 2: 400 on `FundingAccountId`: "UK savings is in GBP, but the budget is in EUR. Choose an account in EUR."; no jar is created and "Rainy day" stays in "Main". 3: the same message on `AccountId`; nothing moves. A credit card is still refused first with its own message. The picker itself does not hide the legacy account; the server refuses it.
 - **Automated:** Partial (ForeignAmountsTests — `A_jar_cannot_live_in_an_account_kept_in_another_currency`, create path only)
 

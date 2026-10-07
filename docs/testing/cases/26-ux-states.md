@@ -45,7 +45,7 @@
 - **Preconditions:** Stubbed Playwright, both themes.
 - **Steps:**
   1. `/import`: choose an account, upload a CSV, "Review transactions"; scan the review table, then an opened split editor ("Split AUTOMARKET on 2026-06-17"), then a marked transfer ("Mark WOLT on 2026-06-15 as a transfer") with its counterparty picker.
-  2. `/jars`: open "New jar" (Recurring → "Next due date" + Repeats), switch "Jar type" to Goal ("Deadline"), fill Target `300` + Deadline `2026-12-15` (the mocked `POST /jars/schedule` preview and the "Include the deadline month" option render), choose "A fixed amount each month" ("Monthly amount"), then "Edit Home insurance" (two-step Archive).
+  2. `/jars`: open "New jar" — the form asks no Type: "Repeats" starts at "Doesn’t repeat", so "Needed by" and "Repeats" (with its "What repeating means" hint) render; select "Yearly" in Repeats (the date becomes "Next due date"); back to "Doesn’t repeat", fill Target `300` + "Needed by" `2026-12-15` (the mocked `POST /jars/schedule` preview renders), click "More options" (the "Include the deadline month" tick box renders, with its "What including the deadline month means" hint, and "Already set aside" with its "What setting money aside does" hint); tick "Set aside a fixed amount each month" (visible text "Fixed amount each month", with its "What a fixed amount means" hint; "Monthly amount" replaces the date and Repeats); then "Edit Home insurance" (two-step Archive).
   3. `/help` with `analytics` flag on: the "Analytics consent" region + "Privacy & analytics" control.
   4. `/` for a brand-new user: welcome dialog, every spotlight tour step through "Finish", the "Getting started" checklist region.
 - **Expected:** Zero violations on every overlay in light and dark — dialogs carry `role="dialog" aria-modal`, the consent banner is a labelled `role="region"`, the checklist a labelled `section`/region, tour steps announce "Step n of 9".
@@ -539,7 +539,7 @@
 ### UX-055 - Focusing a filled numeric input selects its value so typing replaces it
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Any numeric/money field holding a value (typically a prefilled `0`): budget planned editors, bill due-day, transaction/transfer/split amounts, account opening balances, jar target and saved-so-far, allocation pocket money and balance lean, member incomes, import split amounts.
+- **Preconditions:** Any numeric/money field holding a value (typically a prefilled `0`): budget planned editors, bill due-day, transaction/transfer/split amounts, account opening balances, jar target, monthly amount and "Already set aside" (under More options), allocation pocket money and balance lean, member incomes, import split amounts.
 - **Steps:**
   1. Click (or Tab) into a numeric field showing an existing value, e.g. `0`.
   2. Type `50` without clearing first.

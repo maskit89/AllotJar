@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { InfoIcon } from './icons'
 
 /**
@@ -11,21 +11,32 @@ import { InfoIcon } from './icons'
  * `role="tooltip"`. The pointer handlers sit on the wrapper (which owns the
  * popover in the DOM), so moving from the icon onto the popover keeps it open —
  * satisfying WCAG 2.2 §1.4.13 (content on hover/focus is hoverable, dismissable
- * and persistent). Mirrors the `UserMenu` popover's Escape / outside-click logic.
+ * and persistent). Escape closes the popover alone, never the dialog the hint sits in, and
+ * the popover is nudged sideways to stay on screen on the narrowest phones.
  */
 export function InfoHint({
   label,
   children,
   className = '',
+  align = 'start',
 }: {
-  /** Accessible name for the trigger, e.g. "About jar types". */
+  /** Accessible name for the trigger, e.g. "What repeating means". */
   label: string
   /** Popover body — keep it short. */
   children: ReactNode
   className?: string
+  /**
+   * Where the popover hangs from the icon: from its left edge (the default, for an icon near
+   * the start of a line), or centred under it, for an icon partway across a phone-width line,
+   * where a left-hung popover would run off the screen.
+   */
+  align?: 'start' | 'center'
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLSpanElement>(null)
+  const hangerRef = useRef<HTMLSpanElement>(null)
+  // How far the open popover is moved sideways to keep it inside the viewport.
+  const [shift, setShift] = useState(0)
   const panelId = useId()
 
   useEffect(() => {
@@ -34,14 +45,33 @@ export function InfoHint({
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key !== 'Escape') return
+      // Caught on the way down, before a dialog's own Escape handler: it closes the hint only.
+      e.stopPropagation()
+      setOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
-    document.addEventListener('keydown', onKey)
+    document.addEventListener('keydown', onKey, true)
     return () => {
       document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('keydown', onKey, true)
     }
+  }, [open])
+
+  // Measured where it first lands (no shift yet), before it is painted.
+  useLayoutEffect(() => {
+    if (!open || !hangerRef.current) {
+      setShift(0)
+      return
+    }
+    const viewport = document.documentElement.clientWidth
+    if (!viewport) return // nothing laid out to measure against
+    const margin = 8
+    const box = hangerRef.current.getBoundingClientRect()
+    const right = viewport - margin
+    let dx = box.right > right ? right - box.right : 0
+    if (box.left + dx < margin) dx = margin - box.left
+    setShift(dx)
   }, [open])
 
   return (
@@ -64,7 +94,11 @@ export function InfoHint({
       {open && (
         // Outer span bridges the gap between icon and card (transparent `pt-1.5`)
         // so the pointer never leaves the wrapper on its way to the popover.
-        <span className="absolute left-0 top-full z-30 w-64 pt-1.5">
+        <span
+          ref={hangerRef}
+          style={shift ? { marginLeft: shift } : undefined}
+          className={`absolute top-full z-30 w-64 max-w-[calc(100vw-1rem)] pt-1.5 ${align === 'center' ? 'left-1/2 -translate-x-1/2' : 'left-0'}`}
+        >
           <span
             id={panelId}
             role="tooltip"

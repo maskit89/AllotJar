@@ -96,12 +96,27 @@ describe('JarsPage — completion and deletion (W04)', () => {
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/g1/complete'))
     expect(await screen.findByText('Completed', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Completed · €400.00 left to move')).toBeInTheDocument()
-    expect(screen.getByText(/^Completed on .*Sep.*2026 · no more contributions planned$/)).toBeInTheDocument()
+    // The chip and the month line say it is completed; no third line repeats it.
+    expect(screen.queryByText(/no more contributions planned/)).not.toBeInTheDocument()
     // The card still lets the money be moved and the jar edited, but not completed again.
     expect(screen.queryByLabelText('Mark New laptop completed')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Move money from New laptop')).toBeInTheDocument()
     expect(screen.getByLabelText('Edit New laptop')).toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('a completed Goal\'s edit form offers no Repeats: it can\'t start repeating (the server refuses it, rule 55)', { timeout: 15000 }, async () => {
+    mockLoads({ jars: [completed()] })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit New laptop', {}, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByText('Completed: nothing more is planned.')).toBeInTheDocument()
+    expect(dialog.getByLabelText('Needed by')).toHaveValue('2027-03-01')
+    expect(dialog.queryByLabelText('Repeats')).not.toBeInTheDocument()
+    expect(dialog.queryByRole('button', { name: 'What repeating means' })).not.toBeInTheDocument()
   })
 
   it('JAR-095: only a Goal with a known balance offers Mark completed; recurring and unavailable jars offer nothing, and a completed one leaves the Active count', async () => {

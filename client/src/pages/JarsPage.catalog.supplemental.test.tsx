@@ -4,14 +4,14 @@ import userEvent from '@testing-library/user-event'
 import type { AccountDto, JarDto, JarScheduleDto, JarScheduleRequest } from '../types'
 
 // Supplements JarsPage.catalog.test.tsx (which already covers JAR-002/004/005/009/011/
-// 013/015/020/021/023/024/025/027/028/031/035/037/039/041/042/043/046/049) and
-// JarsPage.test.tsx (JAR-001/003/012/018/019/026/032/034/036/044). This file adds the
+// 013/014/015/020/021/023/024/025/027/028/031/035/037/039/041/042/043/046/049) and
+// JarsPage.test.tsx (JAR-001/003/012/018/019/026/032/034/036/044/086). This file adds the
 // remaining jsdom-observable JAR cases neither file asserts: the schedule preview's
 // phrasing (JAR-016) and its hide/show gate (JAR-017), the loading state (JAR-008), the
-// jar-types InfoHint copy (JAR-022), a Unicode round-trip (JAR-030) and the W02 preview
-// cases: the month list with its rounding remainder (JAR-083), the over-budget warning
-// (JAR-084), the ongoing / already-funded wording (JAR-085), the deadline-month option
-// (JAR-086) and the long-schedule summary (JAR-087).
+// "What repeating means" InfoHint copy (JAR-022), a Unicode round-trip (JAR-030) and the
+// W02 preview cases: the month list with its rounding remainder (JAR-083), the over-budget
+// warning (JAR-084), the ongoing / already-funded wording (JAR-085), the deadline-month
+// option under "More options" (JAR-086) and the long-schedule summary (JAR-087).
 //
 // Same shared api mock as the sibling *.catalog.test.tsx files.
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
@@ -59,8 +59,12 @@ async function openNewJar(user: ReturnType<typeof userEvent.setup>) {
   return within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 }
 
-/** Type a recurring jar's target and due date, which is enough for the server to plan it. */
+/**
+ * Describe a jar that repeats yearly: pick the cadence in "Repeats" (a new jar doesn't repeat by
+ * default), then type its target and next due date, which is enough for the server to plan it.
+ */
 async function describeRecurring(dialog: ReturnType<typeof within>, user: ReturnType<typeof userEvent.setup>, target = '300', due = '2026-12-01') {
+  await user.selectOptions(dialog.getByLabelText('Repeats'), '12')
   await user.type(dialog.getByLabelText('Target amount'), target)
   fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: due } })
 }
@@ -101,28 +105,82 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
 
   // --- New jar modal: the schedule preview (POST /jars/schedule) -------------
 
-  it('JAR-016: the preview says the plan repeats for a Recurring jar, in its cycle, and not for a Goal', { timeout: 15000 }, async () => {
+  it('JAR-016: the preview is one short line, the amount and the months it runs, for a jar that repeats and one that doesn\'t; the fields above say the date and the cadence', { timeout: 15000 }, async () => {
     mockPosts(() => schedule())
     const user = userEvent.setup()
 
     renderPage()
-    const dialog = await openNewJar(user) // Recurring is the default type
+    const dialog = await openNewJar(user)
 
-    await describeRecurring(dialog, user)
+    await describeRecurring(dialog, user) // Repeats: Yearly
     const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
-    expect(preview).toHaveTextContent(/for the deadline on .*, then it repeats every year\./)
+    expect(preview).toHaveTextContent('€100.00 a month · Sep 2026 – Nov 2026')
+    expect(preview).not.toHaveTextContent(/due|needed|repeats|funded/i)
+    // An even plan needs no month list: the line already says it all.
+    expect(within(preview).queryByRole('listitem')).not.toBeInTheDocument()
 
-    // A 3-month cycle names the cycle.
-    await user.selectOptions(dialog.getByLabelText('Repeat cycle'), '3')
-    await waitFor(() => expect(preview).toHaveTextContent(/then it repeats every 3 months\./), { timeout: 5000 })
+    // A 3-month cycle is sent with the definition; the Repeats field shows it, not the preview.
+    await user.selectOptions(dialog.getByLabelText('Repeats'), '3')
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ kind: 0, recurMonths: 3 })), { timeout: 5000 })
+    expect(dialog.getByTestId('jar-schedule-preview')).toHaveTextContent('€100.00 a month · Sep 2026 – Nov 2026')
 
-    // A Goal by a deadline: funded by … for the deadline on …, and nothing about repeating.
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1')
-    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2026-12-01' } })
+    // One that doesn't repeat (a Goal): the date is now "Needed by"; the preview reads the same.
+    await user.selectOptions(dialog.getByLabelText('Repeats'), '0')
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-12-01' } })
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ kind: 1, recurMonths: null, targetDate: '2026-12-01' })), { timeout: 5000 })
-    await waitFor(() => expect(dialog.getByTestId('jar-schedule-preview')).not.toHaveTextContent(/repeats/), { timeout: 5000 })
-    expect(dialog.getByTestId('jar-schedule-preview')).toHaveTextContent(/Sets aside €100\.00 a month from Sep 2026 to Nov 2026, funded by .* for the deadline on .*\./)
+    expect(dialog.getByTestId('jar-schedule-preview')).toHaveTextContent('€100.00 a month · Sep 2026 – Nov 2026')
+  })
+
+  it('JAR-016: Repeats = Monthly and Every 6 months are planned with their cycle, and the field keeps the choice', { timeout: 15000 }, async () => {
+    mockPosts(() => schedule())
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+
+    await user.selectOptions(dialog.getByLabelText('Repeats'), '1') // Monthly
+    await user.type(dialog.getByLabelText('Target amount'), '300')
+    fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: '2026-12-01' } })
+    const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
+    expect(preview).toHaveTextContent('€100.00 a month · Sep 2026 – Nov 2026')
+    expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ kind: 0, recurMonths: 1 }))
+
+    // A 6-month cycle.
+    await user.selectOptions(dialog.getByLabelText('Repeats'), '6') // Every 6 months
+    expect(dialog.getByLabelText('Repeats')).toHaveDisplayValue('Every 6 months')
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ kind: 0, recurMonths: 6 })), { timeout: 5000 })
+  })
+
+  it('JAR-016: a plan with a single month reads "€300.00 in Nov 2026"', { timeout: 15000 }, async () => {
+    mockPosts(() => schedule({ months: [scheduleMonth(2026, 11, 300)] }))
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+
+    await user.type(dialog.getByLabelText('Target amount'), '300')
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-12-01' } })
+    const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
+    expect(preview).toHaveTextContent(/^€300\.00 in Nov 2026$/)
+    expect(within(preview).queryByRole('listitem')).not.toBeInTheDocument()
+  })
+
+  it('JAR-016: the preview reads "Add a date or a monthly amount." when the server answers with no plan (hasSchedule false)', { timeout: 15000 }, async () => {
+    // The planner may answer a plannable-looking definition with no schedule; the preview then
+    // says what would plan it, in the form's own words (not the old "Add a deadline or …").
+    mockPosts(() => schedule({ hasSchedule: false, months: [], total: 0, remaining: 300, deadline: null, fundingCompletesOn: null }))
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+
+    await user.type(dialog.getByLabelText('Target amount'), '300')
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-12-01' } })
+    const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
+    expect(preview).toHaveTextContent('Add a date or a monthly amount.')
+    expect(preview).not.toHaveTextContent(/deadline/)
+    expect(within(preview).queryByRole('listitem')).not.toBeInTheDocument()
+    expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ kind: 1, targetAmount: 300, targetDate: '2026-12-01', recurMonths: null }))
   })
 
   it('JAR-017: the preview is hidden, and nothing is asked, while the target is blank, 0 or unparseable', { timeout: 15000 }, async () => {
@@ -132,7 +190,7 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     renderPage()
     const dialog = await openNewJar(user)
 
-    fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: '2026-12-01' } })
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-12-01' } })
     const target = dialog.getByLabelText('Target amount')
     // Blank target → parses to 0 → nothing to plan.
     expect(dialog.queryByTestId('jar-schedule-preview')).not.toBeInTheDocument()
@@ -147,7 +205,7 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     // A positive parseable target brings the preview.
     await user.clear(target)
     await user.type(target, '300')
-    expect(await dialog.findByText(/Sets aside/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })).toHaveTextContent('€100.00 a month · Sep 2026 – Nov 2026')
     expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ targetAmount: 300 }))
   })
 
@@ -162,7 +220,7 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     await describeRecurring(dialog, user, '100')
     const preview = within(await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 }))
     // Uneven months are summarised by their total, then listed one by one.
-    expect(preview.getByText(/Sets aside €100\.00 in total from Sep 2026 to Nov 2026/)).toBeInTheDocument()
+    expect(preview.getByText('€100.00 in total · Sep 2026 – Nov 2026')).toBeInTheDocument()
     const rows = preview.getAllByRole('listitem').map((li) => li.textContent)
     expect(rows).toEqual(['Sep 2026€33.33', 'Oct 2026€33.33', 'Nov 2026€33.34'])
   })
@@ -180,8 +238,8 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     await describeRecurring(dialog, user)
     const preview = within(await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 }))
     // The warning names the month and the overrun; the plan is never trimmed to fit.
-    expect(preview.getByRole('status')).toHaveTextContent('Over budget: Oct 2026 by €20.00. The full contribution stays planned; adjust other lines if you need to.')
-    expect(preview.getByText(/Sets aside €100\.00 a month/)).toBeInTheDocument()
+    expect(preview.getByRole('status')).toHaveTextContent('Over budget: Oct 2026 by €20.00')
+    expect(preview.getByText('€100.00 a month · Sep 2026 – Nov 2026')).toBeInTheDocument()
     // The month list shows, with the over-budget month's amount in rose.
     const october = preview.getByText('Oct 2026').closest('li')!
     expect(within(october).getByText('€100.00')).toHaveClass('text-rose-600')
@@ -189,7 +247,7 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     expect(within(september).getByText('€100.00')).not.toHaveClass('text-rose-600')
   })
 
-  it('JAR-085: an ongoing pot reads "every month, ongoing"; a funded jar reads "Already funded"', { timeout: 15000 }, async () => {
+  it('JAR-085: an ongoing pot reads "every month"; a funded jar reads "Already funded"', { timeout: 15000 }, async () => {
     mockPosts((request) =>
       request.accrual === 2
         ? schedule({ accrual: 2, isOngoing: true, remaining: 0, months: [scheduleMonth(2026, 9, 50)], total: 50, deadline: null, fundingCompletesOn: null })
@@ -200,24 +258,26 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     renderPage()
     const dialog = await openNewJar(user)
 
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
-    await user.selectOptions(dialog.getByLabelText('How to save'), '2') // a fixed amount each month
+    // No date in mind: the switch swaps the date for "Each month" (a fixed-monthly Goal, no target).
+    const fixed = dialog.getByLabelText('Set aside a fixed amount each month')
+    await user.click(fixed)
     await user.type(dialog.getByLabelText('Monthly amount'), '50')
     const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
-    expect(preview).toHaveTextContent('Sets aside €50.00 every month, ongoing.')
+    expect(preview).toHaveTextContent('€50.00 every month')
     // No month list for an open-ended plan.
     expect(within(preview).queryByRole('listitem')).not.toBeInTheDocument()
     expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ kind: 1, targetAmount: 0, accrual: 2, monthlyContribution: 50, targetDate: null }))
 
-    // By a deadline with nothing left to save (already set aside covers the target).
-    await user.selectOptions(dialog.getByLabelText('How to save'), '1')
+    // By a date with nothing left to save (already set aside, under More options, covers the target).
+    await user.click(fixed)
     await user.type(dialog.getByLabelText('Target amount'), '300')
-    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2026-12-01' } })
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-12-01' } })
+    await user.click(dialog.getByRole('button', { name: 'More options' }))
     await user.type(dialog.getByLabelText('Already set aside'), '300')
-    await waitFor(() => expect(dialog.getByTestId('jar-schedule-preview')).toHaveTextContent('Already funded — nothing more to set aside.'), { timeout: 5000 })
+    await waitFor(() => expect(dialog.getByTestId('jar-schedule-preview')).toHaveTextContent('Already funded'), { timeout: 5000 })
   })
 
-  it('JAR-086: "Include the deadline month" is offered only when the deadline is not the 1st, and is sent when ticked (rule 36)', { timeout: 15000 }, async () => {
+  it('JAR-086: "Include the deadline month" sits under More options, is offered only when the deadline is not the 1st, and is sent when ticked (rule 36)', { timeout: 15000 }, async () => {
     mockPosts((request) =>
       request.includeDeadlineMonth
         ? schedule({ months: [scheduleMonth(2026, 9, 75), scheduleMonth(2026, 10, 75), scheduleMonth(2026, 11, 75), scheduleMonth(2026, 12, 75)], deadline: '2026-12-15', fundingCompletesOn: '2026-12-31' })
@@ -228,22 +288,30 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     renderPage()
     const dialog = await openNewJar(user)
 
-    // Due on the 1st: the money must be there before the month begins, so there is no option.
+    // The option lives under "More options", which starts closed for a new jar.
     await describeRecurring(dialog, user)
+    const more = dialog.getByRole('button', { name: 'More options' })
+    expect(more).toHaveAttribute('aria-expanded', 'false')
+    await user.click(more)
+    expect(more).toHaveAttribute('aria-expanded', 'true')
+    // Due on the 1st: the money must be there before the month begins, so there is no option.
     expect(dialog.queryByLabelText('Include the deadline month')).not.toBeInTheDocument()
 
     // Due mid-month: the option appears, off by default — the plan finishes the month before.
     fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: '2026-12-15' } })
     const option = dialog.getByLabelText('Include the deadline month')
     expect(option).not.toBeChecked()
-    expect(dialog.getByText(/Also set aside money in Dec 2026, the deadline month\./)).toBeInTheDocument()
-    expect(dialog.getByText(/so the money is already in Joint Current on/)).toBeInTheDocument()
+    // The explanation rule 36 asks for sits behind the option's info button.
+    fireEvent.focus(dialog.getByRole('button', { name: 'What including the deadline month means' }))
+    const tip = await dialog.findByRole('tooltip', {}, { timeout: 5000 })
+    expect(tip.textContent).toMatch(/By default the plan finishes the month before, so the money is in Joint Current by .*Dec.*2026/)
+    expect(tip.textContent).toMatch(/only if Dec 2026\u2019s contribution will reach the account before then/)
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ targetDate: '2026-12-15', includeDeadlineMonth: false })), { timeout: 5000 })
-    expect(await dialog.findByText(/Sets aside €100\.00 a month from Sep 2026 to Nov 2026/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await dialog.findByText('€100.00 a month · Sep 2026 – Nov 2026', {}, { timeout: 5000 })).toBeInTheDocument()
 
     // Ticked: the preview is re-asked with the option and runs into December.
     await user.click(option)
-    expect(await dialog.findByText(/Sets aside €75\.00 a month from Sep 2026 to Dec 2026/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await dialog.findByText('€75.00 a month · Sep 2026 – Dec 2026', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ includeDeadlineMonth: true }))
 
     // …and the choice is saved with the jar.
@@ -271,7 +339,7 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
 
     await describeRecurring(dialog, user, '140.1', '2027-11-01')
     let preview = within(await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 }))
-    expect(preview.getByText(/Sets aside €140\.10 in total from Sep 2026 to Oct 2027/)).toBeInTheDocument()
+    expect(preview.getByText('€140.10 in total · Sep 2026 – Oct 2027')).toBeInTheDocument()
     // Twelve listed months plus the "… and N more" line.
     expect(preview.getAllByRole('listitem')).toHaveLength(13)
     expect(preview.getByText('… and 2 more months')).toBeInTheDocument()
@@ -279,28 +347,26 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     // An even long plan needs no list: the summary already says it all.
     await user.clear(dialog.getByLabelText('Target amount'))
     await user.type(dialog.getByLabelText('Target amount'), '140')
-    await waitFor(() => expect(dialog.getByTestId('jar-schedule-preview')).toHaveTextContent(/Sets aside €10\.00 a month from Sep 2026 to Oct 2027/), { timeout: 5000 })
+    await waitFor(() => expect(dialog.getByTestId('jar-schedule-preview')).toHaveTextContent('€10.00 a month · Sep 2026 – Oct 2027'), { timeout: 5000 })
     preview = within(dialog.getByTestId('jar-schedule-preview'))
     expect(preview.queryByRole('listitem')).not.toBeInTheDocument()
   })
 
-  // --- Jar-types InfoHint ---------------------------------------------------
+  // --- "What repeating means" InfoHint ---------------------------------------
 
-  it('JAR-022: the "About jar types" InfoHint explains Recurring and Goal', { timeout: 15000 }, async () => {
+  it('JAR-022: the "What repeating means" InfoHint explains a jar that repeats and one that doesn\'t', { timeout: 15000 }, async () => {
     const user = userEvent.setup()
 
     renderPage()
     const dialog = await openNewJar(user)
 
-    // The trigger is a real <button> beside the Type label (outside the <label>).
-    const hint = dialog.getByRole('button', { name: 'About jar types' })
+    // The trigger is a real <button> beside the Repeats label (outside the <label>).
+    const hint = dialog.getByRole('button', { name: 'What repeating means' })
     fireEvent.focus(hint) // reveals the role="tooltip" popover
     const tip = await dialog.findByRole('tooltip', {}, { timeout: 5000 })
-    expect(tip.textContent).toContain('Recurring')
-    expect(tip.textContent).toMatch(/Saves toward a due date, then repeats/)
-    expect(tip.textContent).toContain('Goal')
-    expect(tip.textContent).toMatch(/one-off savings target/)
-    expect(tip.textContent).toMatch(/ongoing pot you top up by a fixed amount each month/)
+    // A jar that repeats, then one that doesn't, in two short sentences.
+    expect(tip.textContent).toMatch(/For a bill that comes round again \(insurance, road tax\): once you mark it paid, it saves toward the next one\./)
+    expect(tip.textContent).toMatch(/A jar that doesn\u2019t repeat is for saving up once \(a sofa, a trip\)\./)
   })
 
   // --- Create-time round-trip ----------------------------------------------
@@ -313,12 +379,12 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     renderPage()
     const dialog = await openNewJar(user)
 
-    await user.selectOptions(dialog.getByLabelText('Jar type'), '1') // Goal
+    // A new jar doesn't repeat by default (a Goal), so only its "Needed by" date is asked.
     // Set the name in one shot (fireEvent.change) so surrogate-pair emoji aren't split
     // by per-keystroke typing; the field is controlled, so this drives the same onChange.
     fireEvent.change(dialog.getByLabelText('Jar name'), { target: { value: name } })
     await user.type(dialog.getByLabelText('Target amount'), '50')
-    fireEvent.change(dialog.getByLabelText('Deadline'), { target: { value: '2027-03-01' } })
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2027-03-01' } })
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
     // The exact string reaches the wire (only trimmed) — no mojibake, no re-encoding.

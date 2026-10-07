@@ -6,7 +6,7 @@ import type { JarCycleDto, JarDto, JarPaymentDto } from '../types'
 // W03 — the Recurring jar's cycle lifecycle on the Jars page (rules 19–24, 57, 83): the
 // Deadline missed / Funded late states and what they say (JAR-088), marking a cycle paid by
 // choosing the payment (JAR-089, JAR-090), dismissing a missed deadline (JAR-091), the
-// last-cycle line and its "Paid it?" link for a cycle that rolled forward unpaid (JAR-092),
+// last-cycle line and its "Record the payment" link for a cycle that rolled forward unpaid (JAR-092),
 // and the write gating of the new actions (JAR-093).
 //
 // Same shared api mock as the sibling *.catalog.test.tsx files.
@@ -123,7 +123,6 @@ describe('JarsPage — recurring cycles (W03)', () => {
 
     expect(await screen.findByText('Deadline missed', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText(/^Deadline .*Sep.*2026 missed · €150\.00 short$/)).toBeInTheDocument()
-    expect(screen.getByText('Mark the cycle paid, or dismiss it to save toward the next one')).toBeInTheDocument()
     expect(screen.getByLabelText("Dismiss Road tax's missed deadline")).toBeInTheDocument()
     expect(screen.getByLabelText('Mark Road tax paid')).toBeInTheDocument()
   })
@@ -166,8 +165,8 @@ describe('JarsPage — recurring cycles (W03)', () => {
     // The card now shows the next cycle and how the last one ended.
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
     expect(screen.queryByText('Deadline missed')).not.toBeInTheDocument()
-    expect(screen.getByText(/^Last cycle · due .*Sep.*2026 · paid .*Sep.*2026 \(€580\.00\), after the deadline$/)).toBeInTheDocument()
-    expect(screen.getByText(/^Funded by Aug 2027 · due .*Sep.*2027, then it repeats$/)).toBeInTheDocument()
+    expect(screen.getByText(/^Last cycle paid .*Sep.*2026 \(€580\.00\), late$/)).toBeInTheDocument()
+    expect(screen.getByText(/^Due .*Sep.*2027 · yearly$/)).toBeInTheDocument()
   })
 
   it('JAR-114: a payment still waiting for its budget-currency amount is listed but cannot be chosen', { timeout: 15000 }, async () => {
@@ -253,8 +252,8 @@ describe('JarsPage — recurring cycles (W03)', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
     expect(screen.queryByText('Deadline missed')).not.toBeInTheDocument()
     expect(screen.queryByLabelText("Dismiss Road tax's missed deadline")).not.toBeInTheDocument()
-    expect(screen.getByText(/^Last cycle · due .*Sep.*2026 · missed$/)).toBeInTheDocument()
-    expect(screen.getByText(/^Funded by Aug 2027 · due .*Sep.*2027, then it repeats$/)).toBeInTheDocument()
+    expect(screen.getByText('Last cycle missed')).toBeInTheDocument()
+    expect(screen.getByText(/^Due .*Sep.*2027 · yearly$/)).toBeInTheDocument()
   })
 
   it('JAR-091: the dismiss dialog hands over to Mark paid for a bill that was in fact paid', { timeout: 15000 }, async () => {
@@ -272,7 +271,7 @@ describe('JarsPage — recurring cycles (W03)', () => {
     expect(mockPost).not.toHaveBeenCalled()
   })
 
-  it('JAR-092: a cycle that rolled forward funded but unpaid shows the last-cycle line with "Paid it?", which marks that cycle, not the open one', { timeout: 15000 }, async () => {
+  it('JAR-092: a cycle that rolled forward funded but unpaid shows the last-cycle line with "Record the payment", which marks that cycle, not the open one', { timeout: 15000 }, async () => {
     // Healthy jar saving toward 1 Sep 2027; last September's cycle was funded on time (rule 21)
     // and rolled forward, but no payment was recorded against it.
     mockLoads({ jars: [advanced({ lastCycle: cycle({ deadline: '2026-09-01', outcome: 'Funded', closedOn: '2026-09-01' }) })], payments: { '/jars/f1/payments': [payment()] } })
@@ -281,7 +280,8 @@ describe('JarsPage — recurring cycles (W03)', () => {
 
     renderPage()
 
-    expect(await screen.findByText(/^Last cycle · due .*Sep.*2026 · funded on time, payment not recorded$/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText('Last cycle funded on time', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText('Record the payment')).toBeInTheDocument()
     expect(screen.queryByText('Deadline missed')).not.toBeInTheDocument()
     await user.click(screen.getByLabelText(/^Record the payment for Road tax's cycle due .*Sep.*2026$/))
 
@@ -296,8 +296,8 @@ describe('JarsPage — recurring cycles (W03)', () => {
       { timeout: 5000 },
     )
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
-    expect(screen.getByText(/^Last cycle · due .*Sep.*2026 · paid .*Sep.*2026 \(€580\.00\), after the deadline$/)).toBeInTheDocument()
-    expect(screen.queryByText('Paid it? Record the payment')).not.toBeInTheDocument()
+    expect(screen.getByText(/^Last cycle paid .*Sep.*2026 \(€580\.00\), late$/)).toBeInTheDocument()
+    expect(screen.queryByText('Record the payment')).not.toBeInTheDocument()
   })
 
   it('JAR-093: a Goal and an unavailable jar get no cycle actions', async () => {
@@ -324,6 +324,6 @@ describe('JarsPage — recurring cycles (W03)', () => {
     expect(await screen.findByText('Deadline missed', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.queryByLabelText('Mark Road tax paid')).not.toBeInTheDocument()
     expect(screen.queryByLabelText("Dismiss Road tax's missed deadline")).not.toBeInTheDocument()
-    expect(screen.queryByText('Paid it? Record the payment')).not.toBeInTheDocument()
+    expect(screen.queryByText('Record the payment')).not.toBeInTheDocument()
   })
 })
