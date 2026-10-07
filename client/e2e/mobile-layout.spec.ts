@@ -39,6 +39,13 @@ test('the jar modal fits a phone screen (2-col grid in a dialog)', async ({ page
   await page.getByRole('heading', { level: 1 }).first().waitFor()
 
   await page.getByRole('button', { name: 'New jar' }).click()
-  await page.getByRole('dialog').getByLabel('Next due date').waitFor()
+  // A new jar doesn't repeat, so its date reads "Needed by", beside Repeats in the grid.
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Needed by').waitFor()
+  await dialog.getByLabel('Repeats').waitFor()
   await assertNoHorizontalOverflow(page, '/jars (new-jar modal)')
+  // The More options fold holds a second 2-col grid ("Already set aside" + "Set aside on").
+  await dialog.getByRole('button', { name: 'More options' }).click()
+  await dialog.getByLabel('Set aside on').waitFor()
+  await assertNoHorizontalOverflow(page, '/jars (new-jar modal, More options open)')
 })
