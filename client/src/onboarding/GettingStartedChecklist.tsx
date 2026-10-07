@@ -1,22 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { api } from '../lib/api'
-import type { BudgetMonthDto, BudgetMonthSummaryDto, TransactionDto } from '../types'
+import type { BudgetMonthDto, BudgetMonthSummaryDto, JarDto, TransactionDto } from '../types'
 import { fromDto, remainingToBudget, totalIncome } from '../budgetModel'
 import { CheckIcon, ChevronDownIcon, CloseIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { currencyNoun } from '../lib/money'
 import { currentMonth } from '../lib/dates'
+import { useFeatures } from '../features/FeatureContext'
 import { useOnboarding } from './OnboardingContext'
 
 interface Progress {
   monthExists: boolean
   hasIncome: boolean
+  hasJar: boolean
   balanced: boolean
   hasTransaction: boolean
 }
 
-const EMPTY: Progress = { monthExists: false, hasIncome: false, balanced: false, hasTransaction: false }
+const EMPTY: Progress = { monthExists: false, hasIncome: false, hasJar: false, balanced: false, hasTransaction: false }
 
 /**
  * A small, dismissible "Getting started" panel pinned to the corner. Its steps
@@ -26,6 +28,7 @@ const EMPTY: Progress = { monthExists: false, hasIncome: false, balanced: false,
 export function GettingStartedChecklist() {
   const { dismissChecklist } = useOnboarding()
   const { budgetCurrency, households } = useAuth()
+  const features = useFeatures()
   const noun = currencyNoun(budgetCurrency)
   const location = useLocation()
   const [open, setOpen] = useState(true)
@@ -56,6 +59,11 @@ export function GettingStartedChecklist() {
       .catch(() => set({ hasIncome: false, balanced: false }))
 
     api
+      .get<JarDto[]>('/jars')
+      .then(({ data }) => set({ hasJar: Array.isArray(data) && data.length > 0 }))
+      .catch(() => {})
+
+    api
       .get<TransactionDto[]>('/transactions')
       .then(({ data }) => set({ hasTransaction: Array.isArray(data) && data.length > 0 }))
       .catch(() => {})
@@ -83,6 +91,8 @@ export function GettingStartedChecklist() {
   const steps = [
     { id: 'month', label: 'Create your first month', hint: 'Start blank or pick a template — later months can copy the previous one.', to: '/', done: progress.monthExists },
     { id: 'income', label: 'Plan your income', hint: 'Add what you expect to earn this month.', to: '/', done: progress.hasIncome },
+    // Only where the Jars page is on: the step links to it.
+    ...(features.jars ? [{ id: 'jar', label: 'Add a jar', hint: 'A yearly bill, a holiday or a rainy-day pot.', to: '/jars', done: progress.hasJar }] : []),
     { id: 'balance', label: `Give every ${noun} a job`, hint: 'Assign it all until Remaining reaches zero.', to: '/', done: progress.balanced },
     { id: 'tx', label: 'Log your first transaction', hint: 'Record real spending and assign it to a line.', to: '/transactions', done: progress.hasTransaction },
   ]

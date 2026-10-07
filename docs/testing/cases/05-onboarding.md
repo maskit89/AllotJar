@@ -1,6 +1,6 @@
 # Onboarding (welcome dialog, spotlight tour, getting-started checklist)
 
-**ID prefix:** ONBD | **Scope:** The first-run onboarding layer mounted once inside the authenticated app (`client/src/App.tsx:181-184` — `{isAuthenticated && !needsConsent && <Onboarding/>}`): the auto-opening "Welcome to AllotJar" dialog (`client/src/onboarding/WelcomeDialog.tsx`) with its owner vs joined-member copy branches; the 9-step SpotlightTour (`SpotlightTour.tsx` + `tourSteps.tsx`) with spotlight anchoring, centred-card fallback and linear navigation; the pinned "Getting started" checklist (`GettingStartedChecklist.tsx`) with its 4 auto-detected steps polled from `GET /budget/months`, `GET /budget/{y}/{m}` and `GET /transactions`; the per-user persistence record `localStorage['zbb.onboarding:{email}']` = `{v:1, welcomeSeen, tourDone, checklistDismissed}` (`OnboardingContext.tsx`); the "Replay welcome tour" action on `/help`; the accounts-first start (rule 81: no sample data; the Budget page's "Set up your budget" checklist — accounts, month, jar); and behavior for invite-created users landing in an existing household (joined copy, owner-only checklist). | **Out of scope:** the registration form itself, the "Start with sample figures" checkbox mechanics and the `includeSampleData` payload (02-registration-login.md); session expiry, cross-tab sign-out and refresh races (03-session-auth-lifecycle.md); the `/account` page including the Start-my-own-budget and Leave-household buttons themselves (04-account-preferences.md and the households/people case file — only their *onboarding after-effects* live here); ConsentModal content and the consent POST (households/people file — only the onboarding-vs-consent mounting rule lives here); dashboard budgeting behaviors, the create-month hero, IsBalanced hero badge and PR #172 dashboard cases (budget-months case file — only the *checklist's* balanced detection lives here); the Help page's topic cards and analytics consent controls (routing/shell and analytics files); GA event delivery/redaction (analytics file — expected `track()` calls are noted but not asserted here); dark/responsive/a11y sweeps (cross-cutting file — `client/e2e/a11y.spec.ts` already axe-scans the welcome dialog, every tour step and the checklist region in both themes). **Do not test for:** an `onboarding_step_completed` analytics event (defined in `events.ts` but never fired — dead code); any server-side persistence of onboarding progress (there is none — it is purely per-browser localStorage); a "resume tour at step N" feature (replay always restarts at the welcome).
+**ID prefix:** ONBD | **Scope:** The first-run onboarding layer mounted once inside the authenticated app (`client/src/App.tsx:181-184` — `{isAuthenticated && !needsConsent && <Onboarding/>}`): the auto-opening "Welcome to AllotJar" dialog (`client/src/onboarding/WelcomeDialog.tsx`) with its owner vs joined-member copy branches; the 9-step SpotlightTour (`SpotlightTour.tsx` + `tourSteps.tsx`) with spotlight anchoring, centred-card fallback and linear navigation; the pinned "Getting started" checklist (`GettingStartedChecklist.tsx`) with its 5 auto-detected steps (4 while the `jars` flag is off: no "Add a jar") polled from `GET /budget/months`, `GET /budget/{y}/{m}`, `GET /jars` and `GET /transactions`; the per-user persistence record `localStorage['zbb.onboarding:{email}']` = `{v:1, welcomeSeen, tourDone, checklistDismissed}` (`OnboardingContext.tsx`); the "Replay welcome tour" action on `/help`; the accounts-first start (rule 81: no sample data; the Budget page's "Set up your budget" checklist — accounts, month, jar); and behavior for invite-created users landing in an existing household (joined copy, owner-only checklist). | **Out of scope:** the registration form itself, the "Start with sample figures" checkbox mechanics and the `includeSampleData` payload (02-registration-login.md); session expiry, cross-tab sign-out and refresh races (03-session-auth-lifecycle.md); the `/account` page including the Start-my-own-budget and Leave-household buttons themselves (04-account-preferences.md and the households/people case file — only their *onboarding after-effects* live here); ConsentModal content and the consent POST (households/people file — only the onboarding-vs-consent mounting rule lives here); dashboard budgeting behaviors, the create-month hero, IsBalanced hero badge and PR #172 dashboard cases (budget-months case file — only the *checklist's* balanced detection lives here); the Help page's topic cards and analytics consent controls (routing/shell and analytics files); GA event delivery/redaction (analytics file — expected `track()` calls are noted but not asserted here); dark/responsive/a11y sweeps (cross-cutting file — `client/e2e/a11y.spec.ts` already axe-scans the welcome dialog, every tour step and the checklist region in both themes). **Do not test for:** an `onboarding_step_completed` analytics event (defined in `events.ts` but never fired — dead code); any server-side persistence of onboarding progress (there is none — it is purely per-browser localStorage); a "resume tour at step N" feature (replay always restarts at the welcome).
 
 **Test data setup:** (a) Fresh browser profile per case unless stated (empty localStorage — the onboarding record is per-browser); locale `en-GB`, desktop viewport ≥ 900 px unless stated. (b) Owner login `onbd-owner@example.test`, registered through `/login?register=1` with defaults (sample checkbox UNTICKED, currency EUR → noun "euro"), password random `Aa1-<uuid>` shape (HIBP rejects fixed common passwords). (c) Sample-start login `onbd-sample@example.test`, registered identically but with "Start with sample figures to explore…" TICKED — its seeded current month (from `BudgetSeeder.SeedDefaultMonthAsync`): income "Take-home Pay" 3,000.00; planned lines Housing (Rent 1,100.00, Utilities 180.00), Transport (Fuel 120.00, Public Transport 60.00), Food (Groceries 400.00, Dining Out 90.00), Savings ("Emergency Fund" 250.00 backed by a real jar) — planned total 2,200.00, Remaining to budget **800.00** (deliberately unbalanced), zero transactions. (d) Shared household owned by `onbd-inviter@example.test` (registered WITH samples so the joined budget has content) with a pending invite link for `onbd-member@example.test`. (e) Local stack (API :5099, `ASPNETCORE_ENVIRONMENT=Development`) or staging (staging.allotjar.com). (f) Where a case inspects localStorage, key names are exact: `zbb.onboarding:{email}`, `zbb.email`.
 
@@ -51,15 +51,15 @@
   - No variant leaves a stuck backdrop or blocks interaction with the page.
 - **Automated:** No
 
-### ONBD-004 - Currency noun flows through welcome, tour step 3, checklist step 3 and the all-done line
+### ONBD-004 - Currency noun flows through welcome, tour step 3, checklist step 4 and the all-done line
 - **Priority:** P3
 - **Type:** Edge
 - **Preconditions:** A user registered with currency USD (fresh profile); a second fresh user whose currency is a valid ISO code outside the noun map (e.g. ISK), set via API `PUT /auth/preferences` while the budget is still empty (once it holds an account, month or transaction the currency is locked — PREF-042; a blank value is stored as EUR). The noun comes from the **budget currency** (`/auth/me` `budgetCurrency`), which for a new household is the chosen currency.
 - **Steps:**
-  1. As the USD user, read the welcome body, then take the tour to step 3, then skip to the checklist and read step 3's label.
+  1. As the USD user, read the welcome body, then take the tour to step 3, then skip to the checklist and read step 4's label.
   2. As the ISK user, repeat.
 - **Expected:**
-  - USD: "give **every dollar a job**" in the welcome body; tour step 3 titled "Give every dollar a job"; checklist step 3 labeled "Give every dollar a job"; all-done message (when reached) "All set — every dollar has a job! 🎉".
+  - USD: "give **every dollar a job**" in the welcome body; tour step 3 titled "Give every dollar a job"; checklist step 4 labeled "Give every dollar a job"; all-done message (when reached) "All set — every dollar has a job! 🎉".
   - ISK (no noun mapped): the noun falls back to "unit" ("give every unit a job") — no crash, no empty string.
   - Tour step count stays 9 regardless of noun.
 - **Automated:** Partial (client/src/lib/money.test.ts — `currencyNoun` mapping incl. `unit` fallback; the onboarding surfaces themselves unasserted)
@@ -187,7 +187,7 @@
 
 ## Getting-started checklist — rendering & progress detection
 
-### ONBD-014 - Initial checklist for an empty account: 0 of 4 with exact steps, hints and links
+### ONBD-014 - Initial checklist for an empty account: 0 of 5 with exact steps, hints and links
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** `onbd-owner@example.test` (empty account), welcome skipped, on `/`.
@@ -195,8 +195,8 @@
   1. Read the checklist panel bottom-right.
   2. Hover/click each step row and note its link target.
 - **Expected:**
-  - Header "Getting started" + "0 of 4 done"; progress bar `role="progressbar"` `aria-label="Onboarding progress"` with `aria-valuenow=0`, `aria-valuemin=0`, `aria-valuemax=4`, visually 0% filled.
-  - Steps in order (label / hint / link): 1 "Create your first month" / "Start blank or pick a template — later months can copy the previous one." / `/`; 2 "Plan your income" / "Add what you expect to earn this month." / `/`; 3 "Give every euro a job" / "Assign it all until Remaining reaches zero." / `/`; 4 "Log your first transaction" / "Record real spending and assign it to a line." / `/transactions`.
+  - Header "Getting started" + "0 of 5 done"; progress bar `role="progressbar"` `aria-label="Onboarding progress"` with `aria-valuenow=0`, `aria-valuemin=0`, `aria-valuemax=5`, visually 0% filled.
+  - Steps in order (label / hint / link): 1 "Create your first month" / "Start blank or pick a template — later months can copy the previous one." / `/`; 2 "Plan your income" / "Add what you expect to earn this month." / `/`; 3 "Add a jar" / "A yearly bill, a holiday or a rainy-day pot." / `/jars`; 4 "Give every euro a job" / "Assign it all until Remaining reaches zero." / `/`; 5 "Log your first transaction" / "Record real spending and assign it to a line." / `/transactions`.
   - Every circle is empty (sr-only "To do:"); no strikethrough.
   - Header buttons present: `aria-label="Collapse getting started"` (chevron) and `aria-label="Dismiss getting started"` (X).
 - **Automated:** Partial (client/src/onboarding/Onboarding.test.tsx — region renders after skip; client/e2e/a11y.spec.ts — region axe-scanned; labels/links/progressbar values unasserted)
@@ -204,17 +204,18 @@
 ### ONBD-015 - Steps tick off automatically as the first month is built, ending in the all-done state
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** ONBD-014 state (0 of 4). Current calendar month = July 2026.
+- **Preconditions:** ONBD-014 state (0 of 5). Current calendar month = July 2026.
 - **Steps:**
   1. On `/`, click "Start a blank budget"; observe the checklist (it refreshes on navigation/focus — if needed, click any nav item and return).
   2. In the Income group, add an income source with planned 2,500.00; observe.
-  3. Add an expense group/line and assign planned amounts until "Remaining to budget" shows exactly 0.00; observe.
-  4. Go to `/transactions` via checklist step 4's link and add a transaction (e.g. Groceries 45.30 assigned to a line); observe.
+  3. Go to `/jars` via checklist step 3's link and pick the **Rainy day** example, then **Add jar** (JAR-124); observe.
+  4. Back on `/`, add an expense group/line and assign planned amounts until "Remaining to budget" shows exactly 0.00; observe.
+  5. Go to `/transactions` via checklist step 5's link and add a transaction (e.g. Groceries 45.30 assigned to a line); observe.
 - **Expected:**
-  - After step 1: "Create your first month" ticks (filled circle, sr-only "Done:", label struck through) — "1 of 4 done", bar 25%.
-  - After step 2: "Plan your income" ticks — "2 of 4 done" (detection: `totalIncome > 0` on `GET /budget/2026/7`).
-  - After step 3: "Give every euro a job" ticks — "3 of 4 done" (detection: income > 0 AND remaining === 0).
-  - After step 4: "Log your first transaction" ticks — "4 of 4 done", bar 100%, and a footer appears: "All set — every euro has a job! 🎉" with button "Hide this checklist" which dismisses it (same persistence as the X).
+  - After step 1: "Create your first month" ticks (filled circle, sr-only "Done:", label struck through) — "1 of 5 done", bar 20%.
+  - After step 2: "Plan your income" ticks — "2 of 5 done" (detection: `totalIncome > 0` on `GET /budget/2026/7`).
+  - After step 3: "Add a jar" ticks — "3 of 5 done" (detection: `GET /jars` returns a jar). After step 4: "Give every euro a job" ticks — "4 of 5 done" (detection: income > 0 AND remaining === 0; the jar's Savings line counts toward the plan).
+  - After step 5: "Log your first transaction" ticks — "5 of 5 done", bar 100%, and a footer appears: "All set — every euro has a job! 🎉" with button "Hide this checklist" which dismisses it (same persistence as the X).
   - Ticks appear without a manual reload (progress re-polls on every route change and window focus).
 - **Automated:** No
 
@@ -226,7 +227,7 @@
 - **Steps:**
   1. Read the checklist.
 - **Expected:**
-  - "Create your first month" is ticked; "Plan your income" is NOT ticked; "Give every euro a job" is NOT ticked even though remaining is exactly 0 — "1 of 4 done".
+  - "Create your first month" is ticked; "Plan your income" is NOT ticked; "Give every euro a job" is NOT ticked even though remaining is exactly 0 — "1 of 5 done".
   - (The dashboard hero simultaneously shows the "Plan your income…" prompt, not the gold badge — asserted in the budget-months file.)
 - **Automated:** Partial (client/src/budgetModel.test.ts — empty month not balanced; client/src/onboarding/GettingStartedChecklist.tsx wiring `income > 0 && remaining === 0` has no direct test)
 
@@ -241,13 +242,13 @@
 - **Expected:**
   - Steps 1 and 2: "Give every euro a job" stays unticked (remaining ≠ 0; over-budgeted is not balanced).
   - Step 3: it ticks. Comparison is on integer minor units — no float tolerance window.
-  - A jar-owning household whose blank month landed over-budgeted via accrual-planned savings lines (PR #172 side effect) therefore shows step 3 unticked until trimmed to zero.
+  - A jar-owning household whose blank month landed over-budgeted via accrual-planned savings lines (PR #172 side effect) therefore shows "Give every euro a job" unticked until trimmed to zero.
 - **Automated:** No
 
 ### ONBD-018 - Collapse is session-only; Dismiss is persisted
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Checklist visible at "1 of 4 done".
+- **Preconditions:** Checklist visible at "1 of 5 done".
 - **Steps:**
   1. Click the chevron (`aria-label="Collapse getting started"`).
   2. Click the resulting pill.
@@ -255,7 +256,7 @@
   4. Click the X (`aria-label="Dismiss getting started"`).
   5. Reload again; also sign out and back in.
 - **Expected:**
-  - Step 1: panel collapses to a bottom-right pill "Getting started · 1/4".
+  - Step 1: panel collapses to a bottom-right pill "Getting started · 1/5".
   - Step 2: pill expands back to the full panel (collapse state is component-local).
   - Step 3: after reload the checklist is OPEN again (collapse was not persisted).
   - Step 4: panel disappears entirely; record persists `checklistDismissed:true`.
@@ -265,14 +266,14 @@
 ### ONBD-019 - Progress refreshes on route change and window focus (cross-tab/second-client edits picked up)
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Checklist visible at "1 of 4 done"; same user signed in on a second tab or API client.
+- **Preconditions:** Checklist visible at "1 of 5 done"; same user signed in on a second tab or API client.
 - **Steps:**
   1. In the second tab, add an income line of 2,000.00 to the current month.
   2. In the first tab, without reloading, click "Transactions" in the nav then back to "Budget" (route change) — or simply refocus the first tab's window.
   3. Watch the network panel while doing so.
 - **Expected:**
-  - On the route change (and again on window focus) the checklist re-issues its 3 GETs (`/budget/months`, `/budget/{y}/{m}`, `/transactions`) and "Plan your income" ticks to "2 of 4 done" without a reload.
-  - No visible flicker to 0/4 while refreshing (previous state is kept until responses land).
+  - On the route change (and again on window focus) the checklist re-issues its 4 GETs (`/budget/months`, `/budget/{y}/{m}`, `/jars`, `/transactions`) and "Plan your income" ticks to "2 of 5 done" without a reload.
+  - No visible flicker to 0/5 while refreshing (previous state is kept until responses land).
 - **Automated:** No
 
 ### ONBD-020 - Month rollover with the tab left open: progress stays pinned to the load-time month until reload
@@ -285,7 +286,7 @@
   3. Hard-reload the page and read it again.
 - **Expected:**
   - Step 2: the checklist still evaluates JULY (`const now` is captured at module load — `GettingStartedChecklist.tsx:19`), so steps 1-3 remain ticked even though August has no month yet. Document as current behavior, not a failure.
-  - Step 3: after the reload the checklist evaluates August — "Create your first month"/"Plan your income"/"Give every euro a job" untick (August month absent), "Log your first transaction" stays ticked (transactions list is not month-scoped).
+  - Step 3: after the reload the checklist evaluates August — "Create your first month"/"Plan your income"/"Give every euro a job" untick (August month absent), "Add a jar" and "Log your first transaction" stay ticked (jars and the transactions list are not month-scoped).
 - **Automated:** No
 
 ### ONBD-021 - Checklist renders only for the user's OWN household
@@ -299,7 +300,7 @@
   3. Look again.
 - **Expected:**
   - Step 1: no checklist anywhere — not collapsed, absent from the DOM — even though `checklistDismissed` is false.
-  - Step 3: checklist renders for the own household, with progress evaluated against the OWN household's data (0 of 4 for a fresh own budget).
+  - Step 3: checklist renders for the own household, with progress evaluated against the OWN household's data (0 of 5 for a fresh own budget).
 - **Automated:** No
 
 ### ONBD-022 - Checklist polling failures are silent and safe
@@ -378,14 +379,14 @@
   4. Reload the page.
 - **Expected:**
   - Step 1: the welcome dialog reopens immediately (owner copy) and the record becomes `{welcomeSeen:true, tourDone:false, checklistDismissed:false}` — the checklist is restored by the replay itself.
-  - Step 2-3: skipping re-persists `tourDone:true`; the checklist shows bottom-right with live progress (likely 4/4 or partial per real data — including the all-done footer if complete).
+  - Step 2-3: skipping re-persists `tourDone:true`; the checklist shows bottom-right with live progress (likely 5/5 or partial per real data — including the all-done footer if complete).
   - Step 4: after reload NOTHING auto-opens — `welcomeSeen` was kept true, so replay never re-arms the first-run trigger.
   - (Fires `tour_replayed` when analytics is live.)
 - **Automated:** Partial (client/src/pages/HelpPage.test.tsx — the "Replay welcome tour" button exists; the replay behavior itself unasserted)
 
 ## Empty-account vs sample-budget start (PR #170)
 
-### ONBD-028 - Default (empty) registration: onboarding sits over the create-month hero and the checklist starts at 0/4
+### ONBD-028 - Default (empty) registration: onboarding sits over the create-month hero and the checklist starts at 0/5
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** PR #170 — sample figures are opt-in; the empty default makes the create-month hero the standard first-run landing
@@ -396,11 +397,11 @@
   3. Click "Take the tour" via Help replay (or on a second fresh account, take the tour directly) and advance to step 3.
 - **Expected:**
   - Behind the welcome: the create-month hero ("No budget for July 2026 yet" with "Start a blank budget" and template options) — no sample groups, no "Take-home Pay", no Emergency Fund jar, zero transactions.
-  - Checklist reads "0 of 4 done" — nothing pre-ticked.
+  - Checklist reads "0 of 5 done" — nothing pre-ticked.
   - Tour step 3 ("Give every euro a job") renders as a centred card — the remaining-banner anchor does not exist yet (no month). Steps 1-2 and 4-8 spotlight normally.
 - **Automated:** Partial (client/e2e-journey/register.spec.ts — default registration lands on the EMPTY budget with the create-month hero, but with onboarding suppressed via `suppressOnboarding()`; the onboarding-over-empty combination unasserted)
 
-### ONBD-029 - Opted-in sample start: checklist pre-ticks exactly 2 of 4 and the tour spotlights real data
+### ONBD-029 - Opted-in sample start: checklist pre-ticks exactly 2 of 5 and the tour spotlights real data
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** PR #170 — sample month seeds income 3,000.00 over 2,200.00 planned, deliberately leaving 800.00 to assign
@@ -410,9 +411,9 @@
   2. Read the checklist state and each step's tick.
   3. Replay the tour from Help and advance to step 3.
 - **Expected:**
-  - Checklist reads "2 of 4 done": "Create your first month" ✓ (seeded month exists), "Plan your income" ✓ (3,000.00 > 0), "Give every euro a job" ✗ (remaining 800.00 ≠ 0 — the seed is intentionally unbalanced so the user finishes the job), "Log your first transaction" ✗ (no seeded transactions).
+  - Checklist reads "2 of 5 done": "Create your first month" ✓ (seeded month exists), "Plan your income" ✓ (3,000.00 > 0), "Add a jar" ✗ (the sample start seeds no jar, rule 81), "Give every euro a job" ✗ (remaining 800.00 ≠ 0 — the seed is intentionally unbalanced so the user finishes the job), "Log your first transaction" ✗ (no seeded transactions).
   - Tour step 3 spotlights the real hero showing 800.00 still to assign (anchor exists).
-  - Assigning the remaining 800.00 (e.g. raise Groceries to 1,200.00) ticks step 3 → "3 of 4 done".
+  - Assigning the remaining 800.00 (e.g. raise Groceries to 1,200.00) ticks "Give every euro a job" → "3 of 5 done".
 - **Automated:** Partial (client/e2e-journey/register.spec.ts — sample opt-in lands on the seeded budget incl. the Emergency Fund jar, onboarding suppressed; checklist tick-state unasserted)
 
 ### ONBD-030 - Invitee who starts their own budget (or leaves) gets a fresh, never-seeded onboarding surface
@@ -426,7 +427,7 @@
   3. Read the dashboard, greeting, welcome state and checklist.
   4. (Variant: from a joined-only login, use "Leave household" → "Yes, leave" instead and land on `/?left=1`.)
 - **Expected:**
-  - Step 3: the "started" greeting banner shows; NO welcome dialog re-opens (record persists across the reload — email unchanged); the checklist NOW appears at "0 of 4 done" over the create-month hero — the own household is completely empty: no sample month, no Emergency Fund jar, regardless of whether the INVITER's household was sample-seeded.
+  - Step 3: the "started" greeting banner shows; NO welcome dialog re-opens (record persists across the reload — email unchanged); the checklist NOW appears at "0 of 5 done" over the create-month hero — the own household is completely empty: no sample month, no Emergency Fund jar, regardless of whether the INVITER's household was sample-seeded.
   - Step 4 variant: identical empty-own-household landing with the "left that household" greeting — leaving never seeds sample data and never re-triggers the welcome.
 - **Automated:** Partial (client/e2e-journey/invite.spec.ts — the leave leg asserts the `?left` banner + create-month hero with NO sample figures, onboarding suppressed; tests/AllotJar.Application.Tests/Application/HouseholdBootstrapTests.cs — no-sample bootstrap creates no budget; the checklist/welcome behavior on this path unasserted)
 
@@ -436,18 +437,20 @@
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** The checklist is a pure live recompute from the user's own data on every route change / window focus (`GettingStartedChecklist.tsx:34-69`, ONBD-019), so removing data must UN-tick steps exactly as adding it ticked them (ONBD-015) — the panel must not ratchet forward and stick on its high-water mark. Exercises the PR #172 `income > 0 && remaining === 0` guard (ONBD-016) and CAT-042 line/income-source deletion in reverse; the mirror of the build-only ONBD-015 and the live-edit CMB-043.
-- **Preconditions:** `onbd-owner@example.test`, own household (checklist rendered — ONBD-021), current calendar month = July 2026, checklist visible and fully built to **"4 of 4 done"** per ONBD-015 (month created; income "Take-home Pay" 2,500.00; expenses assigned so "Remaining to budget" = 0.00; one transaction logged and assigned to a line). The all-done footer "All set — every euro has a job! 🎉" is showing. Each teardown leg below is read AFTER a checklist refresh — click any nav item and return, or refocus the window; the panel re-polls only on route change / window focus, never on the in-place mutation itself (same cadence as the build direction, ONBD-015/019).
+- **Preconditions:** `onbd-owner@example.test`, own household (checklist rendered — ONBD-021), current calendar month = July 2026, checklist visible and fully built to **"5 of 5 done"** per ONBD-015 (month created; a never-used jar "Rainy day" added; income "Take-home Pay" 2,500.00; expenses assigned so "Remaining to budget" = 0.00; one transaction logged and assigned to a line). The all-done footer "All set — every euro has a job! 🎉" is showing. Each teardown leg below is read AFTER a checklist refresh — click any nav item and return, or refocus the window; the panel re-polls only on route change / window focus, never on the in-place mutation itself (same cadence as the build direction, ONBD-015/019).
 - **Steps:**
   1. In the transactions register, delete the only transaction (✕ per the transactions case, no confirm); refresh the checklist and read it.
   2. Back on `/`, delete an expense line (✕ "Delete {name}", CAT-042) — or lower its planned — so "Remaining to budget" is no longer 0.00 while income is untouched; refresh and read.
   3. Zero the planned income to 0.00, or delete the income line via its ✕ ("Delete income source", CAT-042); refresh and read.
-  4. Read the final checklist state, progressbar (`aria-valuenow`) and footer.
+  4. On `/jars`, delete the never-used jar "Rainy day" (Edit → Delete); refresh and read.
+  5. Read the final checklist state, progressbar (`aria-valuenow`) and footer.
 - **Expected:**
-  - After step 1: `GET /transactions` now returns `[]` → step 4 "Log your first transaction" un-ticks — "3 of 4 done", bar 75%, `aria-valuenow=3`. The all-done footer (heading + "Hide this checklist" button) disappears the instant `doneCount < 4` (`allDone` false).
-  - After step 2: `remainingToBudget(vm) !== 0` with income still > 0 → step 3 "Give every euro a job" un-ticks — "2 of 4 done", bar 50%, `aria-valuenow=2`. This is the ONBD-015/CMB-043 balanced tick run in reverse.
-  - After step 3: `totalIncome(vm)` drops to 0 → step 2 "Plan your income" un-ticks; step 3 STAYS un-ticked — the PR #172 `income > 0 && remaining === 0` guard means a zero-income month never re-ticks step 3 even though Remaining is once again technically 0 with nothing planned (ONBD-016) — "1 of 4 done", bar 25%, `aria-valuenow=1`.
-  - Final floor: step 1 "Create your first month" stays ✓ and the panel settles at **"1 of 4 done", NOT 0/4** — the month itself still exists and `/budget/months` still returns it; there is no delete-month action anywhere in the app (only line/category/transaction deletes), so `monthExists` cannot fall away by user action within the same calendar month (that step only un-ticks via the module-load month rollover + reload of ONBD-020, out of scope here). The point of the case is that the checklist genuinely descends from 4/4 to 1/4 rather than remaining pinned at its 4/4 high-water mark.
-  - Across all three legs `doneCount`, `aria-valuenow` and the bar width strictly DECREASE (no ratchet, no stale high-water mark); no step stays ticked once its underlying data is gone. The detection re-derives on every refresh — step 2 `hasIncome = totalIncome(vm) > 0`; step 3 `balanced = income > 0 && remainingToBudget(vm) === 0`; step 4 `hasTransaction = /transactions` non-empty — so removal flips each false exactly as addition flipped it true (`GettingStartedChecklist.tsx:38-55`).
+  - After step 1: `GET /transactions` now returns `[]` → step 5 "Log your first transaction" un-ticks — "4 of 5 done", bar 80%, `aria-valuenow=4`. The all-done footer (heading + "Hide this checklist" button) disappears the instant `doneCount < 5` (`allDone` false).
+  - After step 2: `remainingToBudget(vm) !== 0` with income still > 0 → step 4 "Give every euro a job" un-ticks — "3 of 5 done", bar 60%, `aria-valuenow=3`. This is the ONBD-015/CMB-043 balanced tick run in reverse.
+  - After step 3: `totalIncome(vm)` drops to 0 → step 2 "Plan your income" un-ticks; step 4 STAYS un-ticked — the PR #172 `income > 0 && remaining === 0` guard means a zero-income month never re-ticks step 4 even though Remaining is once again technically 0 with nothing planned (ONBD-016) — "2 of 5 done", bar 40%, `aria-valuenow=2`.
+  - After step 4: `GET /jars` now returns `[]` → step 3 "Add a jar" un-ticks — "1 of 5 done", bar 20%, `aria-valuenow=1`.
+  - Final floor: step 1 "Create your first month" stays ✓ and the panel settles at **"1 of 5 done", NOT 0/5** — the month itself still exists and `/budget/months` still returns it; there is no delete-month action anywhere in the app (only line/category/transaction deletes), so `monthExists` cannot fall away by user action within the same calendar month (that step only un-ticks via the module-load month rollover + reload of ONBD-020, out of scope here). The point of the case is that the checklist genuinely descends from 5/5 to 1/5 rather than remaining pinned at its 5/5 high-water mark.
+  - Across all four legs `doneCount`, `aria-valuenow` and the bar width strictly DECREASE (no ratchet, no stale high-water mark); no step stays ticked once its underlying data is gone. The detection re-derives on every refresh — step 2 `hasIncome = totalIncome(vm) > 0`; step 3 `hasJar = /jars` non-empty; step 4 `balanced = income > 0 && remainingToBudget(vm) === 0`; step 5 `hasTransaction = /transactions` non-empty — so removal flips each false exactly as addition flipped it true (`GettingStartedChecklist.tsx:38-55`).
   - No flicker down through a spuriously-lower count while a refresh is in flight: `refresh()` merges partial results into the previous state (`setProgress((prev) => ({ ...prev, ...p }))`), so each step holds its prior value until its own GET resolves (ONBD-019). A bare in-place delete with no navigation leaves the stale tick until the next route change / focus.
 - **Automated:** Partial (client/src/budgetModel.test.ts — "removing an income line lowers the pool" drops `totalIncome` to 0 and "an empty month … is not balanced" keeps `isBalanced` false, i.e. the exact selectors the checklist reads regress correctly when data is removed; the checklist component's live down-tick on route-change/focus refresh, and the all-done-footer teardown, are unasserted — Onboarding.test.tsx only exercises the build and 404 directions)
 

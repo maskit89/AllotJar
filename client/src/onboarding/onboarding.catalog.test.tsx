@@ -3,8 +3,8 @@
 // and whose behaviour is observable in a jsdom component render: the exact welcome copy branches
 // (owner vs joined member), the three skip paths (Close X, backdrop, Escape) + focus restore,
 // linear Back/Next tour navigation, Skip-tour / Escape ending the tour, the missing-anchor
-// centred-card fallback, the getting-started checklist's auto-detected progress (0/4, 1/4 with the
-// PR #172 zero-income guard, 2/4 sample-start, 4/4 all-done), live up-tick / down-tick on route
+// centred-card fallback, the getting-started checklist's auto-detected progress (0/5, 1/5 with the
+// PR #172 zero-income guard, 2/5 sample-start, 5/5 all-done), live up-tick / down-tick on route
 // refresh (no stuck high-water mark), collapse-vs-dismiss, owner-only visibility, replay from Help,
 // currency-noun threading, and malformed/partial persistence records degrading to defaults.
 //
@@ -77,6 +77,7 @@ const ZERO_INCOME_MONTH = bMonth({
 let monthsData: BudgetMonthSummaryDto[] = []
 let currentMonth: BudgetMonthDto | null = null // null → the current-month GET rejects 404
 let transactionsData: unknown[] = []
+let jarsData: unknown[] = []
 // The signed-in login as /auth/me answers: its email keys the onboarding record (D2: nothing about
 // who is signed in is read from localStorage). null → /auth/me rejects.
 const ME = { userId: 'u-me', email: 'me@test.app', role: 0 }
@@ -86,6 +87,7 @@ function setupGet() {
   mockGet.mockImplementation((url: string) => {
     if (url === '/budget/months') return Promise.resolve({ data: monthsData })
     if (url === '/transactions') return Promise.resolve({ data: transactionsData })
+    if (url === '/jars') return Promise.resolve({ data: jarsData })
     if (url === '/auth/me') {
       return meData ? Promise.resolve({ data: meData }) : Promise.reject({ response: { status: 401 } })
     }
@@ -128,6 +130,7 @@ describe('Onboarding — catalog (ONBD)', () => {
     monthsData = []
     currentMonth = null
     transactionsData = []
+    jarsData = []
     meData = ME
     setupGet()
   })
@@ -301,53 +304,56 @@ describe('Onboarding — catalog (ONBD)', () => {
     expect(screen.getByText('Step 1 of 9')).toBeInTheDocument()
   })
 
-  // ONBD-014 — the initial checklist for an empty account: 0 of 4, exact steps/hints/links, a
+  // ONBD-014 — the initial checklist for an empty account: 0 of 5, exact steps/hints/links, a
   // 0-valued progressbar, both header buttons, and nothing ticked.
-  it('ONBD-014: empty-account checklist renders 0 of 4 with exact steps, hints, links and progressbar', { timeout: 15000 }, async () => {
+  it('ONBD-014: empty-account checklist renders 0 of 5 with exact steps, hints, links and progressbar', { timeout: 15000 }, async () => {
     renderOnboarding()
     fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }, { timeout: 5000 }))
     const region = await screen.findByRole('region', { name: 'Getting started' }, { timeout: 5000 })
 
     expect(within(region).getByText('Getting started')).toBeInTheDocument()
-    expect(within(region).getByText('0 of 4 done')).toBeInTheDocument()
+    expect(within(region).getByText('0 of 5 done')).toBeInTheDocument()
 
     const bar = within(region).getByRole('progressbar', { name: 'Onboarding progress' })
     expect(bar).toHaveAttribute('aria-valuenow', '0')
     expect(bar).toHaveAttribute('aria-valuemin', '0')
-    expect(bar).toHaveAttribute('aria-valuemax', '4')
+    expect(bar).toHaveAttribute('aria-valuemax', '5')
 
     // Step labels + hints, verbatim.
     expect(within(region).getByText('Create your first month')).toBeInTheDocument()
     expect(within(region).getByText(/Start blank or pick a template/)).toBeInTheDocument()
     expect(within(region).getByText('Plan your income')).toBeInTheDocument()
     expect(within(region).getByText('Add what you expect to earn this month.')).toBeInTheDocument()
+    expect(within(region).getByText('Add a jar')).toBeInTheDocument()
+    expect(within(region).getByText('A yearly bill, a holiday or a rainy-day pot.')).toBeInTheDocument()
     expect(within(region).getByText('Give every euro a job')).toBeInTheDocument()
     expect(within(region).getByText('Assign it all until Remaining reaches zero.')).toBeInTheDocument()
     expect(within(region).getByText('Log your first transaction')).toBeInTheDocument()
     expect(within(region).getByText('Record real spending and assign it to a line.')).toBeInTheDocument()
 
-    // Links: month/income/balance → "/", transaction → "/transactions".
+    // Links: month/income/balance → "/", jar → "/jars", transaction → "/transactions".
     expect(within(region).getByText('Create your first month').closest('a')).toHaveAttribute('href', '/')
+    expect(within(region).getByText('Add a jar').closest('a')).toHaveAttribute('href', '/jars')
     expect(within(region).getByText('Log your first transaction').closest('a')).toHaveAttribute('href', '/transactions')
 
-    // Header controls + all steps unticked ("To do:" x4, no "Done:", no strikethrough).
+    // Header controls + all steps unticked ("To do:" x5, no "Done:", no strikethrough).
     expect(within(region).getByRole('button', { name: 'Collapse getting started' })).toBeInTheDocument()
     expect(within(region).getByRole('button', { name: 'Dismiss getting started' })).toBeInTheDocument()
-    expect(within(region).getAllByText('To do:')).toHaveLength(4)
+    expect(within(region).getAllByText('To do:')).toHaveLength(5)
     expect(within(region).queryByText('Done:')).not.toBeInTheDocument()
     expect(within(region).getByText('Give every euro a job')).not.toHaveClass('line-through')
   })
 
   // ONBD-016 — PR #172 guard: a zero-income month with remaining exactly 0 must NOT tick "Give
-  // every euro a job" (nor "Plan your income"); only "Create your first month" ticks → 1 of 4.
-  it('ONBD-016: a zero-income month never ticks "Give every euro a job" (1 of 4)', { timeout: 15000 }, async () => {
+  // every euro a job" (nor "Plan your income"); only "Create your first month" ticks → 1 of 5.
+  it('ONBD-016: a zero-income month never ticks "Give every euro a job" (1 of 5)', { timeout: 15000 }, async () => {
     monthsData = [summary()]
     currentMonth = ZERO_INCOME_MONTH
     renderOnboarding()
     fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }, { timeout: 5000 }))
     const region = await screen.findByRole('region', { name: 'Getting started' }, { timeout: 5000 })
 
-    await within(region).findByText('1 of 4 done', {}, { timeout: 5000 })
+    await within(region).findByText('1 of 5 done', {}, { timeout: 5000 })
     expect(within(region).getByRole('progressbar', { name: 'Onboarding progress' })).toHaveAttribute('aria-valuenow', '1')
     // Month created ✓, but income + balance stay unticked despite remaining === 0.
     expect(within(region).getByText('Create your first month')).toHaveClass('line-through')
@@ -355,9 +361,9 @@ describe('Onboarding — catalog (ONBD)', () => {
     expect(within(region).getByText('Give every euro a job')).not.toHaveClass('line-through')
   })
 
-  // ONBD-029 — the opted-in sample start pre-ticks exactly 2 of 4: month ✓, income ✓, balance ✗
+  // ONBD-029 — the opted-in sample start pre-ticks exactly 2 of 5: month ✓, income ✓, balance ✗
   // (remaining 800 ≠ 0), transaction ✗.
-  it('ONBD-029: sample-budget start pre-ticks exactly 2 of 4', { timeout: 15000 }, async () => {
+  it('ONBD-029: sample-budget start pre-ticks exactly 2 of 5', { timeout: 15000 }, async () => {
     monthsData = [summary()]
     currentMonth = SAMPLE_MONTH
     transactionsData = []
@@ -365,7 +371,7 @@ describe('Onboarding — catalog (ONBD)', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }, { timeout: 5000 }))
     const region = await screen.findByRole('region', { name: 'Getting started' }, { timeout: 5000 })
 
-    await within(region).findByText('2 of 4 done', {}, { timeout: 5000 })
+    await within(region).findByText('2 of 5 done', {}, { timeout: 5000 })
     expect(within(region).getByRole('progressbar', { name: 'Onboarding progress' })).toHaveAttribute('aria-valuenow', '2')
     expect(within(region).getByText('Create your first month')).toHaveClass('line-through')
     expect(within(region).getByText('Plan your income')).toHaveClass('line-through')
@@ -374,19 +380,20 @@ describe('Onboarding — catalog (ONBD)', () => {
     expect(within(region).queryByText(/All set/)).not.toBeInTheDocument()
   })
 
-  // ONBD-015 (end state) — a fully-built month reads 4 of 4 with every step ticked, a full
+  // ONBD-015 (end state) — a fully-built month reads 4 of 5 with every step ticked, a full
   // progressbar and the all-done footer + "Hide this checklist".
-  it('ONBD-015: a complete budget reads 4 of 4 with the all-done footer', { timeout: 15000 }, async () => {
+  it('ONBD-015: a complete budget reads 4 of 5 with the all-done footer', { timeout: 15000 }, async () => {
     monthsData = [summary()]
     currentMonth = BALANCED_MONTH
     transactionsData = [{ id: 't1' }]
+    jarsData = [{ id: 'j1' }]
     renderOnboarding()
     fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }, { timeout: 5000 }))
     const region = await screen.findByRole('region', { name: 'Getting started' }, { timeout: 5000 })
 
-    await within(region).findByText('4 of 4 done', {}, { timeout: 5000 })
-    expect(within(region).getByRole('progressbar', { name: 'Onboarding progress' })).toHaveAttribute('aria-valuenow', '4')
-    expect(within(region).getAllByText('Done:')).toHaveLength(4)
+    await within(region).findByText('5 of 5 done', {}, { timeout: 5000 })
+    expect(within(region).getByRole('progressbar', { name: 'Onboarding progress' })).toHaveAttribute('aria-valuenow', '5')
+    expect(within(region).getAllByText('Done:')).toHaveLength(5)
     expect(within(region).getByText('All set — every euro has a job! 🎉')).toBeInTheDocument()
     expect(within(region).getByRole('button', { name: 'Hide this checklist' })).toBeInTheDocument()
   })
@@ -397,37 +404,40 @@ describe('Onboarding — catalog (ONBD)', () => {
     renderOnboarding()
     fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }, { timeout: 5000 }))
     const region = await screen.findByRole('region', { name: 'Getting started' }, { timeout: 5000 })
-    await within(region).findByText('0 of 4 done', {}, { timeout: 5000 })
+    await within(region).findByText('0 of 5 done', {}, { timeout: 5000 })
 
     // The user built the month in another tab; the next route change re-polls.
     monthsData = [summary()]
     currentMonth = BALANCED_MONTH
     transactionsData = [{ id: 't1' }]
+    jarsData = [{ id: 'j1' }]
     fireEvent.click(within(region).getByText('Log your first transaction')) // Link → "/transactions" route change
 
-    await within(region).findByText('4 of 4 done', {}, { timeout: 5000 })
-    expect(within(region).getByRole('progressbar', { name: 'Onboarding progress' })).toHaveAttribute('aria-valuenow', '4')
+    await within(region).findByText('5 of 5 done', {}, { timeout: 5000 })
+    expect(within(region).getByRole('progressbar', { name: 'Onboarding progress' })).toHaveAttribute('aria-valuenow', '5')
   })
 
   // ONBD-031 — the checklist is a pure live recompute, not a high-water mark: tearing the budget
-  // back down un-ticks steps and removes the all-done footer, settling at 1 of 4 (the month still
+  // back down un-ticks steps and removes the all-done footer, settling at 1 of 5 (the month still
   // exists), with the PR #172 guard keeping "Give every euro a job" un-ticked at zero income.
-  it('ONBD-031: checklist down-ticks from 4/4 to 1/4 when data is removed (no stuck high-water mark)', { timeout: 15000 }, async () => {
+  it('ONBD-031: checklist down-ticks from 5/5 to 1/5 when data is removed (no stuck high-water mark)', { timeout: 15000 }, async () => {
     monthsData = [summary()]
     currentMonth = BALANCED_MONTH
     transactionsData = [{ id: 't1' }]
+    jarsData = [{ id: 'j1' }]
     renderOnboarding()
     fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }, { timeout: 5000 }))
     const region = await screen.findByRole('region', { name: 'Getting started' }, { timeout: 5000 })
-    await within(region).findByText('4 of 4 done', {}, { timeout: 5000 })
+    await within(region).findByText('5 of 5 done', {}, { timeout: 5000 })
     expect(within(region).getByText('All set — every euro has a job! 🎉')).toBeInTheDocument()
 
     // Teardown: transactions gone and the month back to zero income (the month itself still exists).
     transactionsData = []
+    jarsData = []
     currentMonth = ZERO_INCOME_MONTH
     fireEvent.click(within(region).getByText('Log your first transaction')) // route change → refresh
 
-    await within(region).findByText('1 of 4 done', {}, { timeout: 5000 })
+    await within(region).findByText('1 of 5 done', {}, { timeout: 5000 })
     expect(within(region).getByRole('progressbar', { name: 'Onboarding progress' })).toHaveAttribute('aria-valuenow', '1')
     expect(within(region).getByText('Create your first month')).toHaveClass('line-through')
     expect(within(region).getByText('Give every euro a job')).not.toHaveClass('line-through')
@@ -441,13 +451,13 @@ describe('Onboarding — catalog (ONBD)', () => {
     renderOnboarding()
     fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }, { timeout: 5000 }))
     const region = await screen.findByRole('region', { name: 'Getting started' }, { timeout: 5000 })
-    await within(region).findByText('0 of 4 done', {}, { timeout: 5000 })
+    await within(region).findByText('0 of 5 done', {}, { timeout: 5000 })
 
     fireEvent.click(within(region).getByRole('button', { name: 'Collapse getting started' }))
-    // Panel gone, replaced by a "Getting started · 0/4" pill.
+    // Panel gone, replaced by a "Getting started · 0/5" pill.
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Getting started' })).not.toBeInTheDocument(), { timeout: 5000 })
     const pill = screen.getByRole('button', { name: /Getting started/ })
-    expect(pill).toHaveTextContent('0/4')
+    expect(pill).toHaveTextContent('0/5')
     // Collapse is NOT a dismiss — nothing persisted it.
     expect(readRecord().checklistDismissed).not.toBe(true)
 
@@ -519,6 +529,7 @@ describe('Onboarding — catalog (ONBD)', () => {
     monthsData = [summary()]
     currentMonth = BALANCED_MONTH
     transactionsData = [{ id: 't1' }]
+    jarsData = [{ id: 'j1' }]
     renderOnboarding()
 
     // Welcome body uses the dollar noun.
@@ -565,8 +576,8 @@ describe('Onboarding — catalog (ONBD)', () => {
   })
 
   // ONBD-022 — checklist polling failures are silent and safe: every probe rejecting still renders
-  // the panel at 0 of 4 with no crash or error UI.
-  it('ONBD-022: checklist polling failures render 0 of 4 without crashing', { timeout: 15000 }, async () => {
+  // the panel at 0 of 5 with no crash or error UI.
+  it('ONBD-022: checklist polling failures render 0 of 5 without crashing', { timeout: 15000 }, async () => {
     mockGet.mockImplementation((url: string) => {
       if (url === '/auth/me') return Promise.resolve({ data: ME })
       return Promise.reject({ response: { status: 500 } }) // months / current-month / transactions all fail
@@ -574,6 +585,6 @@ describe('Onboarding — catalog (ONBD)', () => {
     renderOnboarding()
     fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }, { timeout: 5000 }))
     const region = await screen.findByRole('region', { name: 'Getting started' }, { timeout: 5000 })
-    expect(within(region).getByText('0 of 4 done')).toBeInTheDocument()
+    expect(within(region).getByText('0 of 5 done')).toBeInTheDocument()
   })
 })

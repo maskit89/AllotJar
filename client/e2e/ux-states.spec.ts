@@ -74,8 +74,8 @@ const EMPTY_CASES: EmptyCase[] = [
     route: '**/api/jars',
     body: '[]',
     title: 'No jars yet',
-    copy: /set aside each month/,
-    cta: 'New jar', // JarsPage is the one page whose EmptyState carries an in-card CTA.
+    copy: /Start from one of these/,
+    cta: 'New jar', // JarsPage is the one page whose EmptyState carries in-card CTAs (examples + New jar).
     ids: 'UX-038, JAR-001',
   },
   {

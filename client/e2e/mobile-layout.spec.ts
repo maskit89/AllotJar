@@ -59,3 +59,11 @@ test('the jar modal fits a phone screen (2-col grid in a dialog)', async ({ page
   await expect(dialog.getByLabel('Already set aside')).toHaveCount(1)
   await assertNoHorizontalOverflow(page, '/jars (new-jar modal, More options open)')
 })
+
+test('the empty Jars page fits its example jars on a phone screen', async ({ page }) => {
+  await authedSetup(page, 'light')
+  await page.route('**/api/jars', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
+  await page.goto('/jars')
+  await page.getByRole('button', { name: /^Rainy day, / }).waitFor()
+  await assertNoHorizontalOverflow(page, '/jars (empty, example jars)')
+})

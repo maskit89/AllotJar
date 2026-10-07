@@ -60,6 +60,29 @@ describe('GettingStartedChecklist: checks that answer out of order', () => {
     })
 
     // The later check found income; the earlier one, answering last, found none and is dropped.
-    expect(await view.findByText('1 of 4 done')).toBeInTheDocument()
+    expect(await view.findByText('1 of 5 done')).toBeInTheDocument()
+  })
+})
+
+describe('GettingStartedChecklist: the jar step', () => {
+  beforeEach(() => resetApiMocks())
+
+  it('ticks once a jar exists, and is left out where the Jars page is off', async () => {
+    let jarsOn = true
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/features') return Promise.resolve({ data: { jars: jarsOn } })
+      if (url === '/jars') return Promise.resolve({ data: [{ id: 'j1' }] })
+      return Promise.resolve({ data: [] })
+    })
+    const on = renderWithProviders(<GettingStartedChecklist />, { features: true })
+    const step = await on.findByRole('link', { name: /Add a jar/ })
+    expect(step).toHaveAttribute('href', '/jars')
+    expect(await on.findByText('1 of 5 done')).toBeInTheDocument()
+    on.unmount()
+
+    jarsOn = false
+    const off = renderWithProviders(<GettingStartedChecklist />, { features: true })
+    expect(await off.findByText('0 of 4 done')).toBeInTheDocument()
+    expect(off.queryByText('Add a jar')).not.toBeInTheDocument()
   })
 })

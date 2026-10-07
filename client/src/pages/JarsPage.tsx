@@ -16,7 +16,9 @@ import { readLedgers } from '../lib/jarLedgers'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import type { AccountDto, JarAccountLedgerDto, JarDto } from '../types'
 import { formatMoney, fromAmount } from '../lib/money'
-import { jarDate, jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from '../lib/jarStatus'
+import { jarExamples, type JarExample } from '../lib/jarForm'
+import { monthYear } from '../lib/dates'
+import { cadenceLabel, jarDate, jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from '../lib/jarStatus'
 
 export function JarsPage() {
   // Managing jars needs Admin+ (canWrite); others see them read-only.
@@ -31,6 +33,8 @@ export function JarsPage() {
   // The add / edit form lives in a modal; editingId switches it between modes.
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  // The example a new jar starts from (the empty page's examples); none for a blank form.
+  const [example, setExample] = useState<JarExample | undefined>(undefined)
   // The jar whose "Move money" modal is open.
   const [movingId, setMovingId] = useState<string | null>(null)
   // W03: the cycle being marked paid (a jar and the cycle's deadline), and the jar whose missed
@@ -108,8 +112,9 @@ export function JarsPage() {
     setEditingId(null)
   }, [])
 
-  function openAdd() {
+  function openAdd(from?: JarExample) {
     setEditingId(null)
+    setExample(from)
     setError(null)
     setShowForm(true)
   }
@@ -252,12 +257,32 @@ export function JarsPage() {
         <EmptyState
           icon={<JarsIcon className="h-6 w-6" />}
           title="No jars yet"
-          description="Add a jar — give it a target and a date, and we'll work out what to set aside each month."
+          description={canWrite ? 'Start from one of these, or make your own.' : undefined}
         >
           {canWrite && (
-            <Button onClick={openAdd} aria-label="New jar">
-              <span aria-hidden className="text-base leading-none">+</span> New jar
-            </Button>
+            <>
+              {/* One of each shape the form makes (jar setup plan, PR 3); each opens the form filled in. */}
+              <div className="grid w-full max-w-2xl gap-3 sm:grid-cols-3">
+                {jarExamples().map((e, i) => (
+                  <button
+                    key={e.name}
+                    type="button"
+                    onClick={() => openAdd(e)}
+                    aria-label={`${e.name}, ${exampleLine(e, CURRENCY)}`}
+                    className="flex items-center gap-3 rounded-xl border border-slate-200 bg-surface px-3 py-3 text-left transition hover:border-brand-300 hover:bg-slate-50"
+                  >
+                    <span aria-hidden className="h-8 w-2 shrink-0 rounded-full" style={{ background: hueColor(hueForIndex(i)) }} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-slate-800">{e.name}</span>
+                      <span className="block truncate text-xs text-slate-500">{exampleLine(e, CURRENCY)}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <Button onClick={() => openAdd()} aria-label="New jar">
+                <span aria-hidden className="text-base leading-none">+</span> New jar
+              </Button>
+            </>
           )}
         </EmptyState>
       ) : (
@@ -266,7 +291,7 @@ export function JarsPage() {
             <div className="flex flex-wrap items-baseline justify-between gap-3">
               <h2 className="text-base font-bold tracking-[-0.01em] text-slate-900">Your jars</h2>
               {canWrite && (
-                <Button onClick={openAdd} aria-label="New jar">
+                <Button onClick={() => openAdd()} aria-label="New jar">
                   <span aria-hidden className="text-base leading-none">+</span> New jar
                 </Button>
               )}
@@ -312,6 +337,7 @@ export function JarsPage() {
       {showForm && canWrite && (
         <JarFormModal
           jar={editingJar}
+          example={editingJar ? undefined : example}
           accounts={accounts}
           currency={CURRENCY}
           onClose={closeForm}
@@ -532,4 +558,11 @@ function JarCard({
       </div>
     </Card>
   )
+}
+
+/** An example jar in a few words: "€600.00 · yearly", "€1,500.00 · Jul 2027", "€50.00 a month". */
+function exampleLine(e: JarExample, currency: string): string {
+  if (e.fixedMonthly) return `${formatMoney(fromAmount(Number(e.monthly)), currency)} a month`
+  const target = formatMoney(fromAmount(Number(e.target)), currency)
+  return e.repeats > 0 ? `${target} · ${cadenceLabel(e.repeats)}` : `${target} · ${monthYear(e.month)}`
 }

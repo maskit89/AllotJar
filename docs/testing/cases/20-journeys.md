@@ -34,12 +34,12 @@
 - **Expected:**
   - CP2: account created with `includeSampleData:false`; analytics `sign_up {method:'password', sample_data:false}`. No ConsentModal (registration records consent up front, as REG-048).
   - CP3: because samples were declined, `/` shows the **create-month hero** ("No budget for {Month} {Year} yet" writer variant), NOT a seeded month and NOT the gold badge — the empty default landing (PR #170).
-  - CP4: welcome auto-opened exactly once for this owner; after Finish the Getting-started checklist shows **0 of 4 done** (as ONBD-028).
+  - CP4: welcome auto-opened exactly once for this owner; after Finish the Getting-started checklist shows **0 of 5 done** (as ONBD-028).
   - CP5: both accounts persist with derived balances 1,200.00 and 0.00; net Total-balance hero 1,200.00 (as ACCT-001).
-  - CP6: month is created from the template with all planned = 0; every template Savings line minted a backing jar (real SavingsId→Jars FK). Because the household now owns jars, the month is born **over-budgeted** (rose "…over-budgeted — trim a line"), not empty (PR #172 / BUDG-028) — appended accrual savings lines carry planned > 0 against 0 income.
-  - CP7-CP8: editing income planned moves the pool live; when income > 0 AND remaining == 0 the Hero flips to the gold **BalancedBadge "Every euro has a job"** and checklist steps 2 ("Plan your income") and 3 ("Give every euro a job") tick (checklist step 3 requires `income > 0 && remaining === 0`, PR #172).
+  - CP6: month is created from the template with all planned = 0; every template Savings line minted a backing jar (real SavingsId→Jars FK). Because the household now owns jars, the month is born **over-budgeted** (rose "…over-budgeted — trim a line"), not empty (PR #172 / BUDG-028) — appended accrual savings lines carry planned > 0 against 0 income. Those jars tick checklist step 3 ("Add a jar").
+  - CP7-CP8: editing income planned moves the pool live; when income > 0 AND remaining == 0 the Hero flips to the gold **BalancedBadge "Every euro has a job"** and checklist steps 2 ("Plan your income") and 4 ("Give every euro a job") tick (checklist step 4 requires `income > 0 && remaining === 0`, PR #172).
   - CP9-CP11: the bill appears in the bills strip; after the Tesco tx its **tx-derived** actual lands on the billed line (spent shown, not authored); paying it flips the strip toward "All bills paid 🎉"; the paid toggle is optimistic + persists via `PUT /budget/items/{id}/paid`.
-  - CP12: `/reports` now shows one trend point for this month; **"Saved this month"** hero = received income − spent; the checklist's step 4 ("Log your first transaction") is ticked → checklist reads **All set — every euro has a job! 🎉**.
+  - CP12: `/reports` now shows one trend point for this month; **"Saved this month"** hero = received income − spent; the checklist's step 5 ("Log your first transaction") is ticked → checklist reads **All set — every euro has a job! 🎉**.
   - CP13: month view resets to current calendar month is NOT triggered (SPA nav, not reload); the Copy button names the actual most-recent prior month; the copied month reproduces structure + planned, resets IsPaid to unpaid and actuals to tx-derived 0, and re-seeds seedable jar lines from the accrual calculator (as BUDG-008/BUDG-015).
   - CP14: no stale-month flash on navigation (month cleared before fetch, PR #168).
 - **Automated:** Partial (`client/e2e-journey/register.spec.ts` covers the empty-landing sign-up leg only; the account→month→tx→bill→copy chain is unautomated end-to-end)
@@ -348,8 +348,8 @@
   6. Re-walk `/reports` and the checklist.
 - **Expected:**
   - CP1: create-month hero "No budget for {Month} {Year} yet" with **"Start a blank budget"** + template grid, and NO **"Copy …"** button (first-ever month).
-  - CP2: `/transactions` "No transactions yet"; `/accounts` "No accounts yet"; `/jars` "No jars yet"; `/reports` "No budget data yet" (empty, NOT sample figures — PR #170); `/people` shows the solo "You" row (People nav always visible when flag on).
+  - CP2: `/transactions` "No transactions yet"; `/accounts` "No accounts yet"; `/jars` "No jars yet" with its three example jars (JAR-124); `/reports` "No budget data yet" (empty, NOT sample figures — PR #170); `/people` shows the solo "You" row (People nav always visible when flag on).
   - CP3: the **Allocation** nav item is hidden (solo, isShared false); deep-linking `/allocation` renders the in-page **"Add people first"** EmptyState with an **"Add people"** button → `/people` (not a hard error).
-  - CP4: checklist reads 0 of 4 with the four exact steps.
-  - CP5-CP6: as data is created the checklist ticks off in order; `/reports` flips from the empty state to a one-point trend; balancing the month (income > 0 && remaining 0) shows the gold badge and completes checklist step 3 (PR #172).
+  - CP4: checklist reads 0 of 5 with the five exact steps.
+  - CP5-CP6: as data is created the checklist ticks off in order; `/reports` flips from the empty state to a one-point trend; balancing the month (income > 0 && remaining 0) shows the gold badge and completes checklist step 4 (PR #172).
 - **Automated:** Partial (`client/e2e-journey/register.spec.ts` covers the empty landing + `/import` deep-load reload survival; RPT-027 pins the reports empty state; the multi-surface walk is unautomated as one journey)
