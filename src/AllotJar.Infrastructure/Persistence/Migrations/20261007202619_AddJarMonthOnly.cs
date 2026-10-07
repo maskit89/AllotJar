@@ -16,6 +16,13 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                 type: "bit",
                 nullable: false,
                 defaultValue: false);
+
+            migrationBuilder.AddColumn<bool>(
+                name: "MonthOnly",
+                table: "JarCycles",
+                type: "bit",
+                nullable: false,
+                defaultValue: false);
         }
 
         /// <inheritdoc />
@@ -24,6 +31,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
             migrationBuilder.DropColumn(
                 name: "MonthOnly",
                 table: "Jars");
+
+            migrationBuilder.DropColumn(
+                name: "MonthOnly",
+                table: "JarCycles");
         }
     }
 }

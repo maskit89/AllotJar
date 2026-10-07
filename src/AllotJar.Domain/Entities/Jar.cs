@@ -66,9 +66,11 @@ public class Jar : BaseEntity, IVersioned
     /// <summary>
     /// The date is a month, not a day ("Needed by Mar 2027"): <see cref="TargetDate"/> is the 1st of
     /// that month and no day is known. The plan is the one a date on the 1st already has (the money
-    /// is ready when the month begins, rule 12), so this changes only how the date reads; a Recurring
-    /// jar's cycles step from the 1st and stay on it. False for a full date and for a fixed monthly
-    /// plan, which has no date.
+    /// is ready when the month begins, rule 12). What changes is how the date reads and when it
+    /// counts as passed: not until the month is over (<see cref="Services.JarSchedule.LateFrom"/>), so
+    /// a jar still short while its month runs reads Behind, and Deadline missed only from the next.
+    /// A Recurring jar's cycles step from the 1st and stay on it. False for a full date and for a
+    /// fixed monthly plan, which has no date.
     /// </summary>
     public bool MonthOnly { get; set; }
 

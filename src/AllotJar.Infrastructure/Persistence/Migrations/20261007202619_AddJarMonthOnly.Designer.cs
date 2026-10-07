@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AllotJar.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261007193116_AddJarMonthOnly")]
+    [Migration("20261007202619_AddJarMonthOnly")]
     partial class AddJarMonthOnly
     {
         /// <inheritdoc />
@@ -633,6 +633,11 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("JarId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("MonthOnly")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
 
                     b.Property<int>("Outcome")
                         .HasColumnType("int");

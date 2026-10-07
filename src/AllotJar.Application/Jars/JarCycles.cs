@@ -22,9 +22,11 @@ public static class JarCycles
     /// Recurring jar whose open cycle's deadline is at or before <paramref name="today"/> and
     /// whose target was held at the end of the day before it (the deadline day is never a
     /// contribution day, rule 82) closes that cycle as <see cref="JarCycleOutcome.Funded"/> and
-    /// moves on — repeatedly, if several cycles have passed unseen. A cycle that was short stays
-    /// open: that is the persistent <b>Deadline missed</b> state (rule 20), which only the user
-    /// ends by marking the cycle paid or dismissing it. Saves when anything changed.
+    /// moves on — repeatedly, if several cycles have passed unseen. A cycle due in a month given
+    /// without a day that was short when the month began gets until the month's end: held then, it
+    /// closes Funded on the 1st of the next. A cycle that was short stays open: that is the
+    /// persistent <b>Deadline missed</b> state (rule 20), which only the user ends by marking the
+    /// cycle paid or dismissing it. Saves when anything changed.
     /// </summary>
     /// <param name="jarId">Settle only this jar; null settles every jar of the owner.</param>
     /// <returns>True when at least one cycle rolled forward.</returns>
@@ -55,6 +57,21 @@ public static class JarCycles
             while (jar.CycleDeadline is { } deadline && deadline <= today)
             {
                 var held = ledger.At(deadline.AddDays(-1)).BalanceOf(jar.Id);
+                var closedOn = deadline;
+                var monthOnly = MonthOnly(jar, deadline);
+                if (!(held >= jar.TargetAmount) && monthOnly)
+                {
+                    // A month given without a day is on time until it is over: short when it
+                    // began, it rolls forward Funded once the month has passed with the target held
+                    // at its end. While the month runs it waits (Behind, not yet missed).
+                    var late = JarSchedule.LateFrom(deadline, monthOnly);
+                    if (late > today)
+                    {
+                        break;
+                    }
+                    held = ledger.At(late.AddDays(-1)).BalanceOf(jar.Id);
+                    closedOn = late;
+                }
                 if (held is null || held < jar.TargetAmount)
                 {
                     // Short (or unknowable) when the money had to be there: Deadline missed,
@@ -69,7 +86,8 @@ public static class JarCycles
                     TargetAmount = jar.TargetAmount,
                     Outcome = JarCycleOutcome.Funded,
                     BalanceAtDeadline = held,
-                    ClosedOn = deadline,
+                    ClosedOn = closedOn,
+                    MonthOnly = monthOnly,
                     CreatedUtc = DateTime.UtcNow,
                 });
                 jar.CycleDeadline = JarSchedule.NextCycleDeadline(jar, deadline);
@@ -143,6 +161,7 @@ public static class JarCycles
             Outcome = outcome,
             BalanceAtDeadline = deadline <= today ? ledger.At(deadline.AddDays(-1)).BalanceOf(jar.Id) : null,
             ClosedOn = today,
+            MonthOnly = MonthOnly(jar, deadline),
             CreatedUtc = DateTime.UtcNow,
         };
         if (payment is not null)
@@ -197,10 +216,11 @@ public static class JarCycles
             // Without its payment the cycle closed on its deadline, not on the day it was marked
             // paid (#301 review P3-1).
             cycle.ClosedOn = cycle.Deadline;
-            if (cycle.Deadline > today)
+            if (JarSchedule.LateFrom(cycle.Deadline, cycle.MonthOnly) > today)
             {
-                // Paid ahead, and its deadline has not come: nothing can be judged yet. It waits
-                // unjudged (no balance) and SettleAsync judges it when the deadline arrives.
+                // Paid ahead, and its deadline (a month's end, for a month given without a day) has
+                // not come: nothing can be judged yet. It waits unjudged (no balance) and SettleAsync
+                // judges it when the deadline arrives.
                 cycle.BalanceAtDeadline = null;
                 cycle.Outcome = JarCycleOutcome.Funded;
             }
@@ -217,10 +237,18 @@ public static class JarCycles
         return reopened;
     }
 
-    /// <summary>Judges a cycle with no payment as the rollover would: Funded when the jar held its target the day before the deadline, otherwise Missed.</summary>
+    /// <summary>
+    /// Judges a cycle with no payment as the rollover would: Funded when the jar held its target the
+    /// day before the deadline, or at the end of the month for a month given without a day; otherwise
+    /// Missed. Only once <see cref="JarSchedule.LateFrom"/> has arrived.
+    /// </summary>
     private static void Judge(JarCycle cycle, JarLedgerSource ledger)
     {
         cycle.BalanceAtDeadline = ledger.At(cycle.Deadline.AddDays(-1)).BalanceOf(cycle.JarId);
+        if (!(cycle.BalanceAtDeadline >= cycle.TargetAmount) && cycle.MonthOnly)
+        {
+            cycle.BalanceAtDeadline = ledger.At(JarSchedule.LateFrom(cycle.Deadline, true).AddDays(-1)).BalanceOf(cycle.JarId);
+        }
         cycle.Outcome = cycle.BalanceAtDeadline is { } held && held >= cycle.TargetAmount
             ? JarCycleOutcome.Funded
             : JarCycleOutcome.Missed;
@@ -234,10 +262,12 @@ public static class JarCycles
     private static async Task<bool> JudgeWaitingAsync(
         IApplicationDbContext db, string ownerId, DateOnly today, Guid? jarId, CancellationToken cancellationToken)
     {
-        var waiting = await db.JarCycles
+        var waiting = (await db.JarCycles
             .Where(c => c.OwnerId == ownerId && c.Outcome == JarCycleOutcome.Funded && c.PaymentTransactionId == null
                         && c.BalanceAtDeadline == null && c.Deadline <= today && (jarId == null || c.JarId == jarId))
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken))
+            .Where(c => JarSchedule.LateFrom(c.Deadline, c.MonthOnly) <= today)
+            .ToList();
         if (waiting.Count == 0)
         {
             return false;
@@ -249,6 +279,9 @@ public static class JarCycles
         }
         return true;
     }
+
+    /// <summary>Whether the jar's cycle due on <paramref name="deadline"/> is due in a month given without a day.</summary>
+    public static bool MonthOnly(Jar jar, DateOnly deadline) => jar.MonthOnly && deadline.Day == 1;
 
     /// <summary>
     /// How a missed cycle closes without a payment (rule 20 dismissed, rule 57): FundedLate when

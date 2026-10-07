@@ -182,8 +182,10 @@ public static class JarMapping
         // date is one that was short when the money had to be there. It stays that way — and
         // reads Funded late once the target is reached (rule 57) — until the user acts. A jar
         // archived since that date was still live on it (W05), so its month keeps that state.
+        // A month given without a day is missed only once that month is over (it reads Behind
+        // while the month runs, below).
         var missed = currentBalance is not null && f.Kind == JarKind.Recurring && !JarSchedule.IsArchivedOn(f, asOf)
-                     && JarSchedule.HasSchedule(f) && deadline is { } due0 && due0 <= asOf;
+                     && JarSchedule.HasSchedule(f) && deadline is { } due0 && JarSchedule.LateFrom(due0, f.MonthOnly) <= asOf;
 
         string status;
         if (currentBalance is null)
@@ -218,9 +220,11 @@ public static class JarMapping
         {
             status = "Unscheduled";
         }
-        else if (deadline is { } due && due < asOf)
+        else if (deadline is { } due && (due < asOf || (due == asOf && JarSchedule.LateFrom(due, f.MonthOnly) != due)))
         {
-            // A Goal past its deadline (a Recurring jar's is the Deadline-missed state above).
+            // A Goal past its deadline (a Recurring jar's is the Deadline-missed state above), or
+            // a jar due in a month that has begun without the money in it: the warning while the
+            // month runs, from its 1st.
             status = "Behind";
         }
         else

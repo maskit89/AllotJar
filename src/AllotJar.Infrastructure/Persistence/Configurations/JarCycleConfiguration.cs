@@ -18,6 +18,7 @@ public class JarCycleConfiguration : IEntityTypeConfiguration<JarCycle>
         builder.Property(c => c.TargetAmount).HasPrecision(18, 4);
         builder.Property(c => c.BalanceAtDeadline).HasPrecision(18, 4);
         builder.Property(c => c.PaidAmount).HasPrecision(18, 4);
+        builder.Property(c => c.MonthOnly).HasDefaultValue(false);
 
         // A jar's closed cycles are its own history and go with it (W04's delete is only for a
         // jar that never held money, rule 84).

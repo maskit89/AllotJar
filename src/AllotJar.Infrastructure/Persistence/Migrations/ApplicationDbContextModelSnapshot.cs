@@ -631,6 +631,11 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("JarId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<bool>("MonthOnly")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
                     b.Property<int>("Outcome")
                         .HasColumnType("int");
 

@@ -202,6 +202,17 @@ describe('JarsPage — a date that is just a month', () => {
     )
   })
 
+  it('a bill due this month and still short reads Behind, with nothing to dismiss yet', { timeout: 15000 }, async () => {
+    // The server's answer while October runs (7 October 2026: a warning in the month, missed from the next).
+    fundsData = [jar({ targetDate: '2026-10-01', deadline: '2026-10-01', monthOnly: true, status: 'Behind', plannedThisMonth: 180, remainingThisMonth: 180 })]
+    renderPage()
+
+    expect(await screen.findByText('Behind', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText('Due Oct 2026 · yearly')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Mark Home insurance paid' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: "Dismiss Home insurance's missed deadline" })).not.toBeInTheDocument()
+  })
+
   it('the cards read the month, not the 1st', { timeout: 15000 }, async () => {
     fundsData = [
       jar({ targetDate: '2027-03-01', deadline: '2027-03-01', monthOnly: true }),
