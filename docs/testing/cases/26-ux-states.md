@@ -437,7 +437,7 @@
 - **Type:** Edge
 - **Preconditions:** Real backend; break each background fetch independently.
 - **Steps:**
-  1. Fail `GET /features`, `GET /members` (household), the checklist polls (`/budget/months`, `/budget/{y}/{m}`, `/transactions`), `/accounts/reconciliation`, and `POST /auth/logout`.
+  1. Fail `GET /features`, `GET /members` (household), the checklist polls (`/budget/months`, `/budget/{y}/{m}`, `/jars`, `/transactions`), `/accounts/reconciliation`, and `POST /auth/logout`.
 - **Expected:** By design these show NO user-visible error (FeatureProvider keeps all-on defaults; HouseholdProvider falls back to solo `[]`; checklist just doesn't advance; reconciliation leaves the last table (ACCT-050); logout is fire-and-forget and clears UI regardless). The app stays interactive — a failed background fetch must never white-screen or throw to the user.
 - **Automated:** Partial (`analytics`/`AuthContext` tests; reconciliation silent-fail ACCT-050)
 

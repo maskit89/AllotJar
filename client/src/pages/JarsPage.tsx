@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { Badge, Button, Card, EmptyState, ErrorBanner } from '../components/ui'
 import { Hero } from '../components/Hero'
@@ -16,7 +17,9 @@ import { readLedgers } from '../lib/jarLedgers'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import type { AccountDto, JarAccountLedgerDto, JarDto } from '../types'
 import { formatMoney, fromAmount } from '../lib/money'
-import { jarDate, jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from '../lib/jarStatus'
+import { jarAccounts, jarExamples, type JarExample } from '../lib/jarForm'
+import { monthYear } from '../lib/dates'
+import { cadenceLabel, jarDate, jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from '../lib/jarStatus'
 
 export function JarsPage() {
   // Managing jars needs Admin+ (canWrite); others see them read-only.
@@ -24,6 +27,10 @@ export function JarsPage() {
   const CURRENCY = budgetCurrency
   const [jars, setJars] = useState<JarDto[]>([])
   const [accounts, setAccounts] = useState<AccountDto[]>([])
+  // Whether the accounts list loaded: only then can "no account can hold a jar" be known.
+  const [accountsKnown, setAccountsKnown] = useState(false)
+  // Whether a new jar has an account to be held in (the form's own list): with none, the form can't save.
+  const canHold = !accountsKnown || jarAccounts(accounts, CURRENCY).length > 0
   // Each jar-backed account's ledger — what's unallocated and whether its jars are backed (rule 70).
   const [ledgers, setLedgers] = useState<JarAccountLedgerDto[]>([])
   const [loading, setLoading] = useState(true)
@@ -31,6 +38,8 @@ export function JarsPage() {
   // The add / edit form lives in a modal; editingId switches it between modes.
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  // The example a new jar starts from (the empty page's examples); none for a blank form.
+  const [example, setExample] = useState<JarExample | undefined>(undefined)
   // The jar whose "Move money" modal is open.
   const [movingId, setMovingId] = useState<string | null>(null)
   // W03: the cycle being marked paid (a jar and the cycle's deadline), and the jar whose missed
@@ -77,12 +86,16 @@ export function JarsPage() {
     let cancelled = false
     Promise.all([
       api.get<JarDto[]>('/jars'),
-      api.get<AccountDto[]>('/accounts').catch(() => ({ data: [] })),
+      api
+        .get<AccountDto[]>('/accounts')
+        .then(({ data }) => (Array.isArray(data) ? data : null))
+        .catch(() => null),
     ])
       .then(([f, acc]) => {
         if (cancelled) return
         setJars(f.data)
-        setAccounts(Array.isArray(acc?.data) ? acc.data : [])
+        setAccounts(acc ?? [])
+        setAccountsKnown(acc !== null)
       })
       .catch(() => !cancelled && setError('Could not load your jars.'))
       .finally(() => !cancelled && setLoading(false))
@@ -108,8 +121,9 @@ export function JarsPage() {
     setEditingId(null)
   }, [])
 
-  function openAdd() {
+  function openAdd(from?: JarExample) {
     setEditingId(null)
+    setExample(from)
     setError(null)
     setShowForm(true)
   }
@@ -252,12 +266,42 @@ export function JarsPage() {
         <EmptyState
           icon={<JarsIcon className="h-6 w-6" />}
           title="No jars yet"
-          description="Add a jar — give it a target and a date, and we'll work out what to set aside each month."
+          description={!canWrite ? undefined : canHold ? 'Start from one of these, or make your own.' : 'A jar is held in an account. Add one first.'}
         >
-          {canWrite && (
-            <Button onClick={openAdd} aria-label="New jar">
-              <span aria-hidden className="text-base leading-none">+</span> New jar
-            </Button>
+          {canWrite && !canHold && (
+            // The form can't save without an account to hold the jar (#325 review P3-1), so send
+            // a new household there first rather than into a filled form it can't add.
+            <Link
+              to="/accounts"
+              className="inline-flex items-center justify-center rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700"
+            >
+              Add an account
+            </Link>
+          )}
+          {canWrite && canHold && (
+            <>
+              {/* One of each shape the form makes (jar setup plan, PR 3); each opens the form filled in. */}
+              <div className="grid w-full max-w-2xl gap-3 sm:grid-cols-3">
+                {jarExamples().map((e, i) => (
+                  <button
+                    key={e.name}
+                    type="button"
+                    onClick={() => openAdd(e)}
+                    aria-label={`${e.name}, ${exampleLine(e, CURRENCY)}`}
+                    className="flex items-center gap-3 rounded-xl border border-slate-200 bg-surface px-3 py-3 text-left transition hover:border-brand-300 hover:bg-slate-50"
+                  >
+                    <span aria-hidden className="h-8 w-2 shrink-0 rounded-full" style={{ background: hueColor(hueForIndex(i)) }} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-slate-800">{e.name}</span>
+                      <span className="block truncate text-xs text-slate-500">{exampleLine(e, CURRENCY)}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <Button onClick={() => openAdd()} aria-label="New jar">
+                <span aria-hidden className="text-base leading-none">+</span> New jar
+              </Button>
+            </>
           )}
         </EmptyState>
       ) : (
@@ -266,7 +310,7 @@ export function JarsPage() {
             <div className="flex flex-wrap items-baseline justify-between gap-3">
               <h2 className="text-base font-bold tracking-[-0.01em] text-slate-900">Your jars</h2>
               {canWrite && (
-                <Button onClick={openAdd} aria-label="New jar">
+                <Button onClick={() => openAdd()} aria-label="New jar">
                   <span aria-hidden className="text-base leading-none">+</span> New jar
                 </Button>
               )}
@@ -312,6 +356,7 @@ export function JarsPage() {
       {showForm && canWrite && (
         <JarFormModal
           jar={editingJar}
+          example={editingJar ? undefined : example}
           accounts={accounts}
           currency={CURRENCY}
           onClose={closeForm}
@@ -532,4 +577,11 @@ function JarCard({
       </div>
     </Card>
   )
+}
+
+/** An example jar in a few words: "€600.00 · yearly", "€1,500.00 · Jul 2027", "€50.00 a month". */
+function exampleLine(e: JarExample, currency: string): string {
+  if (e.fixedMonthly) return `${formatMoney(fromAmount(Number(e.monthly)), currency)} a month`
+  const target = formatMoney(fromAmount(Number(e.target)), currency)
+  return e.repeats > 0 ? `${target} · ${cadenceLabel(e.repeats)}` : `${target} · ${monthYear(e.month)}`
 }

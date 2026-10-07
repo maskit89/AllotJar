@@ -92,9 +92,8 @@ export function buildTourSteps(noun: string): TourStep[] {
     title: 'Save up with jars',
     body: (
       <>
-        <strong>Jars</strong> are for big or irregular costs — car, holiday, Christmas. Give a jar a
-        target and a date and we’ll work out what to set aside each month, then watch it fill up. Budget
-        that monthly amount in your <strong>Savings</strong> group on the Dashboard.
+        <strong>Jars</strong> save up for a yearly bill, a holiday or a rainy-day pot. We work out what to
+        set aside each month.
       </>
     ),
   },

@@ -94,16 +94,17 @@ Active item gets `aria-current="page"` (filled marker in sidebar, filled pill in
 - Note: the dimmed backdrop catches clicks (page inert), and step navigation is linear (next clamps to last, prev to 0).
 
 ### Onboarding — GettingStartedChecklist (`client/src/onboarding/GettingStartedChecklist.tsx`)
-- `section aria-label="Getting started"`, pinned bottom-right (`fixed bottom-4 right-4 z-40`, w-80). Header "**Getting started**" + "{n} of 4 done"; `role="progressbar"` `aria-label="Onboarding progress"` (valuemin 0, valuemax 4). Buttons: `aria-label="Collapse getting started"` (chevron → collapsed pill "**Getting started · {n}/4**" which re-opens) and `aria-label="Dismiss getting started"` (X → persists `checklistDismissed`).
-- 4 steps (label / hint / link target / done condition):
+- `section aria-label="Getting started"`, pinned bottom-right (`fixed bottom-4 right-4 z-40`, w-80). Header "**Getting started**" + "{n} of 5 done"; `role="progressbar"` `aria-label="Onboarding progress"` (valuemin 0, valuemax 5). Buttons: `aria-label="Collapse getting started"` (chevron → collapsed pill "**Getting started · {n}/5**" which re-opens) and `aria-label="Dismiss getting started"` (X → persists `checklistDismissed`).
+- 5 steps (label / hint / link target / done condition):
   1. **"Create your first month"** / "Start blank or pick a template — later months can copy the previous one." / `/` / any row from `GET /budget/months`
   2. **"Plan your income"** / "Add what you expect to earn this month." / `/` / `totalIncome > 0` on `GET /budget/{currentYear}/{currentMonth}`
-  3. **"Give every {noun} a job"** / "Assign it all until Remaining reaches zero." / `/` / `income > 0 && remainingToBudget === 0` (PR #172 semantics)
-  4. **"Log your first transaction"** / "Record real spending and assign it to a line." / `/transactions` / any row from `GET /transactions`
+  3. **"Add a jar"** / "A yearly bill, a holiday or a rainy-day pot." / `/jars` / any row from `GET /jars` (jar setup plan, PR 3; left out while the `jars` flag is off, which leaves 4 steps)
+  4. **"Give every {noun} a job"** / "Assign it all until Remaining reaches zero." / `/` / `income > 0 && remainingToBudget === 0` (PR #172 semantics)
+  5. **"Log your first transaction"** / "Record real spending and assign it to a line." / `/transactions` / any row from `GET /transactions`
 - All done: "**All set — every {noun} has a job! 🎉**" + button **"Hide this checklist"** (dismiss).
-- Refreshes progress on mount, on every `location.pathname` change, and on window focus (3 GET calls each time).
+- Refreshes progress on mount, on every `location.pathname` change, and on window focus (4 GET calls each time: `/budget/months`, `/budget/{y}/{m}`, `/jars`, `/transactions`).
 - **Hidden entirely when the active household is one the user joined** (`activeHousehold && !activeHousehold.isOwn` → `return null`, lines 74-75) — an owner-oriented checklist.
-- Uses module-level `const now = new Date()` (line 19) — the "current month" for step 2/3 is captured at module load, not per render.
+- The "current month" for steps 2 and 4 is today's month, read on every check (`currentMonth(new Date())`), so a tab left open over a month's end asks about the new one.
 
 ### Analytics — ConsentBanner (`client/src/analytics/ConsentBanner.tsx`)
 - Non-modal `role="region" aria-label="Analytics consent"` pinned bottom (`z-50`). Text: "We use **Google Analytics** to understand how the app is used and improve it. We never send your name, email, account names or any amounts — only anonymous usage. You can change this anytime under **Help**." Buttons **"Decline"** / **"Accept"**. Shown only when `features.analytics && consent === null` (AnalyticsProvider.tsx:106) — i.e. on the flag alone, even with no measurement ID.

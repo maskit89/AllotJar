@@ -50,6 +50,21 @@ for (const theme of ['light', 'dark'] as const) {
       await expectNoViolations(page)
     })
 
+    test('empty Jars page with its example jars has no WCAG A/AA violations', async ({ page }) => {
+      await authedSetup(page, theme)
+      await page.route('**/api/jars', (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      )
+      await page.goto('/jars')
+      await page.getByRole('button', { name: /^Car insurance, / }).waitFor()
+      await expectNoViolations(page)
+
+      // An example opens the form filled in (jar setup plan, PR 3).
+      await page.getByRole('button', { name: /^Summer holiday, / }).click()
+      await page.getByRole('dialog').waitFor()
+      await expectNoViolations(page)
+    })
+
     test('jar add + edit modal has no WCAG A/AA violations', async ({ page }) => {
       await authedSetup(page, theme)
       await page.goto('/jars')

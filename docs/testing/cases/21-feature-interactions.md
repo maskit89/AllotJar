@@ -648,14 +648,14 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 ### CMB-051 - The empty-month rule holds identically across the hero footnote, the balanced badge and the onboarding checklist
 - **Priority:** P1
 - **Type:** Regression
-- **Origin:** PR #172 — `IsBalanced => TotalIncome > 0 && RemainingToBudget == 0` (domain + `budgetModel.ts`). The Getting-started checklist step-3 done-guard `income > 0 && remaining === 0` (`GettingStartedChecklist.tsx`) duplicates the rule INDEPENDENTLY (routing-shell gotcha #20), so the two must be kept in lockstep.
+- **Origin:** PR #172 — `IsBalanced => TotalIncome > 0 && RemainingToBudget == 0` (domain + `budgetModel.ts`). The Getting-started checklist "Give every {noun} a job" done-guard (step 4) `income > 0 && remaining === 0` (`GettingStartedChecklist.tsx`) duplicates the rule INDEPENDENTLY (routing-shell gotcha #20), so the two must be kept in lockstep.
 - **Preconditions:** a **jar-less** household (so a blank month is genuinely empty) with a freshly created blank month (income 0, nothing planned); the onboarding checklist not yet dismissed; viewing the current month.
 - **Steps:**
   1. Read the dashboard hero footnote and check for the gold `BalancedBadge`.
-  2. Open the "Getting started" checklist and read step 3 "Give every {noun} a job".
+  2. Open the "Getting started" checklist and read step 4 "Give every {noun} a job".
   3. Add an income source, then plan every euro until Remaining reaches €0.00.
-  4. Re-read the hero footnote/badge and the checklist step 3.
-- **Expected:** on the empty month the hero shows the neutral **"Plan your income, then give every euro a job"** prompt and NOT the gold **"Every euro has a job"** badge (UX-017), and checklist step 3 is **not** ticked — because both independently require `TotalIncome > 0`, not merely `remaining == 0` (CAT-041, JRN-010). After planning income to a true zero-remaining balanced state, the gold badge appears AND step 3 ticks in the same load. Neither surface ever celebrates a zero-income month; a regression to bare `remaining == 0` would light up one or both wrongly.
+  4. Re-read the hero footnote/badge and the checklist step 4.
+- **Expected:** on the empty month the hero shows the neutral **"Plan your income, then give every euro a job"** prompt and NOT the gold **"Every euro has a job"** badge (UX-017), and checklist step 4 is **not** ticked — because both independently require `TotalIncome > 0`, not merely `remaining == 0` (CAT-041, JRN-010). After planning income to a true zero-remaining balanced state, the gold badge appears AND step 3 ticks in the same load. Neither surface ever celebrates a zero-income month; a regression to bare `remaining == 0` would light up one or both wrongly.
 - **Automated:** Partial (client/src/budgetModel.test.ts + DashboardPage.test.tsx cover the hero/selector; client/src/onboarding/Onboarding.test.tsx covers the checklist, but not the two together)
 
 ---

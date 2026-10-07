@@ -12,7 +12,7 @@ import { formatMoney, fromAmount, parseMinor, toAmount, toEditString, tooPrecise
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { currentMonth, formatDate, monthYear, todayIso } from '../lib/dates'
 import { editConflict, serverErrors } from '../lib/serverErrors'
-import { deadlineMonthEligible, jarAccounts, monthIso } from '../lib/jarForm'
+import { deadlineMonthEligible, jarAccounts, monthIso, type JarExample } from '../lib/jarForm'
 
 /**
  * The "Repeats" answers. The form never asks for a jar type: a jar that repeats is a Recurring
@@ -65,7 +65,7 @@ function dueDate(jar: JarDto): string {
   return (jar.kind === JarKind.Recurring ? jar.deadline ?? jar.targetDate : jar.targetDate) ?? ''
 }
 
-function initialForm(jar: JarDto | null, accounts: AccountDto[]): FormState {
+function initialForm(jar: JarDto | null, accounts: AccountDto[], example?: JarExample): FormState {
   if (jar) {
     const targetDate = dueDate(jar)
     return {
@@ -83,14 +83,14 @@ function initialForm(jar: JarDto | null, accounts: AccountDto[]): FormState {
     }
   }
   return {
-    name: '',
-    repeats: NO_REPEAT,
-    fixedMonthly: false,
-    target: '',
-    targetDate: '',
-    monthOnly: false,
+    name: example?.name ?? '',
+    repeats: example?.repeats ?? NO_REPEAT,
+    fixedMonthly: example?.fixedMonthly ?? false,
+    target: example?.target ?? '',
+    targetDate: example?.month ?? '',
+    monthOnly: !!example?.month,
     includeDeadlineMonth: false,
-    monthly: '',
+    monthly: example?.monthly ?? '',
     initialAllocation: '',
     initialAllocationDate: todayIso(),
     // The select has no blank option, so the form starts on the first eligible account.
@@ -148,6 +148,8 @@ function definition(form: FormState, jar: JarDto | null, editing: boolean): JarS
 export interface JarFormModalProps {
   /** The jar being edited, or null to create one. */
   jar: JarDto | null
+  /** Create only: an example jar the form starts filled with (the empty Jars page's examples). */
+  example?: JarExample
   /** Every account the household has; the form itself drops credit cards. */
   accounts: AccountDto[]
   currency: string
@@ -171,10 +173,10 @@ export interface JarFormModalProps {
  * Savings lines — so what is previewed is what gets planned (W02). `role="dialog"`
  * comes from Modal; mount it conditionally so the focus trap engages.
  */
-export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArchived, onDeleted }: JarFormModalProps) {
+export function JarFormModal({ jar, example, accounts, currency, onClose, onSaved, onArchived, onDeleted }: JarFormModalProps) {
   const editing = jar !== null
   const eligible = useMemo(() => jarAccounts(accounts, currency, jar?.fundingAccountId), [accounts, currency, jar])
-  const [form, setForm] = useState<FormState>(() => initialForm(jar, eligible))
+  const [form, setForm] = useState<FormState>(() => initialForm(jar, eligible, example))
   // The version of the jar the form was filled from, sent back with the save (D11); a save
   // refused because someone else changed the jar refills the form and this from the latest read.
   const [version, setVersion] = useState(jar?.version ?? null)
