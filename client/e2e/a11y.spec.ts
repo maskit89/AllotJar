@@ -68,6 +68,12 @@ for (const theme of ['light', 'dark'] as const) {
       await dialog.getByLabel('Next due date').waitFor()
       await expectNoViolations(page)
 
+      // Just the month: the date swaps for a list of months (the Date / Month choice).
+      await dialog.getByRole('radio', { name: 'Month' }).check()
+      await dialog.getByLabel('Next due (month)').selectOption('2027-03-01')
+      await expectNoViolations(page)
+      await dialog.getByRole('radio', { name: 'Date' }).check()
+
       // Back to one that doesn't repeat: a target with a mid-month "Needed by" date renders the
       // server's schedule preview (the mocked POST /jars/schedule) and, under "More options",
       // the "Include the deadline month" tick box; scan both (W02).

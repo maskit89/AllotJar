@@ -11,6 +11,7 @@ namespace AllotJar.Application.Jars.Commands.CreateJar;
 /// (today when omitted); it never deposits money. Returns the jar with its derived figures.
 /// <paramref name="ShareAccount"/> is the user's answer to the rule 34 warning when the account is
 /// their private one (see <see cref="JarAccounts.EnsureVisibleForJarAsync"/>).
+/// <paramref name="MonthOnly"/> marks a date given as just a month (the 1st of it, <see cref="Domain.Entities.Jar.MonthOnly"/>).
 /// </summary>
 public record CreateJarCommand(
     string Name,
@@ -24,4 +25,5 @@ public record CreateJarCommand(
     int? RecurMonths = null,
     decimal? MonthlyContribution = null,
     bool IncludeDeadlineMonth = false,
-    bool ShareAccount = false) : IRequest<JarDto>, IJarDefinition;
+    bool ShareAccount = false,
+    bool MonthOnly = false) : IRequest<JarDto>, IJarDefinition;

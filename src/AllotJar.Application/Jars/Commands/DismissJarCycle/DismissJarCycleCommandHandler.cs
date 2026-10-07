@@ -37,12 +37,12 @@ public class DismissJarCycleCommandHandler : IRequestHandler<DismissJarCycleComm
         // deadline arrived. (A funded one has already rolled forward on its own.)
         if (jar.Kind != JarKind.Recurring || jar.CycleDeadline != request.Deadline)
         {
-            throw JarAccounts.Validation("Deadline", $"{jar.Name} has no missed cycle due {request.Deadline:d MMM yyyy}.");
+            throw JarAccounts.Validation("Deadline", $"{jar.Name} has no missed cycle due {JarDates.Show(request.Deadline, jar.MonthOnly)}.");
         }
         if (request.Deadline > today)
         {
             throw JarAccounts.Validation("Deadline",
-                $"{jar.Name}'s cycle due {request.Deadline:d MMM yyyy} has not been missed; there is nothing to dismiss.");
+                $"{jar.Name}'s cycle due {JarDates.Show(request.Deadline, jar.MonthOnly)} has not been missed; there is nothing to dismiss.");
         }
 
         var snapshot = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken);

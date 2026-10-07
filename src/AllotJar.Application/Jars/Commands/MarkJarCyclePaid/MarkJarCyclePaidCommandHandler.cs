@@ -73,7 +73,7 @@ public class MarkJarCyclePaidCommandHandler : IRequestHandler<MarkJarCyclePaidCo
         if (alreadyFulfilled is not null)
         {
             throw JarAccounts.Validation("PaymentTransactionId",
-                $"That payment already fulfilled {alreadyFulfilled.Jar.Name}'s cycle due {alreadyFulfilled.Deadline:d MMM yyyy}. A payment settles one cycle.");
+                $"That payment already fulfilled {alreadyFulfilled.Jar.Name}'s cycle due {JarDates.Show(alreadyFulfilled.Deadline, alreadyFulfilled.Jar.MonthOnly)}. A payment settles one cycle.");
         }
 
         if (jar.CycleDeadline == request.Deadline)
@@ -85,10 +85,10 @@ public class MarkJarCyclePaidCommandHandler : IRequestHandler<MarkJarCyclePaidCo
             var cycle = await _db.JarCycles
                 .FirstOrDefaultAsync(c => c.JarId == jar.Id && c.Deadline == request.Deadline, cancellationToken)
                 ?? throw JarAccounts.Validation("Deadline",
-                    $"{jar.Name} has no cycle due {request.Deadline:d MMM yyyy}. Its current cycle is due {jar.CycleDeadline:d MMM yyyy}.");
+                    $"{jar.Name} has no cycle due {JarDates.Show(request.Deadline, jar.MonthOnly)}. Its current cycle is due {JarDates.Show(jar.CycleDeadline, jar.MonthOnly)}.");
             if (cycle.PaymentTransactionId is not null)
             {
-                throw JarAccounts.Validation("Deadline", $"The cycle due {cycle.Deadline:d MMM yyyy} is already marked paid.");
+                throw JarAccounts.Validation("Deadline", $"The cycle due {JarDates.Show(cycle.Deadline, jar.MonthOnly)} is already marked paid.");
             }
             JarCycles.Link(cycle, payment);
             // The bill left the jar: the next cycle's plan starts from what is actually left now,

@@ -64,6 +64,15 @@ public class Jar : BaseEntity, IVersioned
     public bool IncludeDeadlineMonth { get; set; }
 
     /// <summary>
+    /// The date is a month, not a day ("Needed by Mar 2027"): <see cref="TargetDate"/> is the 1st of
+    /// that month and no day is known. The plan is the one a date on the 1st already has (the money
+    /// is ready when the month begins, rule 12), so this changes only how the date reads; a Recurring
+    /// jar's cycles step from the 1st and stay on it. False for a full date and for a fixed monthly
+    /// plan, which has no date.
+    /// </summary>
+    public bool MonthOnly { get; set; }
+
+    /// <summary>
     /// A Recurring jar's cycle length in months: each closed cycle advances
     /// <see cref="CycleDeadline"/> by this many months from the anchor <see cref="TargetDate"/>
     /// (see Services.JarSchedule.NextCycleDeadline). Null for

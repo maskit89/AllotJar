@@ -826,6 +826,8 @@ export interface JarDto {
   monthlyContribution: number | null
   /** Rule 36: whether the deadline month itself plans a contribution. */
   includeDeadlineMonth: boolean
+  /** The date is just a month (the 1st of it): it reads "Mar 2027", never "1 Mar 2027". */
+  monthOnly: boolean
   /** A Recurring jar's cycle length in months (its date rolls forward by this); null for Goals. */
   recurMonths: number | null
   /** The account holding this jar's money (rule 2); always set. */

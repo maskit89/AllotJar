@@ -62,8 +62,9 @@ public class UpdateJarCommandHandler
             && newDeadline != jar.CycleDeadline
             && await _db.JarCycles.AnyAsync(c => c.JarId == jar.Id && c.Deadline == newDeadline, cancellationToken))
         {
-            throw JarAccounts.Validation(nameof(UpdateJarCommand.TargetDate),
-                $"A cycle due on {newDeadline:d MMM yyyy} is already recorded for {jar.Name}. Pick another date.");
+            throw JarAccounts.Validation(nameof(UpdateJarCommand.TargetDate), MonthOnly(jar, request)
+                ? $"A cycle due in {JarDates.Show(newDeadline, true)} is already recorded for {jar.Name}. Pick another month."
+                : $"A cycle due on {newDeadline:d MMM yyyy} is already recorded for {jar.Name}. Pick another date.");
         }
 
         if (request.FundingAccountId != jar.FundingAccountId)
@@ -149,6 +150,9 @@ public class UpdateJarCommandHandler
         jar.Accrual = request.Accrual;
         jar.MonthlyContribution = request.Accrual == AccrualMethod.FixedMonthly ? request.MonthlyContribution : null;
         jar.IncludeDeadlineMonth = request.Accrual == AccrualMethod.TargetByDate && request.IncludeDeadlineMonth;
+        // Only how the date reads: the plan of a date on the 1st is the same either way, so this
+        // alone neither revises the plan nor dates a revision.
+        jar.MonthOnly = MonthOnly(jar, request);
         // Recurring jars carry their cycle length; Goals never roll. Fall back to the
         // stored cycle (then yearly) when a request omits it, so an older/stale client
         // that doesn't send recurMonths can't silently reset a chosen 3/6-month cycle.
@@ -180,6 +184,12 @@ public class UpdateJarCommandHandler
 
         return await JarFigures.ReadOneAsync(_db, userId, jar, today, cancellationToken);
     }
+
+    /// <summary>Whether the edited jar's date is just a month: the answer sent, or the stored one from a client that sends none, and only for a date on the 1st.</summary>
+    private static bool MonthOnly(Domain.Entities.Jar jar, UpdateJarCommand request) =>
+        request.Accrual == AccrualMethod.TargetByDate
+        && request.TargetDate is { Day: 1 }
+        && (request.MonthOnly ?? jar.MonthOnly);
 
     private static (JarKind, decimal, DateOnly?, DateOnly?, AccrualMethod, decimal?, bool, int?) ScheduleInputs(Domain.Entities.Jar jar) =>
         (jar.Kind, jar.TargetAmount, jar.TargetDate, jar.CycleDeadline, jar.Accrual, jar.MonthlyContribution, jar.IncludeDeadlineMonth, jar.RecurMonths);

@@ -2,12 +2,24 @@ import type { BadgeTone } from '../components/ui'
 import type { JarDto } from '../types'
 import { RECUR_MONTHS_OPTIONS } from '../types'
 import { formatMoney, fromAmount } from './money'
-import { formatDate } from './dates'
+import { formatDate, monthYear } from './dates'
 
 // Mirrors the server's JarDto.Status (Unavailable | Completed | DeadlineMissed | FundedLate |
 // Overspent | Ongoing | Unscheduled | FullyFunded | Behind | OnTrack — see
 // AllotJar.Application/Jars/Dtos/JarDto.cs). Kept here so the Jars page and the dashboard shelf
 // label a jar's state identically.
+
+/**
+ * A jar's date as the person gave it: "Mar 2027" when it is just a month (the 1st of it,
+ * `monthOnly`), otherwise the full date ("1 Mar 2027").
+ */
+export function jarDate(iso: string, monthOnly: boolean): string {
+  return isMonth(iso, monthOnly) ? monthYear(iso) : formatDate(iso)
+}
+
+function isMonth(iso: string, monthOnly: boolean): boolean {
+  return monthOnly && iso.endsWith('-01')
+}
 
 export interface JarStatusChip {
   label: string
@@ -63,9 +75,13 @@ export function jarMonthLabel(jar: JarDto, currency: string): string {
   // Rule 20: the missed deadline and what is still short stay in view until the user acts;
   // rule 57: reached late, the notice stays but nothing is short.
   if (jar.status === 'DeadlineMissed' && jar.deadline) {
-    return `Deadline ${formatDate(jar.deadline)} missed · ${formatMoney(fromAmount(jar.shortfall ?? 0), currency)} short`
+    return `Deadline ${jarDate(jar.deadline, jar.monthOnly)} missed · ${formatMoney(fromAmount(jar.shortfall ?? 0), currency)} short`
   }
-  if (jar.status === 'FundedLate' && jar.deadline) return `Funded after the deadline on ${formatDate(jar.deadline)}`
+  if (jar.status === 'FundedLate' && jar.deadline) {
+    return isMonth(jar.deadline, jar.monthOnly)
+      ? `Funded after the ${monthYear(jar.deadline)} deadline`
+      : `Funded after the deadline on ${formatDate(jar.deadline)}`
+  }
   const planned = fromAmount(jar.plannedThisMonth)
   if (planned <= 0) {
     if (jar.status === 'FullyFunded') {
@@ -104,8 +120,8 @@ export function jarHorizonLabel(jar: JarDto, currency: string): string | null {
   }
   if (!jar.deadline) return null
   return jar.recurMonths === null
-    ? `Needed by ${formatDate(jar.deadline)}`
-    : `Due ${formatDate(jar.deadline)} · ${cadenceLabel(jar.recurMonths)}`
+    ? `Needed by ${jarDate(jar.deadline, jar.monthOnly)}`
+    : `Due ${jarDate(jar.deadline, jar.monthOnly)} · ${cadenceLabel(jar.recurMonths)}`
 }
 
 /** A Recurring jar's cadence in the Repeats field's words: "yearly", "monthly", "every 6 months". */
@@ -138,6 +154,6 @@ export function jarLastCycleLabel(jar: JarDto, currency: string): string | null 
     case 'Missed':
       return 'Last cycle missed'
     default:
-      return `Last cycle due ${formatDate(cycle.deadline)}`
+      return `Last cycle due ${jarDate(cycle.deadline, jar.monthOnly)}`
   }
 }

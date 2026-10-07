@@ -16,8 +16,7 @@ import { readLedgers } from '../lib/jarLedgers'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import type { AccountDto, JarAccountLedgerDto, JarDto } from '../types'
 import { formatMoney, fromAmount } from '../lib/money'
-import { formatDate } from '../lib/dates'
-import { jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from '../lib/jarStatus'
+import { jarDate, jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from '../lib/jarStatus'
 
 export function JarsPage() {
   // Managing jars needs Admin+ (canWrite); others see them read-only.
@@ -462,7 +461,7 @@ function JarCard({
               <button
                 type="button"
                 onClick={() => onMarkPaid(unpaidLastCycle.deadline)}
-                aria-label={`Record the payment for ${jar.name}'s cycle due ${formatDate(unpaidLastCycle.deadline)}`}
+                aria-label={`Record the payment for ${jar.name}'s cycle due ${jarDate(unpaidLastCycle.deadline, jar.monthOnly)}`}
                 className="block text-[11.5px] font-semibold text-slate-500 underline transition hover:text-brand-700 dark:hover:text-brand-200"
               >
                 Record the payment

@@ -27,4 +27,7 @@ public record UpdateJarCommand(
     bool ShareAccount = false,
     // The version the edit form loaded (D11): a save of a record changed since is refused. Null is
     // no check, for a client loaded before the deploy that added versions.
-    string? Version = null) : IRequest<JarDto>, IJarDefinition;
+    string? Version = null,
+    // A date given as just a month (Jar.MonthOnly). Null keeps the stored answer while the date
+    // stays on the 1st, for a client loaded before the deploy that added it.
+    bool? MonthOnly = null) : IRequest<JarDto>, IJarDefinition;

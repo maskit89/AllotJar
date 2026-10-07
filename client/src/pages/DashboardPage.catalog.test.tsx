@@ -127,7 +127,7 @@ describe('DashboardPage — hero footnote states (PR #172) & render', () => {
     mockLoads({
       month: jul26(),
       jars: [
-        { id: 'jar-holiday', name: 'Holiday', kind: 0, targetAmount: 1200, targetDate: null, accrual: 0, monthlyContribution: null, includeDeadlineMonth: false, recurMonths: null, fundingAccountId: 'acc1', balanceAsOf: '2026-07-01', isArchived: false, currentBalance: 450, plannedThisMonth: 150, contributedThisMonth: 0, remainingThisMonth: 150, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, shortfall: null, lastCycle: null, completedOn: null, canDelete: false, skippedThisMonth: false, status: 'OnTrack' },
+        { id: 'jar-holiday', name: 'Holiday', kind: 0, targetAmount: 1200, targetDate: null, accrual: 0, monthlyContribution: null, includeDeadlineMonth: false, monthOnly: false, recurMonths: null, fundingAccountId: 'acc1', balanceAsOf: '2026-07-01', isArchived: false, currentBalance: 450, plannedThisMonth: 150, contributedThisMonth: 0, remainingThisMonth: 150, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, shortfall: null, lastCycle: null, completedOn: null, canDelete: false, skippedThisMonth: false, status: 'OnTrack' },
       ],
     })
 
@@ -496,8 +496,8 @@ describe('DashboardPage — reorder gating, templates & jars shelf', () => {
 
   it('DASH-027: the jars shelf shows the saved total, per-jar goal % / monthly, and the funded chip', { timeout: 15000 }, async () => {
     const jars: JarDto[] = [
-      { id: 'jar-holiday', name: 'Holiday', kind: 0, targetAmount: 1200, targetDate: null, accrual: 0, monthlyContribution: null, includeDeadlineMonth: false, recurMonths: null, fundingAccountId: 'acc1', balanceAsOf: '2026-07-01', isArchived: false, currentBalance: 450, plannedThisMonth: 150, contributedThisMonth: 0, remainingThisMonth: 150, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, shortfall: null, lastCycle: null, completedOn: null, canDelete: false, skippedThisMonth: false, status: 'OnTrack' },
-      { id: 'jar-ef', name: 'Emergency Fund', kind: 0, targetAmount: 500, targetDate: null, accrual: 0, monthlyContribution: null, includeDeadlineMonth: false, recurMonths: null, fundingAccountId: 'acc1', balanceAsOf: '2026-07-01', isArchived: false, currentBalance: 500, plannedThisMonth: 0, contributedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, shortfall: null, lastCycle: null, completedOn: null, canDelete: false, skippedThisMonth: false, status: 'FullyFunded' },
+      { id: 'jar-holiday', name: 'Holiday', kind: 0, targetAmount: 1200, targetDate: null, accrual: 0, monthlyContribution: null, includeDeadlineMonth: false, monthOnly: false, recurMonths: null, fundingAccountId: 'acc1', balanceAsOf: '2026-07-01', isArchived: false, currentBalance: 450, plannedThisMonth: 150, contributedThisMonth: 0, remainingThisMonth: 150, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, shortfall: null, lastCycle: null, completedOn: null, canDelete: false, skippedThisMonth: false, status: 'OnTrack' },
+      { id: 'jar-ef', name: 'Emergency Fund', kind: 0, targetAmount: 500, targetDate: null, accrual: 0, monthlyContribution: null, includeDeadlineMonth: false, monthOnly: false, recurMonths: null, fundingAccountId: 'acc1', balanceAsOf: '2026-07-01', isArchived: false, currentBalance: 500, plannedThisMonth: 0, contributedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, shortfall: null, lastCycle: null, completedOn: null, canDelete: false, skippedThisMonth: false, status: 'FullyFunded' },
     ]
     // A minimal income-only month keeps the shelf's €450 balance unambiguous.
     mockLoads({ month: emptyMonth(), jars })

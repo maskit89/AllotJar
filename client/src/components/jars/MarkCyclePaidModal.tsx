@@ -6,6 +6,7 @@ import { api } from '../../lib/api'
 import type { JarDto, JarPaymentDto } from '../../types'
 import { formatMoney, fromAmount } from '../../lib/money'
 import { formatDate } from '../../lib/dates'
+import { jarDate } from '../../lib/jarStatus'
 import { serverErrors } from '../../lib/serverErrors'
 
 export interface MarkCyclePaidModalProps {
@@ -77,7 +78,7 @@ export function MarkCyclePaidModal({ jar, deadline, currency, onClose, onMarked 
         </div>
       )}
       <p className="text-sm text-slate-600">
-        Which payment settled the cycle due {formatDate(deadline)}?{' '}
+        Which payment settled the cycle due {jarDate(deadline, jar.monthOnly)}?{' '}
         {isOpenCycle
           ? 'The jar then saves toward its next due date with whatever it still holds; nothing is moved.'
           : 'This only records the payment against that cycle; nothing is moved.'}

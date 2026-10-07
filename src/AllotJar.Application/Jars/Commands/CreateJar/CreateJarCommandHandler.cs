@@ -45,6 +45,8 @@ public class CreateJarCommandHandler
             // opt-in; the validator has already refused the combinations that don't make sense.
             MonthlyContribution = request.Accrual == AccrualMethod.FixedMonthly ? request.MonthlyContribution : null,
             IncludeDeadlineMonth = request.Accrual == AccrualMethod.TargetByDate && request.IncludeDeadlineMonth,
+            // A month without a day is the 1st of it (the validator has checked the date).
+            MonthOnly = request.Accrual == AccrualMethod.TargetByDate && request.MonthOnly,
             // Recurring jars carry their cycle length (yearly unless told otherwise);
             // Goals are one-and-done and never roll.
             RecurMonths = request.Kind == JarKind.Recurring ? request.RecurMonths ?? 12 : null,

@@ -36,6 +36,8 @@ public class JarConfiguration : IEntityTypeConfiguration<Jar>
 
         builder.Property(f => f.IncludeDeadlineMonth)
             .HasDefaultValue(false);
+        builder.Property(f => f.MonthOnly)
+            .HasDefaultValue(false);
 
         builder.HasIndex(f => f.OwnerId);
 

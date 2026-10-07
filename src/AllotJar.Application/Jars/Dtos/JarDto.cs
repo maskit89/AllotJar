@@ -36,6 +36,9 @@ public class JarDto
     /// <summary>Rule 36: whether the deadline month itself plans a contribution.</summary>
     public bool IncludeDeadlineMonth { get; set; }
 
+    /// <summary>The date is just a month (the 1st of it): shown as "Mar 2027", never "1 Mar 2027" (Jar.MonthOnly).</summary>
+    public bool MonthOnly { get; set; }
+
     /// <summary>A Recurring jar's cycle length in months (its date rolls forward by this); null for Goals.</summary>
     public int? RecurMonths { get; set; }
 
@@ -241,6 +244,7 @@ public static class JarMapping
             Accrual = f.Accrual,
             MonthlyContribution = f.MonthlyContribution,
             IncludeDeadlineMonth = f.IncludeDeadlineMonth,
+            MonthOnly = f.MonthOnly,
             RecurMonths = f.RecurMonths,
             FundingAccountId = f.FundingAccountId,
             IsArchived = f.IsArchived,

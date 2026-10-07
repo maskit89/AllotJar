@@ -10,7 +10,7 @@ import type { AccountDto, JarDto, JarScheduleDto, JarScheduleRequest } from '../
 import { AccrualMethod, JarKind, RECUR_MONTHS_OPTIONS } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
-import { formatDate, monthYear, todayIso } from '../lib/dates'
+import { currentMonth, formatDate, monthYear, todayIso } from '../lib/dates'
 import { editConflict, serverErrors } from '../lib/serverErrors'
 import { deadlineMonthEligible, jarAccounts, monthIso } from '../lib/jarForm'
 
@@ -43,8 +43,10 @@ interface FormState {
   /** The switch: no date in mind, set aside a fixed amount each month instead (a FixedMonthly Goal). */
   fixedMonthly: boolean
   target: string
-  /** The date the money is needed by (a repeating jar's next due date). */
+  /** The date the money is needed by (a repeating jar's next due date); the 1st of the month when `monthOnly`. */
   targetDate: string
+  /** The date is just a month: one is picked from a list, and the day is the 1st. */
+  monthOnly: boolean
   /** Rule 36: plan a contribution in the deadline month too. */
   includeDeadlineMonth: boolean
   /** The fixed monthly amount (FixedMonthly only). */
@@ -57,14 +59,16 @@ interface FormState {
 
 function initialForm(jar: JarDto | null, accounts: AccountDto[]): FormState {
   if (jar) {
+    // A Recurring jar's "Next due" is its open cycle (W03) — sent back unchanged it keeps the
+    // cycle; a Goal's date is its deadline.
+    const targetDate = (jar.kind === JarKind.Recurring ? jar.deadline ?? jar.targetDate : jar.targetDate) ?? ''
     return {
       name: jar.name,
       repeats: jar.kind === JarKind.Recurring ? jar.recurMonths ?? 12 : NO_REPEAT,
       fixedMonthly: jar.kind !== JarKind.Recurring && jar.accrual === AccrualMethod.FixedMonthly,
       target: jar.targetAmount > 0 ? toEditString(fromAmount(jar.targetAmount)) : '',
-      // A Recurring jar's "Next due" is its open cycle (W03) — sent back unchanged it keeps the
-      // cycle; a Goal's date is its deadline.
-      targetDate: (jar.kind === JarKind.Recurring ? jar.deadline ?? jar.targetDate : jar.targetDate) ?? '',
+      targetDate,
+      monthOnly: jar.monthOnly && targetDate.endsWith('-01'),
       includeDeadlineMonth: jar.includeDeadlineMonth,
       monthly: jar.monthlyContribution !== null && jar.monthlyContribution > 0 ? toEditString(fromAmount(jar.monthlyContribution)) : '',
       initialAllocation: '',
@@ -78,6 +82,7 @@ function initialForm(jar: JarDto | null, accounts: AccountDto[]): FormState {
     fixedMonthly: false,
     target: '',
     targetDate: '',
+    monthOnly: false,
     includeDeadlineMonth: false,
     monthly: '',
     initialAllocation: '',
@@ -185,6 +190,13 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }))
+  // Just the month is the 1st of it; back to a date, the 1st stays until another day is picked.
+  const setMonthOnly = (monthOnly: boolean) =>
+    setForm((prev) => ({
+      ...prev,
+      monthOnly,
+      targetDate: monthOnly && prev.targetDate ? `${prev.targetDate.slice(0, 7)}-01` : prev.targetDate,
+    }))
 
   const heldIn = useMemo(
     () => eligible.find((a) => a.id === form.fundingAccountId) ?? null,
@@ -271,9 +283,13 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
       }
       if (!form.targetDate) {
         setError(
-          recurring
-            ? 'Give the jar its next due date.'
-            : 'Give the jar the date the money is needed by, or set aside a fixed amount each month instead.',
+          form.monthOnly
+            ? recurring
+              ? 'Pick the month it is next due.'
+              : 'Pick the month the money is needed by.'
+            : recurring
+              ? 'Give the jar its next due date.'
+              : 'Give the jar the date the money is needed by, or set aside a fixed amount each month instead.',
         )
         return
       }
@@ -290,6 +306,7 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
       accrual: method,
       monthlyContribution: byDeadline ? null : monthlyContribution,
       includeDeadlineMonth: byDeadline && form.includeDeadlineMonth && deadlineMonthEligible(form.targetDate),
+      monthOnly: byDeadline && form.monthOnly,
       fundingAccountId: form.fundingAccountId,
       recurMonths: recurring ? form.repeats : null,
       // Sent only as the user's answer to the rule 34 warning.
@@ -429,7 +446,8 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
           />
         </label>
         <div className="grid grid-cols-2 gap-3">
-          <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+          {/* At the bottom of its row: the date beside it may have a taller label on a phone. */}
+          <label className="flex flex-col gap-1 self-end text-xs font-medium text-slate-500">
             {byDeadline ? 'Target' : 'Target (optional)'}
             <Input
               type="text"
@@ -443,16 +461,28 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
             />
           </label>
           {byDeadline ? (
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              {recurring ? 'Next due' : 'Needed by'}
-              <Input
-                type="date"
-                value={form.targetDate}
-                aria-label={recurring ? 'Next due date' : 'Needed by'}
-                onChange={(e) => set('targetDate', e.target.value)}
-                className="w-full"
-              />
-            </label>
+            <div className="flex flex-col gap-1">
+              {/* On a narrow phone the Date / Month choice rises above the label, so the label stays on its field. */}
+              <span className="flex flex-wrap-reverse items-center justify-between gap-x-1 gap-y-1 text-xs font-medium text-slate-500">
+                <span className="whitespace-nowrap">{recurring ? 'Next due' : 'Needed by'}</span>
+                <DateOrMonth monthOnly={form.monthOnly} onChange={setMonthOnly} />
+              </span>
+              {form.monthOnly ? (
+                <MonthPicker
+                  value={form.targetDate}
+                  label={recurring ? 'Next due' : 'Needed by'}
+                  onChange={(iso) => set('targetDate', iso)}
+                />
+              ) : (
+                <Input
+                  type="date"
+                  value={form.targetDate}
+                  aria-label={recurring ? 'Next due date' : 'Needed by'}
+                  onChange={(e) => set('targetDate', e.target.value)}
+                  className="w-full"
+                />
+              )}
+            </div>
           ) : (
             <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
               Each month
@@ -654,6 +684,73 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
         </div>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * A date, or just the month (a holiday, a bill that comes "in March"): two small choices beside
+ * the date's label, so the field asks only what the person knows. The group's name avoids the
+ * date field's own name, which tests find by a part of it.
+ */
+function DateOrMonth({ monthOnly, onChange }: { monthOnly: boolean; onChange: (monthOnly: boolean) => void }) {
+  return (
+    <span role="radiogroup" aria-label="A date or just the month" className="ml-auto inline-flex shrink-0 rounded-full bg-slate-100 p-0.5">
+      {[
+        { value: false, label: 'Date' },
+        { value: true, label: 'Month' },
+      ].map((o) => (
+        <label key={o.label} className="relative">
+          {/* The real radio covers its pill, invisibly: a tap or a click lands on it. */}
+          <input
+            type="radio"
+            name="jar-date-or-month"
+            checked={monthOnly === o.value}
+            onChange={() => onChange(o.value)}
+            className="peer absolute inset-0 m-0 h-full w-full cursor-pointer opacity-0"
+          />
+          <span className="block rounded-full px-1.5 py-0.5 text-[11px] font-semibold text-slate-600 transition peer-checked:bg-surface peer-checked:text-slate-900 peer-checked:shadow-sm peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40">
+            {o.label}
+          </span>
+        </label>
+      ))}
+    </span>
+  )
+}
+
+/**
+ * Just the month: one list of months, given back as the 1st of the chosen one. It starts next
+ * month, since a month is due when it begins (this month's 1st has passed: a date can still pick
+ * a later day), and runs to the end of the year ten years on; an edited jar's own month stays on
+ * offer even when it is earlier or later.
+ */
+function MonthPicker({ value, label, onChange }: { value: string; label: string; onChange: (iso: string) => void }) {
+  const options = useMemo(() => {
+    const now = currentMonth()
+    const months: string[] = []
+    for (let y = now.year, m = now.month + 1; y < now.year + 10 || (y === now.year + 10 && m <= 12); m++) {
+      if (m > 12) {
+        m = 1
+        y++
+      }
+      months.push(monthIso(y, m))
+    }
+    if (value && !months.includes(value)) {
+      if (value < months[0]) months.unshift(value)
+      else months.push(value)
+    }
+    return months
+  }, [value])
+  return (
+    <Select value={value} aria-label={`${label} (month)`} onChange={(e) => onChange(e.target.value)} className="w-full">
+      <option value="" disabled>
+        Pick a month
+      </option>
+      {options.map((iso) => (
+        <option key={iso} value={iso}>
+          {monthYear(iso)}
+        </option>
+      ))}
+    </Select>
   )
 }
 
