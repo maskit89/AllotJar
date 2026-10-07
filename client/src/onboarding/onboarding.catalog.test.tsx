@@ -380,9 +380,9 @@ describe('Onboarding — catalog (ONBD)', () => {
     expect(within(region).queryByText(/All set/)).not.toBeInTheDocument()
   })
 
-  // ONBD-015 (end state) — a fully-built month reads 4 of 5 with every step ticked, a full
+  // ONBD-015 (end state) — a fully-built month reads 5 of 5 with every step ticked, a full
   // progressbar and the all-done footer + "Hide this checklist".
-  it('ONBD-015: a complete budget reads 4 of 5 with the all-done footer', { timeout: 15000 }, async () => {
+  it('ONBD-015: a complete budget reads 5 of 5 with the all-done footer', { timeout: 15000 }, async () => {
     monthsData = [summary()]
     currentMonth = BALANCED_MONTH
     transactionsData = [{ id: 't1' }]

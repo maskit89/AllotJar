@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { JarDto } from '../types'
+import { AccountType, type JarDto } from '../types'
 
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
@@ -101,6 +101,35 @@ describe('JarsPage — example jars on the empty page', () => {
     expect(dialog.getByRole('radio', { name: 'Date' })).toBeChecked()
   })
 
+  it('with no account to hold a jar, it asks for an account instead of offering examples (#325 review P3-1)', { timeout: 15000 }, async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url.startsWith('/jars/ledger')) return Promise.resolve({ data: [] })
+      if (url === '/jars') return Promise.resolve({ data: [] as JarDto[] })
+      // A credit card can't hold a jar (rule 75), so it doesn't count.
+      if (url === '/accounts') return Promise.resolve({ data: [account({ id: 'cc', name: 'Visa', type: AccountType.CreditCard })] })
+      return Promise.resolve({ data: {} })
+    })
+    renderWithProviders(<JarsPage />)
+
+    expect(await screen.findByText('A jar is held in an account. Add one first.', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Add an account' })).toHaveAttribute('href', '/accounts')
+    expect(screen.queryByRole('button', { name: /^Car insurance/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'New jar' })).not.toBeInTheDocument()
+  })
+
+  it('asks for an account only when the accounts list loaded: a failed load still offers the examples', { timeout: 15000 }, async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url.startsWith('/jars/ledger')) return Promise.resolve({ data: [] })
+      if (url === '/jars') return Promise.resolve({ data: [] as JarDto[] })
+      if (url === '/accounts') return Promise.reject(new Error('boom'))
+      return Promise.resolve({ data: {} })
+    })
+    renderWithProviders(<JarsPage />)
+
+    expect(await screen.findByRole('button', { name: /^Car insurance, / }, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.queryByText('A jar is held in an account. Add one first.')).not.toBeInTheDocument()
+  })
+
   it('a read-only login sees no examples', { timeout: 15000 }, async () => {
     mockLoads(3)
     renderWithProviders(<JarsPage />)
@@ -114,9 +143,13 @@ describe('JarsPage — example jars on the empty page', () => {
 describe('jarExamples — the months they are due in', () => {
   it.each([
     ['2026-10-15', '2027-04-01', '2027-07-01'],
-    ['2027-06-30', '2027-12-01', '2027-07-01'],
+    ['2027-06-30', '2027-12-01', '2028-07-01'],
     ['2027-07-01', '2028-01-01', '2028-07-01'],
     ['2026-12-31', '2027-06-01', '2027-07-01'],
+    // The holiday is at least six months away: this July only in January (#325 review P3-2).
+    ['2027-01-31', '2027-07-01', '2027-07-01'],
+    ['2027-02-01', '2027-08-01', '2028-07-01'],
+    ['2027-05-15', '2027-11-01', '2028-07-01'],
   ])('on %s the bill is due in %s and the holiday in %s', (today, bill, holiday) => {
     const [insurance, summer, rainy] = jarExamples(new Date(`${today}T12:00:00Z`))
     expect(insurance.month).toBe(bill)

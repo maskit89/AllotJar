@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { Badge, Button, Card, EmptyState, ErrorBanner } from '../components/ui'
 import { Hero } from '../components/Hero'
@@ -16,7 +17,7 @@ import { readLedgers } from '../lib/jarLedgers'
 import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
 import type { AccountDto, JarAccountLedgerDto, JarDto } from '../types'
 import { formatMoney, fromAmount } from '../lib/money'
-import { jarExamples, type JarExample } from '../lib/jarForm'
+import { jarAccounts, jarExamples, type JarExample } from '../lib/jarForm'
 import { monthYear } from '../lib/dates'
 import { cadenceLabel, jarDate, jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from '../lib/jarStatus'
 
@@ -26,6 +27,10 @@ export function JarsPage() {
   const CURRENCY = budgetCurrency
   const [jars, setJars] = useState<JarDto[]>([])
   const [accounts, setAccounts] = useState<AccountDto[]>([])
+  // Whether the accounts list loaded: only then can "no account can hold a jar" be known.
+  const [accountsKnown, setAccountsKnown] = useState(false)
+  // Whether a new jar has an account to be held in (the form's own list): with none, the form can't save.
+  const canHold = !accountsKnown || jarAccounts(accounts, CURRENCY).length > 0
   // Each jar-backed account's ledger — what's unallocated and whether its jars are backed (rule 70).
   const [ledgers, setLedgers] = useState<JarAccountLedgerDto[]>([])
   const [loading, setLoading] = useState(true)
@@ -81,12 +86,16 @@ export function JarsPage() {
     let cancelled = false
     Promise.all([
       api.get<JarDto[]>('/jars'),
-      api.get<AccountDto[]>('/accounts').catch(() => ({ data: [] })),
+      api
+        .get<AccountDto[]>('/accounts')
+        .then(({ data }) => (Array.isArray(data) ? data : null))
+        .catch(() => null),
     ])
       .then(([f, acc]) => {
         if (cancelled) return
         setJars(f.data)
-        setAccounts(Array.isArray(acc?.data) ? acc.data : [])
+        setAccounts(acc ?? [])
+        setAccountsKnown(acc !== null)
       })
       .catch(() => !cancelled && setError('Could not load your jars.'))
       .finally(() => !cancelled && setLoading(false))
@@ -257,9 +266,19 @@ export function JarsPage() {
         <EmptyState
           icon={<JarsIcon className="h-6 w-6" />}
           title="No jars yet"
-          description={canWrite ? 'Start from one of these, or make your own.' : undefined}
+          description={!canWrite ? undefined : canHold ? 'Start from one of these, or make your own.' : 'A jar is held in an account. Add one first.'}
         >
-          {canWrite && (
+          {canWrite && !canHold && (
+            // The form can't save without an account to hold the jar (#325 review P3-1), so send
+            // a new household there first rather than into a filled form it can't add.
+            <Link
+              to="/accounts"
+              className="inline-flex items-center justify-center rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700"
+            >
+              Add an account
+            </Link>
+          )}
+          {canWrite && canHold && (
             <>
               {/* One of each shape the form makes (jar setup plan, PR 3); each opens the form filled in. */}
               <div className="grid w-full max-w-2xl gap-3 sm:grid-cols-3">

@@ -260,7 +260,7 @@ The **Accounts** page tracks *where your money sits* — current account, saving
 
 The **Jars** page is where you set savings targets and watch them fill up. A jar is a share of the money in one of your accounts, with a target: several jars can share one account, and whatever isn't in a jar is that account's **unallocated** money.
 
-With no jars yet, the page offers three to start from: **Car insurance** (a yearly bill), **Summer holiday** (by next July) and **Rainy day** (50 a month, no target). Picking one opens the form filled in; change anything you like, and nothing is saved until **Add jar**. **New jar** opens an empty form. Until you add a jar, the **Getting started** checklist also lists **Add a jar**.
+With no jars yet, the page offers three to start from: **Car insurance** (a yearly bill), **Summer holiday** (by July) and **Rainy day** (50 a month, no target). Picking one opens the form filled in; change anything you like, and nothing is saved until **Add jar**. **New jar** opens an empty form. Until you add a jar, the **Getting started** checklist also lists **Add a jar**. A jar is held in an account, so with no account yet the page asks you to add one first.
 
 The form never asks what kind of jar it is: your answers decide that.
 

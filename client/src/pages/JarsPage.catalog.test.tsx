@@ -223,7 +223,9 @@ describe('JarsPage — catalog (JAR)', () => {
   })
 
   it('JAR-021: with no accounts, the form says to add one first (link to /accounts) and disables Add', { timeout: 15000 }, async () => {
-    mockLoads({ accounts: [] })
+    // An empty page with no account asks for one instead of offering the form (#325 review P3-1);
+    // the form's own message still covers a page that lists jars but whose accounts failed to load.
+    mockLoads({ jars: [jar()], accounts: [] })
     const user = userEvent.setup()
 
     renderPage()
