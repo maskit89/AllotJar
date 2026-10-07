@@ -241,7 +241,7 @@
   1. Read the jar's schedule (`POST /jars/schedule`) and this month's plan on `/jars`.
 - **Expected:**
   - Contribution months Nov 2026 → Feb 2027 (the month before the deadline): `JarSchedule.MonthsBetween(2026-11, 2027-02) + 1` = (2027×12+2) − (2026×12+11) + 1 = **4**, computed on the absolute month index so it crosses the year edge cleanly; **150.00** each, funded by 28 Feb 2027.
-  - The preview lists the four months in order across the year boundary; a mid-month deadline with the opt-in adds March (rule 36).
+  - The preview reads "€150.00 a month · Nov 2026 – Feb 2027" across the year boundary (an even plan lists no months; uneven months are listed in order); a mid-month deadline with the opt-in adds March (rule 36).
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Domain/JarScheduleTests.cs — every deadline case goes through `MonthsBetween`; no case crosses a year end explicitly)
 
 ### TIME-018 - A Goal jar with a target date in the past reads Behind and demands the full remainder this month
@@ -251,7 +251,7 @@
 - **Steps:**
   1. View the jar on `/jars`; read its status chip and monthly set-aside.
 - **Expected:**
-  - Goal dates never roll, so `JarSchedule.CurrentDeadline` = 2026-03-15 < asOf → **Behind** status chip; the horizon reads "Needed by 15 Mar 2026" (a Goal's date is the date it is needed by — never "next due" or "repeats", which are a Recurring jar's words).
+  - Goal dates never roll, so `JarSchedule.CurrentDeadline` = 2026-03-15 < asOf → **Behind** status chip; the horizon reads "Needed by 15 Mar 2026" (a Goal's date is the date it is needed by — never "Due …" or a cadence such as "yearly", which are a Recurring jar's words).
   - A passed (or this-month) deadline plans the whole remainder now: 900 − 300 = **600.00** in July, one month, never zero (rule 12 floor; HANDOVER P24). The month line reads "Plan €600.00 · in €0.00 · to go €600.00".
   - A funded past-due Goal (balance ≥ target) plans nothing and reads Funded, never Behind (FullyFunded precedes Behind).
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/JarLifecycleTests.cs — past-due Goal stays Behind; Domain/JarScheduleTests.cs — `ADeadlineThisMonth_OrPassed_DemandsTheWholeRemainderNow`, `AFundedDeadlineJar_PlansNothing`)
@@ -266,7 +266,7 @@
   2. Open the Edit-jar modal and read the **"Next due"** date field (so labelled because "Repeats" shows Yearly; the form asks no Type).
   3. View the second jar.
 - **Expected:**
-  - On the first read after the deadline the cycle due 2025-12-15 settles as **Funded** (balance 600.00 at the end of 14 Dec) and the open cycle becomes `JarSchedule.NextCycleDeadline` — stepped in whole 12-month cycles from the anchor: **2026-12-15**, day 15 preserved, no compounding drift; the schedule splits the remainder exactly over Jul→Nov (the deadline month is excluded unless opted in, rule 36) and the card reads "Funded by Nov 2026 · next due 15 Dec 2026 · repeats every year" with "Last cycle · due 15 Dec 2025 · funded on time, payment not recorded". No money moved.
+  - On the first read after the deadline the cycle due 2025-12-15 settles as **Funded** (balance 600.00 at the end of 14 Dec) and the open cycle becomes `JarSchedule.NextCycleDeadline` — stepped in whole 12-month cycles from the anchor: **2026-12-15**, day 15 preserved, no compounding drift; the schedule splits the remainder exactly over Jul→Nov (the deadline month is excluded unless opted in, rule 36) and the card reads "Due 15 Dec 2026 · yearly" with "Last cycle funded on time" (and its "Record the payment" link). No money moved.
   - The Edit modal shows the **open cycle 2026-12-15** (the DTO's `deadline`); saving it back unchanged keeps the anchor 2025-12-15 and the cycle (HANDOVER P38); the stored anchor is never rewritten by settlement.
   - The second jar does **not** advance: its deadline stays 2025-12-15, status **Deadline missed**, "Deadline 15 Dec 2025 missed · €150.00 short", the whole 150.00 planned in July, until the user marks the cycle paid or dismisses it (JAR-088–091).
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Domain/JarScheduleTests.cs — `ARecurringJar_PlansTowardItsOpenCycle_NotTheAnchor`, `Rule20_AMissedRecurringCycle_NeverRollsOnItsOwn_AndPlansTheShortfallNow`, `NextCycleDeadline_IsStrictlyAfterTheDateGiven_AndJumpsSeveralUnseenCycles`; Application/JarCycleTests.cs — `Rule21_ACycleHeldInFull_WhenItsDeadlineArrives_RollsForward_AndMovesNoMoney`, `Rule20_ACycleShortAtItsDeadline_ReadsDeadlineMissed_WithTheShortfall_AndStaysThatWay`, `Update_EchoingTheOpenCyclesDate_KeepsTheCycle_AndANewDateRestartsIt`; JarsPage.catalog.test.tsx JAR-037 — the Edit modal shows the open cycle's date)
@@ -407,7 +407,7 @@
   2. (Dev/inspection) confirm a non-ISO string passes through `shortDate` unchanged.
 - **Expected:**
   - `fromIso` builds `new Date(2026, 5, 20)` (local midnight), so the row shows **"Jun 20"** — never "Jun 19" from a UTC back-shift.
-  - A jar horizon's `monthYear` ("Funded by Nov 2026") and the preview's month names use the same parse; a non-parseable input is returned verbatim (no crash).
+  - The jar form preview's month range and month names (`monthYear`, "€100.00 a month · Sep 2026 – Nov 2026") and the jar card's horizon date (`formatDate`, "Due 1 Dec 2026 · yearly"; the card no longer shows a "Funded by" month) use the same parse; a non-parseable input is returned verbatim (no crash).
 - **Automated:** Yes (client/src/lib/dates.test.ts — no TZ day-shift; passthrough for non-ISO; monthYear month+year only)
 
 ---

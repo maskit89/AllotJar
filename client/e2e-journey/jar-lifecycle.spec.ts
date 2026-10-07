@@ -88,7 +88,7 @@ test('a recurring cycle is marked paid with its payment; a goal is skipped for t
   await marked
   await expect(paid).toBeHidden()
   // The cycle closed as paid and the jar saves toward its next due date (rule 22: met on time).
-  await expect(jarCard(page, 'Road tax')).toContainText(/Last cycle · due .* · paid .*120\.00/)
+  await expect(jarCard(page, 'Road tax')).toContainText(/Last cycle paid .*120\.00/)
   await expect(jarCard(page, 'Road tax').getByRole('button', { name: 'Mark Road tax paid' })).toBeVisible()
 
   // --- W04 rules 60–61: "Sofa" 300.00 needed by a date three months out → 100.00 a month ---

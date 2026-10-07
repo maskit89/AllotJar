@@ -63,7 +63,7 @@ describe('JarsPage', () => {
     renderPage()
 
     expect(await screen.findByText(/Plan .*25\.00 · in .*10\.00 · to go .*15\.00/, {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText(/Funded by Nov 2026 · next due .* · repeats every year/)).toBeInTheDocument()
+    expect(screen.getByText(/^Due .* · yearly$/)).toBeInTheDocument()
     // Attention + celebration states surface as chips.
     expect(screen.getByText('Behind')).toBeInTheDocument()
     expect(screen.getByText(/^Needed by /)).toBeInTheDocument()
@@ -242,6 +242,12 @@ describe('JarsPage', () => {
 
     // The switch swaps the date for "Each month" and hides Repeats (JAR-019)…
     const fixed = dialog.getByLabelText('Set aside a fixed amount each month')
+    // Its words on screen are few; what it is for sits behind its info button.
+    expect(dialog.getByText('Fixed amount each month')).toBeInTheDocument()
+    fireEvent.focus(dialog.getByRole('button', { name: 'What a fixed amount means' }))
+    expect((await dialog.findByRole('tooltip', {}, { timeout: 5000 })).textContent).toMatch(
+      /No date in mind\? Set aside the same amount every month, for a pot you keep topping up \(an emergency fund\)\. The target is optional\./,
+    )
     await user.click(fixed)
     expect(dialog.queryByLabelText('Repeats')).not.toBeInTheDocument()
     // A new jar has nothing repeating yet to stop, so the switch adds no warning.
@@ -280,9 +286,9 @@ describe('JarsPage', () => {
 
     fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: '2026-12-01' } })
     const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
-    // What is previewed is what gets planned: the server's months, its funding-completion date
-    // and the due date it serves (rules 35, 36), phrased for a repeating jar.
-    expect(preview).toHaveTextContent(/Sets aside .*100\.00 a month from Sep 2026 to Nov 2026, funded by .*, next due .*, then it repeats every year\./)
+    // What is previewed is what gets planned: the server's monthly amount and the months it runs,
+    // the last one being when funding completes (rules 35, 36). The fields above say the rest.
+    expect(preview).toHaveTextContent(/^.100\.00 a month · Sep 2026 – Nov 2026$/)
     expect(mockPost).toHaveBeenCalledWith('/jars/schedule', {
       jarId: null,
       kind: 0,
@@ -317,7 +323,7 @@ describe('JarsPage', () => {
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
-    expect(preview).toHaveTextContent(/Kept as typed: Nov 2026 .*150\.00, Jan 2027 .*40\.00\. The other months carry the rest\./)
+    expect(preview).toHaveTextContent(/Kept as typed: Nov 2026 .*150\.00, Jan 2027 .*40\.00$/)
   })
 
   it('blocks a recurring jar without a due date, client-side', { timeout: 15000 }, async () => {
@@ -349,7 +355,7 @@ describe('JarsPage', () => {
 
     renderPage()
 
-    expect(await screen.findByText('€50.00 each month · ongoing', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText('€50.00 every month', {}, { timeout: 5000 })).toBeInTheDocument()
     await user.click(screen.getByLabelText('Edit Home insurance'))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByLabelText('Set aside a fixed amount each month')).toBeChecked()
@@ -394,7 +400,7 @@ describe('JarsPage', () => {
     expect(dialog.queryByText(/It will stop repeating/)).not.toBeInTheDocument()
     await user.click(dialog.getByLabelText('Set aside a fixed amount each month'))
     // The switch says what it does to a jar that repeats before anything is saved.
-    expect(dialog.getByText('It will stop repeating: no more due dates to mark paid.')).toBeInTheDocument()
+    expect(dialog.getByText('It will stop repeating.')).toBeInTheDocument()
     await user.type(dialog.getByLabelText('Monthly amount'), '40')
     await user.click(dialog.getByRole('button', { name: 'Save jar' }))
 
@@ -496,7 +502,9 @@ describe('JarsPage', () => {
     const today = new Date().toISOString().slice(0, 10)
     expect(setAsideOn.value).toBe(today)
     expect(setAsideOn.max).toBe(today)
-    expect(dialog.getByText(/Divides money already in Joint Current into this jar\. It doesn.t add money\./)).toBeInTheDocument()
+    // What it means sits behind the field's info button, naming the account it divides.
+    fireEvent.focus(dialog.getByRole('button', { name: 'What already set aside means' }))
+    expect((await dialog.findByRole('tooltip', {}, { timeout: 5000 })).textContent).toMatch(/Divides money already in Joint Current into this jar\. It doesn.t add money\./)
     expect(dialog.queryByText('Saved so far')).not.toBeInTheDocument()
     expect(dialog.queryByLabelText('Opening balance')).not.toBeInTheDocument()
     await user.click(dialog.getByRole('button', { name: 'Cancel edit' }))

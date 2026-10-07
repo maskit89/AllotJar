@@ -292,9 +292,9 @@ describe('JarsPage — catalog (JAR)', () => {
       { timeout: 5000 },
     )
     expect(await screen.findByText('Someday', {}, { timeout: 5000 })).toBeInTheDocument()
-    // The card: this month's plan, the ongoing horizon with its amount, no % pill and no "of €…" (no target).
+    // The card: this month's plan, the ongoing pot's monthly amount, no % pill and no "of €…" (no target).
     expect(screen.getByText('Plan €50.00 · in €0.00 · to go €50.00')).toBeInTheDocument()
-    expect(screen.getByText('€50.00 each month · ongoing')).toBeInTheDocument()
+    expect(screen.getByText('€50.00 every month')).toBeInTheDocument()
     expect(screen.queryByText(/of €/)).not.toBeInTheDocument()
   })
 
@@ -518,13 +518,13 @@ describe('JarsPage — catalog (JAR)', () => {
 
     await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    expect(await dialog.findByText(/Sets aside €60\.00 a month from Sep 2026 to Nov 2026/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await dialog.findByText('€60.00 a month · Sep 2026 – Nov 2026', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ jarId: 'f1', targetAmount: 300, targetDate: '2026-12-01', accrual: 1, initialAllocation: 0 }))
     expect(dialog.queryByLabelText('Opening balance')).not.toBeInTheDocument()
 
     await user.clear(dialog.getByLabelText('Target amount'))
     await user.type(dialog.getByLabelText('Target amount'), '900')
-    expect(await dialog.findByText(/Sets aside €260\.00 a month/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await dialog.findByText(/^€260\.00 a month/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(dialog.queryByText(/€60\.00 a month/)).not.toBeInTheDocument()
     expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ jarId: 'f1', targetAmount: 900 }))
   })
@@ -543,11 +543,11 @@ describe('JarsPage — catalog (JAR)', () => {
 
     await user.type(dialog.getByLabelText('Target amount'), '1200')
     fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-12-01' } })
-    expect(await dialog.findByText(/Sets aside €400\.00 a month/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await dialog.findByText(/^€400\.00 a month/, {}, { timeout: 5000 })).toBeInTheDocument()
     // "Already set aside" lives under More options (rule 77).
     await user.click(dialog.getByRole('button', { name: 'More options' }))
     await user.type(dialog.getByLabelText('Already set aside'), '600')
-    expect(await dialog.findByText(/Sets aside €200\.00 a month/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await dialog.findByText(/^€200\.00 a month/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ jarId: null, kind: 1, targetAmount: 1200, targetDate: '2026-12-01', recurMonths: null, initialAllocation: 600 }))
   })
 
@@ -592,13 +592,13 @@ describe('JarsPage — catalog (JAR)', () => {
     // A fixed monthly amount plans it: the estimate is worded as an estimate (rule 58).
     await user.click(dialog.getByLabelText('Set aside a fixed amount each month')) // tick the switch
     await user.type(dialog.getByLabelText('Monthly amount'), '50')
-    expect(await dialog.findByText('Sets aside €50.00 a month — about 4 more months to reach the target (an estimate, not a deadline).', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await dialog.findByText('€50.00 a month · about 4 months to go (estimate)', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ jarId: 'f1', accrual: 2, monthlyContribution: 50, targetDate: null }))
 
     // …and so does a date (untick the switch to save by one again).
     await user.click(dialog.getByLabelText('Set aside a fixed amount each month'))
     fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-12-01' } })
-    expect(await dialog.findByText(/Sets aside €60\.00 a month from Sep 2026 to Nov 2026/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await dialog.findByText('€60.00 a month · Sep 2026 – Nov 2026', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
   it('JAR-043: a failed edit save keeps the modal open with the save-error banner', { timeout: 15000 }, async () => {

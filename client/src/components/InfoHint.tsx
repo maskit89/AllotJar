@@ -17,12 +17,19 @@ export function InfoHint({
   label,
   children,
   className = '',
+  align = 'start',
 }: {
   /** Accessible name for the trigger, e.g. "What repeating means". */
   label: string
   /** Popover body — keep it short. */
   children: ReactNode
   className?: string
+  /**
+   * Where the popover hangs from the icon: from its left edge (the default, for an icon near
+   * the start of a line), or centred under it, for an icon partway across a phone-width line,
+   * where a left-hung popover would run off the screen.
+   */
+  align?: 'start' | 'center'
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLSpanElement>(null)
@@ -64,7 +71,7 @@ export function InfoHint({
       {open && (
         // Outer span bridges the gap between icon and card (transparent `pt-1.5`)
         // so the pointer never leaves the wrapper on its way to the popover.
-        <span className="absolute left-0 top-full z-30 w-64 pt-1.5">
+        <span className={`absolute top-full z-30 w-64 pt-1.5 ${align === 'center' ? 'left-1/2 -translate-x-1/2' : 'left-0'}`}>
           <span
             id={panelId}
             role="tooltip"
