@@ -1,0 +1,40 @@
+﻿using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace AllotJar.Infrastructure.Persistence.Migrations
+{
+    /// <inheritdoc />
+    public partial class AddJarMonthOnly : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.AddColumn<bool>(
+                name: "MonthOnly",
+                table: "Jars",
+                type: "bit",
+                nullable: false,
+                defaultValue: false);
+
+            migrationBuilder.AddColumn<bool>(
+                name: "MonthOnly",
+                table: "JarCycles",
+                type: "bit",
+                nullable: false,
+                defaultValue: false);
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropColumn(
+                name: "MonthOnly",
+                table: "Jars");
+
+            migrationBuilder.DropColumn(
+                name: "MonthOnly",
+                table: "JarCycles");
+        }
+    }
+}

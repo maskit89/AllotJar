@@ -87,7 +87,8 @@ public class JarsController : ControllerBase
         var result = await _mediator.Send(new CreateJarCommand(
             request.Name, request.Kind, request.TargetAmount, request.TargetDate, request.Accrual,
             request.FundingAccountId, request.InitialAllocation, request.InitialAllocationDate,
-            request.RecurMonths, request.MonthlyContribution, request.IncludeDeadlineMonth, request.ShareAccount), ct);
+            request.RecurMonths, request.MonthlyContribution, request.IncludeDeadlineMonth, request.ShareAccount,
+            request.MonthOnly), ct);
         return CreatedAtAction(nameof(List), new { }, result);
     }
 
@@ -117,7 +118,7 @@ public class JarsController : ControllerBase
         var result = await _mediator.Send(new UpdateJarCommand(
             id, request.Name, request.Kind, request.TargetAmount, request.TargetDate, request.Accrual,
             request.FundingAccountId, request.RecurMonths, request.MonthlyContribution, request.IncludeDeadlineMonth,
-            request.ShareAccount, request.Version), ct);
+            request.ShareAccount, request.Version, request.MonthOnly), ct);
         return Ok(result);
     }
 
@@ -252,7 +253,9 @@ public record CreateJarRequest(
     int? RecurMonths = null,
     decimal? MonthlyContribution = null,
     bool IncludeDeadlineMonth = false,
-    bool ShareAccount = false);
+    bool ShareAccount = false,
+    // A date given as just a month: TargetDate is the 1st of it.
+    bool MonthOnly = false);
 
 /// <summary>Request body for editing a jar (the id comes from the route).</summary>
 public record UpdateJarRequest(
@@ -267,7 +270,9 @@ public record UpdateJarRequest(
     bool IncludeDeadlineMonth = false,
     bool ShareAccount = false,
     // The version the edit form loaded (D11); null only from a client older than this deploy.
-    string? Version = null);
+    string? Version = null,
+    // A date given as just a month; null (a client older than this deploy) keeps the stored answer.
+    bool? MonthOnly = null);
 
 /// <summary>Request body for previewing a jar definition's schedule; JarId is set when editing an existing jar.</summary>
 public record JarScheduleRequest(

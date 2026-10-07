@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cadenceLabel, jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from './jarStatus'
+import { cadenceLabel, jarDate, jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from './jarStatus'
 import type { JarDto } from '../types'
 
 function jar(over: Partial<JarDto> = {}): JarDto {
@@ -12,6 +12,7 @@ function jar(over: Partial<JarDto> = {}): JarDto {
     accrual: 1,
     monthlyContribution: null,
     includeDeadlineMonth: false,
+    monthOnly: false,
     recurMonths: 12,
     fundingAccountId: 'acc1',
     balanceAsOf: '2026-10-20',
@@ -196,5 +197,31 @@ describe('cadenceLabel', () => {
     expect(cadenceLabel(12)).toBe('yearly')
     // A cadence set through the API that the select doesn't offer.
     expect(cadenceLabel(24)).toBe('every 24 months')
+  })
+})
+
+describe('jarDate (a date given as just a month)', () => {
+  it('reads the month for a month-only date, and the full date otherwise', () => {
+    expect(jarDate('2027-03-01', true)).toBe('Mar 2027')
+    expect(jarDate('2027-03-01', false)).toMatch(/^Mar 1, 2027$|^1 Mar 2027$/)
+    // Only the 1st is a month: a later day stays a full date whatever the flag says.
+    expect(jarDate('2027-03-15', true)).toMatch(/15/)
+  })
+
+  it('words the card lines with the month', () => {
+    const month = { monthOnly: true, targetDate: '2027-03-01', deadline: '2027-03-01' }
+    expect(jarHorizonLabel(jar(month), 'EUR')).toBe('Due Mar 2027 · yearly')
+    expect(jarHorizonLabel(jar({ ...month, kind: 1, recurMonths: null }), 'EUR')).toBe('Needed by Mar 2027')
+    expect(jarMonthLabel(jar({ ...month, status: 'DeadlineMissed', shortfall: 150 }), 'EUR')).toBe('Deadline Mar 2027 missed · €150.00 short')
+    expect(jarMonthLabel(jar({ ...month, status: 'FundedLate', shortfall: 0 }), 'EUR')).toBe('Funded after the Mar 2027 deadline')
+    expect(
+      jarLastCycleLabel(
+        jar({
+          ...month,
+          lastCycle: { id: 'c1', deadline: '2026-03-01', targetAmount: 600, outcome: 'Other', balanceAtDeadline: null, paymentTransactionId: null, paymentPayee: null, paidOn: null, paidAmount: null, paidOnTime: false, closedOn: '2026-03-01' },
+        }),
+        'EUR',
+      ),
+    ).toBe('Last cycle due Mar 2026')
   })
 })

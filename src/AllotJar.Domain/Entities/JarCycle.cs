@@ -45,8 +45,15 @@ public class JarCycle : BaseEntity
 
     public DateTime CreatedUtc { get; set; }
 
-    /// <summary>A paid cycle whose payment landed before the deadline (rule 22).</summary>
-    public bool PaidOnTime => Outcome == JarCycleOutcome.Paid && PaidOn is { } paid && paid < Deadline;
+    /// <summary>
+    /// The cycle was due in a month given without a day (<see cref="Jar.MonthOnly"/>, kept as it
+    /// stood when the cycle closed): it was on time until that month was over
+    /// (<see cref="Services.JarSchedule.LateFrom"/>).
+    /// </summary>
+    public bool MonthOnly { get; set; }
+
+    /// <summary>A paid cycle whose payment landed before the deadline (rule 22), or within its month for a month given without a day.</summary>
+    public bool PaidOnTime => Outcome == JarCycleOutcome.Paid && PaidOn is { } paid && paid < Services.JarSchedule.LateFrom(Deadline, MonthOnly);
 
     /// <summary>
     /// The day the cycle counts as closed when a past month is read (W05, P49): a cycle paid on

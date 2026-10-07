@@ -22,6 +22,7 @@ export function jar(over: Partial<JarDto> = {}): JarDto {
     accrual: 1,
     monthlyContribution: null,
     includeDeadlineMonth: false,
+    monthOnly: false,
     recurMonths: 12,
     fundingAccountId: 'acc1',
     balanceAsOf: '2026-09-26',

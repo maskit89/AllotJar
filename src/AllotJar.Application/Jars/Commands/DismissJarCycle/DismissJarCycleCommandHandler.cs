@@ -4,6 +4,7 @@ using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars.Dtos;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.Services;
 
 namespace AllotJar.Application.Jars.Commands.DismissJarCycle;
 
@@ -34,15 +35,16 @@ public class DismissJarCycleCommandHandler : IRequestHandler<DismissJarCycleComm
         await JarCycles.SettleAsync(_db, userId, today, cancellationToken, jar.Id);
 
         // Only a cycle that is actually in the missed state can be dismissed: the open one, its
-        // deadline arrived. (A funded one has already rolled forward on its own.)
+        // deadline arrived (a month given without a day: that month over). (A funded one has
+        // already rolled forward on its own.)
         if (jar.Kind != JarKind.Recurring || jar.CycleDeadline != request.Deadline)
         {
-            throw JarAccounts.Validation("Deadline", $"{jar.Name} has no missed cycle due {request.Deadline:d MMM yyyy}.");
+            throw JarAccounts.Validation("Deadline", $"{jar.Name} has no missed cycle due {JarDates.Show(request.Deadline, jar.MonthOnly)}.");
         }
-        if (request.Deadline > today)
+        if (JarSchedule.LateFrom(request.Deadline, JarCycles.MonthOnly(jar, request.Deadline)) > today)
         {
             throw JarAccounts.Validation("Deadline",
-                $"{jar.Name}'s cycle due {request.Deadline:d MMM yyyy} has not been missed; there is nothing to dismiss.");
+                $"{jar.Name}'s cycle due {JarDates.Show(request.Deadline, jar.MonthOnly)} has not been missed; there is nothing to dismiss.");
         }
 
         var snapshot = await JarLedgerReader.ReadAsync(_db, userId, today, cancellationToken);

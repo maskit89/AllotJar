@@ -316,6 +316,40 @@ describe('JarsPage — recurring cycles (W03)', () => {
     expect(screen.queryByText(/Dismiss/)).not.toBeInTheDocument()
   })
 
+  it('JAR-121: a jar due in a month names the month on the card, in Dismiss, in Mark paid and on the last-cycle line', { timeout: 15000 }, async () => {
+    // Due "Sep 2026" (the 1st, given as just the month), missed and €150 short.
+    mockLoads({ jars: [jar({ monthOnly: true })], payments: { '/jars/f1/payments': [payment()] } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    expect(await screen.findByText('Deadline Sep 2026 missed · €150.00 short', {}, { timeout: 5000 })).toBeInTheDocument()
+    await user.click(screen.getByLabelText("Dismiss Road tax's missed deadline"))
+    let dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByText(/^Road tax missed its Sep 2026 deadline — €150\.00 short\./)).toBeInTheDocument()
+    await user.click(dialog.getByLabelText('Keep the missed deadline'))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
+
+    await user.click(screen.getByLabelText('Mark Road tax paid'))
+    dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByText(/Which payment settled the cycle due Sep 2026\?/)).toBeInTheDocument()
+  })
+
+  it('JAR-121: funded late and the last cycle, for a jar due in a month', async () => {
+    mockLoads({
+      jars: [
+        jar({ monthOnly: true, currentBalance: 600, plannedThisMonth: 0, remainingThisMonth: 0, shortfall: 0, status: 'FundedLate' }),
+        advanced({ id: 'f2', name: 'Licence', monthOnly: true, lastCycle: cycle({ deadline: '2026-09-01', outcome: 'Funded', closedOn: '2026-09-01' }) }),
+      ],
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('Funded after the Sep 2026 deadline', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText('Due Sep 2027 · yearly')).toBeInTheDocument()
+    expect(screen.getByLabelText("Record the payment for Licence's cycle due Sep 2026")).toBeInTheDocument()
+  })
+
   it('JAR-093: a viewer sees the missed state but cannot mark paid or dismiss', async () => {
     mockLoads({ jars: [jar({ lastCycle: cycle() })], meRole: 3 })
 

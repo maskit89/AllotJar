@@ -467,6 +467,11 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<int>("Kind")
                         .HasColumnType("int");
 
+                    b.Property<bool>("MonthOnly")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
                     b.Property<decimal?>("MonthlyContribution")
                         .HasPrecision(18, 4)
                         .HasColumnType("decimal(18,4)");
@@ -625,6 +630,11 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("JarId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("MonthOnly")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
 
                     b.Property<int>("Outcome")
                         .HasColumnType("int");

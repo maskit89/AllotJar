@@ -5,6 +5,7 @@ import { api } from '../../lib/api'
 import type { JarDto } from '../../types'
 import { formatMoney, fromAmount } from '../../lib/money'
 import { formatDate } from '../../lib/dates'
+import { jarDate } from '../../lib/jarStatus'
 import { serverErrors } from '../../lib/serverErrors'
 
 export interface DismissCycleModalProps {
@@ -43,6 +44,15 @@ export function DismissCycleModal({ jar, currency, onClose, onDismissed, onMarkP
     }
   }
 
+  // A deadline given as just a month reads "its Mar 2027 deadline".
+  const deadline = !jar.deadline
+    ? 'its due date'
+    : jar.monthOnly && jar.deadline.endsWith('-01')
+      ? `its ${jarDate(jar.deadline, true)} deadline`
+      : jar.status === 'FundedLate'
+        ? `the deadline on ${formatDate(jar.deadline)}`
+        : `its deadline on ${formatDate(jar.deadline)}`
+
   return (
     <Modal title={`Move ${jar.name} on to its next cycle?`} onClose={onClose}>
       {error && (
@@ -52,8 +62,8 @@ export function DismissCycleModal({ jar, currency, onClose, onDismissed, onMarkP
       )}
       <p className="text-sm text-slate-600">
         {jar.status === 'FundedLate'
-          ? `${jar.name} reached its target after the deadline on ${jar.deadline ? formatDate(jar.deadline) : 'its due date'}.`
-          : `${jar.name} missed its deadline on ${jar.deadline ? formatDate(jar.deadline) : 'its due date'}${short > 0 ? ` — ${formatMoney(short, currency)} short` : ''}.`}{' '}
+          ? `${jar.name} reached its target after ${deadline}.`
+          : `${jar.name} missed ${deadline}${short > 0 ? ` — ${formatMoney(short, currency)} short` : ''}.`}{' '}
         Dismissing keeps {balance === null ? 'what it holds' : `the ${formatMoney(balance, currency)} it holds`} for the next cycle, records nothing as paid
         and makes up no shortfall; the jar simply saves toward its next due date.
       </p>

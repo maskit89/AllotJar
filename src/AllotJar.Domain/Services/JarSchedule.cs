@@ -156,6 +156,16 @@ public static class JarSchedule
         jar.Kind == JarKind.Recurring ? jar.CycleDeadline ?? jar.TargetDate : jar.TargetDate;
 
     /// <summary>
+    /// The day a deadline counts as passed: the deadline itself (the money had to be there the day
+    /// before, rule 82), or, for a date given as just the month (<see cref="Jar.MonthOnly"/>), the
+    /// 1st of the month after. Such a month is still planned to be ready when it begins (rule 12),
+    /// but it is not missed, and a payment in it is not late, until the month is over (Christopher,
+    /// 7 October 2026: a warning while the month runs, missed from the next).
+    /// </summary>
+    public static DateOnly LateFrom(DateOnly deadline, bool monthOnly) =>
+        monthOnly && deadline.Day == 1 ? deadline.AddMonths(1) : deadline;
+
+    /// <summary>
     /// The cycle after <paramref name="after"/>: the first deadline stepped whole cycles from
     /// the anchor <see cref="Jar.TargetDate"/> that falls after it. Stepping from the anchor keeps
     /// the intended day-of-month, so a shorter month clamps only that occurrence (rule 62:

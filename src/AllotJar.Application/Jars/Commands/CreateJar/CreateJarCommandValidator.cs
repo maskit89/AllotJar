@@ -1,4 +1,5 @@
 using FluentValidation;
+using AllotJar.Domain.Enums;
 using AllotJar.Application.Common;
 
 namespace AllotJar.Application.Jars.Commands.CreateJar;
@@ -12,6 +13,12 @@ public class CreateJarCommandValidator : AbstractValidator<CreateJarCommand>
             .MaximumLength(120);
 
         this.JarDefinition();
+
+        // A date given as just a month is the 1st of it (Jar.MonthOnly).
+        RuleFor(x => x.TargetDate)
+            .Must(d => d is null || d.Value.Day == 1)
+            .When(x => x.MonthOnly == true && x.Accrual == AccrualMethod.TargetByDate)
+            .WithMessage("A date given as just the month must be the 1st of that month.");
 
         // Rule 73: no jar without the account that holds its money.
         RuleFor(x => x.FundingAccountId)
