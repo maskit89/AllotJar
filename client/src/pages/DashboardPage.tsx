@@ -107,6 +107,13 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   const [accountsLoaded, setAccountsLoaded] = useState(false)
   // The shared jar form (rule 73), opened from a Savings group or the checklist.
   const [jarFormOpen, setJarFormOpen] = useState(false)
+  // The Savings group the form was opened from, where the new jar's line goes (jar setup plan, PR 4);
+  // null from the checklist, which puts it in the first Savings group.
+  const [jarGroupId, setJarGroupId] = useState<string | null>(null)
+  const openJarForm = useCallback((groupId: string | null) => {
+    setJarGroupId(groupId)
+    setJarFormOpen(true)
+  }, [])
   // W04 (rule 60): the jar line whose ✕ was clicked — skip this month or archive the jar.
   const [removingJarLine, setRemovingJarLine] = useState<ItemVM | null>(null)
   // A past month's contributions are history (rule 60): nothing in it can be skipped. The server
@@ -774,14 +781,14 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
             aria-label="Add a jar from an account"
             disabled={!hasAccounts}
             title={hasAccounts ? undefined : 'Add an account first — a jar’s money is held in an account'}
-            onClick={() => setJarFormOpen(true)}
+            onClick={() => openJarForm(null)}
           >
             Add jar
           </Button>
         ),
       },
     ]
-  }, [accounts.length, month, jars.length])
+  }, [accounts.length, month, jars.length, openJarForm])
 
   function submitNewCategory() {
     const trimmed = newCategoryName.trim()
@@ -1143,7 +1150,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                   onRenameItem={renameItem}
                   onRemoveJarLine={isPastMonth ? undefined : (item) => setRemovingJarLine(item)}
                   onRestoreJarLine={isPastMonth ? undefined : restoreJarLine}
-                  onAddJar={() => setJarFormOpen(true)}
+                  onAddJar={(categoryId) => openJarForm(categoryId)}
                   onRenameCategory={renameCategory}
                   onDeleteCategory={deleteCategory}
                 />
@@ -1233,6 +1240,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         {jarFormOpen && canWrite && (
           <JarFormModal
             jar={null}
+            savingsCategoryId={jarGroupId ?? undefined}
             accounts={accounts}
             currency={month?.currency ?? budgetCurrency}
             onClose={() => setJarFormOpen(false)}

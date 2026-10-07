@@ -1367,3 +1367,14 @@ PR 3 of the jar setup plan Christopher accepted on 6 October ("Looks promising l
 **Still open from PR 1's review.** P3-5 (the word "Deadline" on the missed-cycle line and in "Funded after the deadline") is not changed here: those lines aren't first-time help, and "missed" is Christopher's own word in rule 92. It stays a follow-up.
 
 **Not in this PR (the plan's last).** PR 4: "Add jar" from a Dashboard savings group lands the jar in that group (a small server change).
+
+## Add jar lands in its group (jar setup plan, PR 4) — 7 October 2026
+
+The last PR of the jar setup plan Christopher accepted on 6 October ("Looks promising let's do it"; question 5, "The Add jar button inside a Dashboard group: land the new jar in that group, or drop the per-group button?", recommended and taken: land it in the group). PR 3 (#325) merged on 7 October at 21:49 UTC as `df584f2` and is on staging. Before, a jar added from any Savings group's **+ Add jar** got its line in the month's first Savings group (recorded as designed on 30 September).
+
+- **What changes.** The Dashboard sends the group the form was opened from (`savingsCategoryId`, create only); the **Set up your budget** card's Add jar and the Jars page send none. The server places the new jar's line in that group in the group's own month, and in other months (this one and every later month that exists, rule 46) in the Savings group of the same name, trimmed and ignoring case; a month with no such group gets it in its first Savings group, as before. Of two groups with the same name, the one clicked gets it.
+- **Nothing to refuse.** An id that isn't one of the household's Savings groups (an expense group, another household's, or one deleted since the page loaded) is ignored and the line goes in the first Savings group: the jar is still created, and no other household's group is read. Months created later get the jar's line from month creation as before (copied with its group when a month is copied).
+- **Server.** `CreateJarCommand.SavingsCategoryId` (optional), `SavingsLines.JarLinePlace` and an optional place for `JarPlanner.ReplantAsync` and `SavingsLines.AppendJarLine`. No migration, no stored field: only where the line is first put changes.
+- **Tests and docs.** `JarGroupPlacementTests.cs` (7) and two Dashboard tests (the group sent; none from the setup card). Testing catalogue (JAR-050 note, new JAR-125), user guide (Savings groups), jars map and automated-tests map updated.
+
+**The jar setup plan is complete with this PR** (PR 1 #323, PR 2 #324, PR 3 #325, PR 4). Open follow-ups: #323 review P3-5 ("Deadline" wording on the missed-cycle line) and #325 review P3-3 (the checklist reads `/jars` while the `jars` flag is off).

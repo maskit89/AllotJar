@@ -189,9 +189,10 @@ public static class JarPlanner
     /// previews.
     /// </summary>
     /// <param name="ledger">The ledger the caller already loaded, when nothing it holds has changed since; null loads it.</param>
+    /// <param name="place">Where a new line goes (a jar created from a Dashboard group); null puts it in the first Savings group.</param>
     public static async Task ReplantAsync(
         IApplicationDbContext db, string ownerId, Jar jar, DateOnly today, decimal extraBalance, CancellationToken cancellationToken,
-        JarLedgerSource? ledger = null)
+        JarLedgerSource? ledger = null, SavingsLines.JarLinePlace? place = null)
     {
         var months = await db.BudgetMonths
             .Include(m => m.Categories.Where(c => c.Kind == CategoryKind.Savings))
@@ -238,7 +239,7 @@ public static class JarPlanner
             var lines = month.Categories.SelectMany(c => c.Items).Where(i => i.SavingsId == jar.Id).DistinctBy(i => i.Id).ToList();
             if (lines.Count == 0)
             {
-                SavingsLines.AppendJarLine(db, month, jar, amount);
+                SavingsLines.AppendJarLine(db, month, jar, amount, place);
             }
             else
             {

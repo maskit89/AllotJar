@@ -21,16 +21,29 @@ namespace AllotJar.Application.Jars;
 public static class SavingsLines
 {
     /// <summary>
-    /// Appends <paramref name="jar"/>'s contribution line to the month's first Savings
-    /// group, creating a "Savings" group when the month has none. The month's categories
-    /// (with items) must be loaded/built on the instance; reading them is all this does.
+    /// The Savings group a new jar's line goes in: the group it was added from and, in other
+    /// months, the group of the same name (trimmed).
     /// </summary>
-    public static void AppendJarLine(IApplicationDbContext db, BudgetMonth month, Jar jar, decimal planned)
+    public sealed record JarLinePlace(Guid CategoryId, string Name);
+
+    /// <summary>
+    /// Appends <paramref name="jar"/>'s contribution line to the month's first Savings
+    /// group, creating a "Savings" group when the month has none. With a <paramref name="place"/>
+    /// (a jar added from a Dashboard group, jar setup plan PR 4) the line goes in that group, or in
+    /// another month the Savings group of the same name, before falling back to the first. The
+    /// month's categories (with items) must be loaded/built on the instance; reading them is all
+    /// this does.
+    /// </summary>
+    public static void AppendJarLine(IApplicationDbContext db, BudgetMonth month, Jar jar, decimal planned, JarLinePlace? place = null)
     {
-        var savings = month.Categories
+        var groups = month.Categories
             .Where(c => c.Kind == CategoryKind.Savings)
             .OrderBy(c => c.DisplayOrder)
-            .FirstOrDefault();
+            .ToList();
+        var savings = (place is null ? null
+                : groups.FirstOrDefault(c => c.Id == place.CategoryId)
+                  ?? groups.FirstOrDefault(c => string.Equals(c.Name.Trim(), place.Name, StringComparison.OrdinalIgnoreCase)))
+            ?? groups.FirstOrDefault();
         if (savings is null)
         {
             savings = new BudgetCategory

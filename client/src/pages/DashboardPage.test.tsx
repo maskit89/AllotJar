@@ -485,12 +485,31 @@ describe('DashboardPage jars and first-run checklist', () => {
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
 
     await waitFor(() =>
-      expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ name: 'Car', kind: 1, targetAmount: 600, fundingAccountId: 'acc1', initialAllocation: 0 })),
+      expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ name: 'Car', kind: 1, targetAmount: 600, fundingAccountId: 'acc1', initialAllocation: 0, savingsCategoryId: 'sav' })),
     )
     // Never a bare line POST to the savings category.
     expect(mockPost).not.toHaveBeenCalledWith(expect.stringMatching(/\/budget\/categories\/.*\/items/), expect.anything())
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(await screen.findByDisplayValue('Car', {}, { timeout: 5000 })).toBeInTheDocument()
+  })
+
+  it('Add jar in a second Savings group sends that group, so the jar lands there (jar setup plan, PR 4)', { timeout: 15000 }, async () => {
+    const month = budgetWithSavings(100)
+    month.categories.push(budgetCategory({ id: 'trips', name: 'Trips', kind: 'Savings', displayOrder: 1, items: [] }))
+    mockLoads({ month, accounts: [JOINT], jars: [HOLIDAY] })
+    mockPost.mockResolvedValue({ data: { ...HOLIDAY, id: 'jar-rome', name: 'Rome' } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Add a jar to Trips' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', { name: 'New jar' }, { timeout: 5000 }))
+    await user.type(dialog.getByLabelText('Jar name'), 'Rome')
+    await user.type(dialog.getByLabelText('Target amount'), '900')
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2027-05-01' } })
+    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ name: 'Rome', savingsCategoryId: 'trips' })))
   })
 
   it('shows a savings line\'s Available as "Not available" when the server sends null', { timeout: 15000 }, async () => {
@@ -536,7 +555,15 @@ describe('DashboardPage jars and first-run checklist', () => {
     const addJar = card.getByRole('button', { name: 'Add a jar from an account' })
     expect(addJar).toBeEnabled()
     await user.click(addJar)
-    expect(await screen.findByRole('dialog', { name: 'New jar' }, { timeout: 5000 })).toBeInTheDocument()
+    const dialog = within(await screen.findByRole('dialog', { name: 'New jar' }, { timeout: 5000 }))
+    // Not from a group: the line goes in the first Savings group, so no group is sent.
+    mockPost.mockResolvedValue({ data: { ...HOLIDAY, id: 'jar-pot', name: 'Pot' } })
+    await user.type(dialog.getByLabelText('Jar name'), 'Pot')
+    await user.click(dialog.getByLabelText('Set aside a fixed amount each month'))
+    await user.type(dialog.getByLabelText('Each month'), '50')
+    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ name: 'Pot' })))
+    expect(mockPost.mock.calls.find(([url]) => url === '/jars')![1]).not.toHaveProperty('savingsCategoryId')
   })
 
   it('first-run checklist: hidden once accounts, the month and a jar all exist', { timeout: 15000 }, async () => {
