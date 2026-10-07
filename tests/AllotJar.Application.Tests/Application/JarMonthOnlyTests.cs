@@ -12,6 +12,7 @@ using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.Services;
+using AllotJar.Domain.ValueObjects;
 using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Application.Tests.Application;
@@ -257,7 +258,7 @@ public class JarMonthOnlyTests
     }
 
     [Fact]
-    public async Task ShortWhenTheMonthBegan_ButHeldByItsEnd_RollsForwardFunded_OnTheFirstOfTheNext()
+    public async Task ShortWhenTheMonthBegan_RollsForwardFunded_OnTheDayItsTargetIsHeld()
     {
         await using var db = NewContext();
         var account = LedgerFixtures.SeedAccount(db, Owner, opening: 5000m, openingDate: new DateOnly(2025, 1, 1));
@@ -266,19 +267,48 @@ public class JarMonthOnlyTests
         LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 450m, new DateOnly(2026, 2, 1));
         LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 150m, new DateOnly(2026, 3, 20));
 
-        // While March runs nothing is judged.
-        await JarCycles.SettleAsync(db, Owner, new DateOnly(2026, 3, 25), CancellationToken.None);
+        // Still short: nothing is judged while March runs.
+        await JarCycles.SettleAsync(db, Owner, new DateOnly(2026, 3, 15), CancellationToken.None);
         (await db.JarCycles.AnyAsync()).Should().BeFalse();
         (await db.Jars.SingleAsync()).CycleDeadline.Should().Be(march);
 
-        // March is over with the 600 held at its end: on time.
-        await JarCycles.SettleAsync(db, Owner, new DateOnly(2026, 4, 1), CancellationToken.None);
+        // The 600 is held from 20 March: on time, and the jar moves on to next March.
+        await JarCycles.SettleAsync(db, Owner, new DateOnly(2026, 3, 25), CancellationToken.None);
         var cycle = await db.JarCycles.AsNoTracking().SingleAsync();
         cycle.Outcome.Should().Be(JarCycleOutcome.Funded);
         cycle.Deadline.Should().Be(march);
-        cycle.ClosedOn.Should().Be(new DateOnly(2026, 4, 1));
+        cycle.ClosedOn.Should().Be(new DateOnly(2026, 3, 20));
         cycle.BalanceAtDeadline.Should().Be(600m);
         cycle.MonthOnly.Should().BeTrue();
+        (await db.Jars.SingleAsync()).CycleDeadline.Should().Be(new DateOnly(2027, 3, 1));
+    }
+
+    [Fact]
+    public async Task ToppedUpAndPaidFromTheJarWithinItsMonth_IsFundedOnTime_NotMissed()
+    {
+        // Review round 3, P2-2: short on 1 March, topped up on the 10th, the insurer takes the 600
+        // from the jar on the 20th and nobody presses Mark paid. Read only on 1 April.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, opening: 5000m, openingDate: new DateOnly(2025, 1, 1));
+        var march = new DateOnly(2026, 3, 1);
+        var jar = SeedBill(db, account, march, monthOnly: true);
+        var line = new BudgetItem { Name = jar.Name, SavingsId = jar.Id, PlannedAmount = 0m };
+        db.BudgetMonths.Add(new BudgetMonth
+        {
+            OwnerId = Owner, Year = 2026, Month = 3, BaseCurrency = CurrencyCode.Eur,
+            Categories = new List<BudgetCategory> { new() { Name = "Savings", Kind = CategoryKind.Savings, Items = new List<BudgetItem> { line } } },
+        });
+        db.SaveChanges();
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 450m, new DateOnly(2026, 2, 1));
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 150m, new DateOnly(2026, 3, 10));
+        LedgerFixtures.Expense(db, Owner, account.Id, 600m, new DateOnly(2026, 3, 20), line.Id);
+
+        await JarCycles.SettleAsync(db, Owner, new DateOnly(2026, 4, 1), CancellationToken.None);
+
+        var cycle = await db.JarCycles.AsNoTracking().SingleAsync();
+        cycle.Outcome.Should().Be(JarCycleOutcome.Funded);
+        cycle.ClosedOn.Should().Be(new DateOnly(2026, 3, 10));
+        cycle.BalanceAtDeadline.Should().Be(600m);
         (await db.Jars.SingleAsync()).CycleDeadline.Should().Be(new DateOnly(2027, 3, 1));
     }
 
@@ -344,7 +374,7 @@ public class JarMonthOnlyTests
     }
 
     [Fact]
-    public async Task AWaitingCycleDueInAMonth_IsJudgedWhenTheMonthIsOver_ByWhatWasHeldAtItsEnd()
+    public async Task AWaitingCycleDueInAMonth_IsJudgedFunded_AsSoonAsItsTargetIsHeldInIt()
     {
         await using var db = NewContext();
         var account = LedgerFixtures.SeedAccount(db, Owner, opening: 5000m, openingDate: new DateOnly(2025, 1, 1));
@@ -360,12 +390,37 @@ public class JarMonthOnlyTests
         LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 450m, new DateOnly(2026, 2, 1));
         LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 150m, new DateOnly(2026, 3, 20));
 
-        await JarCycles.SettleAsync(db, Owner, new DateOnly(2026, 3, 25), CancellationToken.None);
-        (await db.JarCycles.AsNoTracking().SingleAsync()).BalanceAtDeadline.Should().BeNull("March is still running");
+        await JarCycles.SettleAsync(db, Owner, new DateOnly(2026, 3, 15), CancellationToken.None);
+        (await db.JarCycles.AsNoTracking().SingleAsync()).BalanceAtDeadline.Should().BeNull("March is still running, short");
 
-        await JarCycles.SettleAsync(db, Owner, new DateOnly(2026, 4, 1), CancellationToken.None);
+        // Held from 20 March: funded, judged at once.
+        await JarCycles.SettleAsync(db, Owner, new DateOnly(2026, 3, 25), CancellationToken.None);
         var judged = await db.JarCycles.AsNoTracking().SingleAsync();
         judged.Outcome.Should().Be(JarCycleOutcome.Funded);
         judged.BalanceAtDeadline.Should().Be(600m);
+    }
+
+    [Fact]
+    public async Task AWaitingCycleDueInAMonth_NeverFundedInIt_IsMissedOnceTheMonthIsOver()
+    {
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, opening: 5000m, openingDate: new DateOnly(2025, 1, 1));
+        var march = new DateOnly(2026, 3, 1);
+        var jar = SeedBill(db, account, new DateOnly(2027, 3, 1), monthOnly: true);
+        db.JarCycles.Add(new JarCycle
+        {
+            OwnerId = Owner, JarId = jar.Id, Deadline = march, TargetAmount = 600m, Outcome = JarCycleOutcome.Funded,
+            BalanceAtDeadline = null, ClosedOn = march, MonthOnly = true, CreatedUtc = DateTime.UtcNow,
+        });
+        db.SaveChanges();
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 450m, new DateOnly(2026, 2, 1));
+
+        await JarCycles.SettleAsync(db, Owner, new DateOnly(2026, 3, 31), CancellationToken.None);
+        (await db.JarCycles.AsNoTracking().SingleAsync()).BalanceAtDeadline.Should().BeNull();
+
+        await JarCycles.SettleAsync(db, Owner, new DateOnly(2026, 4, 1), CancellationToken.None);
+        var judged = await db.JarCycles.AsNoTracking().SingleAsync();
+        judged.Outcome.Should().Be(JarCycleOutcome.Missed);
+        judged.BalanceAtDeadline.Should().Be(450m, "what it held when the month began");
     }
 }
