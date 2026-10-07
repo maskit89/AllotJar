@@ -1150,7 +1150,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                   onRenameItem={renameItem}
                   onRemoveJarLine={isPastMonth ? undefined : (item) => setRemovingJarLine(item)}
                   onRestoreJarLine={isPastMonth ? undefined : restoreJarLine}
-                  onAddJar={(categoryId) => openJarForm(categoryId)}
+                  // A group still being saved has a temporary id: its Add jar waits for the real one.
+                  onAddJar={category.id.startsWith('temp-') ? undefined : openJarForm}
                   onRenameCategory={renameCategory}
                   onDeleteCategory={deleteCategory}
                 />

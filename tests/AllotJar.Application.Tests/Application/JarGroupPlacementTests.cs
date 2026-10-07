@@ -1,5 +1,9 @@
 using FluentAssertions;
+using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
+using AllotJar.Application.Jars.Commands.ArchiveJar;
+using AllotJar.Application.Jars.Commands.CompleteJar;
 using AllotJar.Application.Jars.Commands.CreateJar;
+using AllotJar.Application.Jars.Commands.ReopenJar;
 using AllotJar.Application.Tests.TestDoubles;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -40,14 +44,26 @@ public class JarGroupPlacementTests
         month.Categories.Where(c => c.Kind == CategoryKind.Savings && c.Name == name).OrderBy(c => c.DisplayOrder).ElementAt(nth);
 
     /// <summary>A 1,200 goal due a year out, added from <paramref name="groupId"/>; returns the name of each month's group holding its line.</summary>
-    private static async Task<List<string>> AddJarFrom(ApplicationDbContext db, Guid? groupId, string ownerId = "user-1")
+    private static async Task<List<string>> AddJarFrom(ApplicationDbContext db, Guid? groupId, string ownerId = "user-1") =>
+        LineGroups(db, await CreateJar(db, groupId, ownerId));
+
+    private static async Task<Guid> CreateJar(ApplicationDbContext db, Guid? groupId, string ownerId = "user-1")
     {
         var account = LedgerFixtures.SeedAccount(db, ownerId);
         var dto = await new CreateJarCommandHandler(db, new CurrentUserStub(ownerId)).Handle(
             new CreateJarCommand("Summer holiday", JarKind.Goal, 1200m, ThisMonth.AddMonths(12),
                 AccrualMethod.TargetByDate, account.Id, SavingsCategoryId: groupId),
             CancellationToken.None);
-        return db.BudgetItems.Where(i => i.SavingsId == dto.Id)
+        // Each request has its own context in the app.
+        db.ChangeTracker.Clear();
+        return dto.Id;
+    }
+
+    /// <summary>The name of each month's group holding the jar's line, earliest month first, as a fresh request reads it.</summary>
+    private static List<string> LineGroups(ApplicationDbContext db, Guid jarId)
+    {
+        db.ChangeTracker.Clear();
+        return db.BudgetItems.Where(i => i.SavingsId == jarId)
             .Join(db.BudgetCategories, i => i.BudgetCategoryId, c => c.Id, (i, c) => new { c.Name, c.BudgetMonthId })
             .Join(db.BudgetMonths, x => x.BudgetMonthId, m => m.Id, (x, m) => new { x.Name, m.Year, m.Month })
             .AsEnumerable()
@@ -137,5 +153,60 @@ public class JarGroupPlacementTests
         (await AddJarFrom(db, Guid.NewGuid())).Should().Equal("Savings");
         db.BudgetItems.Where(i => i.SavingsId != null).Select(i => i.BudgetCategoryId).Distinct()
             .Should().Equal(Group(october, "Savings").Id);
+    }
+
+    // #326 review P3-2: an archive or a completion removes the later months' lines (rules 27, 55),
+    // and planting them again puts them back in the jar's group, not the first one.
+
+    [Fact]
+    public async Task ArchivedThenRestored_TheLaterLinesGoBackInTheJarsGroup()
+    {
+        await using var db = NewContext();
+        var october = SeedMonth(db, "user-1", ThisMonth, "Savings", "Holidays");
+        SeedMonth(db, "user-1", ThisMonth.AddMonths(1), "Savings", "Holidays");
+        SeedMonth(db, "user-1", ThisMonth.AddMonths(2), "Savings", "Holidays");
+        var jarId = await CreateJar(db, Group(october, "Holidays").Id);
+        var handler = new ArchiveJarCommandHandler(db, new CurrentUserStub("user-1"));
+
+        await handler.Handle(new ArchiveJarCommand(jarId, true), CancellationToken.None);
+        LineGroups(db, jarId).Should().Equal("Holidays");
+        await handler.Handle(new ArchiveJarCommand(jarId, false), CancellationToken.None);
+
+        LineGroups(db, jarId).Should().Equal("Holidays", "Holidays", "Holidays");
+    }
+
+    [Fact]
+    public async Task CompletedThenReopened_TheLaterLinesGoBackInTheJarsGroup()
+    {
+        await using var db = NewContext();
+        var october = SeedMonth(db, "user-1", ThisMonth, "Savings", "Holidays");
+        SeedMonth(db, "user-1", ThisMonth.AddMonths(1), "Savings", "Holidays");
+        var jarId = await CreateJar(db, Group(october, "Holidays").Id);
+
+        await new CompleteJarCommandHandler(db, new CurrentUserStub("user-1")).Handle(new CompleteJarCommand(jarId), CancellationToken.None);
+        LineGroups(db, jarId).Should().Equal("Holidays");
+        await new ReopenJarCommandHandler(db, new CurrentUserStub("user-1")).Handle(new ReopenJarCommand(jarId), CancellationToken.None);
+
+        LineGroups(db, jarId).Should().Equal("Holidays", "Holidays");
+    }
+
+    [Fact]
+    public async Task AMonthCreatedWithoutTheJarsLine_PutsItInTheGroupOfThatName_OrANewSavingsGroup()
+    {
+        // Last month, back-filled from the month before, has a Holidays group to match; a blank month
+        // has none, so its line goes in a new "Savings" group, as before: month creation never makes
+        // a named group.
+        await using var db = NewContext();
+        SeedMonth(db, "user-1", ThisMonth.AddMonths(-2), "Savings", "Holidays");
+        var october = SeedMonth(db, "user-1", ThisMonth, "Savings", "Holidays");
+        var jarId = await CreateJar(db, Group(october, "Holidays").Id);
+        var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
+        var lastMonth = ThisMonth.AddMonths(-1);
+        var nextMonth = ThisMonth.AddMonths(1);
+
+        await handler.Handle(new CreateBudgetMonthCommand(lastMonth.Year, lastMonth.Month, CopyFromPrevious: true), CancellationToken.None);
+        await handler.Handle(new CreateBudgetMonthCommand(nextMonth.Year, nextMonth.Month, CopyFromPrevious: false), CancellationToken.None);
+
+        LineGroups(db, jarId).Should().Equal("Holidays", "Holidays", "Savings");
     }
 }

@@ -512,6 +512,40 @@ describe('DashboardPage jars and first-run checklist', () => {
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ name: 'Rome', savingsCategoryId: 'trips' })))
   })
 
+  it('a Savings group still being saved offers Add jar only once it has its real id (#326 review P3-1)', { timeout: 15000 }, async () => {
+    mockLoads({ month: budgetWithSavings(100), accounts: [JOINT], jars: [HOLIDAY] })
+    let answerGroup: (v: unknown) => void = () => {}
+    mockPost.mockImplementation((url: string) =>
+      url === '/budget/categories'
+        ? new Promise((r) => { answerGroup = r })
+        : Promise.resolve({ data: { ...HOLIDAY, id: 'jar-rome', name: 'Rome' } }),
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Add a group' }, { timeout: 5000 }))
+    await user.type(await screen.findByLabelText('New category group name', {}, { timeout: 5000 }), 'Trips')
+    await user.selectOptions(screen.getByLabelText('New group kind'), 'savings')
+    await user.click(screen.getByRole('button', { name: 'Add category group' }))
+    // The new group shows at once, with no Add jar while its POST is out.
+    await screen.findByLabelText('Rename group Trips', {}, { timeout: 5000 })
+    expect(screen.queryByRole('button', { name: 'Add a jar to Trips' })).not.toBeInTheDocument()
+
+    const withTrips = budgetWithSavings(100)
+    withTrips.categories.push(budgetCategory({ id: '11111111-1111-1111-1111-111111111111', name: 'Trips', kind: 'Savings', displayOrder: 1, items: [] }))
+    answerGroup({ data: withTrips })
+    await user.click(await screen.findByRole('button', { name: 'Add a jar to Trips' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', { name: 'New jar' }, { timeout: 5000 }))
+    await user.type(dialog.getByLabelText('Jar name'), 'Rome')
+    await user.type(dialog.getByLabelText('Target amount'), '900')
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2027-05-01' } })
+    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
+
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/jars', expect.objectContaining({ name: 'Rome', savingsCategoryId: '11111111-1111-1111-1111-111111111111' })),
+    )
+  })
+
   it('shows a savings line\'s Available as "Not available" when the server sends null', { timeout: 15000 }, async () => {
     mockLoads({ month: budgetWithSavings(null), accounts: [JOINT], jars: [{ ...HOLIDAY, currentBalance: null, status: 'Unavailable', plannedThisMonth: 0, remainingThisMonth: 0 }] })
 
