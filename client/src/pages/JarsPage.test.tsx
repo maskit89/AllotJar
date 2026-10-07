@@ -503,7 +503,7 @@ describe('JarsPage', () => {
     expect(setAsideOn.value).toBe(today)
     expect(setAsideOn.max).toBe(today)
     // What it means sits behind the field's info button, naming the account it divides.
-    fireEvent.focus(dialog.getByRole('button', { name: 'What already set aside means' }))
+    fireEvent.focus(dialog.getByRole('button', { name: 'What setting money aside does' }))
     expect((await dialog.findByRole('tooltip', {}, { timeout: 5000 })).textContent).toMatch(/Divides money already in Joint Current into this jar\. It doesn.t add money\./)
     expect(dialog.queryByText('Saved so far')).not.toBeInTheDocument()
     expect(dialog.queryByLabelText('Opening balance')).not.toBeInTheDocument()

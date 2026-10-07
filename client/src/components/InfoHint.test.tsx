@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { InfoHint } from './InfoHint'
+import { Modal } from './Modal'
 
 describe('InfoHint', () => {
   it('opens its popover on focus, named by the trigger, and closes it on Escape', () => {
@@ -30,5 +31,46 @@ describe('InfoHint', () => {
     const hanger = screen.getByRole('tooltip').parentElement
     expect(hanger).toHaveClass('left-1/2', '-translate-x-1/2')
     expect(hanger).not.toHaveClass('left-0')
+  })
+
+  it('closes on Escape without closing the dialog it sits in; the next Escape closes the dialog', () => {
+    const onClose = vi.fn()
+    render(
+      <Modal title="New jar" onClose={onClose}>
+        <InfoHint label="What repeating means">Text</InfoHint>
+      </Modal>,
+    )
+    const trigger = screen.getByRole('button', { name: 'What repeating means' })
+    fireEvent.focus(trigger)
+    expect(screen.getByRole('tooltip')).toBeInTheDocument()
+    fireEvent.keyDown(trigger, { key: 'Escape' })
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.keyDown(trigger, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  describe('on a narrow screen', () => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+      Reflect.deleteProperty(document.documentElement, 'clientWidth')
+    })
+
+    it('moves a popover that would run off the right edge back inside it, 8px from the edge', () => {
+      Object.defineProperty(document.documentElement, 'clientWidth', { value: 320, configurable: true })
+      // Hung from an icon at 100px, the 256px popover would end at 356px on a 320px screen.
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 100, right: 356, top: 0, bottom: 0, width: 256, height: 0, x: 100, y: 0, toJSON: () => ({}) })
+      render(<InfoHint label="Hint">Text</InfoHint>)
+      fireEvent.focus(screen.getByRole('button', { name: 'Hint' }))
+      expect(screen.getByRole('tooltip').parentElement).toHaveStyle({ marginLeft: '-44px' })
+    })
+
+    it('leaves a popover that fits where it is', () => {
+      Object.defineProperty(document.documentElement, 'clientWidth', { value: 390, configurable: true })
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 100, right: 356, top: 0, bottom: 0, width: 256, height: 0, x: 100, y: 0, toJSON: () => ({}) })
+      render(<InfoHint label="Hint">Text</InfoHint>)
+      fireEvent.focus(screen.getByRole('button', { name: 'Hint' }))
+      expect(screen.getByRole('tooltip').parentElement!.style.marginLeft).toBe('')
+    })
   })
 })

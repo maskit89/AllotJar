@@ -550,7 +550,7 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
                     <div className="flex flex-col gap-1">
                       <span className="flex items-center gap-1 text-xs font-medium text-slate-500">
                         <label htmlFor="jar-already-set-aside">Already set aside</label>
-                        <InfoHint label="What already set aside means" align="center">
+                        <InfoHint label="What setting money aside does" align="center">
                           Divides money already in {heldIn?.name ?? 'the account'} into this jar. It doesn&rsquo;t add money.
                         </InfoHint>
                       </span>
