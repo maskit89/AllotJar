@@ -191,6 +191,8 @@ describe('JarsPage', () => {
 
     // No Type to pick: the kind follows from whether the jar repeats and how it saves.
     expect(dialog.queryByLabelText('Jar type')).not.toBeInTheDocument()
+    // The name's example is a one-off, like the default answer below (a yearly bill would mislead).
+    expect(dialog.getByLabelText('Jar name')).toHaveAttribute('placeholder', 'e.g. New sofa')
     // The renewal bit and the saving method are derived from those answers too, so the
     // standalone checkbox and the Accrual / "How to save" dropdowns are gone.
     expect(dialog.queryByLabelText('Renews each year')).not.toBeInTheDocument()
@@ -242,6 +244,8 @@ describe('JarsPage', () => {
     const fixed = dialog.getByLabelText('Set aside a fixed amount each month')
     await user.click(fixed)
     expect(dialog.queryByLabelText('Repeats')).not.toBeInTheDocument()
+    // A new jar has nothing repeating yet to stop, so the switch adds no warning.
+    expect(dialog.queryByText(/It will stop repeating/)).not.toBeInTheDocument()
     expect(dialog.queryByLabelText('Next due date')).not.toBeInTheDocument()
     expect(dialog.getByLabelText('Monthly amount')).toBeInTheDocument()
 
@@ -278,7 +282,7 @@ describe('JarsPage', () => {
     const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
     // What is previewed is what gets planned: the server's months, its funding-completion date
     // and the due date it serves (rules 35, 36), phrased for a repeating jar.
-    expect(preview).toHaveTextContent(/Sets aside .*100\.00 a month from Sep 2026 to Nov 2026, funded by .*, due .*, then it repeats every year\./)
+    expect(preview).toHaveTextContent(/Sets aside .*100\.00 a month from Sep 2026 to Nov 2026, funded by .*, next due .*, then it repeats every year\./)
     expect(mockPost).toHaveBeenCalledWith('/jars/schedule', {
       jarId: null,
       kind: 0,
@@ -345,7 +349,7 @@ describe('JarsPage', () => {
 
     renderPage()
 
-    expect(await screen.findByText('Ongoing', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText('€50.00 each month · ongoing', {}, { timeout: 5000 })).toBeInTheDocument()
     await user.click(screen.getByLabelText('Edit Home insurance'))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByLabelText('Set aside a fixed amount each month')).toBeChecked()
@@ -387,7 +391,10 @@ describe('JarsPage', () => {
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByLabelText('Repeats')).toHaveValue('12')
     expect(dialog.getByLabelText('Next due date')).toHaveValue('2027-01-01')
+    expect(dialog.queryByText(/It will stop repeating/)).not.toBeInTheDocument()
     await user.click(dialog.getByLabelText('Set aside a fixed amount each month'))
+    // The switch says what it does to a jar that repeats before anything is saved.
+    expect(dialog.getByText('It will stop repeating: no more due dates to mark paid.')).toBeInTheDocument()
     await user.type(dialog.getByLabelText('Monthly amount'), '40')
     await user.click(dialog.getByRole('button', { name: 'Save jar' }))
 

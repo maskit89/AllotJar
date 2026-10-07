@@ -104,6 +104,20 @@ describe('JarsPage — completion and deletion (W04)', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('a completed Goal\'s edit form offers no Repeats: it can\'t start repeating (the server refuses it, rule 55)', { timeout: 15000 }, async () => {
+    mockLoads({ jars: [completed()] })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit New laptop', {}, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByText('Completed, so nothing more is planned for it.')).toBeInTheDocument()
+    expect(dialog.getByLabelText('Needed by')).toHaveValue('2027-03-01')
+    expect(dialog.queryByLabelText('Repeats')).not.toBeInTheDocument()
+    expect(dialog.queryByRole('button', { name: 'What repeating means' })).not.toBeInTheDocument()
+  })
+
   it('JAR-095: only a Goal with a known balance offers Mark completed; recurring and unavailable jars offer nothing, and a completed one leaves the Active count', async () => {
     mockLoads({
       jars: [

@@ -100,7 +100,7 @@ describe('W04 — completed and skipped (rules 55, 60)', () => {
     expect(jarStatusChip('Completed')).toEqual({ label: 'Completed', tone: 'neutral' })
     expect(jarMonthLabel(done, 'EUR')).toBe('Completed · €250.00 left to move')
     expect(jarMonthLabel(jar({ ...done, currentBalance: 0 }), 'EUR')).toBe('Completed')
-    expect(jarHorizonLabel(done)).toMatch(/^Completed on .*Sep.*2026 · no more contributions planned$/)
+    expect(jarHorizonLabel(done, 'EUR')).toMatch(/^Completed on .*Sep.*2026 · no more contributions planned$/)
   })
 
   it('reads "Skipped this month" for a jar whose contribution the user skipped', () => {
@@ -110,39 +110,41 @@ describe('W04 — completed and skipped (rules 55, 60)', () => {
 
 describe('jarHorizonLabel', () => {
   it('names the funding-completion month and the date it serves: the next due date and cadence of a recurring jar, or the date a goal is needed by (rule 36)', () => {
-    expect(jarHorizonLabel(jar())).toMatch(/^Funded by Nov 2026 · next due .*Dec.*2026 · repeats every year$/)
-    expect(jarHorizonLabel(jar({ kind: 1, recurMonths: null }))).toMatch(/^Funded by Nov 2026 · needed by .*Dec.*2026$/)
+    expect(jarHorizonLabel(jar(), 'EUR')).toMatch(/^Funded by Nov 2026 · next due .*Dec.*2026 · repeats every year$/)
+    expect(jarHorizonLabel(jar({ kind: 1, recurMonths: null }), 'EUR')).toMatch(/^Funded by Nov 2026 · needed by .*Dec.*2026$/)
   })
 
   it('words the cadence the way the Repeats select does: every month, every N months, every year', () => {
-    expect(jarHorizonLabel(jar({ recurMonths: 1 }))).toMatch(/^Funded by Nov 2026 · next due .*Dec.*2026 · repeats every month$/)
-    expect(jarHorizonLabel(jar({ recurMonths: 6 }))).toMatch(/^Funded by Nov 2026 · next due .*Dec.*2026 · repeats every 6 months$/)
-    expect(jarHorizonLabel(jar({ recurMonths: 12 }))).toMatch(/· repeats every year$/)
+    expect(jarHorizonLabel(jar({ recurMonths: 1 }), 'EUR')).toMatch(/^Funded by Nov 2026 · next due .*Dec.*2026 · repeats every month$/)
+    expect(jarHorizonLabel(jar({ recurMonths: 6 }), 'EUR')).toMatch(/^Funded by Nov 2026 · next due .*Dec.*2026 · repeats every 6 months$/)
+    expect(jarHorizonLabel(jar({ recurMonths: 12 }), 'EUR')).toMatch(/· repeats every year$/)
   })
 
   it('shows a fixed monthly target as an estimate, never a deadline (rule 58)', () => {
     const fixed = jar({ accrual: 2, monthlyContribution: 100, targetDate: null, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: 6, recurMonths: null, kind: 1 })
-    expect(jarHorizonLabel(fixed)).toBe('About 6 more months at this rate (an estimate, not a deadline)')
-    expect(jarHorizonLabel({ ...fixed, estimatedMonthsToTarget: 1 })).toBe('About 1 more month at this rate (an estimate, not a deadline)')
+    expect(jarHorizonLabel(fixed, 'EUR')).toBe('About 6 more months at this rate (an estimate, not a deadline)')
+    expect(jarHorizonLabel({ ...fixed, estimatedMonthsToTarget: 1 }, 'EUR')).toBe('About 1 more month at this rate (an estimate, not a deadline)')
   })
 
   it('reads "Ongoing" for a fixed amount with no target (rule 16), and nothing when there is nothing to say', () => {
-    expect(jarHorizonLabel(jar({ status: 'Ongoing', targetAmount: 0, deadline: null, fundingCompletesOn: null }))).toBe('Ongoing')
-    expect(jarHorizonLabel(jar({ status: 'Unavailable' }))).toBeNull()
-    expect(jarHorizonLabel(jar({ status: 'Unscheduled' }))).toBeNull()
-    expect(jarHorizonLabel(jar({ status: 'FullyFunded', fundingCompletesOn: null, deadline: null }))).toBeNull()
+    // An ongoing pot says what it sets aside (rule 16); without an amount it falls back to the word.
+    expect(jarHorizonLabel(jar({ status: 'Ongoing', accrual: 2, monthlyContribution: 50, targetAmount: 0, deadline: null, fundingCompletesOn: null }), 'EUR')).toBe('€50.00 each month · ongoing')
+    expect(jarHorizonLabel(jar({ status: 'Ongoing', targetAmount: 0, deadline: null, fundingCompletesOn: null }), 'EUR')).toBe('Ongoing')
+    expect(jarHorizonLabel(jar({ status: 'Unavailable' }), 'EUR')).toBeNull()
+    expect(jarHorizonLabel(jar({ status: 'Unscheduled' }), 'EUR')).toBeNull()
+    expect(jarHorizonLabel(jar({ status: 'FullyFunded', fundingCompletesOn: null, deadline: null }), 'EUR')).toBeNull()
   })
 
   it('tells a missed or late jar what to do next instead of a funding month (rules 20, 57)', () => {
-    expect(jarHorizonLabel(jar({ status: 'DeadlineMissed', deadline: '2026-09-01' }))).toBe('Mark the cycle paid, or dismiss it to save toward the next one')
-    expect(jarHorizonLabel(jar({ status: 'FundedLate', deadline: '2026-09-01' }))).toBe('Mark the cycle paid, or dismiss it to save toward the next one')
+    expect(jarHorizonLabel(jar({ status: 'DeadlineMissed', deadline: '2026-09-01' }), 'EUR')).toBe('Mark the cycle paid, or dismiss it to save toward the next one')
+    expect(jarHorizonLabel(jar({ status: 'FundedLate', deadline: '2026-09-01' }), 'EUR')).toBe('Mark the cycle paid, or dismiss it to save toward the next one')
   })
 
   it('falls back to the date alone once funding is complete but the date is still ahead: next due (and cadence) for a recurring jar, needed by for a goal', () => {
-    expect(jarHorizonLabel(jar({ status: 'FullyFunded', fundingCompletesOn: null }))).toMatch(/^Next due .*Dec.*2026 · repeats every year$/)
-    expect(jarHorizonLabel(jar({ status: 'FullyFunded', fundingCompletesOn: null, recurMonths: 1 }))).toMatch(/^Next due .*Dec.*2026 · repeats every month$/)
-    expect(jarHorizonLabel(jar({ status: 'FullyFunded', fundingCompletesOn: null, recurMonths: 6 }))).toMatch(/^Next due .*Dec.*2026 · repeats every 6 months$/)
-    expect(jarHorizonLabel(jar({ status: 'FullyFunded', fundingCompletesOn: null, kind: 1, recurMonths: null }))).toMatch(/^Needed by .*Dec.*2026$/)
+    expect(jarHorizonLabel(jar({ status: 'FullyFunded', fundingCompletesOn: null }), 'EUR')).toMatch(/^Next due .*Dec.*2026 · repeats every year$/)
+    expect(jarHorizonLabel(jar({ status: 'FullyFunded', fundingCompletesOn: null, recurMonths: 1 }), 'EUR')).toMatch(/^Next due .*Dec.*2026 · repeats every month$/)
+    expect(jarHorizonLabel(jar({ status: 'FullyFunded', fundingCompletesOn: null, recurMonths: 6 }), 'EUR')).toMatch(/^Next due .*Dec.*2026 · repeats every 6 months$/)
+    expect(jarHorizonLabel(jar({ status: 'FullyFunded', fundingCompletesOn: null, kind: 1, recurMonths: null }), 'EUR')).toMatch(/^Needed by .*Dec.*2026$/)
   })
 })
 

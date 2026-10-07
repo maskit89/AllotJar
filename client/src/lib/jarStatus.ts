@@ -81,13 +81,17 @@ export function jarMonthLabel(jar: JarDto, currency: string): string {
  * keeps them distinct), the estimated months for a fixed monthly target (rule 58, never a
  * deadline), or "ongoing". Null when there is nothing to say.
  */
-export function jarHorizonLabel(jar: JarDto): string | null {
+export function jarHorizonLabel(jar: JarDto, currency: string): string | null {
   if (jar.status === 'Unavailable' || jar.status === 'Unscheduled') return null
   if (jar.status === 'Completed') {
     return jar.completedOn ? `Completed on ${formatDate(jar.completedOn)} · no more contributions planned` : 'No more contributions planned'
   }
   if (jar.status === 'DeadlineMissed' || jar.status === 'FundedLate') return 'Mark the cycle paid, or dismiss it to save toward the next one'
-  if (jar.status === 'Ongoing') return 'Ongoing'
+  // An ongoing pot (rule 16) says what it sets aside, as the form's switch described it.
+  if (jar.status === 'Ongoing') {
+    const monthly = jar.monthlyContribution ?? 0
+    return monthly > 0 ? `${formatMoney(fromAmount(monthly), currency)} each month · ongoing` : 'Ongoing'
+  }
   if (jar.fundingCompletesOn) {
     const due = jar.deadline ? ` · ${dueLabel(jar)} ${formatDate(jar.deadline)}` : ''
     return `Funded by ${monthYear(jar.fundingCompletesOn)}${due}${repeatsLabel(jar)}`

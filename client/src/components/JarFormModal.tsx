@@ -380,6 +380,8 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
   const deadlineMonthOption = byDeadline && form.targetDate !== '' && deadlineMonthEligible(form.targetDate)
   // "Already set aside" is a new-jar question (rule 77); the deadline-month tick box needs a date.
   const hasMoreOptions = !editing || deadlineMonthOption
+  // Ticking the switch on a jar that repeats turns it into a pot that doesn't (rule 17): say so.
+  const stopsRepeating = jar?.kind === JarKind.Recurring && form.fixedMonthly
 
   return (
     <Modal title={editing ? 'Edit jar' : 'New jar'} onClose={onClose} size="lg">
@@ -421,7 +423,7 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
           <Input
             type="text"
             value={form.name}
-            placeholder="e.g. Home insurance"
+            placeholder="e.g. New sofa"
             aria-label="Jar name"
             onChange={(e) => set('name', e.target.value)}
             className="w-full"
@@ -467,7 +469,8 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
               />
             </label>
           )}
-          {byDeadline && (
+          {/* A completed goal can't start repeating (the server refuses it), so it isn't offered. */}
+          {byDeadline && !completed && (
             <div className="flex flex-col gap-1">
               <span className="flex items-center gap-1 text-xs font-medium text-slate-500">
                 <label htmlFor="jar-repeats">Repeats</label>
@@ -536,6 +539,11 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
               A pot you keep topping up (emergencies, a rainy day). The target is optional; with one, the jar says roughly how
               many months it will take.
             </span>
+            {stopsRepeating && (
+              <span className="mt-1 block font-medium text-amber-700 dark:text-amber-300">
+                It will stop repeating: no more due dates to mark paid.
+              </span>
+            )}
           </span>
         </label>
         {completed && <p className="text-xs text-slate-500">Completed, so nothing more is planned for it.</p>}
@@ -714,7 +722,7 @@ function SchedulePreview({
         : `from ${monthYear(monthIso(months[0].year, months[0].month))} to ${monthYear(monthIso(months[months.length - 1].year, months[months.length - 1].month))}`
     const amount = uniform ? `${money(months[0].planned)} a month` : `${money(schedule.total)} in total`
     const completes = schedule.fundingCompletesOn ? `, funded by ${formatDate(schedule.fundingCompletesOn)}` : ''
-    const due = schedule.deadline ? `, ${recurring ? 'due' : 'needed by'} ${formatDate(schedule.deadline)}` : ''
+    const due = schedule.deadline ? `, ${recurring ? 'next due' : 'needed by'} ${formatDate(schedule.deadline)}` : ''
     const repeats = recurring ? `, then it repeats every ${cadenceLabel(recurMonths)}` : ''
     summary = `Sets aside ${amount} ${span}${completes}${due}${repeats}.`
   }

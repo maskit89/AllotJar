@@ -397,7 +397,7 @@ function JarCard({
       ? Math.min(100, Math.max(0, Math.round((balanceMinor / targetMinor) * 100)))
       : 0
   const chip = jarStatusChip(jar.status)
-  const horizon = jarHorizonLabel(jar)
+  const horizon = jarHorizonLabel(jar, currency)
   const lastCycle = jarLastCycleLabel(jar, currency)
   // W03: a Recurring jar with an open cycle can be marked paid at any time (rule 83); the
   // missed-deadline notice can also be dismissed (rule 20). A last cycle that rolled forward

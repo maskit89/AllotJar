@@ -292,9 +292,9 @@ describe('JarsPage — catalog (JAR)', () => {
       { timeout: 5000 },
     )
     expect(await screen.findByText('Someday', {}, { timeout: 5000 })).toBeInTheDocument()
-    // The card: this month's plan, the "Ongoing" horizon, no % pill and no "of €…" (no target).
+    // The card: this month's plan, the ongoing horizon with its amount, no % pill and no "of €…" (no target).
     expect(screen.getByText('Plan €50.00 · in €0.00 · to go €50.00')).toBeInTheDocument()
-    expect(screen.getByText('Ongoing')).toBeInTheDocument()
+    expect(screen.getByText('€50.00 each month · ongoing')).toBeInTheDocument()
     expect(screen.queryByText(/of €/)).not.toBeInTheDocument()
   })
 

@@ -114,7 +114,7 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
 
     await describeRecurring(dialog, user) // Repeats: Yearly
     const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
-    expect(preview).toHaveTextContent(/Sets aside €100\.00 a month from Sep 2026 to Nov 2026, funded by .*, due .*, then it repeats every year\./)
+    expect(preview).toHaveTextContent(/Sets aside €100\.00 a month from Sep 2026 to Nov 2026, funded by .*, next due .*, then it repeats every year\./)
 
     // A 3-month cycle names the cycle.
     await user.selectOptions(dialog.getByLabelText('Repeats'), '3')
@@ -142,7 +142,7 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     await user.type(dialog.getByLabelText('Target amount'), '300')
     fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: '2026-12-01' } })
     const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
-    expect(preview).toHaveTextContent(/Sets aside €100\.00 a month from Sep 2026 to Nov 2026, funded by .*, due .*, then it repeats every month\./)
+    expect(preview).toHaveTextContent(/Sets aside €100\.00 a month from Sep 2026 to Nov 2026, funded by .*, next due .*, then it repeats every month\./)
     expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ kind: 0, recurMonths: 1 }))
 
     // A 6-month cycle names the number of months.
