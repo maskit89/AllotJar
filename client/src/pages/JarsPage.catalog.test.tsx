@@ -121,12 +121,13 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(screen.queryByText('100%')).not.toBeInTheDocument()
 
     // Slush (target ≤ 0, no plan): no pill, no "of €…" suffix — just the bare balance — and the
-    // "Needs a plan" chip with the line saying what would plan it (rule 17).
+    // "Needs a plan" chip with the line saying what would plan it: a date alone can't plan a
+    // target-less jar, so it is asked for a target too (rule 17).
     const slush = screen.getByRole('img', { name: 'Slush: 0% funded' }).parentElement!
     expect(within(slush).getByText('€500.00')).toBeInTheDocument()
     expect(within(slush).queryByText(/of €/)).not.toBeInTheDocument()
     expect(within(slush).getByText('Needs a plan')).toBeInTheDocument()
-    expect(within(slush).getByText('Give it a date or a monthly amount')).toBeInTheDocument()
+    expect(within(slush).getByText('Give it a target and a date, or a monthly amount')).toBeInTheDocument()
   })
 
   it('JAR-009: a failed /jars load shows the error banner and no cards', { timeout: 15000 }, async () => {
@@ -399,6 +400,28 @@ describe('JarsPage — catalog (JAR)', () => {
     await user.click(dialog.getByRole('button', { name: 'Add jar' }))
     expect(dialog.getByText('Give the jar a target amount.')).toBeInTheDocument()
     expect(mockPost).not.toHaveBeenCalled()
+  })
+
+  it('JAR-014: a jar that doesn\'t repeat with no "Needed by" date is refused with "Give the jar the date the money is needed by, or set aside a fixed amount each month instead." — no POST', { timeout: 15000 }, async () => {
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+
+    await user.type(dialog.getByLabelText('Jar name'), 'Buffer')
+    await user.type(dialog.getByLabelText('Target amount'), '1200')
+    // Repeats stays "Doesn’t repeat" (a Goal) and "Needed by" is left blank: nothing can be
+    // planned, so there is no preview and no /jars/schedule request either (rule 17).
+    expect(dialog.getByLabelText('Repeats')).toHaveValue('0')
+    expect(dialog.getByLabelText('Needed by')).toHaveValue('')
+    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
+
+    expect(
+      await dialog.findByText('Give the jar the date the money is needed by, or set aside a fixed amount each month instead.', {}, { timeout: 5000 }),
+    ).toBeInTheDocument()
+    expect(dialog.queryByTestId('jar-schedule-preview')).not.toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeInTheDocument() // still open for a correction
   })
 
   // --- Editing a jar --------------------------------------------------------

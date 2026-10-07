@@ -55,7 +55,8 @@ describe('JarsPage', () => {
       jar({ plannedThisMonth: 25, contributedThisMonth: 10, remainingThisMonth: 15, status: 'OnTrack' }),
       jar({ id: 'f2', name: 'Roof', kind: 1, recurMonths: null, status: 'Behind', targetDate: '2026-01-01', deadline: '2026-01-01', fundingCompletesOn: null }),
       jar({ id: 'f3', name: 'Sofa', kind: 1, recurMonths: null, status: 'FullyFunded', currentBalance: 300, plannedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null }),
-      // A goal with neither a deadline nor a monthly amount plans nothing and says so (rule 17).
+      // A target-less goal with neither a deadline nor a monthly amount plans nothing and says
+      // what would plan it: a date alone can't, so it is asked for a target too (rule 17).
       jar({ id: 'f4', name: 'Someday', kind: 1, recurMonths: null, targetAmount: 0, targetDate: null, status: 'Unscheduled', plannedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null }),
     ]
 
@@ -70,7 +71,7 @@ describe('JarsPage', () => {
     // A funded jar with nothing left to plan reads "Fully funded", not a bare dash.
     expect(screen.getByText('Fully funded')).toBeInTheDocument()
     expect(screen.getByText('Needs a plan')).toBeInTheDocument()
-    expect(screen.getByText('Give it a date or a monthly amount')).toBeInTheDocument()
+    expect(screen.getByText('Give it a target and a date, or a monthly amount')).toBeInTheDocument()
   })
 
   // Rule 34 (P55): a jar in the user's private account first shows what sharing would expose;
@@ -226,6 +227,34 @@ describe('JarsPage', () => {
     expect(dialog.getByText('Target (optional)')).toBeInTheDocument()
   })
 
+  it('keeps the cadence while the fixed-monthly switch hides it (JAR-019)', { timeout: 15000 }, async () => {
+    fundsData = []
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'New jar' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.selectOptions(dialog.getByLabelText('Repeats'), '6') // Every 6 months
+    expect(dialog.getByLabelText('Next due date')).toBeInTheDocument()
+
+    // The switch swaps the date for "Each month" and hides Repeats (JAR-019)…
+    const fixed = dialog.getByLabelText('Set aside a fixed amount each month')
+    await user.click(fixed)
+    expect(dialog.queryByLabelText('Repeats')).not.toBeInTheDocument()
+    expect(dialog.queryByLabelText('Next due date')).not.toBeInTheDocument()
+    expect(dialog.getByLabelText('Monthly amount')).toBeInTheDocument()
+
+    // …and unticking it brings both back with the cadence chosen, not reset to "Doesn’t repeat".
+    await user.click(fixed)
+    const repeats = dialog.getByLabelText('Repeats') as HTMLSelectElement
+    expect(repeats.value).toBe('6')
+    expect(repeats.selectedOptions[0].textContent).toBe('Every 6 months')
+    expect(dialog.getByLabelText('Next due date')).toBeInTheDocument()
+    expect(dialog.queryByLabelText('Needed by')).not.toBeInTheDocument()
+    expect(dialog.queryByLabelText('Monthly amount')).not.toBeInTheDocument()
+  })
+
   it('previews the schedule the server plans as you type (POST /jars/schedule)', { timeout: 15000 }, async () => {
     fundsData = []
     mockPost.mockImplementation((url: string) =>
@@ -343,6 +372,41 @@ describe('JarsPage', () => {
     )
   })
 
+  it('editing a Recurring jar and ticking the fixed-monthly switch changes its kind: sends kind 1, accrual 2, no cadence, no date and the monthly amount', { timeout: 15000 }, async () => {
+    // A yearly jar whose open cycle (W03) is due 2027-01-01. The switch turns it into a Goal that
+    // saves a set amount each month, as the old Type select could; its cadence and date go with it.
+    fundsData = [jar({ kind: 0, recurMonths: 12, targetDate: '2026-01-01', deadline: '2027-01-01' })]
+    mockPut.mockResolvedValue({
+      data: jar({ kind: 1, accrual: 2, recurMonths: null, targetDate: null, deadline: null, monthlyContribution: 40, plannedThisMonth: 40, remainingThisMonth: 40, fundingCompletesOn: null, estimatedMonthsToTarget: 5 }),
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByLabelText('Repeats')).toHaveValue('12')
+    expect(dialog.getByLabelText('Next due date')).toHaveValue('2027-01-01')
+    await user.click(dialog.getByLabelText('Set aside a fixed amount each month'))
+    await user.type(dialog.getByLabelText('Monthly amount'), '40')
+    await user.click(dialog.getByRole('button', { name: 'Save jar' }))
+
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith('/jars/f1', {
+        name: 'Home insurance',
+        kind: 1,
+        targetAmount: 300,
+        targetDate: null,
+        accrual: 2,
+        monthlyContribution: 40,
+        includeDeadlineMonth: false,
+        fundingAccountId: 'acc1',
+        recurMonths: null,
+        version: null,
+      }),
+    )
+  })
+
   it('echoes the stored deadline-month option and account when editing (rule 36)', { timeout: 15000 }, async () => {
     // The plan finishes the month before the deadline unless the jar opted into the deadline
     // month; an unrelated save must carry that choice back, not silently reset it.
@@ -370,6 +434,42 @@ describe('JarsPage', () => {
         }),
       ),
     )
+  })
+
+  // D11: a save refused because someone else changed the jar refills the form from the latest
+  // read. The other editor may have ticked the deadline-month option, which lives under "More
+  // options": the refill opens the fold so the ticked box is in view rather than hidden behind it.
+  it('a 409 on save refills the form from the latest jar and opens "More options" when it now includes the deadline month (D11, rule 36)', { timeout: 15000 }, async () => {
+    const message = 'Someone else changed this. Reload and try again.'
+    const mine = jar({ targetDate: '2026-12-15', deadline: '2026-12-15', includeDeadlineMonth: false, version: 'AAAAAAAAB9E=' })
+    const theirs = jar({ targetDate: '2026-12-15', deadline: '2026-12-15', includeDeadlineMonth: true, fundingCompletesOn: '2026-12-31', version: 'AAAAAAAAB+A=' })
+    fundsData = [mine]
+    mockPut.mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 409'), { response: { status: 409, data: { status: 409, title: message } } }),
+    )
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    // The jar doesn't use the deadline month yet, so the fold starts closed.
+    expect(dialog.getByRole('button', { name: 'More options' })).toHaveAttribute('aria-expanded', 'false')
+    expect(dialog.queryByLabelText('Include the deadline month')).not.toBeInTheDocument()
+
+    // Someone else saved first (their jar is what GET /jars now returns); this save is refused.
+    fundsData = [theirs]
+    await user.clear(dialog.getByLabelText('Jar name'))
+    await user.type(dialog.getByLabelText('Jar name'), 'House insurance')
+    await user.click(dialog.getByRole('button', { name: 'Save jar' }))
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/jars/f1', expect.objectContaining({ name: 'House insurance', version: 'AAAAAAAAB9E=' })))
+    expect(await dialog.findByText(message, {}, { timeout: 5000 })).toBeInTheDocument()
+    // The form was refilled from the latest read, and the option they ticked is shown, not folded away.
+    expect(mockGet).toHaveBeenCalledWith('/jars', { params: { includeArchived: true } })
+    expect(dialog.getByLabelText('Jar name')).toHaveValue('Home insurance')
+    expect(dialog.getByRole('button', { name: 'More options' })).toHaveAttribute('aria-expanded', 'true')
+    expect(dialog.getByLabelText('Include the deadline month')).toBeChecked()
   })
 
   it('offers "Already set aside" + "Set aside on" under More options on create only — no allocation field on edit', { timeout: 15000 }, async () => {
@@ -404,6 +504,30 @@ describe('JarsPage', () => {
     expect(dialog.queryByText('Opening balance')).not.toBeInTheDocument()
     // The account select stays enabled on edit (the server refuses a change while the jar holds money).
     expect(dialog.getByLabelText('Funding account')).toBeEnabled()
+  })
+
+  it('a second click on "More options" folds it away again (JAR-086)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'New jar' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    const more = dialog.getByRole('button', { name: 'More options' })
+    expect(more).toHaveAttribute('aria-controls', 'jar-more-options')
+    expect(more).toHaveAttribute('aria-expanded', 'false')
+
+    await user.click(more)
+    expect(more).toHaveAttribute('aria-expanded', 'true')
+    expect(dialog.getByLabelText('Already set aside')).toBeInTheDocument()
+    expect(dialog.getByLabelText('Set aside on')).toBeInTheDocument()
+
+    // The button toggles: a second click closes the fold and its fields leave the document.
+    await user.click(more)
+    expect(more).toHaveAttribute('aria-expanded', 'false')
+    expect(dialog.queryByLabelText('Already set aside')).not.toBeInTheDocument()
+    expect(dialog.queryByLabelText('Set aside on')).not.toBeInTheDocument()
+    expect(document.getElementById('jar-more-options')).toBeNull()
   })
 
   it('sends the initial allocation and its date with the create payload (rule 77)', { timeout: 15000 }, async () => {

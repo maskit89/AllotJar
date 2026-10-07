@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from './jarStatus'
+import { cadenceLabel, jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from './jarStatus'
 import type { JarDto } from '../types'
 
 function jar(over: Partial<JarDto> = {}): JarDto {
@@ -75,6 +75,13 @@ describe('jarMonthLabel', () => {
     expect(jarMonthLabel(jar({ plannedThisMonth: 0, currentBalance: 900, status: 'FullyFunded' }), 'EUR')).toBe('Fully funded · €300.00 above target')
     expect(jarMonthLabel(jar({ plannedThisMonth: 0, targetDate: null, deadline: null, status: 'Unscheduled' }), 'EUR')).toBe('Give it a date or a monthly amount')
     expect(jarMonthLabel(jar({ plannedThisMonth: 0, status: 'OnTrack' }), 'EUR')).toBe('Nothing to set aside this month')
+  })
+
+  it('asks an Unscheduled jar for what would plan it: a date or a monthly amount with a target, a target as well without one (rule 17)', () => {
+    const unscheduled: Partial<JarDto> = { kind: 1, recurMonths: null, plannedThisMonth: 0, remainingThisMonth: 0, targetDate: null, deadline: null, fundingCompletesOn: null, status: 'Unscheduled' }
+    expect(jarMonthLabel(jar({ ...unscheduled, targetAmount: 600 }), 'EUR')).toBe('Give it a date or a monthly amount')
+    // A date alone can't plan a target-less jar, so that one is asked for a target too.
+    expect(jarMonthLabel(jar({ ...unscheduled, targetAmount: 0 }), 'EUR')).toBe('Give it a target and a date, or a monthly amount')
   })
 
   it('keeps a missed deadline and its shortfall in view until the user acts (rule 20), or says the target came late (rule 57)', () => {
@@ -174,5 +181,13 @@ describe('jarLastCycleLabel', () => {
   it('is silent before any cycle has closed, and for a Goal', () => {
     expect(jarLastCycleLabel(jar(), 'EUR')).toBeNull()
     expect(jarLastCycleLabel(jar({ kind: 1, recurMonths: null, lastCycle: cycle }), 'EUR')).toBeNull()
+  })
+})
+
+describe('cadenceLabel', () => {
+  it('words a cadence after "every" the way the card and the form\'s preview both do: month, N months, year', () => {
+    expect(cadenceLabel(1)).toBe('month')
+    expect(cadenceLabel(6)).toBe('6 months')
+    expect(cadenceLabel(12)).toBe('year')
   })
 })

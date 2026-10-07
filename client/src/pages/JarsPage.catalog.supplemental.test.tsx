@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event'
 import type { AccountDto, JarDto, JarScheduleDto, JarScheduleRequest } from '../types'
 
 // Supplements JarsPage.catalog.test.tsx (which already covers JAR-002/004/005/009/011/
-// 013/015/020/021/023/024/025/027/028/031/035/037/039/041/042/043/046/049) and
-// JarsPage.test.tsx (JAR-001/003/012/018/019/026/032/034/036/044). This file adds the
+// 013/014/015/020/021/023/024/025/027/028/031/035/037/039/041/042/043/046/049) and
+// JarsPage.test.tsx (JAR-001/003/012/018/019/026/032/034/036/044/086). This file adds the
 // remaining jsdom-observable JAR cases neither file asserts: the schedule preview's
 // phrasing (JAR-016) and its hide/show gate (JAR-017), the loading state (JAR-008), the
 // "What repeating means" InfoHint copy (JAR-022), a Unicode round-trip (JAR-030) and the
@@ -128,6 +128,45 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ kind: 1, recurMonths: null, targetDate: '2026-12-01' })), { timeout: 5000 })
     await waitFor(() => expect(dialog.getByTestId('jar-schedule-preview')).not.toHaveTextContent(/repeats/), { timeout: 5000 })
     expect(dialog.getByTestId('jar-schedule-preview')).toHaveTextContent(/Sets aside €100\.00 a month from Sep 2026 to Nov 2026, funded by .*, needed by .*\./)
+  })
+
+  it('JAR-016: Repeats = Monthly previews "then it repeats every month", and Every 6 months names its cycle', { timeout: 15000 }, async () => {
+    mockPosts(() => schedule())
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+
+    // The cadence is worded as the card words it (cadenceLabel): 1 → "month", never "1 months".
+    await user.selectOptions(dialog.getByLabelText('Repeats'), '1') // Monthly
+    await user.type(dialog.getByLabelText('Target amount'), '300')
+    fireEvent.change(dialog.getByLabelText('Next due date'), { target: { value: '2026-12-01' } })
+    const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
+    expect(preview).toHaveTextContent(/Sets aside €100\.00 a month from Sep 2026 to Nov 2026, funded by .*, due .*, then it repeats every month\./)
+    expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ kind: 0, recurMonths: 1 }))
+
+    // A 6-month cycle names the number of months.
+    await user.selectOptions(dialog.getByLabelText('Repeats'), '6') // Every 6 months
+    await waitFor(() => expect(preview).toHaveTextContent(/then it repeats every 6 months\./), { timeout: 5000 })
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ kind: 0, recurMonths: 6 })), { timeout: 5000 })
+  })
+
+  it('JAR-016: the preview reads "Add a date or a monthly amount to plan contributions." when the server answers with no plan (hasSchedule false)', { timeout: 15000 }, async () => {
+    // The planner may answer a plannable-looking definition with no schedule; the preview then
+    // says what would plan it, in the form's own words (not the old "Add a deadline or …").
+    mockPosts(() => schedule({ hasSchedule: false, months: [], total: 0, remaining: 300, deadline: null, fundingCompletesOn: null }))
+    const user = userEvent.setup()
+
+    renderPage()
+    const dialog = await openNewJar(user)
+
+    await user.type(dialog.getByLabelText('Target amount'), '300')
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-12-01' } })
+    const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
+    expect(preview).toHaveTextContent('Add a date or a monthly amount to plan contributions.')
+    expect(preview).not.toHaveTextContent(/deadline/)
+    expect(within(preview).queryByRole('listitem')).not.toBeInTheDocument()
+    expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ kind: 1, targetAmount: 300, targetDate: '2026-12-01', recurMonths: null }))
   })
 
   it('JAR-017: the preview is hidden, and nothing is asked, while the target is blank, 0 or unparseable', { timeout: 15000 }, async () => {
