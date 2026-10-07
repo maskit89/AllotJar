@@ -108,6 +108,36 @@ describe('JarsPage — a date that is just a month', () => {
     expect(dialog.getByLabelText('Needed by')).toHaveValue('2027-03-01')
   })
 
+  it('a date later this month asks for a month again: this month\'s 1st has passed', { timeout: 15000 }, async () => {
+    const user = userEvent.setup()
+    const dialog = await openNewJar(user)
+
+    await user.type(dialog.getByLabelText('Jar name'), 'Holiday')
+    await user.type(dialog.getByLabelText('Target amount'), '300')
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-10-28' } })
+    await user.click(dialog.getByRole('radio', { name: 'Month' }))
+
+    const picker = dialog.getByLabelText('Needed by (month)')
+    expect(picker).toHaveValue('')
+    expect(within(picker).getAllByRole('option').map((o) => o.textContent).slice(0, 2)).toEqual(['Pick a month', 'Nov 2026'])
+    await user.click(dialog.getByRole('button', { name: 'Add jar' }))
+
+    expect(await dialog.findByText('Pick the month the money is needed by.')).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalledWith('/jars', expect.anything())
+  })
+
+  it('an edited jar due later this month asks for a month the same way', { timeout: 15000 }, async () => {
+    fundsData = [jar({ targetDate: '2026-10-28', deadline: '2026-10-28' })]
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Edit Home insurance' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.click(dialog.getByRole('radio', { name: 'Month' }))
+
+    expect(dialog.getByLabelText('Next due (month)')).toHaveValue('')
+  })
+
   it('a repeating jar is due in a month: "Next due" asks for it the same way', { timeout: 15000 }, async () => {
     const user = userEvent.setup()
     const dialog = await openNewJar(user)
@@ -148,6 +178,11 @@ describe('JarsPage — a date that is just a month', () => {
     const picker = dialog.getByLabelText('Next due (month)')
     expect(picker).toHaveValue('2026-09-01')
     expect(within(picker).getAllByRole('option').map((o) => o.textContent).slice(0, 3)).toEqual(['Pick a month', 'Sep 2026', 'Nov 2026'])
+
+    // It is the jar's own month, so a trip to Date and back keeps it.
+    await user.click(dialog.getByRole('radio', { name: 'Date' }))
+    await user.click(dialog.getByRole('radio', { name: 'Month' }))
+    expect(dialog.getByLabelText('Next due (month)')).toHaveValue('2026-09-01')
   })
 
   it('a full date stays a full date: monthOnly is sent false', { timeout: 15000 }, async () => {

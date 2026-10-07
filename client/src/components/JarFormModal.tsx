@@ -57,11 +57,17 @@ interface FormState {
   fundingAccountId: string
 }
 
+/**
+ * The date the form shows for a jar: a Recurring jar's "Next due" is its open cycle (W03) — sent
+ * back unchanged it keeps the cycle; a Goal's date is its deadline.
+ */
+function dueDate(jar: JarDto): string {
+  return (jar.kind === JarKind.Recurring ? jar.deadline ?? jar.targetDate : jar.targetDate) ?? ''
+}
+
 function initialForm(jar: JarDto | null, accounts: AccountDto[]): FormState {
   if (jar) {
-    // A Recurring jar's "Next due" is its open cycle (W03) — sent back unchanged it keeps the
-    // cycle; a Goal's date is its deadline.
-    const targetDate = (jar.kind === JarKind.Recurring ? jar.deadline ?? jar.targetDate : jar.targetDate) ?? ''
+    const targetDate = dueDate(jar)
     return {
       name: jar.name,
       repeats: jar.kind === JarKind.Recurring ? jar.recurMonths ?? 12 : NO_REPEAT,
@@ -191,12 +197,15 @@ export function JarFormModal({ jar, accounts, currency, onClose, onSaved, onArch
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }))
   // Just the month is the 1st of it; back to a date, the 1st stays until another day is picked.
+  // A month already begun has passed its 1st, so a date in it asks for a month again, unless it is
+  // the month an edited jar is already due in.
   const setMonthOnly = (monthOnly: boolean) =>
-    setForm((prev) => ({
-      ...prev,
-      monthOnly,
-      targetDate: monthOnly && prev.targetDate ? `${prev.targetDate.slice(0, 7)}-01` : prev.targetDate,
-    }))
+    setForm((prev) => {
+      if (!monthOnly || !prev.targetDate) return { ...prev, monthOnly }
+      const month = `${prev.targetDate.slice(0, 7)}-01`
+      const kept = month >= firstMonth() || (jar?.monthOnly === true && dueDate(jar) === month)
+      return { ...prev, monthOnly, targetDate: kept ? month : '' }
+    })
 
   const heldIn = useMemo(
     () => eligible.find((a) => a.id === form.fundingAccountId) ?? null,
@@ -725,15 +734,9 @@ function DateOrMonth({ monthOnly, onChange }: { monthOnly: boolean; onChange: (m
  */
 function MonthPicker({ value, label, onChange }: { value: string; label: string; onChange: (iso: string) => void }) {
   const options = useMemo(() => {
-    const now = currentMonth()
+    const last = monthIso(currentMonth().year + 10, 12)
     const months: string[] = []
-    for (let y = now.year, m = now.month + 1; y < now.year + 10 || (y === now.year + 10 && m <= 12); m++) {
-      if (m > 12) {
-        m = 1
-        y++
-      }
-      months.push(monthIso(y, m))
-    }
+    for (let iso = firstMonth(); iso <= last; iso = addMonth(iso)) months.push(iso)
     if (value && !months.includes(value)) {
       if (value < months[0]) months.unshift(value)
       else months.push(value)
@@ -752,6 +755,17 @@ function MonthPicker({ value, label, onChange }: { value: string; label: string;
       ))}
     </Select>
   )
+}
+
+/** The first month a jar can be due in by month alone: the next one, as this month's 1st has passed. */
+function firstMonth(): string {
+  const { year, month } = currentMonth()
+  return addMonth(monthIso(year, month))
+}
+
+function addMonth(iso: string): string {
+  const [y, m] = iso.split('-').map(Number)
+  return m === 12 ? monthIso(y + 1, 1) : monthIso(y, m + 1)
 }
 
 /** How many planned months are listed in full before the rest is summarised. */
