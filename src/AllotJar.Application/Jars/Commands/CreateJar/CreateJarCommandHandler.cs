@@ -32,6 +32,7 @@ public class CreateJarCommandHandler
         var account = await JarAccounts.LoadDesignatedAsync(_db, userId, request.FundingAccountId, "FundingAccountId", cancellationToken, _identity);
         await JarAccounts.EnsureVisibleForJarAsync(_db, account, request.ShareAccount, cancellationToken);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var place = await PlaceAsync(userId, request.SavingsCategoryId, cancellationToken);
 
         var jar = new Jar
         {
@@ -120,7 +121,7 @@ public class CreateJarCommandHandler
                 Postings = postings.Select(p => new JarAllocationPosting { JarId = p.JarId, Amount = p.Amount }).ToList(),
             });
             allocated = request.InitialAllocation;
-            await JarPlanner.ReplantAsync(_db, userId, jar, today, allocated, cancellationToken);
+            await JarPlanner.ReplantAsync(_db, userId, jar, today, allocated, cancellationToken, place: place);
             await _db.SaveChangesAsync(cancellationToken);
             if (write is not null)
             {
@@ -130,13 +131,30 @@ public class CreateJarCommandHandler
         else
         {
             _db.Jars.Add(jar);
-            await JarPlanner.ReplantAsync(_db, userId, jar, today, 0m, cancellationToken);
+            await JarPlanner.ReplantAsync(_db, userId, jar, today, 0m, cancellationToken, place: place);
             await _db.SaveChangesAsync(cancellationToken);
         }
 
         // Report the figures the Jars page will derive from the rows just written, so the
         // card doesn't change on the next load.
         return await JarFigures.ReadOneAsync(_db, userId, jar, today, cancellationToken);
+    }
+
+    /// <summary>
+    /// The Savings group the jar was added from, when it is one of this household's (a group deleted
+    /// meanwhile, another kind or someone else's is ignored: the line goes in the first Savings group).
+    /// </summary>
+    private async Task<SavingsLines.JarLinePlace?> PlaceAsync(string userId, Guid? categoryId, CancellationToken cancellationToken)
+    {
+        if (categoryId is not Guid id)
+        {
+            return null;
+        }
+        var group = await _db.BudgetCategories
+            .Where(c => c.Id == id && c.Kind == CategoryKind.Savings && c.BudgetMonth.OwnerId == userId)
+            .Select(c => new { c.Id, c.Name })
+            .FirstOrDefaultAsync(cancellationToken);
+        return group is null ? null : new SavingsLines.JarLinePlace(group.Id, group.Name.Trim());
     }
 
     /// <summary>An account that backs no jar yet has no snapshot entry; read its money alone.</summary>

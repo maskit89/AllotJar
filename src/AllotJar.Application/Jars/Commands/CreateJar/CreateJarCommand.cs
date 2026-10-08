@@ -12,6 +12,9 @@ namespace AllotJar.Application.Jars.Commands.CreateJar;
 /// <paramref name="ShareAccount"/> is the user's answer to the rule 34 warning when the account is
 /// their private one (see <see cref="JarAccounts.EnsureVisibleForJarAsync"/>).
 /// <paramref name="MonthOnly"/> marks a date given as just a month (the 1st of it, <see cref="Domain.Entities.Jar.MonthOnly"/>).
+/// <paramref name="SavingsCategoryId"/> is the Dashboard Savings group the jar was added from (jar setup plan, PR 4): its
+/// line goes in that group, and in other months in the Savings group of the same name. Without it, or when it names no
+/// Savings group of the household, the line goes in the first Savings group, as before.
 /// </summary>
 public record CreateJarCommand(
     string Name,
@@ -26,4 +29,5 @@ public record CreateJarCommand(
     decimal? MonthlyContribution = null,
     bool IncludeDeadlineMonth = false,
     bool ShareAccount = false,
-    bool MonthOnly = false) : IRequest<JarDto>, IJarDefinition;
+    bool MonthOnly = false,
+    Guid? SavingsCategoryId = null) : IRequest<JarDto>, IJarDefinition;

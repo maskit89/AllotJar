@@ -189,9 +189,13 @@ public static class JarPlanner
     /// previews.
     /// </summary>
     /// <param name="ledger">The ledger the caller already loaded, when nothing it holds has changed since; null loads it.</param>
+    /// <param name="place">
+    /// Where a new line goes (a jar created from a Dashboard group). Null puts it in the group the
+    /// jar's latest line was in (a restore or reopen, #326 review P3-2), else the first Savings group.
+    /// </param>
     public static async Task ReplantAsync(
         IApplicationDbContext db, string ownerId, Jar jar, DateOnly today, decimal extraBalance, CancellationToken cancellationToken,
-        JarLedgerSource? ledger = null)
+        JarLedgerSource? ledger = null, SavingsLines.JarLinePlace? place = null)
     {
         var months = await db.BudgetMonths
             .Include(m => m.Categories.Where(c => c.Kind == CategoryKind.Savings))
@@ -225,6 +229,8 @@ public static class JarPlanner
         var plan = JarSchedule.Plan(jar, today, balances.Planning,
             new JarPlanOptions(skipped, balances.Now, new DateOnly(last.Year, last.Month, 1), byHand));
         var planned = plan.Months.ToDictionary(m => (m.Year, m.Month), m => m.Planned);
+        // Looked up once, only when a month needs a new line and the caller gave no place.
+        var placeLooked = place is not null;
 
         foreach (var month in months)
         {
@@ -238,7 +244,12 @@ public static class JarPlanner
             var lines = month.Categories.SelectMany(c => c.Items).Where(i => i.SavingsId == jar.Id).DistinctBy(i => i.Id).ToList();
             if (lines.Count == 0)
             {
-                SavingsLines.AppendJarLine(db, month, jar, amount);
+                if (!placeLooked)
+                {
+                    place = (await SavingsLines.LatestPlacesAsync(db, ownerId, new[] { jar.Id }, cancellationToken)).GetValueOrDefault(jar.Id);
+                    placeLooked = true;
+                }
+                SavingsLines.AppendJarLine(db, month, jar, amount, place);
             }
             else
             {
