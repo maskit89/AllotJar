@@ -68,6 +68,27 @@ if (typeof globalThis.BroadcastChannel === 'undefined') {
   })
 }
 
+// The Radix primitives behind components/ui measure and capture the pointer, which jsdom doesn't
+// implement: give them inert stand-ins so menus, popovers and selects can open under test.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  class NoopResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    value: NoopResizeObserver,
+    writable: true,
+    configurable: true,
+  })
+}
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false
+  Element.prototype.setPointerCapture = () => {}
+  Element.prototype.releasePointerCapture = () => {}
+}
+if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {}
+
 // Many tests hard-code months (2026-09 / 2026-10) in their fixtures and assertions, so "today" is pinned
 // to a day inside that window; otherwise the suite fails once the real calendar leaves it. Only Date is
 // faked: timers, promises and Testing Library's polling keep running on the real clock. It is installed
