@@ -88,7 +88,7 @@ public class JarsController : ControllerBase
             request.Name, request.Kind, request.TargetAmount, request.TargetDate, request.Accrual,
             request.FundingAccountId, request.InitialAllocation, request.InitialAllocationDate,
             request.RecurMonths, request.MonthlyContribution, request.IncludeDeadlineMonth, request.ShareAccount,
-            request.MonthOnly), ct);
+            request.MonthOnly, request.SavingsCategoryId), ct);
         return CreatedAtAction(nameof(List), new { }, result);
     }
 
@@ -255,7 +255,9 @@ public record CreateJarRequest(
     bool IncludeDeadlineMonth = false,
     bool ShareAccount = false,
     // A date given as just a month: TargetDate is the 1st of it.
-    bool MonthOnly = false);
+    bool MonthOnly = false,
+    // The Dashboard Savings group the jar was added from: its line goes there (jar setup plan, PR 4).
+    Guid? SavingsCategoryId = null);
 
 /// <summary>Request body for editing a jar (the id comes from the route).</summary>
 public record UpdateJarRequest(

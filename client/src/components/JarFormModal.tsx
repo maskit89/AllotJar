@@ -150,6 +150,8 @@ export interface JarFormModalProps {
   jar: JarDto | null
   /** Create only: an example jar the form starts filled with (the empty Jars page's examples). */
   example?: JarExample
+  /** Create only: the Dashboard Savings group the jar is added from, where its line goes. */
+  savingsCategoryId?: string
   /** Every account the household has; the form itself drops credit cards. */
   accounts: AccountDto[]
   currency: string
@@ -173,7 +175,7 @@ export interface JarFormModalProps {
  * Savings lines — so what is previewed is what gets planned (W02). `role="dialog"`
  * comes from Modal; mount it conditionally so the focus trap engages.
  */
-export function JarFormModal({ jar, example, accounts, currency, onClose, onSaved, onArchived, onDeleted }: JarFormModalProps) {
+export function JarFormModal({ jar, example, savingsCategoryId, accounts, currency, onClose, onSaved, onArchived, onDeleted }: JarFormModalProps) {
   const editing = jar !== null
   const eligible = useMemo(() => jarAccounts(accounts, currency, jar?.fundingAccountId), [accounts, currency, jar])
   const [form, setForm] = useState<FormState>(() => initialForm(jar, eligible, example))
@@ -337,6 +339,8 @@ export function JarFormModal({ jar, example, accounts, currency, onClose, onSave
           ...common,
           initialAllocation,
           initialAllocationDate: initialAllocation > 0 ? form.initialAllocationDate : null,
+          // The Dashboard Savings group the jar is added from: its line goes there (jar setup plan, PR 4).
+          ...(savingsCategoryId ? { savingsCategoryId } : {}),
         })
         track(EVENTS.fundCreated, { kind })
         onSaved(data, 'created')
@@ -367,7 +371,7 @@ export function JarFormModal({ jar, example, accounts, currency, onClose, onSave
     } finally {
       setSaving(false)
     }
-  }, [form, editing, jar, onSaved, byDeadline, method, kind, recurring, eligible, version])
+  }, [form, editing, jar, onSaved, byDeadline, method, kind, recurring, eligible, version, savingsCategoryId])
 
   const archive = useCallback(async () => {
     if (!jar || !onArchived) return

@@ -29,8 +29,10 @@ interface Props {
   /**
    * Opens the shared jar form (rule 73): a savings line IS a jar's monthly contribution,
    * so it's created through POST /jars — which plants the line here — never as a bare line.
+   * Left out while the group is still being saved, so a new jar never names a group the server
+   * doesn't know yet (#326 review P3-1).
    */
-  onAddJar: (categoryId: string) => void
+  onAddJar?: (categoryId: string) => void
   onRenameCategory: (categoryId: string, name: string) => void
   onDeleteCategory: (categoryId: string) => void
 }
@@ -171,7 +173,7 @@ export function SavingsGroup({
         <p className="py-2.5 text-sm text-slate-500">No jars yet — add one below. Each jar is held in one of your accounts.</p>
       )}
 
-      {canWrite && (
+      {canWrite && onAddJar && (
         <button
           type="button"
           onClick={() => onAddJar(category.id)}
