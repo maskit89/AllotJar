@@ -270,9 +270,12 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         if (missing.Count > 0)
         {
             var monthPlans = await PlansAsync();
+            // A jar that had a line before goes in the group of that name, when this month has one
+            // (#326 review P3-2); otherwise the first Savings group, as before.
+            var places = await SavingsLines.LatestPlacesAsync(_db, userId, missing.Select(j => j.Id).ToList(), cancellationToken);
             foreach (var jar in missing)
             {
-                SavingsLines.AppendJarLine(_db, budget, jar, monthPlans[jar.Id]);
+                SavingsLines.AppendJarLine(_db, budget, jar, monthPlans[jar.Id], places.GetValueOrDefault(jar.Id));
             }
         }
 
