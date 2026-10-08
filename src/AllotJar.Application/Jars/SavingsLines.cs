@@ -21,16 +21,29 @@ namespace AllotJar.Application.Jars;
 public static class SavingsLines
 {
     /// <summary>
-    /// Appends <paramref name="jar"/>'s contribution line to the month's first Savings
-    /// group, creating a "Savings" group when the month has none. The month's categories
-    /// (with items) must be loaded/built on the instance; reading them is all this does.
+    /// The Savings group a jar's new line goes in: the group it was added from, or held its latest
+    /// line, and in other months the group of the same name (trimmed).
     /// </summary>
-    public static void AppendJarLine(IApplicationDbContext db, BudgetMonth month, Jar jar, decimal planned)
+    public sealed record JarLinePlace(Guid CategoryId, string Name);
+
+    /// <summary>
+    /// Appends <paramref name="jar"/>'s contribution line to the month's first Savings
+    /// group, creating a "Savings" group when the month has none. With a <paramref name="place"/>
+    /// (a jar added from a Dashboard group, jar setup plan PR 4, or the group its latest line was in)
+    /// the line goes in that group, or in another month the Savings group of the same name, before
+    /// falling back to the first. The month's categories (with items) must be loaded/built on the
+    /// instance; reading them is all this does.
+    /// </summary>
+    public static void AppendJarLine(IApplicationDbContext db, BudgetMonth month, Jar jar, decimal planned, JarLinePlace? place = null)
     {
-        var savings = month.Categories
+        var groups = month.Categories
             .Where(c => c.Kind == CategoryKind.Savings)
             .OrderBy(c => c.DisplayOrder)
-            .FirstOrDefault();
+            .ToList();
+        var savings = (place is null ? null
+                : groups.FirstOrDefault(c => c.Id == place.CategoryId)
+                  ?? groups.FirstOrDefault(c => string.Equals(c.Name.Trim(), place.Name, StringComparison.OrdinalIgnoreCase)))
+            ?? groups.FirstOrDefault();
         if (savings is null)
         {
             savings = new BudgetCategory
@@ -57,6 +70,45 @@ public static class SavingsLines
         };
         db.BudgetItems.Add(line);
         savings.Items.Add(line);
+    }
+
+    /// <summary>
+    /// Where each jar's line was last: the Savings group holding its line in the latest month that
+    /// has one (a jar with no line anywhere is absent). A jar whose later lines were removed (an
+    /// archive or completion, rules 27 and 55) and planted again (a restore or reopen), or a month
+    /// made from a template or blank, puts the line back in that group, or the group of the same
+    /// name, rather than the first one (#326 review P3-2). Lines never move between groups, so the
+    /// latest one is the jar's group.
+    /// </summary>
+    public static async Task<Dictionary<Guid, JarLinePlace>> LatestPlacesAsync(
+        IApplicationDbContext db, string ownerId, IReadOnlyCollection<Guid> jarIds, CancellationToken cancellationToken)
+    {
+        if (jarIds.Count == 0)
+        {
+            return new Dictionary<Guid, JarLinePlace>();
+        }
+        var rows = await db.BudgetItems
+            .AsNoTracking()
+            .Where(i => i.SavingsId != null && jarIds.Contains(i.SavingsId.Value)
+                        && i.BudgetCategory.Kind == CategoryKind.Savings
+                        && i.BudgetCategory.BudgetMonth.OwnerId == ownerId)
+            .Select(i => new
+            {
+                JarId = i.SavingsId!.Value,
+                i.BudgetCategoryId,
+                i.BudgetCategory.Name,
+                i.BudgetCategory.DisplayOrder,
+                i.BudgetCategory.BudgetMonth.Year,
+                i.BudgetCategory.BudgetMonth.Month,
+            })
+            .ToListAsync(cancellationToken);
+        return rows
+            .GroupBy(r => r.JarId)
+            .ToDictionary(g => g.Key, g =>
+            {
+                var latest = g.OrderByDescending(r => r.Year).ThenByDescending(r => r.Month).ThenBy(r => r.DisplayOrder).First();
+                return new JarLinePlace(latest.BudgetCategoryId, latest.Name.Trim());
+            });
     }
 
     /// <summary>
