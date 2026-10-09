@@ -27,17 +27,41 @@
      number) lives in the `.gold-number` utility below, never on a light surface. */
   --color-gold: #d7a93e;
 
-  /* A soft, layered card shadow — used by the `shadow-card` utility. */
-  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.06);
+  /* The card shadow (`shadow-card`): the frame's soft, warm layered shadow (--shadow-frame, in
+     :root below), so cards and the frame's raised pieces share one elevation and both flip in
+     dark mode. A var() rather than the values, which Tailwind would inline into the utility
+     (and dark mode could then not change it). */
+  --shadow-card: var(--shadow-frame);
 
   /* The heavier elevation used on the gradient hero and raised panels
      (`shadow-hero`). Flipped in dark mode. */
   --shadow-hero: 0 1px 2px rgb(20 32 26 / 0.05), 0 20px 40px -24px rgb(31 107 77 / 0.30);
 
-  /* The raised surface colour (cards, header, sidebar, inputs). Flipped in dark mode. */
-  --color-surface: #ffffff;
-  /* A subtly inset surface — segmented-control track, register insets. */
-  --color-surface-2: #fafbfa;
+  /* The warm palette (restyle PR 2): a soft sage page, off-white raised surfaces and a
+     slightly deeper sidebar tone, all flipped in dark mode. Surface is the raised colour
+     (cards, menus, inputs) and equals --color-card; surface-2 is the subtly inset one
+     (segmented-control tracks, register insets); side is the desktop sidebar. */
+  --color-surface: #f4f7f2;
+  --color-surface-2: #ecf1ea;
+  --color-side: #dae3dc;
+
+  /* The neutral ramp, retuned from Tailwind's cool slate to the warm green-greys of the
+     approved mock-ups, so every existing text-slate-* / bg-slate-* / border-slate-* use sits
+     in the palette. Every step the app uses as text clears WCAG AA (4.5:1) on the page, the
+     cards, the inset surface, the popover and the slate-50 / slate-100 tints (400 is the
+     faintest text step, so it is darker than Tailwind's); 200 and 300 are hairlines. The
+     dark ramp is the same scale inverted (see .dark). */
+  --color-slate-50: #edf2ec;
+  --color-slate-100: #e4ebe5;
+  --color-slate-200: #d3ddd5;
+  --color-slate-300: #bccabf;
+  --color-slate-400: #5a6961;
+  --color-slate-500: #4f5f57;
+  --color-slate-600: #43524a;
+  --color-slate-700: #33413a;
+  --color-slate-800: #23302a;
+  --color-slate-900: #15201b;
+  --color-slate-950: #0b120e;
 
   /* The unified hero gradient (the dark-green band every screen opens with).
      A gradient, not a colour, so it's applied via `bg-[image:var(--hero-grad)]`
@@ -74,7 +98,9 @@
   /* border: hairlines between surfaces; input: form-field outlines (3:1 on the page and cards). */
   --color-border: #d0dad2;
   --color-input: #77867c;
-  --color-ring: #2e8b63;
+  /* The focus ring (the global :focus-visible outline and the shadcn ring utilities): the brand
+     green, 4.9:1 or more on the page, the sidebar, the cards and the popover. */
+  --color-ring: #1f6b4d;
   /* The scrim behind dialogs and sheets, the same in both themes. */
   --color-overlay: rgb(0 0 0 / 0.5);
 }
@@ -100,6 +126,26 @@
      with --color-gold automatically. */
   --accent: var(--color-brand-600);
   --gold: var(--color-gold);
+
+  /* The app frame (AppShell): gold ink for the current page's icon in the sidebar and tab bar
+     (5.2:1 on the card, 3:1 or more as a graphic everywhere it sits), the gold ring around the
+     account avatar, and the soft layered shadow the frame's raised pieces share. The gold
+     marker beside the current page (a #f4db8e to #d2a033 gradient, as in the mock-ups) is
+     decorative in light mode (under 3:1 on the sidebar and the tab bar): the raised card, the
+     gold-ink icon and the darker, bolder label carry the current page on their own. */
+  --gold-ink: #8a5f12;
+  --gold-line: #c9952f;
+  --shadow-frame: 0 1px 2px rgb(22 44 32 / 0.05), 0 6px 20px -14px rgb(22 44 32 / 0.22);
+  --shadow-frame-lg: 0 2px 6px rgb(22 44 32 / 0.06), 0 24px 48px -24px rgb(22 44 32 / 0.35);
+  /* The phone tab bar's height (bottom safe area included); 0 where there is no tab bar. Fixed
+     things near the bottom of the screen (the Getting started checklist) sit above it. */
+  --tabbar-h: 0px;
+}
+
+@media (max-width: 899.98px) {
+  :root:has([data-tabbar]) {
+    --tabbar-h: calc(60px + max(14px, env(safe-area-inset-bottom)));
+  }
 }
 
 /* Enables `dark:` utilities to key off a `.dark` class on <html>. */
@@ -114,8 +160,9 @@
  * tints. The category hues and gold also brighten for dark surfaces.
  */
 .dark {
-  --color-surface: #0f172a;
-  --color-surface-2: #111714;
+  --color-surface: #131a17;
+  --color-surface-2: #1b241f;
+  --color-side: #0f1513;
 
   /* Brand: keep 600/700 deep (fills + white text); brighten the rest for dark. */
   --color-brand-50: #15271d;
@@ -127,6 +174,11 @@
   /* The brand mark's green brightens on dark surfaces so the jar still reads. */
   --accent: var(--color-brand-500);
 
+  --gold-ink: #e8c36a;
+  --gold-line: #e8c36a;
+  --shadow-frame: 0 1px 2px rgb(0 0 0 / 0.35), 0 10px 24px -16px rgb(0 0 0 / 0.7);
+  --shadow-frame-lg: 0 2px 6px rgb(0 0 0 / 0.4), 0 28px 56px -24px rgb(0 0 0 / 0.8);
+
   --color-cat-emerald: #4fc08d;
   --color-cat-amber: #d9a441;
   --color-cat-teal: #46b5b0;
@@ -136,16 +188,19 @@
   --shadow-hero: 0 22px 46px -24px rgb(0 0 0 / 0.7);
   --hero-grad: linear-gradient(135deg, #155339, #1e6e4e 45%, #2a8a60);
 
-  --color-slate-50: #020617;
-  --color-slate-100: #0f172a;
-  --color-slate-200: #1e293b;
-  --color-slate-300: #334155;
-  --color-slate-400: #64748b;
-  --color-slate-500: #94a3b8;
-  --color-slate-600: #cbd5e1;
-  --color-slate-700: #e2e8f0;
-  --color-slate-800: #f1f5f9;
-  --color-slate-900: #f8fafc;
+  /* The warm ramp inverted: 50 is an inset a shade below the card, 100 a hover / track tint a
+     shade above it, 200-300 hairlines, 400 up the text steps (AA on every dark surface, the
+     raised popover included: 400 is 4.9:1 on it). */
+  --color-slate-50: #101613;
+  --color-slate-100: #1c2520;
+  --color-slate-200: #26312b;
+  --color-slate-300: #36433c;
+  --color-slate-400: #94a59b;
+  --color-slate-500: #a3b4aa;
+  --color-slate-600: #bfcbc4;
+  --color-slate-700: #d4ddd7;
+  --color-slate-800: #e2e9e4;
+  --color-slate-900: #edf2ee;
   --color-slate-950: #ffffff;
 
   /* shadcn/ui semantic tokens, dark. Primary lifts to #2a7d5a so a filled button
@@ -154,7 +209,9 @@
   --color-foreground: #e9f0eb;
   --color-card: #131a17;
   --color-card-foreground: #e9f0eb;
-  --color-popover: #131a17;
+  /* Menus and popovers are raised well above the card in dark, as in the mock-ups (#2a362f);
+     every text step still clears AA on them and the input edge 3:1. */
+  --color-popover: #2a362f;
   --color-popover-foreground: #e9f0eb;
   --color-primary: #2a7d5a;
   --color-primary-foreground: #ffffff;
@@ -169,7 +226,8 @@
   /* The app's existing dark error red (rose-400): 6.3:1 on the card. */
   --color-destructive-text: #ff667f;
   --color-border: #26322c;
-  --color-input: #63756b;
+  --color-input: #7f9187;
+  /* 5.7:1 or more on every dark surface, the popover included. */
   --color-ring: #5fc093;
 }
 
@@ -182,17 +240,20 @@ body,
 
 body {
   margin: 0;
-  background-color: #fafcfa; /* --bg (reference app background); light enough that muted slate-500 text on it clears WCAG AA */
-  color: #15201b; /* --ink */
+  /* The sage page. Muted text (text-slate-500, and the faintest step, 400) sits straight on it
+     in places (empty states, notes under a card), so the warm ramp keeps those steps dark
+     enough to clear WCAG AA (4.5:1) on the page as well as on the cards. */
+  background-color: var(--color-background);
+  color: var(--color-foreground);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-}
-
-.dark body {
-  background-color: #0e1311;
-  color: #e9f0eb;
+  /* The page opts into the whole screen (viewport-fit=cover in index.html) so the tab bar can
+     reserve the home-indicator inset. Keep content clear of a notch in landscape; the fixed
+     bars pad their own edges. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 /* The metallic gold hero number: a vertical gradient clipped to the glyphs. Only
@@ -215,16 +276,18 @@ body {
 }
 
 /* A calmer, more deliberate focus ring across the app (WCAG 2.4.7 / 2.4.13):
-   2px accent ring at 2px offset, per the redesign spec. */
+   2px ring at 2px offset, per the redesign spec, in the theme's ring colour (the brand green
+   in light, the bright green in dark, so it clears 3:1 on the dark frame surfaces too). */
 :focus-visible {
-  outline: 2px solid var(--color-brand-600);
+  outline: 2px solid var(--color-ring);
   outline-offset: 2px;
 }
 
-/* WCAG 2.4.11 (Focus Not Obscured): keep a scrolled-to / focused element clear
-   of the 4rem sticky header. */
+/* WCAG 2.4.11 (Focus Not Obscured): keep a scrolled-to / focused element clear of the sticky
+   top bar, and on phones of the fixed bottom tab bar (--tabbar-h is 0 where there is none). */
 html {
   scroll-padding-top: 5rem;
+  scroll-padding-bottom: calc(var(--tabbar-h) + 0.5rem);
 }
 
 /* Public legal pages (/privacy, /terms): document-style prose without per-element

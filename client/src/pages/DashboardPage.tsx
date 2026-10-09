@@ -799,7 +799,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   }
 
   return (
-    <AppShell active="budget" title="Dashboard">
+    <AppShell active="budget" title="Dashboard" month>
         {loading && <p className="text-slate-500">Loading your budget…</p>}
 
         {error && (

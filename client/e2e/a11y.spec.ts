@@ -26,6 +26,30 @@ for (const theme of ['light', 'dark'] as const) {
       })
     }
 
+    // The app frame's menus: the desktop account menu and the phone More sheet, open.
+    test('account menu has no WCAG A/AA violations', async ({ page }) => {
+      await authedSetup(page, theme)
+      await page.goto('/')
+      await page.getByRole('heading', { level: 1 }).first().waitFor()
+      await page.getByRole('button', { name: /account menu/i }).click()
+      await page.getByRole('menuitemcheckbox', { name: 'Dark mode' }).waitFor()
+      await expectNoViolations(page)
+    })
+
+    test('phone More sheet has no WCAG A/AA violations', async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await authedSetup(page, theme)
+      await page.goto('/people')
+      await page.getByRole('heading', { level: 1 }).first().waitFor()
+      await page.getByRole('button', { name: 'More' }).click()
+      await page.getByRole('switch', { name: 'Dark mode' }).waitFor()
+      // Let the slide-in finish so axe reads the settled colours.
+      await page.getByRole('dialog', { name: 'More' }).evaluate((el) =>
+        Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
+      )
+      await expectNoViolations(page)
+    })
+
     test('import review table has no WCAG A/AA violations', async ({ page }) => {
       await authedSetup(page, theme)
       await page.goto('/import')

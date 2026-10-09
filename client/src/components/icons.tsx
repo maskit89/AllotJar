@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react'
+import { Icon, type IconNode, type LucideProps } from 'lucide-react'
 
 /**
- * A tiny in-house inline-SVG icon set — no dependency. Every icon is a 24×24
+ * A tiny in-house inline-SVG icon set (plus the frame's jar glyph, drawn through lucide's
+ * Icon at the end of the file). Every icon is a 24×24
  * line glyph that inherits colour from `currentColor` and takes a `className`
  * (default `h-5 w-5`), so it themes and sizes with Tailwind utilities. Icons are
  * decorative (`aria-hidden`); their meaning comes from the adjacent label.
@@ -136,17 +138,6 @@ export function InfoIcon({ className }: { className?: string }) {
   )
 }
 
-/** Sign out — an arrow leaving a container. */
-export function LogoutIcon({ className }: { className?: string }) {
-  return (
-    <Base className={className}>
-      <path d="M14 4H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7" />
-      <path d="M16 8l4 4-4 4" />
-      <path d="M20 12H10" />
-    </Base>
-  )
-}
-
 /** Check — a tick, for completed steps. */
 export function CheckIcon({ className }: { className?: string }) {
   return (
@@ -177,17 +168,6 @@ export function AccessIcon({ className }: { className?: string }) {
   )
 }
 
-/** Settings — a toothed cog/gear (account & password). Notched outline so it
- *  reads clearly as "settings" and isn't mistaken for the sun/light-mode icon. */
-export function SettingsIcon({ className }: { className?: string }) {
-  return (
-    <Base className={className}>
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
-    </Base>
-  )
-}
-
 /** Copy — overlapping rectangles, for copy-to-clipboard. */
 export function CopyIcon({ className }: { className?: string }) {
   return (
@@ -196,4 +176,18 @@ export function CopyIcon({ className }: { className?: string }) {
       <path d="M5 15V5a2 2 0 0 1 2-2h8" />
     </Base>
   )
+}
+
+/**
+ * The app frame's Jars icon: a lucide-style glass jar with a lid (lucide has no jar), drawn on
+ * lucide's 24px grid so it sits beside the lucide icons in the sidebar, tab bar and More sheet.
+ */
+const JAR_NODE: IconNode = [
+  ['path', { d: 'M8 2h8v3H8z', key: 'lid' }],
+  ['path', { d: 'M7 5h10l1.5 3.5V20a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2V8.5z', key: 'body' }],
+  ['path', { d: 'M5.5 11h13', key: 'band' }],
+]
+
+export function JarNavIcon(props: LucideProps) {
+  return <Icon iconNode={JAR_NODE} {...props} />
 }

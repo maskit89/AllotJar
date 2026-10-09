@@ -67,3 +67,83 @@ test('the empty Jars page fits its example jars on a phone screen', async ({ pag
   await page.getByRole('button', { name: /^Rainy day, / }).waitFor()
   await assertNoHorizontalOverflow(page, '/jars (empty, example jars)')
 })
+
+// The phone frame's bottom tab bar is fixed over the page: the content reserves its height
+// (safe area included), so scrolled to the very bottom, the page's last element still ends
+// above the bar — nothing is ever hidden under it.
+for (const path of ['/', '/transactions', '/help']) {
+  test(`${path}: the tab bar never covers the end of the page`, async ({ page }) => {
+    await authedSetup(page, 'light')
+    await page.goto(path)
+    await page.getByRole('heading', { level: 1 }).first().waitFor()
+    await page.waitForLoadState('networkidle')
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+    const m = await page.evaluate(() => {
+      const bar = document.querySelector('[data-tabbar]')!.getBoundingClientRect()
+      const content = document.querySelector('#main-content > header + div') as HTMLElement
+      const last = content.lastElementChild!.getBoundingClientRect()
+      return { barTop: bar.top, barHeight: bar.height, lastBottom: last.bottom }
+    })
+    expect(m.barHeight, 'tab bar height').toBeGreaterThanOrEqual(60)
+    expect(m.lastBottom, `${path}: the last block ends under the tab bar`).toBeLessThanOrEqual(m.barTop)
+  })
+}
+
+// WCAG 2.4.11 (Focus Not Obscured): the fixed tab bar also reserves its height for scrolling
+// (html scroll-padding-bottom), so tabbing forward through a long page scrolls each focused
+// control clear of the bar instead of leaving it underneath.
+for (const path of ['/', '/transactions', '/people', '/account']) {
+  test(`${path}: keyboard focus never ends up under the tab bar`, async ({ page }) => {
+    await authedSetup(page, 'light')
+    await page.goto(path)
+    await page.getByRole('heading', { level: 1 }).first().waitFor()
+    await page.waitForLoadState('networkidle')
+    const hidden: string[] = []
+    let stops = 0
+    for (let i = 0; i < 80; i++) {
+      await page.keyboard.press('Tab')
+      const r = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null
+        const bar = document.querySelector('[data-tabbar]')!
+        if (!el || el === document.body || bar.contains(el)) return null
+        const e = el.getBoundingClientRect()
+        const name = (el.getAttribute('aria-label') || el.textContent || el.tagName).trim().slice(0, 40)
+        return { name, top: e.top, bottom: e.bottom, barTop: bar.getBoundingClientRect().top }
+      })
+      if (!r) continue
+      stops++
+      if (r.bottom > r.barTop + 1) hidden.push(`${r.name} [${Math.round(r.top)}-${Math.round(r.bottom)}], bar at ${Math.round(r.barTop)}`)
+    }
+    expect(stops, `${path}: focus stops outside the tab bar`).toBeGreaterThan(10)
+    expect(hidden, `${path}: focused controls (partly) under the tab bar`).toEqual([])
+  })
+}
+
+// Widening the window past the breakpoint with the More sheet open (a tablet turning to
+// landscape) closes the sheet; More is hidden then, so focus goes to the main content rather
+// than being dropped on <body>.
+test('the More sheet closes on widening and focus lands on the main content', async ({ page }) => {
+  await authedSetup(page, 'light')
+  await page.goto('/')
+  await page.getByRole('heading', { level: 1 }).first().waitFor()
+  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'More' }).click()
+  await expect(page.getByRole('dialog', { name: 'More' })).toBeVisible()
+  await page.setViewportSize({ width: 1280, height: 812 })
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.locator('#main-content')).toBeFocused()
+})
+
+// The tab bar stays above the sheet's scrim, so a tab tapped while the sheet is open closes the
+// sheet and opens that page in the same tap.
+test('a tab tapped with the More sheet open goes straight to its page', async ({ page }) => {
+  await authedSetup(page, 'light')
+  await page.goto('/')
+  await page.getByRole('heading', { level: 1 }).first().waitFor()
+  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'More' }).click()
+  await expect(page.getByRole('dialog', { name: 'More' })).toBeVisible()
+  // The open modal sheet hides the bar from the accessibility tree, so reach the tab by its link.
+  await page.locator('[data-tabbar] a[href="/jars"]').click()
+  await expect(page).toHaveURL(/\/jars$/)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('heading', { level: 1, name: 'Jars' })).toBeVisible()
+})

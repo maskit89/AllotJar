@@ -437,7 +437,7 @@ export function AllocationPage() {
   // this route directly gets a friendly nudge to add members rather than an empty engine.
   if (!householdLoading && !isShared) {
     return (
-      <AppShell active="allocation" title="Income allocation">
+      <AppShell active="allocation" title="Allocation">
         <EmptyState
           icon={<AllocationIcon className="h-6 w-6" />}
           title="Add people first"
@@ -450,7 +450,7 @@ export function AllocationPage() {
   }
 
   return (
-    <AppShell active="allocation" title="Income allocation">
+    <AppShell active="allocation" title="Allocation" month>
       {profile && preview && (
         <Hero
           eyebrow="Income to allocate"
@@ -527,7 +527,7 @@ export function AllocationPage() {
           {noIncomeInBudget && (
             <div
               role="status"
-              className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-200"
+              className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"
             >
               No income in {monthLabel}’s budget yet. Add income lines to the Dashboard (attribute them to
               people for a by-income split) and come back.{' '}
@@ -558,7 +558,7 @@ export function AllocationPage() {
           {preview.equalSplitNote && (
             <p
               role="note"
-              className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-200"
+              className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700"
             >
               {preview.equalSplitNote}
             </p>

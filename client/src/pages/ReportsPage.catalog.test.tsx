@@ -229,7 +229,7 @@ describe('ReportsPage — catalog (RPT)', () => {
 
     // Hero eyebrow + the four card headings, no error banner, no empty state.
     expect(await screen.findByText('Saved this month', {}, W)).toBeInTheDocument()
-    // AppShell renders its accessible name as a visually-hidden <h1>.
+    // The top bar shows the page title as the screen's <h1>.
     expect(screen.getByRole('heading', { level: 1, name: 'Reports' })).toBeInTheDocument()
 
     // The annual + average cards depend on the (separate) annual fetch — wait for
@@ -237,9 +237,10 @@ describe('ReportsPage — catalog (RPT)', () => {
     await screen.findByText('Annual overview', {}, W)
     await screen.findByText('Average monthly spending by category', {}, W)
 
-    const h3s = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)
+    // The cards' headings sit directly under the <h1> (no level skipped: Reports has no month h2).
+    const h2s = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)
     const order = ['Income vs spending', 'Annual overview', 'Average monthly spending by category', 'Spending by category']
-    const idxs = order.map((t) => h3s.indexOf(t))
+    const idxs = order.map((t) => h2s.indexOf(t))
     idxs.forEach((i) => expect(i).toBeGreaterThanOrEqual(0))
     expect(idxs).toEqual([...idxs].sort((a, b) => a - b)) // cards appear in the documented order
 

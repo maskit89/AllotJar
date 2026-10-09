@@ -88,13 +88,16 @@ export function SpotlightTour() {
       setBox(null)
       return
     }
-    const el = document.querySelector(step.selector)
-    if (!el) {
-      setBox(null)
-      return
+    // A step may have one anchor per layout (the sidebar link on desktop, the tab or More on
+    // phones): spotlight the first one that is actually on screen.
+    for (const el of document.querySelectorAll(step.selector)) {
+      const r = el.getBoundingClientRect()
+      if (onScreen(r)) {
+        setBox({ top: r.top, left: r.left, width: r.width, height: r.height })
+        return
+      }
     }
-    const r = el.getBoundingClientRect()
-    setBox(onScreen(r) ? { top: r.top, left: r.left, width: r.width, height: r.height } : null)
+    setBox(null)
   }, [step.selector])
 
   useLayoutEffect(measure, [measure])

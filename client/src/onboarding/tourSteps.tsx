@@ -12,11 +12,19 @@ export interface TourStep {
   body: ReactNode
 }
 
+/** Copy for the desktop frame only (900px and up); hidden, and so not read, on phones. */
+const desktopOnly = (copy: ReactNode) => <span className="max-[899.98px]:hidden">{copy}</span>
+
+/** Copy for the phone frame only (below 900px). */
+const phoneOnly = (copy: ReactNode) => <span className="min-[900px]:hidden">{copy}</span>
+
 /**
- * The guided walkthrough. Each page-step spotlights its sidebar nav item, so the
- * tour stays on one screen and points at "this menu item → does this". Anchors
- * gracefully centre when missing/off-screen (mobile top bar, a section turned off
- * by a feature flag, or no budget yet), so the tour works in any app state.
+ * The guided walkthrough. Each page-step spotlights its nav item (the sidebar link on desktop;
+ * on phones its tab, or More for the pages that live in the More sheet), so the tour stays on
+ * one screen and points at "this menu item → does this". Anchors gracefully centre when
+ * missing/off-screen (a section turned off by a feature flag, a page without the month
+ * switcher, or no budget yet), so the tour works in any app state. Copy that differs between
+ * the desktop and phone frames shows only in its own layout (desktopOnly / phoneOnly).
  *
  * A builder rather than a constant so the zero-based step can speak the user's
  * currency ("give every euro a job"); `noun` is the singular money-noun from
@@ -26,26 +34,42 @@ export function buildTourSteps(noun: string): TourStep[] {
   return [
   {
     id: 'nav',
-    selector: '[data-tour="sidebar"]',
+    // The desktop sidebar, or on phones the bottom tab bar.
+    selector: '[data-tour="sidebar"], [data-tabbar]',
     title: 'Find your way around',
     body: (
       <>
-        Every section lives in this sidebar — your monthly <strong>Dashboard</strong>, the{' '}
-        <strong>Transactions</strong> register, <strong>Accounts</strong>, savings{' '}
-        <strong>Jars</strong>, <strong>Reports</strong> and <strong>People</strong>. The chip at the
-        bottom is where <strong>account settings</strong>, switching household and{' '}
-        <strong>signing out</strong> live.
+        {desktopOnly(
+          <>
+            Every section lives in this sidebar — your monthly <strong>Dashboard</strong>, the{' '}
+            <strong>Transactions</strong> register, <strong>Accounts</strong>, savings{' '}
+            <strong>Jars</strong>, <strong>Reports</strong> and <strong>People</strong>. The account button at
+            the bottom is where <strong>account settings</strong>, switching household, dark mode and{' '}
+            <strong>signing out</strong> live.
+          </>,
+        )}
+        {phoneOnly(
+          <>
+            Your monthly <strong>Dashboard</strong>, the <strong>Transactions</strong> register, savings{' '}
+            <strong>Jars</strong> and <strong>Reports</strong> sit in this bar; <strong>More</strong> holds{' '}
+            <strong>Accounts</strong>, <strong>People</strong> and the rest. The round account button (your
+            initials) at the top is where <strong>account settings</strong>, switching household, dark mode and{' '}
+            <strong>signing out</strong> live.
+          </>,
+        )}
       </>
     ),
   },
   {
     id: 'month',
-    selector: '[data-tour="topbar"]',
+    // The month switcher, on the month-based screens only (elsewhere the step centres).
+    selector: '[data-tour="month"]',
     title: 'Pick the month you’re planning',
     body: (
       <>
-        Use the <strong>‹ ›</strong> arrows to move between months — every screen follows the month you
-        pick. The <strong>light/dark</strong> toggle sits on the right.
+        On month-based screens like the <strong>Dashboard</strong>, use the <strong>‹ ›</strong> arrows at the
+        top to move between months — they all follow the month you pick. <strong>Dark mode</strong> is in
+        your account menu.
       </>
     ),
   },
@@ -64,7 +88,7 @@ export function buildTourSteps(noun: string): TourStep[] {
   },
   {
     id: 'transactions',
-    selector: '[data-tour="nav-transactions"]',
+    selector: '[data-tour="nav-transactions"], [data-tour-more~="transactions"]',
     title: 'Track what you actually spend',
     body: (
       <>
@@ -76,7 +100,7 @@ export function buildTourSteps(noun: string): TourStep[] {
   },
   {
     id: 'accounts',
-    selector: '[data-tour="nav-accounts"]',
+    selector: '[data-tour="nav-accounts"], [data-tour-more~="accounts"]',
     title: 'Know where your money sits',
     body: (
       <>
@@ -88,7 +112,7 @@ export function buildTourSteps(noun: string): TourStep[] {
   },
   {
     id: 'jars',
-    selector: '[data-tour="nav-jars"]',
+    selector: '[data-tour="nav-jars"], [data-tour-more~="jars"]',
     title: 'Save up with jars',
     body: (
       <>
@@ -99,7 +123,7 @@ export function buildTourSteps(noun: string): TourStep[] {
   },
   {
     id: 'reports',
-    selector: '[data-tour="nav-reports"]',
+    selector: '[data-tour="nav-reports"], [data-tour-more~="reports"]',
     title: 'See the bigger picture',
     body: (
       <>
@@ -110,7 +134,7 @@ export function buildTourSteps(noun: string): TourStep[] {
   },
   {
     id: 'people',
-    selector: '[data-tour="nav-people"]',
+    selector: '[data-tour="nav-people"], [data-tour-more~="people"]',
     title: 'Sharing money with someone?',
     body: (
       <>

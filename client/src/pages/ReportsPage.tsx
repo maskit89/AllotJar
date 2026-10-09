@@ -216,7 +216,7 @@ export function ReportsPage() {
             {/* Income vs spending — a column per month (income solid, spent ghost). */}
             <Card as="section" className="px-6 py-[22px]">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <h3 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Income vs spending</h3>
+                <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Income vs spending</h2>
                 <div className="flex gap-4 text-xs text-slate-500">
                   <span className="flex items-center gap-1.5">
                     <span className="h-2.5 w-2.5 rounded-sm" style={{ background: 'var(--color-brand-600)' }} /> Income
@@ -273,7 +273,7 @@ export function ReportsPage() {
             {annual?.months && annual.months.length > 0 && (
               <Card as="section" className="px-6 py-[22px]">
                 <div className="mb-4 flex items-center justify-between">
-                  <h3 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Annual overview</h3>
+                  <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Annual overview</h2>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -379,9 +379,9 @@ export function ReportsPage() {
             {/* Average monthly spend per category across the year (the workbook's AVERAGE column). */}
             {annual?.categories && annual.categories.length > 0 && (
               <Card as="section" className="px-6 py-[22px]">
-                <h3 className="mb-1 text-[15px] font-bold tracking-[-0.01em] text-slate-900">
+                <h2 className="mb-1 text-[15px] font-bold tracking-[-0.01em] text-slate-900">
                   Average monthly spending by category
-                </h3>
+                </h2>
                 <p className="mb-4 text-xs text-slate-500">
                   Each category’s spend averaged over {averagedMonths} {averagedMonths === 1 ? 'month' : 'months'} of{' '}
                   {annual.year}, counting a month with no budget as a month too.
@@ -426,7 +426,7 @@ export function ReportsPage() {
             {/* Spending by category for the chosen month. */}
             <Card as="section" className="px-6 py-[22px]">
               <div className="mb-4 flex items-center justify-between gap-3">
-                <h3 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Spending by category</h3>
+                <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Spending by category</h2>
                 <select
                   aria-label="Breakdown month"
                   value={breakdownKey ?? ''}
@@ -522,7 +522,7 @@ function JarSpendingCard({ report, fallbackCurrency }: { report: JarSpendingRepo
   const cell = (minor: Minor, currency: string) => (minor === 0 ? '—' : formatMoney(minor, currency))
   return (
     <Card as="section" className="px-6 py-[22px]">
-      <h3 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Spending from jars</h3>
+      <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Spending from jars</h2>
       <p className="mb-4 mt-1 text-xs text-slate-500">
         What each jar paid out in {report.year}, by the month it was paid. Money moved between jars is not spending.
       </p>

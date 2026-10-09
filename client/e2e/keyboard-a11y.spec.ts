@@ -96,7 +96,8 @@ test('focus-visible ring appears on Tab for the skip link and the first nav link
 })
 
 // UX-014 — the month navigator arrows are labelled buttons and keyboard-operable;
-// activating them moves the app-wide viewed month (the <h2> label updates).
+// activating them moves the app-wide viewed month (the <h2> label in the top bar's
+// "Month" group updates).
 test('month navigator arrows are labelled and keyboard-operable (UX-014)', async ({ page }) => {
   await authedSetup(page, 'light')
   await page.goto('/')
@@ -104,7 +105,7 @@ test('month navigator arrows are labelled and keyboard-operable (UX-014)', async
 
   const prev = page.getByRole('button', { name: 'Previous month' })
   const next = page.getByRole('button', { name: 'Next month' })
-  const monthLabel = page.getByRole('heading', { level: 2 }).first()
+  const monthLabel = page.getByRole('group', { name: 'Month' }).getByRole('heading', { level: 2 })
   await expect(prev).toBeVisible()
   await expect(next).toBeVisible()
 
@@ -124,8 +125,8 @@ test('month navigator arrows are labelled and keyboard-operable (UX-014)', async
 // Screen-reader structure
 // ---------------------------------------------------------------------------
 
-// UX-017 — every authenticated route exposes exactly one <h1> (some rendered
-// sr-only by AppShell, some visible via PageHeader), never zero or two.
+// UX-017 — every authenticated route exposes exactly one <h1> (the page title in
+// the AppShell top bar), never zero or two.
 for (const path of AUTHED_ROUTES) {
   test(`${path} exposes exactly one h1 (UX-017)`, async ({ page }) => {
     await authedSetup(page, 'light')
@@ -163,29 +164,137 @@ test('primary nav is a landmark labelled "Primary" with a current-page marker (U
 // aria-pressed toggle controls, keyboard-operated (UX-013 + the bill Paid toggle)
 // ---------------------------------------------------------------------------
 
-// UX-013 — the theme control is a role="group" of aria-pressed <button>s (not a
-// tablist), operable with the keyboard; activating flips the pressed state and
-// applies the .dark class app-wide.
+// UX-013 — the top bar's theme control is one aria-pressed toggle <button> named
+// "Dark mode", operable with the keyboard; activating it flips the pressed state
+// and applies the .dark class app-wide, and again brings light back.
 test('theme toggle exposes aria-pressed and is keyboard-operable (UX-013)', async ({ page }) => {
   await authedSetup(page, 'light')
   await page.goto('/')
   await page.getByRole('heading', { level: 1 }).first().waitFor()
 
-  const group = page.getByRole('group', { name: 'Theme' })
-  await expect(group).toBeVisible()
-  const light = group.getByRole('button', { name: 'Light mode' })
-  const dark = group.getByRole('button', { name: 'Dark mode' })
+  const dark = page.getByRole('button', { name: 'Dark mode', exact: true })
+  await expect(dark).toBeVisible()
 
-  // Starts in light: Light pressed, Dark not.
-  await expect(light).toHaveAttribute('aria-pressed', 'true')
+  // Starts in light: Dark mode not pressed.
   await expect(dark).toHaveAttribute('aria-pressed', 'false')
   await expect(page.locator('html')).not.toHaveClass(/dark/)
 
-  // Keyboard-activate Dark → pressed state flips and the app goes dark.
+  // Keyboard-activate it → pressed state flips and the app goes dark.
   await dark.press('Enter')
   await expect(dark).toHaveAttribute('aria-pressed', 'true')
-  await expect(light).toHaveAttribute('aria-pressed', 'false')
   await expect(page.locator('html')).toHaveClass(/dark/)
+
+  // Space flips it back to light.
+  await dark.press(' ')
+  await expect(dark).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.locator('html')).not.toHaveClass(/dark/)
+})
+
+// The account menu (the sidebar's account button on desktop) is a keyboard menu:
+// Enter opens it with focus inside, its Dark mode switch is a menuitemcheckbox in
+// step with the top bar's button, Escape closes it and focus returns to the button.
+test('the account menu opens, switches the theme and closes from the keyboard', async ({ page }) => {
+  await authedSetup(page, 'light')
+  await page.goto('/')
+  await page.getByRole('heading', { level: 1 }).first().waitFor()
+
+  const trigger = page.getByRole('button', { name: /account menu/i })
+  await expect(trigger).toHaveCount(1) // the phone avatar is display:none at desktop width
+  await trigger.focus()
+  await page.keyboard.press('Enter')
+  const menu = page.getByRole('menu')
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'Account settings' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'Sign out' })).toBeVisible()
+  // A single household: no switcher.
+  await expect(menu.getByText('Household', { exact: true })).toHaveCount(0)
+
+  // The Dark mode switch: a checkbox item; choosing it keeps the menu open.
+  const sw = menu.getByRole('menuitemcheckbox', { name: 'Dark mode' })
+  await expect(sw).toHaveAttribute('aria-checked', 'false')
+  await sw.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await expect(sw).toHaveAttribute('aria-checked', 'true')
+  await expect(menu).toBeVisible()
+
+  // Escape closes the menu and returns focus to the account button.
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+  // The top bar's button followed the switch.
+  await expect(page.getByRole('button', { name: 'Dark mode', exact: true })).toHaveAttribute('aria-pressed', 'true')
+})
+
+// The menu's items carry a focus outline for the keyboard only. Pointing at an item with the mouse
+// highlights it quietly (Chrome would otherwise count the focus Radix moves there as
+// :focus-visible); the first arrow key brings the outline back.
+test('the account menu shows its focus outline to the keyboard, not the mouse', async ({ page }) => {
+  await authedSetup(page, 'light')
+  await page.goto('/')
+  await page.getByRole('heading', { level: 1 }).first().waitFor()
+
+  const trigger = page.getByRole('button', { name: /account menu/i })
+  const box = (await trigger.boundingBox())!
+  await page.mouse.move(box.x + 40, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.up()
+  const menu = page.getByRole('menu')
+  await expect(menu).toBeVisible()
+
+  const look = (item: import('@playwright/test').Locator) =>
+    item.evaluate((el) => {
+      const cs = getComputedStyle(el)
+      return { focused: el === document.activeElement, color: cs.outlineColor, bg: cs.backgroundColor }
+    })
+  const signOut = menu.getByRole('menuitem', { name: 'Sign out' })
+  const box2 = (await signOut.boundingBox())!
+  await page.mouse.move(box2.x + 60, box2.y + box2.height / 2, { steps: 4 })
+  await expect.poll(async () => (await look(signOut)).focused).toBe(true)
+  const hovered = await look(signOut)
+  expect(hovered.color, 'no outline under the mouse').toBe('rgba(0, 0, 0, 0)')
+  expect(hovered.bg, 'the quiet highlight').not.toBe('rgba(0, 0, 0, 0)')
+
+  // (Radix moves focus a tick after the key, hence the poll.)
+  const darkMode = menu.getByRole('menuitemcheckbox', { name: 'Dark mode' })
+  await page.keyboard.press('ArrowUp')
+  await expect.poll(async () => (await look(darkMode)).focused).toBe(true)
+  expect((await look(darkMode)).color, 'the ring colour for the keyboard').not.toBe('rgba(0, 0, 0, 0)')
+})
+
+// On a phone the More tab opens a modal sheet (a dialog) with the remaining pages,
+// the account, a Dark mode switch and Sign out; Escape closes it and focus returns
+// to More.
+test('the phone More sheet opens and closes from the keyboard', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await authedSetup(page, 'light')
+  await page.goto('/')
+  await page.getByRole('heading', { level: 1 }).first().waitFor()
+
+  const tabs = page.getByRole('navigation', { name: 'Primary' })
+  await expect(tabs).toHaveCount(1) // the sidebar is display:none on a phone
+  for (const name of ['Dashboard', 'Transactions', 'Jars', 'Reports'])
+    await expect(tabs.getByRole('link', { name })).toBeVisible()
+  await expect(tabs.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('aria-current', 'page')
+
+  const more = tabs.getByRole('button', { name: 'More' })
+  await more.focus()
+  await page.keyboard.press('Enter')
+  const sheet = page.getByRole('dialog', { name: 'More' })
+  await expect(sheet).toBeVisible()
+  // The sheet is modal: the tab bar behind it is hidden from the accessibility tree while it is
+  // open, so the trigger is read by its slot here.
+  await expect(page.locator('[data-tabbar] [data-slot="sheet-trigger"]')).toHaveAttribute('aria-expanded', 'true')
+  const pages = sheet.getByRole('navigation', { name: 'More pages' })
+  for (const name of ['Accounts', 'People', 'Allocation', 'Import', 'Help'])
+    await expect(pages.getByRole('link', { name })).toBeVisible()
+  await expect(sheet.getByRole('switch', { name: 'Dark mode' })).toHaveAttribute('aria-checked', 'false')
+  await expect(sheet.getByRole('button', { name: 'Sign out' })).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+  await expect(more).toBeFocused()
+  await expect(more).toHaveAttribute('aria-expanded', 'false')
 })
 
 // UX-013 — the Sign-in / Create-account segmented control is a labelled group of
@@ -333,7 +442,7 @@ test('prefers-reduced-motion collapses transition durations app-wide (UX-049)', 
   await page.getByRole('heading', { level: 1 }).first().waitFor()
 
   // A control that carries a Tailwind `transition` (non-zero default duration).
-  const button = page.getByRole('button', { name: 'Light mode' })
+  const button = page.getByRole('button', { name: 'Dark mode', exact: true })
   const durationSeconds = () =>
     button.evaluate((el) => parseFloat(getComputedStyle(el).transitionDuration))
 

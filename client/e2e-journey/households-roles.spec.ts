@@ -281,12 +281,14 @@ test('a pure invitee starts their own budget (nothing seeded), switches househol
   await expect(guest.getByRole('button', { name: 'Leave household' })).toHaveCount(0)
 
   // --- PPL-057: the account-menu switcher lists both households; switching re-bootstraps ---
+  // The households are radio items (menuitemradio), the active one checked.
   await guest.getByRole('button', { name: 'Account menu' }).first().click()
   const menu = guest.getByRole('menu')
   await expect(menu.getByText('Household', { exact: true })).toBeVisible()
-  await expect(menu.getByRole('menuitem', { name: 'Your household' })).toBeVisible()
+  await expect(menu.getByRole('menuitemradio', { name: 'Your household' })).toBeVisible()
+  await expect(menu.getByRole('menuitemradio', { name: 'Your household' })).toHaveAttribute('aria-checked', 'true')
   const switched = guest.waitForResponse((r) => r.url().includes('/households/switch') && r.ok())
-  await menu.getByRole('menuitem', { name: 'Olive Tester' }).click()
+  await menu.getByRole('menuitemradio', { name: 'Olive Tester' }).click()
   await switched
   // ROLE-036 + PPL-058: after the full reload the app re-scopes to the shared household —
   // its budget is back, the role re-resolves to Limited, and People shows both members.
@@ -312,7 +314,7 @@ test('a pure invitee starts their own budget (nothing seeded), switches househol
   const menuAfter = guest.getByRole('menu')
   await expect(menuAfter.getByRole('menuitem', { name: 'Account settings' })).toBeVisible()
   await expect(menuAfter.getByText('Household', { exact: true })).toHaveCount(0)
-  await expect(menuAfter.getByRole('menuitem', { name: 'Olive Tester' })).toHaveCount(0)
+  await expect(menuAfter.getByRole('menuitemradio', { name: 'Olive Tester' })).toHaveCount(0)
 
   await guestContext.close()
 })
