@@ -23,6 +23,7 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { AccountPage } from './AccountPage'
+import { useAuth } from '../auth/AuthContext'
 import { axiosError } from '../test/fixtures/http'
 import { joinedMe, ownerMe } from '../test/fixtures/me'
 
@@ -31,10 +32,21 @@ import { joinedMe, ownerMe } from '../test/fixtures/me'
 // readOnlyMe is a Read-only member (role 3) viewing a household they only joined.
 const readOnlyMe = joinedMe(3, { userId: 'u3' })
 
-/** Matches the user-chip's "<CURRENCY> · <household>" second line without depending on
- *  the middot glyph — asserts the currency code re-labels alongside the household name. */
+/** Matches the probe's "<CURRENCY> · <household>" line without depending on the middot
+ *  glyph — asserts the currency code re-labels alongside the household name. */
 function chipShows(currency: string) {
   return (content: string) => content.includes(currency) && content.includes('Your household')
+}
+
+/**
+ * The app-wide active currency and household, as AuthContext publishes them. The app frame's
+ * account button shows only the name and household now (the approved mock-ups), so the
+ * currency re-label (PREF-011/013) is read from the context the whole app formats money with.
+ */
+function CurrencyProbe() {
+  const { budgetCurrency, households } = useAuth()
+  const household = households.find((h) => h.isActive)?.label
+  return <span data-testid="currency-probe">{household ? `${budgetCurrency} · ${household}` : ''}</span>
 }
 
 let membersData: HouseholdMemberDto[] = []
@@ -42,14 +54,17 @@ let meData: MeResponse = ownerMe
 
 function renderPage(opts: { withPeopleRoute?: boolean } = {}) {
   return renderWithProviders(
-    opts.withPeopleRoute ? (
-      <Routes>
-        <Route path="/account" element={<AccountPage />} />
-        <Route path="/people" element={<div>PEOPLE PAGE SENTINEL</div>} />
-      </Routes>
-    ) : (
-      <AccountPage />
-    ),
+    <>
+      {opts.withPeopleRoute ? (
+        <Routes>
+          <Route path="/account" element={<AccountPage />} />
+          <Route path="/people" element={<div>PEOPLE PAGE SENTINEL</div>} />
+        </Routes>
+      ) : (
+        <AccountPage />
+      )}
+      <CurrencyProbe />
+    </>,
     { route: '/account', household: true },
   )
 }
@@ -443,26 +458,26 @@ describe('AccountPage — preferences catalog (PREF)', () => {
   })
 
   // PREF-036 — An explicit theme pick applies instantly (the <html> gains/loses `dark`),
-  // reflects aria-pressed, and persists to localStorage['zbb.theme'] on this device.
+  // reflects aria-pressed, and persists to localStorage['zbb.theme'] on this device. The
+  // control is the top bar's Dark mode toggle.
   it('PREF-036: picking a theme applies it instantly and persists on this device', async () => {
     const user = userEvent.setup()
 
     renderPage()
 
     const darkBtn = await screen.findByRole('button', { name: 'Dark mode' }, { timeout: 5000 })
-    const lightBtn = screen.getByRole('button', { name: 'Light mode' })
     // Fresh profile, jsdom has no matchMedia → defaults to light.
     expect(document.documentElement).not.toHaveClass('dark')
+    expect(darkBtn).toHaveAttribute('aria-pressed', 'false')
 
     await user.click(darkBtn)
     expect(document.documentElement).toHaveClass('dark')
     expect(darkBtn).toHaveAttribute('aria-pressed', 'true')
-    expect(lightBtn).toHaveAttribute('aria-pressed', 'false')
     expect(localStorage.getItem('zbb.theme')).toBe('dark')
 
-    await user.click(lightBtn)
+    await user.click(darkBtn)
     expect(document.documentElement).not.toHaveClass('dark')
-    expect(lightBtn).toHaveAttribute('aria-pressed', 'true')
+    expect(darkBtn).toHaveAttribute('aria-pressed', 'false')
     expect(localStorage.getItem('zbb.theme')).toBe('light')
   })
 

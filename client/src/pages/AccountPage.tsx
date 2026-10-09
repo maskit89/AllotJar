@@ -203,8 +203,8 @@ export function AccountPage() {
   }
 
   return (
-    <AppShell maxWidth="4xl">
-      <PageHeader title="Account" subtitle="Your details, preferences and password." />
+    <AppShell active="account" title="Account" maxWidth="4xl">
+      <PageHeader subtitle="Your details, preferences and password." />
 
       <Card className="p-5">
         <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">

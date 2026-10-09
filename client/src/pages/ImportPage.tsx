@@ -823,14 +823,13 @@ export function ImportPage() {
   }
 
   return (
-    <AppShell active="transactions" maxWidth="5xl">
+    <AppShell active="import" title="Import transactions" maxWidth="5xl">
       <div>
         <Link to="/transactions" className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200">
           ← Back to transactions
         </Link>
       </div>
       <PageHeader
-        title="Import transactions"
         subtitle="Upload a bank export, review and categorise the new transactions, then import. Re-importing the same file won't create duplicates."
       />
 

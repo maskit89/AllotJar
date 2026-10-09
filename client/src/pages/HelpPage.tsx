@@ -32,7 +32,7 @@ function HelpCard({
       >
         <span className="h-4 w-4 rounded-md" style={{ background: hueColor(hue) }} />
       </div>
-      <h3 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">{title}</h3>
+      <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">{title}</h2>
       <div className="mt-1 space-y-1.5 text-sm leading-relaxed text-slate-600">{children}</div>
     </Card>
   )
@@ -44,9 +44,8 @@ export function HelpPage() {
   const { budgetCurrency } = useAuth()
   const noun = currencyNoun(budgetCurrency)
   return (
-    <AppShell active="help">
+    <AppShell active="help" title="Help & guide">
       <PageHeader
-        title="Help & guide"
         subtitle="How each part of AllotJar works."
         actions={
           <Button variant="secondary" size="sm" onClick={replay}>
@@ -67,8 +66,9 @@ export function HelpPage() {
 
         <HelpCard hueIndex={1} title="Months & appearance">
           <p>
-            The bar at the top of every page is the <strong>month picker</strong> — use the ‹ › arrows to plan
-            any month, and every screen follows along. The <strong>light/dark</strong> toggle is on the right.
+            The <strong>month picker</strong> at the top of the Dashboard, Transactions, People and Allocation —
+            use the ‹ › arrows to plan any month, and those screens follow along. <strong>Dark mode</strong> is a
+            switch in your account menu, and the button at the top right on a computer.
           </p>
         </HelpCard>
 
@@ -119,7 +119,8 @@ export function HelpPage() {
 
         <HelpCard hueIndex={3} title="Your account">
           <p>
-            Open the menu under your name (bottom of the sidebar) for <strong>Account settings</strong> — your
+            Open the menu under your name (bottom of the sidebar; on a phone, your initials at the top) for{' '}
+            <strong>Account settings</strong> — your
             display name, currency and number format, and changing your password. If you belong to
             more than one household, switch between them there too.
           </p>

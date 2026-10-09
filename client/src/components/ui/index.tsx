@@ -77,7 +77,7 @@ export function Button({
 export function Input({ className = '', ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
-      className={`rounded-lg border border-slate-400 bg-surface px-3 py-2 text-sm text-slate-800 transition placeholder:text-slate-500 focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/40 disabled:opacity-50 ${className}`}
+      className={`rounded-lg border border-input bg-surface px-3 py-2 text-sm text-slate-800 transition placeholder:text-slate-500 focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/40 disabled:opacity-50 ${className}`}
       {...rest}
     />
   )
@@ -87,7 +87,7 @@ export function Input({ className = '', ...rest }: InputHTMLAttributes<HTMLInput
 export function Select({ className = '', children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
-      className={`rounded-lg border border-slate-400 bg-surface px-3 py-2 text-sm text-slate-700 transition focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/40 disabled:opacity-50 ${className}`}
+      className={`rounded-lg border border-input bg-surface px-3 py-2 text-sm text-slate-700 transition focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/40 disabled:opacity-50 ${className}`}
       {...rest}
     >
       {children}
@@ -123,24 +123,24 @@ export function Badge({
 }
 
 /**
- * The standard page heading: an `<h1>` title with optional muted subtitle and a
- * right-hand actions slot. Gives every page a single, consistent top-level
- * heading (good for both visual hierarchy and screen-reader navigation).
+ * A page's opening row: an optional `<h1>` title, a muted subtitle and a right-hand actions slot.
+ * Inside the app frame the top bar already shows the page title as the screen's `<h1>`, so pages
+ * there pass only the subtitle and actions; `title` is for a page outside the frame.
  */
 export function PageHeader({
   title,
   subtitle,
   actions,
 }: {
-  title: ReactNode
+  title?: ReactNode
   subtitle?: ReactNode
   actions?: ReactNode
 }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className={`flex flex-wrap justify-between gap-4 ${title ? 'items-end' : 'items-center'}`}>
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
+        {title && <h1 className="text-3xl font-bold tracking-tight text-slate-900">{title}</h1>}
+        {subtitle && <p className={`text-sm text-slate-500 ${title ? 'mt-1' : ''}`}>{subtitle}</p>}
       </div>
       {actions}
     </div>
@@ -167,7 +167,9 @@ export function SegmentedControl<T extends string>({
     <div
       role="group"
       aria-label={ariaLabel}
-      className="grid auto-cols-fr grid-flow-col gap-1 rounded-lg bg-slate-100 p-1 text-sm font-medium"
+      // The track: the inset surface ringed by a hairline, so it keeps its shape on the sage page
+      // (where a plain tint all but vanishes) as well as on a card.
+      className="grid auto-cols-fr grid-flow-col gap-1 rounded-lg bg-surface-2 p-1 text-sm font-medium shadow-[inset_0_0_0_1px_var(--color-border)]"
     >
       {options.map((o) => {
         const selected = o.value === value

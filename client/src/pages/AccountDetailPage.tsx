@@ -199,7 +199,7 @@ export function AccountDetailPage() {
                           {shortDate(legDate ?? t.date)}
                           {beforeOpening && (
                             <span
-                              className="ml-1.5 rounded-[5px] border border-slate-200 bg-slate-50 px-1.5 py-px text-[9.5px] font-semibold text-slate-500 dark:border-slate-600 dark:bg-slate-800"
+                              className="ml-1.5 rounded-[5px] border border-slate-200 bg-slate-50 px-1.5 py-px text-[9.5px] font-semibold text-slate-500"
                               title={`Dated before the opening balance of ${formatDate(account.openingDate!)}, which already includes it: kept as history, it doesn’t change the balance.`}
                             >
                               Before opening

@@ -308,14 +308,15 @@ test.describe('responsive — data tables scroll inside their own container (375
 // ---------------------------------------------------------------------------
 
 test.describe('dark mode — token inversion + primitives', () => {
-  const themeGroup = (page: import('@playwright/test').Page) =>
-    page.getByRole('group', { name: 'Theme' })
+  // The top bar's theme control: one aria-pressed toggle named "Dark mode".
+  const darkMode = (page: import('@playwright/test').Page) =>
+    page.getByRole('button', { name: 'Dark mode', exact: true })
 
   // UX-024 — toggling to Dark stamps `.dark` on the root and inverts the slate
   // ramp app-wide: a known bg-slate-50 surface (the reconciliation header, which
   // carries NO dark: override) flips from near-white to near-black purely via the
-  // remapped ramp. Driven with the real ThemeToggle so the "stamp the root" step
-  // is the live toggle, not a preloaded class.
+  // remapped ramp. Driven with the top bar's real Dark mode button so the "stamp the
+  // root" step is the live toggle, not a preloaded class.
   test('toggling to dark stamps the root and inverts the slate ramp (UX-024)', async ({ page }) => {
     await authedSetup(page, 'light')
     await page.goto('/accounts')
@@ -332,7 +333,7 @@ test.describe('dark mode — token inversion + primitives', () => {
     expect(luminance(lightBg), 'bg-slate-50 should be near-white in light').toBeGreaterThan(0.5)
 
     // Toggle → the root gains .dark and the SAME surface inverts to near-black.
-    await themeGroup(page).getByRole('button', { name: 'Dark mode' }).click()
+    await darkMode(page).click()
     await expect(page.locator('html')).toHaveClass(/dark/)
     await expect
       .poll(async () => luminance((await sample(slateSurface)).ownBg))
@@ -371,9 +372,9 @@ test.describe('dark mode — token inversion + primitives', () => {
     )
   })
 
-  // UX-026 — accent-on-tint surfaces (which don't ride the slate ramp) carry paired
-  // dark: variants. The active sidebar nav link flips from a dark brand text in
-  // light to the brightened brand-200 in dark, and stays AA-legible on its tint.
+  // UX-026 — the active sidebar nav link (the current page on its raised card) flips
+  // from dark ink in light to light ink in dark with the theme, and stays AA-legible
+  // on its card in both.
   test('accent tints keep their dark variant and stay AA-legible (UX-026)', async ({ page }) => {
     await authedSetup(page, 'light')
     await page.goto('/accounts')
@@ -382,12 +383,13 @@ test.describe('dark mode — token inversion + primitives', () => {
     const active = page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Accounts' })
     await expect(active).toHaveAttribute('aria-current', 'page')
 
-    // Light: the accent text is a dark brand tone.
-    const lightColor = (await sample(active)).color
-    expect(luminance(lightColor), 'active-nav accent should be dark in light').toBeLessThan(0.3)
+    // Light: the active item's text is dark ink, AA on its card.
+    const light = await sample(active)
+    expect(luminance(light.color), 'active-nav text should be dark in light').toBeLessThan(0.3)
+    expect(contrast(light.color, light.effBg), 'active-nav text illegible in light').toBeGreaterThanOrEqual(4.5)
 
-    // Dark: the dark: variant brightens the accent text and it clears AA on its tint.
-    await themeGroup(page).getByRole('button', { name: 'Dark mode' }).click()
+    // Dark: the text brightens and still clears AA on its card.
+    await darkMode(page).click()
     await expect(page.locator('html')).toHaveClass(/dark/)
     await expect.poll(async () => luminance((await sample(active)).color)).toBeGreaterThan(0.4)
     const dark = await sample(active)

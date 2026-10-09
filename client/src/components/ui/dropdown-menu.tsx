@@ -1,4 +1,4 @@
-import type { ComponentProps } from 'react'
+import type { ComponentProps, KeyboardEvent, PointerEvent } from 'react'
 import { DropdownMenu as DropdownMenuPrimitive } from 'radix-ui'
 import { CheckIcon, ChevronRightIcon, CircleIcon } from 'lucide-react'
 
@@ -11,9 +11,41 @@ import { cn } from '../../lib/utils'
  *   :focus-visible outline for the keyboard, drawn inside the item in the ring colour
  *   (`-outline-offset-2! outline-ring!` beat that unlayered rule) so it never covers the
  *   neighbouring items and still shows in Windows high-contrast mode;
+ * - that outline is for the keyboard only: the trigger cancels pointerdown, so Chrome counts the
+ *   focus Radix moves onto the item under the mouse as :focus-visible. The menu marks itself
+ *   `data-pointer` while the pointer drives it (a key press clears it) and its items turn the
+ *   outline transparent under it (ITEM_OUTLINE), which forced-colours mode still draws;
  * - a destructive item uses destructive-text, the red that stays readable on the dark popover;
- *   its icons follow the text colour.
+ *   its icons follow the text colour;
+ * - in dark the popover is raised well above the page (#2a362f, as in the mock-ups), where the
+ *   border token all but vanishes: the menu takes the text colour at 12% for its edge and a
+ *   separator is a shade darker than the menu (black at 20%).
  */
+
+/** The keyboard outline every item carries (see the note above): inside the item, in the ring
+ *  colour, transparent while the pointer drives the menu. */
+const ITEM_OUTLINE = '-outline-offset-2! outline-ring! in-data-[pointer]:outline-transparent!'
+
+/**
+ * Pointer modality for a menu surface: `data-pointer` while the mouse or a finger moves over it,
+ * cleared by any key press, so the items show the keyboard outline only to the keyboard.
+ */
+function pointerModality<T extends HTMLElement>(
+  onPointerMove?: (e: PointerEvent<T>) => void,
+  onKeyDown?: (e: KeyboardEvent<T>) => void,
+) {
+  return {
+    onPointerMove: (e: PointerEvent<T>) => {
+      if (e.currentTarget.dataset.pointer === undefined) e.currentTarget.dataset.pointer = ''
+      onPointerMove?.(e)
+    },
+    onKeyDown: (e: KeyboardEvent<T>) => {
+      delete e.currentTarget.dataset.pointer
+      onKeyDown?.(e)
+    },
+  }
+}
+
 function DropdownMenu({ ...props }: ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
 }
@@ -29,6 +61,8 @@ function DropdownMenuTrigger({ ...props }: ComponentProps<typeof DropdownMenuPri
 function DropdownMenuContent({
   className,
   sideOffset = 4,
+  onPointerMove,
+  onKeyDown,
   ...props
 }: ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   return (
@@ -36,8 +70,9 @@ function DropdownMenuContent({
       <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
+        {...pointerModality(onPointerMove, onKeyDown)}
         className={cn(
-          'z-[90] max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
+          'z-[90] max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border border-border bg-popover dark:border-foreground/12 p-1 text-popover-foreground shadow-md data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
           className,
         )}
         {...props}
@@ -65,7 +100,8 @@ function DropdownMenuItem({
       data-inset={inset}
       data-variant={variant}
       className={cn(
-        "relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm -outline-offset-2! outline-ring! select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
+        "relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
+        ITEM_OUTLINE,
         'data-[variant=destructive]:text-destructive-text data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive-text data-[variant=destructive]:*:[svg]:text-current! dark:data-[variant=destructive]:focus:bg-destructive/20',
         className,
       )}
@@ -84,7 +120,8 @@ function DropdownMenuCheckboxItem({
     <DropdownMenuPrimitive.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
       className={cn(
-        "relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm -outline-offset-2! outline-ring! select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        ITEM_OUTLINE,
         className,
       )}
       checked={checked}
@@ -116,7 +153,8 @@ function DropdownMenuRadioItem({
     <DropdownMenuPrimitive.RadioItem
       data-slot="dropdown-menu-radio-item"
       className={cn(
-        "relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm -outline-offset-2! outline-ring! select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        ITEM_OUTLINE,
         className,
       )}
       {...props}
@@ -155,7 +193,7 @@ function DropdownMenuSeparator({ className, ...props }: ComponentProps<typeof Dr
   return (
     <DropdownMenuPrimitive.Separator
       data-slot="dropdown-menu-separator"
-      className={cn('-mx-1 my-1 h-px bg-border', className)}
+      className={cn('-mx-1 my-1 h-px bg-border dark:bg-black/20', className)}
       {...props}
     />
   )
@@ -188,7 +226,8 @@ function DropdownMenuSubTrigger({
       data-slot="dropdown-menu-sub-trigger"
       data-inset={inset}
       className={cn(
-        "flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm -outline-offset-2! outline-ring! select-none focus:bg-accent focus:text-accent-foreground data-[inset]:pl-8 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
+        "flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm select-none focus:bg-accent focus:text-accent-foreground data-[inset]:pl-8 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
+        ITEM_OUTLINE,
         className,
       )}
       {...props}
@@ -199,12 +238,18 @@ function DropdownMenuSubTrigger({
   )
 }
 
-function DropdownMenuSubContent({ className, ...props }: ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
+function DropdownMenuSubContent({
+  className,
+  onPointerMove,
+  onKeyDown,
+  ...props
+}: ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
   return (
     <DropdownMenuPrimitive.SubContent
       data-slot="dropdown-menu-sub-content"
+      {...pointerModality(onPointerMove, onKeyDown)}
       className={cn(
-        'z-[90] min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
+        'z-[90] min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden rounded-md border border-border bg-popover dark:border-foreground/12 p-1 text-popover-foreground shadow-lg data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
         className,
       )}
       {...props}

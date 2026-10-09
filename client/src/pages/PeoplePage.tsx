@@ -524,7 +524,7 @@ export function PeoplePage() {
   )
 
   return (
-    <AppShell active="people" title="People">
+    <AppShell active="people" title="People" month>
       <Hero
         eyebrow="Income this month"
         amount={formatMoney(monthIncomeMinor, CURRENCY)}
