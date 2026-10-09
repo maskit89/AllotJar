@@ -1,5 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
+/* Enter/exit animations for the shadcn/ui building blocks (dialogs, menus, popovers). */
+@import "tw-animate-css";
 
 /* Design tokens. Tailwind v4 reads theme from CSS, so no JS config. */
 @theme {
@@ -41,6 +43,40 @@
      A gradient, not a colour, so it's applied via `bg-[image:var(--hero-grad)]`
      or the `.hero-surface` helper rather than a Tailwind colour utility. */
   --hero-grad: linear-gradient(135deg, #114a32, #1a6347 45%, #247e58);
+
+  /* shadcn/ui semantic tokens (src/components/ui/*). Named the shadcn way so its
+     components read naturally (bg-primary, text-muted-foreground, border-border),
+     mapped onto the agreed warm restyle: a soft sage page instead of white, off-white
+     cards, the brand green. Flipped for dark mode in the .dark block below. Nothing
+     in the live app uses them yet. The radius scale is left at Tailwind's defaults
+     so existing rounded-* classes don't move. */
+  --color-background: #e3eae4;
+  --color-foreground: #15201b;
+  --color-card: #f4f7f2;
+  --color-card-foreground: #15201b;
+  --color-popover: #f8faf6;
+  --color-popover-foreground: #15201b;
+  --color-primary: #1f6b4d;
+  --color-primary-foreground: #ffffff;
+  /* The tints sit a step darker than the sage page so tracks, skeletons and hovers keep a
+     visible shape on the page as well as on cards. */
+  --color-secondary: #d9e1da;
+  --color-secondary-foreground: #15201b;
+  --color-muted: #d9e1da;
+  --color-muted-foreground: #52625a;
+  --color-accent: #d3dfd6;
+  --color-accent-foreground: #155239;
+  /* destructive backs white text (buttons, badges); destructive-text is the red for
+     text and outlines on a surface, which has to be lighter in dark mode. */
+  --color-destructive: #be123c;
+  --color-destructive-foreground: #ffffff;
+  --color-destructive-text: #be123c;
+  /* border: hairlines between surfaces; input: form-field outlines (3:1 on the page and cards). */
+  --color-border: #d0dad2;
+  --color-input: #77867c;
+  --color-ring: #2e8b63;
+  /* The scrim behind dialogs and sheets, the same in both themes. */
+  --color-overlay: rgb(0 0 0 / 0.5);
 }
 
 /* Sinking-fund / budget-group / account category palette — five hues at equal
@@ -111,6 +147,30 @@
   --color-slate-800: #f1f5f9;
   --color-slate-900: #f8fafc;
   --color-slate-950: #ffffff;
+
+  /* shadcn/ui semantic tokens, dark. Primary lifts to #2a7d5a so a filled button
+     still separates from the card (3.5:1) while white text on it clears AA (5:1). */
+  --color-background: #0e1311;
+  --color-foreground: #e9f0eb;
+  --color-card: #131a17;
+  --color-card-foreground: #e9f0eb;
+  --color-popover: #131a17;
+  --color-popover-foreground: #e9f0eb;
+  --color-primary: #2a7d5a;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #1c2621;
+  --color-secondary-foreground: #e9f0eb;
+  --color-muted: #1a221e;
+  --color-muted-foreground: #9db0a6;
+  --color-accent: #18281f;
+  --color-accent-foreground: #9bdcbc;
+  --color-destructive: #be123c;
+  --color-destructive-foreground: #ffffff;
+  /* The app's existing dark error red (rose-400): 6.3:1 on the card. */
+  --color-destructive-text: #ff667f;
+  --color-border: #26322c;
+  --color-input: #63756b;
+  --color-ring: #5fc093;
 }
 
 /* App-wide defaults. */

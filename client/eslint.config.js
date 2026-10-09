@@ -31,4 +31,12 @@ export default defineConfig([
       'react-refresh/only-export-components': 'off',
     },
   },
+  {
+    // shadcn/ui building blocks export their variant helpers (buttonVariants and the like)
+    // next to the component, as upstream does.
+    files: ['src/components/ui/*.tsx'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

@@ -407,7 +407,7 @@ Client:
 - client/src/pages/LandingPage.tsx (+ LandingPage.test.tsx)
 - client/src/pages/LegalLayout.tsx, PrivacyPage.tsx, TermsPage.tsx (+ LegalPages.test.tsx)
 - client/src/features/FeatureContext.tsx
-- client/src/components/AppNav.tsx, Hero.tsx, StagingBanner.tsx, ui.tsx (ErrorBanner/EmptyState)
+- client/src/components/AppNav.tsx, Hero.tsx, StagingBanner.tsx, ui/index.tsx (ErrorBanner/EmptyState)
 - client/src/lib/money.ts, categoryColors.ts, env.ts, api.ts (base/interceptor context)
 - client/src/analytics/AnalyticsProvider.tsx, analytics/events.ts (reportViewed)
 - client/src/types.ts (BudgetTrendsDto/AnnualSummaryDto/FeatureFlags)
