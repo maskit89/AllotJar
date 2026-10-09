@@ -312,7 +312,7 @@ describe('Progress', () => {
 })
 
 describe('Alert', () => {
-  it('is announced as an alert, with a title, a description and an optional icon', () => {
+  it('shows a title, a description and an optional icon, as plain content rather than a live alert', () => {
     render(
       <Alert>
         <CircleAlertIcon data-testid="icon" />
@@ -320,7 +320,9 @@ describe('Alert', () => {
         <AlertDescription>Groceries is 20 over this month.</AlertDescription>
       </Alert>,
     )
-    const alert = screen.getByRole('alert')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    const alert = screen.getByText('Over budget').parentElement!
+    expect(alert).not.toHaveAttribute('role')
     expect(alert).toHaveAttribute('data-slot', 'alert')
     expect(alert).toHaveTextContent('Over budget')
     expect(alert).toHaveClass('border', 'border-border', 'bg-card', 'text-card-foreground')
@@ -330,7 +332,7 @@ describe('Alert', () => {
     expect(screen.getByText('Groceries is 20 over this month.')).toHaveClass('text-muted-foreground')
   })
 
-  it('the destructive variant turns the text red, in the red that stays readable in dark mode', () => {
+  it('the destructive variant is announced as an alert, in the red that stays readable in dark mode', () => {
     render(
       <Alert variant="destructive">
         <AlertTitle>Payment failed</AlertTitle>

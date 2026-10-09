@@ -7,6 +7,8 @@ import { cn } from '../../lib/utils'
  * The destructive alert uses destructive-text, the red that stays readable on a surface in both
  * themes (destructive itself stays deep in dark mode because it backs white button text).
  * AlertTitle wraps instead of upstream's line-clamp-1, so a long title is never cut off on a phone.
+ * Only the destructive alert is a live role="alert", matching the app's ErrorBanner; an
+ * informational one is plain content (pass role="status" when it appears after an action).
  */
 const alertVariants = cva(
   'relative grid w-full grid-cols-[0_1fr] items-start gap-y-0.5 rounded-lg border border-border px-4 py-3 text-sm has-[>svg]:grid-cols-[calc(var(--spacing)*4)_1fr] has-[>svg]:gap-x-3 [&>svg]:size-4 [&>svg]:translate-y-0.5 [&>svg]:text-current',
@@ -25,7 +27,14 @@ const alertVariants = cva(
 )
 
 function Alert({ className, variant, ...props }: ComponentProps<'div'> & VariantProps<typeof alertVariants>) {
-  return <div data-slot="alert" role="alert" className={cn(alertVariants({ variant }), className)} {...props} />
+  return (
+    <div
+      data-slot="alert"
+      role={variant === 'destructive' ? 'alert' : undefined}
+      className={cn(alertVariants({ variant }), className)}
+      {...props}
+    />
+  )
 }
 
 function AlertTitle({ className, ...props }: ComponentProps<'div'>) {

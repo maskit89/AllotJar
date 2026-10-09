@@ -136,6 +136,26 @@ describe('NativeSelect', () => {
     expect(screen.getByRole<HTMLOptionElement>('option', { name: 'Yearly' }).selected).toBe(true)
   })
 
+  it('uses 16px text on phones like Input and Textarea, so iPhone Safari does not zoom in on focus', () => {
+    render(
+      <>
+        <Input aria-label="Amount" />
+        <Textarea aria-label="Note" />
+        <NativeSelect aria-label="Account">
+          <NativeSelectOption value="a">Current</NativeSelectOption>
+        </NativeSelect>
+      </>,
+    )
+    for (const field of [
+      screen.getByRole('textbox', { name: 'Amount' }),
+      screen.getByRole('textbox', { name: 'Note' }),
+      screen.getByRole('combobox', { name: 'Account' }),
+    ]) {
+      expect(field).toHaveClass('text-base', 'md:text-sm')
+      expect(field).not.toHaveClass('text-sm')
+    }
+  })
+
   it('hides the chevron from assistive tech', () => {
     render(<Frequency />)
     const wrapper = screen.getByRole('combobox', { name: 'Frequency' }).parentElement!
