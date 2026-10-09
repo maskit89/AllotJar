@@ -437,7 +437,7 @@ export function AllocationPage() {
   // this route directly gets a friendly nudge to add members rather than an empty engine.
   if (!householdLoading && !isShared) {
     return (
-      <AppShell active="allocation" title="Allocation" month>
+      <AppShell active="allocation" title="Allocation">
         <EmptyState
           icon={<AllocationIcon className="h-6 w-6" />}
           title="Add people first"

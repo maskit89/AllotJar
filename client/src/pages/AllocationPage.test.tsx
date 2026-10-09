@@ -74,6 +74,8 @@ describe('AllocationPage', () => {
     expect(screen.getByRole('button', { name: 'Add people' })).toBeInTheDocument()
     // The allocation setup form must not render in solo mode.
     expect(screen.queryByText('Allocation settings')).not.toBeInTheDocument()
+    // Nothing on this screen reads the month, so the switcher stays hidden.
+    expect(screen.queryByRole('button', { name: 'Previous month' })).not.toBeInTheDocument()
   })
 
   // W13 (P53): a savings account private to someone else isn't "no savings account": the page says
