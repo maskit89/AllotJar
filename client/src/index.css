@@ -58,11 +58,13 @@
   --color-popover-foreground: #15201b;
   --color-primary: #1f6b4d;
   --color-primary-foreground: #ffffff;
-  --color-secondary: #e6ece7;
+  /* The tints sit a step darker than the sage page so tracks, skeletons and hovers keep a
+     visible shape on the page as well as on cards. */
+  --color-secondary: #d9e1da;
   --color-secondary-foreground: #15201b;
-  --color-muted: #e9efea;
+  --color-muted: #d9e1da;
   --color-muted-foreground: #52625a;
-  --color-accent: #dde8e0;
+  --color-accent: #d3dfd6;
   --color-accent-foreground: #155239;
   /* destructive backs white text (buttons, badges); destructive-text is the red for
      text and outlines on a surface, which has to be lighter in dark mode. */
@@ -167,7 +169,7 @@
   /* The app's existing dark error red (rose-400): 6.3:1 on the card. */
   --color-destructive-text: #ff667f;
   --color-border: #26322c;
-  --color-input: #5b6d63;
+  --color-input: #63756b;
   --color-ring: #5fc093;
 }
 

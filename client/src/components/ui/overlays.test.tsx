@@ -178,7 +178,7 @@ describe('Dialog', () => {
       'bg-card',
     )
     // The header keeps clear of the close button in the corner.
-    expect(screen.getByRole('dialog')).toHaveClass('[&_[data-slot=dialog-header]]:px-4')
+    expect(screen.getByRole('dialog')).toHaveClass('[&_[data-slot=dialog-header]]:px-6')
   })
 
   it("lets a caller's className replace a default of the same kind", async () => {

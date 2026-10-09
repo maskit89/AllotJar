@@ -59,7 +59,7 @@ function DialogContent({
         className={cn(
           'fixed top-[50%] left-[50%] z-[80] grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-lg border border-border bg-card p-6 text-card-foreground shadow-lg duration-200 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg',
           // keep a long title clear of the close button in the corner
-          showCloseButton && '[&_[data-slot=dialog-header]]:px-4 sm:[&_[data-slot=dialog-header]]:pl-0',
+          showCloseButton && '[&_[data-slot=dialog-header]]:px-6 sm:[&_[data-slot=dialog-header]]:pl-0',
           className,
         )}
         {...props}
