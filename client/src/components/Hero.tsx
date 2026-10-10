@@ -65,19 +65,3 @@ export function Hero({
     </section>
   )
 }
-
-/**
- * The Budget hero's gold "balanced" badge — a filled gold disc with a dark CSS
- * checkmark, beside the label. Shown only when the budget is balanced; the caller
- * passes the currency-aware "Every <noun> has a job" text.
- */
-export function BalancedBadge({ children = 'Every unit has a job' }: { children?: ReactNode }) {
-  return (
-    <span className="inline-flex items-center gap-2.5 rounded-full bg-black/[0.18] px-[15px] py-2 text-[13.5px] font-semibold">
-      <span className="relative h-[17px] w-[17px] shrink-0 rounded-full bg-gold" aria-hidden>
-        <span className="absolute left-[5px] top-[3px] h-2 w-1 rotate-[43deg] border-[#1c1407] [border-width:0_2px_2px_0]" />
-      </span>
-      {children}
-    </span>
-  )
-}

@@ -50,6 +50,29 @@ for (const theme of ['light', 'dark'] as const) {
       await expectNoViolations(page)
     })
 
+    // The Dashboard's row actions (restyle PR 3): a line's ⋯ menu open, and on a phone the
+    // line's bottom sheet open.
+    test('dashboard line menu has no WCAG A/AA violations', async ({ page }) => {
+      await authedSetup(page, theme)
+      await page.goto('/')
+      await page.getByRole('heading', { level: 1 }).first().waitFor()
+      await page.getByRole('button', { name: 'Rent: more actions' }).click()
+      await page.getByRole('menuitem', { name: 'Mark paid' }).waitFor()
+      await expectNoViolations(page)
+    })
+
+    test('dashboard phone line sheet has no WCAG A/AA violations', async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await authedSetup(page, theme)
+      await page.goto('/')
+      await page.getByRole('heading', { level: 1 }).first().waitFor()
+      await page.getByRole('button', { name: 'Rent', exact: true }).click()
+      const sheet = page.getByRole('dialog', { name: 'Rent' })
+      await sheet.getByRole('button', { name: 'Mark paid' }).waitFor()
+      await sheet.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await expectNoViolations(page)
+    })
+
     test('import review table has no WCAG A/AA violations', async ({ page }) => {
       await authedSetup(page, theme)
       await page.goto('/import')

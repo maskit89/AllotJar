@@ -7,6 +7,8 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 
 import { mockGet, mockPut, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
+import { menuItems } from '../test/rowMenu'
+import userEvent from '@testing-library/user-event'
 import { DashboardPage } from './DashboardPage'
 // Real (unmocked) money module — pin the active display locale so every €-string
 // asserted below renders in the design's canonical en-GB comma-dot format,
@@ -133,24 +135,33 @@ describe('DashboardPage — hero footnote states (PR #172) & render', () => {
 
     renderPage()
 
-    // Hero landmark
+    // The KPI row (the hero, then the Bills left tile), then the Jars card (first in the page, so
+    // a phone reads it before the budget; on wide screens it stands in the right-hand column), then
+    // the Budget card: its header (with "+ Group"), Income, the spending groups, the Savings group.
     const eyebrow = await screen.findByText('Remaining to budget', {}, { timeout: 5000 })
     const hero = eyebrow.closest('section')!
-    const billsStrip = await screen.findByText(/📅 Bills:/, {}, { timeout: 5000 })
-    const jarsShelf = screen.getByRole('heading', { name: 'Your jars' })
-    const incomeCard = screen.getByRole('heading', { name: 'Income', level: 2 })
-    const everyday = screen.getByRole('heading', { name: 'Everyday spending' })
-    const savings = screen.getByLabelText('Rename group Savings') // savings group name (editable input for Owner)
+    const billsTile = await screen.findByRole('group', { name: 'Bills left' }, { timeout: 5000 })
+    const jarsShelf = screen.getByRole('heading', { name: 'Jars' })
+    const budget = screen.getByRole('heading', { name: 'Budget' })
     const addGroup = screen.getByRole('button', { name: 'Add a group' })
+    const incomeGroup = screen.getByRole('heading', { name: 'Income', level: 3 })
+    const housing = screen.getByLabelText('Rename group Housing')
+    const savings = screen.getByLabelText('Rename group Savings') // savings group name (editable input for Owner)
 
-    expect(precedes(hero, billsStrip)).toBe(true)
-    expect(precedes(billsStrip, jarsShelf)).toBe(true)
-    expect(precedes(jarsShelf, incomeCard)).toBe(true)
-    expect(precedes(incomeCard, everyday)).toBe(true)
-    expect(precedes(everyday, savings)).toBe(true)
-    expect(precedes(savings, addGroup)).toBe(true)
+    expect(precedes(hero, billsTile)).toBe(true)
+    expect(precedes(billsTile, jarsShelf)).toBe(true)
+    expect(precedes(jarsShelf, budget)).toBe(true)
+    expect(precedes(budget, addGroup)).toBe(true)
+    expect(precedes(addGroup, incomeGroup)).toBe(true)
+    expect(precedes(incomeGroup, housing)).toBe(true)
+    expect(precedes(housing, savings)).toBe(true)
+    // One Budget card holds every group (the old "Everyday spending" card is gone).
+    expect(screen.queryByRole('heading', { name: 'Everyday spending' })).not.toBeInTheDocument()
+    const budgetCard = screen.getByRole('region', { name: 'Budget' })
+    expect(budgetCard).toContainElement(incomeGroup)
+    expect(budgetCard).toContainElement(savings)
 
-    // Housing renders before Food inside the single Everyday spending card.
+    // Housing renders before Food inside the Budget card.
     expect(precedes(screen.getByLabelText('Rename group Housing'), screen.getByLabelText('Rename group Food'))).toBe(true)
 
     // The one visually-hidden page heading, and no error strip.
@@ -158,23 +169,23 @@ describe('DashboardPage — hero footnote states (PR #172) & render', () => {
     expect(screen.queryByText(/Could not load your budget/)).not.toBeInTheDocument()
   })
 
-  it('DASH-014: under-allotted month shows the neutral "still to assign" pill and the two tiles', { timeout: 15000 }, async () => {
+  it('DASH-014: under-allotted month shows the remaining amount, what is allotted and the Income tile', { timeout: 15000 }, async () => {
     mockLoads({ month: jul26() })
     renderPage()
 
     const eyebrow = await screen.findByText('Remaining to budget', {}, { timeout: 5000 })
     const hero = eyebrow.closest('section')!
 
-    // Gold amount + its accessible name.
+    // Gold amount + its accessible name. The remaining amount is said once, by the hero number
+    // (restyle PR 3: the "€X still to assign" pill only repeated it).
     expect(hero.querySelector('[aria-label="Remaining to budget: €1,080.00"]')).toBeTruthy()
-    // Income = 3,000 (income planned); Allotted = 1,920 (expense + savings planned, income excluded).
-    expect(within(hero).getByText('Allotted').closest('div')!.textContent).toContain('€1,920.00')
-    expect(within(hero).getByText('Income').closest('div')!.textContent).toContain('€3,000.00')
-
-    // Neutral footnote pill — not rose, not the gold badge.
-    const pill = screen.getByText('€1,080.00 still to assign')
-    expect(pill.className).toContain('bg-black')
-    expect(pill.className).not.toContain('rose')
+    expect(screen.queryByText(/still to assign/)).not.toBeInTheDocument()
+    // Allotted = 1,920 (expense + savings planned, income excluded), under the hero's bar;
+    // Income = 3,000 (income planned) in its own tile.
+    expect(within(hero).getByText('€1,920.00 allotted')).toBeInTheDocument()
+    expect(within(hero).queryByText(/over-budgeted/)).not.toBeInTheDocument()
+    expect(within(screen.getByRole('group', { name: 'Income' })).getByText('€3,000.00')).toBeInTheDocument()
+    // Not balanced: no gold badge.
     expect(screen.queryByText(/has a job/)).not.toBeInTheDocument()
   })
 
@@ -194,16 +205,18 @@ describe('DashboardPage — hero footnote states (PR #172) & render', () => {
     mockLoads({ month: income0Planned() })
     renderPage()
 
-    const footnote = await screen.findByText('€500.00 over-budgeted — trim a line', {}, { timeout: 5000 })
-    expect(footnote.className).toContain('rose')
+    // The chip says what to do; the gold number above it says by how much (never twice).
+    const footnote = await screen.findByText('Over-budgeted — trim a line', {}, { timeout: 5000 })
+    expect(footnote).toHaveAttribute('data-tone', 'bad')
+    expect(footnote.textContent).not.toContain('500')
     // NOT the empty-month prompt and NOT the balanced badge.
     expect(screen.queryByText(/Plan your income/)).not.toBeInTheDocument()
     expect(screen.queryByText(/has a job/)).not.toBeInTheDocument()
 
     const hero = screen.getByText('Remaining to budget').closest('section')!
     expect(hero.querySelector('[aria-label="Remaining to budget: -€500.00"]')).toBeTruthy()
-    expect(within(hero).getByText('Income').closest('div')!.textContent).toContain('€0.00')
-    expect(within(hero).getByText('Allotted').closest('div')!.textContent).toContain('€500.00')
+    expect(within(screen.getByRole('group', { name: 'Income' })).getByText('€0.00')).toBeInTheDocument()
+    expect(within(hero).getByText('€500.00 allotted')).toBeInTheDocument()
   })
 
   it('DASH-018: an over-budgeted month shows the rose pill with the positive overrun', { timeout: 15000 }, async () => {
@@ -213,11 +226,12 @@ describe('DashboardPage — hero footnote states (PR #172) & render', () => {
     mockLoads({ month: m })
     renderPage()
 
-    const footnote = await screen.findByText('€120.00 over-budgeted — trim a line', {}, { timeout: 5000 })
-    expect(footnote.className).toContain('rose')
+    const footnote = await screen.findByText('Over-budgeted — trim a line', {}, { timeout: 5000 })
+    expect(footnote).toHaveAttribute('data-tone', 'bad')
     const hero = screen.getByText('Remaining to budget').closest('section')!
-    // The gold amount reads negative even though the footnote reads positive.
-    expect(hero.querySelector('[aria-label="Remaining to budget: -€120.00"]')).toBeTruthy()
+    // The overrun is the gold amount, negative; the chip does not repeat it.
+    expect(hero.querySelector('[aria-label="Remaining to budget: -€120.00"]')).toHaveTextContent('-€120.00')
+    expect(within(hero).queryByText(/120\.00 over/)).not.toBeInTheDocument()
     expect(screen.queryByText(/still to assign/)).not.toBeInTheDocument()
   })
 
@@ -227,8 +241,10 @@ describe('DashboardPage — hero footnote states (PR #172) & render', () => {
     renderPage()
 
     const prompt = await screen.findByText('Plan your income, then give every euro a job', {}, { timeout: 5000 })
-    expect(prompt.className).toContain('bg-black')
-    expect(prompt.className).not.toContain('rose')
+    // A plain line on the hero, not the bad chip.
+    expect(prompt).not.toHaveAttribute('data-tone')
+    expect(prompt.querySelector('[data-tone="bad"]')).toBeNull()
+    expect(screen.queryByText(/over-budgeted/)).not.toBeInTheDocument()
     expect(screen.queryByText(/has a job$/)).not.toBeInTheDocument()
   })
 
@@ -269,14 +285,19 @@ describe('DashboardPage — income card & spending lines', () => {
     mockLoads({ month: jul26() })
     renderPage()
 
-    // Header: "Income" + "€2,600.00 of €3,000.00" (received 2,600, planned 3,000).
-    const header = (await screen.findByRole('heading', { name: 'Income', level: 2 })).parentElement!
-    expect(header.textContent).toContain('€2,600.00')
-    expect(header.textContent).toContain('of €3,000.00')
+    // The Income tile: planned 3,000 and, under it, the transaction-derived received 2,600
+    // (restyle PR 3: the Income group header shows no total; the tile carries it).
+    await screen.findByRole('heading', { name: 'Income', level: 3 }, { timeout: 5000 })
+    const tile = screen.getByRole('group', { name: 'Income' })
+    expect(within(tile).getByText('€3,000.00')).toBeInTheDocument()
+    expect(within(tile).getByText('€2,600.00 received')).toBeInTheDocument()
 
-    // Row subtext is the derived received figure, with no edit affordance.
-    expect(screen.getByText('€2,600.00 received')).toBeInTheDocument()
-    expect(screen.getByText('€0.00 received')).toBeInTheDocument()
+    // Each line says whether its income arrived: received in full, or what came in so far; no
+    // edit affordance for what was received.
+    const pay = screen.getByDisplayValue('Take-home Pay').closest('.group') as HTMLElement
+    expect(within(pay).getByText('Received')).toHaveAttribute('data-tone', 'ok')
+    const freelance = screen.getByDisplayValue('Freelance').closest('.group') as HTMLElement
+    expect(within(freelance).getByText('€0.00 in')).toBeInTheDocument()
     expect(screen.queryByLabelText('Received for Take-home Pay')).not.toBeInTheDocument()
   })
 
@@ -289,11 +310,11 @@ describe('DashboardPage — income card & spending lines', () => {
     renderPage()
 
     const planned = await screen.findByLabelText('Planned amount for Restaurants', {}, { timeout: 5000 })
-    expect(planned.closest('div')!.textContent).toContain('€100.00 of €90.00')
-    expect(planned.closest('div')!.textContent).toContain('€20.00 refunded')
+    expect(planned.closest('.group')!.textContent).toContain('€100.00 of €90.00')
+    expect(planned.closest('.group')!.textContent).toContain('€20.00 refunded')
     // A line with nothing refunded says nothing about refunds.
     const rent = screen.getByLabelText('Planned amount for Rent')
-    expect(rent.closest('div')!.textContent).not.toContain('refunded')
+    expect(rent.closest('.group')!.textContent).not.toContain('refunded')
   })
 
   it('DASH-050: overspent and zero-planned lines render rose with a clamped, never-NaN bar', { timeout: 15000 }, async () => {
@@ -302,18 +323,19 @@ describe('DashboardPage — income card & spending lines', () => {
     m.categories[2].items.push(budgetItem({ id: 'i-coffee', name: 'Coffee', displayOrder: 2, actualAmount: 15 }))
     const { container } = (mockLoads({ month: m }), renderPage())
 
-    // Restaurants: planned 90, spent 120 → "-€30.00" in rose, over "€120.00 of €90.00".
-    const overRemaining = await screen.findByText('-€30.00', {}, { timeout: 5000 })
-    expect(overRemaining.className).toContain('rose')
+    // Restaurants: planned 90, spent 120 → "€30.00 over" in the bad red, "€120.00 of €90.00".
+    const overRemaining = await screen.findByText('€30.00 over', {}, { timeout: 5000 })
+    expect(overRemaining.className).toContain('text-bad')
     const restaurantsPlanned = screen.getByLabelText('Planned amount for Restaurants')
     expect(restaurantsPlanned).toHaveTextContent('€90.00')
-    expect(restaurantsPlanned.closest('div')!.textContent).toContain('€120.00 of €90.00')
+    expect(restaurantsPlanned.closest('.group')!.textContent).toContain('€120.00 of €90.00')
 
-    // Zero-planned Coffee line → rose "-€15.00 left".
-    expect(screen.getByText('-€15.00').className).toContain('rose')
+    // Zero-planned Coffee line → "€15.00 over" in the bad red.
+    expect(screen.getByText('€15.00 over').className).toContain('text-bad')
 
-    // Every progress-bar fill is a finite percentage clamped to [0, 100] — no NaN, no overflow.
-    const fills = Array.from(container.querySelectorAll<HTMLElement>('div[style*="width"]'))
+    // Every progress-bar fill (the lines', the jars' and the hero's) is a finite percentage
+    // clamped to [0, 100] — no NaN, no overflow.
+    const fills = Array.from(container.querySelectorAll<HTMLElement>('[style*="width"]'))
     expect(fills.length).toBeGreaterThan(0)
     for (const f of fills) {
       const pct = parseFloat(f.style.width)
@@ -341,7 +363,7 @@ describe('DashboardPage — income card & spending lines', () => {
     fireEvent.blur(input)
 
     const hero = screen.getByText('Remaining to budget').closest('section')!
-    await waitFor(() => expect(within(hero).getByText('Allotted').closest('div')!.textContent).toContain('€2,070.00'), { timeout: 5000 })
+    await waitFor(() => expect(within(hero).getByText('€2,070.00 allotted')).toBeInTheDocument(), { timeout: 5000 })
     expect(hero.querySelector('[aria-label="Remaining to budget: €930.00"]')).toBeTruthy()
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday', { plannedAmount: 300, version: null }), { timeout: 5000 })
   })
@@ -413,11 +435,28 @@ describe('DashboardPage — bills strip summary & tones', () => {
     mockLoads({ month: m })
     renderPage(TODAY)
 
-    const strip = (await screen.findByText('€1,280.00 left to pay', {}, { timeout: 5000 })).closest('div')!
-    expect(strip.textContent).toContain('📅 Bills: 0/2 paid')
-    expect(strip.textContent).toContain('· 1 due soon')
-    expect(strip.textContent).not.toMatch(/overdue/)
-    expect(strip.className).toContain('amber')
+    // The Bills left tile: what is left to pay, "0/2 paid", and a due-soon chip in the warn tone.
+    const tile = await screen.findByRole('group', { name: 'Bills left' }, { timeout: 5000 })
+    expect(within(tile).getByText('€1,280.00')).toBeInTheDocument()
+    expect(tile.textContent).toContain('0/2 paid')
+    expect(within(tile).getByText('1 due soon')).toHaveAttribute('data-tone', 'warn')
+    expect(tile.textContent).not.toMatch(/overdue/)
+    // Beside the chip the paid count is read out, not shown (the chip is the tile's one line).
+    expect(within(tile).getByText('0/2 paid')).toHaveClass('sr-only')
+  })
+
+  it('DASH-023: with nothing overdue or due soon the paid count shows in place of a chip', { timeout: 15000 }, async () => {
+    const m = jul26()
+    m.categories[1].items[0].dueDay = 25 // Rent day 25 → upcoming (diff 10)
+    m.categories[1].items[1].dueDay = 28 // Utilities day 28 → upcoming (diff 13)
+    mockLoads({ month: m })
+    renderPage(TODAY)
+
+    const tile = await screen.findByRole('group', { name: 'Bills left' }, { timeout: 5000 })
+    const count = within(tile).getByText('0/2 paid')
+    expect(count).not.toHaveClass('sr-only')
+    expect(count).not.toHaveAttribute('data-tone')
+    expect(tile.textContent).not.toMatch(/overdue|due soon/)
   })
 
   it('DASH-024: an overdue bill takes the rose tone and suppresses the due-soon count', { timeout: 15000 }, async () => {
@@ -427,22 +466,25 @@ describe('DashboardPage — bills strip summary & tones', () => {
     mockLoads({ month: m })
     renderPage(TODAY)
 
-    const strip = (await screen.findByText('€1,280.00 left to pay', {}, { timeout: 5000 })).closest('div')!
-    expect(strip.textContent).toContain('· 1 overdue')
-    expect(strip.textContent).not.toMatch(/due soon/)
-    expect(strip.className).toContain('rose')
+    const tile = await screen.findByRole('group', { name: 'Bills left' }, { timeout: 5000 })
+    expect(within(tile).getByText('€1,280.00')).toBeInTheDocument()
+    expect(within(tile).getByText('1 overdue')).toHaveAttribute('data-tone', 'bad')
+    expect(tile.textContent).not.toMatch(/due soon/)
+    expect(within(tile).getByText('0/2 paid')).toHaveClass('sr-only')
   })
 
-  it('DASH-025: all bills paid flips the strip to the emerald celebration', { timeout: 15000 }, async () => {
+  it('DASH-025: all bills paid turns the Bills left tile to the ok tone', { timeout: 15000 }, async () => {
     const m = jul26()
     m.categories[1].items[0] = { ...m.categories[1].items[0], dueDay: 1, isPaid: true }
     m.categories[1].items[1] = { ...m.categories[1].items[1], dueDay: 20, isPaid: true }
     mockLoads({ month: m })
     renderPage(TODAY)
 
-    const strip = (await screen.findByText('All bills paid 🎉', {}, { timeout: 5000 })).closest('div')!
-    expect(strip.textContent).toContain('📅 Bills: 2/2 paid')
-    expect(strip.className).toContain('emerald')
+    const tile = await screen.findByRole('group', { name: 'Bills left' }, { timeout: 5000 })
+    expect(within(tile).getByText('€0.00')).toBeInTheDocument()
+    expect(within(tile).getByText('2/2 paid')).toHaveAttribute('data-tone', 'ok')
+    expect(within(tile).getByText('2/2 paid')).not.toHaveClass('sr-only')
+    expect(tile.textContent).not.toMatch(/overdue|due soon/)
   })
 })
 
@@ -452,14 +494,18 @@ describe('DashboardPage — reorder gating, templates & jars shelf', () => {
     setMoneyFormat('comma-dot')
   })
 
-  it('DASH-045: the move ▲/▼ controls disable at the ends of the expense list', { timeout: 15000 }, async () => {
+  it('DASH-045: the group menus\' Move up / Move down disable at the ends of the expense list', { timeout: 15000 }, async () => {
     mockLoads({ month: jul26() }) // expense order: Housing (first), Food (last)
+    const user = userEvent.setup()
     renderPage()
 
-    expect(await screen.findByLabelText('Move Housing up', {}, { timeout: 5000 })).toBeDisabled()
-    expect(screen.getByLabelText('Move Housing down')).toBeEnabled()
-    expect(screen.getByLabelText('Move Food up')).toBeEnabled()
-    expect(screen.getByLabelText('Move Food down')).toBeDisabled()
+    const housing = await menuItems(user, 'Housing group: more actions')
+    expect(housing.find((i) => i.name === 'Move up')!.disabled).toBe(true)
+    expect(housing.find((i) => i.name === 'Move down')!.disabled).toBe(false)
+    await user.keyboard('{Escape}')
+    const food = await menuItems(user, 'Food group: more actions')
+    expect(food.find((i) => i.name === 'Move up')!.disabled).toBe(false)
+    expect(food.find((i) => i.name === 'Move down')!.disabled).toBe(true)
   })
 
   it('DASH-009: the template grid maps each card to name / description / counts / aria-label', { timeout: 15000 }, async () => {
@@ -521,9 +567,8 @@ describe('DashboardPage catalog — pending-FX honesty (re-review F5)', () => {
     renderPage()
 
     const notice = await screen.findByRole('status', {}, { timeout: 5000 })
-    expect(notice.textContent).toContain('2 transactions in another currency are waiting for their amount in EUR')
-    expect(notice.textContent).toContain('aren’t counted until it’s entered')
-    expect(within(notice).getByRole('link', { name: 'Enter them on Transactions' })).toHaveAttribute('href', '/transactions')
+    expect(notice.textContent).toContain('2 payments in another currency aren’t counted yet')
+    expect(within(notice).getByRole('link', { name: 'Add € amounts' })).toHaveAttribute('href', '/transactions')
   })
 
   it('renders no pending-FX notice when nothing is pending', { timeout: 15000 }, async () => {
@@ -532,5 +577,7 @@ describe('DashboardPage catalog — pending-FX honesty (re-review F5)', () => {
 
     await screen.findByText('Remaining to budget', {}, { timeout: 5000 })
     expect(screen.queryByText(/await(s)? an exchange rate/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/in another currency/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^Add € amount/ })).not.toBeInTheDocument()
   })
 })

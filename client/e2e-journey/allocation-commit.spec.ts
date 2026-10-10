@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { firstOfMonthAhead, register } from './helpers'
+import { firstOfMonthAhead, groupAction, lineAction, register } from './helpers'
 
 /**
  * Allocation end-to-end through the REAL stack (the ALLOC deferred set): a genuine
@@ -95,9 +95,12 @@ async function addExpenseGroup(page: Page, name: string) {
   await expect(page.getByRole('textbox', { name: `Rename group ${name}`, exact: true })).toBeVisible()
 }
 
-/** Add a budget line to a group (same optimistic-temp-row hazard: wait for the POST). */
+/**
+ * Add a budget line to a group (same optimistic-temp-row hazard: wait for the POST). The add
+ * row opens from the group's ⋯ ("Add line").
+ */
 async function addLine(page: Page, group: string, name: string) {
-  await page.getByRole('button', { name: `Add a line to ${group}`, exact: true }).click()
+  await groupAction(page, group, 'Add line')
   await page.getByRole('textbox', { name: `Add a line to ${group}`, exact: true }).fill(name)
   await committed(
     page,
@@ -172,11 +175,15 @@ async function createGoalJar(page: Page, jar: { name: string; target: string; he
  */
 async function addAttributedIncome(page: Page, line: { name: string; amount: string; formatted: string; person: string }) {
   await page.getByRole('link', { name: 'Dashboard' }).click()
+  // The add row opens from the Income group's ⋯.
+  await groupAction(page, 'Income', 'Add income source')
   await page.getByRole('textbox', { name: 'New income source name', exact: true }).fill(line.name)
   await committed(page, 'POST', '/api/budget/categories/', () =>
     page.getByRole('button', { name: 'Add income source', exact: true }).click(),
   )
   await setPlanned(page, line.name, line.amount, line.formatted)
+  // "Who earns" opens from the line's ⋯; the picker saves on change.
+  await lineAction(page, line.name, 'Who earns')
   await committed(page, 'PUT', '/api/budget/items/', () =>
     page.getByLabel(`Who earns ${line.name}`, { exact: true }).selectOption({ label: line.person }),
   )

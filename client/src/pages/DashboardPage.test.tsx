@@ -18,8 +18,10 @@ vi.mock('../features/HouseholdContext', async (importOriginal) => ({
 
 import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
+import { groupAction, lineAction, menuItems } from '../test/rowMenu'
 import { DashboardPage } from './DashboardPage'
 import { budgetCategory, budgetItem, budgetMonth } from '../test/fixtures/budget'
+import { shortDate } from '../lib/dates'
 import { jar } from '../test/fixtures/jars'
 
 // Income(Take-home Pay 3000) at the top + Housing(Rent 1100). Remaining = 1900.
@@ -160,7 +162,10 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
+    // The add row opens from the Income group's ⋯ (restyle PR 3).
+    await groupAction(user, 'Income', 'Add income source')
     const addInput = await screen.findByLabelText('New income source name', {}, { timeout: 5000 })
+    await waitFor(() => expect(addInput).toHaveFocus())
     await user.type(addInput, 'Freelance')
     await user.click(screen.getByRole('button', { name: 'Add income source' }))
 
@@ -184,8 +189,8 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
-    const del = await screen.findByLabelText('Delete Take-home Pay', {}, { timeout: 5000 })
-    await user.click(del)
+    // Delete lives in the line's ⋯ (restyle PR 3).
+    await lineAction(user, 'Take-home Pay', 'Delete')
 
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/budget/items/i-pay'))
   })
@@ -228,8 +233,11 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
+    // The add row opens from the group's ⋯ and takes focus (restyle PR 3).
+    await groupAction(user, 'Housing', 'Add line')
     const input = await screen.findByLabelText('Add a line to Housing', {}, { timeout: 5000 })
-    await user.type(input, 'Fuel{Enter}') // Enter submits — avoids "+ Add" button ambiguity
+    await waitFor(() => expect(input).toHaveFocus())
+    await user.type(input, 'Fuel{Enter}') // Enter submits
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/budget/categories/c1/items', { name: 'Fuel', plannedAmount: 0 }),
@@ -247,9 +255,10 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Delete group Housing', {}, { timeout: 5000 }))
-    // Nothing deleted until the second (confirm) click.
+    await groupAction(user, 'Housing', 'Delete')
+    // Nothing deleted until the second (confirm) click; the confirm takes focus on Cancel.
     expect(mockDelete).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel delete' })).toHaveFocus())
     await user.click(await screen.findByLabelText('Confirm delete Housing', {}, { timeout: 5000 }))
 
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/budget/categories/c1'))
@@ -268,7 +277,7 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Move Food up', {}, { timeout: 5000 }))
+    await groupAction(user, 'Food', 'Move up')
 
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/budget/categories/order', {
@@ -289,7 +298,7 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Move Utilities up', {}, { timeout: 5000 }))
+    await lineAction(user, 'Utilities', 'Move up')
 
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/budget/categories/c1/items/order', {
@@ -308,11 +317,14 @@ describe('DashboardPage optimistic editing', () => {
       url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: b }),
     )
 
+    const user = userEvent.setup()
     renderPage()
 
     expect(await screen.findByDisplayValue('Car', {}, { timeout: 5000 })).toBeInTheDocument()
-    // The fund's available balance (€170.00) is shown, rolled over across months.
-    expect(screen.getByText('€170.00')).toBeInTheDocument()
+    // The fund's available balance (€170.00), rolled over across months, heads the line's ⋯ menu
+    // (restyle PR 3: the shelf shows each jar's balance; the line no longer repeats it).
+    await user.click(screen.getByRole('button', { name: 'Car: more actions' }))
+    expect(await screen.findByText('€170.00 in the jar', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
   it('CAT-023: a Savings group that holds a jar\'s line offers no delete; an empty one does (rule 60)', { timeout: 15000 }, async () => {
@@ -328,10 +340,15 @@ describe('DashboardPage optimistic editing', () => {
       url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: b }),
     )
 
+    const user = userEvent.setup()
     renderPage()
 
-    expect(await screen.findByLabelText('Delete group Later', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.queryByLabelText('Delete group Sinking Funds')).toBeNull()
+    // The group menus: an empty Savings group offers Delete, one holding a jar's line does not.
+    const later = await menuItems(user, 'Later group: more actions')
+    expect(later.map((i) => i.name)).toContain('Delete')
+    await user.keyboard('{Escape}')
+    const funds = await menuItems(user, 'Sinking Funds group: more actions')
+    expect(funds.map((i) => i.name)).not.toContain('Delete')
   })
 
   it('creates a fund group when the kind is set to Fund', { timeout: 15000 }, async () => {
@@ -370,7 +387,9 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Add a due date to Rent', {}, { timeout: 5000 }))
+    // "Bill due day" in the line's ⋯ opens the due-day editor, focused (restyle PR 3).
+    await lineAction(user, 'Rent', 'Bill due day')
+    await waitFor(() => expect(screen.getByLabelText('Due day for Rent')).toHaveFocus())
     await user.type(screen.getByLabelText('Due day for Rent'), '15')
     await user.click(screen.getByLabelText('Save due day for Rent'))
 
@@ -390,10 +409,11 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
-    // The unpaid bill shows in the summary.
-    expect(await screen.findByText(/Bills: 0\/1 paid/, {}, { timeout: 5000 })).toBeInTheDocument()
+    // The unpaid bill shows in the Bills left tile.
+    const bills = await screen.findByRole('group', { name: 'Bills left' }, { timeout: 5000 })
+    expect(within(bills).getByText(/0\/1 paid/)).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Mark Rent paid' }))
+    await lineAction(user, 'Rent', 'Mark paid')
 
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent/paid', { isPaid: true }),
@@ -411,7 +431,12 @@ describe('DashboardPage optimistic editing', () => {
     renderWithProviders(<DashboardPage today={new Date(2026, 5, 20)} />, { month: true })
 
     expect(await screen.findByText(/1 overdue/, {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByTitle(/Overdue/)).toBeInTheDocument()
+    // The row's bill chip reads Overdue and the day it was due, in the bad tone (both were a
+    // `title` before the restyle, which only a pointer could read).
+    const rent = screen.getByDisplayValue('Rent').closest('.group') as HTMLElement
+    const chip = within(rent).getByText(/^Overdue/)
+    expect(chip).toHaveAttribute('data-tone', 'bad')
+    expect(chip).toHaveTextContent(`Overdue · ${shortDate('2026-06-05')}`)
   })
 })
 
@@ -460,10 +485,13 @@ describe('DashboardPage jars and first-run checklist', () => {
 
     renderPage()
 
-    // No bare "add a savings goal" line input any more (a savings line is a jar).
+    // No bare "add a savings goal" line input any more (a savings line is a jar): the group's ⋯
+    // offers Add jar, never Add line (restyle PR 3).
     await screen.findByLabelText('Rename group Savings', {}, { timeout: 5000 })
     expect(screen.queryByLabelText('Add a savings goal to Savings')).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Add a jar to Savings' }))
+    const items = await menuItems(user, 'Savings group: more actions')
+    expect(items.map((i) => i.name)).not.toContain('Add line')
+    await user.click(screen.getByRole('menuitem', { name: 'Add jar' }))
 
     // The SAME jar form as the Jars page: account required, initial allocation on create
     // (under "More options"), and no Type question — Repeats decides the kind.
@@ -548,14 +576,22 @@ describe('DashboardPage jars and first-run checklist', () => {
 
   it('shows a savings line\'s Available as "Not available" when the server sends null', { timeout: 15000 }, async () => {
     mockLoads({ month: budgetWithSavings(null), accounts: [JOINT], jars: [{ ...HOLIDAY, currentBalance: null, status: 'Unavailable', plannedThisMonth: 0, remainingThisMonth: 0 }] })
+    const user = userEvent.setup()
 
     renderPage()
 
     await screen.findByDisplayValue('Holiday', {}, { timeout: 5000 })
-    // The line keeps the savings layout (avail. column) and says so, never €0.00.
+    // The line's ⋯ says what the jar holds (restyle PR 3), and says so when it is not known,
+    // never €0.00; the shelf says the same under the jar.
     const row = screen.getByDisplayValue('Holiday').closest('.group') as HTMLElement
-    expect(within(row).getByText('Not available')).toBeInTheDocument()
-    expect(within(row).getByText('avail.')).toBeInTheDocument()
+    expect(row.textContent).not.toContain('€0.00 in the jar')
+    await user.click(within(row).getByRole('button', { name: 'Holiday: more actions' }))
+    expect(await screen.findByText('Balance not available', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.queryByText(/€0\.00 in the jar/)).not.toBeInTheDocument()
+    const shelf = within(screen.getByRole('region', { name: 'Jars' }))
+    expect(shelf.getByText('Not available')).toBeInTheDocument()
+    // Said once: no "Unavailable" chip under the "Not available" balance.
+    expect(shelf.queryByText('Unavailable')).not.toBeInTheDocument()
   })
 
   it('first-run checklist: nothing set up → three open steps, jar step disabled until an account exists', { timeout: 15000 }, async () => {
@@ -725,7 +761,16 @@ describe('DashboardPage month navigation', () => {
     renderPage()
 
     await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })
+    // The picker opens from the line's ⋯ (restyle PR 3): a solo household is never offered it,
+    // and no line names an earner.
+    const user = userEvent.setup()
+    const items = (await menuItems(user, 'Take-home Pay: more actions')).map((i) => i.name)
+    expect(items).toContain('Edit amount')
+    expect(items).not.toContain('Who earns')
+    await user.keyboard('{Escape}')
     expect(screen.queryByLabelText('Who earns Take-home Pay')).not.toBeInTheDocument()
+    const row = screen.getByDisplayValue('Take-home Pay').closest('.group') as HTMLElement
+    expect(row.textContent).not.toContain('·')
   })
 
   it('attributes an income line to a person and rolls back on failure', { timeout: 15000 }, async () => {
@@ -738,21 +783,35 @@ describe('DashboardPage month navigation', () => {
 
     renderPage()
 
-    // Shared household: every income line offers the picker; expense lines never do.
+    // Shared household: every income line offers the picker (its ⋯ "Who earns"); expense lines
+    // never do.
+    await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })
+    expect((await menuItems(user, 'Rent: more actions')).map((i) => i.name)).not.toContain('Who earns')
+    await user.keyboard('{Escape}')
+    await lineAction(user, 'Take-home Pay', 'Who earns')
     const picker = await screen.findByLabelText('Who earns Take-home Pay', {}, { timeout: 5000 })
+    await waitFor(() => expect(picker).toHaveFocus())
     expect(screen.queryByLabelText('Who earns Rent')).not.toBeInTheDocument()
 
     await user.selectOptions(picker, 'mem-alex')
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/budget/items/i-pay/member', { memberId: 'mem-alex' }),
     )
+    // The earner shows after the line's name, and names its ⋯ (two earners' lines may share a name).
+    const row = screen.getByDisplayValue('Take-home Pay').closest('.group') as HTMLElement
+    expect(within(row).getByText('· Alex')).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'Take-home Pay (Alex): more actions' })).toBeInTheDocument()
 
     // A failing PUT reverts the optimistic pick (back to the last saved value) and
     // surfaces the error.
     mockPut.mockRejectedValue(new Error('network'))
-    await user.selectOptions(screen.getByLabelText('Who earns Take-home Pay'), 'mem-robin')
+    await lineAction(user, 'Take-home Pay (Alex)', 'Who earns')
+    await user.selectOptions(await screen.findByLabelText('Who earns Take-home Pay', {}, { timeout: 5000 }), 'mem-robin')
     expect(await screen.findByText(/Could not update who earns that income — reverted\./, {}, { timeout: 5000 })).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByLabelText('Who earns Take-home Pay')).toHaveValue('mem-alex'))
+    await waitFor(() => expect(within(row).getByText('· Alex')).toBeInTheDocument())
+    expect(within(row).queryByText('· Robin')).not.toBeInTheDocument()
+    await lineAction(user, 'Take-home Pay (Alex)', 'Who earns')
+    expect(await screen.findByLabelText('Who earns Take-home Pay', {}, { timeout: 5000 })).toHaveValue('mem-alex')
   })
 })
 

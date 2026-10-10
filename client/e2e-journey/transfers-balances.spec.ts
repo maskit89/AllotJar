@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { register } from './helpers'
+import { groupAction, register } from './helpers'
 
 /**
  * Transfers through the REAL stack — the balance-only money moves the stubbed
@@ -44,7 +44,8 @@ async function addExpenseGroup(page: Page, name: string) {
 
 /** Add a budget line to a group (same optimistic-temp-row hazard: wait for the POST). */
 async function addLine(page: Page, group: string, name: string) {
-  await page.getByRole('button', { name: `Add a line to ${group}`, exact: true }).click()
+  // The add row opens from the group's ⋯ ("Add line").
+  await groupAction(page, group, 'Add line')
   await page.getByRole('textbox', { name: `Add a line to ${group}`, exact: true }).fill(name)
   const reconciled = page.waitForResponse(
     (r) =>

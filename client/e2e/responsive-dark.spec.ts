@@ -258,21 +258,21 @@ test.describe('responsive — data tables scroll inside their own container (375
   })
 
   // UX-032 — the budget grid does NOT use an overflow-x scroller; its rows reflow
-  // (name column min-w-0 flex-1, amount column shrink-0 min-w-[118px]). The UX-032
-  // guarantee therefore holds via reflow: the DATA columns fit their allocated
-  // width with no internal spill (the "columns collide / icons spill" bug class),
-  // and the page never scrolls sideways. The reorder arrows / delete ✕ are
-  // `position:absolute` in the card's gutter (deliberately outside the flow), so
-  // they're excluded — this checks the flowing data, the non-duplicative
-  // complement to mobile-layout.spec's document-level check.
+  // (a CSS grid: icon, name minmax(0,1fr), amount auto, the status on a second line
+  // below 500px of card). The UX-032 guarantee therefore holds via reflow: the DATA
+  // columns fit their allocated width with no internal spill (the "columns collide /
+  // icons spill" bug class), and the page never scrolls sideways. Anything
+  // `position:absolute` is excluded — this checks the flowing data, the
+  // non-duplicative complement to mobile-layout.spec's document-level check. On a
+  // phone the line's name is the button that opens its actions (restyle PR 3).
   test('the budget grid data columns reflow without collision (UX-032)', async ({ page }) => {
     await authedSetup(page, 'light')
     await page.goto('/')
     await page.getByRole('heading', { level: 1 }).first().waitFor()
 
-    const planned = page.getByRole('button', { name: 'Planned amount for Rent' })
-    await planned.waitFor()
-    const m = await planned.evaluate((btn: HTMLElement) => {
+    const rent = page.getByRole('button', { name: 'Rent', exact: true })
+    await rent.waitFor()
+    const m = await rent.evaluate((btn: HTMLElement) => {
       const row = btn.closest('.group') as HTMLElement | null
       const cols = row
         ? Array.from(row.children).filter(

@@ -1,5 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
-import { addAccount, createGoalJar as createJarHeldIn, register, suppressOnboarding } from './helpers'
+import {
+  addAccount,
+  createGoalJar as createJarHeldIn,
+  groupAction,
+  lineAction,
+  register,
+  suppressOnboarding,
+} from './helpers'
 
 /**
  * Month lifecycle through the real stack (the BUDG/DASH deferred set): creating the
@@ -118,9 +125,12 @@ test('a jar-less blank month prompts for income, and a duplicate create fails fr
     page.getByRole('button', { name: 'Start a blank budget' }).click(),
   )
   await expect(page.getByRole('heading', { name: 'Income' })).toBeVisible()
-  await expect(page.getByText('No income yet — add your first source below.')).toBeVisible()
-  // BUDG-002: exactly the Income group — no expense panel, no Savings group.
-  await expect(page.getByRole('heading', { name: 'Everyday spending' })).toHaveCount(0)
+  await expect(page.getByText('No income yet', { exact: true })).toBeVisible()
+  // BUDG-002: exactly the Income group — no expense group, no Savings group. Every group has
+  // a ⋯ named after it; only Income's is there, and no group can be renamed (Income can't).
+  await expect(page.getByRole('button', { name: / group: more actions$/ })).toHaveCount(1)
+  await expect(page.getByRole('button', { name: 'Income group: more actions', exact: true })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: /^Rename group / })).toHaveCount(0)
   await expect(page.getByRole('textbox', { name: 'Rename group Savings' })).toHaveCount(0)
 
   // DASH-016 / BUDG-001 (PR #172): remaining €0.00 reads as the neutral
@@ -181,7 +191,7 @@ test('creating from the Essentials template builds its catalogue structure with 
   // and the first-run checklist still asks for an account and a jar.
   await page.reload()
   await expect(page.getByText('Remaining to budget')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Your jars' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Jars', exact: true })).toHaveCount(0)
   await expect(page.getByText('Emergency Fund')).toHaveCount(0)
   const setup = page.getByRole('region', { name: 'Set up your budget' })
   await expect(setup.getByRole('link', { name: 'Go to accounts' })).toBeVisible()
@@ -213,8 +223,9 @@ test('a jar-owning household’s blank month is born over-budgeted with an accru
   await committed(page, 'POST', createMonthUrl, () =>
     page.getByRole('button', { name: 'Start a blank budget' }).click(),
   )
-  await expect(page.getByLabel('Remaining to budget: -€100.00')).toBeVisible()
-  await expect(page.getByText('€100.00 over-budgeted — trim a line')).toBeVisible()
+  // The overrun is the hero's gold number; its chip says what to do without repeating the amount.
+  await expect(page.getByLabel('Remaining to budget: -€100.00')).toHaveText('-€100.00')
+  await expect(page.getByText('Over-budgeted — trim a line')).toBeVisible()
   await expect(page.getByText('Plan your income, then give every euro a job')).toHaveCount(0)
   await expect(page.getByText('Every euro has a job')).toHaveCount(0)
 
@@ -227,9 +238,10 @@ test('a jar-owning household’s blank month is born over-budgeted with an accru
     '€100.00',
   )
 
-  // JAR-060 / DASH-027: the current-month shelf shows the jar with its monthly
-  // set-aside (no status chip for a healthy OnTrack jar — chip and +/mo are exclusive).
-  await expect(page.getByRole('heading', { name: 'Your jars' })).toBeVisible()
+  // JAR-060 / DASH-027: the current-month shelf (the Jars card) shows the jar with its monthly
+  // set-aside (no status chip for a healthy OnTrack jar — chip and +/mo are exclusive). The
+  // line's name is an input's value, so the only text "Holiday" is the jar on the shelf.
+  await expect(page.getByRole('heading', { name: 'Jars', exact: true })).toBeVisible()
   await expect(page.getByText('Holiday')).toBeVisible()
   await expect(page.getByText('+€100.00/mo')).toBeVisible()
 })
@@ -263,7 +275,9 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
     '€50.00',
   )
 
-  // Income: Salary planned 2,500.00 (the add row reconciles from the POST response).
+  // Income: Salary planned 2,500.00 (the add row reconciles from the POST response). The add
+  // row opens from the Income group's ⋯.
+  await groupAction(page, 'Income', 'Add income source')
   const addIncome = page.getByRole('textbox', { name: 'New income source name' })
   await addIncome.fill('Salary')
   await committed(page, 'POST', '/items', () => addIncome.press('Enter'))
@@ -274,7 +288,7 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   const addGroup = page.getByRole('textbox', { name: 'New category group name' })
   await addGroup.fill('Housing')
   await committed(page, 'POST', '/api/budget/categories', () => addGroup.press('Enter'))
-  await page.getByRole('button', { name: 'Add a line to Housing' }).click()
+  await groupAction(page, 'Housing', 'Add line')
   const addLine = page.getByRole('textbox', { name: 'Add a line to Housing' })
   await addLine.fill('Rent')
   await committed(page, 'POST', '/items', () => addLine.press('Enter'))
@@ -283,24 +297,25 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   // Raise Holiday's plan for this month to 200.00 — a hand edit the copy must re-plan, not carry.
   await setPlanned(page, 'Holiday', '200')
 
-  // DASH-053: track Rent as a bill due day 1 — the Bill tag and strip appear.
-  await page.getByRole('textbox', { name: 'Rename Rent' }).hover()
-  await page.getByRole('button', { name: 'Add a due date to Rent' }).click()
+  // DASH-053: track Rent as a bill due day 1 (from the line's ⋯) — the Bills left tile appears.
+  await lineAction(page, 'Rent', 'Bill due day')
   // The due-day editor is a text input (inputMode=numeric) — type=number has no selection APIs,
   // which select-on-focus needs — so its role is textbox, not spinbutton.
   await page.getByRole('textbox', { name: 'Due day for Rent' }).fill('1')
   await committed(page, 'PUT', '/bill', () =>
     page.getByRole('button', { name: 'Save due day for Rent' }).click(),
   )
-  await expect(page.getByText(/Bills: 0\/1 paid/)).toBeVisible()
+  const bills = page.getByRole('group', { name: 'Bills left', exact: true })
+  await expect(bills).toContainText('0/1 paid')
 
-  // DASH-056: mark it paid — optimistic toggle + strip flip to the celebration.
-  await committed(page, 'PUT', '/paid', () =>
-    page.getByRole('button', { name: 'Mark Rent paid' }).click(),
-  )
-  await expect(page.getByRole('button', { name: 'Mark Rent unpaid' })).toBeVisible()
-  await expect(page.getByText(/Bills: 1\/1 paid/)).toBeVisible()
-  await expect(page.getByText('All bills paid 🎉')).toBeVisible()
+  // DASH-056: mark it paid from the line's ⋯ — optimistic toggle; the line reads Paid, its ⋯
+  // now offers Mark unpaid, and the Bills left tile reads all paid (its ok tone).
+  await committed(page, 'PUT', '/paid', () => lineAction(page, 'Rent', 'Mark paid'))
+  await page.getByRole('button', { name: 'Rent: more actions', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: 'Mark unpaid', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(bills).toContainText('1/1 paid')
+  await expect(bills.locator('[data-tone="ok"]')).toHaveText('1/1 paid')
 
   // Archive Old Boiler (two-step confirm) — copying must now drop its line.
   await page.getByRole('link', { name: 'Jars' }).click()
@@ -314,7 +329,7 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   // --- Copy the current month into the next one (BUDG-038/040: ‹› + real source name) ---
   await page.getByRole('link', { name: 'Dashboard' }).click()
   await page.getByRole('button', { name: 'Next month' }).click()
-  await expect(page.getByRole('heading', { name: next.label })).toBeVisible()
+  await expect(page.getByRole('heading', { name: next.label, exact: true })).toBeVisible()
   await expect(page.getByText(`No budget for ${next.label} yet.`)).toBeVisible()
   await committed(page, 'POST', createMonthUrl, () =>
     page.getByRole('button', { name: `Copy ${current.label}` }).click(),
@@ -327,7 +342,7 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await expect(page.getByRole('button', { name: 'Planned amount for Salary' })).toHaveText(
     '€2,500.00',
   )
-  await expect(page.getByText('€0.00 received')).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Income', exact: true })).toContainText('€0.00 received')
   await expect(page.getByRole('textbox', { name: 'Rename group Housing' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Planned amount for Rent' })).toHaveText(
     '€1,000.00',
@@ -335,8 +350,10 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
 
   // BUDG-008: the due day carried (Rent is still a bill) but paid state did NOT —
   // the new month starts unpaid.
-  await expect(page.getByText(/Bills: 0\/1 paid/)).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Mark Rent paid' })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Bills left', exact: true })).toContainText('0/1 paid')
+  await page.getByRole('button', { name: 'Rent: more actions', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: 'Mark paid', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
 
   // BUDG-015: Holiday is scheduled, so its line is RE-PLANNED for the new month rather than
   // copied flat at the 200.00 hand edit. The balance entering next month is projected through
@@ -352,7 +369,7 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
 
   // The hero locks the whole copy in one figure: 2,500 − (1,000 + 81.81) = 1,418.19.
   await expect(page.getByLabel('Remaining to budget: €1,418.19')).toBeVisible()
-  await expect(page.getByText('€1,418.19 still to assign')).toBeVisible()
+  await expect(page.getByText('€1,081.81 allotted')).toBeVisible()
 
   // --- Optimistic round-trips on the copied month (DASH-032 / DASH-043 / DASH-048) ---
   const incomeName = page.getByRole('textbox', { name: 'Income source name', exact: true })
@@ -363,21 +380,18 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await groupName.fill('Home')
   await committed(page, 'PUT', '/api/budget/categories/', () => groupName.press('Enter'))
 
-  // DASH-048: deleting the Rent line needs no confirm; the bills strip (its only
-  // bill) vanishes and the pool recovers the €1,000.00 instantly.
-  await page.getByRole('textbox', { name: 'Rename Rent' }).hover()
-  await committed(page, 'DELETE', '/api/budget/items/', () =>
-    page.getByRole('button', { name: 'Delete Rent' }).click(),
-  )
+  // DASH-048: deleting the Rent line (its ⋯ Delete) needs no confirm; the Bills left tile (its
+  // only bill) vanishes and the pool recovers the €1,000.00 instantly.
+  await committed(page, 'DELETE', '/api/budget/items/', () => lineAction(page, 'Rent', 'Delete'))
   await expect(page.getByRole('textbox', { name: 'Rename Rent' })).toHaveCount(0)
-  await expect(page.getByText(/Bills:/)).toHaveCount(0)
+  await expect(page.getByRole('group', { name: 'Bills left', exact: true })).toHaveCount(0)
   await expect(page.getByLabel('Remaining to budget: €2,418.19')).toBeVisible()
 
   // --- Full reload: every optimistic edit must have really landed server-side ---
   await page.reload()
   await expect(page.getByText('Remaining to budget')).toBeVisible() // current month loads
   await page.getByRole('button', { name: 'Next month' }).click()
-  await expect(page.getByRole('heading', { name: next.label })).toBeVisible()
+  await expect(page.getByRole('heading', { name: next.label, exact: true })).toBeVisible()
   await expect(
     page.getByRole('textbox', { name: 'Income source name', exact: true }),
   ).toHaveValue('Consulting')
@@ -387,7 +401,7 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
     '€81.81',
   )
   await expect(page.getByRole('textbox', { name: 'Rename Rent' })).toHaveCount(0)
-  await expect(page.getByText(/Bills:/)).toHaveCount(0)
+  await expect(page.getByRole('group', { name: 'Bills left', exact: true })).toHaveCount(0)
 })
 
 test('month navigation moves every screen together; the jars shelf follows the month; year boundaries roll', async ({
@@ -411,22 +425,23 @@ test('month navigation moves every screen together; the jars shelf follows the m
     page.getByRole('button', { name: 'Planned amount for Emergency Fund' }),
   ).toHaveText('€250.00')
   await setPlanned(page, 'Emergency Fund', '300')
-  // Income 3,000 so the copied month reads "800.00 still to assign" after the 2,200 below.
+  // Income 3,000 so the copied month has 800.00 left to budget after the 2,200 below.
+  await groupAction(page, 'Income', 'Add income source')
   const addIncome = page.getByRole('textbox', { name: 'New income source name' })
   await addIncome.fill('Salary')
   await committed(page, 'POST', '/items', () => addIncome.press('Enter'))
   await setPlanned(page, 'Salary', '3000')
   await setPlanned(page, 'Rent / Mortgage', '1950')
 
-  // JAR-060 / DASH-028: on the current calendar month the "Your jars" shelf renders with
+  // JAR-060 / DASH-028: on the current calendar month the Jars card's shelf renders with
   // today's figures and no "as of" caption.
-  await expect(page.getByRole('heading', { name: 'Your jars' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Jars', exact: true })).toBeVisible()
   await expect(page.getByText(/balances as of today|saved as of/)).toHaveCount(0)
 
   // BUDG-038: ‹ moves to the previous month — no budget there for this fresh user,
   // and no Copy button either (no month exists strictly before it).
   await page.getByRole('button', { name: 'Previous month' }).click()
-  await expect(page.getByRole('heading', { name: prev.label })).toBeVisible()
+  await expect(page.getByRole('heading', { name: prev.label, exact: true })).toBeVisible()
   await expect(page.getByText(`No budget for ${prev.label} yet.`)).toBeVisible()
   await expect(page.getByRole('button', { name: /^Copy / })).toHaveCount(0)
 
@@ -441,7 +456,7 @@ test('month navigation moves every screen together; the jars shelf follows the m
   // real most-recent prior month — the current one.
   await page.getByRole('button', { name: 'Next month' }).click()
   await page.getByRole('button', { name: 'Next month' }).click()
-  await expect(page.getByRole('heading', { name: next.label })).toBeVisible()
+  await expect(page.getByRole('heading', { name: next.label, exact: true })).toBeVisible()
   await expect(page.getByText(`No budget for ${next.label} yet.`)).toBeVisible()
   await committed(page, 'POST', createMonthUrl, () =>
     page.getByRole('button', { name: `Copy ${current.label}` }).click(),
@@ -452,12 +467,12 @@ test('month navigation moves every screen together; the jars shelf follows the m
   await expect(
     page.getByRole('button', { name: 'Planned amount for Emergency Fund' }),
   ).toHaveText('€250.00')
-  await expect(page.getByText('€800.00 still to assign')).toBeVisible()
+  await expect(page.getByLabel('Remaining to budget: €800.00')).toBeVisible()
 
   // DASH-028 / DASH-074 / JAR-061 (W05, rule 48): a loaded month that has not begun keeps the
   // shelf, read for that month — today's balances, labelled so, with the month's own plan
   // (the re-planned 250.00, not this month's 300.00 hand edit).
-  await expect(page.getByRole('heading', { name: 'Your jars' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Jars', exact: true })).toBeVisible()
   await expect(page.getByText('balances as of today')).toBeVisible()
   await expect(page.getByText('+€250.00/mo')).toBeVisible()
 
@@ -466,9 +481,9 @@ test('month navigation moves every screen together; the jars shelf follows the m
     await page.getByRole('button', { name: 'Next month' }).click()
   }
   const decYear = next.year
-  await expect(page.getByRole('heading', { name: `December ${decYear}` })).toBeVisible()
+  await expect(page.getByRole('heading', { name: `December ${decYear}`, exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Next month' }).click()
-  await expect(page.getByRole('heading', { name: `January ${decYear + 1}` })).toBeVisible()
+  await expect(page.getByRole('heading', { name: `January ${decYear + 1}`, exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Previous month' }).click()
-  await expect(page.getByRole('heading', { name: `December ${decYear}` })).toBeVisible()
+  await expect(page.getByRole('heading', { name: `December ${decYear}`, exact: true })).toBeVisible()
 })

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { CalendarDays, Check, ChevronRight, CircleAlert, TriangleAlert, Wallet } from 'lucide-react'
 import { api } from '../lib/api'
 import { editConflict, serverErrors } from '../lib/serverErrors'
 import { EVENTS, track } from '../analytics'
@@ -16,11 +17,9 @@ import {
   billAlerts,
   billsSummary,
   categoryActual,
-  categoryPlanned,
   fromDto,
   findItem,
   isBalanced,
-  isSavings,
   isIncome,
   itemVersionIn,
   monthPlanned,
@@ -42,20 +41,20 @@ import {
   type ItemVM,
   type MonthVM,
 } from '../budgetModel'
-import { currencyNoun, formatMoney, fromAmount, sumMinor, toAmount, type Minor } from '../lib/money'
-import { jarStatusChip } from '../lib/jarStatus'
-import { Hero, BalancedBadge } from '../components/Hero'
-import { Badge, Button, Card } from '../components/ui'
-import { Jar } from '../components/Jar'
+import { currencyNoun, currencySymbol, formatMoney, sumMinor, toAmount, type Minor } from '../lib/money'
+import { Button } from '../components/ui'
+import { Skeleton } from '../components/ui/skeleton'
+import { InfoHint } from '../components/InfoHint'
+import { HeroBar, KpiRow, KpiTile } from '../components/KpiTile'
+import { StatusChip } from '../components/StatusChip'
+import { BudgetCard } from '../components/budget/BudgetCard'
+import { JarsCard } from '../components/budget/JarsCard'
+import { CARD_TITLE, DASH_CARD } from '../components/budget/card'
 import { JarFormModal } from '../components/JarFormModal'
-import { CheckIcon } from '../components/icons'
-import { hueForIndex } from '../lib/categoryColors'
 import { monthIso } from '../lib/jarForm'
 import { formatDate, todayIso } from '../lib/dates'
-import { CategoryAccordion } from '../components/CategoryAccordion'
-import { SavingsGroup } from '../components/SavingsGroup'
+import { useMediaQuery } from '../lib/useMediaQuery'
 import { RemoveJarLineModal } from '../components/jars/RemoveJarLineModal'
-import { IncomeGroup } from '../components/IncomeGroup'
 import { useMonth } from '../features/MonthContext'
 import { useHousehold } from '../features/HouseholdContext'
 
@@ -89,9 +88,6 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savingItemId, setSavingItemId] = useState<string | null>(null)
-  const [newCategoryName, setNewCategoryName] = useState('')
-  const [newCategoryIsSavings, setNewCategoryIsSavings] = useState(false)
-  const [addingGroup, setAddingGroup] = useState(false)
   const [months, setMonths] = useState<BudgetMonthSummaryDto[]>([])
   const [templates, setTemplates] = useState<BudgetTemplateDto[]>([])
   // The "Your jars" shelf — the household's jars, with goal progress.
@@ -114,8 +110,10 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     setJarGroupId(groupId)
     setJarFormOpen(true)
   }, [])
-  // W04 (rule 60): the jar line whose ✕ was clicked — skip this month or archive the jar.
-  const [removingJarLine, setRemovingJarLine] = useState<ItemVM | null>(null)
+  // W04 (rule 60): the jar line whose "Skip this month" or "Archive jar" was chosen, and which.
+  const [removingJarLine, setRemovingJarLine] = useState<{ item: ItemVM; intent: 'skip' | 'archive' } | null>(null)
+  // Phones (the mock-ups' 700px breakpoint): no ⋯ per line; a line opens its actions in a sheet.
+  const phone = useMediaQuery('(max-width: 699.98px)')
   // A past month's contributions are history (rule 60): nothing in it can be skipped. The server
   // dates months in UTC, so the screen does too.
   const viewKey = `${year}-${String(monthNum).padStart(2, '0')}`
@@ -740,13 +738,16 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     const hasMonth = month !== null
     const hasJars = jars.length > 0
     if (hasAccounts && hasMonth && hasJars) return null
-    return [
+    const steps: { id: string; label: string; done: boolean; action: ReactNode }[] = [
       {
         id: 'accounts',
         label: 'Add your accounts with their opening balances',
         done: hasAccounts,
         action: (
-          <Link to="/accounts" className="text-sm font-semibold text-brand-700 hover:underline dark:text-brand-200">
+          <Link
+            to="/accounts"
+            className="inline-flex h-8 items-center rounded-lg px-2 text-sm font-semibold text-brand-700 hover:bg-surface-2 dark:text-brand-200 dark:hover:bg-foreground/7"
+          >
             Go to accounts
           </Link>
         ),
@@ -760,6 +761,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
             size="sm"
             variant="secondary"
             aria-label="Create this month's budget"
+            className="h-8"
             onClick={() => {
               const target = document.getElementById('start-blank-budget') ?? document.getElementById('create-month')
               target?.scrollIntoView?.({ block: 'center' })
@@ -775,158 +777,171 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         label: 'Add a jar from an account',
         done: hasJars,
         action: (
-          <Button
-            size="sm"
-            variant="secondary"
-            aria-label="Add a jar from an account"
-            disabled={!hasAccounts}
-            title={hasAccounts ? undefined : 'Add an account first — a jar’s money is held in an account'}
-            onClick={() => openJarForm(null)}
-          >
-            Add jar
-          </Button>
+          <span className="flex items-center gap-1.5">
+            {!hasAccounts && (
+              <InfoHint label="Why a jar needs an account" align="end" buttonClassName={HINT_BUTTON}>
+                Add an account first — a jar’s money is held in an account.
+              </InfoHint>
+            )}
+            <Button
+              size="sm"
+              variant="secondary"
+              aria-label="Add a jar from an account"
+              className="h-8"
+              disabled={!hasAccounts}
+              onClick={() => openJarForm(null)}
+            >
+              Add jar
+            </Button>
+          </span>
         ),
       },
     ]
+    return steps
   }, [accounts.length, month, jars.length, openJarForm])
 
-  function submitNewCategory() {
-    const trimmed = newCategoryName.trim()
-    if (trimmed === '') return
-    addCategory(trimmed, newCategoryIsSavings)
-    setNewCategoryName('')
-    setAddingGroup(false)
-  }
+  // Only a jar still planning gets a line in a new month: not an archived jar or a completed goal
+  // (rules 27, 55).
+  const planningJars = jars.filter((j) => !j.isArchived && !j.completedOn).length
 
   return (
     <AppShell active="budget" title="Dashboard" month>
-        {loading && <p className="text-slate-500">Loading your budget…</p>}
+        {loading && <DashboardSkeleton />}
 
         {error && (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {error}
+          <div
+            role="alert"
+            className="flex min-h-11 items-center gap-2.5 rounded-[10px] bg-bad-bg px-3.5 py-2 text-sm font-semibold text-bad shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-bad)_16%,transparent)]"
+          >
+            <CircleAlert aria-hidden className="size-4 shrink-0" />
+            <span className="min-w-0">{error}</span>
           </div>
         )}
 
         {/* First-run checklist (rule 81): accounts first, then the month, then a jar from an
             account. Shown until every step is done; state comes from data already loaded. */}
         {canWrite && !loading && accountsLoaded && jarsLoaded && checklist && (
-          <Card as="section" aria-labelledby="setup-heading" className="p-5">
-            <h2 id="setup-heading" className="text-base font-bold tracking-[-0.01em] text-slate-900">Set up your budget</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Three steps, in order — your money lives in accounts, your plan in the month, and your savings in jars held in those accounts.
-            </p>
-            <ol className="mt-3 space-y-2">
+          <section aria-labelledby="setup-heading" className={DASH_CARD}>
+            <div className="flex min-h-8 items-center gap-1.5">
+              <h2 id="setup-heading" className={CARD_TITLE}>
+                Set up your budget
+              </h2>
+              <InfoHint label="About setting up" buttonClassName={HINT_BUTTON}>
+                Three steps, in order — your money lives in accounts, your plan in the month, and your savings in jars held in
+                those accounts.
+              </InfoHint>
+            </div>
+            <ol className="mt-2">
               {checklist.map((step) => (
-                <li key={step.id} className="flex flex-wrap items-center gap-2 text-sm">
+                <li key={step.id} className="flex min-h-12 items-center gap-3 py-1.5 not-first:border-t not-first:border-line">
                   <span
                     aria-hidden
-                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+                    className={`grid size-5 shrink-0 place-items-center rounded-full ${
                       step.done ? 'bg-brand-600 text-white' : 'border border-slate-300 text-transparent'
                     }`}
                   >
-                    <CheckIcon className="h-3 w-3" />
+                    <Check className="size-3" strokeWidth={3} />
                   </span>
-                  <span className={step.done ? 'text-slate-500 line-through' : 'text-slate-800'}>{step.label}</span>
+                  <span className={`min-w-0 flex-1 text-sm font-medium ${step.done ? 'text-slate-500 line-through' : 'text-slate-900'}`}>
+                    {step.label}
+                  </span>
                   <span className="sr-only">{step.done ? '(done)' : '(to do)'}</span>
-                  {!step.done && step.action}
+                  {!step.done && <span className="shrink-0">{step.action}</span>}
                 </li>
               ))}
             </ol>
-          </Card>
+          </section>
         )}
 
-        {notFound && !loading && !canWrite && (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-surface px-6 py-12 text-center shadow-card">
-            <p className="text-slate-600">
+        {/* No budget for the month yet: one card in place of the KPI row and the cards. */}
+        {notFound && !loading && (
+          <section
+            id={canWrite ? 'create-month' : undefined}
+            aria-labelledby="empty-month-heading"
+            className={`${DASH_CARD} py-10! text-center min-[700px]:py-12!`}
+          >
+            <h2 id="empty-month-heading" className={CARD_TITLE}>
               No budget for {MONTH_NAMES[monthNum - 1]} {year} yet.
-            </p>
-            <p className="mt-1 text-sm text-slate-500">
-              Ask an admin or the owner to set this month up.
-            </p>
-          </div>
-        )}
-
-        {notFound && !loading && canWrite && (
-          <div id="create-month" className="rounded-2xl border border-dashed border-slate-300 bg-surface px-6 py-12 text-center shadow-card">
-            <p className="text-slate-600">
-              No budget for {MONTH_NAMES[monthNum - 1]} {year} yet.
-            </p>
-            <div className="mt-4 flex flex-wrap justify-center gap-3">
-              {prevBudget && (
-                <button
-                  type="button"
-                  onClick={() => createMonth(true)}
-                  disabled={creating}
-                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-                >
-                  Copy {MONTH_NAMES[prevBudget.month - 1]} {prevBudget.year}
-                </button>
-              )}
-              <button
-                type="button"
-                id="start-blank-budget"
-                onClick={() => createMonth(false)}
-                disabled={creating}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-              >
-                Start a blank budget
-              </button>
-            </div>
-
-            {(() => {
-              // Only a jar still planning gets a line: not an archived jar or a completed goal (rules 27, 55).
-              const planning = jars.filter((j) => !j.isArchived && !j.completedOn).length
-              return (
-                planning > 0 && (
-                  <p className="mt-3 text-xs text-slate-400">
-                    Your {planning} existing {planning === 1 ? 'jar is' : 'jars are'} added to any new
-                    budget automatically, so it will have a few more lines than a template lists.
-                  </p>
-                )
-              )
-            })()}
-
-            {templates.length > 0 && (
-              <div className="mt-8 border-t border-slate-100 pt-6">
-                <p className="text-sm font-medium text-slate-500">Or start from a template</p>
-                <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                  {templates.map((t) => {
-                    const lineCount = t.groups.reduce((n, g) => n + g.lines.length, 0)
-                    return (
-                      <button
-                        key={t.key}
-                        type="button"
-                        onClick={() => createFromTemplate(t.key)}
-                        disabled={creating}
-                        aria-label={`Start from the ${t.name} template`}
-                        className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-surface p-4 text-left transition hover:border-brand-500 hover:bg-brand-50/40 hover:shadow-card disabled:opacity-50"
-                      >
-                        <span className="font-semibold text-slate-800">{t.name}</span>
-                        <span className="text-xs text-slate-500">{t.description}</span>
-                        <span className="mt-1 text-xs text-slate-500">
-                          {t.groups.length} groups · {lineCount} lines
-                        </span>
-                      </button>
-                    )
-                  })}
+            </h2>
+            {!canWrite ? (
+              <p className="mt-1 text-sm text-slate-500">Ask an admin or the owner to set this month up.</p>
+            ) : (
+              <>
+                <div className="mt-5 flex flex-wrap justify-center gap-3">
+                  {prevBudget && (
+                    <Button onClick={() => createMonth(true)} disabled={creating}>
+                      Copy {MONTH_NAMES[prevBudget.month - 1]} {prevBudget.year}
+                    </Button>
+                  )}
+                  <Button
+                    id="start-blank-budget"
+                    variant={prevBudget ? 'secondary' : 'primary'}
+                    onClick={() => createMonth(false)}
+                    disabled={creating}
+                  >
+                    Start a blank budget
+                  </Button>
                 </div>
-              </div>
+                {planningJars > 0 && (
+                  <p className="mx-auto mt-3 max-w-md text-[13px] text-slate-500">
+                    Your {planningJars} existing {planningJars === 1 ? 'jar is' : 'jars are'} added to any new budget
+                    automatically, so it will have a few more lines than a template lists.
+                  </p>
+                )}
+                {templates.length > 0 && (
+                  <div className="mt-8 border-t border-line pt-6">
+                    <p className="text-[13px] font-medium text-slate-500">Or start from a template</p>
+                    <div className="mt-3 grid gap-3 text-left sm:grid-cols-3">
+                      {templates.map((t) => {
+                        const lineCount = t.groups.reduce((n, g) => n + g.lines.length, 0)
+                        return (
+                          <button
+                            key={t.key}
+                            type="button"
+                            onClick={() => createFromTemplate(t.key)}
+                            disabled={creating}
+                            aria-label={`Start from the ${t.name} template`}
+                            className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-surface p-4 text-left transition hover:border-brand-500 hover:bg-brand-50/40 hover:shadow-card disabled:opacity-50"
+                          >
+                            <span className="text-sm font-semibold text-slate-900">{t.name}</span>
+                            <span className="text-[13px] text-slate-500">{t.description}</span>
+                            <span className="mt-1 text-xs font-semibold text-slate-500 tabular-nums">
+                              {t.groups.length} groups · {lineCount} lines
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
-          </div>
+          </section>
         )}
 
         {month && (() => {
           const incomeMinor = totalIncome(month)
           const allottedMinor = monthPlanned(month)
           const remainingMinor = remainingToBudget(month)
+          const money = (minor: Minor) => formatMoney(minor, month.currency)
           // A month with no income and nothing planned has Remaining €0, but it
           // isn't balanced — it's empty. Prompt for income instead of celebrating.
           const empty = incomeMinor === 0 && allottedMinor === 0
           const balanced = isBalanced(month)
           const over = remainingMinor < 0
-          // Only jars whose balance is known count; an unavailable one reads as such (rule 67).
-          const totalSavedMinor = jars.reduce((s, f) => s + (f.currentBalance === null ? 0 : fromAmount(f.currentBalance)), 0)
+          const noun = currencyNoun(month.currency)
+          const receivedMinor = sumMinor(month.categories.filter(isIncome).map(categoryActual))
+          const allReceived = incomeMinor > 0 && receivedMinor >= incomeMinor
+          const bills = billsSummary(month)
+          const alerts = billAlerts(month, today)
+          const allPaid = bills.total > 0 && bills.paid === bills.total
+          const billChip =
+            alerts.overdue > 0 ? (
+              <StatusChip tone="bad">{alerts.overdue} overdue</StatusChip>
+            ) : alerts.dueSoon > 0 ? (
+              <StatusChip tone="warn">{alerts.dueSoon} due soon</StatusChip>
+            ) : null
+          const paidCount = `${bills.paid}/${bills.total} paid`
           // W05 (rule 48): the shelf is the viewed month's view of the jars — a past month's
           // balances as of its last day (the server dates them), a month that has not begun
           // today's — so it always agrees with the Savings lines beside it. Say which.
@@ -935,291 +950,155 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
             : isFutureMonth
               ? 'balances as of today'
               : null
+          const showJars = jars.length > 0 || jarsFailed
+          const fx = month.fxPendingCount
           return (
           <>
-            <Hero
-              data-tour="remaining-banner"
-              eyebrow="Remaining to budget"
-              amount={formatMoney(remainingMinor, month.currency)}
-              amountLabel={`Remaining to budget: ${formatMoney(remainingMinor, month.currency)}`}
-              tiles={[
-                { label: 'Income', value: formatMoney(incomeMinor, month.currency) },
-                { label: 'Allotted', value: formatMoney(allottedMinor, month.currency) },
-              ]}
-              footnote={
-                balanced ? (
-                  <BalancedBadge>Every {currencyNoun(month.currency)} has a job</BalancedBadge>
-                ) : (
-                  <span
-                    className={`inline-flex items-center rounded-full px-[15px] py-2 text-[13.5px] font-medium ${
-                      over ? 'bg-rose-500/25 text-rose-50 ring-1 ring-rose-200/40' : 'bg-black/[0.18]'
-                    }`}
-                  >
-                    {empty
-                      ? `Plan your income, then give every ${currencyNoun(month.currency)} a job`
-                      : over
-                        ? `${formatMoney(-remainingMinor, month.currency)} over-budgeted — trim a line`
-                        : `${formatMoney(remainingMinor, month.currency)} still to assign`}
-                  </span>
-                )
-              }
-            />
+            <KpiRow tiles={bills.total > 0 ? 2 : 1}>
+              <KpiTile
+                hero
+                data-tour="remaining-banner"
+                label="Remaining to budget"
+                hint={`Income not given a job yet. Allot it in the budget below until this reaches ${money(0)}.`}
+                value={money(remainingMinor)}
+                valueLabel={`Remaining to budget: ${money(remainingMinor)}`}
+                extra={<HeroBar pct={incomeMinor > 0 ? (allottedMinor / incomeMinor) * 100 : 0} />}
+                sub={
+                  balanced ? (
+                    <span className="inline-flex items-center gap-2 font-semibold text-white">
+                      <span aria-hidden className="grid size-[17px] shrink-0 place-items-center rounded-full bg-gold text-[#1c1407]">
+                        <Check className="size-[11px]" strokeWidth={3.2} />
+                      </span>
+                      Every {noun} has a job
+                    </span>
+                  ) : empty ? (
+                    `Plan your income, then give every ${noun} a job`
+                  ) : over ? (
+                    // The gold number above already says by how much (never the same fact twice).
+                    <>
+                      <span>{money(allottedMinor)} allotted</span>
+                      <StatusChip tone="bad">Over-budgeted — trim a line</StatusChip>
+                    </>
+                  ) : (
+                    `${money(allottedMinor)} allotted`
+                  )
+                }
+              />
+              <KpiTile
+                label="Income"
+                icon={<Wallet strokeWidth={1.8} />}
+                hue="emerald"
+                value={money(incomeMinor)}
+                strip={bills.total === 0}
+                subTone={allReceived ? 'ok' : 'muted'}
+                sub={
+                  allReceived ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Check aria-hidden className="size-3.5" strokeWidth={2.4} />
+                      All received
+                    </span>
+                  ) : (
+                    `${money(receivedMinor)} received`
+                  )
+                }
+              />
+              {bills.total > 0 && (
+                <KpiTile
+                  label="Bills left"
+                  icon={<CalendarDays strokeWidth={1.8} />}
+                  hue="indigo"
+                  value={money(bills.unpaidMinor)}
+                  // The chip is the tile's one line, as in the mock-up; beside it the paid count
+                  // is read out only. With nothing overdue or due soon the count shows instead.
+                  extra={
+                    billChip && (
+                      <>
+                        {billChip}
+                        <span className="sr-only">{paidCount}</span>
+                      </>
+                    )
+                  }
+                  subTone={allPaid ? 'ok' : 'muted'}
+                  sub={
+                    !billChip && (
+                      <span data-tone={allPaid ? 'ok' : undefined} className="inline-flex items-center gap-1.5 tabular-nums">
+                        {allPaid && <Check aria-hidden className="size-3.5" strokeWidth={2.4} />}
+                        {paidCount}
+                      </span>
+                    )
+                  }
+                />
+              )}
+            </KpiRow>
 
             {/* Rows in another currency still waiting for their amount in the budget currency are
                 EXCLUDED from every actual on this page (the app never converts on its own), so
                 say so rather than presenting incomplete totals as final. */}
-            {month.fxPendingCount > 0 && (
+            {fx > 0 && (
               <div
                 role="status"
-                className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+                className="flex min-h-11 items-center gap-2 rounded-[10px] bg-warn-bg py-1 pr-0.5 pl-3 text-[13px] font-semibold text-warn shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-warn)_16%,transparent)] min-[700px]:gap-2.5 min-[700px]:py-1.5 min-[700px]:pr-1.5 min-[700px]:pl-3.5 min-[700px]:text-sm"
               >
-                <span className="font-medium">
-                  {month.fxPendingCount} transaction{month.fxPendingCount === 1 ? '' : 's'} in another currency{' '}
-                  {month.fxPendingCount === 1 ? 'is' : 'are'} waiting for {month.fxPendingCount === 1 ? 'its' : 'their'}{' '}
-                  amount in {budgetCurrency}
-                </span>{' '}
-                and {month.fxPendingCount === 1 ? 'isn’t' : 'aren’t'} counted until it’s entered.{' '}
-                <Link to="/transactions" className="font-semibold underline underline-offset-2">
-                  Enter {month.fxPendingCount === 1 ? 'it' : 'them'} on Transactions
+                <TriangleAlert aria-hidden className="size-4 shrink-0" />
+                <span className="min-w-0 flex-1">
+                  {fx} payment{fx === 1 ? '' : 's'}
+                  {/* A phone keeps the strip to one line: the link says which amount is missing. */}
+                  <span className="max-[699.98px]:hidden"> in another currency</span> {fx === 1 ? 'isn’t' : 'aren’t'} counted
+                  yet
+                </span>
+                <Link
+                  to="/transactions"
+                  className="relative inline-flex h-8 shrink-0 items-center gap-1 rounded-lg pr-1.5 pl-2 font-[650] whitespace-nowrap transition after:absolute after:-inset-y-1.5 after:inset-x-0 after:content-[''] hover:bg-[color-mix(in_srgb,var(--color-warn)_10%,transparent)] min-[700px]:pr-2 min-[700px]:pl-2.5"
+                >
+                  Add {currencySymbol(month.currency)} amount{fx === 1 ? '' : 's'}
+                  <ChevronRight aria-hidden className="size-4" />
                 </Link>
               </div>
             )}
 
-            {(() => {
-              const bills = billsSummary(month)
-              if (bills.total === 0) return null
-              const allPaid = bills.paid === bills.total
-              const alerts = billAlerts(month, today)
-              const tone = alerts.overdue > 0
-                ? 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200'
-                : allPaid
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200'
-                  : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'
-              return (
-                <div className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl border px-4 py-2.5 text-sm ${tone}`}>
-                  <span className="font-medium">
-                    📅 Bills: {bills.paid}/{bills.total} paid
-                    {alerts.overdue > 0 && (
-                      <span className="ml-2 font-semibold">· {alerts.overdue} overdue</span>
-                    )}
-                    {alerts.overdue === 0 && alerts.dueSoon > 0 && (
-                      <span className="ml-2">· {alerts.dueSoon} due soon</span>
-                    )}
-                  </span>
-                  <span className="tabular-nums">
-                    {allPaid
-                      ? 'All bills paid 🎉'
-                      : `${formatMoney(bills.unpaidMinor, month.currency)} left to pay`}
-                  </span>
+            {/* The jars first in the page (a phone reads them before the budget); from 940px
+                wide they stand in the right-hand column, which stays in view (sticky).
+                `dash-palette` (index.css): the cards' category hues follow the approved palette. */}
+            <div className="dash-palette @container">
+              <div className="grid gap-4 min-[700px]:gap-6 @min-[940px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] @min-[940px]:items-start">
+                {showJars && (
+                  <JarsCard
+                    jars={jars}
+                    failed={jarsFailed}
+                    currency={month.currency}
+                    asOf={shelfAsOf}
+                    className="@min-[940px]:sticky @min-[940px]:top-[92px] @min-[940px]:col-start-2 @min-[940px]:row-start-1"
+                  />
+                )}
+                <div className={`min-w-0 ${showJars ? '@min-[940px]:col-start-1 @min-[940px]:row-start-1' : '@min-[940px]:col-span-2'}`}>
+                  <BudgetCard
+                    month={month}
+                    today={today}
+                    phone={phone}
+                    savingItemId={savingItemId}
+                    isShared={isShared}
+                    members={householdMembers}
+                    jars={jarsLoaded && !jarsFailed ? jars : null}
+                    jarOrder={jars}
+                    isPastMonth={isPastMonth}
+                    onCommitItem={commitItem}
+                    onSetItemMember={setItemMember}
+                    onSetBill={setBill}
+                    onSetPaid={setPaid}
+                    onRenameItem={renameItem}
+                    onAddItem={addItem}
+                    onDeleteItem={deleteItem}
+                    onRestoreJarLine={restoreJarLine}
+                    onRemoveJarLine={(item, intent) => setRemovingJarLine({ item, intent })}
+                    onAddJar={openJarForm}
+                    onAddCategory={addCategory}
+                    onRenameCategory={renameCategory}
+                    onDeleteCategory={deleteCategory}
+                    onMoveCategory={moveCategory}
+                    onReorderItems={reorderItems}
+                  />
                 </div>
-              )
-            })()}
-
-            {/* "Your jars" shelf — the jars drawn as jars, the signature metaphor. It follows
-                the viewed month (rule 48): balances at a past month's end, this month's plan
-                and what went in, so it never contradicts the savings lines on the same screen. */}
-            {jarsFailed && (
-              <p role="status" className="text-sm text-slate-500">
-                Could not load your jars for this month. Change month or reload to try again.
-              </p>
-            )}
-            {jars.length > 0 && (
-              <Card className="p-6">
-                <div className="flex items-baseline justify-between gap-3">
-                  <h2 className="text-base font-bold tracking-[-0.01em] text-slate-900">Your jars</h2>
-                  <span className="text-sm tabular-nums text-slate-500">
-                    {formatMoney(totalSavedMinor, month.currency)} saved
-                    {shelfAsOf && (
-                      <>
-                        {' '}
-                        <span className="ml-1 text-xs font-normal text-slate-400">{shelfAsOf}</span>
-                      </>
-                    )}
-                  </span>
-                </div>
-                <div className="mt-[22px] grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(116px,1fr))]">
-                  {jars.map((f, i) => {
-                    const avail = f.currentBalance === null ? null : fromAmount(f.currentBalance)
-                    const target = fromAmount(f.targetAmount)
-                    const pct = target > 0 && avail !== null ? (avail / target) * 100 : 0
-                    const monthly = fromAmount(f.plannedThisMonth)
-                    const chip = jarStatusChip(f.status)
-                    return (
-                      <div key={f.id} className="flex flex-col items-center gap-3">
-                        <Jar
-                          hue={hueForIndex(i)}
-                          pct={pct}
-                          size="shelf"
-                          label={`${f.name}: ${Math.round(Math.max(0, Math.min(100, pct)))}% of goal`}
-                        />
-                        <div className="text-center">
-                          <div className="text-[13px] font-semibold text-slate-900">{f.name}</div>
-                          <div className={`text-[13.5px] font-bold tabular-nums ${avail === null ? 'text-slate-500' : 'text-slate-900'}`}>
-                            {avail === null ? 'Not available' : formatMoney(avail, month.currency)}
-                          </div>
-                          {/* One status-aware line: an attention/funded chip wins, else this
-                              month's plan — so the shelf never contradicts the Jars page. */}
-                          {chip ? (
-                            <div className="mt-1 flex justify-center">
-                              <Badge tone={chip.tone}>{chip.label}</Badge>
-                            </div>
-                          ) : (
-                            monthly > 0 && (
-                              <div className="mt-px text-[11.5px] font-semibold tabular-nums text-brand-700 dark:text-brand-200">
-                                +{formatMoney(monthly, month.currency)}/mo
-                              </div>
-                            )
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </Card>
-            )}
-
-            <div className="space-y-3">
-              {/* Income groups always render first. */}
-              {month.categories.filter(isIncome).map((category) => (
-                <IncomeGroup
-                  key={category.id}
-                  category={category}
-                  currency={month.currency}
-                  savingItemId={savingItemId}
-                  members={householdMembers}
-                  showMemberPicker={isShared}
-                  onSetItemMember={setItemMember}
-                  onRenameItem={renameItem}
-                  onCommitPlanned={commitItem}
-                  onDeleteItem={deleteItem}
-                  onAddItem={addItem}
-                />
-              ))}
-              {/* "Everyday spending" panel — all expense groups in one card. */}
-              {(() => {
-                const expense = month.categories.filter((c) => c.kind === 'expense')
-                if (expense.length === 0) return null
-                const spent = sumMinor(expense.map(categoryActual))
-                const planned = sumMinor(expense.map(categoryPlanned))
-                return (
-                  <Card className="px-6 py-[22px]">
-                    <div className="mb-1.5 flex items-baseline justify-between gap-3">
-                      <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Everyday spending</h2>
-                      <div className="text-[13px] tabular-nums text-slate-700">
-                        {formatMoney(spent, month.currency)}{' '}
-                        <span className="text-slate-500">of {formatMoney(planned, month.currency)}</span>
-                      </div>
-                    </div>
-                    {expense.map((category, i, arr) => (
-                      <CategoryAccordion
-                        key={category.id}
-                        category={category}
-                        currency={month.currency}
-                        savingItemId={savingItemId}
-                        monthYear={month.year}
-                        monthNumber={month.month}
-                        today={today}
-                        isFirst={i === 0}
-                        isLast={i === arr.length - 1}
-                        hue={hueForIndex(i)}
-                        onCommitItem={commitItem}
-                        onSetBill={setBill}
-                        onSetPaid={setPaid}
-                        onRenameItem={renameItem}
-                        onDeleteItem={deleteItem}
-                        onAddItem={addItem}
-                        onRenameCategory={renameCategory}
-                        onDeleteCategory={deleteCategory}
-                        onMove={moveCategory}
-                        onReorderItems={reorderItems}
-                      />
-                    ))}
-                  </Card>
-                )
-              })()}
-
-              {/* Jars render below expenses; their balances roll over. */}
-              {month.categories.filter(isSavings).map((category) => (
-                <SavingsGroup
-                  key={category.id}
-                  category={category}
-                  currency={month.currency}
-                  savingItemId={savingItemId}
-                  jars={jarsLoaded && !jarsFailed ? jars : null}
-                  onCommitItem={isPastMonth ? undefined : commitItem}
-                  onRenameItem={renameItem}
-                  onRemoveJarLine={isPastMonth ? undefined : (item) => setRemovingJarLine(item)}
-                  onRestoreJarLine={isPastMonth ? undefined : restoreJarLine}
-                  // A group still being saved has a temporary id: its Add jar waits for the real one.
-                  onAddJar={category.id.startsWith('temp-') ? undefined : openJarForm}
-                  onRenameCategory={renameCategory}
-                  onDeleteCategory={deleteCategory}
-                />
-              ))}
-
-              {/* Add a new expense or fund group — a quiet reveal to match the clean panel. */}
-              {canWrite &&
-                (addingGroup ? (
-                  <div className="flex items-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-surface/60 px-4 py-3">
-                    <input
-                      type="text"
-                      autoFocus
-                      value={newCategoryName}
-                      placeholder={
-                        newCategoryIsSavings
-                          ? 'Add a savings group (e.g. Travel, Big purchases)…'
-                          : 'Add a category group (e.g. Subscriptions, Insurance)…'
-                      }
-                      aria-label="New category group name"
-                      onChange={(e) => setNewCategoryName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') submitNewCategory()
-                        if (e.key === 'Escape') {
-                          setNewCategoryName('')
-                          setAddingGroup(false)
-                        }
-                      }}
-                      className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
-                    />
-                    <select
-                      value={newCategoryIsSavings ? 'savings' : 'expense'}
-                      aria-label="New group kind"
-                      onChange={(e) => setNewCategoryIsSavings(e.target.value === 'savings')}
-                      className="rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-600 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
-                    >
-                      <option value="expense">Expense</option>
-                      <option value="savings">Savings</option>
-                    </select>
-                    <button
-                      type="button"
-                      onClick={submitNewCategory}
-                      aria-label="Add category group"
-                      className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700"
-                    >
-                      Add
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNewCategoryName('')
-                        setAddingGroup(false)
-                      }}
-                      aria-label="Cancel adding group"
-                      className="rounded-lg px-2 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-100"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setAddingGroup(true)}
-                    aria-label="Add a group"
-                    className="rounded-lg px-2 py-1.5 text-sm font-semibold text-slate-500 transition hover:text-brand-700"
-                  >
-                    + Add group
-                  </button>
-                ))}
+              </div>
             </div>
           </>
           )
@@ -1228,7 +1107,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         {/* Rule 60: skip this month's contribution or archive the jar. Mounted only while open. */}
         {removingJarLine && month && canWrite && (
           <RemoveJarLineModal
-            item={removingJarLine}
+            item={removingJarLine.item}
+            intent={removingJarLine.intent}
             month={monthIso(year, monthNum)}
             currency={month.currency}
             onClose={() => setRemovingJarLine(null)}
@@ -1249,5 +1129,29 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           />
         )}
     </AppShell>
+  )
+}
+
+/** The quiet (i) button beside a card title or a line of text. */
+const HINT_BUTTON =
+  "relative -my-1 inline-grid size-[22px] place-items-center rounded-full text-slate-500 opacity-85 transition after:absolute after:-inset-[9px] after:content-[''] hover:bg-slate-500/10 hover:opacity-100"
+
+/**
+ * While the month loads: the page's shape in placeholders (the KPI row, the jars and the budget),
+ * hidden from assistive tech, which hears "Loading your budget…" instead.
+ */
+function DashboardSkeleton() {
+  return (
+    <>
+      <p className="sr-only">Loading your budget…</p>
+      <div aria-hidden className="flex flex-col gap-4 min-[700px]:gap-6">
+        <div className="grid grid-cols-2 gap-3 min-[700px]:grid-cols-[1.5fr_1fr_1fr] min-[700px]:gap-6">
+          <Skeleton className="col-span-2 h-[132px] rounded-2xl min-[700px]:col-span-1 min-[700px]:h-[150px]" />
+          <Skeleton className="h-[104px] rounded-2xl min-[700px]:h-[150px]" />
+          <Skeleton className="h-[104px] rounded-2xl min-[700px]:h-[150px]" />
+        </div>
+        <Skeleton className="h-[420px] rounded-2xl" />
+      </div>
+    </>
   )
 }
