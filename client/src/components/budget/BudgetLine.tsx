@@ -212,6 +212,11 @@ export function BudgetLine({
   // it closes because focus moved on): the planned amount when it was opened from there, else
   // the line's ⋯ (desktop) or the line itself (phone), so the user keeps their place.
   const refocus = useRef<'planned' | 'trigger' | null>(null)
+  // On a wide screen a rename picked from the ⋯ edits the name in place, with no mode: Enter or
+  // Escape gives focus back to the ⋯ directly. Escape drops the edit, so the blur it causes must
+  // not save it.
+  const [renameFromMenu, setRenameFromMenu] = useState(false)
+  const skipCommit = useRef(false)
   const [plannedFrom, setPlannedFrom] = useState<'planned' | 'trigger'>('trigger')
 
   useEffect(() => {
@@ -291,6 +296,7 @@ export function BudgetLine({
       setMode('rename')
       return
     }
+    setRenameFromMenu(true)
     nameInputEl?.focus()
     nameInputEl?.select()
   }
@@ -406,21 +412,32 @@ export function BudgetLine({
       autoFocus={phone && mode === 'rename'}
       onChange={(e) => setName(e.target.value)}
       onBlur={() => {
-        commitName()
+        setRenameFromMenu(false)
+        if (skipCommit.current) skipCommit.current = false
+        else commitName()
         if (mode === 'rename') setMode('idle')
       }}
       onKeyDown={(e) => {
+        const trigger = renameFromMenu
+          ? rowRef.current?.querySelector<HTMLElement>('[data-row-trigger]')
+          : null
         if (e.key === 'Enter') {
-          if (mode === 'rename') {
-            // No keypress after this keydown: it would reach the line (focused by then) and open it.
+          if (mode === 'rename' || trigger) {
+            // No keypress after this keydown: it would reach the line or the ⋯ (focused by then)
+            // and open it.
             e.preventDefault()
-            refocus.current = 'trigger'
+            if (mode === 'rename') refocus.current = 'trigger'
           }
           ;(e.target as HTMLInputElement).blur()
+          trigger?.focus()
         }
         if (e.key === 'Escape') {
           setName(item.name)
           if (mode === 'rename') closeEditor()
+          else if (trigger) {
+            skipCommit.current = true
+            trigger.focus()
+          }
         }
       }}
       className={`text-sm font-semibold text-slate-900 ${phone ? 'relative z-10' : ''}`}

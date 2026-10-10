@@ -252,11 +252,9 @@ test('expense transactions drive real line actuals: explicit assign, payee inher
   const groupHeader = page
     .locator('div.group\\/gh')
     .filter({ has: page.getByRole('textbox', { name: 'Rename group Everyday', exact: true }) })
-  await expect(groupHeader).toContainText('200.00 spent of')
-  await expect(groupHeader).toContainText('300.00')
+  await expect(groupHeader).toContainText(/200\.00 spent of \S*300\.00/)
   await page.getByRole('button', { name: 'About this month’s budget', exact: true }).focus()
-  await expect(page.getByRole('tooltip')).toContainText('200.00 spent of')
-  await expect(page.getByRole('tooltip')).toContainText('300.00 planned')
+  await expect(page.getByRole('tooltip')).toContainText(/200\.00 spent of \S*300\.00 planned/)
 })
 
 test('the auto-categorizer never inherits a payee match from another household', async ({

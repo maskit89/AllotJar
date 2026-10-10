@@ -219,6 +219,53 @@ describe('DashboardPage row actions (restyle PR 3)', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Housing group: more actions' })).toHaveFocus())
   })
 
+  it('Rename from a line’s or a group’s ⋯: Enter saves, Escape drops the edit, and both give focus back to the ⋯', { timeout: 20000 }, async () => {
+    mockLoads()
+    mockPut.mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+    renderPage()
+
+    // A line: Rename puts focus in its name; Escape drops the edit without saving.
+    const utilMore = await screen.findByRole('button', { name: 'Utilities: more actions' }, { timeout: 5000 })
+    await user.click(utilMore)
+    await user.click(await screen.findByRole('menuitem', { name: 'Rename' }))
+    const lineName = screen.getByRole('textbox', { name: 'Rename Utilities' })
+    await waitFor(() => expect(lineName).toHaveFocus())
+    await user.keyboard('Power{Escape}')
+    await waitFor(() => expect(utilMore).toHaveFocus())
+    expect(lineName).toHaveValue('Utilities')
+    expect(mockPut).not.toHaveBeenCalled()
+
+    // Enter saves the new name and focus returns to the ⋯, which stays closed.
+    await user.click(utilMore)
+    await user.click(await screen.findByRole('menuitem', { name: 'Rename' }))
+    await waitFor(() => expect(lineName).toHaveFocus())
+    await user.keyboard('Power{Enter}')
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-util', { plannedAmount: 150, name: 'Power', version: null }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Power: more actions' })).toHaveFocus())
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+
+    // A group: the same, focus going back to the group's ⋯.
+    mockPut.mockClear()
+    const groupMore = screen.getByRole('button', { name: 'Housing group: more actions' })
+    await user.click(groupMore)
+    await user.click(await screen.findByRole('menuitem', { name: 'Rename' }))
+    const groupName = screen.getByRole('textbox', { name: 'Rename group Housing' })
+    await waitFor(() => expect(groupName).toHaveFocus())
+    await user.keyboard('Home{Escape}')
+    await waitFor(() => expect(groupMore).toHaveFocus())
+    expect(groupName).toHaveValue('Housing')
+    expect(mockPut).not.toHaveBeenCalled()
+
+    await user.click(groupMore)
+    await user.click(await screen.findByRole('menuitem', { name: 'Rename' }))
+    await waitFor(() => expect(groupName).toHaveFocus())
+    await user.keyboard('Home{Enter}')
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/categories/c-house', expect.objectContaining({ name: 'Home' })))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Home group: more actions' })).toHaveFocus())
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
   it('a shared household’s same-named income lines are told apart by their earner', { timeout: 15000 }, async () => {
     household.current = shared()
     mockLoads(undefined, twoEarners())

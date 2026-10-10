@@ -67,6 +67,10 @@ export function BudgetGroup({
   // When the add row or the delete confirmation closes by a key or a button, focus goes back to
   // the group's ⋯ (where they were opened), not to the page.
   const refocus = useRef(false)
+  // A rename picked from the ⋯ edits the name in place; Enter or Escape gives focus back to the
+  // ⋯. Escape drops the edit, so the blur it causes must not save it.
+  const [renameFromMenu, setRenameFromMenu] = useState(false)
+  const skipCommit = useRef(false)
 
   useEffect(() => setName(category.name), [category.name])
   useEffect(() => {
@@ -121,6 +125,7 @@ export function BudgetGroup({
         icon: <Pencil aria-hidden />,
         after: 'focus',
         onSelect: () => {
+          setRenameFromMenu(true)
           nameInput?.focus()
           nameInput?.select()
         },
@@ -174,10 +179,28 @@ export function BudgetGroup({
               value={name}
               aria-label={`Rename group ${category.name}`}
               onChange={(e) => setName(e.target.value)}
-              onBlur={commitName}
+              onBlur={() => {
+                setRenameFromMenu(false)
+                if (skipCommit.current) skipCommit.current = false
+                else commitName()
+              }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                if (e.key === 'Escape') setName(category.name)
+                const trigger = renameFromMenu
+                  ? headRef.current?.querySelector<HTMLElement>('[data-row-trigger]')
+                  : null
+                if (e.key === 'Enter') {
+                  // No keypress after this keydown: it would press the ⋯ (focused by then).
+                  if (trigger) e.preventDefault()
+                  ;(e.target as HTMLInputElement).blur()
+                  trigger?.focus()
+                }
+                if (e.key === 'Escape') {
+                  setName(category.name)
+                  if (trigger) {
+                    skipCommit.current = true
+                    trigger.focus()
+                  }
+                }
               }}
               className="uppercase focus-within:tracking-normal focus-within:normal-case"
             />

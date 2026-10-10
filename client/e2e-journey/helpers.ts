@@ -91,14 +91,24 @@ export async function startFromEssentialsTemplate(page: Page): Promise<void> {
  * Picks `item` from one of the Dashboard's row menus (restyle PR 3): a line's ⋯ is named
  * "{line}: more actions" and a group's "{group} group: more actions". On a pointer screen the ⋯
  * shows while its row is hovered or holds focus (clicking it hovers it first), and the menu
- * renders in a portal, so the item is found on the page rather than inside the row.
+ * renders in a portal, so the item is found on the page rather than inside the row. Desktop
+ * only: on a phone-sized viewport there is no ⋯ (the line itself opens a bottom sheet).
+ *
+ * A menu fades out after a choice or Escape, and a click on a ⋯ while one is still fading out
+ * opens nothing (seen in the journeys, which run with animations on), so this waits for no menu
+ * before it opens one and returns once the menu has gone.
  */
 export async function rowAction(page: Page, menu: string, item: string): Promise<void> {
+  await expect(page.getByRole('menu')).toHaveCount(0)
   await page.getByRole('button', { name: menu, exact: true }).click()
   await page.getByRole('menuitem', { name: item, exact: true }).click()
+  await expect(page.getByRole('menu')).toHaveCount(0)
 }
 
-/** Picks `item` ("Mark paid", "Delete", "Skip this month", …) from the ⋯ menu of the line `line`. */
+/**
+ * Picks `item` ("Mark paid", "Delete", "Skip this month", …) from the ⋯ menu of the line `line`.
+ * In a shared household an income line's name carries its earner: "Take-home pay (Alex)".
+ */
 export async function lineAction(page: Page, line: string, item: string): Promise<void> {
   await rowAction(page, `${line}: more actions`, item)
 }

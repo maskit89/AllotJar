@@ -329,7 +329,7 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   // --- Copy the current month into the next one (BUDG-038/040: ‹› + real source name) ---
   await page.getByRole('link', { name: 'Dashboard' }).click()
   await page.getByRole('button', { name: 'Next month' }).click()
-  await expect(page.getByRole('heading', { name: next.label })).toBeVisible()
+  await expect(page.getByRole('heading', { name: next.label, exact: true })).toBeVisible()
   await expect(page.getByText(`No budget for ${next.label} yet.`)).toBeVisible()
   await committed(page, 'POST', createMonthUrl, () =>
     page.getByRole('button', { name: `Copy ${current.label}` }).click(),
@@ -391,7 +391,7 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await page.reload()
   await expect(page.getByText('Remaining to budget')).toBeVisible() // current month loads
   await page.getByRole('button', { name: 'Next month' }).click()
-  await expect(page.getByRole('heading', { name: next.label })).toBeVisible()
+  await expect(page.getByRole('heading', { name: next.label, exact: true })).toBeVisible()
   await expect(
     page.getByRole('textbox', { name: 'Income source name', exact: true }),
   ).toHaveValue('Consulting')
@@ -441,7 +441,7 @@ test('month navigation moves every screen together; the jars shelf follows the m
   // BUDG-038: ‹ moves to the previous month — no budget there for this fresh user,
   // and no Copy button either (no month exists strictly before it).
   await page.getByRole('button', { name: 'Previous month' }).click()
-  await expect(page.getByRole('heading', { name: prev.label })).toBeVisible()
+  await expect(page.getByRole('heading', { name: prev.label, exact: true })).toBeVisible()
   await expect(page.getByText(`No budget for ${prev.label} yet.`)).toBeVisible()
   await expect(page.getByRole('button', { name: /^Copy / })).toHaveCount(0)
 
@@ -456,7 +456,7 @@ test('month navigation moves every screen together; the jars shelf follows the m
   // real most-recent prior month — the current one.
   await page.getByRole('button', { name: 'Next month' }).click()
   await page.getByRole('button', { name: 'Next month' }).click()
-  await expect(page.getByRole('heading', { name: next.label })).toBeVisible()
+  await expect(page.getByRole('heading', { name: next.label, exact: true })).toBeVisible()
   await expect(page.getByText(`No budget for ${next.label} yet.`)).toBeVisible()
   await committed(page, 'POST', createMonthUrl, () =>
     page.getByRole('button', { name: `Copy ${current.label}` }).click(),
@@ -481,9 +481,9 @@ test('month navigation moves every screen together; the jars shelf follows the m
     await page.getByRole('button', { name: 'Next month' }).click()
   }
   const decYear = next.year
-  await expect(page.getByRole('heading', { name: `December ${decYear}` })).toBeVisible()
+  await expect(page.getByRole('heading', { name: `December ${decYear}`, exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Next month' }).click()
-  await expect(page.getByRole('heading', { name: `January ${decYear + 1}` })).toBeVisible()
+  await expect(page.getByRole('heading', { name: `January ${decYear + 1}`, exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Previous month' }).click()
-  await expect(page.getByRole('heading', { name: `December ${decYear}` })).toBeVisible()
+  await expect(page.getByRole('heading', { name: `December ${decYear}`, exact: true })).toBeVisible()
 })
