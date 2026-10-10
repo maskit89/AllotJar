@@ -358,71 +358,94 @@ test('allocation split controls expose aria-pressed and toggle via keyboard (UX-
   )
 })
 
-// UX-013 — the bill "Mark {line} paid" button is an aria-pressed toggle,
-// keyboard-operable; activating it flips pressed + relabels to "unpaid".
-test('bill Paid button is an aria-pressed toggle, keyboard-operable (UX-013)', async ({ page }) => {
+// UX-013 — marking a bill paid is keyboard-operable: the line's ⋯ menu opens from the
+// keyboard, "Mark paid" is a real menu item, and choosing it flips the line's chip to
+// Paid and the item to "Mark unpaid" (restyle PR 3 moved the toggle into the ⋯).
+test('bill Mark paid is keyboard-operable from the line\'s ⋯ menu (UX-013)', async ({ page }) => {
   await authedSetup(page, 'light')
   await page.goto('/')
   await page.getByRole('heading', { level: 1 }).first().waitFor()
 
-  // The Rent line is a bill (dueDay set), so its Paid toggle renders.
-  const paid = page.getByRole('button', { name: 'Mark Rent paid' })
-  await expect(paid).toHaveAttribute('aria-pressed', 'false')
-  await expect(paid).toBeEnabled()
+  // The Rent line is a bill (dueDay set), so its menu offers Mark paid.
+  const more = page.getByRole('button', { name: 'Rent: more actions' })
+  const row = more.locator('xpath=ancestor::div[contains(concat(" ", @class, " "), " group ")][1]')
+  await expect(row.getByText('Paid', { exact: true })).toHaveCount(0)
+  await more.focus()
+  await page.keyboard.press('Enter')
+  const markPaid = page.getByRole('menuitem', { name: 'Mark paid' })
+  await expect(markPaid).toBeEnabled()
 
-  // Enter marks it paid (optimistic + stubbed 200 keeps the state) → pressed flips
-  // and the accessible name becomes the "unpaid" affordance.
-  await paid.press('Enter')
-  const nowPaid = page.getByRole('button', { name: 'Mark Rent unpaid' })
-  await expect(nowPaid).toHaveAttribute('aria-pressed', 'true')
+  // Enter on the item marks it paid (optimistic + stubbed 200 keeps the state): the
+  // menu closes, focus returns to the ⋯, the chip reads Paid.
+  await markPaid.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(more).toBeFocused()
+  await expect(row.getByText('Paid', { exact: true })).toBeVisible()
+
+  // The menu now offers the "unpaid" affordance.
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('menuitem', { name: 'Mark unpaid' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(more).toBeFocused()
 })
 
 // ---------------------------------------------------------------------------
-// Reorder arrows (UX-012 + UX-022)
+// Reorder (UX-012 + UX-022)
 // ---------------------------------------------------------------------------
 
-// UX-012 + UX-022 — line and group reorder arrows are real <button>s with unique
-// aria-labels ("Move {name} up/down") and title tooltips, disabled at the ends of
-// the list (with the single-group/single-line fixtures both ends coincide).
-test('reorder arrows are labelled buttons with titles, disabled at the ends (UX-012, UX-022)', async ({
+// UX-012 + UX-022 — line and group reordering are real menu items in the ⋯ menus
+// ("Move up" / "Move down", named by their visible text — no title tooltips),
+// disabled at the ends of the list (with the single-group/single-line fixtures
+// both ends coincide); the ⋯ buttons are genuine buttons named after their row.
+test('reorder items are labelled menu items, disabled at the ends (UX-012, UX-022)', async ({
   page,
 }) => {
   await authedSetup(page, 'light')
   await page.goto('/')
   await page.getByRole('heading', { level: 1 }).first().waitFor()
 
-  // Group arrows (CategoryAccordion). "Housing" is the only expense group, so it
-  // is both first and last → both arrows are disabled (end-of-list convention).
-  const groupUp = page.getByRole('button', { name: 'Move Housing up' })
-  const groupDown = page.getByRole('button', { name: 'Move Housing down' })
-  await expect(groupUp).toHaveAttribute('title', 'Move group up')
-  await expect(groupDown).toHaveAttribute('title', 'Move group down')
-  await expect(groupUp).toBeDisabled()
-  await expect(groupDown).toBeDisabled()
+  // The group's ⋯. "Housing" is the only expense group, so it is both first and
+  // last → both moves are disabled (end-of-list convention).
+  const groupMore = page.getByRole('button', { name: 'Housing group: more actions' })
+  await groupMore.click()
+  await expect(page.getByRole('menuitem', { name: 'Move up' })).toBeDisabled()
+  await expect(page.getByRole('menuitem', { name: 'Move down' })).toBeDisabled()
+  await expect(page.getByRole('menuitem', { name: 'Move up' })).toHaveText('Move up')
+  await page.keyboard.press('Escape')
+  await expect(groupMore).toBeFocused()
 
-  // Line arrows (BudgetItemRow). "Rent" is the only line → both disabled too.
-  const lineUp = page.getByRole('button', { name: 'Move Rent up' })
-  const lineDown = page.getByRole('button', { name: 'Move Rent down' })
-  await expect(lineUp).toHaveAttribute('title', 'Move line up')
-  await expect(lineDown).toHaveAttribute('title', 'Move line down')
-  await expect(lineUp).toBeDisabled()
-  await expect(lineDown).toBeDisabled()
+  // The line's ⋯. "Rent" is the only line → both disabled too.
+  const lineMore = page.getByRole('button', { name: 'Rent: more actions' })
+  await lineMore.click()
+  await expect(page.getByRole('menuitem', { name: 'Move up' })).toBeDisabled()
+  await expect(page.getByRole('menuitem', { name: 'Move down' })).toBeDisabled()
+  await expect(page.getByRole('menuitem', { name: 'Move down' })).toHaveText('Move down')
+  await page.keyboard.press('Escape')
+  await expect(lineMore).toBeFocused()
 
   // They are genuine buttons, not click-wired divs.
-  for (const b of [groupUp, groupDown, lineUp, lineDown]) {
+  for (const b of [groupMore, lineMore]) {
     expect(await b.evaluate((el) => el.tagName)).toBe('BUTTON')
   }
 })
 
-// UX-022 / WCAG 2.5.8 (Target Size Minimum, AA) — reorder arrows should present a
-// ≥24×24 CSS-px hit area. See the BUG skip below: the current arrows are smaller.
-test('reorder arrows meet the WCAG 2.5.8 24px minimum target size (UX-022)', async ({ page }) => {
+// UX-022 / WCAG 2.5.8 (Target Size Minimum, AA) — the ⋯ buttons that hold the
+// reorder actions, and the menu items themselves, present a ≥24×24 CSS-px hit area.
+test('reorder controls meet the WCAG 2.5.8 24px minimum target size (UX-022)', async ({ page }) => {
   await authedSetup(page, 'light')
   await page.goto('/')
   await page.getByRole('heading', { level: 1 }).first().waitFor()
 
-  for (const name of ['Move Rent up', 'Move Rent down', 'Move Housing up', 'Move Housing down']) {
+  for (const name of ['Rent: more actions', 'Housing group: more actions']) {
     const box = await page.getByRole('button', { name }).boundingBox()
+    expect(box, name).not.toBeNull()
+    expect(box!.width, `${name} width`).toBeGreaterThanOrEqual(24)
+    expect(box!.height, `${name} height`).toBeGreaterThanOrEqual(24)
+  }
+  await page.getByRole('button', { name: 'Rent: more actions' }).click()
+  for (const name of ['Move up', 'Move down']) {
+    const box = await page.getByRole('menuitem', { name }).boundingBox()
     expect(box, name).not.toBeNull()
     expect(box!.width, `${name} width`).toBeGreaterThanOrEqual(24)
     expect(box!.height, `${name} height`).toBeGreaterThanOrEqual(24)

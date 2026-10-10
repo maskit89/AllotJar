@@ -22,6 +22,7 @@ import { renderWithProviders } from '../test/render'
 import { DashboardPage } from './DashboardPage'
 import { setMoneyFormat } from '../lib/money'
 import { budgetCategory, budgetItem, budgetMonth } from '../test/fixtures/budget'
+import { lineAction, menuItems } from '../test/rowMenu'
 
 // The viewed month is the app's current month (MonthProvider's default); the fixture is
 // keyed to it so the Savings group renders for "this month".
@@ -95,12 +96,12 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
     household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
   })
 
-  it('BUDG-034: the ✕ on a jar line opens the skip-or-archive choice instead of deleting, with the server\'s preview', { timeout: 15000 }, async () => {
+  it('BUDG-034: Skip this month in a jar line’s ⋯ opens the skip-or-archive choice instead of deleting, with the server\'s preview', { timeout: 15000 }, async () => {
     mockLoads(month())
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Remove Holiday this month', {}, { timeout: 5000 }))
+    await lineAction(user, 'Holiday', 'Skip this month')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     expect(dialog.getByText(/^Remove Holiday from .+\?$/)).toBeInTheDocument()
@@ -121,7 +122,7 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Remove Holiday this month', {}, { timeout: 5000 }))
+    await lineAction(user, 'Holiday', 'Skip this month')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     expect(await dialog.findByText(/leaves €150\.00 unplanned: no month is left to spread it over before the deadline/, {}, { timeout: 5000 })).toBeInTheDocument()
@@ -137,7 +138,7 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Remove Holiday this month', {}, { timeout: 5000 }))
+    await lineAction(user, 'Holiday', 'Skip this month')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.click(await dialog.findByLabelText('Skip Holiday this month', {}, { timeout: 5000 }))
 
@@ -149,7 +150,7 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
     // The jars shelf is re-read so its figures follow the replant.
     expect(mockGet.mock.calls.filter(([url]) => url === '/jars').length).toBeGreaterThanOrEqual(2)
 
-    await user.click(screen.getByLabelText('Plan Holiday again this month'))
+    await lineAction(user, 'Holiday', 'Plan again this month')
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday/skip', { skipped: false }))
     await waitFor(() => expect(screen.queryByText('Skipped')).not.toBeInTheDocument())
     expect(screen.getByLabelText('Planned amount for Holiday')).toHaveTextContent('€150.00')
@@ -162,7 +163,7 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Remove Holiday this month', {}, { timeout: 5000 }))
+    await lineAction(user, 'Holiday', 'Skip this month')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.click(dialog.getByLabelText('Archive Holiday'))
     expect(mockPut).not.toHaveBeenCalled()
@@ -180,7 +181,25 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
     )
   })
 
-  it('BUDG-062: a past month\'s jar line offers neither ✕ nor Plan it again — its contributions are history', { timeout: 15000 }, async () => {
+  it('BUDG-061: Archive jar in the line’s ⋯ opens the same dialog with the archive armed: one more click archives', { timeout: 15000 }, async () => {
+    mockLoads(month())
+    mockPut.mockResolvedValueOnce({ data: {} })
+    const user = userEvent.setup()
+
+    renderPage()
+    await lineAction(user, 'Holiday', 'Archive jar')
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByText(/^Remove Holiday from .+\?$/)).toBeInTheDocument()
+    expect(mockPut).not.toHaveBeenCalled()
+    await user.click(dialog.getByLabelText('Confirm archive Holiday'))
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/jars/jar-holiday/archive', { archived: true }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    // Focus returns to the line's ⋯, where the action started.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Holiday: more actions' })).toHaveFocus())
+  })
+
+  it('BUDG-062: a past month\'s jar line offers neither Skip nor Plan again — its contributions are history', { timeout: 15000 }, async () => {
     mockLoads(month({ planned: 0, isSkipped: true }))
 
     // "Today" is a month after the viewed one, so the viewed month is over.
@@ -190,8 +209,12 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
     // Its plan is read-only too: typing an amount would un-skip a finished month (rule 46).
     expect(screen.queryByLabelText('Planned amount for Holiday')).not.toBeInTheDocument()
     expect(screen.getByText('Skipped')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Remove Holiday this month')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Plan Holiday again this month')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Delete Holiday')).not.toBeInTheDocument()
+    // Its ⋯ offers only a rename: no skip, no plan again, no delete, no amount.
+    const items = (await menuItems(userEvent.setup(), 'Holiday: more actions')).map((i) => i.name)
+    expect(items).toEqual(['Rename'])
+    expect(items).not.toContain('Skip this month')
+    expect(items).not.toContain('Plan again this month')
+    expect(items).not.toContain('Delete')
+    expect(items).not.toContain('Archive jar')
   })
 })

@@ -27,6 +27,7 @@ import { jar } from '../test/fixtures/jars'
 import { DashboardPage } from './DashboardPage'
 import { useMonth } from '../features/MonthContext'
 import { setMoneyFormat } from '../lib/money'
+import { groupAction, lineAction } from '../test/rowMenu'
 
 // The viewed month is the app's current month (MonthProvider's default); the previous month is
 // the one the user moves to while a request is in flight.
@@ -170,9 +171,9 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByLabelText('Remove Holiday this month'))
+    // The line's ⋯ Archive jar opens the skip-or-archive dialog with the archive armed.
+    await lineAction(user, 'Holiday', 'Archive jar')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.click(dialog.getByLabelText('Archive Holiday'))
     slow = true
     await user.click(dialog.getByLabelText('Confirm archive Holiday'))
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/jars/jar-holiday/archive', { archived: true }))
@@ -193,9 +194,9 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByLabelText('Remove Holiday this month'))
+    // The line's ⋯ Archive jar opens the skip-or-archive dialog with the archive armed.
+    await lineAction(user, 'Holiday', 'Archive jar')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.click(dialog.getByLabelText('Archive Holiday'))
     slow = true
     await user.click(dialog.getByLabelText('Confirm archive Holiday'))
     await waitFor(() => expect(mockGet.mock.calls.filter(([url]) => url === `/budget/${YEAR}/${MONTH}`).length).toBe(2))
@@ -262,7 +263,8 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.selectOptions(screen.getByLabelText('Who earns Take-home Pay'), 'mem-alex')
+    await lineAction(user, 'Take-home Pay', 'Who earns')
+    await user.selectOptions(await screen.findByLabelText('Who earns Take-home Pay'), 'mem-alex')
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-pay/member', { memberId: 'mem-alex' }))
 
     await goToPreviousMonth(user)
@@ -279,8 +281,8 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByLabelText('Add a due date to Rent'))
-    await user.type(screen.getByLabelText('Due day for Rent'), '15')
+    await lineAction(user, 'Rent', 'Bill due day')
+    await user.type(await screen.findByLabelText('Due day for Rent'), '15')
     await user.click(screen.getByLabelText('Save due day for Rent'))
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-rent/bill', { dueDay: 15 }))
 
@@ -298,7 +300,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByRole('button', { name: 'Mark Utilities paid' }))
+    await lineAction(user, 'Utilities', 'Mark paid')
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-util/paid', { isPaid: true }))
 
     await goToPreviousMonth(user)
@@ -335,8 +337,8 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByLabelText('Add a line to Housing'))
-    await user.type(screen.getByLabelText('Add a line to Housing'), 'Fuel{Enter}')
+    await groupAction(user, 'Housing', 'Add line')
+    await user.type(await screen.findByLabelText('Add a line to Housing'), 'Fuel{Enter}')
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/budget/categories/c-house/items', { name: 'Fuel', plannedAmount: 0 }))
 
     await goToPreviousMonth(user)
@@ -354,8 +356,8 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByLabelText('Add a line to Housing'))
-    await user.type(screen.getByLabelText('Add a line to Housing'), 'Fuel{Enter}')
+    await groupAction(user, 'Housing', 'Add line')
+    await user.type(await screen.findByLabelText('Add a line to Housing'), 'Fuel{Enter}')
     await waitFor(() => expect(mockPost).toHaveBeenCalled())
 
     await goToPreviousMonth(user)
@@ -374,7 +376,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByLabelText('Delete Groceries'))
+    await lineAction(user, 'Groceries', 'Delete')
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/budget/items/i-groc'))
 
     await goToPreviousMonth(user)
@@ -391,7 +393,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByLabelText('Delete Groceries'))
+    await lineAction(user, 'Groceries', 'Delete')
     await waitFor(() => expect(mockDelete).toHaveBeenCalled())
 
     await goToPreviousMonth(user)
@@ -410,7 +412,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByLabelText('Remove Holiday this month'))
+    await lineAction(user, 'Holiday', 'Skip this month')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.click(await dialog.findByLabelText('Skip Holiday this month', {}, { timeout: 5000 }))
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday/skip', { skipped: true }))
@@ -430,7 +432,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByLabelText('Remove Holiday this month'))
+    await lineAction(user, 'Holiday', 'Skip this month')
     await screen.findByRole('dialog', {}, { timeout: 5000 })
 
     await goToPreviousMonth(user)
@@ -510,8 +512,8 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByLabelText('Delete group Food'))
-    await user.click(screen.getByLabelText('Confirm delete Food'))
+    await groupAction(user, 'Food', 'Delete')
+    await user.click(await screen.findByLabelText('Confirm delete Food'))
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/budget/categories/c-food'))
 
     await goToPreviousMonth(user)
@@ -528,8 +530,8 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByLabelText('Delete group Food'))
-    await user.click(screen.getByLabelText('Confirm delete Food'))
+    await groupAction(user, 'Food', 'Delete')
+    await user.click(await screen.findByLabelText('Confirm delete Food'))
     await waitFor(() => expect(mockDelete).toHaveBeenCalled())
 
     await goToPreviousMonth(user)
@@ -548,7 +550,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByLabelText('Move Food up'))
+    await groupAction(user, 'Food', 'Move up')
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/categories/order', { budgetMonthId: 'm1', orderedCategoryIds: ['c-food', 'c-house'] }))
 
     await goToPreviousMonth(user)
@@ -565,7 +567,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByLabelText('Move Food up'))
+    await groupAction(user, 'Food', 'Move up')
     await waitFor(() => expect(mockPut).toHaveBeenCalled())
 
     await goToPreviousMonth(user)
@@ -584,7 +586,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByLabelText('Move Utilities up'))
+    await lineAction(user, 'Utilities', 'Move up')
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/categories/c-house/items/order', { orderedItemIds: ['i-util', 'i-rent'] }))
 
     await goToPreviousMonth(user)
@@ -601,7 +603,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
     renderWithNav()
     await currentMonthShown()
 
-    await user.click(screen.getByLabelText('Move Utilities up'))
+    await lineAction(user, 'Utilities', 'Move up')
     await waitFor(() => expect(mockPut).toHaveBeenCalled())
 
     await goToPreviousMonth(user)

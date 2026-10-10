@@ -3,7 +3,7 @@ import { screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AccountDto, BudgetMonthDto, JarDto } from '../types'
 
-// W05 — the "Your jars" shelf is the viewed month's view of the jars (rule 48): it is read for
+// W05 — the Jars card's shelf is the viewed month's view of the jars (rule 48): it is read for
 // that month (DASH-028), says which date a past month's balances are as of (DASH-073), reads
 // today's balances for a month that has not begun (DASH-074), and is re-read when a jar line's
 // planned amount is edited or the month is created (DASH-075, J6's staleness), and never shows
@@ -31,6 +31,7 @@ import { useMonth } from '../features/MonthContext'
 import { setMoneyFormat } from '../lib/money'
 import { formatDate } from '../lib/dates'
 import { budgetCategory, budgetItem, budgetMonth } from '../test/fixtures/budget'
+import { lineAction, menuItems } from '../test/rowMenu'
 import { jar as sharedJar } from '../test/fixtures/jars'
 
 // The viewed month is the app's current month (MonthProvider's default); "today" is moved
@@ -83,6 +84,11 @@ function mockLoads(data: BudgetMonthDto | { notFound: true }, jars: JarDto[] = [
 }
 
 const jarReads = () => mockGet.mock.calls.filter(([url]) => url === '/jars')
+
+/** A budget line's row (the Budget card's rows carry the `group` class). */
+const lineOf = (el: HTMLElement) => el.closest('.group') as HTMLElement
+/** A group's header in the Budget card: its name, its total and its ⋯. */
+const headerOf = (name: string) => screen.getByLabelText(`Rename group ${name}`).closest('.group\\/gh') as HTMLElement
 
 function renderPage(today?: Date) {
   return renderWithProviders(
@@ -156,11 +162,17 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
 
     renderPage()
 
-    expect(await screen.findByRole('heading', { name: 'Your jars' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Jars' }, { timeout: 5000 })).toBeInTheDocument()
     expect(jarReads()[0][1]).toEqual({ params: { year: YEAR, month: MONTH } })
     expect(screen.getByText('€450.00 saved')).toBeInTheDocument()
     expect(screen.queryByText(/as of/)).not.toBeInTheDocument()
     expect(screen.getByText('+€150.00/mo')).toBeInTheDocument()
+    // "Manage" goes to the Jars page. It is named by its text alone (the card title describes
+    // it), so a lookup of the sidebar's "Jars" link by name never finds it too.
+    const manage = screen.getByRole('link', { name: 'Manage' })
+    expect(manage).toHaveAttribute('href', '/jars')
+    expect(manage).toHaveAccessibleDescription('Jars')
+    for (const link of screen.queryAllByRole('link', { name: /jars/i })) expect(link).toHaveAccessibleName('Jars') // the nav's
   })
 
   it('DASH-073: a past month keeps its shelf, dated at the month\'s end as the server read it', { timeout: 15000 }, async () => {
@@ -169,7 +181,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     // "Today" is a month after the viewed one, so the viewed month is over.
     renderPage(nextMonth)
 
-    expect(await screen.findByRole('heading', { name: 'Your jars' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Jars' }, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('€300.00 saved')).toBeInTheDocument()
     expect(screen.getByText(`as of ${formatDate(ISO(LAST_DAY))}`)).toBeInTheDocument()
     expect(screen.getByText('€300.00')).toBeInTheDocument()
@@ -182,7 +194,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     // "Today" is a month before the viewed one.
     renderPage(previousMonth)
 
-    expect(await screen.findByRole('heading', { name: 'Your jars' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Jars' }, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('balances as of today')).toBeInTheDocument()
     expect(screen.getByText('+€130.00/mo')).toBeInTheDocument()
   })
@@ -193,7 +205,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     const user = userEvent.setup()
 
     renderPage()
-    await screen.findByRole('heading', { name: 'Your jars' }, { timeout: 5000 })
+    await screen.findByRole('heading', { name: 'Jars' }, { timeout: 5000 })
     await waitFor(() => expect(jarReads().length).toBe(1))
 
     // The jar's line: the shelf's "+€/mo" is this figure (rule 14), so it is re-read.
@@ -225,7 +237,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/budget', { year: YEAR, month: MONTH, copyFromPrevious: false }))
     await waitFor(() => expect(jarReads().length).toBe(2))
-    expect(await screen.findByRole('heading', { name: 'Your jars' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Jars' }, { timeout: 5000 })).toBeInTheDocument()
   })
 
   it('DASH-076: on month navigation the previous month\'s shelf never shows under the new month\'s grid', { timeout: 15000 }, async () => {
@@ -244,9 +256,10 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     // Back to the current month: its grid lands at once, its jars do not.
     slow = true
     await act(async () => { screen.getByText('go-current').click() })
-    await waitFor(() => expect(screen.getAllByText(/€450\.00/).length).toBeGreaterThan(0))
+    // The current month's grid: Holiday's plan is €150.00 there (€100.00 on the previous month).
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Planned amount for Holiday' })).toHaveTextContent('€150.00'))
     expect(screen.queryByText('€300.00 saved')).toBeNull()
-    expect(screen.queryByRole('heading', { name: 'Your jars' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Jars' })).toBeNull()
 
     currentRead.release({ data: currentJars() })
     expect(await screen.findByText('€450.00 saved', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -269,8 +282,9 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     // Back to the current month: its grid lands, its jars are still in flight — still no checklist.
     slow = true
     await act(async () => { screen.getByText('go-current').click() })
-    await waitFor(() => expect(screen.getAllByText(/€450\.00/).length).toBeGreaterThan(0))
-    expect(screen.queryByRole('heading', { name: 'Your jars' })).toBeNull()
+    // The current month's grid: Holiday's plan is €150.00 there (€100.00 on the previous month).
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Planned amount for Holiday' })).toHaveTextContent('€150.00'))
+    expect(screen.queryByRole('heading', { name: 'Jars' })).toBeNull()
     expect(screen.queryByText('Set up your budget')).toBeNull()
 
     currentRead.release({ data: currentJars() })
@@ -313,7 +327,11 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
 
     expect(await screen.findByText(/Could not load your jars for this month/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getAllByText(/€300\.00|€100\.00/).length).toBeGreaterThan(0) // the month's grid is there
-    expect(screen.queryByRole('heading', { name: 'Your jars' })).toBeNull()
+    // The Jars card says so in place of its shelf: no total, no jars (not "no jars", not stale ones).
+    const card = screen.getByRole('region', { name: 'Jars' })
+    expect(card).toHaveTextContent(/Could not load your jars for this month/)
+    expect(card.textContent).not.toMatch(/saved/)
+    expect(screen.queryAllByRole('img', { name: /% of goal/ })).toHaveLength(0)
     expect(screen.queryByText('Set up your budget')).toBeNull()
   })
   it('DASH-080: typing an amount on a skipped jar line clears its Skipped tag, as the shelf\'s re-read does', { timeout: 15000 }, async () => {
@@ -341,7 +359,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     const user = userEvent.setup()
 
     renderPage()
-    expect(await screen.findByRole('heading', { name: 'Your jars' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Jars' }, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Skipped')).toBeInTheDocument()
 
     await user.click(screen.getByLabelText('Planned amount for Holiday'))
@@ -353,7 +371,10 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday', { plannedAmount: 200, version: null }))
     expect(await screen.findByText('+€200.00/mo', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.queryByText('Skipped')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Plan Holiday again this month' })).toBeNull()
+    // Its ⋯ menu offers skipping again, not planning again.
+    const items = (await menuItems(user, 'Holiday: more actions')).map((i) => i.name)
+    expect(items).not.toContain('Plan again this month')
+    expect(items).toContain('Skip this month')
   })
 
   it('DASH-081: a month created after the user moved to another month leaves the viewed month\'s grid alone', { timeout: 15000 }, async () => {
@@ -406,7 +427,8 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     const user = userEvent.setup()
     renderWithNav()
 
-    await user.click(await screen.findByRole('button', { name: 'Plan Holiday again this month' }, { timeout: 5000 }))
+    await screen.findByRole('heading', { name: 'Jars' }, { timeout: 5000 })
+    await lineAction(user, 'Holiday', 'Plan again this month')
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday/skip', { skipped: false }))
     await user.click(screen.getByText('go-prev'))
     expect(await screen.findByText('€300.00 saved', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -427,12 +449,12 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     renderPage()
 
     const planned = await screen.findByLabelText('Planned amount for Holiday', {}, { timeout: 5000 })
-    const line = planned.closest('div')!
+    const line = lineOf(planned)
     expect(line.textContent).toContain('€50.00 in of €125.00')
     expect(line.textContent).toContain('€75.00 to go')
     expect(line.textContent).not.toContain('€30.00')
     // The group header adds up what went in, of what was planned.
-    const header = screen.getByLabelText('Rename group Savings').parentElement!.parentElement!
+    const header = headerOf('Savings')
     expect(header.textContent).toContain('€50.00 in')
     expect(header.textContent).toContain('of €125.00')
   })
@@ -445,10 +467,14 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     renderPage()
 
     const planned = await screen.findByLabelText('Planned amount for Holiday', {}, { timeout: 5000 })
-    expect(planned.closest('div')!.textContent).toContain('€50.00 in of €125.00')
-    expect((await screen.findByLabelText('Planned amount for Car')).closest('div')!.textContent).toContain('plan €75.00')
-    const header = screen.getByLabelText('Rename group Savings').parentElement!.parentElement!
-    expect(header.textContent).toContain('plan €200.00')
+    expect(lineOf(planned).textContent).toContain('€50.00 in of €125.00')
+    // Car's jar is not in the read: its line shows only its plan, nothing in or to go.
+    const car = lineOf(await screen.findByLabelText('Planned amount for Car'))
+    expect(car.textContent).toContain('€75.00')
+    expect(car.textContent).not.toContain('to go')
+    expect(car.textContent).not.toContain('in of')
+    const header = headerOf('Savings')
+    expect(header.textContent).toContain('€200.00')
     expect(header.textContent).not.toContain('in of')
   })
 
@@ -462,8 +488,9 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     renderPage()
 
     const planned = await screen.findByLabelText('Planned amount for Holiday', {}, { timeout: 5000 })
-    expect(planned.closest('div')!.textContent).toContain('plan €125.00')
-    expect(planned.closest('div')!.textContent).not.toContain('to go')
+    expect(lineOf(planned).textContent).toContain('€125.00')
+    expect(lineOf(planned).textContent).not.toContain('to go')
+    expect(lineOf(planned).textContent).not.toContain('in of')
   })
 
   it('DASH-083: a refused jar line edit says why and reverts (an archived jar’s line, D18)', { timeout: 15000 }, async () => {
@@ -473,7 +500,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     const user = userEvent.setup()
 
     renderPage()
-    await screen.findByRole('heading', { name: 'Your jars' }, { timeout: 5000 })
+    await screen.findByRole('heading', { name: 'Jars' }, { timeout: 5000 })
     await user.click(screen.getByLabelText('Planned amount for Holiday'))
     const holiday = (await screen.findByLabelText('Planned amount for Holiday')) as HTMLInputElement
     await user.clear(holiday)

@@ -103,6 +103,20 @@
   --color-ring: #1f6b4d;
   /* The scrim behind dialogs and sheets, the same in both themes. */
   --color-overlay: rgb(0 0 0 / 0.5);
+
+  /* Status tones (restyle PR 3, the Dashboard first): ok / warn / bad text on their own tints,
+     for chips ("Paid", "Overdue", "Due soon", a jar's state) and status text. Warn is orange,
+     never gold: gold is kept for the hero number, the jar lids and the shelf. Every text tone
+     clears AA on its tint and on the card. `line` is the hairline between rows, `track` the
+     empty part of a progress bar. Flipped in the .dark block. */
+  --color-ok: #0b6e4a;
+  --color-ok-bg: #dcefe3;
+  --color-warn: #9a3f0a;
+  --color-warn-bg: #fbe4d3;
+  --color-bad: #b4153c;
+  --color-bad-bg: #f9e3e7;
+  --color-line: #e0e7e1;
+  --color-track: #dde5de;
 }
 
 /* Sinking-fund / budget-group / account category palette — five hues at equal
@@ -140,6 +154,11 @@
   /* The phone tab bar's height (bottom safe area included); 0 where there is no tab bar. Fixed
      things near the bottom of the screen (the Getting started checklist) sit above it. */
   --tabbar-h: 0px;
+
+  /* The glass jars on the Dashboard shelf (GlassJar): the glass tint and its two highlights. */
+  --glass: rgb(255 255 255 / 0.55);
+  --jar-hl: rgb(255 255 255 / 0.85);
+  --jar-hl2: rgb(255 255 255 / 0.45);
 }
 
 @media (max-width: 899.98px) {
@@ -229,6 +248,19 @@
   --color-input: #7f9187;
   /* 5.7:1 or more on every dark surface, the popover included. */
   --color-ring: #5fc093;
+
+  --color-ok: #6fcf9f;
+  --color-ok-bg: #12291e;
+  --color-warn: #f2a56f;
+  --color-warn-bg: #36200f;
+  --color-bad: #fb8196;
+  --color-bad-bg: #3a1119;
+  --color-line: #212b26;
+  --color-track: #26312b;
+
+  --glass: rgb(255 255 255 / 0.05);
+  --jar-hl: rgb(255 255 255 / 0.32);
+  --jar-hl2: rgb(255 255 255 / 0.16);
 }
 
 /* App-wide defaults. */
@@ -273,6 +305,81 @@ body {
   background: var(--hero-grad);
   box-shadow: var(--shadow-hero);
   color: #fff;
+}
+
+/* The Dashboard follows the approved palette (restyle PR 3), which has no amber/gold category:
+   gold is the hero number, the jar lids and the shelf only. Inside the page the palette's second
+   hue reads as plum (its clay would read as the warn orange of "Due soon" and "Behind" beside a
+   healthy line's bar); other pages keep amber until their own restyle. */
+.dash-palette {
+  --color-cat-amber: #7d4fa3;
+}
+.dark .dash-palette {
+  --color-cat-amber: #b993dc;
+}
+
+/* The Dashboard's hero KPI tile (restyle PR 3): the deep green with a faint gold glow in its top
+   right corner, a hairline gold edge (a 1px gradient border drawn by the ::after mask, so it
+   follows the radius) and a soft green shadow. White text; the number uses `.gold-number`. */
+.kpi-hero {
+  position: relative;
+  isolation: isolate;
+  color: #fff;
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgb(244 219 142 / 0.16), transparent 46%),
+    linear-gradient(135deg, #114a32, #185c3f 45%, #237a55);
+  box-shadow: 0 22px 40px -26px rgb(31 107 77 / 0.7);
+}
+.dark .kpi-hero {
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgb(244 219 142 / 0.1), transparent 46%),
+    linear-gradient(135deg, #0f3d29, #165438 45%, #1d6a4a);
+  box-shadow: 0 22px 40px -26px rgb(0 0 0 / 0.7);
+}
+.kpi-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgb(244 219 142 / 0.65), rgb(229 190 94 / 0.06) 30%, rgb(229 190 94 / 0.06) 70%, rgb(244 219 142 / 0.45));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+/* The green ring would vanish on the green tile: the focus outline turns gold there. */
+.kpi-hero :focus-visible {
+  outline-color: #f4db8e;
+}
+
+/* The Dashboard's jar shelf (restyle PR 3): the gold-edged plank a row of glass jars stands on,
+   its top at the 56px jar's base (70px down). */
+.jar-shelf {
+  position: relative;
+}
+.jar-shelf::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 70px;
+  height: 6px;
+  border-radius: 2px 2px 4px 4px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-gold) 30%, var(--color-card)) 0 1.5px,
+    color-mix(in srgb, var(--gold-line) 38%, var(--color-border)) 1.5px
+  );
+  box-shadow: 0 5px 8px -5px rgb(22 44 32 / 0.35);
+}
+.dark .jar-shelf::before {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-gold) 30%, var(--color-card)) 0 1.5px,
+    color-mix(in srgb, var(--gold-line) 22%, var(--color-border)) 1.5px
+  );
+  box-shadow: 0 5px 8px -5px rgb(0 0 0 / 0.8);
 }
 
 /* A calmer, more deliberate focus ring across the app (WCAG 2.4.7 / 2.4.13):

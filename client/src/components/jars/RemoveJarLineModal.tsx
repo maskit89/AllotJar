@@ -21,6 +21,11 @@ export interface RemoveJarLineModalProps {
   onSkipped: (month: BudgetMonthDto) => void
   /** The jar was archived (rule 25): this month's and later contributions are gone. */
   onArchived: () => void
+  /**
+   * What the user chose to open the dialog with: "Skip this month" (the default) or "Archive jar",
+   * which opens it with the archive button already armed (one more click archives).
+   */
+  intent?: 'skip' | 'archive'
 }
 
 /** How many later months the preview lists in full. */
@@ -33,12 +38,12 @@ const LISTED = 6
  * every future contribution (rule 25). The skip preview comes from the server — the same
  * planner that will replant the later months — so what is shown is what will happen.
  */
-export function RemoveJarLineModal({ item, month, currency, onClose, onSkipped, onArchived }: RemoveJarLineModalProps) {
+export function RemoveJarLineModal({ item, month, currency, onClose, onSkipped, onArchived, intent = 'skip' }: RemoveJarLineModalProps) {
   const [preview, setPreview] = useState<JarScheduleDto | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState<'skip' | 'archive' | null>(null)
-  const [confirmArchive, setConfirmArchive] = useState(false)
+  const [confirmArchive, setConfirmArchive] = useState(intent === 'archive')
 
   useEffect(() => {
     let cancelled = false

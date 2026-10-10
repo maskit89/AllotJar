@@ -19,6 +19,7 @@ export function InfoHint({
   children,
   className = '',
   align = 'start',
+  buttonClassName,
 }: {
   /** Accessible name for the trigger, e.g. "What repeating means". */
   label: string
@@ -28,9 +29,15 @@ export function InfoHint({
   /**
    * Where the popover hangs from the icon: from its left edge (the default, for an icon near
    * the start of a line), or centred under it, for an icon partway across a phone-width line,
-   * where a left-hung popover would run off the screen.
+   * where a left-hung popover would run off the screen; or from its right edge, for an icon at
+   * the end of a line.
    */
-  align?: 'start' | 'center'
+  align?: 'start' | 'center' | 'end'
+  /**
+   * Replaces the trigger's look (size and colour), for a hint on a coloured surface such as the
+   * Dashboard's green hero tile. Left out, the trigger is the quiet 16px grey icon.
+   */
+  buttonClassName?: string
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLSpanElement>(null)
@@ -87,9 +94,12 @@ export function InfoHint({
         aria-describedby={open ? panelId : undefined}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-slate-400 transition hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
+        className={
+          buttonClassName ??
+          'inline-flex h-4 w-4 items-center justify-center rounded-full text-slate-400 transition hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40'
+        }
       >
-        <InfoIcon className="h-4 w-4" />
+        <InfoIcon className={buttonClassName ? 'h-[15px] w-[15px]' : 'h-4 w-4'} />
       </button>
       {open && (
         // Outer span bridges the gap between icon and card (transparent `pt-1.5`)
@@ -97,7 +107,7 @@ export function InfoHint({
         <span
           ref={hangerRef}
           style={shift ? { marginLeft: shift } : undefined}
-          className={`absolute top-full z-30 w-64 max-w-[calc(100vw-1rem)] pt-1.5 ${align === 'center' ? 'left-1/2 -translate-x-1/2' : 'left-0'}`}
+          className={`absolute top-full z-30 w-64 max-w-[calc(100vw-1rem)] pt-1.5 ${align === 'center' ? 'left-1/2 -translate-x-1/2' : align === 'end' ? 'right-0' : 'left-0'}`}
         >
           <span
             id={panelId}

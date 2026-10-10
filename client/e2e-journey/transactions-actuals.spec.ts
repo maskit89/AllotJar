@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { register } from './helpers'
+import { groupAction, lineAction, register } from './helpers'
 
 /**
  * Transactions driving REAL budget actuals — the read-time derivation chain the
@@ -60,12 +60,13 @@ async function addExpenseGroup(page: Page, name: string) {
 }
 
 /**
- * Add a budget line to a group (the reveal button and its input share an
- * aria-label). Same optimistic-temp-row hazard as the group add: wait for the
+ * Add a budget line to a group (the group's ⋯ "Add line" opens the add row, whose input
+ * is named "Add a line to {group}"). Same optimistic-temp-row hazard as the group add: wait for the
  * server response so the next action never targets a `temp-…` line id.
  */
 async function addLine(page: Page, group: string, name: string) {
-  await page.getByRole('button', { name: `Add a line to ${group}`, exact: true }).click()
+  // The add row opens from the group's ⋯ ("Add line").
+  await groupAction(page, group, 'Add line')
   await page.getByRole('textbox', { name: `Add a line to ${group}`, exact: true }).fill(name)
   const reconciled = page.waitForResponse(
     (r) =>
@@ -246,12 +247,16 @@ test('expense transactions drive real line actuals: explicit assign, payee inher
   const internet = budgetLineRow(page, 'Internet')
   await expect(internet).toContainText('60.00 of') // 22 + 8 + the 30.00 slice
   await expect(internet).toContainText('40.00 left')
-  // Panel roll-up counts the split once too: 200.00 spent of 300.00 planned.
-  const panelHeader = page
-    .locator('div')
-    .filter({ has: page.getByRole('heading', { name: 'Everyday spending' }) })
-    .last()
-  await expect(panelHeader).toContainText('200.00 of')
+  // The roll-ups count the split once too: 200.00 spent of 300.00 planned — in the
+  // Everyday group's header total and in the Budget card's (i) for all spending.
+  const groupHeader = page
+    .locator('div.group\\/gh')
+    .filter({ has: page.getByRole('textbox', { name: 'Rename group Everyday', exact: true }) })
+  await expect(groupHeader).toContainText('200.00 spent of')
+  await expect(groupHeader).toContainText('300.00')
+  await page.getByRole('button', { name: 'About this month’s budget', exact: true }).focus()
+  await expect(page.getByRole('tooltip')).toContainText('200.00 spent of')
+  await expect(page.getByRole('tooltip')).toContainText('300.00 planned')
 })
 
 test('the auto-categorizer never inherits a payee match from another household', async ({
@@ -335,7 +340,7 @@ test('deleting a budget line or an account detaches its transactions but never d
   // TransactionSplits.BudgetItemId are ON DELETE SET NULL) detaches, never deletes.
   await page.getByRole('link', { name: 'Dashboard' }).click()
   await expect(page.getByRole('textbox', { name: 'Rename Groceries', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Delete Groceries', exact: true }).click()
+  await lineAction(page, 'Groceries', 'Delete')
   await expect(page.getByRole('textbox', { name: 'Rename Groceries', exact: true })).toHaveCount(0)
 
   await page.getByRole('link', { name: 'Transactions' }).click()
@@ -370,7 +375,9 @@ test('an income transaction alone never marks the month balanced', async ({ page
   await register(page)
   await startBlankBudget(page)
 
-  // One income source, planned amount left at zero — the month stays "empty".
+  // One income source, planned amount left at zero — the month stays "empty". The add row
+  // opens from the Income group's ⋯.
+  await groupAction(page, 'Income', 'Add income source')
   await page.getByRole('textbox', { name: 'New income source name', exact: true }).fill('Salary')
   await page.getByRole('button', { name: 'Add income source', exact: true }).click()
   await expect(page.getByRole('textbox', { name: 'Income source name', exact: true })).toHaveValue('Salary')
@@ -394,7 +401,7 @@ test('an income transaction alone never marks the month balanced', async ({ page
   // hero still prompts for income: Remaining is 0.00 yet the month is NOT balanced —
   // no gold "has a job" badge anywhere.
   await page.getByRole('link', { name: 'Dashboard' }).click()
-  await expect(page.getByText(/2,500\.00 received/)).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Income', exact: true })).toContainText('2,500.00 received')
   await expect(page.getByLabel(/^Remaining to budget:/)).toContainText('0.00')
   await expect(page.getByText(/Plan your income, then give every/)).toBeVisible()
   await expect(page.getByText(/has a job/)).toHaveCount(0)

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { addAccount, createGoalJar, firstOfMonthAhead, register } from './helpers'
+import { addAccount, createGoalJar, firstOfMonthAhead, lineAction, register } from './helpers'
 
 /**
  * The jar lifecycle through the REAL stack (W03 rule 83; W04 rules 25, 27, 55, 60–61): a
@@ -96,9 +96,9 @@ test('a recurring cycle is marked paid with its payment; a goal is skipped for t
   await page.getByRole('link', { name: 'Dashboard' }).click()
   const planned = page.getByRole('button', { name: 'Planned amount for Sofa' })
   await expect(planned).toContainText('100.00')
-  // The ✕ on a jar's line offers skip or archive, never a bare delete (rule 60), with the
-  // server's preview of the months that are left (rule 61: 150.00 each).
-  await page.getByRole('button', { name: 'Remove Sofa this month' }).click()
+  // A jar's line offers skip or archive (its ⋯ "Skip this month"), never a bare delete
+  // (rule 60), with the server's preview of the months that are left (rule 61: 150.00 each).
+  await lineAction(page, 'Sofa', 'Skip this month')
   const remove = page.getByRole('dialog')
   await expect(remove.getByTestId('skip-preview')).toContainText(/spreads this month/)
   await expect(remove.getByTestId('skip-preview')).toContainText('150.00')
@@ -114,7 +114,7 @@ test('a recurring cycle is marked paid with its payment; a goal is skipped for t
   // Planned again: the even plan is back.
   await page.getByRole('link', { name: 'Dashboard' }).click()
   const restored = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith('/skip') && r.ok())
-  await page.getByRole('button', { name: 'Plan Sofa again this month' }).click()
+  await lineAction(page, 'Sofa', 'Plan again this month')
   await restored
   await expect(page.getByRole('button', { name: 'Planned amount for Sofa' })).toContainText('100.00')
   await expect(page.getByText('Skipped', { exact: true })).toBeHidden()

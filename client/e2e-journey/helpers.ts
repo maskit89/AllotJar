@@ -88,6 +88,27 @@ export async function startFromEssentialsTemplate(page: Page): Promise<void> {
 }
 
 /**
+ * Picks `item` from one of the Dashboard's row menus (restyle PR 3): a line's ⋯ is named
+ * "{line}: more actions" and a group's "{group} group: more actions". On a pointer screen the ⋯
+ * shows while its row is hovered or holds focus (clicking it hovers it first), and the menu
+ * renders in a portal, so the item is found on the page rather than inside the row.
+ */
+export async function rowAction(page: Page, menu: string, item: string): Promise<void> {
+  await page.getByRole('button', { name: menu, exact: true }).click()
+  await page.getByRole('menuitem', { name: item, exact: true }).click()
+}
+
+/** Picks `item` ("Mark paid", "Delete", "Skip this month", …) from the ⋯ menu of the line `line`. */
+export async function lineAction(page: Page, line: string, item: string): Promise<void> {
+  await rowAction(page, `${line}: more actions`, item)
+}
+
+/** Picks `item` ("Add line", "Add income source", "Move up", …) from the ⋯ menu of the group `group`. */
+export async function groupAction(page: Page, group: string, item: string): Promise<void> {
+  await rowAction(page, `${group} group: more actions`, item)
+}
+
+/**
  * Add an account through the Accounts page modal (navigates there). Account names should
  * avoid the type-chip labels (Current/Savings/Cash/…) where a spec relies on plain text
  * lookups — a name like "Savings" collides with every card's type chip in strict mode, so
