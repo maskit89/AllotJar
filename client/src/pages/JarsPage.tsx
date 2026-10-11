@@ -25,7 +25,7 @@ import { GlassJar } from '../components/GlassJar'
 import { InfoHint } from '../components/InfoHint'
 import { MiniBar, StatusChip } from '../components/StatusChip'
 import { ActionSheet, ROW_MENU_TRIGGER, RowMenu, type RowAction } from '../components/RowActions'
-import { CARD_TITLE, DASH_CARD } from '../components/budget/card'
+import { CARD_TITLE, DASH_CARD, TITLE_HINT } from '../components/budget/card'
 import { JarFormModal } from '../components/JarFormModal'
 import { MoveMoneyModal } from '../components/MoveMoneyModal'
 import { MarkCyclePaidModal } from '../components/jars/MarkCyclePaidModal'
@@ -53,10 +53,6 @@ import {
   jarLastCycleLabel,
   jarMonthLabel,
 } from '../lib/jarStatus'
-
-/** The (i) beside a card title, as on the Dashboard's cards: a 22px target, the icon at 15px. */
-const TITLE_HINT =
-  "relative -my-1 inline-grid size-[22px] place-items-center rounded-full text-slate-500 opacity-85 transition after:absolute after:-inset-[9px] after:content-[''] hover:bg-slate-500/10 hover:opacity-100"
 
 /**
  * The Jars page (restyle PR 4, the approved "polished Warm" mock-up): one KPI row (what the jars

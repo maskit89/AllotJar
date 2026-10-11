@@ -88,6 +88,9 @@ describe('role gating', () => {
     // …but the add form and per-row actions are gone for a non-admin.
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Add account' })).not.toBeInTheDocument())
     expect(screen.queryByLabelText('Edit Everyday')).not.toBeInTheDocument()
+    // The card has no ⋯ at all: only an (i) with what its note says.
+    expect(screen.queryByRole('button', { name: 'Everyday: more actions' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'About Everyday' })).toBeInTheDocument()
   })
 
   it('owner sees full account management', async () => {
@@ -101,6 +104,9 @@ describe('role gating', () => {
     renderPage(<AccountsPage />)
 
     expect(await screen.findByRole('button', { name: 'Add account' }, { timeout: 5000 })).toBeInTheDocument()
-    expect(await screen.findByLabelText('Edit Everyday')).toBeInTheDocument()
+    // The card's ⋯ offers the edit and the delete.
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Everyday: more actions' }, { timeout: 5000 }))
+    expect(await screen.findByRole('menuitem', { name: 'Edit Everyday' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Delete Everyday' })).toBeInTheDocument()
   })
 })

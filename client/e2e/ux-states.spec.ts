@@ -149,7 +149,7 @@ const LOADING_CASES: LoadingCase[] = [
   {
     path: '/accounts',
     route: '**/api/accounts',
-    content: (p) => p.getByRole('heading', { name: 'Your accounts' }),
+    content: (p) => p.getByRole('heading', { name: 'Your accounts', exact: true }),
     ids: 'UX-041, ACCT-004',
   },
   {

@@ -13,6 +13,7 @@ import { AccountsPage } from './AccountsPage'
 // asserted below renders in the design's canonical en-GB comma-dot format
 // (€1,234.56), independent of test-execution order.
 import { setMoneyFormat } from '../lib/money'
+import { accountAction, accountCard, accountItems, accountNote } from '../test/rowMenu'
 
 function acct(over: Partial<AccountDto> = {}): AccountDto {
   return { id: 'a1', name: 'Account', type: 0, currency: 'EUR', openingBalance: 0, openingDate: '2026-01-01', currentBalance: 0, displayOrder: 0, ...over }
@@ -68,14 +69,14 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     renderPage()
 
-    // The card balance renders in rose. −€450.00 also appears as the hero amount,
-    // so pick the occurrence carrying the rose class.
-    const negs = await screen.findAllByText('-€450.00', {}, { timeout: 5000 })
-    expect(negs.some((el) => el.className.includes('text-rose-600'))).toBe(true)
+    // The card balance renders in the bad (red) tone. −€450.00 also appears as the hero amount,
+    // so look in the card.
+    await screen.findAllByText('-€450.00', {}, { timeout: 5000 })
+    expect(within(accountCard('Visa')).getByText('-€450.00').className).toContain('text-bad')
 
-    // Hero: Total −450, Available 0 (Σ max(0,bal)); no Owed tile (rule 74 keeps every account at or above zero).
+    // Hero: Total −450, Available 0 (Σ max(0,bal)) under it; no Owed tile (rule 74 keeps every account at or above zero).
     expect(screen.getByLabelText('Total balance: -€450.00')).toBeInTheDocument()
-    expect(screen.getByText('€0.00')).toBeInTheDocument() // Available
+    expect(screen.getByText('€0.00 available')).toBeInTheDocument()
     expect(screen.queryByText('Owed')).not.toBeInTheDocument()
     expect(screen.queryByText('€450.00')).not.toBeInTheDocument()
     // Every account is in the budget currency ⇒ no "not counted" footnote.
@@ -90,17 +91,19 @@ describe('AccountsPage — catalog (ACCT)', () => {
       ],
     })
 
+    const user = userEvent.setup()
+
     renderPage()
 
     // Totals are labelled in the budget currency (EUR); total 1,750, no pill.
     expect(await screen.findByLabelText('Total balance: €1,750.00', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.queryByText(/in another currency/i)).not.toBeInTheDocument()
-    // Per-account balances + "Opening …" captions in the account's own currency.
-    expect(screen.getByText('€1,250.00')).toBeInTheDocument()
-    expect(screen.getByText('€500.00')).toBeInTheDocument()
-    expect(screen.getByText(/Opening €1,250\.00/)).toBeInTheDocument()
-    expect(screen.getByText(/Opening €500\.00/)).toBeInTheDocument()
-    expect(screen.getByText('Your accounts')).toBeInTheDocument()
+    // Per-account balances on the cards, and "Opening …" in each ⋯ note, in the account's own currency.
+    expect(within(accountCard('Joint')).getByText('€1,250.00')).toBeInTheDocument()
+    expect(within(accountCard('Rainy Day')).getByText('€500.00')).toBeInTheDocument()
+    expect(await accountNote(user, 'Joint')).toContainEqual(expect.stringMatching(/^Opening €1,250\.00/))
+    expect(await accountNote(user, 'Rainy Day')).toContainEqual(expect.stringMatching(/^Opening €500\.00/))
+    expect(screen.getByRole('heading', { name: 'Your accounts' })).toBeInTheDocument()
   })
 
   it('ACCT-005: an account in another currency is left out of the totals and called out; cards keep their currency', { timeout: 15000 }, async () => {
@@ -111,6 +114,8 @@ describe('AccountsPage — catalog (ACCT)', () => {
       ],
     })
 
+    const user = userEvent.setup()
+
     renderPage()
 
     // The app never converts: only the budget-currency (EUR) account counts, 1,250 not 1,450.
@@ -120,20 +125,23 @@ describe('AccountsPage — catalog (ACCT)', () => {
     // Each card still formats in its own currency (€ vs £); €1,250.00 is also the hero's
     // Available tile now that it is the only counted account.
     expect(screen.getAllByText('€1,250.00').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('£200.00')).toBeInTheDocument()
-    expect(screen.getByText(/Opening £200\.00/)).toBeInTheDocument()
+    expect(within(accountCard('UK Pot')).getByText('£200.00')).toBeInTheDocument()
+    // The card says which currency it holds, and its note's opening is in it.
+    expect(within(accountCard('UK Pot')).getByText('GBP')).toBeInTheDocument()
+    expect(await accountNote(user, 'UK Pot')).toContainEqual(expect.stringMatching(/^Opening £200\.00/))
   })
 
-  it('ACCT-008: a card carries a currency chip, a type badge and an overlay link to its detail', { timeout: 15000 }, async () => {
+  it('ACCT-008: a card carries its currency, its type and an overlay link to its detail', { timeout: 15000 }, async () => {
     mockLoads({ accounts: [acct({ id: 'rd1', name: 'Rainy Day', type: 1 })] })
+    const user = userEvent.setup()
 
     renderPage()
 
     await screen.findByText('Rainy Day', {}, { timeout: 5000 })
-    // Currency chip (only shown because multiCurrency is on).
-    expect(screen.getByText('EUR')).toBeInTheDocument()
-    // Type badge from ACCOUNT_TYPE_LABELS (Savings).
-    expect(screen.getByText('Savings')).toBeInTheDocument()
+    // The type (from ACCOUNT_TYPE_LABELS, Savings) names the card's icon tile, and the ⋯ note
+    // leads with it and the currency (only said because multiCurrency is on).
+    expect(within(accountCard('Rainy Day')).getByRole('img', { name: 'Savings' })).toBeInTheDocument()
+    expect((await accountNote(user, 'Rainy Day'))[0]).toBe('Savings · EUR')
     // Whole-card overlay link to the detail page.
     const link = screen.getByRole('link', { name: 'View Rainy Day' })
     expect(link).toHaveAttribute('href', '/accounts/rd1')
@@ -172,8 +180,9 @@ describe('AccountsPage — catalog (ACCT)', () => {
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/accounts', expect.objectContaining({ name: 'Pot', type: 1 })),
     )
-    // The new card's type badge reads the matching label.
-    expect(await screen.findByText('Savings', {}, { timeout: 5000 })).toBeInTheDocument()
+    // The new card's type tile is named by the matching label.
+    const card = await screen.findByRole('article', { name: 'Pot' }, { timeout: 5000 })
+    expect(within(card).getByRole('img', { name: 'Savings' })).toBeInTheDocument()
   })
 
   it('ACCT-011: editing a legacy credit-card account keeps its type selectable, but a new account never offers it', { timeout: 15000 }, async () => {
@@ -182,7 +191,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Edit Visa' }, { timeout: 5000 }))
+    await accountAction(user, 'Visa', 'Edit Visa')
     const typeSelect = screen.getByLabelText('Type for Visa') as HTMLSelectElement
     expect(typeSelect.value).toBe('3')
     expect(within(typeSelect).getByRole('option', { name: 'Credit card' })).toBeInTheDocument()
@@ -290,7 +299,8 @@ describe('AccountsPage — catalog (ACCT)', () => {
   })
 
   it('ACCT-018: the add form has no currency picker; the POST uses the budget currency, not the preference', { timeout: 15000 }, async () => {
-    mockLoads({ accounts: [] })
+    // The hero shows once there is an account; this one holds the budget currency.
+    mockLoads({ accounts: [acct({ id: 'g0', name: 'Current', currency: 'GBP' })] })
     const base = mockGet.getMockImplementation()!
     mockGet.mockImplementation((url: string) =>
       url === '/auth/me'
@@ -323,14 +333,21 @@ describe('AccountsPage — catalog (ACCT)', () => {
       accounts: [acct({ id: 'a1', name: 'Everyday' }), acct({ id: 'uk1', name: 'UK Pot', currency: 'GBP' })],
       features: { multiCurrency: false },
     })
+    const user = userEvent.setup()
 
     renderPageWithFeatures()
 
-    // Once the flag load settles the budget-currency chip disappears (the flag starts on by
-    // default before /features resolves); the GBP account still says what it holds.
+    // Once the flag load settles the budget currency leaves the ⋯ note (the flag starts on by
+    // default before /features resolves); the GBP account still says what it holds, on its card.
     await screen.findByText('Everyday', {}, { timeout: 5000 })
-    await waitFor(() => expect(screen.queryByText('EUR')).not.toBeInTheDocument(), { timeout: 5000 })
-    expect(screen.getByText('GBP')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Everyday: more actions' }))
+    const menu = await screen.findByRole('menu', {}, { timeout: 5000 })
+    await waitFor(() => expect(menu).not.toHaveAccessibleDescription(/EUR/), { timeout: 5000 })
+    expect(menu).toHaveAccessibleDescription(/^Current Opening/)
+    await user.keyboard('{Escape}')
+    expect(screen.queryByText('EUR')).not.toBeInTheDocument()
+    expect(within(accountCard('UK Pot')).getByText('GBP')).toBeInTheDocument()
+    expect(within(accountCard('Everyday')).queryByText('GBP')).not.toBeInTheDocument()
   })
 
   it('ACCT-020: pressing Enter in the opening field submits the add', { timeout: 15000 }, async () => {
@@ -399,7 +416,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Rainy Day', {}, { timeout: 5000 }))
+    await accountAction(user, 'Rainy Day', 'Edit Rainy Day')
     const nameInput = screen.getByLabelText('Name for Rainy Day')
     await user.clear(nameInput)
     await user.type(nameInput, 'Emergency')
@@ -426,7 +443,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit UK Pot', {}, { timeout: 5000 }))
+    await accountAction(user, 'UK Pot', 'Edit UK Pot')
     // No currency input, just the read-only note carrying the fixed currency.
     const note = screen.getByText(/fixed once created/i)
     expect(note.textContent).toContain('GBP')
@@ -444,7 +461,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Pennies', {}, { timeout: 5000 }))
+    await accountAction(user, 'Pennies', 'Edit Pennies')
     // Plain "1234.5" (dot decimal, no grouping comma), not the localized "1,234.5".
     expect(screen.getByLabelText('Opening balance for Pennies')).toHaveValue('1234.5')
   })
@@ -455,7 +472,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Rainy Day', {}, { timeout: 5000 }))
+    await accountAction(user, 'Rainy Day', 'Edit Rainy Day')
     const nameInput = screen.getByLabelText('Name for Rainy Day')
     await user.clear(nameInput)
     await user.click(screen.getByLabelText('Save Rainy Day'))
@@ -479,7 +496,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Rainy Day', {}, { timeout: 5000 }))
+    await accountAction(user, 'Rainy Day', 'Edit Rainy Day')
     const nameInput = screen.getByLabelText('Name for Rainy Day')
     await user.clear(nameInput)
     await user.type(nameInput, 'Emergency')
@@ -498,7 +515,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Rainy Day', {}, { timeout: 5000 }))
+    await accountAction(user, 'Rainy Day', 'Edit Rainy Day')
     const nameInput = screen.getByLabelText('Name for Rainy Day')
     await user.clear(nameInput)
     await user.type(nameInput, 'Zzz Discarded')
@@ -518,7 +535,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Delete UK Pot', {}, { timeout: 5000 }))
+    await accountAction(user, 'UK Pot', 'Delete UK Pot')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByText('Delete UK Pot?')).toBeInTheDocument()
     expect(dialog.getByText(/transactions are kept/i)).toBeInTheDocument()
@@ -534,7 +551,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Delete Everyday', {}, { timeout: 5000 }))
+    await accountAction(user, 'Everyday', 'Delete Everyday')
     await user.click(await screen.findByRole('button', { name: 'Confirm delete Everyday' }))
 
     expect(await screen.findByText('Could not delete that account.', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -550,39 +567,48 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Delete Everyday', {}, { timeout: 5000 }))
+    await accountAction(user, 'Everyday', 'Delete Everyday')
     await user.click(await screen.findByRole('button', { name: 'Confirm delete Everyday' }))
 
-    // While the request is pending the card's ✕ is disabled (prevents a double-submit).
-    await waitFor(() => expect(screen.getByLabelText('Delete Everyday')).toBeDisabled(), { timeout: 5000 })
+    // While the request is pending the ⋯'s Delete is disabled (prevents a double-submit).
+    await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/accounts/a1'))
+    expect(await accountItems(user, 'Everyday')).toContainEqual({ name: 'Delete Everyday', disabled: true })
 
     resolveDelete({ data: null })
     await waitFor(() => expect(screen.queryByText('Everyday')).not.toBeInTheDocument(), { timeout: 5000 })
   })
 
-  // --- Jar reconciliation panel --------------------------------------------
+  // --- What the jars hold of each account (the reconciliation) -------------
 
-  it('ACCT-052: the reconciliation table renders Balance / In jars / Unallocated when an account backs a jar', { timeout: 15000 }, async () => {
+  it('ACCT-052: an account that backs a jar shows its balance, what its jars hold and what is not in jars', { timeout: 15000 }, async () => {
     mockLoads({
       accounts: [acct({ id: 'j1', name: 'Joint', openingBalance: 1050, currentBalance: 1050 })],
       reconciliation: [
         { accountId: 'j1', accountName: 'Joint', currentBalance: 1050, backedJarsTotal: 600, backedJarCount: 1, float: 450 },
       ],
     })
+    const user = userEvent.setup()
 
     renderPage()
 
-    expect(await screen.findByText('Jar reconciliation', {}, { timeout: 5000 })).toBeInTheDocument()
-    const table = within(screen.getByRole('table'))
-    expect(table.getByRole('columnheader', { name: 'Unallocated' })).toBeInTheDocument()
-    expect(table.queryByRole('columnheader', { name: 'Float' })).not.toBeInTheDocument()
-    expect(table.getByText('Joint')).toBeInTheDocument()
-    expect(table.getByText('€1,050.00')).toBeInTheDocument() // Balance
-    expect(table.getByText('€600.00')).toBeInTheDocument() // In jars
-    // Unallocated 450 = 1050 − 600, positive ⇒ slate (not rose); jars are backed ⇒ no warning.
-    const unallocated = table.getByText('€450.00')
-    expect(unallocated.className).not.toContain('text-rose-600')
-    expect(table.queryByText('Jars exceed account money')).not.toBeInTheDocument()
+    const jars = within(await screen.findByTestId('account-jars', {}, { timeout: 5000 }))
+    const card = within(accountCard('Joint'))
+    expect(card.getByTestId('account-jars')).toBeInTheDocument()
+    expect(card.getByText('€1,050.00')).toBeInTheDocument() // Balance
+    expect(jars.getByText('1 jar')).toBeInTheDocument()
+    // In jars: the exact amount in the ⋯ note (the bar draws it), and the KPI tile's total.
+    expect(await accountNote(user, 'Joint')).toContain('€600.00 in jars')
+    expect(screen.getByRole('group', { name: 'In jars' })).toHaveTextContent('€600.00')
+    // Not in jars (never "Float") 450 = 1050 − 600, positive ⇒ slate (not red); jars are backed ⇒ no warning.
+    expect(screen.getByRole('group', { name: 'Not in jars' })).toHaveTextContent('€450.00')
+    expect(screen.queryByText(/Float/)).not.toBeInTheDocument()
+    const notInJars = jars.getByText('€450.00 not in jars')
+    expect(notInJars.parentElement!.className).not.toContain('text-bad')
+    // The bar (decorative: the caption says it) fills by what the jars hold of the balance, 600 of 1,050.
+    const fill = card.getByTestId('account-jars').firstElementChild!.firstElementChild as HTMLElement
+    expect(fill.style.width).toMatch(/^57\.14/)
+    expect(fill.className).not.toContain('bg-bad')
+    expect(jars.queryByText('Jars exceed account money')).not.toBeInTheDocument()
   })
 
   it('ACCT-055: a backing deficit (rule 70) shows the "Jars exceed account money" badge on that row', { timeout: 15000 }, async () => {
@@ -600,11 +626,14 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     renderPage()
 
-    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
-    const rainy = table.getByText('Rainy Day').closest('tr')!
-    expect(within(rainy).getByText('Jars exceed account money')).toBeInTheDocument()
-    const joint = table.getByText('Joint').closest('tr')!
-    expect(within(joint).queryByText('Jars exceed account money')).not.toBeInTheDocument()
+    await screen.findAllByTestId('account-jars', {}, { timeout: 5000 })
+    const rainy = within(within(accountCard('Rainy Day')).getByTestId('account-jars'))
+    const deficit = rainy.getByText('Jars exceed account money')
+    expect(deficit.parentElement!.className).toContain('text-bad')
+    expect(rainy.getByRole('button', { name: 'About the shortfall in Rainy Day' })).toBeInTheDocument()
+    const joint = within(within(accountCard('Joint')).getByTestId('account-jars'))
+    expect(joint.queryByText('Jars exceed account money')).not.toBeInTheDocument()
+    expect(joint.getByText('€450.00 not in jars')).toBeInTheDocument()
   })
 
   it('ACCT-053: the reconciliation card is hidden when no account backs a jar', { timeout: 15000 }, async () => {
@@ -618,11 +647,16 @@ describe('AccountsPage — catalog (ACCT)', () => {
     renderPage()
 
     await screen.findByText('Joint', {}, { timeout: 5000 })
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/accounts/reconciliation'))
     expect(screen.queryByText('Jar reconciliation')).not.toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    // No card has a jar bar, and the KPI row has no jar tiles.
+    expect(screen.queryByTestId('account-jars')).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'In jars' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Not in jars' })).not.toBeInTheDocument()
   })
 
-  it('ACCT-054: negative unallocated money renders in rose (a shortfall)', { timeout: 15000 }, async () => {
+  it('ACCT-054: negative money not in jars renders in red as what the jars hold over the account (a shortfall)', { timeout: 15000 }, async () => {
     mockLoads({
       accounts: [acct({ id: 'r1', name: 'Rainy Day', type: 1, openingBalance: 700, currentBalance: 700 })],
       reconciliation: [
@@ -632,9 +666,18 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     renderPage()
 
-    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
-    const float = table.getByText('-€500.00')
-    expect(float.className).toContain('text-rose-600')
+    const jars = within(await screen.findByTestId('account-jars', {}, { timeout: 5000 }))
+    const over = jars.getByText('€500.00 over')
+    expect(over.parentElement!.className).toContain('text-bad')
+    const fill = screen.getByTestId('account-jars').firstElementChild!.firstElementChild as HTMLElement
+    expect(fill.className).toContain('bg-bad')
+    expect(fill.style.width).toBe('100%')
+    expect(jars.queryByText(/not in jars/)).not.toBeInTheDocument()
+    // The Not in jars tile counts the shortfall against the total, in red as on the card.
+    const notInJars = screen.getByRole('group', { name: 'Not in jars' })
+    expect(notInJars).toHaveTextContent('-€500.00')
+    expect(within(notInJars).getByText('-€500.00').className).toContain('text-bad')
+    expect(within(screen.getByRole('group', { name: 'In jars' })).getByText('€1,200.00').className).not.toContain('text-bad')
   })
 
   it('ACCT-056: reconciliation money cells use each account’s own currency', { timeout: 15000 }, async () => {
@@ -649,15 +692,23 @@ describe('AccountsPage — catalog (ACCT)', () => {
       ],
     })
 
+    const user = userEvent.setup()
+
     renderPage()
 
-    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
-    // GBP row in £, EUR row in €.
-    expect(table.getByText('£200.00')).toBeInTheDocument()
-    expect(table.getByText('£150.00')).toBeInTheDocument()
-    expect(table.getByText('£50.00')).toBeInTheDocument()
-    expect(table.getByText('€1,050.00')).toBeInTheDocument()
-    expect(table.getByText('€600.00')).toBeInTheDocument()
+    await screen.findAllByTestId('account-jars', {}, { timeout: 5000 })
+    // The GBP card in £, the EUR card in €.
+    const uk = within(accountCard('UK Pot'))
+    expect(uk.getByText('£200.00')).toBeInTheDocument()
+    expect(uk.getByText('£50.00 not in jars')).toBeInTheDocument()
+    expect(await accountNote(user, 'UK Pot')).toContain('£150.00 in jars')
+    const joint = within(accountCard('Joint'))
+    expect(joint.getByText('€1,050.00')).toBeInTheDocument()
+    expect(joint.getByText('€450.00 not in jars')).toBeInTheDocument()
+    expect(await accountNote(user, 'Joint')).toContain('€600.00 in jars')
+    // The tiles add up the budget currency only: the GBP jars are left out, as the total leaves the account out.
+    expect(screen.getByRole('group', { name: 'In jars' })).toHaveTextContent('€600.00')
+    expect(screen.getByRole('group', { name: 'Not in jars' })).toHaveTextContent('€450.00')
   })
 
   it('ACCT-056: a failed reconciliation fetch is swallowed silently (no error banner)', { timeout: 15000 }, async () => {
@@ -670,7 +721,12 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     // The accounts still render and no page-level error banner appears.
     await screen.findByText('Joint', {}, { timeout: 5000 })
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/accounts/reconciliation'))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByText('Jar reconciliation')).not.toBeInTheDocument()
+    // Nothing about jars shows: no bar on the card, no jar tiles.
+    expect(screen.queryByTestId('account-jars')).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'In jars' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Total balance: €1,050.00')).toBeInTheDocument()
   })
 })

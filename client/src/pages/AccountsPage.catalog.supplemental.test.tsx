@@ -16,6 +16,7 @@ import { AccountsPage } from './AccountsPage'
 // asserted below renders in the design's canonical en-GB comma-dot format
 // (€1,234.56), independent of test-execution order.
 import { setMoneyFormat } from '../lib/money'
+import { accountCard, accountNote } from '../test/rowMenu'
 
 function acct(over: Partial<AccountDto> = {}): AccountDto {
   return { id: 'a1', name: 'Account', type: 0, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 0, ...over }
@@ -73,16 +74,15 @@ describe('AccountsPage — catalog supplemental (ACCT)', () => {
 
     // Total = net = 1250 + 500 − 75 = 1,675.00, labelled in the unanimous EUR.
     expect(await screen.findByLabelText('Total balance: €1,675.00', {}, { timeout: 5000 })).toBeInTheDocument()
-    // Available = Σ max(0, balance) = 1250 + 500 = 1,750.00 (the debt is excluded).
-    expect(screen.getByText('€1,750.00')).toBeInTheDocument()
+    // Available = Σ max(0, balance) = 1250 + 500 = 1,750.00 (the debt is excluded), under the total.
+    expect(screen.getByText('€1,750.00 available')).toBeInTheDocument()
     // Rule 74: no account is ever below zero, so nothing is "owed" and the tile is gone; a
     // legacy negative row still isn't summed into Available.
     expect(screen.queryByText('Owed')).not.toBeInTheDocument()
     expect(screen.queryByText('€75.00')).not.toBeInTheDocument()
-    // The negative account's card balance renders rose; its "Opening −€75.00"
-    // caption shares the string but is slate, so pick the rose occurrence.
-    const negs = await screen.findAllByText('-€75.00', {}, { timeout: 5000 })
-    expect(negs.some((el) => el.className.includes('text-rose-600'))).toBe(true)
+    // The negative account's card balance renders in the bad (red) tone.
+    await screen.findAllByText('-€75.00', {}, { timeout: 5000 })
+    expect(within(accountCard('Visa')).getByText('-€75.00').className).toContain('text-bad')
     // Every account in the budget currency ⇒ no "not counted" footnote.
     expect(screen.queryByText(/in another currency/i)).not.toBeInTheDocument()
   })
@@ -143,22 +143,21 @@ describe('AccountsPage — catalog supplemental (ACCT)', () => {
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/accounts', expect.objectContaining({ name: 'Everyday', openingBalance: 1000 })),
     )
-    // The new card shows the balance and the matching opening caption. Scope to the
-    // card body (name + balance + caption share a wrapper) so the assertion isn't
-    // satisfied by the hero, which for this single-account portfolio also reads
-    // €1,000.00 (net + Available tile).
-    const cardBody = (await screen.findByText('Everyday', {}, { timeout: 5000 })).parentElement!
-    expect(within(cardBody).getByText('€1,000.00')).toBeInTheDocument()
-    expect(within(cardBody).getByText('Opening €1,000.00')).toBeInTheDocument()
+    // The new card shows the balance, and its ⋯ note the matching opening. Scope to the
+    // card so the assertion isn't satisfied by the hero, which for this single-account
+    // portfolio also reads €1,000.00.
+    const card = await screen.findByRole('article', { name: 'Everyday' }, { timeout: 5000 })
+    expect(within(card).getByText('€1,000.00')).toBeInTheDocument()
+    expect(await accountNote(user, 'Everyday')).toContain('Opening €1,000.00')
   })
 
-  // --- Reconciliation: the row filter vs the card-visibility gate ------------
+  // --- Reconciliation: the per-card filter vs the tiles' gate ----------------
 
-  // ACCT-052 / ACCT-053: the "Jar reconciliation" card is shown when SOME account
-  // backs a jar (`reconciliation.some(r => r.backedJarCount > 0)`), but the table
-  // body only lists rows with `backedJarCount > 0` — an unbacked account that is
-  // present in the reconciliation payload is filtered out of the table entirely.
-  it('ACCT-052/053: reconciliation lists only backed accounts, filtering out unbacked ones', { timeout: 15000 }, async () => {
+  // ACCT-052 / ACCT-053: the jar tiles show when SOME account backs a jar
+  // (`backedJarCount > 0`), but only a card whose account backs a jar has the jar
+  // bar — an unbacked account that is present in the reconciliation payload shows
+  // no bar at all.
+  it('ACCT-052/053: only backed accounts show what their jars hold, filtering out unbacked ones', { timeout: 15000 }, async () => {
     mockLoads({
       accounts: [
         acct({ id: 'j1', name: 'Joint', openingBalance: 1050, currentBalance: 1050 }),
@@ -173,15 +172,15 @@ describe('AccountsPage — catalog supplemental (ACCT)', () => {
 
     renderPage()
 
-    expect(await screen.findByText('Jar reconciliation', {}, { timeout: 5000 })).toBeInTheDocument()
-    const table = within(screen.getByRole('table'))
-    // The backed account's row is present with its float.
-    expect(table.getByText('Joint')).toBeInTheDocument()
-    expect(table.getByText('€450.00')).toBeInTheDocument()
-    // The unbacked account is filtered out of the table (it still renders as a card,
-    // so scope the negative assertion to the table only).
-    expect(table.queryByText('Rainy Day')).not.toBeInTheDocument()
-    // Sanity: Rainy Day does exist on the page as an account card.
-    expect(screen.getByText('Rainy Day')).toBeInTheDocument()
+    expect(await screen.findByRole('group', { name: 'In jars' }, { timeout: 5000 })).toHaveTextContent('€600.00')
+    // The backed account's card has the bar, with what is not in its jars.
+    const jars = screen.getAllByTestId('account-jars')
+    expect(jars).toHaveLength(1)
+    expect(within(accountCard('Joint')).getByTestId('account-jars')).toHaveTextContent('€450.00 not in jars')
+    // The unbacked account has none (it still renders as a card).
+    expect(within(accountCard('Rainy Day')).queryByTestId('account-jars')).not.toBeInTheDocument()
+    expect(within(accountCard('Rainy Day')).getByText('€700.00')).toBeInTheDocument()
+    // Its money is all not in jars: the tile adds its 700 to Joint's 450.
+    expect(screen.getByRole('group', { name: 'Not in jars' })).toHaveTextContent('€1,150.00')
   })
 })

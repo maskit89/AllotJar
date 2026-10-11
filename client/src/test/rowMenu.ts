@@ -77,3 +77,30 @@ export function txRow(payee: string): HTMLElement {
   if (rows.length !== 1) throw new Error(`Expected one row showing "${payee}", found ${rows.length}`)
   return rows[0]
 }
+
+/**
+ * The Accounts page's cards (restyle PR 6): an account's actions (Edit, Make private / Share with
+ * the household, Delete) sit behind a ⋯ named "{account}: more actions", and each item's
+ * accessible name says which account it acts on, e.g. "Edit Everyday". Picks `item` (that full
+ * name) from the account's ⋯ menu.
+ */
+export const accountAction = (user: UserEvent, account: string, item: string) =>
+  chooseFromMenu(user, `${account}: more actions`, item)
+
+/** Opens an account's ⋯ menu and returns its items' accessible names (and whether each is disabled). */
+export async function accountItems(user: UserEvent, account: string): Promise<{ name: string; disabled: boolean }[]> {
+  await user.click(await screen.findByRole('button', { name: `${account}: more actions` }, { timeout: 5000 }))
+  await screen.findByRole('menu', {}, { timeout: 5000 })
+  const items = screen.getAllByRole('menuitem').map((el) => ({
+    name: el.getAttribute('aria-label') ?? el.textContent ?? '',
+    disabled: el.getAttribute('aria-disabled') === 'true' || el.hasAttribute('data-disabled'),
+  }))
+  await user.keyboard('{Escape}')
+  return items
+}
+
+/** Opens an account's ⋯ menu and returns its note (type, opening, money in jars, who sees it), one line per entry. */
+export const accountNote = (user: UserEvent, account: string) => menuNote(user, `${account}: more actions`)
+
+/** The card (or, on a phone, the row) of the account named `name`. */
+export const accountCard = (name: string): HTMLElement => screen.getByRole('article', { name })

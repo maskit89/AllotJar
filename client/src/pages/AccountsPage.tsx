@@ -1,24 +1,47 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import {
+  Banknote,
+  ChevronRight,
+  Clock,
+  Coins,
+  CreditCard,
+  Ellipsis,
+  Landmark,
+  Lock,
+  Pencil,
+  Plus,
+  Trash2,
+  TriangleAlert,
+  Users,
+  Wallet,
+  type LucideIcon,
+} from 'lucide-react'
 import { AppShell } from '../components/AppShell'
-import { Badge, Button, Card, EmptyState, ErrorBanner, Input, Select } from '../components/ui'
-import { Hero } from '../components/Hero'
+import { Button, EmptyState, ErrorBanner, Input, Select } from '../components/ui'
+import { KpiRow, KpiTile } from '../components/KpiTile'
+import { InfoHint } from '../components/InfoHint'
+import { MiniBar, StatusChip } from '../components/StatusChip'
+import { ActionSheet, ROW_MENU_TRIGGER, RowMenu, type RowAction } from '../components/RowActions'
+import { CARD_TITLE, DASH_CARD, TITLE_HINT } from '../components/budget/card'
+import { MemberAvatar } from '../components/MemberAvatar'
 import { Modal } from '../components/Modal'
-import { AccountsIcon } from '../components/icons'
+import { AccountsIcon, JarNavIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
 import { useFeatures } from '../features/FeatureContext'
 import { useHousehold } from '../features/HouseholdContext'
 import { HolderPicker, PrivateCheckbox } from '../components/AccountHolders'
 import { holderNames } from '../lib/accountHolders'
 import { api } from '../lib/api'
+import { useMediaQuery } from '../lib/useMediaQuery'
 import { EVENTS, track } from '../analytics'
-import type { AccountDto, AccountReconciliationDto, UnreachableAccountDto } from '../types'
+import type { AccountDto, AccountReconciliationDto, HouseholdMemberDto, UnreachableAccountDto } from '../types'
 import { ACCOUNT_TYPE_LABELS, ACCOUNT_TYPE_OPTIONS, AccountType } from '../types'
 import { formatMoney, fromAmount, parseMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { formatDate, todayIso } from '../lib/dates'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { editConflict, serverErrors } from '../lib/serverErrors'
-import { hueColor, hueForAccountType, hueTint } from '../lib/categoryColors'
+import { hueColor, memberHue } from '../lib/categoryColors'
 
 // Current / Savings / Cash / Other — credit cards are not accounts (rule 75). An account
 // recorded as one before the change still labels via ACCOUNT_TYPE_LABELS, so keep it as an
@@ -68,14 +91,59 @@ const ID_FIELDS: Array<{ key: keyof Identifiers; label: string; placeholder: str
   { key: 'accountNumber', label: 'Account number', placeholder: 'e.g. 12345678' },
 ]
 
+/**
+ * Each account type's icon and colour (the approved palette: no amber; Cash is clay). Other and
+ * the legacy Credit card (rule 75) are not in the mock-up: a banknote in teal, a card in rose.
+ */
+const TYPE_LOOK: Record<number, { Icon: LucideIcon; color: string }> = {
+  [AccountType.Current]: { Icon: CreditCard, color: hueColor('indigo') },
+  [AccountType.Savings]: { Icon: Coins, color: hueColor('emerald') },
+  [AccountType.Cash]: { Icon: Wallet, color: 'var(--color-clay)' },
+  [AccountType.CreditCard]: { Icon: CreditCard, color: hueColor('rose') },
+  [AccountType.Other]: { Icon: Banknote, color: hueColor('teal') },
+}
+
+/** What the (i) after an account's jar line says. */
+const FREE_HINT = 'Money in this account that no jar holds. Move money can put it in a jar.'
+const OVER_HINT = 'Your jars hold more than this account has. Move money out of a jar to cover it.'
+// Rule 70 with nothing "over" to show: a jar below zero offsets the ones with money in them.
+const DEFICIT_HINT = 'The jars with money in them hold more than this account has. Move money out of a jar to cover it.'
+
+/**
+ * An (i) on a card: above the stretched link, and above the next card's ⋯ while it is open (its
+ * popover can reach it). Its text wraps, whatever the line it sits in.
+ */
+const HINT_WRAP = 'z-[2] whitespace-normal has-[[role=tooltip]]:z-10'
+
+/** The inline editor's small captions (the fields carry their full names for assistive tech). */
+const CAPTION = 'text-xs font-medium text-slate-500'
+const FIELD = 'h-9 w-full py-1.5 focus-visible:outline-none!'
+
+/**
+ * The Accounts page (restyle PR 6, the approved "polished Warm" mock-up): one KPI row (the total
+ * balance, and what the jars hold of it and what they don't), then one card per account: its
+ * type's icon, its name (the link to its own page), who holds it, its balance and, for an account
+ * that holds jars, a slim bar of what they hold with the rest under it (this replaces the old
+ * reconciliation table). Edit, Make private or Share, and Delete sit behind each card's ⋯ (a bottom
+ * sheet on phones), with what else there is to know about the account in the menu's note. Below
+ * the cards, the owner's private accounts nobody can reach, when there are any.
+ */
 export function AccountsPage() {
   // Managing accounts needs Admin+ (canWrite); others get a read-only register.
   const { canWrite, canManageHousehold, budgetCurrency, memberId } = useAuth()
   const { multiCurrency } = useFeatures()
   // W13: the people who can hold an account (rule 30).
   const { members } = useHousehold()
+  // The top bar has room for Add account from 900px (AppShell's own breakpoint); below it the
+  // button sits under the KPI row, as in the mock-up.
+  const desktop = useMediaQuery('(min-width: 900px)')
+  // Phones: a card's ⋯ opens a bottom sheet.
+  const phone = useMediaQuery('(max-width: 699.98px)')
   const [accounts, setAccounts] = useState<AccountDto[]>([])
   const [reconciliation, setReconciliation] = useState<AccountReconciliationDto[]>([])
+  // Whether the reconciliation has answered (or failed) once. The page waits for it under
+  // Loading…, so the KPI row and the cards' jar lines show in their final shape from the start.
+  const [reconReady, setReconReady] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
@@ -111,6 +179,15 @@ export function AccountsPage() {
   const [eHolderIds, setEHolderIds] = useState<string[]>([])
   // The version the edit was loaded from, sent back with the save (D11).
   const [eVersion, setEVersion] = useState<string | null>(null)
+
+  const gridHeadingId = useId()
+  const unreachableHeadingId = useId()
+  const addButtonId = useId()
+  const gridRef = useRef<HTMLDivElement>(null)
+  // Where focus goes once the editor or a delete has closed a card's controls: the ⋯ of the
+  // account `id` (or, for null, the Add account button). `ifLost`: only when focus has fallen to
+  // the page (a save or delete that ends after the user moved on leaves focus where it is).
+  const pendingFocus = useRef<{ id: string | null; ifLost: boolean } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -159,16 +236,23 @@ export function AccountsPage() {
   }, [])
 
   // Reconciliation reflects current balances + fund backing, so refresh it whenever
-  // the account set changes (initial load and after any add/edit/delete).
+  // the account set changes (initial load and after any add/edit/delete). The answer on screen
+  // stays until a newer one arrives, and an answer older than it is dropped: so the first answer
+  // (asked for alongside the accounts) shows at once instead of waiting for the re-read the
+  // loaded accounts start, and a late one never overwrites a newer one.
+  const reconAsked = useRef(0)
+  const reconShown = useRef(0)
   useEffect(() => {
-    let cancelled = false
+    const seq = ++reconAsked.current
     api
       .get<AccountReconciliationDto[]>('/accounts/reconciliation')
-      .then(({ data }) => !cancelled && setReconciliation(Array.isArray(data) ? data : []))
+      .then(({ data }) => {
+        if (seq < reconShown.current) return
+        reconShown.current = seq
+        setReconciliation(Array.isArray(data) ? data : [])
+      })
       .catch(() => {})
-    return () => {
-      cancelled = true
-    }
+      .finally(() => setReconReady(true))
   }, [accounts])
 
   const ownPersonal = !!memberId && holderIds.length === 1 && holderIds[0] === memberId
@@ -233,6 +317,12 @@ export function AccountsPage() {
     setEVersion(a.version ?? null)
   }, [])
 
+  /** Close the editor from its Cancel (or Escape): focus back to the card's ⋯. */
+  const cancelEdit = useCallback((id: string) => {
+    pendingFocus.current = { id, ifLost: false }
+    setEditingId(null)
+  }, [])
+
   const saveEdit = useCallback(
     async (id: string) => {
       if (eName.trim() === '') {
@@ -269,6 +359,7 @@ export function AccountsPage() {
         })
         setAccounts((prev) => prev.map((a) => (a.id === id ? data : a)))
         track(EVENTS.accountEdited)
+        pendingFocus.current = { id, ifLost: true }
         setEditingId(null)
       } catch (err) {
         const conflict = editConflict(err)
@@ -304,21 +395,44 @@ export function AccountsPage() {
     }
   }, [])
 
-  const remove = useCallback(async (id: string) => {
-    setSavingId(id)
-    setError(null)
-    try {
-      await api.delete(`/accounts/${id}`)
-      setAccounts((prev) => prev.filter((a) => a.id !== id))
-    } catch (err) {
-      // A refused delete (the account is a side of a transfer) carries the reason.
-      setError(serverErrors(err) ?? 'Could not delete that account.')
-    } finally {
-      setSavingId(null)
-    }
-  }, [])
+  const remove = useCallback(
+    async (id: string) => {
+      // Once it has gone, focus moves on to the card that takes its place (or the one before it),
+      // else the Add account button: the dialog gave it back to the removed card's ⋯.
+      const at = accounts.findIndex((a) => a.id === id)
+      const next = at < 0 ? undefined : (accounts[at + 1] ?? accounts[at - 1])
+      setSavingId(id)
+      setError(null)
+      try {
+        await api.delete(`/accounts/${id}`)
+        pendingFocus.current = { id: next?.id ?? null, ifLost: true }
+        setAccounts((prev) => prev.filter((a) => a.id !== id))
+      } catch (err) {
+        // A refused delete (the account is a side of a transfer) carries the reason.
+        setError(serverErrors(err) ?? 'Could not delete that account.')
+      } finally {
+        setSavingId(null)
+      }
+    },
+    [accounts],
+  )
 
-  // The whole budget uses one currency and the app never converts, so the hero totals count only
+  // Focus back to a card's ⋯ once its editor has closed, or on to the next card after a delete
+  // (see pendingFocus). Runs after the dialog's own clean-up, as an update effect runs after an
+  // unmount's.
+  useEffect(() => {
+    const target = pendingFocus.current
+    if (!target || confirmDeleteId) return
+    pendingFocus.current = null
+    const active = document.activeElement
+    if (target.ifLost && active && active !== document.body && active.isConnected) return
+    const card = Array.from(gridRef.current?.querySelectorAll<HTMLElement>('[data-account-id]') ?? []).find(
+      (el) => el.dataset.accountId === target.id,
+    )
+    ;(card?.querySelector<HTMLElement>('[data-row-trigger]') ?? (target.id === null ? document.getElementById(addButtonId) : null))?.focus()
+  }, [accounts, editingId, confirmDeleteId, addButtonId])
+
+  // The whole budget uses one currency and the app never converts, so the totals count only
   // accounts in the budget currency. An account in another currency (legacy data) is left out
   // and called out; per-account figures always use the account's own currency.
   const inBudgetCurrency = useMemo(
@@ -326,9 +440,9 @@ export function AccountsPage() {
     [accounts, budgetCurrency],
   )
   const otherCurrencyCount = accounts.length - inBudgetCurrency.length
-  // Net balance across those accounts whose balance is available, plus the hero's split of what
-  // you hold (positive balances) vs what you owe (negative ones). An unavailable balance (no
-  // opening date, rule 67) is left out and called out, never counted as zero.
+  // The total across those accounts whose balance is available, and the money they hold (the
+  // positive balances; it differs only when a legacy account is below zero). An unavailable
+  // balance (no opening date, rule 67) is left out and called out, never counted as zero.
   const known = useMemo(() => inBudgetCurrency.filter((a) => a.currentBalance !== null), [inBudgetCurrency])
   const unavailableCount = inBudgetCurrency.length - known.length
   const netMinor = useMemo(
@@ -344,44 +458,356 @@ export function AccountsPage() {
     [accounts],
   )
 
-  const currencyById = useMemo(
-    () => Object.fromEntries(accounts.map((a) => [a.id, a.currency])) as Record<string, string>,
-    [accounts],
+  // Each account's line of the reconciliation (what its jars hold, and the rest).
+  const reconById = useMemo(() => new Map(reconciliation.map((r) => [r.accountId, r])), [reconciliation])
+  // The KPI row's In jars and Not in jars, over the same accounts as the total: the jars' money
+  // and each account's unallocated rest (its whole balance when it holds no jar), from the
+  // reconciliation. Only once some counted account holds a jar: otherwise they would read zero
+  // and the total again.
+  const jarFigures = useMemo(() => {
+    let inJars = 0
+    let notInJars = 0
+    let holdsJars = false
+    for (const a of known) {
+      const r = reconById.get(a.id)
+      const balance = fromAmount(a.currentBalance ?? 0)
+      const backed = r ? fromAmount(r.backedJarsTotal) : 0
+      if (r && r.backedJarCount > 0) holdsJars = true
+      inJars += backed
+      notInJars += r && r.float !== null ? fromAmount(r.float) : balance - backed
+    }
+    return holdsJars ? { inJars, notInJars } : null
+  }, [known, reconById])
+
+  const money = (minor: number) => formatMoney(minor, budgetCurrency)
+
+  const heroHint = (
+    <>
+      Your accounts in {budgetCurrency} added up. An account in another currency, or with no balance before its opening date, is
+      left out. Money on its way from one account to another counts in neither until it arrives.
+    </>
   )
+  const heroLines: Array<{ key: string; Icon?: LucideIcon; text: string }> = []
+  if (availableMinor !== netMinor) heroLines.push({ key: 'available', text: `${money(availableMinor)} available` })
+  if (otherCurrencyCount > 0) {
+    heroLines.push({
+      key: 'currency',
+      Icon: TriangleAlert,
+      text: `${otherCurrencyCount} account${otherCurrencyCount === 1 ? '' : 's'} in another currency ${otherCurrencyCount === 1 ? 'is' : 'are'} not counted.`,
+    })
+  }
+  if (unavailableCount > 0) {
+    heroLines.push({
+      key: 'unavailable',
+      Icon: TriangleAlert,
+      text: `${unavailableCount} account${unavailableCount === 1 ? '' : 's'} with no balance before ${unavailableCount === 1 ? 'its' : 'their'} opening date ${unavailableCount === 1 ? 'is' : 'are'} not counted.`,
+    })
+  }
+  if (pendingReviewCount > 0) {
+    heroLines.push({
+      key: 'review',
+      Icon: Clock,
+      text: `${pendingReviewCount} transfer receipt${pendingReviewCount === 1 ? '' : 's'} pending review.`,
+    })
+  }
+  const heroSub =
+    heroLines.length > 0 ? (
+      <span className="flex flex-col gap-1">
+        {heroLines.map(({ key, Icon, text }) => (
+          <span key={key} className="inline-flex items-start gap-1.5">
+            {Icon && <Icon aria-hidden className="mt-0.5 size-3.5 shrink-0" />}
+            <span>{text}</span>
+          </span>
+        ))}
+      </span>
+    ) : undefined
+
+  // The account whose delete is being confirmed.
+  const deleting = confirmDeleteId ? (accounts.find((a) => a.id === confirmDeleteId) ?? null) : null
+
+  // The accounts and the first reconciliation answer are in: the page shows in its final shape.
+  const ready = !loading && reconReady
+
+  // A rarely used action: quiet (an outline), as Jars' Move money.
+  const addButton =
+    canWrite && ready ? (
+      <Button
+        id={addButtonId}
+        variant="secondary"
+        onClick={() => {
+          setError(null)
+          setShowAdd(true)
+        }}
+        aria-label="Add account"
+        className="h-[38px] gap-[7px] rounded-[10px] border-slate-200 py-0 text-slate-900 shadow-[var(--shadow-frame)] max-[899.98px]:h-10 max-[899.98px]:px-3.5 dark:hover:bg-foreground/7"
+      >
+        <Plus aria-hidden className="size-4" />
+        Add account
+      </Button>
+    ) : null
+
+  function actionsFor(a: AccountDto): RowAction[] {
+    const saving = savingId === a.id
+    const actions: RowAction[] = []
+    if (canWrite) {
+      // The editor opens in the card and takes focus itself.
+      actions.push({ key: 'edit', label: 'Edit', ariaLabel: `Edit ${a.name}`, icon: <Pencil aria-hidden />, after: 'focus', onSelect: () => startEdit(a) })
+    }
+    // P54: the holder's own choice, whatever their role; a jar that uses it keeps it shared (P55).
+    if (a.canChangeSharing && a.isPrivate) {
+      actions.push({
+        key: 'share',
+        label: 'Share with household',
+        ariaLabel: `Share ${a.name} with the household`,
+        icon: <Users aria-hidden />,
+        disabled: saving,
+        onSelect: () => setSharing(a, false),
+      })
+    } else if (a.canChangeSharing && !a.sharingBlockedReason) {
+      actions.push({
+        key: 'private',
+        label: 'Make private',
+        ariaLabel: `Make ${a.name} private`,
+        icon: <Lock aria-hidden />,
+        disabled: saving,
+        onSelect: () => setSharing(a, true),
+      })
+    }
+    if (canWrite) {
+      actions.push({
+        key: 'delete',
+        label: 'Delete',
+        ariaLabel: `Delete ${a.name}`,
+        icon: <Trash2 aria-hidden />,
+        danger: true,
+        disabled: saving,
+        separatorBefore: actions.length > 0,
+        after: 'dialog',
+        onSelect: () => setConfirmDeleteId(a.id),
+      })
+    }
+    return actions
+  }
+
+  function editorFor(a: AccountDto) {
+    const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      e.preventDefault()
+      cancelEdit(a.id)
+    }
+    return (
+      // The native date picker's icon and the holders' tick boxes follow the theme (on this page
+      // only: the app has no colour scheme of its own yet).
+      <div className="flex flex-col gap-3 [color-scheme:light] dark:[color-scheme:dark]" onKeyDown={onKeyDown}>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+          <div className="col-span-2 flex flex-col gap-1">
+            <span aria-hidden className={CAPTION}>
+              Name
+            </span>
+            <Input type="text" autoFocus value={eName} aria-label={`Name for ${a.name}`} onChange={(e) => setEName(e.target.value)} className={FIELD} />
+          </div>
+          <div className="flex min-w-0 flex-col gap-1">
+            <span aria-hidden className={CAPTION}>
+              Type
+            </span>
+            <Select value={eType} aria-label={`Type for ${a.name}`} onChange={(e) => setEType(Number(e.target.value))} className={FIELD}>
+              {typeOptionsFor(a.type).map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="flex min-w-0 flex-col gap-1">
+            <span aria-hidden className={CAPTION}>
+              Opening balance
+            </span>
+            <Input
+              type="text"
+              inputMode="decimal"
+              {...selectOnFocusProps}
+              value={eOpening}
+              aria-label={`Opening balance for ${a.name}`}
+              onChange={(e) => setEOpening(e.target.value)}
+              className={`${FIELD} text-right tabular-nums`}
+            />
+          </div>
+          <div className="col-span-2 flex flex-col gap-1">
+            <span aria-hidden className={CAPTION}>
+              Opening date
+            </span>
+            <Input
+              type="date"
+              value={eOpeningDate}
+              aria-label={`Opening date for ${a.name}`}
+              onChange={(e) => setEOpeningDate(e.target.value)}
+              className={`${FIELD} text-slate-700`}
+            />
+          </div>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span aria-hidden className={CAPTION}>
+            Bank details
+          </span>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+            {ID_FIELDS.map((f) => (
+              <Input
+                key={f.key}
+                type="text"
+                value={eIds[f.key]}
+                placeholder={f.label}
+                aria-label={`${f.label} for ${a.name}`}
+                autoComplete="off"
+                onChange={(e) => setEIds((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                className={FIELD}
+              />
+            ))}
+          </div>
+        </div>
+        <HolderPicker members={members} value={eHolderIds} onChange={setEHolderIds} accountName={a.name} />
+        {(multiCurrency || a.currency !== budgetCurrency) && (
+          <p className="text-xs text-slate-500">
+            Currency <span className="font-semibold text-slate-700">{a.currency}</span> — fixed once created.
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={() => cancelEdit(a.id)} aria-label="Cancel edit" className="h-9">
+            Cancel
+          </Button>
+          <Button size="sm" onClick={() => saveEdit(a.id)} disabled={savingId === a.id} aria-label={`Save ${a.name}`} className="h-9">
+            Save
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <AppShell active="accounts" title="Accounts">
-      <Hero
-        eyebrow="Total balance"
-        amount={formatMoney(netMinor, budgetCurrency)}
-        amountLabel={`Total balance: ${formatMoney(netMinor, budgetCurrency)}`}
-        // Rule 74: no account is ever below zero, so there is nothing "owed" to show; the one
-        // tile is the money the counted accounts hold.
-        tiles={[{ label: 'Available', value: formatMoney(availableMinor, budgetCurrency) }]}
-        footnote={
-          otherCurrencyCount > 0 || unavailableCount > 0 || pendingReviewCount > 0 ? (
-            <span className="inline-flex flex-wrap items-center gap-2">
-              {otherCurrencyCount > 0 && (
-                <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13px] font-medium">
-                  {otherCurrencyCount} account{otherCurrencyCount === 1 ? '' : 's'} in another currency {otherCurrencyCount === 1 ? 'is' : 'are'} not counted.
-                </span>
-              )}
-              {unavailableCount > 0 && (
-                <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13px] font-medium">
-                  {unavailableCount} account{unavailableCount === 1 ? '' : 's'} with no balance before {unavailableCount === 1 ? 'its' : 'their'} opening date {unavailableCount === 1 ? 'is' : 'are'} not counted.
-                </span>
-              )}
-              {pendingReviewCount > 0 && (
-                <span className="inline-flex items-center rounded-full bg-black/[0.18] px-[15px] py-2 text-[13px] font-medium">
-                  {pendingReviewCount} transfer receipt{pendingReviewCount === 1 ? '' : 's'} pending review.
-                </span>
-              )}
-            </span>
-          ) : undefined
-        }
-      />
+    <AppShell active="accounts" title="Accounts" actions={desktop ? addButton || undefined : undefined}>
+      {/* No accounts (or none could be loaded): nothing to add up, so no KPI row above the empty
+          card. With no jar figures the hero takes the whole row. */}
+      {ready && accounts.length > 0 && (
+        <KpiRow tiles={jarFigures ? 2 : 0} thirds>
+          <KpiTile
+            hero
+            label="Total balance"
+            hint={heroHint}
+            value={money(netMinor)}
+            valueLabel={`Total balance: ${money(netMinor)}`}
+            sub={heroSub}
+          />
+          {jarFigures && (
+            <KpiTile
+              label="In jars"
+              icon={<JarNavIcon strokeWidth={1.8} />}
+              hue="teal"
+              value={money(jarFigures.inJars)}
+            />
+          )}
+          {jarFigures && (
+            <KpiTile
+              label="Not in jars"
+              icon={<Landmark strokeWidth={1.8} />}
+              iconColor="var(--color-steel)"
+              value={money(jarFigures.notInJars)}
+              // Below zero the jars hold more than the accounts have (a shortfall): red, as on the cards.
+              valueTone={jarFigures.notInJars < 0 ? 'bad' : undefined}
+            />
+          )}
+        </KpiRow>
+      )}
+
+      {!desktop && addButton && <div className="flex justify-end">{addButton}</div>}
 
       {error && !showAdd && <ErrorBanner>{error}</ErrorBanner>}
+
+      {!ready && <p className="text-slate-500">Loading…</p>}
+
+      {ready && (
+        <section aria-labelledby={gridHeadingId} className="@container">
+          {/* The cards say what they are; the heading names the list for assistive tech. */}
+          <h2 id={gridHeadingId} className="sr-only">
+            Your accounts
+          </h2>
+          {accounts.length === 0 ? (
+            <EmptyState
+              icon={<AccountsIcon className="h-6 w-6" />}
+              title="No accounts yet"
+              description="Use + Add account, then tag transactions to it to track its balance."
+            />
+          ) : (
+            <div
+              ref={gridRef}
+              className={`dash-palette grid grid-cols-1 gap-4 @min-[640px]:grid-cols-2 @min-[640px]:gap-6 @min-[900px]:grid-cols-3 max-[699.98px]:flex max-[699.98px]:flex-col max-[699.98px]:gap-0 max-[699.98px]:rounded-[14px] max-[699.98px]:border max-[699.98px]:border-slate-200/70 max-[699.98px]:bg-surface max-[699.98px]:px-[18px] max-[699.98px]:py-0.5 max-[699.98px]:shadow-card`}
+            >
+              {accounts.map((a) => (
+                <AccountCard
+                  key={a.id}
+                  account={a}
+                  recon={reconById.get(a.id)}
+                  members={members}
+                  budgetCurrency={budgetCurrency}
+                  multiCurrency={multiCurrency}
+                  phone={phone}
+                  actions={actionsFor(a)}
+                  editor={editingId === a.id && canWrite ? editorFor(a) : null}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {ready && canManageHousehold && unreachable.length > 0 && (
+        // Quiet, under the cards: as wide as one card column where the grid has room.
+        <div className="@container">
+          <section
+            data-testid="unreachable-accounts"
+            aria-labelledby={unreachableHeadingId}
+            className={`${DASH_CARD} @min-[640px]:w-[calc((100%-24px)/2)] @min-[900px]:w-[calc((100%-48px)/3)]`}
+          >
+            <div className="flex items-center gap-1.5">
+              <h2 id={unreachableHeadingId} className={CARD_TITLE}>
+                Private accounts nobody can reach
+              </h2>
+              <InfoHint label="About private accounts nobody can reach" buttonClassName={TITLE_HINT} align="center">
+                Each is private to a login that is no longer in the household. Nobody can see or change them. If that person won’t be
+                back, you can erase one for good; you never see what is in it.
+              </InfoHint>
+            </div>
+            <ul className="mt-1.5 -mb-2.5">
+              {unreachable.map((a) => (
+                <li
+                  key={a.id}
+                  className="flex min-h-12 items-center gap-3 border-t border-slate-200/70 py-2.5 text-sm first:border-t-0"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold text-slate-900">{a.name}</p>
+                    <p className="text-[13px] text-slate-500">
+                      {a.holderName ? `${a.holderName} · ` : ''}
+                      {a.entryCount === 1 ? '1 entry' : `${a.entryCount} entries`} · {a.currency}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setEraseError(null)
+                      setEraseName('')
+                      setEraseId(a.id)
+                    }}
+                    aria-label={`Erase ${a.name}`}
+                    // A 40px target for a finger, as the page's other controls.
+                    className="shrink-0 text-bad! hover:bg-bad-bg! hover:text-bad! max-[699.98px]:h-10 [@media(hover:none)]:h-10"
+                  >
+                    Erase…
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      )}
 
       {showAdd && canWrite && (
         <Modal title="Add an account" onClose={() => setShowAdd(false)}>
@@ -479,35 +905,30 @@ export function AccountsPage() {
         </Modal>
       )}
 
-      {confirmDeleteId && canWrite && (() => {
-        const acct = accounts.find((a) => a.id === confirmDeleteId)
-        if (!acct) return null
-        return (
-          <Modal title={`Delete ${acct.name}?`} onClose={() => setConfirmDeleteId(null)}>
-            <p className="text-sm text-slate-600">
-              The account is removed, but its transactions are kept — they simply become
-              unassigned from any account. An account that is a side of a transfer can’t be
-              deleted until those transfers are removed. This can’t be undone.
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setConfirmDeleteId(null)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={() => {
-                  const id = confirmDeleteId
-                  setConfirmDeleteId(null)
-                  remove(id)
-                }}
-                disabled={savingId === confirmDeleteId}
-                aria-label={`Confirm delete ${acct.name}`}
-              >
-                Delete account
-              </Button>
-            </div>
-          </Modal>
-        )
-      })()}
+      {deleting && canWrite && (
+        <Modal title={`Delete ${deleting.name}?`} onClose={() => setConfirmDeleteId(null)}>
+          <p className="text-sm text-slate-600">
+            The account is removed, but its transactions are kept — they simply become
+            unassigned from any account. An account that is a side of a transfer can’t be
+            deleted until those transfers are removed. This can’t be undone.
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirmDeleteId(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setConfirmDeleteId(null)
+                remove(deleting.id)
+              }}
+              disabled={savingId === deleting.id}
+              aria-label={`Confirm delete ${deleting.name}`}
+            >
+              Delete account
+            </Button>
+          </div>
+        </Modal>
+      )}
 
       {eraseId && canManageHousehold && (() => {
         const acct = unreachable.find((a) => a.id === eraseId)
@@ -565,286 +986,341 @@ export function AccountsPage() {
           </Modal>
         )
       })()}
+    </AppShell>
+  )
+}
 
-      {loading && <p className="text-slate-500">Loading…</p>}
+/**
+ * What the ⋯'s note (and the phone sheet's description, or a read-only login's (i)) says about an
+ * account, one fact a line and none the card already shows: its type (and that it is joint, and
+ * its currency where the budget has several and the card shows none), who holds it by name (the
+ * card's avatars show initials), its opening balance, why it has no balance (`balanceReason`, on a
+ * phone, where the card's row has no room for the (i) beside "Not available"), the exact money its
+ * jars hold (the bar only draws it), and who sees it when the holder chooses.
+ */
+function noteLines(
+  a: AccountDto,
+  recon: AccountReconciliationDto | undefined,
+  budgetCurrency: string,
+  multiCurrency: boolean,
+  balanceReason?: string,
+): string[] {
+  const type = [ACCOUNT_TYPE_LABELS[a.type] ?? 'Other']
+  if ((a.holders?.length ?? 0) > 1) type.push('joint')
+  if (multiCurrency && a.currency === budgetCurrency) type.push(a.currency)
+  const lines = [type.join(' · ')]
+  if ((a.holders?.length ?? 0) > 0) lines.push(`Held by ${holderNames(a)}`)
+  lines.push(`Opening ${formatMoney(fromAmount(a.openingBalance), a.currency)}${a.openingDate ? ` on ${formatDate(a.openingDate)}` : ''}`)
+  if (balanceReason) lines.push(balanceReason)
+  if (recon && recon.backedJarCount > 0) lines.push(`${formatMoney(fromAmount(recon.backedJarsTotal), a.currency)} in jars`)
+  if (a.canChangeSharing) {
+    if (a.isPrivate) lines.push('Only you can see this account.')
+    // P55: the server's reason says which jar uses it and that it so stays visible to everyone.
+    else if (a.sharingBlockedReason) lines.push(a.sharingBlockedReason)
+  }
+  return lines
+}
 
-      {!loading && (
-        <section className="space-y-3">
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <h2 className="text-base font-bold tracking-[-0.01em] text-slate-900">Your accounts</h2>
-            {canWrite && (
-              <Button
-                onClick={() => {
-                  setError(null)
-                  setShowAdd(true)
-                }}
-                aria-label="Add account"
-              >
-                <span aria-hidden className="text-base leading-none">+</span> Add account
-              </Button>
-            )}
-          </div>
+/**
+ * One account (restyle PR 6). Desktop and tablet: a card in the grid (the type's icon, the name
+ * with who holds it under it and the ⋯ at the right; the balance; the status chips; the jar bar
+ * and its caption). Phones: a row of the one list card (icon, name and holders, balance, ⋯ on one
+ * line; the chips and the jar bar on lines of their own under the name). One element either way:
+ * the layout switches in CSS, so no account is ever mounted twice. While it is being edited the
+ * card holds the editor instead.
+ */
+function AccountCard({
+  account: a,
+  recon,
+  members,
+  budgetCurrency,
+  multiCurrency,
+  phone,
+  actions,
+  editor,
+}: {
+  account: AccountDto
+  /** The account's line of the reconciliation, once it has answered. */
+  recon: AccountReconciliationDto | undefined
+  members: HouseholdMemberDto[]
+  budgetCurrency: string
+  multiCurrency: boolean
+  /** A phone: the ⋯ opens a bottom sheet instead of a menu. */
+  phone: boolean
+  /** None for a read-only login: no ⋯, only an (i) with the note. */
+  actions: RowAction[]
+  /** The inline editor, while this account is being edited. */
+  editor: ReactNode
+}) {
+  const nameId = useId()
+  const typeId = useId()
+  const balanceId = useId()
+  const [sheetOpen, setSheetOpen] = useState(false)
+  if (editor) {
+    return (
+      <article
+        aria-labelledby={nameId}
+        data-account-id={a.id}
+        className={`flex min-w-0 flex-col gap-4 rounded-2xl border border-slate-200/70 bg-surface p-5 shadow-card max-[699.98px]:rounded-none max-[699.98px]:border-0 max-[699.98px]:bg-transparent max-[699.98px]:px-0 max-[699.98px]:py-3.5 max-[699.98px]:shadow-none max-[699.98px]:not-first:border-t max-[699.98px]:not-first:border-line`}
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <TypeTile type={a.type} small />
+          <h3 id={nameId} className="min-w-0 truncate text-base font-[650] tracking-[-0.01em] text-slate-900">
+            {a.name}
+          </h3>
+        </div>
+        {editor}
+      </article>
+    )
+  }
 
-          {accounts.length === 0 ? (
-            <EmptyState
-              icon={<AccountsIcon className="h-6 w-6" />}
-              title="No accounts yet"
-              description="Use + Add account, then tag transactions to it to track its balance."
-            />
-          ) : (
-            <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
-              {accounts.map((a) => {
-                const balanceMinor = a.currentBalance === null ? null : fromAmount(a.currentBalance)
-                const inTransitOut = fromAmount(a.inTransitOut ?? 0)
-                const inTransitIn = fromAmount(a.inTransitIn ?? 0)
-                const pendingReceipts = a.pendingReceiptCount ?? 0
-                const hue = hueForAccountType(a.type)
-                if (editingId === a.id) {
-                  return (
-                    <Card key={a.id} className="flex flex-col gap-3 p-5">
-                      <Input type="text" value={eName} aria-label={`Name for ${a.name}`} onChange={(e) => setEName(e.target.value)} className="w-full" />
-                      <Select value={eType} aria-label={`Type for ${a.name}`} onChange={(e) => setEType(Number(e.target.value))}>
-                        {typeOptionsFor(a.type).map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </Select>
-                      <Input type="text" inputMode="decimal" {...selectOnFocusProps} value={eOpening} aria-label={`Opening balance for ${a.name}`} onChange={(e) => setEOpening(e.target.value)} className="w-full text-right tabular-nums" />
-                      <Input type="date" value={eOpeningDate} aria-label={`Opening date for ${a.name}`} onChange={(e) => setEOpeningDate(e.target.value)} className="w-full text-slate-700" />
-                      {ID_FIELDS.map((f) => (
-                        <Input
-                          key={f.key}
-                          type="text"
-                          value={eIds[f.key]}
-                          placeholder={f.label}
-                          aria-label={`${f.label} for ${a.name}`}
-                          autoComplete="off"
-                          onChange={(e) => setEIds((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                          className="w-full"
-                        />
-                      ))}
-                      <HolderPicker members={members} value={eHolderIds} onChange={setEHolderIds} accountName={a.name} />
-                      {(multiCurrency || a.currency !== budgetCurrency) && (
-                        <p className="text-xs text-slate-500">
-                          Currency <span className="font-semibold text-slate-700">{a.currency}</span> — fixed once created.
-                        </p>
-                      )}
-                      <div className="flex justify-end gap-2">
-                        <Button size="sm" onClick={() => saveEdit(a.id)} disabled={savingId === a.id} aria-label={`Save ${a.name}`}>
-                          Save
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setEditingId(null)} aria-label="Cancel edit">
-                          Cancel
-                        </Button>
-                      </div>
-                    </Card>
-                  )
-                }
-                return (
-                  <Card key={a.id} className="group relative flex flex-col gap-3 p-5 transition hover:shadow-hero">
-                    {/* Overlay link makes the whole card open the account detail. */}
-                    <Link
-                      to={`/accounts/${a.id}`}
-                      aria-label={`View ${a.name}`}
-                      className="absolute inset-0 rounded-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
-                    />
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: hueTint(hue) }} aria-hidden>
-                        <span className="h-5 w-5 rounded-lg" style={{ background: hueColor(hue) }} />
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        {(multiCurrency || a.currency !== budgetCurrency) && (
-                          <span className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
-                            {a.currency}
-                          </span>
-                        )}
-                        {a.isPrivate && <Badge tone="violet">Private</Badge>}
-                        {(a.holders?.length ?? 0) > 1 && <Badge tone="brand">Joint</Badge>}
-                        <span className="rounded-full border border-slate-200 px-2.5 py-0.5 text-xs font-medium text-slate-500">
-                          {ACCOUNT_TYPE_LABELS[a.type] ?? 'Other'}
-                        </span>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[14.5px] font-semibold text-slate-900">{a.name}</div>
-                      {(a.holders?.length ?? 0) > 0 && (
-                        <div className="text-xs text-slate-500">Held by {holderNames(a)}</div>
-                      )}
-                      {balanceMinor === null ? (
-                        <div className="mt-0.5">
-                          <div className="text-[19px] font-bold text-slate-500">Not available</div>
-                          <div className="text-xs text-amber-700 dark:text-amber-400">
-                            {a.openingDateMissing ? 'Set an opening date to calculate the balance.' : 'Before the opening date.'}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className={`mt-0.5 text-[25px] font-bold tabular-nums ${balanceMinor < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900'}`}>
-                          {formatMoney(balanceMinor, a.currency)}
-                        </div>
-                      )}
-                      <div className="mt-1 text-xs text-slate-500">
-                        Opening {formatMoney(fromAmount(a.openingBalance), a.currency)}
-                        {a.openingDate ? ` on ${formatDate(a.openingDate)}` : ''}
-                      </div>
-                      {(inTransitOut > 0 || inTransitIn > 0 || pendingReceipts > 0) && (
-                        <div className="mt-1.5 flex flex-wrap gap-1.5">
-                          {inTransitOut > 0 && (
-                            <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-300">
-                              {formatMoney(inTransitOut, a.currency)} in transit out
-                            </span>
-                          )}
-                          {inTransitIn > 0 && (
-                            <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-300">
-                              {formatMoney(inTransitIn, a.currency)} in transit in
-                            </span>
-                          )}
-                          {pendingReceipts > 0 && (
-                            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300">
-                              {pendingReceipts} receipt{pendingReceipts === 1 ? '' : 's'} pending review
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    {a.canChangeSharing && (
-                      <div className="relative z-10 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                        {a.isPrivate ? (
-                          <>
-                            <span>Only you can see this account.</span>
-                            <Button size="sm" variant="ghost" onClick={() => setSharing(a, false)} disabled={savingId === a.id} aria-label={`Share ${a.name} with the household`}>
-                              Share with household
-                            </Button>
-                          </>
-                        ) : a.sharingBlockedReason ? (
-                          <span title={a.sharingBlockedReason}>Visible to the household: a jar uses it.</span>
-                        ) : (
-                          <Button size="sm" variant="ghost" onClick={() => setSharing(a, true)} disabled={savingId === a.id} aria-label={`Make ${a.name} private`}>
-                            Make private
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                    {canWrite && (
-                      <div className="absolute bottom-3 right-3 z-10 flex gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-                        <button
-                          type="button"
-                          onClick={() => startEdit(a)}
-                          aria-label={`Edit ${a.name}`}
-                          title="Edit account"
-                          className="rounded-md bg-surface/80 px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                        >
-                          ✎
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteId(a.id)}
-                          disabled={savingId === a.id}
-                          aria-label={`Delete ${a.name}`}
-                          title="Delete account"
-                          className="rounded-md bg-surface/80 px-2 py-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    )}
-                  </Card>
-                )
-              })}
+  const balanceMinor = a.currentBalance === null ? null : fromAmount(a.currentBalance)
+  const holders = a.holders ?? []
+  const otherCurrency = a.currency !== budgetCurrency
+  const inTransitOut = fromAmount(a.inTransitOut ?? 0)
+  const inTransitIn = fromAmount(a.inTransitIn ?? 0)
+  const pendingReceipts = a.pendingReceiptCount ?? 0
+  const chips: ReactNode[] = []
+  if (inTransitOut > 0) {
+    chips.push(
+      <StatusChip key="out" tone="line">
+        {formatMoney(inTransitOut, a.currency)} in transit out
+      </StatusChip>,
+    )
+  }
+  if (inTransitIn > 0) {
+    chips.push(
+      <StatusChip key="in" tone="line">
+        {formatMoney(inTransitIn, a.currency)} in transit in
+      </StatusChip>,
+    )
+  }
+  if (pendingReceipts > 0) {
+    chips.push(
+      <StatusChip key="review" tone="warn">
+        {pendingReceipts} receipt{pendingReceipts === 1 ? '' : 's'} pending review
+      </StatusChip>,
+    )
+  } else if (a.requiresReview) {
+    // The balance is flagged for review with no receipt counted: the flag still shows.
+    chips.push(
+      <StatusChip key="review" tone="warn">
+        Pending review
+      </StatusChip>,
+    )
+  }
+
+  // The jars this account holds: what they hold of it (the bar) and the rest, or what they hold
+  // beyond it (rule 70) in red.
+  const jars = recon && recon.backedJarCount > 0 ? recon : null
+  const floatMinor = jars && jars.float !== null ? fromAmount(jars.float) : null
+  const over = !!jars && ((floatMinor !== null && floatMinor < 0) || !!jars.hasBackingDeficit)
+  let split: ReactNode = null
+  if (jars) {
+    const backed = fromAmount(jars.backedJarsTotal)
+    const pct = balanceMinor !== null && balanceMinor > 0 ? (backed / balanceMinor) * 100 : backed > 0 ? 100 : 0
+    // The caption's right part: the rest, or the shortfall, with its (i).
+    const rest: { text: string; label: string; hint: string } | null =
+      floatMinor === null
+        ? null
+        : floatMinor < 0
+          ? { text: `${formatMoney(-floatMinor, a.currency)} over`, label: `About the shortfall in ${a.name}`, hint: OVER_HINT }
+          : jars.hasBackingDeficit
+            ? { text: 'Jars exceed account money', label: `About the shortfall in ${a.name}`, hint: DEFICIT_HINT }
+            : { text: `${formatMoney(floatMinor, a.currency)} not in jars`, label: `About the money not in jars in ${a.name}`, hint: FREE_HINT }
+    split = (
+      <div data-testid="account-jars" className={`-mt-1 flex flex-col gap-[9px] max-[699.98px]:mt-0 max-[699.98px]:mr-2.5 max-[699.98px]:mb-0.5 max-[699.98px]:[grid-area:sp]`}>
+        {balanceMinor !== null && <MiniBar pct={pct} hue="teal" over={over} size="lg" />}
+        {/* One line where it fits; on the narrowest phones the right part moves under the jar
+            count (still at the right) rather than running out of the card. */}
+        <div
+          className={`flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[13px] tabular-nums max-[699.98px]:text-xs ${
+            over ? 'font-semibold text-bad' : 'text-slate-500'
+          }`}
+        >
+          <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+            <JarNavIcon aria-hidden strokeWidth={1.8} className="size-3.5" style={over ? undefined : { color: hueColor('teal') }} />
+            {jars.backedJarCount} jar{jars.backedJarCount === 1 ? '' : 's'}
+          </span>
+          {rest && (
+            <span className="ml-auto inline-flex min-w-0 items-center gap-1 text-right">
+              {rest.text}
+              <InfoHint label={rest.label} buttonClassName={TITLE_HINT} align="end" className={HINT_WRAP}>
+                {rest.hint}
+              </InfoHint>
+            </span>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  const balanceReason = a.openingDateMissing ? 'Set an opening date to calculate the balance.' : 'Before the opening date.'
+  // On a phone the row has no room for an (i) beside "Not available": its reason is in the note.
+  const lines = noteLines(a, recon, budgetCurrency, multiCurrency, phone && balanceMinor === null ? balanceReason : undefined)
+  const note: ReactNode = (
+    <>
+      {lines.map((t, i) => (
+        // The space between the lines keeps them apart in the text a screen reader reads. In the
+        // ⋯ menu a long line wraps, so the menu stays about the width of its items.
+        <Fragment key={i}>
+          {i > 0 && ' '}
+          <span className={phone ? 'block' : 'block max-w-[216px] text-balance'}>{t}</span>
+        </Fragment>
+      ))}
+    </>
+  )
+  const menuLabel = `${a.name}: more actions`
+  // Two accounts may share a name: the ⋯ is also described by the account's type and balance.
+  const describedBy = `${typeId} ${balanceId}`
+  const menu =
+    actions.length > 0 ? (
+      phone ? (
+        <ActionSheet title={a.name} description={note} actions={actions} open={sheetOpen} onOpenChange={setSheetOpen}>
+          <button type="button" data-row-trigger="" aria-label={menuLabel} aria-describedby={describedBy} className={ROW_MENU_TRIGGER}>
+            <Ellipsis aria-hidden strokeWidth={1.8} className="size-[18px]" />
+          </button>
+        </ActionSheet>
+      ) : (
+        <RowMenu label={menuLabel} actions={actions} note={note} describedBy={describedBy} />
+      )
+    ) : (
+      // A read-only login has no ⋯: what its note says sits behind an (i) in the same place.
+      <span className="inline-grid size-8 place-items-center">
+        <InfoHint label={`About ${a.name}`} buttonClassName={TITLE_HINT} align="end">
+          {note}
+        </InfoHint>
+      </span>
+    )
+
+  // What sits on a line under the name (who holds it, Private, another currency's code).
+  const nameLine = holders.length > 0 || a.isPrivate || otherCurrency
+  // Phones lay the row out on a grid: the name's line, then a line for the chips and one for the
+  // jar bar, each only when there is one (so no empty line adds its gap). With nothing under the
+  // name, the icon reaches into the next line, so that line starts right under the name.
+  const extra: string[] = []
+  if (chips.length > 0) extra.push('ch')
+  if (split) extra.push('sp')
+  const areas = ["'ic nm bal more'", ...extra.map((x, i) => `'${i === 0 && !nameLine ? 'ic' : '.'} ${x} ${x} ${x}'`)].join(' ')
+
+  return (
+    <article
+      aria-labelledby={nameId}
+      data-account-id={a.id}
+      style={phone ? { gridTemplateAreas: areas } : undefined}
+      className={`group/acct relative flex min-w-0 flex-col gap-[18px] rounded-2xl border border-slate-200/70 bg-surface pt-5 pr-5 pb-[22px] pl-[22px] shadow-card transition-shadow hover:shadow-[var(--shadow-frame-lg)] max-[699.98px]:grid max-[699.98px]:grid-cols-[36px_minmax(0,1fr)_auto_40px] max-[699.98px]:items-center max-[699.98px]:gap-x-3 max-[699.98px]:gap-y-3 max-[699.98px]:rounded-none max-[699.98px]:border-0 max-[699.98px]:bg-transparent max-[699.98px]:px-0 max-[699.98px]:py-3.5 max-[699.98px]:shadow-none max-[699.98px]:hover:shadow-none max-[699.98px]:not-first:border-t max-[699.98px]:not-first:border-line`}
+    >
+      <div className={`flex min-w-0 items-center gap-3.5 max-[699.98px]:contents`}>
+        <TypeTile type={a.type} id={typeId} />
+        {/* As tall as a name with avatars under it, so a card with none keeps its name and balance
+            in line with its neighbours'. */}
+        <div
+          className={`flex min-h-[50px] min-w-0 flex-1 flex-col items-start gap-1.5 max-[699.98px]:min-h-0 max-[699.98px]:gap-[5px] max-[699.98px]:self-start max-[699.98px]:[grid-area:nm]`}
+        >
+          {/* The name opens the account; its hit area stretches over the whole card. The heading
+              is named by the name alone, the link by "View {name}". */}
+          <h3 aria-labelledby={nameId} className={`max-w-full min-w-0 text-base leading-[1.25] font-[650] tracking-[-0.01em] text-slate-900 max-[699.98px]:text-sm`}>
+            <Link
+              to={`/accounts/${a.id}`}
+              aria-label={`View ${a.name}`}
+              className={`inline-flex max-w-full min-w-0 items-center gap-[3px] align-top after:absolute after:inset-0 after:rounded-2xl after:content-[''] focus-visible:outline-none! focus-visible:after:outline-2 focus-visible:after:outline-offset-2 focus-visible:after:outline-ring focus-visible:after:outline-solid max-[699.98px]:after:rounded-none`}
+            >
+              <span id={nameId} className="min-w-0 truncate">
+                {a.name}
+              </span>
+              <ChevronRight
+                aria-hidden
+                strokeWidth={1.8}
+                className={`size-[15px] shrink-0 text-slate-400 transition group-hover/acct:translate-x-0.5 group-hover/acct:text-slate-500 max-[699.98px]:size-3.5`}
+              />
+            </Link>
+          </h3>
+          {nameLine && (
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+              {holders.length > 0 && (
+                <span className="flex gap-1">
+                  <span className="sr-only">Held by {holderNames(a)}</span>
+                  {holders.map((h, i) => {
+                    const at = members.findIndex((m) => m.id === h.memberId)
+                    return (
+                      <MemberAvatar
+                        key={h.memberId}
+                        name={h.name}
+                        hue={memberHue(at >= 0 ? at : i)}
+                        className={`size-6 shrink-0 text-xs max-[699.98px]:size-[22px]`}
+                      />
+                    )
+                  })}
+                </span>
+              )}
+              {a.isPrivate && (
+                <StatusChip tone="neutral">
+                  <Lock aria-hidden strokeWidth={2} />
+                  Private
+                </StatusChip>
+              )}
+              {/* Another currency: why the account is left out of the totals. */}
+              {otherCurrency && <StatusChip tone="line">{a.currency}</StatusChip>}
             </div>
           )}
-        </section>
-      )}
+        </div>
+        {/* On a phone the ⋯ hangs below the name's line (its bottom margin), so a lone name sets
+            the line's height. */}
+        <div
+          className={`relative z-[2] -mt-1 -mr-2 self-start has-[[role=tooltip]]:z-10 max-[699.98px]:-mt-[7px] max-[699.98px]:-mr-1.5 max-[699.98px]:-mb-4 max-[699.98px]:justify-self-end max-[699.98px]:[grid-area:more]`}
+        >
+          {menu}
+        </div>
+      </div>
 
-      {!loading && canManageHousehold && unreachable.length > 0 && (
-        <Card className="overflow-hidden" data-testid="unreachable-accounts">
-          <div className="border-b border-slate-100 bg-slate-50 px-4 py-2.5">
-            <h2 className="text-sm font-semibold text-slate-700">Private accounts nobody can reach</h2>
-            <p className="text-xs text-slate-500">
-              Each is private to a login that is no longer in the household. Nobody can see or change
-              them. If that person won’t be back, you can erase one for good; you never see what is in it.
-            </p>
-          </div>
-          <ul className="divide-y divide-slate-100">
-            {unreachable.map((a) => (
-              <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-sm">
-                <div>
-                  <span className="font-medium text-slate-700">{a.name}</span>
-                  <span className="ml-2 text-xs text-slate-500">
-                    {a.holderName ? `${a.holderName} · ` : ''}
-                    {a.entryCount === 1 ? '1 entry' : `${a.entryCount} entries`} · {a.currency}
-                  </span>
-                </div>
-                <Button
-                  size="sm"
-                  variant="danger"
-                  onClick={() => {
-                    setEraseError(null)
-                    setEraseName('')
-                    setEraseId(a.id)
-                  }}
-                  aria-label={`Erase ${a.name}`}
-                >
-                  Erase…
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
+      <div className={`max-[699.98px]:mt-px max-[699.98px]:self-start max-[699.98px]:justify-self-end max-[699.98px]:[grid-area:bal]`}>
+        {balanceMinor === null ? (
+          <p className={`flex items-center gap-1 text-base font-semibold whitespace-nowrap text-slate-500 max-[699.98px]:text-sm`}>
+            <span id={balanceId}>Not available</span>
+            {!phone && (
+              <InfoHint label={`Why ${a.name} has no balance`} buttonClassName={TITLE_HINT} align="end" className={HINT_WRAP}>
+                {balanceReason}
+              </InfoHint>
+            )}
+          </p>
+        ) : (
+          <p
+            id={balanceId}
+            className={`text-[22px] leading-[1.15] font-bold tracking-[-0.02em] whitespace-nowrap tabular-nums max-[699.98px]:text-base max-[699.98px]:tracking-[-0.01em] ${
+              balanceMinor < 0 ? 'text-bad' : 'text-slate-900'
+            }`}
+          >
+            {formatMoney(balanceMinor, a.currency)}
+          </p>
+        )}
+      </div>
 
-      {reconciliation.some((r) => r.backedJarCount > 0) && (
-        <Card className="overflow-hidden">
-          <div className="border-b border-slate-100 bg-slate-50 px-4 py-2.5">
-            <h2 className="text-sm font-semibold text-slate-700">Jar reconciliation</h2>
-            <p className="text-xs text-slate-500">
-              Each account’s balance against the jars it holds — unallocated is the money not in any jar.
-            </p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                  <th className="px-4 py-2 font-medium">Account</th>
-                  <th className="px-4 py-2 text-right font-medium">Balance</th>
-                  <th className="px-4 py-2 text-right font-medium">In jars</th>
-                  <th className="px-4 py-2 text-right font-medium">Unallocated</th>
-                  {/* An sr-only span is absolutely positioned and escapes the scroll box's clip
-                      (it widened the document at phone width), so the accessible name goes on the
-                      cell itself. */}
-                  <th className="px-4 py-2 font-medium" aria-label="Backing" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {reconciliation
-                  .filter((r) => r.backedJarCount > 0)
-                  .map((r) => (
-                    <tr key={r.accountId} className="hover:bg-slate-50">
-                      <td className="px-4 py-2.5 font-medium text-slate-700">{r.accountName}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">
-                        {r.currentBalance === null ? 'Not available' : formatMoney(fromAmount(r.currentBalance), currencyById[r.accountId] ?? budgetCurrency)}
-                        {r.requiresReview && <span className="ml-1 text-xs text-amber-700 dark:text-amber-400">(pending review)</span>}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-500">{formatMoney(fromAmount(r.backedJarsTotal), currencyById[r.accountId] ?? budgetCurrency)}</td>
-                      <td className={`px-4 py-2.5 text-right font-semibold tabular-nums ${r.float !== null && fromAmount(r.float) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800'}`}>
-                        {r.float === null ? '—' : formatMoney(fromAmount(r.float), currencyById[r.accountId] ?? budgetCurrency)}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        {/* Rule 70: positive jars must be backed by the account's money. */}
-                        {r.hasBackingDeficit && (
-                          <span className="inline-flex flex-wrap items-center gap-1.5">
-                            <Badge tone="rose">Jars exceed account money</Badge>
-                            <span className="text-xs text-slate-500">Move money out of a jar to cover it.</span>
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-    </AppShell>
+      {chips.length > 0 && <div className={`-mt-2 flex flex-wrap gap-1.5 max-[699.98px]:mt-0 max-[699.98px]:[grid-area:ch]`}>{chips}</div>}
+
+      {split}
+    </article>
+  )
+}
+
+/**
+ * The account's type as its icon on a tinted tile (named by the type for assistive tech): 44px on
+ * a card, 36px in a phone's row (and `small`, beside the editor's name).
+ */
+function TypeTile({ type, small = false, id }: { type: number; small?: boolean; id?: string }) {
+  const look = TYPE_LOOK[type] ?? TYPE_LOOK[AccountType.Other]
+  return (
+    <span
+      id={id}
+      role="img"
+      aria-label={ACCOUNT_TYPE_LABELS[type] ?? 'Other'}
+      className={`grid shrink-0 place-items-center ${
+        small
+          ? 'size-9 rounded-[10px] [&_svg]:size-[18px]'
+          : `size-11 rounded-xl [&_svg]:size-5 max-[699.98px]:size-9 max-[699.98px]:self-start max-[699.98px]:rounded-[10px] max-[699.98px]:[grid-area:ic] max-[699.98px]:[&_svg]:size-[18px]`
+      }`}
+      style={{ background: `color-mix(in srgb, ${look.color} 13%, var(--color-card))`, color: look.color }}
+    >
+      <look.Icon aria-hidden strokeWidth={1.8} />
+    </span>
   )
 }

@@ -161,3 +161,62 @@ test('a tab tapped with the More sheet open goes straight to its page', async ({
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByRole('heading', { level: 1, name: 'Jars' })).toBeVisible()
 })
+
+// Restyle PR 6 — an account's jar caption ("N jars", then what is not in the jars, the shortfall
+// over them, or "Jars exceed account money", each with its (i)) fits the narrowest phone (320px,
+// the width WCAG 1.4.10 names): where the line has no room, its right part moves under the jar
+// count instead of running out of the card. Each (i)'s explanation wraps inside its popover.
+test('the accounts jar captions and their hints fit a 320px phone, a shortfall included', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 })
+  await authedSetup(page, 'light')
+  const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+  const acct = (id: string, name: string, type: number, currentBalance: number, displayOrder: number) => ({
+    id, name, type, currency: 'EUR', openingBalance: 0, openingDate: '2026-01-01', currentBalance, displayOrder,
+  })
+  await page.route('**/api/accounts', (route) =>
+    route.fulfill(json([acct('a1', 'Long-term savings', 1, 104250, 0), acct('a2', 'Rainy day', 1, 6200, 1), acct('a3', 'Holiday pot', 1, 700, 2)])),
+  )
+  await page.route('**/api/accounts/reconciliation', (route) =>
+    route.fulfill(
+      json([
+        { accountId: 'a1', accountName: 'Long-term savings', currentBalance: 104250, backedJarsTotal: 23456.78, backedJarCount: 12, float: 80793.22 },
+        { accountId: 'a2', accountName: 'Rainy day', currentBalance: 6200, backedJarsTotal: 16900, backedJarCount: 3, float: -10700, hasBackingDeficit: true },
+        // A jar below zero offsets the others: no amount over, the shortfall in words.
+        { accountId: 'a3', accountName: 'Holiday pot', currentBalance: 700, backedJarsTotal: 700, backedJarCount: 2, float: 0, hasBackingDeficit: true },
+      ]),
+    ),
+  )
+  await page.goto('/accounts')
+  await page.getByRole('heading', { level: 1 }).first().waitFor()
+  const captions = page.getByTestId('account-jars')
+  await expect(captions).toHaveCount(3)
+  await expect(captions.nth(2)).toContainText('Jars exceed account money')
+  await assertNoHorizontalOverflow(page, '/accounts (jar captions at 320px)')
+  // What shows of each caption line (its elements; the (i)'s invisible ::after hit area may reach
+  // a little past it, as everywhere) stays inside the line, and the line inside its row.
+  const overflow = await captions.evaluateAll((els) =>
+    els.map((el) => {
+      const line = el.lastElementChild as HTMLElement
+      const row = el.closest('article')!.getBoundingClientRect()
+      const right = Math.max(...Array.from(line.querySelectorAll('*')).map((c) => c.getBoundingClientRect().right))
+      return { pastLine: Math.round(right - line.getBoundingClientRect().right), pastRow: Math.round(right - row.right) }
+    }),
+  )
+  for (const [i, o] of overflow.entries()) {
+    expect(o.pastLine, `caption ${i} runs out of its line`).toBeLessThanOrEqual(1)
+    expect(o.pastRow, `caption ${i} runs past its row`).toBeLessThanOrEqual(1)
+  }
+
+  for (const name of ['About the money not in jars in Long-term savings', 'About the shortfall in Rainy day', 'About the shortfall in Holiday pot']) {
+    const hint = page.getByRole('button', { name })
+    await hint.focus()
+    const tip = page.getByRole('tooltip')
+    await tip.waitFor()
+    const m = await tip.evaluate((el) => ({ scroll: el.scrollWidth - el.clientWidth, right: el.getBoundingClientRect().right }))
+    expect(m.scroll, `${name}: the explanation runs out of its popover`).toBeLessThanOrEqual(1)
+    expect(m.right, `${name}: the popover runs off the screen`).toBeLessThanOrEqual(320)
+    await assertNoHorizontalOverflow(page, `/accounts (${name} open at 320px)`)
+    await hint.blur()
+    await expect(tip).toHaveCount(0)
+  }
+})

@@ -586,6 +586,83 @@ test('a transaction row on a phone opens its sheet from the keyboard and gives f
   await expect(row).toBeFocused()
 })
 
+// Restyle PR 6 — an account's actions sit behind its card's ⋯ on the Accounts page: Enter opens the
+// menu with focus on Edit, Escape gives focus back to the ⋯; Edit opens the editor in the card with
+// focus on the name, and Escape closes it with focus back on the ⋯; Delete's dialog gives focus back
+// to the ⋯ on Escape, and once confirmed focus moves on to the next card's ⋯.
+test('an account\'s ⋯ works from the keyboard and gives focus back after the editor and the delete dialog', async ({ page }) => {
+  await authedSetup(page, 'light')
+  await page.goto('/accounts')
+  await page.getByRole('heading', { level: 1 }).first().waitFor()
+
+  const more = page.getByRole('button', { name: 'Joint Current: more actions' })
+  expect(await more.evaluate((el) => el.tagName)).toBe('BUTTON')
+  const box = await more.boundingBox()
+  expect(box!.width).toBeGreaterThanOrEqual(24)
+  expect(box!.height).toBeGreaterThanOrEqual(24)
+
+  await more.focus()
+  await page.keyboard.press('Enter')
+  const menu = page.getByRole('menu')
+  await expect(menu.getByRole('menuitem', { name: 'Edit Joint Current' })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('menuitem', { name: 'Delete Joint Current' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(more).toBeFocused()
+
+  // Edit: the editor opens in the card with focus on the name; Escape closes it, focus on the ⋯.
+  await page.keyboard.press('Enter')
+  await expect(menu.getByRole('menuitem', { name: 'Edit Joint Current' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByLabel('Name for Joint Current')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByLabel('Name for Joint Current')).toHaveCount(0)
+  await expect(more).toBeFocused()
+
+  // Delete: the confirm dialog; Escape gives focus back to the ⋯.
+  await page.keyboard.press('Enter')
+  await expect(menu.getByRole('menuitem', { name: 'Edit Joint Current' })).toBeFocused()
+  await page.keyboard.press('End')
+  await expect(menu.getByRole('menuitem', { name: 'Delete Joint Current' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('dialog', { name: 'Delete Joint Current?' })
+  await dialog.waitFor()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(more).toBeFocused()
+
+  // Confirmed: the card goes and focus moves on to the next card's ⋯.
+  await page.keyboard.press('Enter')
+  await expect(menu.getByRole('menuitem', { name: 'Edit Joint Current' })).toBeFocused()
+  await page.keyboard.press('End')
+  await expect(menu.getByRole('menuitem', { name: 'Delete Joint Current' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await dialog.waitFor()
+  const confirm = dialog.getByRole('button', { name: 'Confirm delete Joint Current' })
+  await confirm.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('link', { name: 'View Joint Current', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Savings Joint: more actions' })).toBeFocused()
+})
+
+// On a phone an account's ⋯ opens its actions in a bottom sheet titled with the account's name;
+// Escape closes it with focus back on the ⋯.
+test('an account\'s ⋯ on a phone opens its sheet from the keyboard and gives focus back', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await authedSetup(page, 'light')
+  await page.goto('/accounts')
+  const more = page.getByRole('button', { name: 'Savings Joint: more actions' })
+  await more.focus()
+  await page.keyboard.press('Enter')
+  const sheet = page.getByRole('dialog', { name: 'Savings Joint' })
+  await expect(sheet.getByRole('button', { name: 'Edit Savings Joint' })).toBeVisible()
+  await expect(sheet.getByRole('button', { name: 'Delete Savings Joint' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+  await expect(more).toBeFocused()
+})
+
 // ---------------------------------------------------------------------------
 // Motion (UX-049)
 // ---------------------------------------------------------------------------

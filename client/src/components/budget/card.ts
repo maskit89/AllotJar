@@ -7,3 +7,7 @@ export const DASH_CARD =
 
 /** A card's title (SPEC: 16px, 650). */
 export const CARD_TITLE = 'text-base font-[650] tracking-[-0.01em] text-slate-900'
+
+/** The (i) beside a card title, as on the Dashboard's cards: a 22px target, the icon at 15px. */
+export const TITLE_HINT =
+  "relative -my-1 inline-grid size-[22px] place-items-center rounded-full text-slate-500 opacity-85 transition after:absolute after:-inset-[9px] after:content-[''] hover:bg-slate-500/10 hover:opacity-100"

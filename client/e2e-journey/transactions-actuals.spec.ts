@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { groupAction, lineAction, register, txAction, txRows } from './helpers'
+import { accountAction, groupAction, lineAction, register, txAction, txRows } from './helpers'
 
 /**
  * Transactions driving REAL budget actuals — the read-time derivation chain the
@@ -358,7 +358,7 @@ test('deleting a budget line or an account detaches its transactions but never d
   // --- TX-093: deleting the account (confirm modal; Transactions.AccountId is
   // ON DELETE SET NULL) leaves both rows in the register with a "—" account cell.
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
-  await page.getByRole('button', { name: 'Delete Joint', exact: true }).click()
+  await accountAction(page, 'Joint', 'Delete Joint')
   await page.getByRole('button', { name: 'Confirm delete Joint', exact: true }).click()
   await expect(page.getByText('No accounts yet')).toBeVisible()
 

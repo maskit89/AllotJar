@@ -251,18 +251,57 @@ test.describe('responsive — data tables scroll inside their own container (375
     await expectInnerScroller(review, '/import review grid', true)
   })
 
-  // UX-031 — the /accounts jar-reconciliation table is wrapped in its own
-  // overflow-x-auto box (soft: four columns may fit the phone, but the box, not
-  // the page, is the designated scroller).
-  test('the accounts reconciliation table scrolls inside its own container (UX-031)', async ({
-    page,
-  }) => {
+  // UX-031 — the accounts list (restyle PR 6) has no jar-reconciliation table any more: what the
+  // jars hold of an account is on its card (the jar bar and its caption). On a phone the cards are
+  // rows of one list card, each name truncates and the chips and the jar bar take lines of their
+  // own, so nothing scrolls sideways: neither the page, nor the list card, nor a row.
+  test('the accounts list fits a phone with no sideways scroll (UX-031)', async ({ page }) => {
     await authedSetup(page, 'light')
     await page.goto('/accounts')
     await page.getByRole('heading', { level: 1 }).first().waitFor()
-    const table = page.getByRole('table')
-    await table.waitFor()
-    await expectInnerScroller(table, '/accounts reconciliation table', false)
+    const list = page.getByRole('region', { name: 'Your accounts', exact: true })
+    await list.waitFor()
+    await expect(list.getByRole('article').first()).toBeVisible()
+    // The account that holds jars shows them on its row.
+    await expect(list.getByTestId('account-jars').first()).toBeVisible()
+    await expect(page.getByRole('table')).toHaveCount(0)
+    const m = await list.evaluate((section: HTMLElement) => {
+      const de = document.documentElement
+      const rows = Array.from(section.querySelectorAll<HTMLElement>('article[data-account-id]'))
+      const card = rows[0]?.parentElement ?? section
+      return {
+        pageScrollW: de.scrollWidth,
+        pageClientW: de.clientWidth,
+        viewportW: window.innerWidth,
+        cardRight: card.getBoundingClientRect().right,
+        cardScrollW: card.scrollWidth,
+        cardClientW: card.clientWidth,
+        rows: rows.length,
+        // What shows of a row (its elements; the name link's ::after hit area and a hint's
+        // invisible ::after are pseudo-elements, which the card's own scroll width still guards).
+        // The ⋯ alone hangs into the card's side padding, as in the mock-up, so its dots line up
+        // with the balance's edge: it is checked against the card's padding box below.
+        contentPastRow: rows.flatMap((r) => {
+          const right = r.getBoundingClientRect().right
+          return Array.from(r.querySelectorAll<HTMLElement>('*')).filter(
+            (el) => !el.closest('[data-row-trigger]') && !el.querySelector('[data-row-trigger]') && el.getBoundingClientRect().right > right + 1,
+          )
+        }).length,
+        triggersPastCard: rows.filter((r) => {
+          const t = r.querySelector<HTMLElement>('[data-row-trigger]')
+          const inner = card.getBoundingClientRect().left + card.clientLeft + card.clientWidth
+          return !t || t.getBoundingClientRect().right > inner - 4
+        }).length,
+        rowsPastCard: rows.filter((r) => r.getBoundingClientRect().right > card.getBoundingClientRect().right + 1).length,
+      }
+    })
+    expect(m.rows, 'the mocked accounts render').toBeGreaterThanOrEqual(2)
+    expect(m.pageScrollW, 'document overflows the viewport').toBeLessThanOrEqual(m.pageClientW + 1)
+    expect(m.cardRight, 'list card wider than the viewport').toBeLessThanOrEqual(m.viewportW + 1)
+    expect(m.cardScrollW, 'list card scrolls sideways').toBeLessThanOrEqual(m.cardClientW + 1)
+    expect(m.contentPastRow, "a row's content runs past the row").toBe(0)
+    expect(m.triggersPastCard, "a row's ⋯ is missing or reaches the card's edge").toBe(0)
+    expect(m.rowsPastCard, 'a row runs past the card').toBe(0)
   })
 
   // UX-036 — the account-detail register at /accounts/:id (a parameterized route
@@ -340,18 +379,17 @@ test.describe('dark mode — token inversion + primitives', () => {
     page.getByRole('button', { name: 'Dark mode', exact: true })
 
   // UX-024 — toggling to Dark stamps `.dark` on the root and inverts the slate
-  // ramp app-wide: a known bg-slate-50 surface (the reconciliation header, which
-  // carries NO dark: override) flips from near-white to near-black purely via the
-  // remapped ramp. Driven with the top bar's real Dark mode button so the "stamp the
-  // root" step is the live toggle, not a preloaded class.
+  // ramp app-wide: a known bg-slate-50 surface (the People page's "Other sign-ins"
+  // header, which carries NO dark: override; the Accounts page's reconciliation
+  // header it used to sample went with restyle PR 6) flips from near-white to
+  // near-black purely via the remapped ramp. Driven with the top bar's real Dark
+  // mode button so the "stamp the root" step is the live toggle, not a preloaded class.
   test('toggling to dark stamps the root and inverts the slate ramp (UX-024)', async ({ page }) => {
     await authedSetup(page, 'light')
-    await page.goto('/accounts')
+    await page.goto('/people')
     await page.getByRole('heading', { level: 1 }).first().waitFor()
 
-    const slateSurface = page
-      .locator('div.bg-slate-50')
-      .filter({ has: page.getByRole('heading', { name: 'Jar reconciliation' }) })
+    const slateSurface = page.locator('div.bg-slate-50').filter({ hasText: /^Other sign-ins$/ })
     await slateSurface.waitFor()
 
     // Light: root is not dark, the slate-50 surface is near-white.

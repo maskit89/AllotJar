@@ -135,6 +135,9 @@
   /* The approved palette's clay (restyle PR 5): the Transactions page's Spent icon, money going
      out. Not a category hue (it would read as the warn orange beside a line), so not in the cycle. */
   --color-clay: #b5592f;
+  /* The approved palette's slate blue (restyle PR 6): the Accounts page's "Not in jars" icon, money
+     resting in the accounts. Not the sage-grey slate ramp, and not a category hue. */
+  --color-steel: #4b6680;
 
   /* Brand-mark tokens (see brand/README §6): the theme-aware logo SVG fills its
      jar body with --accent and its lid + coin fill with --gold. Referenced only
@@ -207,6 +210,7 @@
   --color-cat-indigo: #8c95e6;
   --color-cat-rose: #d98098;
   --color-clay: #e2906a;
+  --color-steel: #8fabc6;
 
   --shadow-hero: 0 22px 46px -24px rgb(0 0 0 / 0.7);
   --hero-grad: linear-gradient(135deg, #155339, #1e6e4e 45%, #2a8a60);
