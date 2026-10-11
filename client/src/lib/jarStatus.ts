@@ -1,4 +1,5 @@
 import type { BadgeTone } from '../components/ui'
+import type { ChipTone } from '../components/StatusChip'
 import type { JarDto } from '../types'
 import { RECUR_MONTHS_OPTIONS } from '../types'
 import { formatMoney, fromAmount } from './money'
@@ -56,6 +57,49 @@ export function jarStatusChip(status: string): JarStatusChip | null {
   }
 }
 
+/** How a jar chip reads in the restyle's status tones (StatusChip), on the Dashboard shelf and the Jars page. */
+export const JAR_CHIP_TONE: Record<BadgeTone, ChipTone> = {
+  rose: 'bad',
+  amber: 'warn',
+  teal: 'ok',
+  brand: 'ok',
+  neutral: 'neutral',
+  violet: 'neutral',
+}
+
+/**
+ * The chip a jar's card shows (the shelf and the Jars page): jarStatusChip, except that an unknown
+ * balance already reads "Not available" (rule 67), so no "Unavailable" chip says the same again.
+ */
+export function jarCardChip(jar: Pick<JarDto, 'status' | 'currentBalance'>): JarStatusChip | null {
+  return jar.currentBalance === null && jar.status === 'Unavailable' ? null : jarStatusChip(jar.status)
+}
+
+/** Attention first: the states that need something done, then the quiet ones, then the endings. */
+const ATTENTION_ORDER: Record<string, number> = {
+  DeadlineMissed: 0,
+  Overspent: 1,
+  Unavailable: 2,
+  Behind: 3,
+  FundedLate: 4,
+  Unscheduled: 5,
+  OnTrack: 6,
+  Ongoing: 6,
+  FullyFunded: 7,
+  Completed: 8,
+}
+
+/**
+ * The jars in the order the shelf and the Jars page show them (attention first, then the
+ * household's own order), each with its place in the household's list: a jar's colour comes from
+ * that place, so it keeps its colour wherever it is shown.
+ */
+export function byAttention<T extends Pick<JarDto, 'status'>>(jars: T[]): { jar: T; index: number }[] {
+  return jars
+    .map((jar, index) => ({ jar, index }))
+    .sort((a, b) => (ATTENTION_ORDER[a.jar.status] ?? 6) - (ATTENTION_ORDER[b.jar.status] ?? 6) || a.index - b.index)
+}
+
 /**
  * Rule 14, in one line: this month's plan, what has actually gone in since the month began and
  * what is still to go — three separate figures, the plan never shrinking because money landed.
@@ -99,9 +143,10 @@ export function jarMonthLabel(jar: JarDto, currency: string): string {
  * deadline); an ongoing pot's monthly amount. Null when the other lines already say it: a
  * completed jar (the chip and the month line, rule 56) and a missed deadline (the month line
  * and the card's own buttons, rules 20 and 57). The month the funding completes isn't repeated
- * here: the form's preview shows it, and the deadline stays the deadline (rule 36).
+ * here: the form's preview shows it, and the deadline stays the deadline (rule 36). `month` names
+ * only the month of the date (see jarDueLabel).
  */
-export function jarHorizonLabel(jar: JarDto, currency: string): string | null {
+export function jarHorizonLabel(jar: JarDto, currency: string, opts: { month?: boolean } = {}): string | null {
   switch (jar.status) {
     case 'Unavailable':
     case 'Unscheduled':
@@ -118,10 +163,19 @@ export function jarHorizonLabel(jar: JarDto, currency: string): string | null {
     const n = jar.estimatedMonthsToTarget
     return `About ${n} month${n === 1 ? '' : 's'} to go (estimate)`
   }
+  const due = jarDueLabel(jar, opts)
+  return due === null || jar.recurMonths === null ? due : `${due} · ${cadenceLabel(jar.recurMonths)}`
+}
+
+/**
+ * When a jar's money is due (a Recurring jar) or needed by (a Goal), as the person gave the date:
+ * "Due 1 Dec 2026", "Needed by Mar 2027". `month` names only the month ("Due Dec 2026"), for a
+ * card too narrow for the day. Null without a deadline.
+ */
+export function jarDueLabel(jar: Pick<JarDto, 'deadline' | 'monthOnly' | 'recurMonths'>, opts: { month?: boolean } = {}): string | null {
   if (!jar.deadline) return null
-  return jar.recurMonths === null
-    ? `Needed by ${jarDate(jar.deadline, jar.monthOnly)}`
-    : `Due ${jarDate(jar.deadline, jar.monthOnly)} · ${cadenceLabel(jar.recurMonths)}`
+  const when = opts.month ? monthYear(jar.deadline) : jarDate(jar.deadline, jar.monthOnly)
+  return jar.recurMonths === null ? `Needed by ${when}` : `Due ${when}`
 }
 
 /** A Recurring jar's cadence in the Repeats field's words: "yearly", "monthly", "every 6 months". */

@@ -106,7 +106,8 @@ export function InfoHint({
         // so the pointer never leaves the wrapper on its way to the popover.
         <span
           ref={hangerRef}
-          style={shift ? { marginLeft: shift } : undefined}
+          // Hung from its right edge, the popover moves by its right margin (a left margin is ignored there).
+          style={shift ? (align === 'end' ? { marginRight: -shift } : { marginLeft: shift }) : undefined}
           className={`absolute top-full z-30 w-64 max-w-[calc(100vw-1rem)] pt-1.5 ${align === 'center' ? 'left-1/2 -translate-x-1/2' : align === 'end' ? 'right-0' : 'left-0'}`}
         >
           <span

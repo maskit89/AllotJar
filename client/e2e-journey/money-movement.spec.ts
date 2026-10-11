@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { addAccount, createGoalJar, register, startFromEssentialsTemplate } from './helpers'
+import { addAccount, createGoalJar, jarAction, register, startFromEssentialsTemplate } from './helpers'
 
 /**
  * Money movement through the REAL stack (rules 74, 78, 79, 80): an account never goes below
@@ -93,7 +93,7 @@ test('the account floor refuses an overdraw, income asks for jars, a non-jar lin
   await expect(unallocatedRow(page, 'Stash')).toContainText('300.00 unallocated')
 
   // --- Rule 80: moving 100.00 from Holiday into Repairs (held in Main) is a bank transfer ---
-  await page.getByRole('button', { name: 'Move money from Holiday' }).click()
+  await jarAction(page, 'Holiday', 'Move money')
   const move = page.getByRole('dialog')
   await move.getByLabel('Move to').selectOption({ label: 'Repairs' })
   await move.getByLabel('Move amount').fill('100')

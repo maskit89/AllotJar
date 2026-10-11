@@ -3,36 +3,11 @@ import { Link } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
 import type { JarDto } from '../../types'
 import { formatMoney, fromAmount } from '../../lib/money'
-import { jarStatusChip } from '../../lib/jarStatus'
+import { byAttention, JAR_CHIP_TONE, jarCardChip } from '../../lib/jarStatus'
 import { hueForIndex } from '../../lib/categoryColors'
-import type { BadgeTone } from '../ui'
 import { GlassJar } from '../GlassJar'
-import { StatusChip, type ChipTone } from '../StatusChip'
+import { StatusChip } from '../StatusChip'
 import { CARD_TITLE, DASH_CARD } from './card'
-
-/** The jar chip words come from lib/jarStatus (shared with the Jars page); the tones map here. */
-const CHIP_TONE: Record<BadgeTone, ChipTone> = {
-  rose: 'bad',
-  amber: 'warn',
-  teal: 'ok',
-  brand: 'ok',
-  neutral: 'neutral',
-  violet: 'neutral',
-}
-
-/** Attention first: the states that need something done, then the quiet ones, then the endings. */
-const ORDER: Record<string, number> = {
-  DeadlineMissed: 0,
-  Overspent: 1,
-  Unavailable: 2,
-  Behind: 3,
-  FundedLate: 4,
-  Unscheduled: 5,
-  OnTrack: 6,
-  Ongoing: 6,
-  FullyFunded: 7,
-  Completed: 8,
-}
 
 /** The narrowest a jar's cell gets before the shelf holds fewer jars per row. */
 const CELL = 110
@@ -82,9 +57,7 @@ export function JarsCard({
   // Only jars whose balance is known count; an unavailable one reads as such (rule 67).
   const savedMinor = jars.reduce((s, j) => s + (j.currentBalance === null ? 0 : fromAmount(j.currentBalance)), 0)
   // Each jar keeps the colour of its place in the household's list (as on the Jars page).
-  const ordered = jars
-    .map((jar, index) => ({ jar, hue: hueForIndex(index), index }))
-    .sort((a, b) => (ORDER[a.jar.status] ?? 6) - (ORDER[b.jar.status] ?? 6) || a.index - b.index)
+  const ordered = byAttention(jars).map(({ jar, index }) => ({ jar, hue: hueForIndex(index), index }))
   const fit = Math.floor((width + GAP) / (CELL + GAP))
   // Nothing laid out yet (or in tests): three to a shelf.
   const perRow = width === 0 ? 3 : Math.min(6, Math.max(fit, width >= MIN_THREE ? 3 : 2))
@@ -134,7 +107,7 @@ export function JarsCard({
                 const monthly = fromAmount(jar.plannedThisMonth)
                 // An unknown balance already reads "Not available" (rule 67): no "Unavailable"
                 // chip under it saying the same again.
-                const chip = balance === null && jar.status === 'Unavailable' ? null : jarStatusChip(jar.status)
+                const chip = jarCardChip(jar)
                 return (
                   <div key={jar.id} className="flex min-w-0 flex-col items-center gap-0.5 text-center">
                     <GlassJar
@@ -156,7 +129,7 @@ export function JarsCard({
                     {/* One status-aware line: a chip for a state worth calling out, else this
                         month's plan, so the shelf never contradicts the Jars page. */}
                     {chip ? (
-                      <StatusChip tone={CHIP_TONE[chip.tone]} className="mt-1">
+                      <StatusChip tone={JAR_CHIP_TONE[chip.tone]} className="mt-1">
                         {chip.label}
                       </StatusChip>
                     ) : (

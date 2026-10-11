@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 
 /**
  * A password that satisfies the Identity policy (≥8, digit + upper + lower) AND is guaranteed not to
@@ -119,6 +119,33 @@ export async function groupAction(page: Page, group: string, item: string): Prom
 }
 
 /**
+ * Picks `item` ("Mark paid", "Move money", "Edit", "Archive", …) from the ⋯ menu of the jar card
+ * named `jar` on the Jars page (restyle PR 4).
+ */
+export async function jarAction(page: Page, jar: string, item: string): Promise<void> {
+  await rowAction(page, `${jar}: more actions`, item)
+}
+
+/**
+ * Opens the ⋯ menu of the jar card named `jar` on the Jars page and returns it. Its note (where
+ * the money is held, this month's plan, a missed deadline's date, how the last cycle ended) is
+ * the menu's first line; close it with `closeMenu`.
+ */
+export async function openJarMenu(page: Page, jar: string): Promise<Locator> {
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await page.getByRole('button', { name: `${jar}: more actions`, exact: true }).click()
+  const menu = page.getByRole('menu')
+  await menu.waitFor()
+  return menu
+}
+
+/** Closes the open ⋯ menu with Escape and waits for it to fade out. */
+export async function closeMenu(page: Page): Promise<void> {
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+}
+
+/**
  * Add an account through the Accounts page modal (navigates there). Account names should
  * avoid the type-chip labels (Current/Savings/Cash/…) where a spec relies on plain text
  * lookups — a name like "Savings" collides with every card's type chip in strict mode, so
@@ -201,7 +228,8 @@ export async function createGoalJar(
   await dialog.getByRole('button', { name: 'Add jar' }).click()
   await posted
   await expect(dialog).toBeHidden()
-  await expect(page.getByRole('heading', { name: jar.name })).toBeVisible()
+  // Exact: the page's other headings ("Your jars", "Unallocated") must never match a jar's name.
+  await expect(page.getByRole('heading', { name: jar.name, exact: true })).toBeVisible()
 }
 
 /**

@@ -1,4 +1,4 @@
-import { Fragment, useRef, type ReactNode } from 'react'
+import { Fragment, useId, useRef, type ReactNode } from 'react'
 import { Ellipsis } from 'lucide-react'
 import {
   DropdownMenu,
@@ -16,8 +16,10 @@ import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle, SheetTri
  */
 export interface RowAction {
   key: string
-  /** The visible text, which is also the item's accessible name. */
+  /** The visible text, which is also the item's accessible name (unless `ariaLabel` gives a fuller one). */
   label: string
+  /** A fuller accessible name that starts with `label` (e.g. which cycle a payment is for). */
+  ariaLabel?: string
   icon: ReactNode
   onSelect: () => void
   danger?: boolean
@@ -40,15 +42,15 @@ const ITEM =
 /** A destructive action reads in the status red (as in the mock-up), which stays AA on the popover in both themes. */
 const DANGER = 'text-bad! focus:text-bad! [&_svg]:text-bad!'
 
-/** The ⋯ button: 32px on a pointer screen, 40px for a finger. */
-const TRIGGER =
+/** The ⋯ button: 32px on a pointer screen, 40px for a finger. Also the look of a ⋯ that opens an ActionSheet. */
+export const ROW_MENU_TRIGGER =
   'relative inline-grid size-8 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-surface-2 hover:text-slate-900 data-[state=open]:bg-surface-2 data-[state=open]:text-slate-900 [@media(hover:none)]:size-10 dark:hover:bg-foreground/7 dark:data-[state=open]:bg-foreground/7'
 
 /**
  * The ⋯ menu of a row: a Radix menu (arrow keys move through it, Escape closes it, focus returns
  * to the ⋯), non-modal like the account menu. `note` is a line of context at the top of the menu
- * (a jar's balance). `triggerClassName` adds to the ⋯ button, e.g. to show it only while the row
- * is hovered or holds focus.
+ * (a jar's balance), which also describes the menu to assistive tech. `triggerClassName` adds to
+ * the ⋯ button, e.g. to show it only while the row is hovered or holds focus.
  */
 export function RowMenu({
   label,
@@ -65,17 +67,19 @@ export function RowMenu({
   const trigger = useRef<HTMLButtonElement>(null)
   // An action that waits for the menu to close (see RowAction.after).
   const pending = useRef<RowAction | null>(null)
+  const noteId = useId()
   if (actions.length === 0) return null
   return (
     <DropdownMenu modal={false}>
       {/* data-row-trigger: where a row gives focus back when one of its inline editors closes. */}
-      <DropdownMenuTrigger ref={trigger} data-row-trigger="" aria-label={label} className={`${TRIGGER} ${triggerClassName}`}>
+      <DropdownMenuTrigger ref={trigger} data-row-trigger="" aria-label={label} className={`${ROW_MENU_TRIGGER} ${triggerClassName}`}>
         <Ellipsis aria-hidden strokeWidth={1.8} className="size-[18px]" />
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
         sideOffset={6}
         className="min-w-[196px] rounded-xl p-1.5 shadow-[var(--shadow-frame-lg)]"
+        aria-describedby={note ? noteId : undefined}
         onCloseAutoFocus={(e) => {
           const action = pending.current
           pending.current = null
@@ -86,7 +90,7 @@ export function RowMenu({
         }}
       >
         {note && (
-          <DropdownMenuLabel className="px-2.5 pt-1.5 pb-1 text-xs font-semibold text-slate-500 tabular-nums">
+          <DropdownMenuLabel id={noteId} className="px-2.5 pt-1.5 pb-1 text-xs font-semibold text-slate-500 tabular-nums">
             {note}
           </DropdownMenuLabel>
         )}
@@ -97,6 +101,7 @@ export function RowMenu({
               className={`${ITEM} ${a.danger ? DANGER : ''}`}
               variant={a.danger ? 'destructive' : 'default'}
               disabled={a.disabled}
+              aria-label={a.ariaLabel}
               onSelect={() => {
                 if (a.after) pending.current = a
                 else a.onSelect()
@@ -193,6 +198,7 @@ export function ActionSheet({
                 key={a.key}
                 type="button"
                 disabled={a.disabled}
+                aria-label={a.ariaLabel}
                 onClick={() => {
                   if (a.after) {
                     pending.current = a

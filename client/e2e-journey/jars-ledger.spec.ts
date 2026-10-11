@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { addAccount, createGoalJar, register } from './helpers'
+import { addAccount, closeMenu, createGoalJar, jarAction, openJarMenu, register } from './helpers'
 
 /**
  * The jar ledger through the REAL stack (rules 1–6, 9, 26, 68, 70, 77, 79): a jar is
@@ -18,7 +18,8 @@ async function startBlankBudget(page: Page) {
   await expect(page.getByText('Remaining to budget')).toBeVisible()
 }
 
-/** The jar card (the innermost rounded Card around the jar's heading) on the Jars page. */
+/** The jar card (the innermost rounded card around the jar's heading) on the Jars page. Its
+ * actions (and its note: where the money is held) sit behind its ⋯. */
 function jarCard(page: Page, name: string) {
   return page.locator('.rounded-2xl').filter({ has: page.getByRole('heading', { name, exact: true }) }).last()
 }
@@ -42,7 +43,8 @@ test('a jar divides its account, a payment on its line draws from it, Move money
   // --- Jar "Holiday" held in Savings with 400.00 already set aside (rule 77 / 9) ---
   await createGoalJar(page, { name: 'Holiday', target: '1000', heldIn: 'Savings', setAside: '400' })
   await expect(jarCard(page, 'Holiday')).toContainText('400.00')
-  await expect(jarCard(page, 'Holiday')).toContainText('Held in Savings')
+  await expect(await openJarMenu(page, 'Holiday')).toContainText('Held in Savings')
+  await closeMenu(page)
   // The allocation divided the account: 600.00 remains unallocated; the account is unchanged.
   await expect(unallocatedRow(page, 'Savings')).toContainText('600.00 unallocated')
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
@@ -69,7 +71,7 @@ test('a jar divides its account, a payment on its line draws from it, Move money
   await expect(unallocatedRow(page, 'Savings')).toContainText('600.00 unallocated')
 
   // --- Move 100.00 from unallocated funds into Holiday (rule 6) ---
-  await page.getByRole('button', { name: 'Move money from Holiday' }).click()
+  await jarAction(page, 'Holiday', 'Move money')
   const move = page.getByRole('dialog')
   await expect(move.getByLabel('Money held in Savings')).toContainText('600.00')
   await move.getByLabel('Move from').selectOption({ label: 'Unallocated funds' })
@@ -85,7 +87,7 @@ test('a jar divides its account, a payment on its line draws from it, Move money
   await expect(unallocatedRow(page, 'Savings')).toContainText('500.00 unallocated')
 
   // --- Rule 68: the jar can't supply more than it holds ---
-  await page.getByRole('button', { name: 'Move money from Holiday' }).click()
+  await jarAction(page, 'Holiday', 'Move money')
   const over = page.getByRole('dialog')
   await expect(over.getByLabel('Move from')).toHaveValue(/.+/)
   await over.getByLabel('Move amount').fill('500')
@@ -94,7 +96,7 @@ test('a jar divides its account, a payment on its line draws from it, Move money
   await over.getByRole('button', { name: 'Cancel move' }).click()
 
   // --- Rule 26: archiving is refused while the jar holds money ---
-  await page.getByRole('button', { name: 'Edit Holiday' }).click()
+  await jarAction(page, 'Holiday', 'Edit')
   const edit = page.getByRole('dialog')
   await edit.getByRole('button', { name: 'Archive Holiday' }).click()
   await edit.getByRole('button', { name: 'Confirm archive Holiday' }).click()

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cadenceLabel, jarDate, jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from './jarStatus'
+import { byAttention, cadenceLabel, JAR_CHIP_TONE, jarCardChip, jarDate, jarDueLabel, jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from './jarStatus'
 import type { JarDto } from '../types'
 
 function jar(over: Partial<JarDto> = {}): JarDto {
@@ -117,6 +117,19 @@ describe('jarHorizonLabel', () => {
     expect(jarHorizonLabel(jar(), 'EUR')).not.toMatch(/Nov/)
   })
 
+  it('names only the month when asked (a phone\'s narrow card), the exact day in jarDueLabel', () => {
+    const day = jar({ targetDate: '2026-12-15', deadline: '2026-12-15' })
+    expect(jarHorizonLabel(day, 'EUR', { month: true })).toBe('Due Dec 2026 · yearly')
+    expect(jarHorizonLabel({ ...day, kind: 1, recurMonths: null }, 'EUR', { month: true })).toBe('Needed by Dec 2026')
+    expect(jarHorizonLabel(day, 'EUR')).toMatch(/^Due .*15.* · yearly$/)
+    expect(jarDueLabel(day)).toMatch(/^Due (Dec 15, 2026|15 Dec 2026)$/)
+    expect(jarDueLabel({ ...day, recurMonths: null })).toMatch(/^Needed by (Dec 15, 2026|15 Dec 2026)$/)
+    expect(jarDueLabel({ ...day, deadline: null })).toBeNull()
+    // An estimate or a monthly amount has no date to shorten.
+    const fixed = jar({ accrual: 2, monthlyContribution: 100, targetDate: null, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: 6, recurMonths: null, kind: 1 })
+    expect(jarHorizonLabel(fixed, 'EUR', { month: true })).toBe('About 6 months to go (estimate)')
+  })
+
   it('words the cadence the way the Repeats select does: monthly, every N months, yearly', () => {
     expect(jarHorizonLabel(jar({ recurMonths: 1 }), 'EUR')).toMatch(/^Due .*Dec.*2026 · monthly$/)
     expect(jarHorizonLabel(jar({ recurMonths: 6 }), 'EUR')).toMatch(/^Due .*Dec.*2026 · every 6 months$/)
@@ -223,5 +236,37 @@ describe('jarDate (a date given as just a month)', () => {
         'EUR',
       ),
     ).toBe('Last cycle due Mar 2026')
+  })
+})
+
+describe('the jar cards (Dashboard jars card, Jars page)', () => {
+  it('orders jars attention first, keeping the API order within a status', () => {
+    const order = byAttention([
+      jar({ id: 'done', status: 'Completed' }),
+      jar({ id: 'full', status: 'FullyFunded' }),
+      jar({ id: 'ok1', status: 'OnTrack' }),
+      jar({ id: 'pot', status: 'Ongoing' }),
+      jar({ id: 'plan', status: 'Unscheduled' }),
+      jar({ id: 'late', status: 'FundedLate' }),
+      jar({ id: 'slow', status: 'Behind' }),
+      jar({ id: 'gone', status: 'Unavailable' }),
+      jar({ id: 'over', status: 'Overspent' }),
+      jar({ id: 'miss', status: 'DeadlineMissed' }),
+      jar({ id: 'ok2', status: 'OnTrack' }),
+    ])
+    expect(order.map(({ jar: j }) => j.id)).toEqual(['miss', 'over', 'gone', 'slow', 'late', 'plan', 'ok1', 'pot', 'ok2', 'full', 'done'])
+    // Each keeps its index in the API's list (its colour follows it).
+    expect(order[0].index).toBe(9)
+    expect(order[order.length - 1].index).toBe(0)
+  })
+
+  it('chips a card only when the jar has something to say, never an Unavailable chip beside "Not available"', () => {
+    expect(jarCardChip(jar({ status: 'OnTrack' }))).toBeNull()
+    expect(jarCardChip(jar({ status: 'Behind' }))).toEqual(jarStatusChip('Behind'))
+    expect(jarCardChip(jar({ status: 'Unavailable', currentBalance: null }))).toBeNull()
+    // The chip's tone in StatusChip's words: red for trouble, amber for a warning, green for done.
+    expect(JAR_CHIP_TONE[jarStatusChip('DeadlineMissed')!.tone]).toBe('bad')
+    expect(JAR_CHIP_TONE[jarStatusChip('Behind')!.tone]).toBe('warn')
+    expect(JAR_CHIP_TONE[jarStatusChip('FullyFunded')!.tone]).toBe('ok')
   })
 })

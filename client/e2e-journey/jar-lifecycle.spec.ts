@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { addAccount, createGoalJar, firstOfMonthAhead, lineAction, register } from './helpers'
+import { addAccount, closeMenu, createGoalJar, firstOfMonthAhead, jarAction, lineAction, openJarMenu, register } from './helpers'
 
 /**
  * The jar lifecycle through the REAL stack (W03 rule 83; W04 rules 25, 27, 55, 60–61): a
@@ -18,7 +18,8 @@ async function startBlankBudget(page: Page) {
   await expect(page.getByText('Remaining to budget')).toBeVisible()
 }
 
-/** The jar card (the innermost rounded Card around the jar's heading) on the Jars page. */
+/** The jar card (the innermost rounded card around the jar's heading) on the Jars page. Its
+ * actions (and its note: the last cycle, the month's plan) sit behind its ⋯. */
 function jarCard(page: Page, name: string) {
   return page.locator('.rounded-2xl').filter({ has: page.getByRole('heading', { name, exact: true }) }).last()
 }
@@ -79,7 +80,7 @@ test('a recurring cycle is marked paid with its payment; a goal is skipped for t
   await page.getByRole('link', { name: 'Jars' }).click()
   await expect(jarCard(page, 'Road tax')).toContainText('0.00')
   // … and the user marks the cycle paid by choosing that payment (the app never infers it).
-  await page.getByRole('button', { name: 'Mark Road tax paid' }).click()
+  await jarAction(page, 'Road tax', 'Mark paid')
   const paid = page.getByRole('dialog')
   await expect(paid.getByRole('button', { name: 'Confirm Road tax paid' })).toBeDisabled()
   await paid.getByRole('radio', { name: /Transport Malta on .*, .*120\.00/ }).check()
@@ -87,9 +88,12 @@ test('a recurring cycle is marked paid with its payment; a goal is skipped for t
   await paid.getByRole('button', { name: 'Confirm Road tax paid' }).click()
   await marked
   await expect(paid).toBeHidden()
-  // The cycle closed as paid and the jar saves toward its next due date (rule 22: met on time).
-  await expect(jarCard(page, 'Road tax')).toContainText(/Last cycle paid .*120\.00/)
-  await expect(jarCard(page, 'Road tax').getByRole('button', { name: 'Mark Road tax paid' })).toBeVisible()
+  // The cycle closed as paid and the jar saves toward its next due date (rule 22: met on time):
+  // its ⋯'s note says how the last cycle ended, and the next cycle can be marked paid in turn.
+  const roadTaxMenu = await openJarMenu(page, 'Road tax')
+  await expect(roadTaxMenu).toContainText(/Last cycle paid .*120\.00/)
+  await expect(roadTaxMenu.getByRole('menuitem', { name: 'Mark paid', exact: true })).toBeVisible()
+  await closeMenu(page)
 
   // --- W04 rules 60–61: "Sofa" 300.00 needed by a date three months out → 100.00 a month ---
   await createGoalJar(page, { name: 'Sofa', target: '300', heldIn: 'Savings', deadline: firstOfMonthAhead(3) })
@@ -121,20 +125,23 @@ test('a recurring cycle is marked paid with its payment; a goal is skipped for t
 
   // --- W04 rule 55: completing Sofa stops its plan and keeps the jar listed ---
   await page.getByRole('link', { name: 'Jars' }).click()
-  await page.getByRole('button', { name: 'Mark Sofa completed' }).click()
+  await jarAction(page, 'Sofa', 'Mark completed')
   const complete = page.getByRole('dialog')
   const completed = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/complete') && r.ok())
   await complete.getByRole('button', { name: 'Confirm complete Sofa' }).click()
   await completed
   await expect(complete).toBeHidden()
   await expect(jarCard(page, 'Sofa')).toContainText('Completed')
-  await expect(jarCard(page, 'Sofa').getByRole('button', { name: 'Mark Sofa completed' })).toBeHidden()
+  const sofaMenu = await openJarMenu(page, 'Sofa')
+  await expect(sofaMenu.getByRole('menuitem', { name: 'Mark completed', exact: true })).toHaveCount(0)
+  await expect(sofaMenu.getByRole('menuitem', { name: 'Reopen', exact: true })).toBeVisible()
+  await closeMenu(page)
   await page.getByRole('link', { name: 'Dashboard' }).click()
   await expect(page.getByRole('button', { name: 'Planned amount for Sofa' })).toContainText('0.00')
 
   // --- W04 rule 27: a jar that never held money can be deleted; one that has cannot ---
   await createGoalJar(page, { name: 'Bike', target: '100', heldIn: 'Savings', deadline: firstOfMonthAhead(2) })
-  await page.getByRole('button', { name: 'Edit Bike' }).click()
+  await jarAction(page, 'Bike', 'Edit')
   const editBike = page.getByRole('dialog')
   await editBike.getByRole('button', { name: 'Delete Bike' }).click()
   const deleted = page.waitForResponse((r) => r.request().method() === 'DELETE' && r.url().includes('/api/jars/') && r.ok())
@@ -143,7 +150,7 @@ test('a recurring cycle is marked paid with its payment; a goal is skipped for t
   await expect(editBike).toBeHidden()
   await expect(page.getByRole('heading', { name: 'Bike', exact: true })).toBeHidden()
   // Road tax has held money: Archive is offered, Delete is not.
-  await page.getByRole('button', { name: 'Edit Road tax' }).click()
+  await jarAction(page, 'Road tax', 'Edit')
   const editRoadTax = page.getByRole('dialog')
   await expect(editRoadTax.getByRole('button', { name: 'Archive Road tax' })).toBeVisible()
   await expect(editRoadTax.getByRole('button', { name: 'Delete Road tax' })).toHaveCount(0)

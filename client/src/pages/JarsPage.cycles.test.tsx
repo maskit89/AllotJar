@@ -6,8 +6,9 @@ import type { JarCycleDto, JarDto, JarPaymentDto } from '../types'
 // W03 — the Recurring jar's cycle lifecycle on the Jars page (rules 19–24, 57, 83): the
 // Deadline missed / Funded late states and what they say (JAR-088), marking a cycle paid by
 // choosing the payment (JAR-089, JAR-090), dismissing a missed deadline (JAR-091), the
-// last-cycle line and its "Record the payment" link for a cycle that rolled forward unpaid (JAR-092),
-// and the write gating of the new actions (JAR-093).
+// last-cycle line and its "Record the payment" action for a cycle that rolled forward unpaid (JAR-092),
+// and the write gating of the new actions (JAR-093). The actions sit in each jar's ⋯ menu, whose
+// note carries what the card leaves out: a missed deadline's date and the last-cycle line.
 //
 // Same shared api mock as the sibling *.catalog.test.tsx files.
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
@@ -18,6 +19,7 @@ import { JarsPage } from './JarsPage'
 import { account, jar as sharedJar } from '../test/fixtures/jars'
 import { me } from '../test/fixtures/me'
 import { setMoneyFormat } from '../lib/money'
+import { jarAction, jarNote, menuItems } from '../test/rowMenu'
 
 // A recurring jar (target 600 due 1 Sep, repeating yearly) whose cycle has been missed: it
 // holds 450, so it is 150 short, and the whole remainder is planned now (rule 20).
@@ -118,23 +120,38 @@ describe('JarsPage — recurring cycles (W03)', () => {
 
   it('JAR-088: a missed cycle reads "Deadline missed" with the date and shortfall, and offers Dismiss and Mark paid', async () => {
     mockLoads({ jars: [jar()] })
+    const user = userEvent.setup()
 
     renderPage()
 
-    expect(await screen.findByText('Deadline missed', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText(/^Deadline .*Sep.*2026 missed · €150\.00 short$/)).toBeInTheDocument()
-    expect(screen.getByLabelText("Dismiss Road tax's missed deadline")).toBeInTheDocument()
-    expect(screen.getByLabelText('Mark Road tax paid')).toBeInTheDocument()
+    // The chip says the deadline was missed, the card how much is short (in red), the ⋯'s note
+    // when the deadline was: each fact once.
+    const card = within(await screen.findByRole('article', { name: 'Road tax' }, { timeout: 5000 }))
+    expect(card.getByText('Deadline missed')).toBeInTheDocument()
+    expect(card.getByText('€150.00 short').closest('p')).toHaveClass('text-bad')
+    const note = await jarNote(user, 'Road tax')
+    expect(note).toContainEqual(expect.stringMatching(/^Deadline .*Sep.*2026$/))
+    expect(note.join(' ')).not.toMatch(/missed|short/)
+    const items = (await menuItems(user, 'Road tax: more actions')).map((i) => i.name)
+    expect(items).toEqual(expect.arrayContaining(['Dismiss', 'Mark paid']))
+    // Dismiss says what it dismisses, as the card's button did.
+    expect(screen.getByRole('menuitem', { name: "Dismiss Road tax's missed deadline" })).toBeInTheDocument()
   })
 
   it('JAR-088: a cycle funded after its deadline reads "Funded late" and nothing short (rule 57)', async () => {
     mockLoads({ jars: [jar({ currentBalance: 600, plannedThisMonth: 0, remainingThisMonth: 0, shortfall: 0, status: 'FundedLate' })] })
+    const user = userEvent.setup()
 
     renderPage()
 
-    expect(await screen.findByText('Funded late', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText(/^Funded after the deadline on .*Sep.*2026$/)).toBeInTheDocument()
-    expect(screen.getByLabelText("Dismiss Road tax's missed deadline")).toBeInTheDocument()
+    // The chip says it was funded after its deadline; the ⋯'s note says which deadline.
+    const card = within(await screen.findByRole('article', { name: 'Road tax' }, { timeout: 5000 }))
+    expect(card.getByText('Funded late')).toBeInTheDocument()
+    expect(card.queryByText(/Funded after/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/short/)).not.toBeInTheDocument()
+    expect(await jarNote(user, 'Road tax')).toContainEqual(expect.stringMatching(/^Deadline .*Sep.*2026$/))
+    expect((await menuItems(user, 'Road tax: more actions')).map((i) => i.name)).toContain('Dismiss')
+    expect(screen.getByRole('menuitem', { name: "Dismiss Road tax's missed deadline" })).toBeInTheDocument()
   })
 
   it('JAR-089: Mark paid lists the jar\'s own payments, and confirming one posts it against the open cycle', { timeout: 15000 }, async () => {
@@ -143,7 +160,7 @@ describe('JarsPage — recurring cycles (W03)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Mark Road tax paid', {}, { timeout: 5000 }))
+    await jarAction(user, 'Road tax', 'Mark paid')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     expect(dialog.getByText(/Which payment settled the cycle due .*Sep.*2026\?/)).toBeInTheDocument()
@@ -162,11 +179,11 @@ describe('JarsPage — recurring cycles (W03)', () => {
       () => expect(mockPost).toHaveBeenCalledWith('/jars/f1/cycles/paid', { deadline: '2026-09-01', paymentTransactionId: 'tx1' }),
       { timeout: 5000 },
     )
-    // The card now shows the next cycle and how the last one ended.
+    // The card now shows the next cycle, and its ⋯'s note how the last one ended.
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
     expect(screen.queryByText('Deadline missed')).not.toBeInTheDocument()
-    expect(screen.getByText(/^Last cycle paid .*Sep.*2026 \(€580\.00\), late$/)).toBeInTheDocument()
     expect(screen.getByText(/^Due .*Sep.*2027 · yearly$/)).toBeInTheDocument()
+    expect(await jarNote(user, 'Road tax')).toContainEqual(expect.stringMatching(/^Last cycle paid .*Sep.*2026 \(€580\.00\), late$/))
   })
 
   it('JAR-114: a payment still waiting for its budget-currency amount is listed but cannot be chosen', { timeout: 15000 }, async () => {
@@ -177,7 +194,7 @@ describe('JarsPage — recurring cycles (W03)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Mark Road tax paid', {}, { timeout: 5000 }))
+    await jarAction(user, 'Road tax', 'Mark paid')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     const waiting = await dialog.findByRole('radio', { name: /US insurer/ }, { timeout: 5000 })
@@ -200,7 +217,7 @@ describe('JarsPage — recurring cycles (W03)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Mark Road tax paid', {}, { timeout: 5000 }))
+    await jarAction(user, 'Road tax', 'Mark paid')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     expect(await dialog.findByText(/No payments from Road tax yet\./, {}, { timeout: 5000 })).toBeInTheDocument()
@@ -229,7 +246,7 @@ describe('JarsPage — recurring cycles (W03)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText("Dismiss Road tax's missed deadline", {}, { timeout: 5000 }))
+    await jarAction(user, 'Road tax', "Dismiss Road tax's missed deadline")
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     expect(dialog.getByText('Move Road tax on to its next cycle?')).toBeInTheDocument()
@@ -244,16 +261,16 @@ describe('JarsPage — recurring cycles (W03)', () => {
     expect(mockPost).not.toHaveBeenCalled()
     expect(screen.getByText('Deadline missed')).toBeInTheDocument()
 
-    await user.click(screen.getByLabelText("Dismiss Road tax's missed deadline"))
+    await jarAction(user, 'Road tax', "Dismiss Road tax's missed deadline")
     const again = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.click(again.getByLabelText("Dismiss Road tax's missed deadline"))
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/f1/cycles/dismiss', { deadline: '2026-09-01' }), { timeout: 5000 })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
     expect(screen.queryByText('Deadline missed')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText("Dismiss Road tax's missed deadline")).not.toBeInTheDocument()
-    expect(screen.getByText('Last cycle missed')).toBeInTheDocument()
     expect(screen.getByText(/^Due .*Sep.*2027 · yearly$/)).toBeInTheDocument()
+    expect(await jarNote(user, 'Road tax')).toContain('Last cycle missed')
+    expect((await menuItems(user, 'Road tax: more actions')).map((i) => i.name)).not.toContain('Dismiss')
   })
 
   it('JAR-091: the dismiss dialog hands over to Mark paid for a bill that was in fact paid', { timeout: 15000 }, async () => {
@@ -261,7 +278,7 @@ describe('JarsPage — recurring cycles (W03)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText("Dismiss Road tax's missed deadline", {}, { timeout: 5000 }))
+    await jarAction(user, 'Road tax', "Dismiss Road tax's missed deadline")
     const dismiss = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.click(dismiss.getByRole('button', { name: 'Mark the cycle paid' }))
 
@@ -280,10 +297,10 @@ describe('JarsPage — recurring cycles (W03)', () => {
 
     renderPage()
 
-    expect(await screen.findByText('Last cycle funded on time', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText('Record the payment')).toBeInTheDocument()
+    expect(await jarNote(user, 'Road tax')).toContain('Last cycle funded on time')
     expect(screen.queryByText('Deadline missed')).not.toBeInTheDocument()
-    await user.click(screen.getByLabelText(/^Record the payment for Road tax's cycle due .*Sep.*2026$/))
+    expect((await menuItems(user, 'Road tax: more actions')).map((i) => i.name)).toContain('Record the payment')
+    await user.click(screen.getByRole('menuitem', { name: /^Record the payment for Road tax's cycle due .*Sep.*2026$/ }))
 
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByText(/Which payment settled the cycle due .*Sep.*2026\?/)).toBeInTheDocument()
@@ -296,8 +313,8 @@ describe('JarsPage — recurring cycles (W03)', () => {
       { timeout: 5000 },
     )
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
-    expect(screen.getByText(/^Last cycle paid .*Sep.*2026 \(€580\.00\), late$/)).toBeInTheDocument()
-    expect(screen.queryByText('Record the payment')).not.toBeInTheDocument()
+    expect(await jarNote(user, 'Road tax')).toContainEqual(expect.stringMatching(/^Last cycle paid .*Sep.*2026 \(€580\.00\), late$/))
+    expect((await menuItems(user, 'Road tax: more actions')).map((i) => i.name)).not.toContain('Record the payment')
   })
 
   it('JAR-093: a Goal and an unavailable jar get no cycle actions', async () => {
@@ -308,12 +325,17 @@ describe('JarsPage — recurring cycles (W03)', () => {
       ],
     })
 
+    const user = userEvent.setup()
     renderPage()
 
     expect(await screen.findByText('Holiday', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.queryByLabelText('Mark Holiday paid')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Mark Boiler paid')).not.toBeInTheDocument()
-    expect(screen.queryByText(/Dismiss/)).not.toBeInTheDocument()
+    for (const name of ['Holiday', 'Boiler']) {
+      const items = (await menuItems(user, `${name}: more actions`)).map((i) => i.name)
+      expect(items).not.toContain('Mark paid')
+      expect(items).not.toContain('Dismiss')
+      expect(items).not.toContain('Record the payment')
+      await user.keyboard('{Escape}')
+    }
   })
 
   it('JAR-121: a jar due in a month names the month on the card, in Dismiss, in Mark paid and on the last-cycle line', { timeout: 15000 }, async () => {
@@ -323,14 +345,15 @@ describe('JarsPage — recurring cycles (W03)', () => {
 
     renderPage()
 
-    expect(await screen.findByText('Deadline Sep 2026 missed · €150.00 short', {}, { timeout: 5000 })).toBeInTheDocument()
-    await user.click(screen.getByLabelText("Dismiss Road tax's missed deadline"))
+    expect(await jarNote(user, 'Road tax')).toContain('Deadline Sep 2026')
+    expect(screen.getByText('€150.00 short')).toBeInTheDocument()
+    await jarAction(user, 'Road tax', "Dismiss Road tax's missed deadline")
     let dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByText(/^Road tax missed its Sep 2026 deadline — €150\.00 short\./)).toBeInTheDocument()
     await user.click(dialog.getByLabelText('Keep the missed deadline'))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
 
-    await user.click(screen.getByLabelText('Mark Road tax paid'))
+    await jarAction(user, 'Road tax', 'Mark paid')
     dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByText(/Which payment settled the cycle due Sep 2026\?/)).toBeInTheDocument()
   })
@@ -343,11 +366,15 @@ describe('JarsPage — recurring cycles (W03)', () => {
       ],
     })
 
+    const user = userEvent.setup()
     renderPage()
 
-    expect(await screen.findByText('Funded after the Sep 2026 deadline', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText('Funded late', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await jarNote(user, 'Road tax')).toContain('Deadline Sep 2026')
     expect(screen.getByText('Due Sep 2027 · yearly')).toBeInTheDocument()
-    expect(screen.getByLabelText("Record the payment for Licence's cycle due Sep 2026")).toBeInTheDocument()
+    expect(await jarNote(user, 'Licence')).toContain('Last cycle funded on time')
+    await menuItems(user, 'Licence: more actions')
+    expect(screen.getByRole('menuitem', { name: "Record the payment for Licence's cycle due Sep 2026" })).toBeInTheDocument()
   })
 
   it('JAR-093: a viewer sees the missed state but cannot mark paid or dismiss', async () => {
@@ -356,8 +383,8 @@ describe('JarsPage — recurring cycles (W03)', () => {
     renderPage()
 
     expect(await screen.findByText('Deadline missed', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.queryByLabelText('Mark Road tax paid')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText("Dismiss Road tax's missed deadline")).not.toBeInTheDocument()
-    expect(screen.queryByText('Record the payment')).not.toBeInTheDocument()
+    // No ⋯ (so no Mark paid, Dismiss or Record the payment): only the (i) with the card's note.
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Road tax: more actions' })).not.toBeInTheDocument(), { timeout: 5000 })
+    expect(screen.getByRole('button', { name: 'About Road tax' })).toBeInTheDocument()
   })
 })

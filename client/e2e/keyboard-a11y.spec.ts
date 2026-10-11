@@ -452,6 +452,59 @@ test('reorder controls meet the WCAG 2.5.8 24px minimum target size (UX-022)', a
   }
 })
 
+// Restyle PR 4 — a jar's actions sit behind its ⋯ on the Jars page: a real button named after the
+// jar, a menu the arrow keys move through, Escape closing it with focus back on the ⋯, and a
+// dialog opened from it giving focus back to the ⋯ when it closes. The ⋯ meets the 24px minimum.
+test('a jar\'s ⋯ menu works from the keyboard and gives focus back when its dialog closes', async ({ page }) => {
+  await authedSetup(page, 'light')
+  await page.goto('/jars')
+  await page.getByRole('heading', { level: 1 }).first().waitFor()
+
+  const more = page.getByRole('button', { name: 'Home insurance: more actions' })
+  expect(await more.evaluate((el) => el.tagName)).toBe('BUTTON')
+  const box = await more.boundingBox()
+  expect(box!.width).toBeGreaterThanOrEqual(24)
+  expect(box!.height).toBeGreaterThanOrEqual(24)
+
+  await more.focus()
+  await page.keyboard.press('Enter')
+  const menu = page.getByRole('menu')
+  await expect(menu.getByRole('menuitem', { name: 'Mark paid' })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('menuitem', { name: 'Move money' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(more).toBeFocused()
+
+  // Edit from the menu; Escape closes the form and the focus is back on the ⋯.
+  await page.keyboard.press('Enter')
+  await menu.getByRole('menuitem', { name: 'Edit' }).click()
+  await page.getByRole('dialog').getByLabel('Jar name').waitFor()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(more).toBeFocused()
+})
+
+// Archiving removes the card whose ⋯ the dialog would give focus back to: focus moves on to the
+// next card's ⋯ instead of falling to the page.
+test('archiving a jar from its ⋯ by keyboard leaves focus on the next card\'s ⋯', async ({ page }) => {
+  await authedSetup(page, 'light')
+  await page.goto('/jars')
+  const more = page.getByRole('button', { name: 'Holiday: more actions' })
+  await more.focus()
+  await page.keyboard.press('Enter')
+  const menu = page.getByRole('menu')
+  await expect(menu.getByRole('menuitem', { name: 'Mark completed' })).toBeFocused()
+  await page.keyboard.press('End')
+  await expect(menu.getByRole('menuitem', { name: 'Archive' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Confirm archive Holiday' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Holiday', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Home insurance: more actions' })).toBeFocused()
+})
+
 // ---------------------------------------------------------------------------
 // Motion (UX-049)
 // ---------------------------------------------------------------------------

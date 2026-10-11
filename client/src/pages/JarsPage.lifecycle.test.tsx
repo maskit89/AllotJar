@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { JarDto } from '../types'
 
@@ -17,6 +17,7 @@ import { JarsPage } from './JarsPage'
 import { account, jar } from '../test/fixtures/jars'
 import { me } from '../test/fixtures/me'
 import { setMoneyFormat } from '../lib/money'
+import { jarAction, menuItems } from '../test/rowMenu'
 
 // A Goal saving 1,000 by a deadline: it holds 400 and plans 100 this month.
 const goal = (over: Partial<JarDto> = {}) =>
@@ -84,7 +85,7 @@ describe('JarsPage — completion and deletion (W04)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Mark New laptop completed', {}, { timeout: 5000 }))
+    await jarAction(user, 'New laptop', 'Mark completed')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     expect(dialog.getByText('Mark New laptop completed?')).toBeInTheDocument()
@@ -95,14 +96,16 @@ describe('JarsPage — completion and deletion (W04)', () => {
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/g1/complete'))
     expect(await screen.findByText('Completed', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText('Completed · €400.00 left to move')).toBeInTheDocument()
-    // The chip and the month line say it is completed; no third line repeats it.
+    const card = within(screen.getByRole('article', { name: 'New laptop' }))
+    expect(card.getByText('Completed')).toBeInTheDocument()
+    expect(card.getByText('€400.00 left to move')).toBeInTheDocument()
+    // The chip and the card's line say it is completed; no third line repeats it.
     expect(screen.queryByText(/no more contributions planned/)).not.toBeInTheDocument()
-    // The card still lets the money be moved and the jar edited, but not completed again.
-    expect(screen.queryByLabelText('Mark New laptop completed')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Move money from New laptop')).toBeInTheDocument()
-    expect(screen.getByLabelText('Edit New laptop')).toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    // The ⋯ still lets the money be moved and the jar edited, but not completed again.
+    const items = (await menuItems(user, 'New laptop: more actions')).map((i) => i.name)
+    expect(items).not.toContain('Mark completed')
+    expect(items).toEqual(expect.arrayContaining(['Move money', 'Edit']))
   })
 
   it('a completed Goal\'s edit form offers no Repeats: it can\'t start repeating (the server refuses it, rule 55)', { timeout: 15000 }, async () => {
@@ -111,7 +114,7 @@ describe('JarsPage — completion and deletion (W04)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit New laptop', {}, { timeout: 5000 }))
+    await jarAction(user, 'New laptop', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByText('Completed: nothing more is planned.')).toBeInTheDocument()
     expect(dialog.getByLabelText('Needed by')).toHaveValue('2027-03-01')
@@ -130,17 +133,26 @@ describe('JarsPage — completion and deletion (W04)', () => {
       ],
     })
 
+    const user = userEvent.setup()
     renderPage()
 
-    expect(await screen.findByLabelText('Mark New laptop completed', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.queryByLabelText('Mark Road tax completed')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Mark Road tax paid')).toBeInTheDocument()
+    const items = async (name: string) => {
+      const names = (await menuItems(user, `${name}: more actions`)).map((i) => i.name)
+      await user.keyboard('{Escape}')
+      return names
+    }
+    expect(await items('New laptop')).toContain('Mark completed')
+    const roadTax = await items('Road tax')
+    expect(roadTax).not.toContain('Mark completed')
+    expect(roadTax).toContain('Mark paid')
     // O3a: an overdrawn Goal opens the dialog, which says how much to cover first (below).
-    expect(screen.getByLabelText('Mark Overdrawn completed')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Mark Unknown completed')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Mark Done completed')).not.toBeInTheDocument()
-    // Five jars listed, four active (rule 55: a completed goal stays listed but no longer saves).
-    expect(screen.getByText('Active jars').nextSibling).toHaveTextContent('4')
+    expect(await items('Overdrawn')).toContain('Mark completed')
+    expect(await items('Unknown')).not.toContain('Mark completed')
+    expect(await items('Done')).not.toContain('Mark completed')
+    // Five jars listed, four active (rule 55: a completed goal stays listed but no longer saves):
+    // the hero's (i) counts them.
+    fireEvent.focus(screen.getByRole('button', { name: 'About total saved' }))
+    expect((await screen.findByRole('tooltip', {}, { timeout: 5000 })).textContent).toContain('(4 active, 1 completed)')
   })
 
   // O3a (answered 1 October 2026): an overdrawn Goal still can't be completed (P41); the dialog
@@ -150,7 +162,7 @@ describe('JarsPage — completion and deletion (W04)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Mark New laptop completed', {}, { timeout: 5000 }))
+    await jarAction(user, 'New laptop', 'Mark completed')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     expect(
@@ -170,9 +182,10 @@ describe('JarsPage — completion and deletion (W04)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Reopen New laptop', {}, { timeout: 5000 }))
     // An archived completed jar is restored first: it offers no Reopen.
-    expect(screen.queryByLabelText('Reopen Shelved')).not.toBeInTheDocument()
+    expect((await menuItems(user, 'Shelved: more actions')).map((i) => i.name)).not.toContain('Reopen')
+    await user.keyboard('{Escape}')
+    await jarAction(user, 'New laptop', 'Reopen')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByText('Reopen New laptop?')).toBeInTheDocument()
     expect(dialog.getByText(/holds €400\.00\. Reopening makes it active again/)).toBeInTheDocument()
@@ -180,9 +193,10 @@ describe('JarsPage — completion and deletion (W04)', () => {
     await user.click(dialog.getByLabelText('Confirm reopen New laptop'))
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/g1/reopen'))
-    expect(await screen.findByLabelText('Mark New laptop completed', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.queryByLabelText('Reopen New laptop')).not.toBeInTheDocument()
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
+    const items = (await menuItems(user, 'New laptop: more actions')).map((i) => i.name)
+    expect(items).toContain('Mark completed')
+    expect(items).not.toContain('Reopen')
   })
 
   it('JAR-098: the server\'s refusal to complete is shown in its own words and the jar is unchanged', { timeout: 15000 }, async () => {
@@ -191,7 +205,7 @@ describe('JarsPage — completion and deletion (W04)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Mark New laptop completed', {}, { timeout: 5000 }))
+    await jarAction(user, 'New laptop', 'Mark completed')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.click(dialog.getByLabelText('Confirm complete New laptop'))
 
@@ -211,7 +225,7 @@ describe('JarsPage — completion and deletion (W04)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Edit New laptop', {}, { timeout: 5000 }))
+    await jarAction(user, 'New laptop', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     // Both endings are offered: archive keeps history, delete removes the jar and its planned lines.
@@ -230,11 +244,17 @@ describe('JarsPage — completion and deletion (W04)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Edit New laptop', {}, { timeout: 5000 }))
+    await jarAction(user, 'New laptop', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     expect(dialog.getByLabelText('Archive New laptop')).toBeInTheDocument()
     expect(dialog.queryByLabelText('Delete New laptop')).not.toBeInTheDocument()
+    await user.click(dialog.getByRole('button', { name: 'Cancel edit' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
+    // Nor does its ⋯ offer Delete; it offers Archive.
+    const items = (await menuItems(user, 'New laptop: more actions')).map((i) => i.name)
+    expect(items).toContain('Archive')
+    expect(items).not.toContain('Delete')
   })
 
   it('JAR-098: a refused delete is shown in the server\'s words and the jar stays', { timeout: 15000 }, async () => {
@@ -243,7 +263,7 @@ describe('JarsPage — completion and deletion (W04)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Edit New laptop', {}, { timeout: 5000 }))
+    await jarAction(user, 'New laptop', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.click(dialog.getByLabelText('Delete New laptop'))
     await user.click(dialog.getByLabelText('Confirm delete New laptop'))
@@ -260,7 +280,9 @@ describe('JarsPage — completion and deletion (W04)', () => {
     renderPage()
 
     expect(await screen.findByText('New laptop', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.queryByLabelText('Mark New laptop completed')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Edit New laptop')).not.toBeInTheDocument()
+    // No ⋯ (so no Mark completed, Edit or Delete): only the (i) with the card's note.
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'New laptop: more actions' })).not.toBeInTheDocument(), { timeout: 5000 })
+    expect(screen.getByRole('button', { name: 'About New laptop' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
   })
 })
