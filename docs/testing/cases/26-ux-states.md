@@ -241,7 +241,7 @@
 - **Steps:**
   1. Toggle the theme to Dark; inspect backgrounds, borders and text across cards, tables and forms.
 - **Expected:** `document.documentElement` gains `.dark`, which reassigns `--color-slate-50…950` (inverted), `--color-surface` (#0f172a), `--color-surface-2`, shadows and the hero gradient in index.css. The bulk of the UI — which styles itself off the slate ramp + `bg-surface` — flips without any per-element `dark:` class. Body background goes `#fafcfa` → `#0e1311`. (Persistence/no-flash owned by `04-account-preferences.md` PREF-036/039.)
-- **Automated:** Partial (`client/e2e/a11y.spec.ts` renders every route in dark)
+- **Automated:** Partial (`client/e2e/a11y.spec.ts` renders every route in dark; `client/e2e/responsive-dark.spec.ts` "toggling to dark stamps the root and inverts the slate ramp (UX-024)": the live Dark mode toggle turns a People card's name (`text-slate-900`, no `dark:` class) from near-black to near-white)
 
 ### UX-025 - The import mapping-preview table flips to dark with no dark: overrides (slate-remap gotcha)
 - **Priority:** P1
@@ -312,7 +312,7 @@
   1. For each `AUTHED_ROUTES` path, `authedSetup(page,'light')`, `goto(path)`, wait for the h1, `waitForLoadState('networkidle')`.
   2. Assert `document.documentElement.scrollWidth <= clientWidth + 1`.
 - **Expected:** Every authed route passes on a 375 px phone — no sideways page scroll (±1px sub-pixel tolerance). This is the regression net for the "columns collide / icons spill" class of bug.
-- **Automated:** Yes (`client/e2e/mobile-layout.spec.ts`)
+- **Automated:** Yes (`client/e2e/mobile-layout.spec.ts`; for `/people`, which has person cards and no wide household table since restyle PR 8, `client/e2e/responsive-dark.spec.ts` "the people cards fit a phone with no sideways scroll (UX-031)": neither the page, the "Your household" list nor a card scrolls sideways)
 
 ### UX-032 - The budget grid scrolls inside its own container, not the page
 - **Priority:** P1
@@ -410,7 +410,7 @@
 - **Steps:**
   1. Hard-load `/`, then navigate to `/accounts`, `/jars`, `/reports`, `/import`, `/allocation`.
 - **Expected:** Cold load shows `AuthSplash` (UX-019) before any route paints. After auth, each data page shows its own loading placeholder while its GET is in flight, then swaps to content — never rendering the empty-state or an error before the fetch resolves (e.g. AccountsPage/JarsPage loading placeholders per ACCT-004 / JAR-003). Switching months clears the previous month before fetching so no stale data shows under the new label (DASH-002).
-- **Automated:** Partial (per-page loading tests; `budget-months`/dashboard stale-guard in `06-dashboard-budget-view.md`)
+- **Automated:** Partial (per-page loading tests; `client/e2e/ux-states.spec.ts` "loading states — placeholder then content (UX-041)", where `/people`'s content is Alex's card in the "Your household" region (since restyle PR 8 that heading is for assistive tech only); `budget-months`/dashboard stale-guard in `06-dashboard-budget-view.md`)
 
 ### UX-042 - The optimistic "saving" pulse dot appears during an in-flight edit and clears on settle
 - **Priority:** P2

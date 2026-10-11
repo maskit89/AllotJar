@@ -136,6 +136,30 @@ export async function accountAction(page: Page, account: string, item: string): 
 }
 
 /**
+ * Picks `item` from the ⋯ menu of the person card named `person` on the People page (restyle
+ * PR 8). Each item's name says whom it acts on where the visible text doesn't: "This is me",
+ * "This isn't me", "Invite to sign in", "Send the email to Robin again", "Edit Robin",
+ * "Archive Robin". Desktop only: on a phone the ⋯ opens a bottom sheet.
+ */
+export async function personAction(page: Page, person: string, item: string): Promise<void> {
+  await rowAction(page, `${person}: more actions`, item)
+}
+
+/**
+ * The card of the person named `name` on the People page (restyle PR 8): an article named by its
+ * heading (the person's name, exact), in the "Your household" list. Replaces the old table's
+ * `getByRole('row').filter({ hasText: name })`.
+ */
+export function personCard(page: Page, name: string): Locator {
+  return personCards(page).filter({ has: page.getByRole('heading', { level: 2, name, exact: true }) })
+}
+
+/** Every person's card on the People page (the old table's rows, less its header row). */
+export function personCards(page: Page): Locator {
+  return page.getByRole('region', { name: 'Your household', exact: true }).getByRole('article')
+}
+
+/**
  * Opens the ⋯ menu of the jar card named `jar` on the Jars page and returns it. Its note (where
  * the money is held, this month's plan, a missed deadline's date, how the last cycle ended) is
  * the menu's first line; close it with `closeMenu`.

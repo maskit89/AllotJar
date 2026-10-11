@@ -41,10 +41,11 @@ for (const theme of ['light', 'dark'] as const) {
       await authedSetup(page, theme)
       await page.goto('/people')
       await page.getByRole('heading', { level: 1 }).first().waitFor()
-      await page.getByRole('button', { name: 'More' }).click()
+      // Exact: the People cards' ⋯ buttons are named "{name}: more actions".
+      await page.getByRole('button', { name: 'More', exact: true }).click()
       await page.getByRole('switch', { name: 'Dark mode' }).waitFor()
       // Let the slide-in finish so axe reads the settled colours.
-      await page.getByRole('dialog', { name: 'More' }).evaluate((el) =>
+      await page.getByRole('dialog', { name: 'More', exact: true }).evaluate((el) =>
         Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
       )
       await expectNoViolations(page)
@@ -295,6 +296,64 @@ for (const theme of ['light', 'dark'] as const) {
       await sheet.getByRole('button', { name: 'Edit Savings Joint' }).click()
       await page.getByLabel('Name for Savings Joint').waitFor()
       await expect(page.getByRole('dialog')).toHaveCount(0)
+      await expectNoViolations(page)
+    })
+
+    // The People page (restyle PR 8): a person's ⋯ menu open (with its note), a sign-in's ⋯ menu,
+    // a share plate's (i) open, and the editor open in its card.
+    test('a person\'s ⋯ menu, a sign-in\'s ⋯, the share (i) and the person editor have no WCAG A/AA violations', async ({ page }) => {
+      await authedSetup(page, theme)
+      await page.goto('/people')
+      await page.getByRole('heading', { level: 1 }).first().waitFor()
+      // One Add person, in the top bar.
+      await expect(page.getByRole('button', { name: 'Add person' })).toHaveCount(1)
+
+      await page.getByRole('button', { name: 'Alex: more actions' }).click()
+      await page.getByRole('menuitem', { name: 'Edit Alex' }).waitFor()
+      await expectNoViolations(page)
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('menu')).toHaveCount(0)
+
+      await page.getByRole('button', { name: 'Sign-in guest@example.eu: more actions' }).click()
+      await page.getByRole('menuitem', { name: 'Remove guest@example.eu' }).waitFor()
+      await expectNoViolations(page)
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('menu')).toHaveCount(0)
+
+      await page.getByRole('button', { name: 'About Alex’s share of income' }).focus()
+      await page.getByRole('tooltip').waitFor()
+      await expectNoViolations(page)
+      await page.getByRole('button', { name: 'About Alex’s share of income' }).blur()
+
+      await page.getByRole('button', { name: 'Alex: more actions' }).click()
+      await page.getByRole('menuitem', { name: 'Edit Alex' }).click()
+      await page.getByLabel('Name for Alex').waitFor()
+      await expectNoViolations(page)
+    })
+
+    test('a person\'s ⋯ sheet, a sign-in\'s sheet and the person editor on a phone have no WCAG A/AA violations', async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await authedSetup(page, theme)
+      await page.goto('/people')
+      await page.getByRole('heading', { level: 1 }).first().waitFor()
+      // One Add person, under the KPIs.
+      await expect(page.getByRole('button', { name: 'Add person' })).toHaveCount(1)
+      await page.getByRole('button', { name: 'Sam: more actions' }).click()
+      const sheet = page.getByRole('dialog', { name: 'Sam' })
+      await sheet.getByRole('button', { name: 'Edit Sam' }).waitFor()
+      await sheet.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await expectNoViolations(page)
+
+      await sheet.getByRole('button', { name: 'Edit Sam' }).click()
+      await page.getByLabel('Name for Sam').waitFor()
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      await expectNoViolations(page)
+      await page.getByRole('button', { name: 'Cancel edit' }).click()
+
+      await page.getByRole('button', { name: 'Sign-in guest@example.eu: more actions' }).click()
+      const signIn = page.getByRole('dialog', { name: 'guest@example.eu' })
+      await signIn.getByRole('button', { name: 'Remove guest@example.eu' }).waitFor()
+      await signIn.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
       await expectNoViolations(page)
     })
 

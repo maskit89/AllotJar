@@ -1,22 +1,22 @@
 # People & Households
 
-**ID prefix:** PPL | **Scope:** The `/people` page (PeoplePage) — budget-person CRUD (add a person with no login, inline rename/income/savings edit, archive/remove, incl. a member who has income & attributed transactions), the owner materialized as member #1 (no 0-member state), the solo→shared transition and `isShared` gating flips (Allocation nav appears, member selects enable), the "Sign-in & access" cell that displays the member↔login linkage (invite pill, "This is me" claim, role select, Remove, "Other sign-ins"), inviting a person to sign in (link + direct temp-password), plus the `/account` household cards (Start my own budget, Leave this household, Sharing) and the UserMenu household switcher with data isolation between households. | **Out of scope:** the exhaustive **invite/accept validation matrix** — every invite-modal field rule, the `AcceptInvitePage` path/error permutations, token/expiry/reuse semantics — is owned by `17-invites.md` (INV-*). This file keeps the People-page **linkage display** (the "Sign-in & access" cell: Invited pill, role select, Remove, "This is me", "Other sign-ins"), the People-page-initiated invite *flow* (creating a link / direct login from a person row) and the household-**landing** consequences of accepting (which household you end up in), each cross-referencing `17-invites.md` for full depth — the two files are designed to overlap, with 17 reciprocally ceding member CRUD, the switcher, start-own and leave back to this file. Deep role/permission enforcement matrices (UI-hidden + server 403/404 for every denied cell) → `25-roles-permissions.md`; auth/session/JWT/refresh, cross-tab logout, ConsentModal internals, `safeInternalPath` unit semantics → `03-session-auth-lifecycle.md`; login/register and the sample-budget opt-in → `02-registration-login.md`; onboarding/welcome/checklist → `05-onboarding.md`; the allocation engine itself (waterfall, splits, commit) → `14-allocation.md`; per-account balances/currency → `12-accounts-reconciliation.md`; transaction attribution mechanics → `10-transactions.md`; dashboard hero/empty-month states → `06-dashboard-budget-view.md`; responsive/dark/a11y sweeps and multi-feature journeys → their dedicated files (`26-ux-states.md`, `20-journeys.md`, `22-concurrency-multiuser.md`).
+**ID prefix:** PPL | **Scope:** The `/people` page (PeoplePage; restyle PR 8: one KPI row, the green `Income` hero and the `Spent` tile, over one card per person, each person's actions behind the card's ⋯, a bottom sheet on a phone) — budget-person CRUD (add a person with no login, rename/income/savings in the editor that opens in the card, archive/remove, incl. a member who has income & attributed transactions), the owner materialized as member #1 (no 0-member state), the solo→shared transition and `isShared` gating flips (Allocation nav appears, member selects enable), the member↔login linkage as the cards show it (the `You`, role and `Invited` chips, the ⋯ note "Signs in as {email}" / "No sign-in", "This is me" and "Invite to sign in" in the ⋯, the access level and "Remove sign-in" in the editor, the "Other sign-ins" card with a ⋯ per sign-in), inviting a person to sign in (link + direct temp-password), plus the `/account` household cards (Start my own budget, Leave this household, Sharing) and the UserMenu household switcher with data isolation between households. | **Out of scope:** the exhaustive **invite/accept validation matrix** — every invite-modal field rule, the `AcceptInvitePage` path/error permutations, token/expiry/reuse semantics — is owned by `17-invites.md` (INV-*). This file keeps the People-page **linkage display** (the chips, the ⋯ note and its "This is me" / "Invite to sign in", the editor's access level and "Remove sign-in", "Other sign-ins"), the People-page-initiated invite *flow* (creating a link / direct login from a person's ⋯) and the household-**landing** consequences of accepting (which household you end up in), each cross-referencing `17-invites.md` for full depth — the two files are designed to overlap, with 17 reciprocally ceding member CRUD, the switcher, start-own and leave back to this file. Deep role/permission enforcement matrices (UI-hidden + server 403/404 for every denied cell) → `25-roles-permissions.md`; auth/session/JWT/refresh, cross-tab logout, ConsentModal internals, `safeInternalPath` unit semantics → `03-session-auth-lifecycle.md`; login/register and the sample-budget opt-in → `02-registration-login.md`; onboarding/welcome/checklist → `05-onboarding.md`; the allocation engine itself (waterfall, splits, commit) → `14-allocation.md`; per-account balances/currency → `12-accounts-reconciliation.md`; transaction attribution mechanics → `10-transactions.md`; dashboard hero/empty-month states → `06-dashboard-budget-view.md`; responsive/dark/a11y sweeps and multi-feature journeys → their dedicated files (`26-ux-states.md`, `20-journeys.md`, `22-concurrency-multiuser.md`).
 
 **Test data setup:** Three reusable fixtures unless a case overrides them. **(A) Solo owner** — login `alex@x.eu` (Owner), household "Your household" with exactly one member ("Alex", income 0), no other logins, no EUR accounts. **(B) Shared household** — Owner `alex@x.eu` + members "Alex" (income 3,000.00, linked to Alex's login) and "Sam" (income 1,000.00, linked to an Active `sam@x.eu` membership, role Admin); an EUR account "Joint". Combined income = 4,000.00; shares 75% / 25%. **(C) Pure invitee** — login `robin@x.eu` created by accepting an invite link into household B; has **no own household** (`ownsHousehold=false`), one Active membership in B. Money is `decimal(18,4)` server-side / integer minor units client-side. Feature flags `HouseholdAllocation` + `HouseholdAccess` default ON. All exact labels/messages below were read from source at repo `<local>\Documents\Projects\ZeroBudget` (`PeoplePage.tsx`, `AccountPage.tsx`, `AcceptInvitePage.tsx`, `AppShell.tsx`, `HouseholdsController.cs`) on 2026-07-15.
 
 ---
 
-## People page — load, hero & empty state
+## People page — load, KPI row, cards & empty state
 
-### PPL-001 - People page loads with hero, headcount and household table
+### PPL-001 - People page loads with the KPI row and one card per person
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Fixture B (shared household, 2 members), signed in as owner.
 - **Steps:**
   1. Navigate to `/people` (or click the "People" nav item).
-  2. Observe the hero and the "Your household" table.
-- **Expected:** Hero eyebrow "Combined income" with amount `€4,000.00`; tiles "People" = `2` and "Shared this month" = the summed member spending. Section header "Your household". Table columns in order: Person, Income, Share, Spent, Savings, "Sign-in & access". Alex row shows income `€3,000.00`, share `75%`; Sam row `€1,000.00`, `25%`. The "You" sub-label appears under the person linked to the current login (Alex).
-- **Automated:** Partial (`client/src/pages/PeoplePage.test.tsx`)
+  2. Observe the KPI row and the person cards under it.
+- **Expected:** One KPI row: the green hero `Income` (its figure named `Income this month: €4,000.00`, an (i) "About income") and the `Spent` tile (its figure named `Spent this month: €X`, the summed member spending, an (i) "About spent"); no people-count tile (the cards are the count). Under it one card per person, each an `article` named by the person's name (its h2), in the region "Your household" (a heading for assistive tech only); two cards side by side once the list is 640px wide, one per row on a phone. Alex's card: the avatar inside a ring filled to the share, the plate `75%` under it (read "75% of income", with an (i) "About Alex’s share of income"), the chips `You` and `Owner`, then under a hairline `Income` `€3,000.00`, `Spent` and `Saves to`. Sam's card: `€1,000.00`, `25%`, the chip `Admin`. The `You` chip marks the person linked to the current login (Alex). A card's actions sit behind its ⋯ (PPL-018, PPL-034).
+- **Automated:** Full (client `PeoplePage.catalog.test.tsx` PPL-001; `PeoplePage.menu.test.tsx` "the KPI row: …", "a card's chips: …", "the ring fills to the person's share, …")
 
 ### PPL-002 - People nav item is always visible (even solo)
 - **Priority:** P1
@@ -33,7 +33,7 @@
 - **Preconditions:** Fixture B; throttle the `/members` response.
 - **Steps:**
   1. Open `/people` and observe before the fetch settles.
-- **Expected:** "Loading…" text is shown; the table/empty-state renders only after `reloadAll()` (which fetches `/members`, `/accounts`, `/members/spending`, `/access/members` in parallel) resolves.
+- **Expected:** "Loading…" text is shown; the KPI row and the cards (or the empty state) render only after `reloadAll()` (which fetches `/members`, `/accounts`, `/members/spending`, `/access/members` in parallel) resolves.
 - **Automated:** No
 
 ### PPL-004 - Initial load failure shows the load error banner
@@ -42,8 +42,8 @@
 - **Preconditions:** Fixture B; force `GET /members` to fail (500/network).
 - **Steps:**
   1. Open `/people`.
-- **Expected:** Page-top ErrorBanner "Could not load your household." (the other three fetches individually `.catch(() => [])`, so only the `/members` failure trips the load error). No table renders.
-- **Automated:** No
+- **Expected:** Page-top ErrorBanner "Could not load your household." (the other three fetches individually `.catch(() => [])`, so only the `/members` failure trips the load error). No KPI row and no cards render, nor the "Budgeting on your own?" empty state (the error says it alone); `Add person` stays.
+- **Automated:** Yes (client `PeoplePage.menu.test.tsx` "a household that couldn't be read says so, and not that you budget on your own")
 
 ### PPL-005 - Empty household shows the solo-friendly empty state
 - **Priority:** P2
@@ -51,18 +51,18 @@
 - **Preconditions:** A household whose `GET /members` returns `[]` (reachable only by archiving the owner's own person — see PPL-029 — or pre-backfill/error data).
 - **Steps:**
   1. Open `/people` with zero active members.
-- **Expected:** EmptyState with title "Budgeting on your own?" and copy inviting the user to add a partner/housemate; no table. Hero "People" tile shows `0`.
-- **Automated:** Partial (`client/src/pages/PeoplePage.test.tsx`)
+- **Expected:** EmptyState with title "Budgeting on your own?" and copy inviting the user to add a partner/housemate; no cards and no KPI row (nothing to add up). When the month has no budget either, a quiet line under it reads "No budget for {Month Year} yet." with the link "Open the Dashboard".
+- **Automated:** Partial (`client/src/pages/PeoplePage.test.tsx`; `PeoplePage.menu.test.tsx` "with no people and no budget for the month, …")
 
-### PPL-006 - Spending tile ("Shared this month") follows the selected month, in the budget currency
+### PPL-006 - The `Spent` tile and each card's Spent follow the selected month, in the budget currency
 - **Priority:** P2
 - **Type:** Happy
 - **Origin:** REVIEW P2 / rule 29 (the People page shows the same month and figures as the Budget)
 - **Preconditions:** Fixture B; Sam has attributed expense transactions of €120 in the selected month, €80 in a prior month, and a row paid in GBP (£100) whose confirmed amount is €120.00 in the selected month, plus a GBP row still waiting for its EUR amount (`fxPending`).
 - **Steps:**
-  1. Open `/people`; read the "Shared this month" tile and the per-row "Spent" column.
+  1. Open `/people`; read the KPI row's `Spent` tile and each card's `Spent`.
   2. Navigate the TopBar month to the prior month.
-- **Expected:** The page loads `GET /members/spending/{year}/{month}` for the selected month: Sam's Spent is €240.00 (120 + the confirmed 120; the £100 is only a caption, never multiplied by a rate), the waiting row is left out and shown as a "+1 needs EUR amount" hint under the Spent cell (PPL-082); after step 2 the figures are the prior month's (€80.00). Split transactions attribute per-slice `MemberId`; unsplit via `t.MemberId`; unattributed count for no one. A **refund** attributed to a person (an income row linked to a purchase, rules 38/39, W12) counts **negative** in their Spent for the month it was received and never in their Received income. The all-time `GET /members/spending` remains for other consumers.
+- **Expected:** The page loads `GET /members/spending/{year}/{month}` for the selected month: Sam's Spent is €240.00 (120 + the confirmed 120; the £100 is only a caption, never multiplied by a rate), the waiting row is left out and shown as a "+1 needs € amount" line under Sam's Spent on her card (PPL-082); after step 2 the figures are the prior month's (€80.00). Split transactions attribute per-slice `MemberId`; unsplit via `t.MemberId`; unattributed count for no one. A **refund** attributed to a person (an income row linked to a purchase, rules 38/39, W12) counts **negative** in their Spent for the month it was received and never in their Received income. The all-time `GET /members/spending` remains for other consumers.
 - **Automated:** Full (backend `MemberFiguresRule28Tests`, `MemberSpendingTests`, `RefundTests.MemberFigures_NetRefundsOutOfSpending_AndLeaveThemOutOfIncome`; client PPL-006)
 
 ---
@@ -74,12 +74,12 @@
 - **Type:** Happy
 - **Preconditions:** Fixture A (solo owner), signed in as owner (canWrite).
 - **Steps:**
-  1. Click "+ Add person" (aria-label "Add person").
+  1. Click `Add person` (aria-label "Add person"; in the top bar from 900px, under the KPI row below that).
   2. In the "Add a person" modal, type "Sam" into "Name" (placeholder "First name").
   3. Type `1000` into "Net monthly income" (placeholder "0.00").
   4. Click "Add person".
-- **Expected:** `POST /members {name:"Sam", netMonthlyIncome:1000, personalSavingsAccountId:null}` → 201. Modal closes; Sam appears in the table with income `€1,000.00`; a login is NOT created (Sign-in cell shows the invite/claim controls, not an email). `member_added` analytics event fires. Household refreshes; because there are now 2 members it flips solo→shared (PPL-030).
-- **Automated:** Yes (`client/src/pages/PeoplePage.test.tsx`, `client/e2e-journey/invite.spec.ts`)
+- **Expected:** `POST /members {name:"Sam", netMonthlyIncome:1000, personalSavingsAccountId:null}` → 201. Modal closes; Sam's card appears showing `€1,000.00`; a login is NOT created (Sam's card has no chips, and Sam's ⋯ offers "Invite to sign in" instead of a "Signs in as" note). `member_added` analytics event fires. Household refreshes; because there are now 2 members it flips solo→shared (PPL-030).
+- **Automated:** Yes (client `PeoplePage.menu.test.tsx` "on a desktop Add person sits in the top bar, and adding a person is reported"; `client/e2e-journey/invite.spec.ts`, `households-roles.spec.ts`)
 
 ### PPL-008 - Add person with Enter key submits
 - **Priority:** P3
@@ -97,8 +97,8 @@
 - **Steps:**
   1. Open "Add a person"; note the "Savings account" select renders (accounts exist).
   2. Choose "Joint" and submit with name "Sam", income `500`.
-- **Expected:** `POST /members` carries `personalSavingsAccountId` = Joint's id; the Savings column for Sam shows "Joint". The id is validated server-side to belong to the household.
-- **Automated:** No
+- **Expected:** `POST /members` carries `personalSavingsAccountId` = Joint's id; Sam's card reads `Saves to` "Joint". The id is validated server-side to belong to the household.
+- **Automated:** Partial (client `PeoplePage.catalog.test.tsx` PPL-009 (the POST); a card's `Saves to` in `PeoplePage.menu.test.tsx` "a card shows the month's income, …")
 
 ### PPL-010 - Savings-account select is hidden when no accounts exist
 - **Priority:** P2
@@ -107,8 +107,8 @@
 - **Preconditions:** Fixture A (no accounts), or a household whose `/accounts` fetch fails.
 - **Steps:**
   1. Open "Add a person".
-- **Expected:** No "Savings account" field is rendered (only Name + Net monthly income). No error is surfaced for the missing/failed accounts fetch; the Savings column elsewhere shows "—".
-- **Automated:** No
+- **Expected:** No "Savings account" field is rendered (only Name + Net monthly income). No error is surfaced for the missing/failed accounts fetch; a card's `Saves to` reads "—" ("None" for a screen reader; "Unknown" when the person has a savings account but the accounts read failed, so it can't be named).
+- **Automated:** Yes (client `PeoplePage.catalog.test.tsx` PPL-010; `PeoplePage.menu.test.tsx` "a card shows the month's income, …", "an account the list couldn't load is "Unknown", not "None"")
 
 ### PPL-011 - Add person: empty name rejected client-side
 - **Priority:** P1
@@ -162,55 +162,55 @@
 - **Steps:**
   1. Add a person named "Zoë 🌱" income `10` → submit.
   2. Add a person with a 121-character name → submit.
-- **Expected:** (1) Succeeds; the name renders verbatim and the avatar initials derive from the first/last word ("Z"). (2) Server rejects (name max 120) → client fallback "Could not add that person."; not created. Duplicate names are allowed (no uniqueness constraint on member name).
+- **Expected:** (1) Succeeds; the name (the card's heading) renders verbatim and wraps rather than being cut, and the avatar shows the name's first character, upper-cased ("Z"). (2) Server rejects (name max 120) → client fallback "Could not add that person."; not created. Duplicate names are allowed (no uniqueness constraint on member name).
 - **Automated:** No
 
-### PPL-017 - "+ Add person" hidden for non-writers
+### PPL-017 - "Add person" hidden for non-writers
 - **Priority:** P1
 - **Type:** Negative
 - **Preconditions:** Signed in to household B as a Limited or Read-only member.
 - **Steps:**
   1. Open `/people`.
-- **Expected:** No "+ Add person" button (shown only when `canWrite`, i.e. Owner/Admin). The table is still visible. A direct `POST /members` would 403 server-side ("Your access level (…) does not permit this action."). See `25-roles-permissions.md` for the full matrix.
-- **Automated:** Partial (`client/src/pages/RoleGating.test.tsx` covers ReadOnly/Limited hiding on other pages)
+- **Expected:** No "Add person" button, in the top bar or under the KPI row (shown only when `canWrite`, i.e. Owner/Admin). The cards are still visible. A direct `POST /members` would 403 server-side ("Your access level (…) does not permit this action."). See `25-roles-permissions.md` for the full matrix.
+- **Automated:** Yes (client `PeoplePage.catalog.test.tsx` PPL-017; `PeoplePage.menu.test.tsx` "a read-only login reads a card's note behind an (i), with no ⋯ and no Add person; …"; `client/e2e-journey/households-roles.spec.ts`)
 
 ---
 
-## Edit a person (inline rename / income / savings)
+## Edit a person (the editor in the card: name / income / savings)
 
-### PPL-018 - Inline edit a person's name, income and savings account
+### PPL-018 - Edit a person's name, income and savings account in their card
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Fixture B; signed in as owner; hover reveals row actions.
+- **Preconditions:** Fixture B; signed in as owner; Edit is in each card's ⋯.
 - **Steps:**
-  1. Hover Sam's row and click "✎" (aria "Edit Sam", title "Edit person").
-  2. The row switches to inputs: "Name for Sam", "Net monthly income for Sam", "Savings account for Sam" (with a "None" option).
+  1. Open Sam's ⋯ (`Sam: more actions`; a bottom sheet titled "Sam" on a phone) and choose `Edit` (named "Edit Sam").
+  2. The editor opens in Sam's card in place of its figures (its ⋯ hidden meanwhile), focus on the name, with inputs: "Name for Sam", "Net monthly income for Sam", "Savings account for Sam" (with a "None" option).
   3. Change name to "Sam M", income to `1200`, savings to "Joint"; click "Save" (aria "Save Sam").
-- **Expected:** `PUT /members/{id} {name:"Sam M", netMonthlyIncome:1200, personalSavingsAccountId:<Joint>}`; `member_edited` fires; row re-renders with the new values; Combined income hero recomputes to `€4,200.00` and shares to ~71% / 29%.
-- **Automated:** No
+- **Expected:** `PUT /members/{id} {name:"Sam M", netMonthlyIncome:1200, personalSavingsAccountId:<Joint>}`; `member_edited` fires; the editor closes, focus returns to Sam's ⋯, and the card shows the new values; Combined income hero recomputes to `€4,200.00` and shares to ~71% / 29%.
+- **Automated:** Partial (client `PeoplePage.catalog.test.tsx` PPL-018 (the PUT); `PeoplePage.menu.test.tsx` "the editor takes the focus on its name, keeps its labels, and gives focus back to the ⋯ on Escape, Cancel and Save" (`member_edited`); `client/e2e-journey/allocation-commit.spec.ts`, `pocket-money-identity.spec.ts` edit through the ⋯)
 
-### PPL-019 - Cancel inline edit discards changes
+### PPL-019 - Cancel the editor discards changes
 - **Priority:** P2
 - **Type:** Happy
-- **Preconditions:** Fixture B; Sam's row in edit mode with a changed name.
+- **Preconditions:** Fixture B; Sam's editor open in Sam's card with a changed name.
 - **Steps:**
   1. Click "Cancel" (aria "Cancel edit").
-- **Expected:** Row reverts to display mode with the original values; no `PUT` is sent.
-- **Automated:** No
+- **Expected:** The editor closes and Sam's card shows its original values; focus returns to Sam's ⋯ (Escape in the editor does the same); no `PUT` is sent.
+- **Automated:** Yes (client `PeoplePage.catalog.test.tsx` PPL-019; `PeoplePage.menu.test.tsx` "the editor takes the focus on its name, …")
 
-### PPL-020 - Inline edit validation mirrors add
+### PPL-020 - Editor validation mirrors add
 - **Priority:** P2
 - **Type:** Negative
-- **Preconditions:** Fixture B; Sam's row in edit mode.
+- **Preconditions:** Fixture B; Sam's editor open in Sam's card.
 - **Steps:**
   1. Clear the name, click "Save". Then restore the name, set income to `abc`, click "Save".
-- **Expected:** "Give the person a name." then "Enter a valid monthly income." respectively; no `PUT` until both are valid. On a server failure the row shows "Could not save that person."
-- **Automated:** No
+- **Expected:** "Give the person a name." then "Enter a valid monthly income." respectively; no `PUT` until both are valid. On a server failure the page's error banner (above the cards) reads "Could not save that person.", the editor stays open and focus is back on Save.
+- **Automated:** Yes (client `PeoplePage.catalog.test.tsx` PPL-020; `PeoplePage.menu.test.tsx` "… a failed Save keeps it on Save")
 
 ### PPL-021 - Editing the owner's own person
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Fixture A/B; the owner's own person ("Alex", the "You" row).
+- **Preconditions:** Fixture A/B; the owner's own person ("Alex", the card with the "You" chip).
 - **Steps:**
   1. Edit Alex's income from 0 to `3000` and Save.
 - **Expected:** Succeeds (no special guard on the owner's person); the owner is a normal member for CRUD purposes. Combined income and shares update accordingly.
@@ -226,9 +226,9 @@
 - **Origin:** gotcha #21 (archive has no confirmation, no in-UI undo); W11 (rule 54) added the one case that asks first — PPL-084
 - **Preconditions:** Fixture B; signed in as owner. Sam has no pocket-money line this month, or one with nothing left beyond what was paid.
 - **Steps:**
-  1. Hover Sam's row and click "✕" (aria "Archive Sam", title "Archive person").
-- **Expected:** The page reads `GET /members/{id}/archive-preview`; with `thisMonth` null or `thisMonth.remaining` 0 it fires `PUT /members/{id}/archive {archived:true}` on the single click — **no confirmation modal**. Sam disappears from the table; "Income this month" drops to the remaining income lines' total; Alex's share becomes `100%`. Household refreshes; 1 remaining member flips shared→solo (Allocation nav hides). Any pocket-money line of Sam's already planned in a **later** month is cancelled by the server (PPL-084 for the amounts). There is no restore UI — restore is API-only (PPL-077).
-- **Automated:** Full (client PPL-022/023, PPL-086 second half; backend `PocketMoneyIdentityTests.Archive_NeedsNoDecision_WhenNothingRemainsThisMonth_OrTheLineIsOverspent`)
+  1. Open Sam's ⋯ and choose `Archive` (named "Archive Sam", the last item, after a divider; in the sheet on a phone).
+- **Expected:** The page reads `GET /members/{id}/archive-preview`; with `thisMonth` null or `thisMonth.remaining` 0 it fires `PUT /members/{id}/archive {archived:true}` on that one choice — **no confirmation modal**. Sam's card leaves the page and focus moves on to the next card's ⋯ (else the one before, else `Add person`); "Income this month" drops to the remaining income lines' total; Alex's share becomes `100%`. Household refreshes; 1 remaining member flips shared→solo (Allocation nav hides). Any pocket-money line of Sam's already planned in a **later** month is cancelled by the server (PPL-084 for the amounts). There is no restore UI — restore is API-only (PPL-077).
+- **Automated:** Full (client PPL-022/023, PPL-086 second half; the focus in `PeoplePage.menu.test.tsx` "once a person is archived, focus moves to the next card's ⋯ …"; backend `PocketMoneyIdentityTests.Archive_NeedsNoDecision_WhenNothingRemainsThisMonth_OrTheLineIsOverspent`)
 
 ### PPL-023 - Archive a member who has income AND attributed transactions
 - **Priority:** P0
@@ -241,7 +241,7 @@
 - **Expected:** Sam is excluded from `GET /members` (default), from the spending totals, and from income-share math (Combined income → €3,000.00). Her transactions are NOT deleted — they remain in the register (the `HouseholdMember` and all attributed data persist). No money is lost or moved. Rule 54: the pocket-money payments recorded against Sam's lines stay too, and a cancelled line's planned amount never falls below what was paid; her **income** lines in every month are untouched by the archive (only the Allocation pool folds an archived earner's lines into the unattributed pot — ALLOC-073).
 - **Automated:** Partial (`tests/AllotJar.Application.Tests/Application/HouseholdMembersTests.cs` archive-hides-from-default; `MemberSpendingTests.cs` excludes-archived; `PocketMoneyIdentityTests.Archive_LeavesIncomeLines_AndOtherPeoplesLinesAlone`, `Archive_Cancel_DropsThisMonthsPlanToWhatWasPaid_AndKeepsThePayment`)
 
-### PPL-024 - Archived member is absent from the People table (no restore control)
+### PPL-024 - Archived member has no card on the People page (no restore control)
 - **Priority:** P2
 - **Type:** Edge
 - **Preconditions:** Fixture B with Sam already archived.
@@ -261,14 +261,14 @@
 - **Expected:** Sam's `incomeSharePct` is `1000/3000 ≈ 0.3333` (NOT 0), so the returned shares can exceed 100% across the full list. Confirms the mapping bug; the default (active-only) list is unaffected. Purely an API-surface edge — the People UI never requests archived members.
 - **Automated:** No
 
-### PPL-026 - Archive button hidden for non-writers
+### PPL-026 - Edit and Archive hidden for non-writers
 - **Priority:** P2
 - **Type:** Negative
 - **Preconditions:** Signed in to household B as Limited/Read-only.
 - **Steps:**
-  1. Hover a member row.
-- **Expected:** No "✎"/"✕" hover actions (gated on `canWrite`). Read-only/Limited can view but not mutate members.
-- **Automated:** Partial (`client/src/pages/RoleGating.test.tsx`)
+  1. Look at each person's card.
+- **Expected:** No `Edit` or `Archive` anywhere (gated on `canWrite`). With nothing else to offer, a card has no ⋯ at all, only an (i) "About {name}" in its place holding what the ⋯'s note would say ("Signs in as {email}", or "No sign-in"); a card whose person your sign-in was once linked to keeps a ⋯ with just "This isn't me". Read-only/Limited can view but not mutate members.
+- **Automated:** Yes (client `PeoplePage.catalog.test.tsx` PPL-026; `PeoplePage.menu.test.tsx` "a read-only login reads a card's note behind an (i), with no ⋯ and no Add person; …"; `client/e2e-journey/households-roles.spec.ts` (no ⋯ for the Limited guest))
 
 ---
 
@@ -297,12 +297,12 @@
 ### PPL-029 - Archiving the last/only member reaches the empty state (no guard)
 - **Priority:** P2
 - **Type:** Edge
-- **Origin:** gotcha (no guard in `ArchiveHouseholdMemberCommandHandler`; "✕" shows on your own row)
+- **Origin:** gotcha (no guard in `ArchiveHouseholdMemberCommandHandler`; `Archive` is in your own card's ⋯ too)
 - **Preconditions:** Fixture A (solo owner, only member is the owner's own person).
 - **Steps:**
-  1. Hover the owner's own row, click "✕".
-- **Expected:** The archive succeeds with no block; `GET /members` → `[]` → the "Budgeting on your own?" empty state renders, `isShared=false`. This is the one reachable 0-active-member state; it is recoverable only by re-adding a person (or API restore). Document as an accepted gap, not a crash.
-- **Automated:** No
+  1. Open the owner's own card's ⋯ and choose `Archive`.
+- **Expected:** The archive succeeds with no block; `GET /members` → `[]` → the "Budgeting on your own?" empty state renders (no KPI row), focus moves to `Add person`, `isShared=false`. This is the one reachable 0-active-member state; it is recoverable only by re-adding a person (or API restore). Document as an accepted gap, not a crash.
+- **Automated:** Partial (client `PeoplePage.menu.test.tsx` "once a person is archived, focus moves to the next card's ⋯ (or the one before), else to Add person" archives the last card down to the empty state; `isShared` not asserted there)
 
 ---
 
@@ -348,25 +348,26 @@
 
 ---
 
-## Sign-in & access cell — member↔login linkage display
+## Sign-in & access — chips, the ⋯ note and the editor (member↔login linkage display)
 
-### PPL-034 - Linked person shows the login email and role control
+### PPL-034 - Linked person: a role chip on the card, the login email in the ⋯ note, the role control in the editor
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Fixture B; signed in as owner (`canAccess` = `householdAccess && canManageHousehold`).
 - **Steps:**
-  1. Open `/people`; inspect the "Sign-in & access" cell for each row.
-- **Expected:** Alex's row (the owner's own login) shows the email + a brand Badge with the role label (Owner is not editable). Sam's row (another Active login) shows her email + a role `<select>` (aria "Access level for Sam") with options Admin / Limited / Read-only, plus a "Remove" button (aria "Remove sign-in for Sam"). The current login's own row renders a static bordered role label (no select on yourself).
-- **Automated:** Partial (`client/src/pages/PeoplePage.test.tsx`)
+  1. Open `/people`; read each card's chips and the note at the top of each card's ⋯.
+  2. Open Sam's editor (Sam's ⋯ → `Edit`), cancel, then open Alex's.
+- **Expected:** Alex's card (the owner's own login) shows the chips `You` and `Owner`, its ⋯ note "Signs in as alex@x.eu"; Alex's editor shows "Signs in as alex@x.eu" with no access-level select and no "Remove sign-in" (the owner is not editable, nor is your own sign-in). Sam's card (another Active login) shows the chip `Admin` and no email (a card never shows one), her ⋯ note "Signs in as sam@x.eu"; her editor shows "Signs in as sam@x.eu" with an (i) "About the sign-in controls", an "Access level" `<select>` (aria "Access level for Sam") with options Admin / Limited / Read-only, and a "Remove sign-in" button (aria "Remove sign-in for Sam"). Both act at once, not on Save; Save and Cancel don't undo them (what the (i) says).
+- **Automated:** Yes (client `PeoplePage.catalog.test.tsx` PPL-034/PPL-037; `PeoplePage.menu.test.tsx` "once your sign-in is linked, …" (the note), "the editor's access level and Remove act at once; …"; `client/e2e-journey/households-roles.spec.ts` (Robin's `Limited` chip, then the email and the select's value `2` in his editor))
 
 ### PPL-035 - Change a member's role
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Fixture B; owner viewing Sam (Admin).
 - **Steps:**
-  1. In Sam's "Access level for Sam" select, choose "Limited".
-- **Expected:** `PUT /access/members/{id}/role {role:2}`; `member_role_changed {kind:"Limited"}` fires; row updates. On failure: "Could not change that role." Role change is server-live but the SPA's own `canWrite`/`canAccess` only re-resolve on `/auth/me` (a demoted admin keeps buttons until reload). Full role behavior → `25-roles-permissions.md`.
-- **Automated:** No
+  1. Open Sam's editor (Sam's ⋯ → `Edit`); in "Access level for Sam" choose "Limited".
+- **Expected:** `PUT /access/members/{id}/role {role:2}` at once (no Save needed; Save and Cancel don't undo it); `member_role_changed {kind:"Limited"}` fires; Sam's card's chip reads `Limited` and focus stays on the select. On failure: "Could not change that role." Role change is server-live but the SPA's own `canWrite`/`canAccess` only re-resolve on `/auth/me` (a demoted admin keeps buttons until reload). Full role behavior → `25-roles-permissions.md`.
+- **Automated:** Yes (client `PeoplePage.catalog.test.tsx` PPL-035; `PeoplePage.menu.test.tsx` "the editor's access level and Remove act at once; …", "the access level has a caption, and keeps the focus while it saves; …"; `client/e2e-journey/households-roles.spec.ts`)
 
 ### PPL-036 - Remove a member's sign-in (hard delete of the membership)
 - **Priority:** P1
@@ -374,28 +375,28 @@
 - **Origin:** gotcha #6 (revoke hard-deletes the membership row; the budget person stays)
 - **Preconditions:** Fixture B; owner viewing Sam's login.
 - **Steps:**
-  1. Click "Remove" (aria "Remove sign-in for Sam").
-- **Expected:** `DELETE /access/members/{id}` → 204; `member_revoked` fires; the membership row is hard-deleted (no Revoked tombstone) so Sam's row now shows "Invite to sign in" again; Sam the budget person remains with her income/data. Re-inviting creates a brand-new membership. On failure: "Could not remove that sign-in."
-- **Automated:** Partial (`tests/AllotJar.Application.Tests/Application/HouseholdAccessTests.cs`)
+  1. In Sam's editor (Sam's ⋯ → `Edit`), click "Remove sign-in" (aria "Remove sign-in for Sam").
+- **Expected:** `DELETE /access/members/{id}` → 204 at once (not on Save); `member_revoked` fires; the membership row is hard-deleted (no Revoked tombstone) so Sam's card loses its role chip, the editor's sign-in part goes (focus moves to the editor's name field), and once the editor is closed Sam's ⋯ offers "Invite to sign in" again; Sam the budget person remains with her income/data. Re-inviting creates a brand-new membership. On failure: "Could not remove that sign-in."
+- **Automated:** Partial (client `PeoplePage.catalog.test.tsx` PPL-036, `PeoplePage.menu.test.tsx` "the editor's access level and Remove act at once; once the sign-in is removed, focus stays in the editor"; `tests/AllotJar.Application.Tests/Application/HouseholdAccessTests.cs`)
 
 ### PPL-037 - Owner sign-in cannot be changed or removed
 - **Priority:** P1
 - **Type:** Negative
 - **Origin:** gotcha #8 (owner is immovable)
-- **Preconditions:** Fixture B; owner row.
+- **Preconditions:** Fixture B; the owner's card (Alex).
 - **Steps:**
-  1. Inspect the owner's "Sign-in & access" cell; attempt `PUT /access/members/{ownerId}/role` and `DELETE /access/members/{ownerId}` directly.
-- **Expected:** UI shows only a brand Badge for the owner (no select, no Remove). API returns 403 "The owner's role cannot be changed." for role change and 403 "The owner cannot be removed from the household." for delete. The invite validator also rejects role=Owner with "A household can only have one owner."
-- **Automated:** Partial (`HouseholdAccessTests.cs`)
+  1. Read the owner's card and open its editor (⋯ → `Edit`); attempt `PUT /access/members/{ownerId}/role` and `DELETE /access/members/{ownerId}` directly.
+- **Expected:** The owner's card shows only an `Owner` chip for the access level; its editor shows "Signs in as {email}" with no access-level select and no "Remove sign-in". API returns 403 "The owner's role cannot be changed." for role change and 403 "The owner cannot be removed from the household." for delete. The invite validator also rejects role=Owner with "A household can only have one owner."
+- **Automated:** Partial (client `PeoplePage.catalog.test.tsx` PPL-034/PPL-037; `HouseholdAccessTests.cs`)
 
-### PPL-038 - Invited (pending) login shows the amber "Invited" badge
+### PPL-038 - Invited (pending) login shows the "Invited" chip
 - **Priority:** P2
 - **Type:** Happy
 - **Preconditions:** Fixture B with a link-invited person whose membership is Status=Invited.
 - **Steps:**
-  1. Open `/people`; inspect that person's cell.
-- **Expected:** The email shows with an amber Badge "Invited"; the role select and "Remove" are still available to the owner (the pending row can be re-roled or removed). The pending row occupies the email + memberId slots (blocks re-invite of the same email / re-link of the same person until removed).
-- **Automated:** No
+  1. Open `/people`; read that person's card, open its ⋯, then its editor (⋯ → `Edit`).
+- **Expected:** The card shows an "Invited" chip in the warning tone (only while the invite is pending) beside the role chip; the ⋯ note reads "Signs in as {email}" and the ⋯ offers "Send again" (named "Send the email to {name} again") where "Invite to sign in" would be; the editor still has the access-level select and "Remove sign-in" for the owner (the pending sign-in can be re-roled or removed). The pending row occupies the email + memberId slots (blocks re-invite of the same email / re-link of the same person until removed).
+- **Automated:** Yes (client `PeoplePage.catalog.test.tsx` PPL-038, PPL-038b; `PeoplePage.menu.test.tsx` "a card's chips: …", "each ⋯ offers, in order, …")
 
 ### PPL-039 - "This is me" claims an unlinked owner login onto a person
 - **Priority:** P1
@@ -403,38 +404,38 @@
 - **Origin:** PR #107 (imported/pre-existing households leave the owner login unlinked; auto-inference impossible)
 - **Preconditions:** A household where the current owner login has `memberId=null` (`myUnlinked`), and an unlinked person "Alex" exists.
 - **Steps:**
-  1. Open `/people`; on Alex's row (no login) a "This is me" button appears (title "Connect your sign-in to this person") alongside "Invite to sign in".
-  2. Click "This is me".
-- **Expected:** `PUT /access/members/{myMembershipId}/link {memberId:<Alex>}`; the row now shows the owner's email + role Badge and the "You" sub-label; the current login is dropped from the "Other sign-ins" list. The button appears on every unlinked person row while the current login is unlinked.
-- **Automated:** Partial (`client/src/pages/PeoplePage.test.tsx`)
+  1. Open `/people`; open Alex's ⋯ (Alex has no login): it offers "This is me" first, then "Invite to sign in", and its note reads "“This is me” links your sign-in to Alex."
+  2. Choose "This is me".
+- **Expected:** `PUT /access/members/{myMembershipId}/link {memberId:<Alex>}`; Alex's card now shows the `You` and `Owner` chips and its ⋯ note "Signs in as {owner email}"; the current login is dropped from the "Other sign-ins" list. "This is me" is in the ⋯ of every person without a login while the current login is unlinked, and leaves every ⋯ once it is linked.
+- **Automated:** Partial (client `PeoplePage.test.tsx` "lets the signed-in owner claim …" (the PUT, through the ⋯); `PeoplePage.menu.test.tsx` "each ⋯ offers, in order, This is me, …", "once your sign-in is linked, This is me leaves every ⋯; …")
 
-### PPL-040 - Unlinked person offers "Invite to sign in"; not-canAccess shows "No sign-in"
+### PPL-040 - Unlinked person offers "Invite to sign in"; without canAccess the ⋯ note says "No sign-in"
 - **Priority:** P2
 - **Type:** Happy
 - **Preconditions:** Fixture B with a person who has no login.
 - **Steps:**
-  1. As owner (canAccess), view that person's cell.
-  2. As an Admin (canWrite but NOT canManageHousehold), view the same cell.
-- **Expected:** Owner sees the dashed "Invite to sign in" pill (opens the invite modal, PPL-043). Admin (canAccess=false) sees static "No sign-in" text — no invite/role/remove/link controls. Admin still sees the table and can add/edit persons.
-- **Automated:** Partial (`client/src/pages/PeoplePage.test.tsx`)
+  1. As owner (canAccess), open that person's ⋯.
+  2. As an Admin (canWrite but NOT canManageHousehold), open the same ⋯.
+- **Expected:** Owner: the ⋯ offers "Invite to sign in" (opens the invite modal, PPL-043). Admin (canAccess=false): the ⋯ offers only "Edit {name}" and "Archive {name}" and its note reads "No sign-in" — no invite, no access level or "Remove sign-in" in the editor, no "Other sign-ins" card. Admin still sees the cards and can add/edit persons.
+- **Automated:** Yes (client `PeoplePage.catalog.test.tsx` PPL-040)
 
-### PPL-041 - "Other sign-ins" card lists orphan logins with link + remove
+### PPL-041 - "Other sign-ins" card lists orphan logins, each with a ⋯ to link or remove it
 - **Priority:** P2
 - **Type:** Happy
 - **Preconditions:** Fixture B with a membership whose `memberId=null` and `isSelf=false` (an orphan login, e.g. a login invited before being linked to a person).
 - **Steps:**
-  1. As owner, scroll to the "Other sign-ins" card.
-- **Expected:** The orphan login is listed with displayName/email, an "Invited"/"Active" badge, a role Badge, a "Link to a person…" select (aria "Link {email} to a person") offering only members not already claimed, and a "Remove" button (aria "Remove {name}") — Remove/link controls hidden for owner/self. The card only renders when `canAccess` and at least one orphan exists.
-- **Automated:** No
+  1. As owner, scroll to the "Other sign-ins" card (under the person cards) and open the sign-in's ⋯ (`Sign-in {email}: more actions`).
+- **Expected:** Each orphan login is a row: an avatar (its initial, or a mail icon when there is only an email), its displayName with the email under it (or the email alone), an "Invited" chip in the warning tone only while its invite is pending (an active sign-in has no status chip), and its role chip. The row's ⋯ (on a phone a bottom sheet titled with the displayName and its email under it, or with the email alone) offers, in order: "Send again" (named "Send the email to {name or email} again"; a pending invite or a login still choosing its password), "Link to a person" (named "Link {email} to a person"; not for the owner's sign-in), which opens a "Link to a person…" select in the row offering only members not already claimed (choosing one links at once and focus moves to that person's ⋯; "Cancel" or Escape closes it), then "Remove" in red after a divider (named "Remove {name or email}"; not for the owner or yourself). The card (with an (i) "About other sign-ins") only renders when `canAccess` and at least one orphan exists.
+- **Automated:** Yes (client `PeoplePage.catalog.test.tsx` PPL-041; `PeoplePage.menu.test.tsx` "a sign-in row's ⋯: …", "removing a sign-in moves focus to the next row's ⋯, else to Add person", "on a phone a sign-in's ⋯ opens a sheet …", "on a phone a named sign-in's sheet …")
 
 ### PPL-042 - Login linked to an ARCHIVED member is invisible everywhere on People
 - **Priority:** P2
 - **Type:** Edge
-- **Origin:** gotcha (person filtered out of members table; `memberId != null` excludes it from "Other sign-ins")
+- **Origin:** gotcha (person filtered out of the cards; `memberId != null` excludes it from "Other sign-ins")
 - **Preconditions:** Fixture B; archive Sam while her login membership still has `memberId` = Sam.
 - **Steps:**
-  1. As owner, open `/people` and scan the members table and "Other sign-ins".
-- **Expected:** Sam's login appears NOWHERE — not in the members table (person archived/filtered) and not in "Other sign-ins" (its `memberId` is non-null). Her access cannot be viewed or revoked from the UI in this state. Real edge case: revoking requires un-archiving the member first (API) or removing via the access API by id. Flag as a coverage gap.
+  1. As owner, open `/people` and scan the person cards and "Other sign-ins".
+- **Expected:** Sam's login appears NOWHERE — not on a card (person archived/filtered) and not in "Other sign-ins" (its `memberId` is non-null). Her access cannot be viewed or revoked from the UI in this state. Real edge case: revoking requires un-archiving the member first (API) or removing via the access API by id. Flag as a coverage gap.
 - **Automated:** No
 
 ---
@@ -446,11 +447,11 @@
 - **Type:** Happy
 - **Preconditions:** Fixture B; owner; a person "Robin" with no login.
 - **Steps:**
-  1. On Robin's row click "Invite to sign in" → modal titled "Invite Robin to sign in".
+  1. Open Robin's ⋯ and choose "Invite to sign in" → modal titled "Invite Robin to sign in".
   2. Enter Email `robin@x.eu`; leave "Access level" at Admin; keep method "Email an invite link" (default).
   3. Click "Send invite".
-- **Expected:** `POST /access/invite {email, role:1, method:Link, tempPassword:null, displayName:"Robin", memberId:<Robin>}`; `member_invited {method:"link"}` fires. Status box "Invite sent" + "We've emailed robin@x.eu a one-time link. It expires in 7 days." The link (`{AppBaseUrl}/accept-invite?code=<token>`) goes only to the invited address; the response carries no token and the page shows no link (#298 P2-1); Robin's row now shows an amber "Invited" badge.
-- **Automated:** Yes (`client/e2e-journey/invite.spec.ts`)
+- **Expected:** `POST /access/invite {email, role:1, method:Link, tempPassword:null, displayName:"Robin", memberId:<Robin>}`; `member_invited {method:"link"}` fires. Status box "Invite sent" + "We've emailed robin@x.eu a one-time link. It expires in 7 days." The link (`{AppBaseUrl}/accept-invite?code=<token>`) goes only to the invited address; the response carries no token and the page shows no link (#298 P2-1); Robin's card now shows an "Invited" chip (warning tone) beside its role chip, and closing the modal gives focus back to Robin's ⋯.
+- **Automated:** Yes (`client/e2e-journey/invite.spec.ts`; client `PeoplePage.catalog.test.tsx` INV-008, `PeoplePage.menu.test.tsx` "Invite to sign in opens the invite, which gives focus back to the ⋯ when it closes, and reports the invite")
 
 ### PPL-044 - Create a direct login with a temporary password
 - **Priority:** P1
@@ -479,7 +480,7 @@
 - **Preconditions:** Fixture B; `sam@x.eu` already has a membership (Active or pending Invited, incl. an expired-but-not-removed link).
 - **Steps:**
   1. Invite `sam@x.eu` again.
-- **Expected:** Server 400 field `Email`: "That email already has access to this household."; the modal surfaces the flattened field error. An expired invite still blocks re-inviting until the owner clicks "Remove" on that pending row (no expiry-cleanup job).
+- **Expected:** Server 400 field `Email`: "That email already has access to this household."; the modal surfaces the flattened field error. An expired invite still blocks re-inviting until the owner removes that pending sign-in — "Remove sign-in" in the person's editor, or "Remove" in its ⋯ under "Other sign-ins" (no expiry-cleanup job).
 - **Automated:** Partial (`tests/AllotJar.Application.Tests/Application/HouseholdAccessTests.cs`)
 
 ### PPL-047 - Invite validation: direct temp-password to an email that already has an account
@@ -515,7 +516,7 @@
 - **Origin:** gotcha #9 (link enforced at invite-time, link-time, and by a global filtered unique index)
 - **Preconditions:** Fixture B; person "Sam" already linked to a login.
 - **Steps:**
-  1. Attempt to invite a new email with `memberId` = Sam, or link an orphan login to Sam via the "Link to a person…" select.
+  1. Attempt to invite a new email with `memberId` = Sam, or link an orphan login to Sam via its ⋯ → "Link to a person" select.
 - **Expected:** 400 field `MemberId`: "That budget person is already linked to another login." A person can be linked to at most one login; the DB unique index on `MemberId` is global (across all households), stronger than the per-household handler checks.
 - **Automated:** Partial (`HouseholdAccessTests.cs`)
 
@@ -749,7 +750,7 @@
 - **Preconditions:** `HouseholdAccess` flag off (but `HouseholdAllocation` on).
 - **Steps:**
   1. Open `/people` as owner.
-- **Expected:** The page renders the members table (member CRUD still works via `/members`), but `canAccess=false` → no invite pill, no role select, no Remove, no "Other sign-ins"; every person shows static "No sign-in". No error is surfaced for the 404 on `/access/members`.
+- **Expected:** The page renders the cards (member CRUD still works via `/members`), but `canAccess=false` → no "Invite to sign in" or "This is me" in any ⋯, no access level or "Remove sign-in" in the editor, no "Other sign-ins" card; every person's ⋯ note reads "No sign-in" (and with no sign-in known, no `You` or role chips). No error is surfaced for the 404 on `/access/members`.
 - **Automated:** No
 
 ### PPL-072 - HouseholdAllocation flag OFF: /people route unmounts, /members 404s
@@ -771,9 +772,9 @@
 - **Type:** Boundary
 - **Preconditions:** Fixture A extended to 2+ members where **every** active member has `NetMonthlyIncome = 0` (e.g. a fresh owner + one added person, both income 0).
 - **Steps:**
-  1. Open `/people` and read the hero and the "Share" column for each row.
-- **Expected:** Combined income hero shows `€0.00`; every member's `IncomeSharePct` is `0` (the mapping returns 0 when `totalActiveNet <= 0`, so there is no divide-by-zero and no `NaN`/`Infinity`); the "Share" column renders `0%` for all rows. Adding income to one member makes the shares recompute (`income / totalActiveNet`, rounded 4 dp away-from-zero) and the client renders `Math.round(pct*100)%` — shares may not sum to exactly 100% due to independent per-row rounding.
-- **Automated:** Partial (`tests/AllotJar.Application.Tests/Application/HouseholdMembersTests.cs` covers share computed across active members; the all-zero guard is asserted at the DTO-mapping level)
+  1. Open `/people` and read the hero and each card's share plate.
+- **Expected:** Combined income hero shows `€0.00`; every member's `IncomeSharePct` is `0` (the mapping returns 0 when `totalActiveNet <= 0`, so there is no divide-by-zero and no `NaN`/`Infinity`); every card's plate reads `0%` and its ring shows only the empty track. Adding income to one member makes the shares recompute (`income / totalActiveNet`, rounded 4 dp away-from-zero) and the client renders `Math.round(pct*100)%` — shares may not sum to exactly 100% due to independent per-person rounding.
+- **Automated:** Partial (client `PeoplePage.catalog.test.tsx` PPL-073; `tests/AllotJar.Application.Tests/Application/HouseholdMembersTests.cs` covers share computed across active members; the all-zero guard is asserted at the DTO-mapping level)
 
 ### PPL-074 - Case-variant / whitespace duplicate invite email (collation divergence)
 - **Priority:** P2
@@ -781,7 +782,7 @@
 - **Origin:** gotcha #13 (invite dupe-check compares `InvitedEmail == email` trimmed, NOT lowercased — case-INSENSITIVE on prod SQL Server, case-SENSITIVE under the EF InMemory CI job; accept-path email match is explicitly `OrdinalIgnoreCase`)
 - **Preconditions:** Fixture B; `sam@x.eu` already has a membership (Active or pending Invited).
 - **Steps:**
-  1. As owner, invite `LIZA@x.eu` (different case) from a person row.
+  1. As owner, invite `LIZA@x.eu` (different case) from a person's ⋯ ("Invite to sign in").
   2. Separately, invite `  sam@x.eu  ` (surrounding whitespace).
 - **Expected:** On production (SQL Server, case-insensitive collation) BOTH are rejected with 400 field `Email`: "That email already has access to this household." (email is trimmed before the dupe check, so the whitespace variant is caught). The case-variant `LIZA@x.eu` is the divergence point: it is rejected on prod but WOULD slip through under the EF InMemory `backend` CI job (case-sensitive equality) — so any automated assertion on case-variant dupes must run against the SQL integration layer, not InMemory. The accept endpoint always matches the invited email case-insensitively (`OrdinalIgnoreCase`), so a case-variant accepter is still recognised. Flag the prod-vs-InMemory split for test placement.
 - **Automated:** Partial (`tests/AllotJar.Application.Tests/Application/HouseholdAccessTests.cs` asserts same-email dupe rejection under InMemory; case-variant divergence is not pinned by an integration test)
@@ -818,23 +819,23 @@
 - **Origin:** write leg — `ArchiveHouseholdMemberCommand(Guid Id, bool Archived = true)` (`Household/Commands/ArchiveHouseholdMember/ArchiveHouseholdMemberCommand.cs:7`) is a **toggle**, so `Archived:false` RESTORES. `ArchiveHouseholdMemberCommandHandler.cs:36` does `member.IsArchived = request.Archived;` then (lines 39-41) recomputes `totalActiveNet` over `OwnerId == userId && !IsArchived` — which now re-includes the restored member — and returns `member.ToDto(totalActiveNet)`. `MembersController.cs:79-82` maps `PUT /api/members/{id}/archive` → the command with `request.Archived` (`ArchiveMemberRequest(bool Archived = true)`, line 93). Every existing case (PPL-022/023/029/031 archive; PPL-025 `includeArchived=true` read) only ever sets `Archived:true` or reads archived members; PPL-024 (16-people-households.md:250) documents restore as "requires `PUT /members/{id}/archive {archived:false}` via API" but never runs it. There is **no restore control in the People UI** (PPL-024), so this leg is only reachable via a crafted request, mirroring the raw-API style of PPL-075/076. Without it a broken restore (e.g. `IsArchived` not cleared, or the active-pool income not re-summed) is invisible to a tester following the catalog.
 - **Preconditions:** Fixture B with **Sam already archived** (the PPL-024 starting state): the household is currently **solo** — default `GET /api/members` returns only Alex (income 3,000.00, share 100%), Combined income hero `€3,000.00`, Allocation nav absent, AccountPage "Sharing" card reads solo. Note Sam's `lizaId` (recoverable via `GET /api/members?includeArchived=true`, PPL-025). Signed in as owner `alex@x.eu`.
 - **Steps:**
-  1. Confirm the starting solo state on `/people`: only Alex in the table, hero `€3,000.00`, no "Allocation" nav item (there is no restore toggle in the UI — PPL-024).
+  1. Confirm the starting solo state on `/people`: only Alex's card, hero `€3,000.00`, no "Allocation" nav item (there is no restore toggle in the UI — PPL-024).
   2. Send `PUT /api/members/{lizaId}/archive {"archived":false}` (raw API — no People-page control exists for this).
   3. Reload `/people` (a fresh load runs `refreshHousehold()`, which re-fetches the default `/members`).
 - **Expected:** Step 2 → **200** with Sam's DTO where `isArchived:false` and `incomeSharePct` recomputed against the restored active pool: `1000/(3000+1000) = 0.25` (the handler's post-save `totalActiveNet` now sums 4,000.00, NOT the pre-restore 3,000). Then:
-  - **Default list re-includes her:** a follow-up `GET /api/members` (no `includeArchived` → `false`; `MembersController.cs:35` + `GetHouseholdMembersQueryHandler.cs:29`) now returns **both** Alex and Sam — the restored member re-appears in the exact list the People UI always requests, so on reload Sam's row is back in "Your household".
+  - **Default list re-includes her:** a follow-up `GET /api/members` (no `includeArchived` → `false`; `MembersController.cs:35` + `GetHouseholdMembersQueryHandler.cs:29`) now returns **both** Alex and Sam — the restored member re-appears in the exact list the People UI always requests, so on reload Sam's card is back in "Your household".
   - **Income & shares recompute to include her again:** Combined income hero returns to `€4,000.00`; Alex's share recomputes back to `75%` and Sam's to `25%` (`GetHouseholdMembersQueryHandler.cs:36` sums `totalActiveNet` over active members = 4,000, so both are divided by the restored pool — the exact reverse of the archive in PPL-022/031, not a stale 3,000 divisor).
   - **Shared/solo gating flips back:** `refreshHousehold()` sets `members.length` back to 2 → `isShared` true (`HouseholdContext.tsx:97`, `SHARED_THRESHOLD = 2`) → the "Allocation" nav item (`data-tour="nav-allocation"`, → `/allocation`) reappears and the `/allocation` solo guard lifts; AccountPage "Sharing" card flips back to "shared between 2 people". This is the precise inverse of PPL-031 (archive-to-1 → shared→solo).
   - **Guards:** the restore obeys the same owner scoping as archive — `PUT …/archive` for a member whose `OwnerId != userId` → **403** (`ArchiveHouseholdMemberCommandHandler.cs:31-34`); an unknown id → **404 "Household member {id} was not found."** No sample/undo side effects; nothing was ever deleted by the earlier archive (PPL-023), so the restored member carries her original income and attributed transactions intact. A broken restore leg (IsArchived left true, or income not re-summed into the active pool) would leave Sam absent from the default list, the hero stuck at `€3,000.00`, and the Allocation nav hidden — all caught here.
 - **Automated:** No
 
-### PPL-078 - The selected month's budget drives the People hero, income column and shares (rule 28)
+### PPL-078 - The selected month's budget drives the People hero, each card's Income and share (rule 28)
 - **Priority:** P0
 - **Type:** Happy
 - **Preconditions:** The selected month's budget has income lines: Alex 3,000 attributed, Robin 1,000 attributed, 1,000 "Whole household"; saved defaults Alex 1,000 / Robin 1,000.
 - **Steps:**
-  1. Open `/people`; read the hero, each person's Income cell and Share.
-- **Expected:** The page requests `GET /members?year=&month=`, `/members/income/{y}/{m}` and `/members/spending/{y}/{m}` for the TopBar month. Hero **"Income this month"** = 5,000.00. Alex's Income 3,500.00 (3,000 + half of the unattributed 1,000), Robin's 1,500.00; Shares 70% / 30% — from `incomeSharePct` of the month payload, never from the defaults. The "default €1,000.00" sub-line appears under each because the default differs. `Received` per member counts confirmed budget-currency amounts and excludes rows still waiting for their amount (`fxPendingCount`, shown under the hero as "+N income row(s) in another currency, not counted until its/their amount in EUR is entered." — PPL-082).
+  1. Open `/people`; read the hero, each card's Income and its share plate.
+- **Expected:** The page requests `GET /members?year=&month=`, `/members/income/{y}/{m}` and `/members/spending/{y}/{m}` for the TopBar month. The hero **`Income`** (its figure named "Income this month: €5,000.00") = 5,000.00. Alex's Income 3,500.00 (3,000 + half of the unattributed 1,000), Robin's 1,500.00; Shares 70% / 30% — from `incomeSharePct` of the month payload, never from the defaults. The "default €1,000.00" sub-line appears under each because the default differs. `Received` per member counts confirmed budget-currency amounts and excludes rows still waiting for their amount (`fxPendingCount`, shown under the hero as "+N income row needs its € amount" / "+N income rows need their € amounts", which the hero's (i) explains — PPL-082).
 - **Automated:** Full (client PPL-078; backend `MemberFiguresRule28Tests`, `AllocationIncomeFromBudgetTests`)
 
 ### PPL-079 - Without income lines (or without a budget) every figure is zero; the defaults never fill in
@@ -843,8 +844,8 @@
 - **Preconditions:** The selected month has no budget, or income lines totalling 0; saved defaults 3,000 / 2,000.
 - **Steps:**
   1. Open `/people`.
-- **Expected:** Hero "Income this month" 0.00 with the note "No budget for {Month Year} yet" when there is none; every Income cell 0.00 and every Share 0%. The saved default is edited as **Default income for {name}** (add modal: "Default income") with the hint "Becomes this person's income line when you start a blank month. Calculations use the income lines in the month's budget." Nothing on the page or the Allocation page ever uses it as a pool (rule 28); its one use is seeding a blank month (BUDG-057).
-- **Automated:** Full (client PPL-079; backend `AllocationIncomeFromBudgetTests.NoBudget_YieldsAnEmptyPool_NotTheDefaults`)
+- **Expected:** The hero `Income` reads 0.00 with the sub-line "No budget for {Month Year} yet." and the link "Open the Dashboard" when there is none; every card's Income 0.00; with no budget no card draws a ring or a share plate (only the avatar), and with income lines totalling 0 every share reads 0%. The saved default is edited as **Default income for {name}** (add modal: "Default income") with the hint "Becomes this person's income line when you start a blank month. Calculations use the income lines in the month's budget." (under the field in the add modal; behind the (i) "About the default income" in the editor). Nothing on the page or the Allocation page ever uses it as a pool (rule 28); its one use is seeding a blank month (BUDG-057).
+- **Automated:** Full (client PPL-079, `PeoplePage.menu.test.tsx` "a month with no budget has no income figures: no ring and no share, …"; backend `AllocationIncomeFromBudgetTests.NoBudget_YieldsAnEmptyPool_NotTheDefaults`)
 
 ### PPL-082 - Rows waiting for their budget-currency amount are left out of People and say so
 - **Priority:** P2
@@ -852,10 +853,10 @@
 - **Origin:** W08 (rules 28, 42–44). Replaces the pre-W08 "+N pending rate" hint for rows whose exchange rate had not been found.
 - **Preconditions:** Fixture B, budget currency EUR, a month with income lines; Alex has €120.00 of attributed spending plus two GBP expense rows and Sam one GBP income row, all imported and still waiting (`fxPending`); Sam has nothing else waiting.
 - **Steps:**
-  1. Open `/people` for that month; read Alex's and Sam's Spent cells and the hero.
-  2. Hover the hint; then on `/transactions` enter the EUR amount for one of Alex's rows and reload `/people`.
-- **Expected:** Step 1: Alex's Spent reads **€120.00** with an amber hint **"+2 need EUR amount"** under it (title "2 spending rows are in another currency, waiting for the amount in EUR, and not counted yet"); Sam's Spent has no hint (exactly one hint row on the page). The hero reads "+1 income row in another currency, not counted until its amount in EUR is entered." and Sam's Received leaves the row out. Step 2: Alex's Spent grows by the confirmed amount and the hint reads **"+1 needs EUR amount"**. The figures come from `fxPendingCount` on `GET /members/spending/{y}/{m}` and `/members/income/{y}/{m}`; nothing is converted by the app.
-- **Automated:** Yes (client `PeoplePage.catalog.test.tsx` — “PPL-082: FX-pending spending and income rows show a "+N need EUR amount" hint”; backend MemberFiguresRule28Tests — `GetMemberSpending_WithAMonth_CountsOnlyThatMonth_AndSkipsWaitingRows`, `GetMemberIncome_Received_CountsConfirmedAmounts_AndSkipsWaitingRows_CountingThem`)
+  1. Open `/people` for that month; read Alex's and Sam's cards' Spent and the hero.
+  2. Open the hero's (i) ("About income") and the `Spent` tile's (i) ("About spent"); then on `/transactions` enter the EUR amount for one of Alex's rows and reload `/people`.
+- **Expected:** Step 1: Alex's card reads Spent **€120.00** with a warning-tone line **"+2 need € amounts"** under it (no tooltip: the `Spent` (i) says payments still waiting for their EUR amount aren’t counted); Sam's card has no such line (exactly one on the page). The hero's sub-line reads "+1 income row needs its € amount" and its (i) adds "Income rows in another currency aren’t counted until their amount in EUR is entered."; Sam's Received leaves the row out. Step 2: Alex's Spent grows by the confirmed amount and the line reads **"+1 needs € amount"**. The figures come from `fxPendingCount` on `GET /members/spending/{y}/{m}` and `/members/income/{y}/{m}`; nothing is converted by the app.
+- **Automated:** Yes (client `PeoplePage.catalog.test.tsx` — “PPL-082: FX-pending spending and income rows show a "+N need € amount" hint”; backend MemberFiguresRule28Tests — `GetMemberSpending_WithAMonth_CountsOnlyThatMonth_AndSkipsWaitingRows`, `GetMemberIncome_Received_CountsConfirmedAmounts_AndSkipsWaitingRows_CountingThem`)
 
 ## Pocket money and the person (rules 53–54)
 
@@ -865,17 +866,17 @@
 - **Origin:** W11, rule 54 — "for the current month, ask the user whether to keep or cancel the remaining planned amount"
 - **Preconditions:** Fixture B; the Allocation sync has put a **Pocket Money** line for Sam (100.00) into the current month and into next month (100.00); 60.00 of this month's line is paid (an expense on that line). Signed in as owner.
 - **Steps:**
-  1. Click "✕" on Sam's row.
+  1. Open Sam's ⋯ and choose `Archive` (named "Archive Sam").
   2. Read the dialog; click **Keep this month**.
-- **Expected:** `GET /members/{id}/archive-preview` answers `thisMonth {planned 100, paid 60, remaining 40}` and `futureMonths [next month: planned 100, paid 0, remaining 100]`, so instead of archiving the page opens the dialog **"Archive Sam"**: "Sam still has **€40.00** of pocket money planned for {Month Year} (€60.00 already paid)." and "Keep it for this month, or cancel what remains? Either way Sam's payments stay recorded, and the pocket money already planned for {next Month Year} is cancelled." (with several later months: "for N later months"). Nothing is sent until a button is pressed. **Keep this month** fires `PUT /members/{id}/archive {archived:true, pocketMoneyThisMonth:0}`; the server leaves this month's line at 100.00 (60.00 paid), removes next month's untouched line (a later line with payments would instead drop to its paid amount), archives Sam; the dialog closes and the row leaves the table. Calling the PUT without `pocketMoneyThisMonth` while 40.00 remains → **400** on `PocketMoneyThisMonth`: "Sam still has 40.00 of pocket money planned for {Month Year}. Choose whether to keep or cancel it before archiving." (PPL-087 shows it).
-- **Automated:** Full (client PPL-084; backend `Archive_ThisMonthWithARemainder_RequiresTheDecision`, `Archive_Keep_LeavesThisMonthsPlan_AndStillStopsNextMonth`, `Archive_ClearsFutureMonths_RemovingUntouchedLines_AndKeepingPaidOnes`, `ArchivePreview_ReportsThisMonthsRemainder_AndTheFutureMonthsToClear`)
+- **Expected:** `GET /members/{id}/archive-preview` answers `thisMonth {planned 100, paid 60, remaining 40}` and `futureMonths [next month: planned 100, paid 0, remaining 100]`, so instead of archiving the page opens the dialog **"Archive Sam"**: "Sam still has **€40.00** of pocket money planned for {Month Year} (€60.00 already paid)." and "Keep it for this month, or cancel what remains? Either way Sam's payments stay recorded, and the pocket money already planned for {next Month Year} is cancelled." (with several later months: "for N later months"). Nothing is sent until a button is pressed. **Keep this month** fires `PUT /members/{id}/archive {archived:true, pocketMoneyThisMonth:0}`; the server leaves this month's line at 100.00 (60.00 paid), removes next month's untouched line (a later line with payments would instead drop to its paid amount), archives Sam; the dialog closes, Sam's card leaves the page and focus moves on to the next card's ⋯. Calling the PUT without `pocketMoneyThisMonth` while 40.00 remains → **400** on `PocketMoneyThisMonth`: "Sam still has 40.00 of pocket money planned for {Month Year}. Choose whether to keep or cancel it before archiving." (PPL-087 shows it).
+- **Automated:** Full (client PPL-084, `PeoplePage.menu.test.tsx` "the pocket-money question gives focus back to the ⋯ when nothing is archived, and on to the next card when it is"; backend `Archive_ThisMonthWithARemainder_RequiresTheDecision`, `Archive_Keep_LeavesThisMonthsPlan_AndStillStopsNextMonth`, `Archive_ClearsFutureMonths_RemovingUntouchedLines_AndKeepingPaidOnes`, `ArchivePreview_ReportsThisMonthsRemainder_AndTheFutureMonthsToClear`)
 
 ### PPL-085 - "Cancel remaining" lowers this month's plan to what was paid and keeps the payment (rule 54)
 - **Priority:** P0
 - **Type:** Happy
 - **Preconditions:** As PPL-084 (this month planned 100.00, paid 60.00).
 - **Steps:**
-  1. Click "✕" on Sam's row; click **Cancel remaining**.
+  1. Choose `Archive` in Sam's ⋯; click **Cancel remaining**.
   2. Open the Budget page for the current month and the Transactions register.
 - **Expected:** `PUT /members/{id}/archive {archived:true, pocketMoneyThisMonth:1}`. This month's line is still there, planned **60.00** (= paid; the 40.00 remainder is cancelled), the 60.00 expense is still in the register and no account balance moved; a line nothing was ever recorded against is removed instead; an overspent line (paid above planned) is left as it is. Next month's line is cancelled as in PPL-084. The dialog's wording without payments: "€100.00 of pocket money planned for {Month Year}." with no "(… already paid)"; with no later month: "…payments stay recorded, and no pocket money is planned from next month on." When a payment on the line still waits for its converted amount (D13), the line still counts in the remainder (the question is asked) and the dialog adds "A payment this month is waiting for its converted amount, so its line keeps its plan until the amount is confirmed."; Cancel keeps that line's plan.
 - **Automated:** Full (client PPL-085 (2); backend `Archive_Cancel_DropsThisMonthsPlanToWhatWasPaid_AndKeepsThePayment`, `Archive_Cancel_RemovesThisMonthsLine_WhenNothingWasRecorded`, `Cancelling_keeps_the_plan_of_a_line_whose_payment_waits_for_its_converted_amount`)
@@ -885,10 +886,10 @@
 - **Type:** Edge
 - **Preconditions:** Fixture B; Sam's pocket-money line this month planned 100.00.
 - **Steps:**
-  1. Click "✕" on Sam's row; click **Don't archive** (or Escape / the backdrop).
-  2. Pay the full 100.00 against the line; click "✕" again.
-- **Expected:** Step 1: the dialog closes, no PUT is sent, Sam is still in the table and nothing changed on the server. Step 2: the preview's `remaining` is 0, so no dialog — the plain `PUT … {archived:true}` archives on the one click (PPL-022); the same when the line is overspent (paid 120.00 on planned 100.00: remaining 0, the line is left as it is). Later months are still cancelled.
-- **Automated:** Full (client PPL-086; backend `Archive_NeedsNoDecision_WhenNothingRemainsThisMonth_OrTheLineIsOverspent`)
+  1. Choose `Archive` in Sam's ⋯; click **Don't archive** (or Escape / the backdrop).
+  2. Pay the full 100.00 against the line; choose `Archive` again.
+- **Expected:** Step 1: the dialog closes, no PUT is sent, Sam's card stays (focus back on Sam's ⋯) and nothing changed on the server. Step 2: the preview's `remaining` is 0, so no dialog — the plain `PUT … {archived:true}` archives on that one choice (PPL-022); the same when the line is overspent (paid 120.00 on planned 100.00: remaining 0, the line is left as it is). Later months are still cancelled.
+- **Automated:** Full (client PPL-086, `PeoplePage.menu.test.tsx` "the pocket-money question gives focus back to the ⋯ when nothing is archived, …"; backend `Archive_NeedsNoDecision_WhenNothingRemainsThisMonth_OrTheLineIsOverspent`)
 
 ### PPL-087 - The server's own refusal is shown, and the lines are owner-scoped
 - **Priority:** P1
@@ -907,5 +908,5 @@
 - **Preconditions:** Sam's savings account is "Sam's current", private to Sam.
 - **Steps:**
   1. As Chris, open People. 2. Edit Sam's income only and save.
-- **Expected:** 1: Sam's savings account reads "Private account". 2: the select shows "Private account"; the save keeps the same account id and the server does not re-validate an unchanged choice.
+- **Expected:** 1: Sam's card reads `Saves to` "Private account". 2: the editor's select shows "Private account"; the save keeps the same account id and the server does not re-validate an unchanged choice.
 - **Automated:** Yes (PeoplePage tests)

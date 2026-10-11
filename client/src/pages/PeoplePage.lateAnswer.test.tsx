@@ -20,6 +20,7 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 
 import { mockGet, mockPut, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
+import { personAction } from '../test/rowMenu'
 import { PeoplePage } from './PeoplePage'
 
 function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
@@ -63,11 +64,11 @@ describe('PeoplePage: a save answered after the month changed', () => {
     mockPut.mockImplementation(() => put.promise)
 
     const view = renderWithProviders(<PeoplePage />)
-    await screen.findByRole('table', {}, { timeout: 5000 })
+    await screen.findByRole('article', { name: 'Alex' }, { timeout: 5000 })
     expect(screen.getByLabelText(/^Income this month:/)).toHaveTextContent('€4,000.00')
 
     // Start editing Alex on July and save; the PUT stays open.
-    await user.click(screen.getByRole('button', { name: 'Edit Alex' }))
+    await personAction(user, 'Alex', 'Edit Alex')
     await user.click(screen.getByRole('button', { name: 'Save Alex' }))
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/members/m1', expect.anything()))
 

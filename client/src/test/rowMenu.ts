@@ -104,3 +104,32 @@ export const accountNote = (user: UserEvent, account: string) => menuNote(user, 
 
 /** The card (or, on a phone, the row) of the account named `name`. */
 export const accountCard = (name: string): HTMLElement => screen.getByRole('article', { name })
+
+/**
+ * The People page's cards (restyle PR 8): a person's actions (This is me, Invite to sign in, Send
+ * again, Edit, Archive) sit behind a ⋯ named "{name}: more actions", and each item's accessible
+ * name says whom it acts on, e.g. "Edit Alex". Picks `item` (that full name) from the person's ⋯.
+ */
+export const personAction = (user: UserEvent, person: string, item: string) =>
+  chooseFromMenu(user, `${person}: more actions`, item)
+
+/** Opens a person's ⋯ menu and returns its items' accessible names, in order. */
+export const personItems = async (user: UserEvent, person: string): Promise<string[]> =>
+  (await accountItems(user, person)).map((i) => i.name)
+
+/** Opens a person's ⋯ menu and returns its note (their sign-in, a link to release), one line per entry. */
+export const personNote = (user: UserEvent, person: string) => menuNote(user, `${person}: more actions`)
+
+/** The card of the person named `name`. */
+export const personCard = (name: string): HTMLElement => screen.getByRole('article', { name })
+
+/**
+ * The People page's "Other sign-ins" rows: a sign-in's actions (Send again, Link to a person,
+ * Remove) sit behind a ⋯ named "Sign-in {email}: more actions". Picks `item` (its full name).
+ */
+export const signInAction = (user: UserEvent, email: string, item: string) =>
+  chooseFromMenu(user, `Sign-in ${email}: more actions`, item)
+
+/** Opens a sign-in's ⋯ menu (on "Other sign-ins") and returns its items' accessible names, in order. */
+export const signInItems = async (user: UserEvent, email: string): Promise<string[]> =>
+  (await accountItems(user, `Sign-in ${email}`)).map((i) => i.name)

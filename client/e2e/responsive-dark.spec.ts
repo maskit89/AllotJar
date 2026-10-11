@@ -204,21 +204,42 @@ test.describe('responsive — data tables scroll inside their own container (375
     expect(m.rowsPastCard, 'a row runs past the card').toBe(0)
   })
 
-  // UX-031 — the People "Your household" table (min-w-[820px]) scrolls inside its
-  // own overflow-x-auto box.
-  test('the people household table scrolls inside its own container (UX-031)', async ({ page }) => {
+  // UX-031 — the People page (restyle PR 8) has no wide household table any more: each person is a
+  // card, full width on a phone, whose name wraps and whose three figures share the card's
+  // width, so nothing scrolls sideways: neither the page, nor the list, nor a card.
+  test('the people cards fit a phone with no sideways scroll (UX-031)', async ({ page }) => {
     await authedSetup(page, 'light')
     await page.goto('/people')
     await page.getByRole('heading', { level: 1 }).first().waitFor()
-    // /people also renders an "Other sign-ins" table; the household table is the
-    // one with the "Share" column.
-    const table = page
-      .getByRole('table')
-      .filter({ has: page.getByRole('columnheader', { name: 'Share' }) })
-    await table.waitFor()
+    const list = page.getByRole('region', { name: 'Your household' })
+    const alex = list.getByRole('article', { name: 'Alex', exact: true })
     // Alex's spending comes from the /members/spending/{y}/{m} mock, so the sweep sees real figures.
-    await expect(table).toContainText('1,234.00')
-    await expectInnerScroller(table, '/people household table', true)
+    await expect(alex).toContainText('1,234.00')
+    const m = await list.evaluate((region: HTMLElement) => {
+      const de = document.documentElement
+      const cards = Array.from(region.querySelectorAll<HTMLElement>('article'))
+      return {
+        pageScrollW: de.scrollWidth,
+        pageClientW: de.clientWidth,
+        viewportW: window.innerWidth,
+        regionRight: region.getBoundingClientRect().right,
+        cards: cards.length,
+        cardsPastViewport: cards.filter((c) => c.getBoundingClientRect().right > window.innerWidth + 1).length,
+        cardsScrolling: cards.filter((c) => c.scrollWidth > c.clientWidth + 1).length,
+        // What shows of a card (its elements; an (i)'s invisible ::after hit area may reach past
+        // it, which the card's own scroll width above still guards).
+        contentPastCard: cards.flatMap((c) => {
+          const right = c.getBoundingClientRect().right
+          return Array.from(c.querySelectorAll<HTMLElement>('*')).filter((el) => el.getBoundingClientRect().right > right + 1)
+        }).length,
+      }
+    })
+    expect(m.cards, 'the mocked people render').toBe(2)
+    expect(m.pageScrollW, 'document overflows the viewport').toBeLessThanOrEqual(m.pageClientW + 1)
+    expect(m.regionRight, 'the cards are wider than the viewport').toBeLessThanOrEqual(m.viewportW + 1)
+    expect(m.cardsPastViewport, 'a card runs past the viewport').toBe(0)
+    expect(m.cardsScrolling, 'a card scrolls sideways').toBe(0)
+    expect(m.contentPastCard, 'a card\'s content runs past the card').toBe(0)
   })
 
   // UX-033 — BOTH import tables (the generic-CSV sample/mapping preview and the
@@ -379,30 +400,32 @@ test.describe('dark mode — token inversion + primitives', () => {
     page.getByRole('button', { name: 'Dark mode', exact: true })
 
   // UX-024 — toggling to Dark stamps `.dark` on the root and inverts the slate
-  // ramp app-wide: a known bg-slate-50 surface (the People page's "Other sign-ins"
-  // header, which carries NO dark: override; the Accounts page's reconciliation
-  // header it used to sample went with restyle PR 6) flips from near-white to
-  // near-black purely via the remapped ramp. Driven with the top bar's real Dark
+  // ramp app-wide: a known slate-ramp colour (a People card's name, text-slate-900, which carries
+  // NO dark: override; the "Other sign-ins" bg-slate-50 header it used to sample went with
+  // restyle PR 8, and the Accounts page's reconciliation header before it with PR 6) flips from
+  // near-black to near-white purely via the remapped ramp. Driven with the top bar's real Dark
   // mode button so the "stamp the root" step is the live toggle, not a preloaded class.
   test('toggling to dark stamps the root and inverts the slate ramp (UX-024)', async ({ page }) => {
     await authedSetup(page, 'light')
     await page.goto('/people')
     await page.getByRole('heading', { level: 1 }).first().waitFor()
 
-    const slateSurface = page.locator('div.bg-slate-50').filter({ hasText: /^Other sign-ins$/ })
-    await slateSurface.waitFor()
+    const slateInk = page.getByRole('heading', { level: 2, name: 'Alex', exact: true })
+    await slateInk.waitFor()
+    expect(await slateInk.evaluate((el) => el.className)).toMatch(/(^| )text-slate-900( |$)/)
+    expect(await slateInk.evaluate((el) => el.className)).not.toMatch(/dark:/)
 
-    // Light: root is not dark, the slate-50 surface is near-white.
+    // Light: root is not dark, the slate-900 ink is near-black.
     await expect(page.locator('html')).not.toHaveClass(/dark/)
-    const lightBg = (await sample(slateSurface)).ownBg
-    expect(luminance(lightBg), 'bg-slate-50 should be near-white in light').toBeGreaterThan(0.5)
+    const lightInk = (await sample(slateInk)).color
+    expect(luminance(lightInk), 'text-slate-900 should be near-black in light').toBeLessThan(0.15)
 
-    // Toggle → the root gains .dark and the SAME surface inverts to near-black.
+    // Toggle → the root gains .dark and the SAME ink inverts to near-white.
     await darkMode(page).click()
     await expect(page.locator('html')).toHaveClass(/dark/)
     await expect
-      .poll(async () => luminance((await sample(slateSurface)).ownBg))
-      .toBeLessThan(0.15)
+      .poll(async () => luminance((await sample(slateInk)).color))
+      .toBeGreaterThan(0.5)
   })
 
   // UX-025 — the import mapping/sample table flips to dark using ONLY the remapped

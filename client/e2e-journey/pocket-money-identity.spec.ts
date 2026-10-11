@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { register } from './helpers'
+import { personAction, personCard, register } from './helpers'
 
 /**
  * Rules 53/54 through the REAL stack: a person's pocket-money budget line is linked to the
@@ -114,14 +114,13 @@ test('rename reuses the linked pocket-money line; archive stops next month and a
 
   // --- Rule 53: rename Robin → Robyn on the People page; the line follows, no duplicate ---
   await page.reload()
-  // The row's edit/archive actions are display:none until the row is hovered.
-  await page.getByRole('row').filter({ hasText: 'Robin' }).hover()
-  await page.getByRole('button', { name: 'Edit Robin' }).click()
+  // Edit and Archive are in the person's ⋯ menu.
+  await personAction(page, 'Robin', 'Edit Robin')
   await page.getByRole('textbox', { name: 'Name for Robin' }).fill('Robyn')
   await committed(page, 'PUT', `/api/members/${robin.id}`, () =>
     page.getByRole('button', { name: 'Save Robin' }).click(),
   )
-  await expect(page.getByRole('row').filter({ hasText: 'Robyn' })).toBeVisible()
+  await expect(personCard(page, 'Robyn')).toBeVisible()
 
   lines = await pocketLines(page, headers, now.year, now.month)
   expect(lines.map((l) => l.name).sort()).toEqual(['Ivy', 'Robyn'])
@@ -141,8 +140,7 @@ test('rename reuses the linked pocket-money line; archive stops next month and a
 
   // --- Rule 54: archive Robyn; this month still plans 200.00 for them → the dialog asks ---
   await page.goto('/people')
-  await page.getByRole('row').filter({ hasText: 'Robyn' }).hover()
-  await page.getByRole('button', { name: 'Archive Robyn' }).click()
+  await personAction(page, 'Robyn', 'Archive Robyn')
   const dialog = page.getByRole('dialog', { name: 'Archive Robyn' })
   // Symbol-agnostic: the currency symbol follows the registration locale.
   await expect(dialog).toContainText(/Robyn still has .*200\.00.* of pocket money planned for/)
@@ -151,7 +149,7 @@ test('rename reuses the linked pocket-money line; archive stops next month and a
     dialog.getByRole('button', { name: 'Keep this month’s pocket money and archive' }).click(),
   )
   await expect(dialog).toBeHidden()
-  await expect(page.getByRole('row').filter({ hasText: 'Robyn' })).toHaveCount(0)
+  await expect(personCard(page, 'Robyn')).toHaveCount(0)
 
   // Kept: this month's line is untouched; next month's is gone; Ivy's lines stay.
   lines = await pocketLines(page, headers, now.year, now.month)
