@@ -30,12 +30,13 @@ import {
   type Minor,
 } from '../../lib/money'
 import { selectOnFocusProps } from '../../lib/selectOnFocus'
-import { hueColor, hueForIndex, type CategoryHue } from '../../lib/categoryColors'
+import { hueColor, memberHue, type CategoryHue } from '../../lib/categoryColors'
 import { useAuth } from '../../auth/AuthContext'
 import { InfoHint } from '../InfoHint'
 import { JarNavIcon } from '../icons'
 import { ActionSheet, RowMenu, type RowAction } from '../RowActions'
 import { MiniBar, StatusChip } from '../StatusChip'
+import { MemberAvatar } from '../MemberAvatar'
 
 /** What a line is: an income source, a spending line (maybe a bill) or a jar's monthly contribution. */
 export type LineKind = 'income' | 'expense' | 'jar'
@@ -86,33 +87,12 @@ function Tile({ hue, children }: { hue: CategoryHue; children: ReactNode }) {
   )
 }
 
-/** A person: their initial on a tinted circle (the earner of an income line). */
-function Avatar({ name, hue }: { name: string; hue: CategoryHue }) {
-  const c = hueColor(hue)
-  return (
-    <span
-      aria-hidden
-      className="grid size-[30px] place-items-center rounded-full text-xs font-[650]"
-      style={{
-        background: `color-mix(in srgb, ${c} 16%, var(--color-card))`,
-        color: `color-mix(in srgb, ${c} 62%, var(--color-foreground))`,
-        boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${c} 28%, transparent)`,
-      }}
-    >
-      {name.trim().charAt(0).toUpperCase() || '?'}
-    </span>
-  )
-}
-
 /**
  * What is left, over or still to go on a line: a fixed column (wide enough for "€1,234.56 left"),
  * right-aligned, so every bar beside it ends at the same place, as in the mock-up.
  */
 const LEFT_TEXT = 'text-[13px] font-semibold whitespace-nowrap tabular-nums'
 const LEFT = `min-w-[84px] text-right ${LEFT_TEXT}`
-
-/** Avatar colours by the member's place in the household (presentation only). */
-const MEMBER_HUES: CategoryHue[] = ['emerald', 'indigo', 'amber', 'teal', 'rose']
 
 export interface BudgetLineProps {
   kind: LineKind
@@ -378,7 +358,7 @@ export function BudgetLine({
   const icon =
     kind === 'income' ? (
       showMember && member ? (
-        <Avatar name={member.name} hue={MEMBER_HUES[memberIndex % MEMBER_HUES.length] ?? hueForIndex(memberIndex)} />
+        <MemberAvatar name={member.name} hue={memberHue(memberIndex)} />
       ) : (
         <Tile hue="emerald">
           <Wallet strokeWidth={1.8} />

@@ -253,6 +253,51 @@ for (const theme of ['light', 'dark'] as const) {
       await expectNoViolations(page)
     })
 
+    // The Accounts page (restyle PR 6): an account's ⋯ menu open (with its note), a jar caption's
+    // (i) open, and the inline editor open in its card.
+    test('an account\'s ⋯ menu, a jar caption\'s hint and the account editor have no WCAG A/AA violations', async ({ page }) => {
+      await authedSetup(page, theme)
+      await page.goto('/accounts')
+      await page.getByRole('heading', { level: 1 }).first().waitFor()
+      // One Add account, in the top bar.
+      await expect(page.getByRole('button', { name: 'Add account' })).toHaveCount(1)
+
+      await page.getByRole('button', { name: 'Savings Joint: more actions' }).click()
+      await page.getByRole('menuitem', { name: 'Edit Savings Joint' }).waitFor()
+      await expectNoViolations(page)
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('menu')).toHaveCount(0)
+
+      await page.getByRole('button', { name: 'About the money not in jars in Savings Joint' }).focus()
+      await page.getByRole('tooltip').waitFor()
+      await expectNoViolations(page)
+      await page.getByRole('button', { name: 'About the money not in jars in Savings Joint' }).blur()
+
+      await page.getByRole('button', { name: 'Joint Current: more actions' }).click()
+      await page.getByRole('menuitem', { name: 'Edit Joint Current' }).click()
+      await page.getByLabel('Name for Joint Current').waitFor()
+      await expectNoViolations(page)
+    })
+
+    test('an account\'s ⋯ sheet and the account editor on a phone have no WCAG A/AA violations', async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await authedSetup(page, theme)
+      await page.goto('/accounts')
+      await page.getByRole('heading', { level: 1 }).first().waitFor()
+      // One Add account, under the KPIs.
+      await expect(page.getByRole('button', { name: 'Add account' })).toHaveCount(1)
+      await page.getByRole('button', { name: 'Savings Joint: more actions' }).click()
+      const sheet = page.getByRole('dialog', { name: 'Savings Joint' })
+      await sheet.getByRole('button', { name: 'Edit Savings Joint' }).waitFor()
+      await sheet.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await expectNoViolations(page)
+
+      await sheet.getByRole('button', { name: 'Edit Savings Joint' }).click()
+      await page.getByLabel('Name for Savings Joint').waitFor()
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      await expectNoViolations(page)
+    })
+
     test('login has no WCAG A/AA violations', async ({ page }) => {
       // Signed out: no token, so the login page renders.
       await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)

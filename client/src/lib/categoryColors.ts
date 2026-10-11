@@ -4,8 +4,6 @@
 // teal fail as text in light mode). Each hue resolves to a CSS variable defined
 // in index.css (`--color-cat-*`), which flips for dark mode at the token level.
 
-import { AccountType } from '../types'
-
 export const CATEGORY_HUES = ['indigo', 'amber', 'teal', 'rose', 'emerald'] as const
 
 export type CategoryHue = (typeof CATEGORY_HUES)[number]
@@ -30,18 +28,10 @@ export function hueTint(hue: CategoryHue): string {
   return `color-mix(in srgb, var(--color-cat-${hue}) 14%, transparent)`
 }
 
-/** Account types map to fixed hues (per the handoff: Savings→emerald, etc.). */
-export function hueForAccountType(type: number): CategoryHue {
-  switch (type) {
-    case AccountType.Savings:
-      return 'emerald'
-    case AccountType.Cash:
-      return 'amber'
-    case AccountType.CreditCard: // no longer offered (rule 75); rows recorded before keep their hue
-      return 'rose'
-    case AccountType.Current:
-      return 'indigo'
-    default:
-      return 'teal'
-  }
+/** Avatar colours by the member's place in the household (presentation only; the data has no colour). */
+const MEMBER_HUES: CategoryHue[] = ['emerald', 'indigo', 'amber', 'teal', 'rose']
+
+/** The hue of the member at `index` in the household's list, the same on every page. */
+export function memberHue(index: number): CategoryHue {
+  return MEMBER_HUES[index % MEMBER_HUES.length] ?? hueForIndex(index)
 }

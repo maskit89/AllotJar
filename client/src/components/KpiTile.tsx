@@ -11,26 +11,36 @@ import { hueColor, type CategoryHue } from '../lib/categoryColors'
  *    its number steps up to 30px from 850px;
  *  - narrower: the hero across the top, the two tiles side by side under it (or, when there is
  *    only one, a slim full-width strip: the label and its sub-line, the number at the right).
- * A row that sits on a grid of cards (`onGrid`, the Jars page) takes that grid's columns instead.
+ * A row that sits on a grid of cards (`onGrid`, the Jars page; `thirds`, the Accounts page) takes
+ * that grid's columns instead.
  */
 
 /**
  * The row: pass the hero first, then the tiles. `tiles` is how many plain tiles follow it.
  * `onGrid`: the row sits on a grid of equal columns below it (the Jars page's jars, with the same
  * 24px gap): two columns from 640px and three from 900px, the hero over two of them there.
+ * `thirds`: the hero and two tiles on a grid of three equal columns (the Accounts page's cards)
+ * from 900px; from 640px one row as the default (the hero half again as wide as each tile). With
+ * no tiles (`tiles={0}`) the hero takes the whole row, so nothing sits beside an empty slot.
  */
 export function KpiRow({
   tiles,
   onGrid = false,
+  thirds = false,
   children,
   className = '',
 }: {
   tiles: 0 | 1 | 2
   onGrid?: boolean
+  thirds?: boolean
   children: ReactNode
   className?: string
 }) {
-  const cols = onGrid
+  const cols = thirds
+    ? tiles === 0
+      ? '@min-[640px]:[&>:first-child]:col-span-2'
+      : '@min-[640px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] @min-[900px]:grid-cols-3'
+    : onGrid
     ? '@min-[640px]:grid-cols-2 @min-[900px]:grid-cols-3 @min-[900px]:[&>:first-child]:col-span-2'
     : tiles === 2
       ? '@min-[640px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]'
@@ -61,6 +71,8 @@ export interface KpiTileProps extends Omit<HTMLAttributes<HTMLElement>, 'childre
   value: ReactNode
   /** The number's accessible name, when the glyphs alone are not a good one. */
   valueLabel?: string
+  /** A plain tile's number in the bad red (e.g. a total below zero); the default ink otherwise. */
+  valueTone?: 'bad'
   /** One short line under the number (or the bar). */
   sub?: ReactNode
   /** Sub in the ok tone (e.g. "All received"). */
@@ -87,6 +99,7 @@ export function KpiTile({
   iconColor,
   value,
   valueLabel,
+  valueTone,
   sub,
   subTone = 'muted',
   extra,
@@ -171,7 +184,7 @@ export function KpiTile({
         </span>
       )}
       <p
-        className={`leading-[1.1] font-bold tracking-[-0.025em] text-slate-900 tabular-nums ${icon ? '@min-[720px]:pr-10' : ''} ${
+        className={`leading-[1.1] font-bold tracking-[-0.025em] tabular-nums ${valueTone === 'bad' ? 'text-bad' : 'text-slate-900'} ${icon ? '@min-[720px]:pr-10' : ''} ${
           // A strip has half the row. A third of the row is narrow until about 850px (a 1,000px
           // window beside the sidebar): the number stays a size down there, so five figures fit.
           strip === 'bar'

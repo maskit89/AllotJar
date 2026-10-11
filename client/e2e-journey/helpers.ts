@@ -127,6 +127,15 @@ export async function jarAction(page: Page, jar: string, item: string): Promise<
 }
 
 /**
+ * Picks `item` from the ⋯ menu of the account card named `account` on the Accounts page (restyle
+ * PR 6). Each item's name says which account it acts on: "Edit Joint", "Make Joint private",
+ * "Share Joint with the household", "Delete Joint".
+ */
+export async function accountAction(page: Page, account: string, item: string): Promise<void> {
+  await rowAction(page, `${account}: more actions`, item)
+}
+
+/**
  * Opens the ⋯ menu of the jar card named `jar` on the Jars page and returns it. Its note (where
  * the money is held, this month's plan, a missed deadline's date, how the last cycle ended) is
  * the menu's first line; close it with `closeMenu`.
@@ -182,10 +191,9 @@ export async function closeMenu(page: Page): Promise<void> {
 }
 
 /**
- * Add an account through the Accounts page modal (navigates there). Account names should
- * avoid the type-chip labels (Current/Savings/Cash/…) where a spec relies on plain text
- * lookups — a name like "Savings" collides with every card's type chip in strict mode, so
- * such specs must use role/exact locators.
+ * Add an account through the Accounts page modal (navigates there). A card names its type only
+ * on its icon (and in its ⋯ note), so a name like "Savings" no longer collides with visible text;
+ * specs still look an account up by role and exact name ("View Savings").
  */
 export async function addAccount(
   page: Page,

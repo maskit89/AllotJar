@@ -28,13 +28,26 @@ export function StatusChip({ tone, className = '', ...rest }: HTMLAttributes<HTM
 }
 
 /**
- * A 6px progress bar on the track colour. `pct` is clamped to 0-100. The fill is the hue, or the
- * bad red when `over`. Decorative: the row says the same in words.
+ * A 6px progress bar on the track colour (8px with `size="lg"`, an account card's jar bar). `pct`
+ * is clamped to 0-100. The fill is the hue, or the bad red when `over`. Decorative: the row says
+ * the same in words.
  */
-export function MiniBar({ pct, hue, over = false, className = '' }: { pct: number; hue: CategoryHue; over?: boolean; className?: string }) {
+export function MiniBar({
+  pct,
+  hue,
+  over = false,
+  size = 'md',
+  className = '',
+}: {
+  pct: number
+  hue: CategoryHue
+  over?: boolean
+  size?: 'md' | 'lg'
+  className?: string
+}) {
   const p = Math.max(0, Math.min(100, Number.isFinite(pct) ? pct : 0))
   return (
-    <div aria-hidden className={`h-1.5 min-w-10 overflow-hidden rounded-full bg-track ${className}`}>
+    <div aria-hidden className={`${size === 'lg' ? 'h-2' : 'h-1.5'} min-w-10 overflow-hidden rounded-full bg-track ${className}`}>
       <span
         className={`block h-full rounded-full ${over ? 'bg-bad' : ''}`}
         style={{ width: `${p}%`, ...(over ? {} : { background: hueColor(hue) }) }}

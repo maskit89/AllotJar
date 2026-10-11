@@ -7,7 +7,7 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 
 import { mockGet, mockPut, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
-import { txAction } from '../test/rowMenu'
+import { accountAction, txAction } from '../test/rowMenu'
 import { budgetCategory, budgetItem, budgetMonth } from '../test/fixtures/budget'
 import { TransactionsPage } from './TransactionsPage'
 import { AccountsPage } from './AccountsPage'
@@ -172,7 +172,7 @@ describe('edit conflicts (D11)', () => {
     const user = userEvent.setup()
     renderWithProviders(<AccountsPage />)
 
-    await user.click(await screen.findByRole('button', { name: 'Edit Joint' }, { timeout: 5000 }))
+    await accountAction(user, 'Joint', 'Edit Joint')
     await user.clear(screen.getByLabelText('Name for Joint'))
     await user.type(screen.getByLabelText('Name for Joint'), 'Shared')
     await user.click(screen.getByRole('button', { name: 'Save Joint' }))

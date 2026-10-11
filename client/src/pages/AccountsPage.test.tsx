@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AccountDto } from '../types'
 
@@ -9,6 +9,7 @@ import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/a
 import { renderWithProviders } from '../test/render'
 import { AccountsPage } from './AccountsPage'
 import { setMoneyFormat } from '../lib/money'
+import { accountAction, accountCard, accountItems, accountNote } from '../test/rowMenu'
 
 function accounts(): AccountDto[] {
   return [
@@ -34,8 +35,9 @@ describe('AccountsPage', () => {
     // Each account renders as a card.
     expect(await screen.findByText('Everyday', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Visa')).toBeInTheDocument()
-    // A credit-card account recorded before rule 75 still labels its card as one.
-    expect(screen.getAllByText('Credit card').length).toBeGreaterThan(0)
+    // A credit-card account recorded before rule 75 still labels its card as one: its type tile
+    // is named by the type.
+    expect(within(accountCard('Visa')).getByRole('img', { name: 'Credit card' })).toBeInTheDocument()
     // Net across the two accounts (250 + (−75) = 175) is the hero's Total balance.
     expect(screen.getByText(/175.00/)).toBeInTheDocument()
   })
@@ -69,6 +71,9 @@ describe('AccountsPage', () => {
   // W13 (rules 30–33): a joint account names its holders; the holder of a private account sees
   // it marked and can share it with the household.
   it('shows who holds each account and lets the holder share a private one', { timeout: 15000 }, async () => {
+    // The server's reason for P55, word for word (AccountSharing.HoldsJarReason).
+    const SAVINGS_REASON =
+      "'Savings' holds the jar 'Holiday'. Jars are part of the household budget, so the account behind one stays visible to everyone (rule 33)."
     const joint: AccountDto = {
       ...accounts()[0], id: 'j1', name: 'Joint',
       holders: [{ memberId: 'm1', name: 'Chris' }, { memberId: 'm2', name: 'Sam' }],
@@ -79,7 +84,7 @@ describe('AccountsPage', () => {
     }
     const savings: AccountDto = {
       ...accounts()[0], id: 's1', name: 'Savings', isPrivate: false, canChangeSharing: true,
-      holders: [{ memberId: 'm1', name: 'Chris' }], sharingBlockedReason: "'Savings' holds the jar 'Holiday'.",
+      holders: [{ memberId: 'm1', name: 'Chris' }], sharingBlockedReason: SAVINGS_REASON,
     }
     mockGet.mockImplementation((url: string) => Promise.resolve({ data: url === '/accounts' ? [joint, mine, savings] : [] }))
     mockPut.mockResolvedValue({ data: { ...mine, isPrivate: false } })
@@ -88,16 +93,25 @@ describe('AccountsPage', () => {
     renderPage()
 
     expect(await screen.findByText('Held by Chris and Sam', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText('Joint', { selector: 'span' })).toBeInTheDocument()
-    expect(screen.getByText('Private')).toBeInTheDocument()
-    expect(screen.getByText('Only you can see this account.')).toBeInTheDocument()
-    // P55: an account a jar uses stays visible and says why, with no Make private button.
-    expect(screen.getByTitle("'Savings' holds the jar 'Holiday'.")).toHaveTextContent('Visible to the household: a jar uses it.')
-    expect(screen.queryByRole('button', { name: 'Make Savings private' })).not.toBeInTheDocument()
+    // That the account is joint is the first line of its ⋯ note, after its type (and before
+    // its currency, which multiCurrency, on by default, adds).
+    const jointNote = await accountNote(user, 'Joint')
+    expect(jointNote[0]).toBe('Current · joint · EUR')
+    // The avatars show initials: the note names the holders.
+    expect(jointNote[1]).toBe('Held by Chris and Sam')
+    expect(within(accountCard('Pocket')).getByText('Private')).toBeInTheDocument()
+    expect(await accountNote(user, 'Pocket')).toContain('Only you can see this account.')
+    // P55: an account a jar uses stays visible to the household and says why (the server's reason,
+    // which says both, once), with no Make private item.
+    const savingsNote = await accountNote(user, 'Savings')
+    expect(savingsNote).toContain(SAVINGS_REASON)
+    expect(savingsNote.filter((line) => /visible/i.test(line))).toEqual([SAVINGS_REASON])
+    expect((await accountItems(user, 'Savings')).map((i) => i.name)).not.toContain('Make Savings private')
 
-    await user.click(screen.getByRole('button', { name: 'Share Pocket with the household' }))
+    await accountAction(user, 'Pocket', 'Share Pocket with the household')
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/p1/sharing', { isPrivate: false }))
-    expect(await screen.findByRole('button', { name: 'Make Pocket private' })).toBeInTheDocument()
+    await waitFor(() => expect(within(accountCard('Pocket')).queryByText('Private')).not.toBeInTheDocument())
+    expect((await accountItems(user, 'Pocket')).map((i) => i.name)).toContain('Make Pocket private')
   })
 
   // P59 (Christopher, 30 September 2026): the owner sees accounts private to a login that left
@@ -222,7 +236,7 @@ describe('AccountsPage', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Delete Everyday', {}, { timeout: 5000 }))
+    await accountAction(user, 'Everyday', 'Delete Everyday')
     // Deleting now asks for confirmation, explaining transactions are kept.
     expect(await screen.findByText(/transactions are kept/i)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Confirm delete Everyday' }))
@@ -239,7 +253,7 @@ describe('AccountsPage', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByRole('button', { name: 'Edit Everyday' }))
+    await accountAction(user, 'Everyday', 'Edit Everyday')
     await user.click(screen.getByRole('button', { name: 'Save Everyday' }))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/a1', {
@@ -271,7 +285,7 @@ describe('AccountsPage', () => {
       })),
     )
 
-    await user.click(await screen.findByRole('button', { name: 'Edit Everyday' }, { timeout: 5000 }))
+    await accountAction(user, 'Everyday', 'Edit Everyday')
     expect(screen.getByLabelText('IBAN for Everyday')).toHaveValue('MT84MALT011000012345MTLCAST001S')
     expect(screen.getByLabelText('BIC for Everyday')).toHaveValue('VALLMTMT')
     expect(screen.getByLabelText('Sort code for Everyday')).toHaveValue('40-47-84')
@@ -320,12 +334,14 @@ describe('AccountsPage', () => {
     renderPage()
 
     expect(await screen.findByText('Not available', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText('Set an opening date to calculate the balance.')).toBeInTheDocument()
+    // Why sits behind the (i) beside it.
+    fireEvent.focus(screen.getByRole('button', { name: 'Why Everyday has no balance' }))
+    expect((await screen.findByRole('tooltip', {}, { timeout: 5000 })).textContent).toBe('Set an opening date to calculate the balance.')
     expect(screen.getByText(/1 account with no balance before its opening date is not counted/)).toBeInTheDocument()
     // Only Visa (−75) is counted in the hero.
     expect(screen.getByLabelText(/^Total balance:/)).toHaveTextContent('75.00')
 
-    await user.click(screen.getByRole('button', { name: 'Edit Everyday' }))
+    await accountAction(user, 'Everyday', 'Edit Everyday')
     await user.click(screen.getByRole('button', { name: 'Save Everyday' }))
     expect(await screen.findByText('Enter the date the opening balance applies from.')).toBeInTheDocument()
     expect(mockPut).not.toHaveBeenCalled()
@@ -362,7 +378,7 @@ describe('AccountsPage', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Delete Everyday', {}, { timeout: 5000 }))
+    await accountAction(user, 'Everyday', 'Delete Everyday')
     await user.click(await screen.findByRole('button', { name: 'Cancel' }))
 
     expect(mockDelete).not.toHaveBeenCalled()
