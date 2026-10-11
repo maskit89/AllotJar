@@ -11,8 +11,8 @@ import { hueColor, type CategoryHue } from '../lib/categoryColors'
  *    its number steps up to 30px from 850px;
  *  - narrower: the hero across the top, the two tiles side by side under it (or, when there is
  *    only one, a slim full-width strip: the label and its sub-line, the number at the right).
- * A row that sits on a grid of cards (`onGrid`, the Jars page; `thirds`, the Accounts page) takes
- * that grid's columns instead.
+ * A row that sits on a grid of cards (`onGrid`, the Jars page; `thirds`, the Accounts page;
+ * `halves`, the People page) takes that grid's columns instead.
  */
 
 /**
@@ -22,21 +22,27 @@ import { hueColor, type CategoryHue } from '../lib/categoryColors'
  * `thirds`: the hero and two tiles on a grid of three equal columns (the Accounts page's cards)
  * from 900px; from 640px one row as the default (the hero half again as wide as each tile). With
  * no tiles (`tiles={0}`) the hero takes the whole row, so nothing sits beside an empty slot.
+ * `halves`: the hero and one tile on two equal columns from 640px (the People page's person cards,
+ * with the same 24px gap), instead of the hero half again as wide as the tile.
  */
 export function KpiRow({
   tiles,
   onGrid = false,
   thirds = false,
+  halves = false,
   children,
   className = '',
 }: {
   tiles: 0 | 1 | 2
   onGrid?: boolean
   thirds?: boolean
+  halves?: boolean
   children: ReactNode
   className?: string
 }) {
-  const cols = thirds
+  const cols = halves && tiles === 1
+    ? '@min-[640px]:grid-cols-2'
+    : thirds
     ? tiles === 0
       ? '@min-[640px]:[&>:first-child]:col-span-2'
       : '@min-[640px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] @min-[900px]:grid-cols-3'

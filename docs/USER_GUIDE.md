@@ -330,7 +330,9 @@ AllotJar is solo-friendly by default: on your own, the sharing features stay out
 ### Adding people
 
 - **Add a person** with their name. A "person" is a member of your household budget — useful for splitting shared costs and dividing savings even before anyone else signs in.
-- If one of the people you add is **you**, mark **"This is me"** to link your own login to that person.
+- If one of the people you add is **you**, choose **This is me** in their ⋯ menu to link your own login to that person.
+
+Each person has a card: their share of the month's income in the ring around their initial, then their **Income**, **Spent** and the savings account they save to. A card's ⋯ holds what you can do with that person (a sheet on phones). The two figures at the top add up the household's income and the spending marked for someone this month.
 
 ### Whose income is whose
 
@@ -340,13 +342,13 @@ The People page shows the **same month as the Dashboard** (change it with the mo
 
 Renaming a person renames their **Pocket Money** budget line in every month too (the line belongs to the person, not to the name); the amounts do not change. A line you renamed yourself keeps your name for it.
 
-**Archiving** a person (the ✕ on their row) hides them from the People page and stops their pocket money from next month on: any pocket-money line already planned for a later month is cancelled. If this month still has pocket money planned beyond what has been paid, AllotJar asks first — **Keep this month** leaves this month's plan as it is, **Cancel remaining** lowers it to what has already been paid (a line nothing was paid against disappears), and **Don't archive** changes nothing. Whatever you choose, every recorded payment and every account balance stays exactly as it was; archiving never deletes transactions.
+**Archiving** a person (**Archive** in their ⋯ menu) hides them from the People page and stops their pocket money from next month on: any pocket-money line already planned for a later month is cancelled. If this month still has pocket money planned beyond what has been paid, AllotJar asks first — **Keep this month** leaves this month's plan as it is, **Cancel remaining** lowers it to what has already been paid (a line nothing was paid against disappears), and **Don't archive** changes nothing. Whatever you choose, every recorded payment and every account balance stays exactly as it was; archiving never deletes transactions.
 
 A person's **Default income** is only a starting figure you keep on file: when you **start a blank month**, each person with a default gets an income line at that amount, attributed to them (a template or copied month keeps its own lines). Nothing is calculated from the default itself: the Allocation page, the shares and the People figures all read the month's budget lines. Amounts paid in another currency count at the budget-currency amount you entered or confirmed; a row still waiting for that amount is left out and counted separately ("+N need EUR amount") until you enter it.
 
 ### Inviting someone to sign in
 
-When you want someone else to log in and use the budget with you, **invite** them from their person entry. They get their own sign-in and join your household. People you've added but not invited simply exist as budget members until you're ready.
+When you want someone else to log in and use the budget with you, choose **Invite to sign in** in their ⋯ menu. They get their own sign-in and join your household. People you've added but not invited simply exist as budget members until you're ready.
 
 ### Reviewing who sees your accounts
 

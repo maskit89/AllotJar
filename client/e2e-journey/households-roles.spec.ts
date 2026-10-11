@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { JOURNEY_PASSWORD, register, suppressOnboarding, uniqueEmail, waitForEmailLink } from './helpers'
+import { JOURNEY_PASSWORD, personAction, personCard, personCards, register, suppressOnboarding, uniqueEmail, waitForEmailLink } from './helpers'
 
 /**
  * People & roles against the live stack (the PPL/ROLE deferred set): the owner-as-member-#1
@@ -15,7 +15,7 @@ import { JOURNEY_PASSWORD, register, suppressOnboarding, uniqueEmail, waitForEma
  * Each test registers its own fresh owner + invitee so the specs stay isolated.
  */
 
-/** Add a budget person through the People page modal (waits for the refreshed table). */
+/** Add a budget person through the People page modal (waits for the refreshed cards). */
 async function addPerson(page: Page, name: string, income: string): Promise<void> {
   // exact — the modal's Cancel button is aria-labelled "Cancel add person" (a superstring).
   await page.getByRole('button', { name: 'Add person', exact: true }).first().click()
@@ -23,16 +23,16 @@ async function addPerson(page: Page, name: string, income: string): Promise<void
   await dialog.getByLabel('Person name').fill(name)
   await dialog.getByLabel('Default income').fill(income)
   await dialog.getByRole('button', { name: 'Add person', exact: true }).click()
-  // The modal closes only after the POST + table & household refreshes complete.
+  // The modal closes only after the POST + cards & household refreshes complete.
   await expect(dialog).toBeHidden()
 }
 
 /**
- * PPL-044 / PPL-049: from a person's row, create a DIRECT login (temp password) with the
+ * PPL-044 / PPL-049: from a person's ⋯ menu, create a DIRECT login (temp password) with the
  * Limited access level. The membership is Active immediately — no link redemption step.
  */
 async function directInviteLimited(page: Page, personName: string, email: string): Promise<void> {
-  await page.getByRole('button', { name: 'Invite to sign in' }).click()
+  await personAction(page, personName, 'Invite to sign in')
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('heading', { name: `Invite ${personName} to sign in` })).toBeVisible()
   await dialog.getByLabel('Invitee email').fill(email)
@@ -102,10 +102,10 @@ test('adding a 2nd person flips solo→shared live, and a temp-password Limited 
 
   // --- Owner: solo state on /people ---
   await page.goto('/people')
-  // PPL-027: registration materialized the owner as member #1 — exactly one row ("You").
-  await expect(page.getByRole('row').filter({ hasText: 'Ivy' })).toBeVisible()
+  // PPL-027: registration materialized the owner as member #1 — exactly one card ("You").
+  await expect(personCard(page, 'Ivy')).toBeVisible()
   await expect(page.getByText('You', { exact: true })).toBeVisible()
-  await expect(page.getByRole('row')).toHaveCount(2) // header + the owner
+  await expect(personCards(page)).toHaveCount(1) // the owner
   // PPL-002 / PPL-032: solo (1 member) — People nav shown, Allocation nav hidden.
   await expect(page.getByRole('link', { name: 'People' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Allocation' })).toHaveCount(0)
@@ -113,8 +113,8 @@ test('adding a 2nd person flips solo→shared live, and a temp-password Limited 
   // --- Owner: add a 2nd person → shared, live ---
   // PPL-007: POST /members through the modal; the person appears with their income.
   await addPerson(page, 'Robin', '1000')
-  const robinRow = page.getByRole('row').filter({ hasText: 'Robin' })
-  await expect(robinRow).toContainText('1,000.00')
+  const robinCard = personCard(page, 'Robin')
+  await expect(robinCard).toContainText('1,000.00')
   // PPL-030: refreshHousehold() after the add flips isShared — the Allocation nav item
   // appears WITHOUT any reload.
   await expect(page.getByRole('link', { name: 'Allocation' })).toBeVisible()
@@ -122,10 +122,14 @@ test('adding a 2nd person flips solo→shared live, and a temp-password Limited 
   // --- Owner: direct temp-password invite, Limited role (PPL-044 / PPL-049) ---
   const robinEmail = uniqueEmail('robin')
   await directInviteLimited(page, 'Robin', robinEmail)
-  // PPL-034: the linked person's row now shows the login email and an editable role select
-  // (value 2 = Limited) for the owner.
-  await expect(robinRow).toContainText(robinEmail)
-  await expect(robinRow.getByRole('combobox', { name: 'Access level for Robin' })).toHaveValue('2')
+  // PPL-034: the linked person's card now shows the access level, and its editor the login
+  // email and an editable role select (value 2 = Limited) for the owner.
+  await expect(robinCard.getByText('Limited', { exact: true })).toBeVisible()
+  await personAction(page, 'Robin', 'Edit Robin')
+  await expect(robinCard).toContainText(robinEmail)
+  await expect(robinCard.getByRole('combobox', { name: 'Access level for Robin' })).toHaveValue('2')
+  await robinCard.getByRole('button', { name: 'Cancel edit' }).click()
+  await expect(robinCard.getByRole('combobox', { name: 'Access level for Robin' })).toHaveCount(0)
 
   // PPL-062 / PPL-067: an owner viewing their OWN household gets neither the start-own card
   // nor the leave card on /account.
@@ -159,8 +163,10 @@ test('adding a 2nd person flips solo→shared live, and a temp-password Limited 
   // PPL-017 / PPL-026 / PPL-040: People renders read-only for Limited — no member CRUD, no
   // access controls (canAccess is owner-only), just static role labels.
   await guest.goto('/people')
-  await expect(guest.getByRole('row')).toHaveCount(3) // household still fully visible
+  await expect(personCards(guest)).toHaveCount(2) // household still fully visible
   await expect(guest.getByRole('button', { name: 'Add person', exact: true })).toHaveCount(0)
+  // Nothing to do on either card: no ⋯ (so no Edit, Archive or Invite to sign in behind one).
+  await expect(guest.getByRole('button', { name: /: more actions$/ })).toHaveCount(0)
   await expect(guest.getByRole('combobox', { name: /Access level for/ })).toHaveCount(0)
   await expect(guest.getByRole('button', { name: /Remove sign-in for/ })).toHaveCount(0)
   await expect(guest.getByRole('button', { name: 'Invite to sign in' })).toHaveCount(0)
@@ -190,9 +196,9 @@ test('adding a 2nd person flips solo→shared live, and a temp-password Limited 
   const roleChanged = page.waitForResponse(
     (r) => r.url().includes('/role') && r.request().method() === 'PUT' && r.ok(),
   )
-  await page
-    .getByRole('row')
-    .filter({ hasText: 'Robin' })
+  // The access level is in the person's editor (it applies at once, not on Save).
+  await personAction(page, 'Robin', 'Edit Robin')
+  await personCard(page, 'Robin')
     .getByRole('combobox', { name: 'Access level for Robin' })
     .selectOption({ label: 'Read-only' })
   await roleChanged
@@ -272,7 +278,7 @@ test('a pure invitee starts their own budget (nothing seeded), switches househol
   // PPL-058 (own side): the own household is solo — just the invitee, none of Olive's data.
   await expect(guest.getByRole('link', { name: 'Allocation' })).toHaveCount(0)
   await guest.goto('/people')
-  await expect(guest.getByRole('row')).toHaveCount(2) // header + the new owner member
+  await expect(personCards(guest)).toHaveCount(1) // the new owner member
   await expect(guest.getByText('Olive')).toHaveCount(0)
 
   // PPL-062 / PPL-067: now that they own a household (and are viewing it), both cards go.
@@ -295,7 +301,7 @@ test('a pure invitee starts their own budget (nothing seeded), switches househol
   await expect(guest.getByText('Remaining to budget')).toBeVisible()
   await expect(guest.getByText(/You have limited access/)).toBeVisible()
   await guest.goto('/people')
-  await expect(guest.getByRole('row')).toHaveCount(3)
+  await expect(personCards(guest)).toHaveCount(2)
   await expect(guest.getByText('Olive', { exact: true })).toBeVisible()
 
   // --- PPL-065 (variant) / ROLE-033: leave the joined household from /account ---

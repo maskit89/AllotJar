@@ -137,6 +137,7 @@ const SHEET_GROUP =
  */
 export function ActionSheet({
   title,
+  wrapTitle = false,
   description,
   actions,
   open,
@@ -144,6 +145,11 @@ export function ActionSheet({
   children,
 }: {
   title: string
+  /**
+   * A long title wraps instead of being cut short with an ellipsis (the People page: a person's
+   * full name, or a sign-in's email, which the sheet's backdrop hides everywhere else).
+   */
+  wrapTitle?: boolean
   /** One short line under the title (what the line holds). */
   description?: ReactNode
   actions: RowAction[]
@@ -192,7 +198,7 @@ export function ActionSheet({
           className="relative mx-auto mb-0.5 block h-[5px] w-[38px] shrink-0 rounded-full bg-slate-500/35 after:absolute after:-inset-x-5 after:-inset-y-3.5 after:content-['']"
         />
         <div className="px-1">
-          <SheetTitle className="truncate text-base font-semibold text-slate-900">{title}</SheetTitle>
+          <SheetTitle className={`${wrapTitle ? '[overflow-wrap:anywhere]' : 'truncate'} text-base font-semibold text-slate-900`}>{title}</SheetTitle>
           {description && (
             <SheetDescription className="mt-0.5 text-[13px] text-slate-500 tabular-nums">{description}</SheetDescription>
           )}

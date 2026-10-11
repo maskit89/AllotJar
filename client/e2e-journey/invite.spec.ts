@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { JOURNEY_PASSWORD, register, suppressOnboarding, uniqueEmail, waitForEmailLink } from './helpers'
+import { JOURNEY_PASSWORD, personAction, register, suppressOnboarding, uniqueEmail, waitForEmailLink } from './helpers'
 
 /**
  * The household invite journey (H1), end-to-end: an owner adds a person, emails them a one-time invite
@@ -23,8 +23,9 @@ test('an owner invites a new person who accepts and lands in the shared househol
   await addDialog.getByLabel('Person name').fill('Robin')
   await addDialog.getByRole('button', { name: 'Add person', exact: true }).click()
 
-  // Robin's row is the only one offering a sign-in invite (the owner already has a login).
-  await page.getByRole('button', { name: 'Invite to sign in' }).click()
+  // Robin's ⋯ offers a sign-in invite (the owner already has a login, so theirs doesn't).
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await personAction(page, 'Robin', 'Invite to sign in')
   const inviteDialog = page.getByRole('dialog')
   const robinEmail = uniqueEmail('robin')
   await inviteDialog.getByLabel('Invitee email').fill(robinEmail)

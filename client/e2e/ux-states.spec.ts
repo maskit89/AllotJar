@@ -175,7 +175,9 @@ const LOADING_CASES: LoadingCase[] = [
   {
     path: '/people',
     route: '**/api/members?**', // the list GET carries ?year=&month= (rule 29), so match with a trailing **
-    content: (p) => p.getByRole('heading', { name: 'Your household' }),
+    // A person's card (restyle PR 8), by exact name: the cards' list is headed "Your household"
+    // for assistive tech only.
+    content: (p) => p.getByRole('region', { name: 'Your household', exact: true }).getByRole('article', { name: 'Alex', exact: true }),
     ids: 'UX-041',
   },
 ]

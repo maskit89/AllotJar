@@ -7,6 +7,7 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 
 import { mockGet, mockPost, mockPut, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
+import { personAction, personCard, personItems, personNote } from '../test/rowMenu'
 import { PeoplePage } from './PeoplePage'
 
 function member(over: Partial<HouseholdMemberDto> = {}): HouseholdMemberDto {
@@ -55,8 +56,8 @@ describe('PeoplePage', () => {
 
     renderPage()
 
-    await screen.findByRole('table', {}, { timeout: 5000 })
-    await user.click(screen.getByRole('button', { name: 'This is me' }))
+    // "This is me" sits in the person's ⋯ menu.
+    await personAction(user, 'Alex', 'This is me')
 
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/access/members/mem1/link', { memberId: 'm1' }),
@@ -81,14 +82,15 @@ describe('PeoplePage', () => {
 
     renderPage()
 
-    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
-    expect(table.getByText('Private account')).toBeInTheDocument()
+    await screen.findByRole('article', { name: 'Alex' }, { timeout: 5000 })
+    const card = within(personCard('Alex'))
+    expect(card.getByText('Private account')).toBeInTheDocument()
 
-    await user.click(table.getByRole('button', { name: 'Edit Alex' }))
-    const select = table.getByLabelText('Savings account for Alex') as HTMLSelectElement
+    await personAction(user, 'Alex', 'Edit Alex')
+    const select = card.getByLabelText('Savings account for Alex') as HTMLSelectElement
     expect(select.selectedOptions[0]).toHaveTextContent('Private account')
     expect(within(select).queryByRole('option', { name: 'None' })).not.toBeInTheDocument()
-    await user.click(table.getByRole('button', { name: 'Save Alex' }))
+    await user.click(card.getByRole('button', { name: 'Save Alex' }))
 
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/members/m1', expect.objectContaining({ personalSavingsAccountId: null })),
@@ -105,13 +107,17 @@ describe('PeoplePage', () => {
 
     renderPage()
 
-    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
-    expect(table.getByText(/Your sign-in was linked to Sam before/)).toBeInTheDocument()
-    expect(table.getAllByRole('button', { name: "This isn't me" })).toHaveLength(1)
+    await screen.findByRole('article', { name: 'Sam' }, { timeout: 5000 })
+    // The ⋯'s note says why, in one line; "This isn't me" is in Sam's ⋯ only.
+    expect(await personNote(user, 'Sam')).toContain('Your sign-in was linked to Sam before, which stops Sam making their accounts private.')
+    expect((await personNote(user, 'Alex')).join(' ')).not.toMatch(/Your sign-in was linked to Alex before/)
+    expect(await personItems(user, 'Sam')).toContain("This isn't me")
+    expect(await personItems(user, 'Alex')).not.toContain("This isn't me")
     membersData = [member(), member({ id: 'm2', name: 'Sam', displayOrder: 1 })]
-    await user.click(table.getByRole('button', { name: "This isn't me" }))
+    await personAction(user, 'Sam', "This isn't me")
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/access/people/m2/not-me'))
-    await waitFor(() => expect(screen.queryByText(/Your sign-in was linked to Sam before/)).not.toBeInTheDocument())
+    await waitFor(async () => expect((await personNote(user, 'Sam')).join(' ')).not.toMatch(/Your sign-in was linked to Sam before/))
+    expect(screen.queryByText(/Your sign-in was linked to Sam before/)).not.toBeInTheDocument()
   })
 })

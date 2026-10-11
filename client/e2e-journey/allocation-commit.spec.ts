@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { firstOfMonthAhead, groupAction, lineAction, register, txRows } from './helpers'
+import { firstOfMonthAhead, groupAction, lineAction, personAction, register, txRows } from './helpers'
 
 /**
  * Allocation end-to-end through the REAL stack (the ALLOC deferred set): a genuine
@@ -191,15 +191,13 @@ async function addAttributedIncome(page: Page, line: { name: string; amount: str
 
 /**
  * Rename the auto-seeded owner member (first name "Journey") and give them an income
- * and a personal savings account, through the People page row editor (hover-revealed).
+ * and a personal savings account, through the People page card editor (Edit in the card's ⋯).
  */
 async function configureOwnerMember(
   page: Page,
   m: { newName: string; income: string; savings: string },
 ) {
-  const row = page.locator('tbody tr').filter({ hasText: 'Journey' })
-  await row.hover()
-  await page.getByRole('button', { name: 'Edit Journey', exact: true }).click()
+  await personAction(page, 'Journey', 'Edit Journey')
   await page.getByLabel('Name for Journey', { exact: true }).fill(m.newName)
   await page.getByLabel('Default income for Journey', { exact: true }).fill(m.income)
   // The savings picker labels options "Name — Type"; journey accounts are all Current.
