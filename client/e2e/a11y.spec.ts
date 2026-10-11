@@ -369,6 +369,31 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('button', { name: 'Create account' }).click()
       await page.getByLabel('First name').waitFor()
       await expectNoViolations(page)
+
+      // And with the currency (i) open (its tooltip over the form).
+      await page.getByRole('button', { name: 'About these settings' }).focus()
+      await page.getByRole('tooltip').waitFor()
+      await expectNoViolations(page)
+
+      // The session-expired line, with its (i) open.
+      await page.goto('/login?reason=expired')
+      await page.getByRole('button', { name: 'Why you were signed out' }).focus()
+      await page.getByRole('tooltip').waitFor()
+      await expectNoViolations(page)
+    })
+
+    // The invite landing (public, restyle PR 9's frame): the signed-out accept form and the
+    // missing-code state.
+    test('accept-invite page has no WCAG A/AA violations', async ({ page }) => {
+      await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)
+      await page.route('**/api/**', mockApi)
+      await page.goto('/accept-invite?code=abc')
+      await page.getByLabel('Your name (optional)').waitFor()
+      await expectNoViolations(page)
+
+      await page.goto('/accept-invite')
+      await page.getByRole('alert').waitFor()
+      await expectNoViolations(page)
     })
 
     // REG-066 — the password-reset pages are public auth chrome like /login: scan the
@@ -391,6 +416,13 @@ for (const theme of ['light', 'dark'] as const) {
       await page.goto('/reset-password?email=owner%40example.com&token=tok')
       // exact — "Confirm new password" substring-matches "New password" otherwise.
       await page.getByLabel('New password', { exact: true }).waitFor()
+      await expectNoViolations(page)
+
+      // The mismatch: the confirm field marked invalid and described by the alert.
+      await page.getByLabel('New password', { exact: true }).fill('password123')
+      await page.getByLabel('Confirm new password').fill('password124')
+      await page.getByRole('button', { name: 'Set new password' }).click()
+      await page.getByRole('alert').waitFor()
       await expectNoViolations(page)
 
       // Incomplete-link recovery state (no token in the URL).

@@ -22,10 +22,14 @@ vi.mock('../lib/googleAuth', () => ({
 }))
 
 import { GoogleSignInButton } from './GoogleSignInButton'
+import { ThemeButton } from './ThemeToggle'
+import userEvent from '@testing-library/user-event'
 
 beforeEach(() => {
   vi.clearAllMocks()
   state.clientId = 'client-123.apps.googleusercontent.com'
+  localStorage.clear()
+  document.documentElement.classList.remove('dark')
 })
 
 describe('GoogleSignInButton (catalog REG-080)', () => {
@@ -65,5 +69,28 @@ describe('GoogleSignInButton (catalog REG-080)', () => {
 
     await waitFor(() => expect(container).toBeEmptyDOMElement())
     expect(onReady).not.toHaveBeenCalled()
+  })
+
+  // Restyle PR 9: drawn as the sign-in card wants it: Google's pill, 'outline' on the light page and
+  // 'filled_black' on the dark one. Google fixes the look when it draws, so a theme change redraws.
+  it('asks Google for the pill in its outline theme, and redraws it filled black when the page turns dark', async () => {
+    state.render.mockResolvedValue(undefined)
+    const onReady = vi.fn()
+    render(
+      <>
+        <ThemeButton />
+        <GoogleSignInButton onCredential={vi.fn()} onReady={onReady} />
+      </>,
+    )
+
+    await waitFor(() => expect(onReady).toHaveBeenCalled())
+    expect(state.render).toHaveBeenCalledTimes(1)
+    expect(state.render.mock.calls[0][0]).toBe(screen.getByTestId('google-signin'))
+    expect(state.render.mock.calls[0][2]).toMatchObject({ theme: 'outline', shape: 'pill' })
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Dark mode' }))
+    await waitFor(() => expect(state.render).toHaveBeenCalledTimes(2))
+    expect(state.render.mock.calls[1][0]).toBe(screen.getByTestId('google-signin'))
+    expect(state.render.mock.calls[1][2]).toMatchObject({ theme: 'filled_black', shape: 'pill' })
   })
 })

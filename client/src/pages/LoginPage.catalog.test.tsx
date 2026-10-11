@@ -134,6 +134,16 @@ async function switchToRegister(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'Create account' }))
 }
 
+/** The room's one line ("Give every euro a job."): its money word is a gold span of its own, so the
+ *  line is matched as the whole <p>'s text. */
+function theLine(text: string | RegExp) {
+  return screen.getByText(
+    (_, el) =>
+      el?.tagName === 'P' &&
+      (typeof text === 'string' ? el.textContent === text : text.test(el.textContent ?? '')),
+  )
+}
+
 describe('LoginPage (REG catalog)', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -154,7 +164,8 @@ describe('LoginPage (REG catalog)', () => {
     renderAt('/login')
 
     expect(screen.getByRole('heading', { name: /AllotJar/ })).toBeInTheDocument()
-    expect(screen.getByText('Zero-based budgeting, in your currency.')).toBeInTheDocument()
+    // Restyle PR 9: one line of copy only. The tagline went; the room's line stays (below).
+    expect(screen.queryByText('Zero-based budgeting, in your currency.')).not.toBeInTheDocument()
 
     // Segmented control: "Sign in" selected, "Create account" not.
     expect(screen.getByRole('group', { name: 'Sign in or create an account' })).toBeInTheDocument()
@@ -177,7 +188,7 @@ describe('LoginPage (REG catalog)', () => {
     expect(screen.queryByLabelText('Currency')).not.toBeInTheDocument()
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
-    expect(screen.getByText(/Give every \w+ a job\./)).toBeInTheDocument()
+    expect(theLine(/^Give every \w+ a job\.$/)).toBeInTheDocument()
   })
 
   // REG-002 — switching to "Create account" reveals every registration field with
@@ -193,9 +204,13 @@ describe('LoginPage (REG catalog)', () => {
     expect(screen.getByLabelText('Last name')).toHaveAttribute('autocomplete', 'family-name')
     expect(screen.getByLabelText('Currency')).toBeInTheDocument()
     expect(screen.getByLabelText('Number format')).toBeInTheDocument()
-    expect(
-      screen.getByText('Your budget and its accounts use this currency. You can change it in account settings until you add your first account, month or transaction; the number format any time.'),
-    ).toBeInTheDocument()
+    // The currency explainer lives behind the (i) beside the Currency label (restyle PR 9).
+    const explainer =
+      'Your budget and its accounts use this currency. You can change it in account settings until you add your first account, month or transaction; the number format any time.'
+    expect(screen.queryByText(explainer)).not.toBeInTheDocument()
+    await user.hover(screen.getByRole('button', { name: 'About these settings' }))
+    expect(screen.getByText(explainer)).toBeInTheDocument()
+    await user.unhover(screen.getByRole('button', { name: 'About these settings' }))
     // No sample-figures opt-in (rule 81: the household starts empty).
     expect(screen.queryByRole('checkbox', { name: /sample figures/i })).not.toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: /I agree to the/ })).toBeRequired()
@@ -338,7 +353,7 @@ describe('LoginPage (REG catalog)', () => {
         const view = renderAt('/login?register=1')
         expect((screen.getByLabelText('Currency') as HTMLSelectElement).value).toBe(c.currency)
         expect((screen.getByLabelText('Number format') as HTMLSelectElement).value).toBe(c.format)
-        expect(screen.getByText(`Give every ${c.noun} a job.`)).toBeInTheDocument()
+        expect(theLine(`Give every ${c.noun} a job.`)).toBeInTheDocument()
         view.unmount()
       } finally {
         spy.mockRestore()
@@ -633,9 +648,13 @@ describe('LoginPage (REG catalog)', () => {
     const user = userEvent.setup()
     renderAt('/login?reason=expired&returnUrl=%2Ftransactions')
 
+    // On screen: the one quiet line. Why it happened sits behind its (i) (restyle PR 9).
+    expect(screen.getByRole('status')).toHaveTextContent('Your session has expired.')
+    await user.hover(screen.getByRole('button', { name: 'Why you were signed out' }))
     expect(
       screen.getByText(/Your session has expired, so we signed you out to keep your budget safe/),
     ).toBeInTheDocument()
+    await user.unhover(screen.getByRole('button', { name: 'Why you were signed out' }))
 
     await switchToRegister(user)
     expect(screen.queryByText(/Your session has expired/)).not.toBeInTheDocument()

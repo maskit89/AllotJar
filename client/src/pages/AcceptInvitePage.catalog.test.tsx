@@ -81,6 +81,9 @@ describe('AcceptInvitePage (INV catalog)', () => {
 
     expect(await screen.findByText('Household invite', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Join the household' })).toBeInTheDocument()
+    // The intro lives behind the (i) beside the title (restyle PR 9): hidden until it is opened.
+    expect(screen.queryByText(/pool income, split shared costs/i)).not.toBeInTheDocument()
+    await userEvent.setup().hover(screen.getByRole('button', { name: 'About this invite' }))
     expect(screen.getByText(/pool income, split shared costs/i)).toBeInTheDocument()
     expect(screen.getByLabelText('Password')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Accept invite' })).toBeInTheDocument()

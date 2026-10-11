@@ -1,5 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { GOOGLE_CLIENT_ID, renderGoogleButton } from '../lib/googleAuth'
+import { useTheme } from '../lib/theme'
+
+/** Google draws its button at most this wide (px). */
+const MAX_WIDTH = 400
 
 /**
  * The official "Continue with Google" button (an iframe Google renders into our container),
@@ -7,6 +11,10 @@ import { GOOGLE_CLIENT_ID, renderGoogleButton } from '../lib/googleAuth'
  * the Google Cloud setup ship an unchanged login page. Script-load failures degrade to nothing
  * too (the password form is always there); the divider label is rendered by the parent only
  * through `onReady`, so a hidden button never leaves an orphaned "or" on the page.
+ *
+ * Drawn as the sign-in card wants it (restyle PR 9): Google's large pill, as wide as the card's
+ * column (up to Google's 400px), 'outline' on the light page and 'filled_black' on the dark one.
+ * Google fixes the look when it draws the iframe, so a theme change or a new column width redraws it.
  */
 export function GoogleSignInButton({
   onCredential,
@@ -19,6 +27,10 @@ export function GoogleSignInButton({
 }) {
   const container = useRef<HTMLDivElement>(null)
   const [failed, setFailed] = useState(false)
+  const { isDark } = useTheme()
+  // Bumped when the column's width changes, so the button is redrawn at the new width.
+  const [widthTick, setWidthTick] = useState(0)
+  const drawnWidth = useRef(0)
 
   // Keep the latest callbacks without re-rendering Google's iframe on every parent render.
   const onCredentialRef = useRef(onCredential)
@@ -29,10 +41,16 @@ export function GoogleSignInButton({
   })
 
   useEffect(() => {
-    if (!GOOGLE_CLIENT_ID || !container.current) return
+    const el = container.current
+    if (!GOOGLE_CLIENT_ID || !el) return
     let cancelled = false
-    renderGoogleButton(container.current, (credential) => onCredentialRef.current(credential), {
-      width: 336, // matches the auth card's inner width (max-w-sm minus p-8)
+    const width = Math.min(MAX_WIDTH, Math.floor(el.clientWidth))
+    drawnWidth.current = width
+    renderGoogleButton(el, (credential) => onCredentialRef.current(credential), {
+      theme: isDark ? 'filled_black' : 'outline',
+      shape: 'pill',
+      // Unmeasured (no layout yet), Google picks its own width.
+      width: width > 0 ? width : undefined,
     })
       .then(() => {
         if (!cancelled) onReadyRef.current?.()
@@ -43,7 +61,26 @@ export function GoogleSignInButton({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [isDark, widthTick])
+
+  // A window resized across the phone breakpoint changes the column: redraw once it settles.
+  useEffect(() => {
+    const el = container.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    let timer: number | undefined
+    const observer = new ResizeObserver(() => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        const width = Math.min(MAX_WIDTH, Math.floor(el.clientWidth))
+        if (width > 0 && width !== drawnWidth.current) setWidthTick((t) => t + 1)
+      }, 150)
+    })
+    observer.observe(el)
+    return () => {
+      observer.disconnect()
+      window.clearTimeout(timer)
+    }
+  }, [failed])
 
   if (!GOOGLE_CLIENT_ID || failed) return null
 

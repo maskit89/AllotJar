@@ -321,6 +321,42 @@ test('login sign-in/create-account segmented control toggles via keyboard (UX-01
   await expect(page.getByLabel('First name')).toBeVisible()
 })
 
+// The sign-in pages (restyle PR 9): a submit pressed from the keyboard is disabled while its request
+// runs, which drops focus to <body>; when an error comes back focus is on the submit again, so Tab
+// and Shift+Tab carry on from the form. A state that replaces the form takes focus on its title.
+test('login: after a failed sign-in from the submit button, focus is back on the button', async ({ page }) => {
+  await signedOutLogin(page)
+  let release: () => void = () => {}
+  const held = new Promise<void>((r) => (release = r))
+  await page.route('**/api/auth/login', async (route) => {
+    await held
+    await route.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"Invalid email or password."}' })
+  })
+  await page.getByLabel('Email').fill('owner@example.com')
+  await page.getByLabel('Password').fill('WrongPass1x')
+  const submit = page.locator('button[type="submit"]')
+  await submit.focus()
+  await page.keyboard.press('Enter')
+  await expect(submit).toBeDisabled()
+  await expect.poll(() => page.evaluate(() => document.activeElement === document.body)).toBe(true)
+  release()
+  await expect(page.getByRole('alert')).toHaveText('Invalid email or password.')
+  await expect(submit).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.getByLabel('Password')).toBeFocused()
+})
+
+test('forgot password: "Check your inbox" takes focus on its title when it replaces the form', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('zbb.theme', 'light'))
+  await page.route('**/api/**', mockApi)
+  await page.goto('/forgot-password')
+  await page.getByLabel('Email').fill('owner@example.com')
+  await page.getByLabel('Email').press('Enter')
+  await expect(page.getByRole('heading', { name: 'Check your inbox' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('button', { name: 'If nothing arrives' })).toBeFocused()
+})
+
 // UX-013 — the allocation split SegmentedControls (in the settings modal) each
 // expose aria-pressed and toggle from the keyboard; the two groups are labelled
 // distinctly ("Split method" / "Savings split method").

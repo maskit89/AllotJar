@@ -468,3 +468,856 @@ html {
     scroll-behavior: auto !important;
   }
 }
+
+/* ============================================================================================
+   The signed-out pages (restyle PR 9, the approved "Green banner"): AuthFrame and the cards of
+   Sign in / Create account, Forgot password, Reset password and Accept invite. Plain rules (not
+   Tailwind utilities), so the shared Input / Select / Button keep their own look everywhere else
+   and take this one only through the `auth-*` classes these pages pass them.
+   ============================================================================================ */
+.auth-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+/* The room sits where the mock-up puts it (24px from the top) on every screen, so the card's top, the
+   line and the shelf never move between the pages or the two modes. The lower half of a tall screen
+   is not left as flat sage: the page deepens into a quiet floor under the card (::before, no height
+   and no content of its own), a counterweight to the green room above. */
+.auth {
+  position: relative;
+  isolation: isolate;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.auth::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: 0;
+  right: 0;
+  top: 470px;
+  bottom: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 70% at 50% 100%, var(--auth-floor-glow), transparent 70%),
+    linear-gradient(180deg, transparent, var(--auth-floor) 70%);
+  --auth-floor: color-mix(in srgb, var(--color-background) 90%, #1f6b4d);
+  --auth-floor-glow: color-mix(in srgb, var(--color-background) 84%, #1f6b4d);
+}
+.dark .auth::before {
+  --auth-floor: color-mix(in srgb, var(--color-background) 88%, #1f6b4d);
+  --auth-floor-glow: color-mix(in srgb, var(--color-background) 80%, #1f6b4d);
+}
+
+/* The green room: the hero card's gradient (deeper on the dark page), a soft gold glow behind the
+   line, the quiet shelf. Decoration only. */
+.auth-room {
+  position: absolute;
+  z-index: 0;
+  top: 24px;
+  left: 24px;
+  right: 24px;
+  height: 406px;
+  border-radius: 24px;
+  overflow: hidden;
+  background:
+    radial-gradient(36% 252px at 50% 122px, rgb(244 219 142 / 0.17), transparent 72%),
+    linear-gradient(135deg, #114a32, #185c3f 45%, #237a55);
+  box-shadow: 0 22px 44px -30px rgb(31 107 77 / 0.7);
+}
+.dark .auth-room {
+  background:
+    radial-gradient(36% 252px at 50% 122px, rgb(244 219 142 / 0.09), transparent 72%),
+    linear-gradient(135deg, #092619, #0e3624 45%, #14492f);
+  box-shadow: none;
+}
+
+/* The shelf: a pale khaki plank with a 1px gold highlight, its ends fading out, and four glass jars
+   in lighter tints that read on the green (GlassJar's colours are CSS variables, set here). */
+.auth-shelf,
+.auth-pshelf {
+  --glass: rgb(255 255 255 / 0.07);
+  --jar-hl: rgb(255 255 255 / 0.42);
+  --jar-hl2: rgb(255 255 255 / 0.18);
+  --color-cat-emerald: #7fd3a6;
+  --color-cat-teal: #8cc2ea; /* the mock's sky blue: the shelf's teal jar wears it */
+  --color-cat-rose: #e996ad;
+  --color-cat-indigo: #a0a9ee;
+}
+.dark .auth-shelf,
+.dark .auth-pshelf {
+  --glass: rgb(255 255 255 / 0.045);
+  --jar-hl: rgb(255 255 255 / 0.3);
+  --jar-hl2: rgb(255 255 255 / 0.13);
+  --color-cat-emerald: #5cbf8e;
+  --color-cat-teal: #79b1dc;
+  --color-cat-rose: #d8849c;
+  --color-cat-indigo: #8b95e2;
+}
+.auth-shelf {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 321px;
+  height: 0;
+}
+.auth-jars {
+  position: absolute;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 32px;
+}
+/* The card is 420 wide: the inner jars keep 56px clear of it. */
+.auth-jars-l {
+  right: calc(50% + 266px);
+}
+.auth-jars-r {
+  left: calc(50% + 266px);
+}
+.auth-plank {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 6px;
+  border-radius: 1px 1px 3px 3px;
+  background: linear-gradient(180deg, rgb(244 219 142 / 0.85) 0 1px, #bdb48e 1px, #a69d77);
+  box-shadow: 0 6px 10px -6px rgb(2 22 13 / 0.55);
+  -webkit-mask: linear-gradient(90deg, transparent, #000 200px, #000 calc(100% - 200px), transparent);
+  mask: linear-gradient(90deg, transparent, #000 200px, #000 calc(100% - 200px), transparent);
+}
+.dark .auth-plank {
+  background: linear-gradient(180deg, rgb(232 195 106 / 0.6) 0 1px, #6f6a52 1px, #5d5944);
+  box-shadow: 0 6px 10px -6px rgb(0 0 0 / 0.7);
+}
+.auth-pshelf {
+  display: none;
+}
+
+/* The band: the wordmark row (in the room on desktop) and the line. */
+.auth-band {
+  position: relative;
+  z-index: 3;
+}
+.auth-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 80px;
+  margin: 24px 24px 0;
+  padding: 0 32px;
+  color: #fff;
+}
+.auth-brand {
+  /* JarLogo paints its body with --accent: a pale tint reads on the green. */
+  --accent: #e6f1ea;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.auth-brand-name {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: #fff;
+}
+.auth-brand-name span {
+  color: #a9dcc0;
+}
+.auth-theme {
+  color: #e6f1ea;
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.16);
+}
+.auth-theme:hover {
+  color: #fff;
+  background: rgb(255 255 255 / 0.14);
+}
+/* The green ring would vanish on the green: the focus outline turns gold there. */
+.auth-band :focus-visible {
+  outline-color: #f4db8e;
+}
+.auth-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 24px 0;
+}
+/* The gold word: the app's gold, a step lighter at its foot, so every part of each glyph clears 3:1 on
+   the green under the glow (large text). */
+.auth-line .gold-number {
+  background-image: linear-gradient(170deg, #f7e3a3 8%, #efcd72 48%, #e7c160);
+}
+.auth-line {
+  position: relative;
+  margin: 0 0 34px;
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  text-align: center;
+  color: #fff;
+}
+
+/* The stage under the band: the card, centred, standing in front of the shelf (and, on a phone,
+   over the band's foot). */
+.auth-main {
+  position: relative;
+  z-index: 4;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 24px 48px;
+}
+.auth-card {
+  --auth-gap: 22px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 420px;
+  max-width: 100%;
+  padding: 26px 32px 30px;
+  border-radius: 22px;
+  background: var(--color-card);
+  color: var(--color-foreground);
+  box-shadow: 0 2px 6px rgb(22 44 32 / 0.08), 0 30px 60px -28px rgb(22 44 32 / 0.5);
+}
+.auth-card > * {
+  margin: 0;
+}
+.auth-card > * + * {
+  margin-top: var(--auth-gap);
+}
+/* A short card (a sent or incomplete state) still reaches just past the room's foot onto the sage, as
+   every card in the mock-up does. */
+@media (min-width: 700px) {
+  .auth-card {
+    min-height: 250px;
+  }
+}
+/* The card's quiet foot (the way back) follows what is above it. */
+.auth-card > .auth-foot {
+  padding-top: var(--auth-gap);
+}
+.dark .auth-card {
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.4), 0 24px 48px -26px rgb(0 0 0 / 0.75);
+}
+/* The gold hairline edge: a 1px gradient border drawn by the mask, so it follows the radius. */
+.auth-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgb(236 200 110 / 0.95), rgb(229 190 94 / 0.28) 32%, rgb(229 190 94 / 0.28) 68%, rgb(236 200 110 / 0.85));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+.dark .auth-card::after {
+  background: linear-gradient(135deg, rgb(236 200 110 / 0.75), rgb(229 190 94 / 0.14) 32%, rgb(229 190 94 / 0.14) 68%, rgb(236 200 110 / 0.6));
+}
+
+/* The card's own parts. */
+.auth-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.auth-eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-brand-600);
+}
+.dark .auth-eyebrow {
+  color: var(--color-brand-500);
+}
+.auth-head-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.auth-title:focus {
+  outline: none;
+}
+.auth-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--color-foreground);
+}
+.auth-sub {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-slate-500);
+}
+.auth-sub b {
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.auth-2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+.auth-f {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+.auth-lr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 22px;
+}
+.auth-lt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.auth-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-slate-500);
+}
+.auth-label span {
+  font-weight: 500;
+}
+.auth-link {
+  position: relative;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-brand-600);
+}
+.auth-link:hover {
+  color: var(--color-brand-700);
+}
+.dark .auth-link {
+  color: var(--color-brand-500);
+}
+.dark .auth-link:hover {
+  color: var(--color-brand-200);
+}
+/* Fields: 44px, the inset fill; edges meet 3:1 against their fill and the card (WCAG 1.4.11); focus
+   is a solid 2px ring drawn by the border and a 1px shadow. */
+.auth-in {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-slate-400) 80%, var(--color-surface-2));
+  background: var(--color-surface-2);
+  font: inherit;
+  font-size: 14px;
+  color: var(--color-foreground);
+  box-shadow: none;
+  transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
+}
+.auth-in[aria-invalid='true'] {
+  border-color: var(--color-bad);
+}
+.auth-in::placeholder {
+  color: var(--color-slate-400);
+}
+.auth-in:focus,
+.auth-in:focus-visible {
+  outline: none;
+  border-color: var(--color-ring);
+  background: var(--color-card);
+  box-shadow: 0 0 0 1px var(--color-ring);
+}
+.dark .auth-in {
+  border-color: color-mix(in srgb, var(--color-slate-400) 65%, var(--color-background));
+  background: var(--color-background);
+}
+.dark .auth-in:focus,
+.dark .auth-in:focus-visible {
+  border-color: var(--color-ring);
+  background: var(--color-background);
+}
+.auth-sel {
+  position: relative;
+}
+.auth-sel .auth-in {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 34px;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.auth-sel svg {
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin-top: -8px;
+  color: var(--color-slate-500);
+  pointer-events: none;
+}
+/* The terms box: a native checkbox (required), drawn 18px with the brand fill when ticked. */
+.auth-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-slate-500);
+  cursor: pointer;
+}
+.auth-check input {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border-radius: 5px;
+  border: 1.5px solid color-mix(in srgb, var(--color-slate-400) 85%, var(--color-card));
+  background: var(--color-card) center / 12px no-repeat;
+  cursor: pointer;
+}
+.dark .auth-check input {
+  background-color: var(--color-background);
+}
+.auth-check input:checked {
+  border-color: var(--color-brand-600);
+  background-color: var(--color-brand-600);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.2 5 8.6l4.6-5'/%3E%3C/svg%3E");
+}
+.dark .auth-check input:checked {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary);
+}
+.auth-check input:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+@media (forced-colors: active) {
+  .auth-check input {
+    appearance: auto;
+    -webkit-appearance: auto;
+  }
+}
+.auth-check a {
+  position: relative;
+  font-weight: 600;
+  color: var(--color-brand-600);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, var(--color-brand-600) 45%, transparent);
+}
+.dark .auth-check a {
+  color: var(--color-brand-500);
+  text-decoration-color: color-mix(in srgb, var(--color-brand-500) 45%, transparent);
+}
+/* The staging build's data-loss box: the staging banner's amber, so the two read together. */
+.auth-check-staging {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fffbeb;
+  box-shadow: inset 0 0 0 1px #fcd34d;
+  color: #78350f;
+}
+.auth-check-staging input:checked {
+  border-color: #b45309;
+  background-color: #b45309;
+}
+.dark .auth-check-staging {
+  background: rgb(69 26 3 / 0.6);
+  box-shadow: inset 0 0 0 1px rgb(245 158 11 / 0.3);
+  color: #fef3c7;
+}
+.dark .auth-check-staging input:checked {
+  border-color: #d97706;
+  background-color: #d97706;
+}
+/* Our button matches Google's large pill (40px), so the stack reads as one set. */
+.auth-pill {
+  width: 100%;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-size: 14px;
+}
+.auth-pill.bg-brand-600 {
+  box-shadow: 0 1px 2px rgb(10 50 30 / 0.2), inset 0 1px 0 rgb(255 255 255 / 0.12);
+}
+/* One rose line above the submit; the alert's own text is the message (the icon is drawn by CSS). No
+   margin of its own: in a form the gap spaces it, as a card's direct child the card's gap does. */
+.auth-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-bad);
+}
+.auth-error::before,
+.auth-note::before {
+  content: '';
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  background: currentColor;
+  -webkit-mask: var(--auth-icon) center / contain no-repeat;
+  mask: var(--auth-icon) center / contain no-repeat;
+}
+.auth-error {
+  --auth-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9.5'/%3E%3Cpath d='M12 7.5v5.5M12 16.5v.01'/%3E%3C/svg%3E");
+}
+/* A quiet notice at the top of the card (the session-expired note, an unconfirmed email). */
+.auth-note {
+  --auth-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9.5'/%3E%3Cpath d='M12 7v5l3 2'/%3E%3C/svg%3E");
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  background: var(--color-warn-bg);
+  color: var(--color-warn);
+}
+/* The one-line variant (the session-expired line): amber text and its clock, no box; the why is behind
+   the (i) beside it. */
+.auth-note-line {
+  align-items: center;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font-weight: 600;
+}
+.auth-note-line::before {
+  margin-top: 0;
+}
+.auth-note-line p {
+  margin: 0;
+}
+.auth-note-line .auth-i {
+  color: var(--color-warn);
+}
+/* The resend button inside the unconfirmed-email note: the pill shape, a 40px target. */
+.auth-note-btn {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+}
+.auth-note-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.auth-or {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-slate-400);
+}
+.auth-or::before,
+.auth-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+/* "or" + Google's button: nothing (and no gap) until Google's button is on the page. */
+.auth-gwrap {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.auth-card > .auth-gwrap:not(.is-ready) {
+  margin-top: 0;
+}
+.auth-card > .auth-gwrap.is-ready {
+  margin-top: 18px;
+}
+/* The card's quiet foot: "Back to sign in", "Not now", "Sign in to accept". */
+.auth-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-slate-500);
+  text-align: center;
+}
+/* A link inside a sentence ("Already have an account? Sign in to accept") is underlined like the
+   terms links: its colour alone is almost the sentence's. */
+.auth-foot p .auth-link {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, var(--color-brand-600) 45%, transparent);
+}
+.dark .auth-foot p .auth-link {
+  text-decoration-color: color-mix(in srgb, var(--color-brand-500) 45%, transparent);
+}
+.auth-quiet {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-slate-500);
+}
+.auth-quiet:hover {
+  color: var(--color-foreground);
+}
+/* The (i) beside a title or a label: a 22px button with a 40px hit area. */
+.auth-i {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  color: var(--color-slate-500);
+}
+.auth-i::after {
+  content: '';
+  position: absolute;
+  inset: -9px;
+}
+/* The ring hugs the 22px circle (no offset), so it stays clear of the label or title beside it. */
+.auth-i:focus-visible {
+  outline-offset: 0;
+}
+.auth-i:hover {
+  color: var(--color-foreground);
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+/* Narrower desktops: only the inner jars, so nothing reaches the room's edge; no shelf under 1000px. */
+@media (max-width: 1180px) {
+  .auth-jar-outer {
+    display: none;
+  }
+}
+@media (max-width: 1000px) {
+  .auth-shelf {
+    display: none;
+  }
+}
+
+/* Phone: a compact green band (wordmark row, the line, a small shelf of the same four jars), one height
+   on every page and in both modes, and the card as a sheet with rounded top corners and the gold
+   hairline that hangs from the band's foot (its top at 211px, as in the mock-up) down to the bottom of
+   the screen. What grows (a notice, an error, Google's button arriving) grows downwards, so nothing
+   the visitor is about to tap moves; the sheet's last group rests on the bottom edge. */
+@media (max-width: 699.98px) {
+  .auth::before {
+    display: none;
+  }
+  .auth-room {
+    display: none;
+  }
+  .auth-band {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    isolation: isolate;
+    padding-bottom: 28px;
+    background: linear-gradient(160deg, #114a32, #185c3f 50%, #237a55);
+  }
+  .dark .auth-band {
+    background: linear-gradient(160deg, #092619, #0e3624 50%, #14492f);
+  }
+  .auth-top {
+    height: 56px;
+    margin: 0;
+    padding: 0 12px 0 16px;
+  }
+  .auth-brand {
+    gap: 9px;
+  }
+  .auth-hero {
+    padding: 10px 16px 20px;
+  }
+  .auth-line {
+    margin: 0;
+    font-size: 30px;
+  }
+  /* The soft gold glow behind the line. */
+  .auth-line::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    left: 50%;
+    top: 50%;
+    width: 546px;
+    height: 322px;
+    transform: translate(-50%, -47%);
+    background: radial-gradient(closest-side, rgb(244 219 142 / 0.17), transparent 72%);
+    pointer-events: none;
+  }
+  .dark .auth-line::before {
+    background: radial-gradient(closest-side, rgb(244 219 142 / 0.09), transparent 72%);
+  }
+  .auth-pshelf {
+    display: block;
+    position: relative;
+    width: 250px;
+    margin: 18px auto 0;
+  }
+  .auth-pshelf .auth-jars {
+    position: relative;
+    justify-content: center;
+    gap: 16px;
+  }
+  .auth-pshelf .auth-plank {
+    position: relative;
+    height: 5px;
+    -webkit-mask: linear-gradient(90deg, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+    mask: linear-gradient(90deg, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+  }
+  .auth-main {
+    flex: 1;
+    margin-top: -28px;
+    padding: 0;
+    align-items: stretch;
+  }
+  .auth-card {
+    --auth-gap: 20px;
+    flex: 1;
+    width: auto;
+    max-width: none;
+    /* The desktop page's quiet floor, on the sheet: its foot deepens a touch, so the screen ends
+       on a surface, not on blank paper, whatever the form's length. */
+    background:
+      linear-gradient(to top, color-mix(in srgb, var(--color-card) 91%, #1f6b4d), transparent 300px),
+      var(--color-card);
+    border-radius: 28px 28px 0 0;
+    padding: 24px 20px calc(28px + env(safe-area-inset-bottom));
+    box-shadow: 0 -14px 30px -18px rgb(2 22 13 / 0.5);
+  }
+  .dark .auth-card {
+    background:
+      linear-gradient(to top, color-mix(in srgb, var(--color-card) 88%, #2a8a62), transparent 300px),
+      var(--color-card);
+    box-shadow: 0 -14px 30px -18px rgb(0 0 0 / 0.8);
+  }
+  .auth-card::after,
+  .dark .auth-card::after {
+    border-radius: 28px 28px 0 0;
+    padding: 1.5px 0 0;
+  }
+  .auth-card::after {
+    background: linear-gradient(90deg, rgb(229 190 94 / 0.2), rgb(236 200 110 / 0.95) 24%, rgb(236 200 110 / 0.95) 76%, rgb(229 190 94 / 0.2));
+  }
+  .dark .auth-card::after {
+    background: linear-gradient(90deg, rgb(229 190 94 / 0.14), rgb(236 200 110 / 0.75) 24%, rgb(236 200 110 / 0.75) 76%, rgb(229 190 94 / 0.14));
+  }
+  .auth-f {
+    gap: 6px;
+  }
+  .auth-in {
+    font-size: 16px;
+  }
+  .auth-2 {
+    gap: 10px;
+  }
+  .auth-check {
+    min-height: 40px;
+    align-items: center;
+  }
+  /* 40px tap targets that stop at the field's edge. */
+  .auth-lr .auth-link::after {
+    content: '';
+    position: absolute;
+    inset: -16px -8px -6px;
+  }
+  .auth-check a::after {
+    content: '';
+    position: absolute;
+    inset: -12px -2px;
+  }
+  .auth-foot .auth-link,
+  .auth-quiet {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+  }
+  /* Create account: the same band and the same sheet top (the switch stays under the finger); only
+     the form is a little tighter. */
+  .auth-dense .auth-card {
+    --auth-gap: 18px;
+  }
+  .auth-dense .auth-form {
+    gap: 12px;
+  }
+}
+
+/* Short phones (iPhone SE and smaller): a tighter band, so Sign in with a notice and Google's button
+   still fits the first screen; under 600px tall the band keeps only the wordmark row and the line. */
+@media (max-width: 699.98px) and (max-height: 700px) {
+  .auth-top {
+    height: 52px;
+  }
+  .auth-hero {
+    padding: 4px 16px 14px;
+  }
+  .auth-line {
+    font-size: 28px;
+  }
+  .auth-pshelf {
+    margin-top: 12px;
+  }
+  .auth-card,
+  .auth-dense .auth-card {
+    --auth-gap: 16px;
+    padding-top: 20px;
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  }
+}
+/* The narrowest phones: the line stays on one line whatever the money word ("dollar", "forint"). */
+@media (max-width: 359.98px) {
+  .auth-line {
+    font-size: 26px;
+  }
+}
+@media (max-width: 699.98px) and (max-height: 600px) {
+  .auth-pshelf {
+    display: none;
+  }
+  .auth-line {
+    font-size: 26px;
+  }
+}
+
+/* The sign-in card's quiet switch (SegmentedControl `fill`): the selected pill's hairline edge, the
+   fields' own 3:1 border colour, under its soft lift. */
+.seg-fill-on {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-slate-400) 80%, var(--color-surface-2)),
+    var(--shadow-frame);
+}
+.dark .seg-fill-on {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-slate-400) 65%, var(--color-background)),
+    0 1px 2px rgb(0 0 0 / 0.35);
+}
