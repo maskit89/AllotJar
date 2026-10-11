@@ -155,7 +155,8 @@ const LOADING_CASES: LoadingCase[] = [
   {
     path: '/transactions',
     route: '**/api/transactions',
-    content: (p) => p.getByRole('table'),
+    // The list card (restyle PR 5: rows grouped by day, no table).
+    content: (p) => p.getByRole('region', { name: 'Transactions' }),
     ids: 'UX-041',
   },
   {

@@ -1,3 +1,4 @@
+import { Fragment, useId } from 'react'
 import type {
   ButtonHTMLAttributes,
   ComponentPropsWithoutRef,
@@ -151,18 +152,73 @@ export function PageHeader({
  * A segmented control — a row of mutually-exclusive options rendered as toggle
  * buttons (`aria-pressed`), not an ARIA tablist, so it stays accessible without
  * the full roving-tabindex tab pattern. The selected option is raised.
+ *
+ * `variant="quiet"` (the Transactions list's filter, restyle PR 5): the polished mock-ups' control,
+ * as wide as its options, the selected one raised off-white instead of filled green. An option may
+ * carry a `badge` (a count drawn after its label, hidden from assistive tech so the option keeps its
+ * name) and a `description` (what the badge says, in words, as the button's description).
  */
 export function SegmentedControl<T extends string>({
   value,
   onChange,
   options,
   ariaLabel,
+  variant = 'solid',
 }: {
   value: T
   onChange: (value: T) => void
-  options: { value: T; label: string }[]
+  options: { value: T; label: string; badge?: ReactNode; description?: string }[]
   ariaLabel?: string
+  variant?: 'solid' | 'quiet'
 }) {
+  const baseId = useId()
+  if (variant === 'quiet') {
+    return (
+      <div
+        role="group"
+        aria-label={ariaLabel}
+        className="inline-flex shrink-0 gap-0.5 rounded-[11px] bg-surface-2 p-[3px] shadow-[inset_0_0_0_1px_var(--color-line)]"
+      >
+        {options.map((o, i) => {
+          const selected = o.value === value
+          const descId = o.description ? `${baseId}-${i}` : undefined
+          return (
+            <Fragment key={o.value}>
+              <button
+                type="button"
+                aria-pressed={selected}
+                aria-describedby={descId}
+                onClick={() => onChange(o.value)}
+                // The ::after reaches over the group's 3px padding, so a phone's 38px option is a 44px target.
+                className={`relative inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-sm font-semibold transition after:absolute after:inset-x-0 after:-inset-y-[3px] after:content-[''] max-[699.98px]:h-[38px] ${
+                  selected
+                    ? 'bg-surface text-slate-900 shadow-[var(--shadow-frame)] dark:bg-popover dark:shadow-[0_1px_2px_rgb(0_0_0/0.35),inset_0_1px_0_rgb(255_255_255/0.05)]'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                {o.label}
+                {o.badge != null && (
+                  <span
+                    aria-hidden
+                    className={`inline-grid h-[18px] min-w-[18px] place-items-center rounded-full bg-[color-mix(in_srgb,var(--color-slate-500)_14%,var(--color-card))] px-[5px] text-xs tabular-nums ${
+                      selected ? 'text-slate-900' : 'text-slate-500'
+                    }`}
+                  >
+                    {o.badge}
+                  </span>
+                )}
+              </button>
+              {descId && (
+                <span id={descId} className="sr-only">
+                  {o.description}
+                </span>
+              )}
+            </Fragment>
+          )
+        })}
+      </div>
+    )
+  }
   return (
     <div
       role="group"

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { MeResponse, TransactionDto } from '../types'
 
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
@@ -52,6 +53,8 @@ describe('role gating', () => {
     )
     expect(screen.queryByLabelText('Transaction payee')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Edit transaction: Tesco')).not.toBeInTheDocument()
+    // No row ⋯ at all (so no Edit, Split or Delete behind it), and no assign control.
+    expect(screen.queryByRole('button', { name: 'Tesco: more actions' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Assign Tesco')).not.toBeInTheDocument()
     // The assigned line shows as static text instead of a dropdown.
     expect(screen.getByText('Groceries')).toBeInTheDocument()
@@ -65,7 +68,9 @@ describe('role gating', () => {
     renderPage(<TransactionsPage />)
 
     expect(await screen.findByRole('button', { name: 'Add transaction' }, { timeout: 5000 })).toBeInTheDocument()
-    expect(await screen.findByLabelText('Edit transaction: Tesco')).toBeInTheDocument()
+    // The row's ⋯ offers the edit.
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Tesco: more actions' }, { timeout: 5000 }))
+    expect(await screen.findByRole('menuitem', { name: 'Edit transaction: Tesco' })).toBeInTheDocument()
   })
 
   it('limited access cannot manage accounts (admin-only)', async () => {

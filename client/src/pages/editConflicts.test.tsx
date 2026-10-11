@@ -7,6 +7,7 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 
 import { mockGet, mockPut, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
+import { txAction } from '../test/rowMenu'
 import { budgetCategory, budgetItem, budgetMonth } from '../test/fixtures/budget'
 import { TransactionsPage } from './TransactionsPage'
 import { AccountsPage } from './AccountsPage'
@@ -72,7 +73,7 @@ describe('edit conflicts (D11)', () => {
     const user = userEvent.setup()
     renderWithProviders(<TransactionsPage />)
 
-    await user.click(await screen.findByLabelText('Edit transaction: Tesco', {}, { timeout: 5000 }))
+    await txAction(user, 'Tesco', 'Edit transaction: Tesco')
     await user.clear(screen.getByLabelText('Edit amount'))
     await user.type(screen.getByLabelText('Edit amount'), '20')
     await user.click(screen.getByLabelText('Save transaction'))
@@ -99,7 +100,7 @@ describe('edit conflicts (D11)', () => {
     const user = userEvent.setup()
     renderWithProviders(<TransactionsPage />)
 
-    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await txAction(user, 'Move', 'Edit transfer: Move')
     const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
     await user.clear(within(dialog).getByLabelText('Transfer amount'))
     await user.type(within(dialog).getByLabelText('Transfer amount'), '120')
@@ -140,7 +141,7 @@ describe('edit conflicts (D11)', () => {
     const user = userEvent.setup()
     renderWithProviders(<TransactionsPage />)
 
-    await user.click(await screen.findByLabelText('Split transaction: Tesco', {}, { timeout: 5000 }))
+    await txAction(user, 'Tesco', 'Split transaction: Tesco')
     await user.clear(screen.getByLabelText('Split line 1 amount'))
     await user.type(screen.getByLabelText('Split line 1 amount'), '10')
     await user.clear(screen.getByLabelText('Split line 2 amount'))

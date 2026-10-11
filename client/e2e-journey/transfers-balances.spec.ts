@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { groupAction, register } from './helpers'
+import { closeMenu, groupAction, openTxMenu, register, txAction, txRows } from './helpers'
 
 /**
  * Transfers through the REAL stack — the balance-only money moves the stubbed
@@ -169,32 +169,36 @@ test('a transfer moves both balances but never the budget, renders badge + from 
   await openTransferForm(page)
   await recordTransfer(page, { amount: '300', from: 'Wallet', to: 'Pot', note: 'Stash move' })
 
-  // --- TRF-023: the register row — note as payee (TRF-006), brand Transfer badge
-  // in the Category cell, "Wallet → Pot" account cell, and an UNSIGNED amount.
-  const rows = page.locator('tbody tr')
+  // --- TRF-023: the list row — note as payee (TRF-006), the Transfer chip in the
+  // category column, "Wallet → Pot" as its account, and an UNSIGNED amount.
+  const rows = txRows(page)
   const row = rows.filter({ hasText: 'Stash move' })
   await expect(row).toBeVisible()
-  await expect(row.getByText('Transfer', { exact: true })).toBeVisible() // the badge
+  await expect(row.getByText('Transfer', { exact: true })).toBeVisible() // the chip
   await expect(row).toContainText('Wallet → Pot')
-  const amountCell = row.locator('td').nth(4)
+  const amountCell = row.locator('[data-tx-amount]')
   await expect(amountCell).toContainText('300.00')
   await expect(amountCell).not.toContainText('+')
   await expect(amountCell).not.toContainText(MINUS)
   // No assign/reassign affordance on a transfer row (the badge replaces the pill).
   await expect(row.getByRole('button', { name: /^Assign|^Reassign/ })).toHaveCount(0)
 
-  // --- TRF-024: no edit ✎ or split ⑂ on a transfer row; delete ✕ is present.
-  await expect(row.getByRole('button', { name: /^Edit transaction/ })).toHaveCount(0)
-  await expect(row.getByRole('button', { name: /^Split transaction/ })).toHaveCount(0)
-  await expect(row.getByRole('button', { name: 'Delete transaction: Stash move', exact: true })).toHaveCount(1)
+  // --- TRF-024: the row's ⋯ offers the transfer's own edit and delete, never the
+  // inline edit or a split.
+  const menu = await openTxMenu(page, row)
+  await expect(menu.getByRole('menuitem', { name: 'Edit transfer: Stash move', exact: true })).toHaveCount(1)
+  await expect(menu.getByRole('menuitem', { name: /^Edit transaction/ })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem', { name: /^Split transaction/ })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem', { name: 'Delete transaction: Stash move', exact: true })).toHaveCount(1)
+  await closeMenu(page)
 
-  // --- TRF-027 (transfer-exclusion leg): the hero money-in/out ignore the
-  // transfer, it never counts as unassigned, but the row count includes it.
-  await expect(page.getByLabel(/^Money in for /)).toContainText('0.00')
-  const moneyOut = page.locator('div', { has: page.getByText('Money out', { exact: true }) }).last()
+  // --- TRF-027 (transfer-exclusion leg): Income and Spent ignore the transfer, it
+  // never counts as unassigned, but it is listed.
+  await expect(page.getByLabel(/^Income for /)).toContainText('0.00')
+  const moneyOut = page.getByLabel(/^Spent in /)
   await expect(moneyOut).toContainText('0.00')
-  await expect(page.getByText('All assigned')).toBeVisible()
-  await expect(page.getByText('1 transactions')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Unassigned', exact: true })).toHaveAccessibleDescription('All assigned')
+  await expect(rows).toHaveCount(1)
 
   // --- TRF-005 + TRF-028: with the receipt confirmed on the same day both derived
   // balances moved by the raw amount and the net across accounts is unchanged.
@@ -234,11 +238,7 @@ test('a transfer moves both balances but never the budget, renders badge + from 
   const deleted = page.waitForResponse(
     (r) => r.request().method() === 'DELETE' && new URL(r.url()).pathname.startsWith('/api/transactions/') && r.ok(),
   )
-  await page
-    .locator('tbody tr')
-    .filter({ hasText: 'Stash move' })
-    .getByRole('button', { name: 'Delete transaction: Stash move', exact: true })
-    .click()
+  await txAction(page, txRows(page).filter({ hasText: 'Stash move' }), 'Delete transaction: Stash move')
   await deleted
   await expect(page.getByRole('dialog')).toHaveCount(0) // no confirm modal ever appeared
   await expect(page.getByText('No transactions yet')).toBeVisible()
@@ -392,8 +392,8 @@ test('the generic transaction endpoints reject Type=Transfer injection, and re-t
   // A real reload (not a same-route nav click, which never refetches) so the
   // register renders the STORED row, not the optimistic client state.
   await page.goto('/transactions')
-  const transferRow = page.locator('tbody tr').first()
-  await expect(transferRow.getByText('Transfer', { exact: true })).toHaveCount(2) // payee + badge
+  const transferRow = txRows(page).first() // the only row
+  await expect(transferRow.getByText('Transfer', { exact: true })).toHaveCount(2) // payee + chip
   await expect(transferRow).toContainText('Wallet → Pot')
 
   // --- TX-066 / TRF-034: re-typing the transfer to Income (which the validator
@@ -412,12 +412,12 @@ test('the generic transaction endpoints reject Type=Transfer injection, and re-t
   // Wallet (no badge, no from→to cell), Wallet gains the 300 as income and
   // Pot's credit is GONE.
   await page.goto('/transactions')
-  const incomeRow = page.locator('tbody tr').filter({ hasText: 'Was a transfer' })
+  const incomeRow = txRows(page).filter({ hasText: 'Was a transfer' })
   await expect(incomeRow).toBeVisible()
   await expect(incomeRow.getByText('Transfer', { exact: true })).toHaveCount(0)
   await expect(incomeRow).not.toContainText('→')
-  await expect(incomeRow.locator('td').nth(4)).toContainText('+')
-  await expect(incomeRow.locator('td').nth(4)).toContainText('300.00')
+  await expect(incomeRow.locator('[data-tx-amount]')).toContainText('+')
+  await expect(incomeRow.locator('[data-tx-amount]')).toContainText('300.00')
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await page.getByRole('link', { name: 'View Wallet', exact: true }).click()
   await expect(detailBalance(page, 'Wallet')).toContainText('2,300.00') // 2,000 + 300 income

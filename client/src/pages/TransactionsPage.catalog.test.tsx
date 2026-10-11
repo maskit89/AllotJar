@@ -16,6 +16,7 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 
 import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
+import { txAction, txItems, txNote, txRow } from '../test/rowMenu'
 import { TransactionsPage } from './TransactionsPage'
 import { formatDate, monthYear, shortDate } from '../lib/dates'
 
@@ -115,17 +116,37 @@ function mockLoad(
 
 const renderPage = () => renderWithProviders(<TransactionsPage />)
 
-/** The <tr> that renders a given payee (the register's main, non-editing row). */
-function rowFor(payee: string): HTMLElement {
-  const cell = screen.getByText(payee)
-  const tr = cell.closest('tr')
-  if (!tr) throw new Error(`No row for payee "${payee}"`)
-  return tr
+/** The list row that renders a given payee (the list's main, non-editing row). */
+const rowFor = (payee: string): HTMLElement => txRow(payee)
+
+/** A row with no ⋯ (a fee row, a read-only row) keeps its note behind an (i): hovers it, returns the note's text, and leaves. */
+async function rowHint(user: ReturnType<typeof userEvent.setup>, payee: string): Promise<string> {
+  const button = await screen.findByRole('button', { name: `About ${payee}` }, { timeout: 5000 })
+  await user.hover(button)
+  const text = (await screen.findByRole('tooltip')).textContent ?? ''
+  await user.unhover(button)
+  return text
 }
 
-/** The six <td>s of a normal (non-editing) register row: date, payee, category, account, amount, actions. */
-function cellsFor(payee: string): HTMLTableCellElement[] {
-  return Array.from(rowFor(payee).querySelectorAll('td'))
+/** A row's amount: the figure (its first child) and what is under it (the foreign amount, a fee). */
+function amountOf(payee: string): HTMLElement {
+  const el = rowFor(payee).querySelector<HTMLElement>('[data-tx-amount]')
+  if (!el) throw new Error(`No amount on the row for "${payee}"`)
+  return el
+}
+
+/** A row's account: the name, "—", or a transfer's "{from} → {to}". */
+function accountOf(payee: string): HTMLElement {
+  const el = rowFor(payee).querySelector<HTMLElement>('[data-tx-account]')
+  if (!el) throw new Error(`No account on the row for "${payee}"`)
+  return el
+}
+
+/** The dashed gold "+ Assign" chip: the word, the plus glyph, the dashed border. */
+function expectFillChip(button: HTMLElement) {
+  expect(button).toHaveTextContent(/^Assign$/)
+  expect(button.querySelector('svg')).not.toBeNull()
+  expect(button.className).toContain('border-dashed')
 }
 
 /** A day in the month the top bar shows by default (today's), whose rows the hero counts. */
@@ -152,7 +173,8 @@ describe('TransactionsPage catalog — register load, hero & list rendering', ()
     // Unfiltered — no year/month query string.
     expect(mockGet).toHaveBeenCalledWith('/transactions')
     expect(mockGet.mock.calls.map((c) => c[0])).not.toContain(expect.stringContaining('year'))
-    expect(screen.getByText('2 transactions')).toBeInTheDocument()
+    // The list has no "N transactions" count any more: both rows are there.
+    expect(screen.getAllByTestId('tx-row')).toHaveLength(2)
   })
 
   // TX-002 — empty register shows the first-use empty state; the hero still renders zero totals.
@@ -164,8 +186,13 @@ describe('TransactionsPage catalog — register load, hero & list rendering', ()
     expect(
       screen.getByText('Use + Add transaction to record one, or Import a bank statement.'),
     ).toBeInTheDocument()
-    expect(screen.getByText('+€0.00')).toBeInTheDocument() // Money in
-    expect(screen.getByText('All assigned')).toBeInTheDocument() // Unassigned tile, none to assign
+    // Income and Spent, unsigned on the tiles.
+    expect(screen.getByLabelText(/^Income for .+: €0\.00$/)).toHaveTextContent(/^€0\.00$/)
+    expect(screen.getByLabelText(/^Spent in .+: €0\.00$/)).toHaveTextContent(/^€0\.00$/)
+    // Nothing to filter or assign: no list card, so no All / Unassigned filter and no count.
+    expect(screen.queryByRole('region', { name: 'Transactions' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Unassigned' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/to assign$/)).not.toBeInTheDocument()
     // The toolbar Add button is still present for an Owner.
     expect(screen.getByRole('button', { name: 'Add transaction' })).toBeInTheDocument()
   })
@@ -188,6 +215,8 @@ describe('TransactionsPage catalog — register load, hero & list rendering', ()
     // +€2,500.00 income (hero + the income row); €46.30 expense (40 + 6.30) — the Money-out
     // tile value, unique to the hero; the 100 transfer counts in neither total.
     expect((await screen.findAllByText('+€2,500.00', {}, { timeout: 5000 })).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByLabelText(/^Income for .+: €2,500\.00$/)).toHaveTextContent(/^€2,500\.00$/)
+    expect(screen.getByLabelText(/^Spent in .+: €46\.30$/)).toBeInTheDocument()
     expect(screen.getByText('€46.30')).toBeInTheDocument()
     expect(screen.queryByText('€146.30')).not.toBeInTheDocument()
     expect(screen.queryByText('+€2,600.00')).not.toBeInTheDocument()
@@ -220,19 +249,19 @@ describe('TransactionsPage catalog — register load, hero & list rendering', ()
     renderPage()
     await screen.findByText('Payday', {}, { timeout: 5000 })
 
-    const income = cellsFor('Payday')[4]
+    const income = amountOf('Payday')
     expect(income.textContent).toBe('+€2,500.00')
-    expect(income.className).toContain('text-brand-700')
+    expect(income.firstElementChild!.className).toContain('text-ok')
 
-    const expense = cellsFor('Tesco')[4]
+    const expense = amountOf('Tesco')
     expect(expense.textContent).toContain('€40.00')
     expect(expense.textContent!.startsWith('+')).toBe(false) // signed with the minus glyph, not '+'
     expect(expense.textContent!.length).toBeGreaterThan('€40.00'.length)
-    expect(expense.className).toContain('text-slate-900')
+    expect(expense.firstElementChild!.className).toContain('text-slate-900')
 
-    const transfer = cellsFor('Move')[4]
+    const transfer = amountOf('Move')
     expect(transfer.textContent).toBe('€100.00') // unsigned
-    expect(transfer.className).toContain('text-slate-500')
+    expect(transfer.firstElementChild!.className).toContain('text-slate-500')
   })
 
   // TX-007 — account cell renders the account name, "—", or a transfer "{from} → {to}".
@@ -248,9 +277,9 @@ describe('TransactionsPage catalog — register load, hero & list rendering', ()
     renderPage()
     await screen.findByText('On Joint', {}, { timeout: 5000 })
 
-    expect(cellsFor('On Joint')[3].textContent).toBe('Joint')
-    expect(cellsFor('No account')[3].textContent).toBe('—')
-    expect(cellsFor('Move')[3].textContent).toBe('Joint → Rainy Day')
+    expect(accountOf('On Joint').textContent).toBe('Joint')
+    expect(accountOf('No account').textContent).toBe('—')
+    expect(accountOf('Move').textContent).toBe('Joint → Rainy Day')
   })
 
   // TX-008 — the Category cell states: assigned pill (Reassign), Split badge, Transfer badge, +Assign.
@@ -267,13 +296,14 @@ describe('TransactionsPage catalog — register load, hero & list rendering', ()
     // Assigned → a Reassign button carrying the line name.
     const reassign = screen.getByRole('button', { name: 'Reassign Assigned' })
     expect(reassign).toHaveTextContent('Groceries')
-    // Split → violet Split badge + slice summary.
+    // Split → the Split chip + slice summary.
     expect(within(rowFor('Split one')).getByText('Split')).toBeInTheDocument()
     expect(within(rowFor('Split one')).getByText(/Groceries.*Internet/)).toBeInTheDocument()
-    // Transfer → Transfer badge, no assign control.
+    // Transfer → Transfer chip, no assign control.
     expect(within(rowFor('Move')).getByText('Transfer')).toBeInTheDocument()
+    expect(within(rowFor('Move')).queryByRole('button', { name: /Assign Move/ })).not.toBeInTheDocument()
     // Unassigned → dashed +Assign button.
-    expect(screen.getByRole('button', { name: 'Assign Plain' })).toHaveTextContent('+ Assign')
+    expectFillChip(screen.getByRole('button', { name: 'Assign Plain' }))
   })
 
   // TX-009 — the Bill tag appears on a transaction assigned to a bill line (Internet, DueDay 20).
@@ -300,7 +330,7 @@ describe('TransactionsPage catalog — register load, hero & list rendering', ()
     renderPage()
 
     expect(await screen.findByText(/Loading/, {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText(/Money in/)).toBeInTheDocument()
+    expect(screen.getByText('Income')).toBeInTheDocument()
   })
 
   // TX-010 — page-load-error: a /transactions rejection sets the "Could not load transactions." banner.
@@ -494,7 +524,7 @@ describe('TransactionsPage catalog — inline assign picker', () => {
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/transactions/t1/assignment', { budgetItemId: null }),
     )
-    expect(await screen.findByRole('button', { name: 'Assign Tesco' }, { timeout: 5000 })).toHaveTextContent('+ Assign')
+    expectFillChip(await screen.findByRole('button', { name: 'Assign Tesco' }, { timeout: 5000 }))
   })
 
   // TX-033 — assigning to a line in a different month than the transaction's date prompts to
@@ -552,7 +582,7 @@ describe('TransactionsPage catalog — inline assign picker', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transaction: Tesco', {}, { timeout: 5000 }))
+    await txAction(user, 'Tesco', 'Edit transaction: Tesco')
     await user.click(screen.getByLabelText('Save transaction'))
 
     // Rejected as cross-month → the confirm dialog, not the generic edit error.
@@ -609,7 +639,7 @@ describe('TransactionsPage catalog — inline assign picker', () => {
 
     expect(await screen.findByText('Could not save that assignment.', {}, { timeout: 5000 })).toBeInTheDocument()
     // No optimistic mutation — the row is still unassigned.
-    expect(screen.getByRole('button', { name: 'Assign Tesco' })).toHaveTextContent('+ Assign')
+    expectFillChip(screen.getByRole('button', { name: 'Assign Tesco' }))
   })
 })
 
@@ -624,7 +654,7 @@ describe('TransactionsPage catalog — split editor', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Split transaction: Costco', {}, { timeout: 5000 }))
+    await txAction(user, 'Costco', 'Split transaction: Costco')
     expect((screen.getByLabelText('Split line 1 category') as HTMLSelectElement).value).toBe('i-groceries')
     expect((screen.getByLabelText('Split line 1 member') as HTMLSelectElement).value).toBe('mem-robin')
     expect((screen.getByLabelText('Split line 2 category') as HTMLSelectElement).value).toBe('')
@@ -637,7 +667,7 @@ describe('TransactionsPage catalog — split editor', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Split transaction: Costco', {}, { timeout: 5000 }))
+    await txAction(user, 'Costco', 'Split transaction: Costco')
     // At the 2-row minimum, no remove buttons.
     expect(screen.queryByLabelText('Remove split line 1')).not.toBeInTheDocument()
 
@@ -656,7 +686,7 @@ describe('TransactionsPage catalog — split editor', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Split transaction: Costco', {}, { timeout: 5000 }))
+    await txAction(user, 'Costco', 'Split transaction: Costco')
     const chip = screen.getByLabelText('Remaining to allocate')
     expect(chip).toHaveTextContent('100.00 left')
     expect(screen.getByLabelText('Save split')).toBeDisabled()
@@ -678,7 +708,7 @@ describe('TransactionsPage catalog — split editor', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Split transaction: Costco', {}, { timeout: 5000 }))
+    await txAction(user, 'Costco', 'Split transaction: Costco')
     // Amounts sum to the total (100 + 0) so Save is enabled, but row 1 has no category.
     await user.type(screen.getByLabelText('Split line 1 amount'), '100')
     await waitFor(() => expect(screen.getByLabelText('Save split')).toBeEnabled(), { timeout: 5000 })
@@ -702,7 +732,7 @@ describe('TransactionsPage catalog — split editor', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Split transaction: Costco', {}, { timeout: 5000 }))
+    await txAction(user, 'Costco', 'Split transaction: Costco')
     await user.click(await screen.findByRole('button', { name: 'Remove split' }, { timeout: 5000 }))
 
     await waitFor(() =>
@@ -716,7 +746,7 @@ describe('TransactionsPage catalog — split editor', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Split transaction: Costco', {}, { timeout: 5000 }))
+    await txAction(user, 'Costco', 'Split transaction: Costco')
     expect(await screen.findByText('Add some expense budget lines first.', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
@@ -730,16 +760,16 @@ describe('TransactionsPage catalog — split editor', () => {
     renderPage()
 
     // Open split on Tesco.
-    await user.click(await screen.findByLabelText('Split transaction: Tesco', {}, { timeout: 5000 }))
+    await txAction(user, 'Tesco', 'Split transaction: Tesco')
     expect(screen.getByLabelText('Split line 1 category')).toBeInTheDocument()
 
     // Opening edit on Aldi closes the split.
-    await user.click(screen.getByLabelText('Edit transaction: Aldi'))
+    await txAction(user, 'Aldi', 'Edit transaction: Aldi')
     await waitFor(() => expect(screen.queryByLabelText('Split line 1 category')).not.toBeInTheDocument())
     expect(screen.getByLabelText('Edit payee')).toBeInTheDocument()
 
     // Opening split again on Tesco closes the edit.
-    await user.click(screen.getByLabelText('Split transaction: Tesco'))
+    await txAction(user, 'Tesco', 'Split transaction: Tesco')
     await waitFor(() => expect(screen.queryByLabelText('Edit payee')).not.toBeInTheDocument())
     expect(screen.getByLabelText('Split line 1 category')).toBeInTheDocument()
   })
@@ -747,13 +777,15 @@ describe('TransactionsPage catalog — split editor', () => {
   // TX-058 (W07) — a transfer row is edited through the transfer form, never split or edited inline.
   it('offers the transfer edit, and no inline edit or split, on a transfer row', { timeout: 15000 }, async () => {
     mockLoad([tx({ payee: 'Move', type: 2, amount: 100, accountName: 'Joint', transferAccountName: 'Rainy Day' })], accountsFixture())
+    const user = userEvent.setup()
     renderPage()
     await screen.findByText('Move', {}, { timeout: 5000 })
 
-    expect(screen.getByLabelText('Edit transfer: Move')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Edit transaction: Move')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Split transaction: Move')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Delete transaction: Move')).toBeInTheDocument()
+    // The row's ⋯ holds exactly Edit transfer and Delete (no inline Edit, no Split).
+    const items = await txItems(user, 'Move')
+    expect(items).toEqual(['Edit transfer: Move', 'Delete transaction: Move'])
+    expect(items).not.toContain('Edit transaction: Move')
+    expect(items).not.toContain('Split transaction: Move')
   })
 
   // TX-059 — three slices that sum exactly at scale 4 (3.33 + 3.33 + 3.34 = 10.00) save cleanly.
@@ -763,7 +795,7 @@ describe('TransactionsPage catalog — split editor', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Split transaction: Dinner', {}, { timeout: 5000 }))
+    await txAction(user, 'Dinner', 'Split transaction: Dinner')
     await user.click(screen.getByLabelText('Add split line'))
     await user.selectOptions(screen.getByLabelText('Split line 1 category'), 'i-groceries')
     await user.type(screen.getByLabelText('Split line 1 amount'), '3.33')
@@ -796,14 +828,14 @@ describe('TransactionsPage catalog — inline edit & delete', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transaction: Tesco', {}, { timeout: 5000 }))
+    await txAction(user, 'Tesco', 'Edit transaction: Tesco')
     await user.selectOptions(screen.getByLabelText('Edit type'), '1') // Income
     await user.click(screen.getByLabelText('Save transaction'))
 
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/transactions/t1', expect.objectContaining({ type: 1 })),
     )
-    await waitFor(() => expect(cellsFor('Tesco')[4].textContent!.startsWith('+')).toBe(true), { timeout: 5000 })
+    await waitFor(() => expect(amountOf('Tesco').textContent!.startsWith('+')).toBe(true), { timeout: 5000 })
   })
 
   // TX-063 — editing account and member to their "No …" options clears both (null in the PUT).
@@ -817,7 +849,7 @@ describe('TransactionsPage catalog — inline edit & delete', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transaction: Tesco', {}, { timeout: 5000 }))
+    await txAction(user, 'Tesco', 'Edit transaction: Tesco')
     await user.selectOptions(screen.getByLabelText('Edit account'), '') // No account
     await user.selectOptions(screen.getByLabelText('Edit member'), '') // No member
     await user.click(screen.getByLabelText('Save transaction'))
@@ -825,7 +857,7 @@ describe('TransactionsPage catalog — inline edit & delete', () => {
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/transactions/t1', expect.objectContaining({ accountId: null, memberId: null })),
     )
-    await waitFor(() => expect(cellsFor('Tesco')[3].textContent).toBe('—'), { timeout: 5000 })
+    await waitFor(() => expect(accountOf('Tesco').textContent).toBe('—'), { timeout: 5000 })
   })
 
   // TX-071 — a transfer row can be deleted (its single row carries both legs).
@@ -835,7 +867,7 @@ describe('TransactionsPage catalog — inline edit & delete', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Delete transaction: Move', {}, { timeout: 5000 }))
+    await txAction(user, 'Move', 'Delete transaction: Move')
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/transactions/t1'))
     await waitFor(() => expect(screen.queryByText('Move')).not.toBeInTheDocument())
   })
@@ -858,11 +890,12 @@ describe('TransactionsPage catalog — inline edit & delete', () => {
     const user = userEvent.setup()
     renderPage()
 
-    expect(await screen.findByText('Fee for transfer', {}, { timeout: 5000 })).toBeInTheDocument()
-    await user.click(screen.getByLabelText('Delete transaction: Move'))
+    // The fee row says what it is behind its (i) (the row has no chip for it).
+    expect(await rowHint(user, 'Fee: Move')).toContain('A transfer’s fee: edit the transfer to change it.')
+    await txAction(user, 'Move', 'Delete transaction: Move')
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/transactions/t-tr'))
     await waitFor(() => expect(screen.queryByText('Move')).not.toBeInTheDocument())
-    expect(screen.queryByText('Fee for transfer')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'About Fee: Move' })).not.toBeInTheDocument()
     expect(screen.queryByText('Fee: Move')).not.toBeInTheDocument()
     expect(screen.getByText('Tesco')).toBeInTheDocument()
     expect(mockDelete).toHaveBeenCalledTimes(1)
@@ -875,15 +908,16 @@ describe('TransactionsPage catalog — inline edit & delete', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Delete transaction: Tesco', {}, { timeout: 5000 }))
+    await txAction(user, 'Tesco', 'Delete transaction: Tesco')
     expect(await screen.findByText('Could not delete that transaction.', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Tesco')).toBeInTheDocument()
   })
 })
 
 describe('TransactionsPage catalog — filters & count', () => {
-  // TX-074 / TX-005 — the Unassigned filter with no matches shows a placeholder; the count is the WHOLE list.
-  it('shows the empty-filter placeholder while the count reflects the whole list', { timeout: 15000 }, async () => {
+  // TX-074 / TX-005 — the Unassigned filter with no matches shows a placeholder; All still lists the
+  // WHOLE list (the "N transactions" count is gone: the rows themselves are the count).
+  it('shows the empty-filter placeholder while All keeps the whole list', { timeout: 15000 }, async () => {
     mockLoad([
       tx({ id: 't1', payee: 'Rent', budgetItemId: 'i-groceries', budgetItemName: 'Groceries' }),
       tx({ id: 't2', payee: 'Bus', budgetItemId: 'i-internet', budgetItemName: 'Internet' }),
@@ -892,12 +926,14 @@ describe('TransactionsPage catalog — filters & count', () => {
     renderPage()
 
     await screen.findByText('Rent', {}, { timeout: 5000 })
-    expect(screen.getByText('2 transactions')).toBeInTheDocument()
+    expect(screen.getAllByTestId('tx-row')).toHaveLength(2)
 
     await user.click(screen.getByRole('button', { name: 'Unassigned' }))
     expect(await screen.findByText('Nothing left to assign.', {}, { timeout: 5000 })).toBeInTheDocument()
-    // The "{n} transactions" count still counts the full list, not the filtered subset.
-    expect(screen.getByText('2 transactions')).toBeInTheDocument()
+    expect(screen.queryAllByTestId('tx-row')).toHaveLength(0)
+    // Back to All: the full list, not a filtered subset.
+    await user.click(screen.getByRole('button', { name: 'All' }))
+    expect(screen.getAllByTestId('tx-row')).toHaveLength(2)
   })
 })
 
@@ -961,9 +997,9 @@ describe('TransactionsPage catalog — transfer form', () => {
 
     expect(await screen.findByText('In transit', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Pending review')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Confirm receipt: Stash' })).toBeInTheDocument()
+    expect(await txItems(user, 'Stash')).toContain('Confirm receipt: Stash')
 
-    await user.click(screen.getByRole('button', { name: 'Add departure date: From Joint' }))
+    await txAction(user, 'From Joint', 'Add departure date: From Joint')
     await user.clear(screen.getByLabelText('Departure date'))
     await user.type(screen.getByLabelText('Departure date'), '2026-09-30')
     await user.click(screen.getByRole('button', { name: 'Save transfer leg' }))
@@ -1047,8 +1083,8 @@ describe('TransactionsPage catalog — no current-month budget', () => {
     expect(within(select).getByRole('option', { name: 'Unassigned' })).toBeInTheDocument()
     expect(within(select).queryByRole('option', { name: 'Groceries' })).not.toBeInTheDocument()
 
-    // Split editor → the "add lines first" warning; open it via the row's ⑂.
-    await user.click(screen.getByLabelText('Split transaction: Tesco'))
+    // Split editor → the "add lines first" warning; open it from the row's ⋯.
+    await txAction(user, 'Tesco', 'Split transaction: Tesco')
     expect(await screen.findByText('Add some expense budget lines first.', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 })
@@ -1088,10 +1124,10 @@ describe('TransactionsPage catalog — add resets category (TX-094)', () => {
   })
 })
 
-describe('TransactionsPage catalog — cross-month "Budgeted to" tag', () => {
+describe('TransactionsPage catalog — cross-month "Budgeted to" note', () => {
   // A transaction can be budgeted to a line in a different month than its own date (e.g. a
-  // 31 Jul purchase budgeted to a February line). The register surfaces that with a compact
-  // "Budgeted to <Mon YYYY>" tag; a same-month assignment carries no tag.
+  // 31 Jul purchase budgeted to a February line). The list says so in the row's ⋯ note
+  // ("Budgeted to a <Mon YYYY> line…", restyle PR 5; it was a tag); a same-month assignment says nothing.
   it('tags a cross-month assignment but not a same-month one', { timeout: 15000 }, async () => {
     const feb = monthYear('2026-02-01') // locale-consistent with the component's own formatter
     mockLoad([
@@ -1108,11 +1144,15 @@ describe('TransactionsPage catalog — cross-month "Budgeted to" tag', () => {
         budgetItemYear: 2026, budgetItemMonth: 7,
       }),
     ])
+    const user = userEvent.setup()
     renderPage()
 
     await screen.findByText('Cross buy', {}, { timeout: 5000 })
 
-    expect(within(rowFor('Cross buy')).getByText(`Budgeted to ${feb}`)).toBeInTheDocument()
+    // The mismatch is said in the row's ⋯ note (a status that needs nothing done is no chip).
+    expect(await txNote(user, 'Cross buy')).toContain(`Budgeted to a ${feb} line, not this transaction’s own month.`)
+    expect(within(rowFor('Cross buy')).queryByText(/Budgeted to/)).not.toBeInTheDocument()
+    expect((await txNote(user, 'Same buy')).join(' ')).not.toMatch(/Budgeted to/)
     expect(within(rowFor('Same buy')).queryByText(/Budgeted to/)).not.toBeInTheDocument()
   })
 
@@ -1128,10 +1168,13 @@ describe('TransactionsPage catalog — cross-month "Budgeted to" tag', () => {
     ])
     renderPage()
 
+    const user = userEvent.setup()
     await screen.findByText('No month', {}, { timeout: 5000 })
 
     expect(within(rowFor('No month')).queryByText(/Budgeted to/)).not.toBeInTheDocument()
     expect(within(rowFor('Unassigned buy')).queryByText(/Budgeted to/)).not.toBeInTheDocument()
+    expect((await txNote(user, 'No month')).join(' ')).not.toMatch(/Budgeted to/)
+    expect((await txNote(user, 'Unassigned buy')).join(' ')).not.toMatch(/Budgeted to/)
   })
 })
 
@@ -1252,17 +1295,18 @@ describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
       { ...refundRow(), date: thisMonth(12) },
       tx({ id: 't-inc', date: thisMonth(), payee: 'Payday', amount: 2500, type: 1 }),
     ])
+    const user = userEvent.setup()
     renderPage()
 
     await screen.findByText('Tesco refund', {}, { timeout: 5000 })
-    const row = rowFor('Tesco refund')
-    expect(within(row).getByText('Refund')).toBeInTheDocument()
-    expect(within(row).getByText(`Refund of Tesco · ${shortDate('2026-07-10')}`)).toBeInTheDocument()
-    expect(cellsFor('Tesco refund')[4]).toHaveTextContent('+€10.00')
-    // The purchase carries the refunded amount.
-    expect(within(rowFor('Tesco')).getByText('€10.00 refunded')).toBeInTheDocument()
-    // Money in = 2,500 (the refund is not income); Money out = 40 − 10 = 30.
-    expect(screen.getByLabelText(/^Money in for .*: €2,500\.00$/)).toBeInTheDocument()
+    // What it is a refund of: the row's ⋯ note (no chip in the row; its icon is the refund glyph).
+    expect(within(rowFor('Tesco refund')).queryByText('Refund')).not.toBeInTheDocument()
+    expect(await txNote(user, 'Tesco refund')).toContain(`Refund of Tesco · ${shortDate('2026-07-10')}`)
+    expect(amountOf('Tesco refund')).toHaveTextContent('+€10.00')
+    // The purchase carries the refunded amount (in its ⋯ note).
+    expect(await txNote(user, 'Tesco')).toContain('€10.00 refunded')
+    // Income = 2,500 (the refund is not income); Spent = 40 − 10 = 30.
+    expect(screen.getByLabelText(/^Income for .*: €2,500\.00$/)).toBeInTheDocument()
     expect(screen.getByText('€30.00')).toBeInTheDocument()
   })
 
@@ -1286,20 +1330,26 @@ describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
 
     await screen.findByText('Payday', {}, { timeout: 5000 })
     // A purchase offers no refund action; an income row does.
-    expect(screen.queryByRole('button', { name: 'Mark as refund: Tesco' })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Mark as refund: Payday' }))
-    const save = screen.getByRole('button', { name: 'Save refund link' })
+    const tescoItems = await txItems(user, 'Tesco')
+    expect(tescoItems).toContain('Edit transaction: Tesco')
+    expect(tescoItems).not.toContain('Mark as refund: Tesco')
+    await txAction(user, 'Payday', 'Mark as refund: Payday')
+    const save = await screen.findByRole('button', { name: 'Save refund link' })
     expect(save).toBeDisabled() // nothing picked yet
     await user.selectOptions(screen.getByLabelText('Purchase refunded by Payday'), 't-tesco')
     await user.click(save)
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t-inc/refund', { refundOfTransactionId: 't-tesco' }))
-    expect(within(await screen.findByText('Payday').then((el) => el.closest('tr') as HTMLElement)).getByText('Refund')).toBeInTheDocument()
-    // The purchase's row shows the refunded total the server counts (both linked refunds).
-    expect(await within(rowFor('Tesco')).findByText('€2,510.00 refunded')).toBeInTheDocument()
+    // Payday is now a refund: its ⋯ note says of what, and its ⋯ offers to unmark it.
+    await waitFor(async () => expect(await txNote(user, 'Payday')).toContain(`Refund of Tesco · ${shortDate('2026-07-10')}`), { timeout: 5000 })
+    expect(await txItems(user, 'Payday')).toContain('Not a refund: Payday')
+    // The purchase's row shows the refunded total the server counts (both linked refunds), in its ⋯ note.
+    await waitFor(() => expect(mockGet.mock.calls.filter(([url]) => url === '/transactions')).toHaveLength(2))
+    await waitFor(async () => expect(await txNote(user, 'Tesco')).toContain('€2,510.00 refunded (2 refunds)'), { timeout: 5000 })
 
-    await user.click(screen.getByRole('button', { name: 'Not a refund: Tesco refund' }))
+    await txAction(user, 'Tesco refund', 'Not a refund: Tesco refund')
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t-refund/refund', { refundOfTransactionId: null }))
-    expect(within(rowFor('Tesco refund')).queryByText('Refund')).not.toBeInTheDocument()
+    await waitFor(async () => expect((await txNote(user, 'Tesco refund')).join(' ')).not.toMatch(/Refund of/), { timeout: 5000 })
+    expect(await txItems(user, 'Tesco refund')).toContain('Mark as refund: Tesco refund')
   })
 
   // TX-102 — a refund keeps its direction (the edit's type select is locked) and is never split;
@@ -1310,8 +1360,10 @@ describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
     renderPage()
 
     await screen.findByText('Tesco refund', {}, { timeout: 5000 })
-    expect(screen.queryByRole('button', { name: 'Split transaction: Tesco refund' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Split transaction: Tesco' })).toBeInTheDocument()
+    const refundItems = await txItems(user, 'Tesco refund')
+    expect(refundItems).toContain('Edit transaction: Tesco refund')
+    expect(refundItems).not.toContain('Split transaction: Tesco refund')
+    expect(await txItems(user, 'Tesco')).toContain('Split transaction: Tesco')
 
     await user.click(screen.getByRole('button', { name: 'Reassign Tesco refund' }))
     const picker = screen.getByLabelText('Assign Tesco refund') as HTMLSelectElement
@@ -1319,11 +1371,11 @@ describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
     expect(lines).toContain('Groceries')
     expect(lines).not.toContain('Salary')
 
-    await user.click(screen.getByRole('button', { name: 'Edit transaction: Tesco refund' }))
+    await txAction(user, 'Tesco refund', 'Edit transaction: Tesco refund')
     expect(screen.getByLabelText('Edit type')).toBeDisabled()
     await user.click(screen.getByRole('button', { name: 'Cancel edit' }))
     // The refunded purchase's type is locked too, until its refunds are unmarked.
-    await user.click(screen.getByRole('button', { name: 'Edit transaction: Tesco' }))
+    await txAction(user, 'Tesco', 'Edit transaction: Tesco')
     expect(screen.getByLabelText('Edit type')).toBeDisabled()
   })
 })
@@ -1347,7 +1399,7 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await txAction(user, 'Move', 'Edit transfer: Move')
     const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
     // Pre-filled from the stored transfer; no "completed" confirmation for a recorded one.
     expect(within(dialog).getByLabelText('Transfer date')).toHaveValue('2026-07-10')
@@ -1389,7 +1441,7 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await txAction(user, 'Move', 'Edit transfer: Move')
     const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
     await user.clear(within(dialog).getByLabelText('Transfer amount'))
     await user.type(within(dialog).getByLabelText('Transfer amount'), '50')
@@ -1404,7 +1456,7 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await txAction(user, 'Move', 'Edit transfer: Move')
     await user.type(await screen.findByLabelText('Transfer fee', {}, { timeout: 5000 }), '2')
     await screen.findByLabelText('Transfer fee category', {}, { timeout: 5000 })
     await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/budget/2026/6'))
@@ -1416,7 +1468,7 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await txAction(user, 'Move', 'Edit transfer: Move')
     const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
     await user.type(within(dialog).getByLabelText('Transfer returned date'), '2026-07-15')
     expect(within(dialog).getByLabelText('Transfer receipt date')).toBeDisabled()
@@ -1428,9 +1480,11 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
         expect.objectContaining({ departedOn: '2026-07-10', receivedOn: null, returnedOn: '2026-07-15' }),
       ),
     )
-    // The register row now reads Returned, and offers no receipt to confirm.
+    // The list row now reads Returned (its ⋯ note says when), and its ⋯ offers no receipt to confirm.
     expect(await screen.findByText('Returned', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Confirm receipt: Move' })).not.toBeInTheDocument()
+    expect(screen.queryByText('In transit')).not.toBeInTheDocument()
+    expect(await txNote(user, 'Move')).toContain(`Sent back to Joint on ${formatDate('2026-07-15')}.`)
+    expect(await txItems(user, 'Move')).toEqual(['Edit transfer: Move', 'Delete transaction: Move'])
   })
 
   it('offers "Returned on" only while the transfer has departed and has no receipt', { timeout: 15000 }, async () => {
@@ -1438,7 +1492,7 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await txAction(user, 'Move', 'Edit transfer: Move')
     const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
     expect(within(dialog).queryByLabelText('Transfer returned date')).not.toBeInTheDocument()
     // Clearing the receipt makes it a departed, unreceived transfer again.
@@ -1457,7 +1511,7 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await txAction(user, 'Move', 'Edit transfer: Move')
     let dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
     for (const label of ['Transfer date', 'Transfer amount', 'Transfer from account', 'Transfer fee', 'Transfer to account', 'Transfer receipt date']) {
       expect(within(dialog).getByLabelText(label)).toBeDisabled()
@@ -1467,7 +1521,7 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
 
     // A return the source statement confirmed keeps its date; the departure is still editable.
-    await user.click(screen.getByLabelText('Edit transfer: Bounced'))
+    await txAction(user, 'Bounced', 'Edit transfer: Bounced')
     dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
     expect(within(dialog).getByLabelText('Transfer returned date')).toHaveValue('2026-07-15')
     expect(within(dialog).getByLabelText('Transfer returned date')).toBeDisabled()
@@ -1477,11 +1531,16 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
 
   it('badges a returned transfer and offers no receipt to confirm', { timeout: 15000 }, async () => {
     mockLoad([transfer({ transferStatus: 'Returned', returnedOn: '2026-07-15' })], accountsFixture())
+    const user = userEvent.setup()
     renderPage()
 
-    const badge = await screen.findByText('Returned', {}, { timeout: 5000 })
+    // The word sits in the chip's truncating span; the chip holds the title.
+    const badge = (await screen.findByText('Returned', {}, { timeout: 5000 })).closest('[title]')
     expect(badge).toHaveAttribute('title', `Sent back to Joint on ${formatDate('2026-07-15')}`)
-    expect(screen.queryByRole('button', { name: /Confirm receipt/ })).not.toBeInTheDocument()
+    const items = await txItems(user, 'Move')
+    expect(items).toContain('Edit transfer: Move')
+    expect(items.some((name) => /Confirm receipt/.test(name))).toBe(false)
+    expect(await txNote(user, 'Move')).toContain(`Sent back to Joint on ${formatDate('2026-07-15')}.`)
     expect(screen.queryByText('In transit')).not.toBeInTheDocument()
   })
 
@@ -1493,11 +1552,17 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
       ],
       accountsFixture(),
     )
+    const user = userEvent.setup()
     renderPage()
 
     await screen.findByText('Transfer fee', {}, { timeout: 5000 })
-    expect(cellsFor('Move')[4]).toHaveTextContent(/\+ fee 2\.00/)
-    expect(screen.getByText('Fee for transfer')).toBeInTheDocument()
+    expect(amountOf('Move')).toHaveTextContent(/\+ fee 2\.00/)
+    expect(await txNote(user, 'Move')).toContain('Fee on Groceries.')
+    // The fee row has no ⋯ (so no Edit, Split or Delete); an (i) says what it is and why.
+    expect(await rowHint(user, 'Transfer fee')).toContain('A transfer’s fee: edit the transfer to change it.')
+    expect(screen.getByRole('button', { name: 'Move: more actions' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Transfer fee: more actions' })).not.toBeInTheDocument()
+    expect(within(rowFor('Transfer fee')).getByRole('button', { name: 'About Transfer fee' })).toBeInTheDocument()
     expect(screen.queryByLabelText('Edit transaction: Transfer fee')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Split transaction: Transfer fee')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Delete transaction: Transfer fee')).not.toBeInTheDocument()
@@ -1547,7 +1612,7 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await txAction(user, 'Move', 'Edit transfer: Move')
     const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
     const amount = within(dialog).getByLabelText('Transfer amount')
     expect(amount).toBeEnabled()
@@ -1580,7 +1645,7 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await txAction(user, 'Move', 'Edit transfer: Move')
     const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
     await user.clear(within(dialog).getByLabelText('Transfer note'))
     await user.type(within(dialog).getByLabelText('Transfer note'), 'Top up')
@@ -1621,7 +1686,7 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     renderPage()
 
     await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/jars/ledger'))
-    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await txAction(user, 'Move', 'Edit transfer: Move')
     const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
     await user.clear(within(dialog).getByLabelText('Transfer note'))
     await user.type(within(dialog).getByLabelText('Transfer note'), 'Top up')
@@ -1639,7 +1704,7 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     renderPage()
 
     await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/jars/ledger'))
-    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await txAction(user, 'Move', 'Edit transfer: Move')
     const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
     // A larger amount would draw 120 from Holiday, where 100 is stored: a new answer.
     await user.clear(within(dialog).getByLabelText('Transfer amount'))
@@ -1681,7 +1746,7 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     renderPage()
 
     await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/jars/ledger'))
-    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await txAction(user, 'Move', 'Edit transfer: Move')
     const dialog = await screen.findByRole('dialog', { name: 'Edit transfer' }, { timeout: 5000 })
     const fromJar = within(dialog).getByLabelText('From jar') as HTMLSelectElement
     expect(fromJar).toHaveValue('jar-hol')
@@ -1697,7 +1762,7 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await txAction(user, 'Move', 'Edit transfer: Move')
     await user.type(await screen.findByLabelText('Transfer fee', {}, { timeout: 5000 }), '2')
     await user.click(screen.getByRole('button', { name: 'Save transfer' }))
     expect(await screen.findByText('Choose the budget line the fee is spent from.', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -1709,7 +1774,7 @@ describe('TransactionsPage catalog — transfer edit, fees and returns (W07)', (
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transfer: Move', {}, { timeout: 5000 }))
+    await txAction(user, 'Move', 'Edit transfer: Move')
     await user.type(await screen.findByLabelText('Transfer fee', {}, { timeout: 5000 }), '0')
     await user.click(screen.getByRole('button', { name: 'Save transfer' }))
     expect(await screen.findByText('Enter a valid fee greater than zero, or leave it blank.', {}, { timeout: 5000 })).toBeInTheDocument()

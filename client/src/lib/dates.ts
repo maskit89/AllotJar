@@ -92,3 +92,33 @@ export function currentMonth(now = new Date()): { year: number; month: number } 
   const [year, month] = todayIso(now).split('-').map(Number)
   return { year, month }
 }
+
+const dayFmt = new Map<string, { weekday: Intl.DateTimeFormat; date: Intl.DateTimeFormat }>()
+
+/**
+ * A day header of the transaction list, in the browser locale: "Today", "Yesterday", else the
+ * short weekday, a space and the date ("Tue 7 Oct" in en-GB, "Tue Oct 7" in en-US), with the year
+ * when it is not this year's ("Tue 7 Oct 2025"). The weekday is joined with a plain space, not the
+ * locale's own "Tue, 7 Oct" (whose comma also differs between browsers), as the mock-up writes it.
+ * Today is on the same UTC basis as `todayIso`.
+ */
+export function dayHeading(iso: string, now = new Date()): string {
+  const today = todayIso(now)
+  if (iso === today) return 'Today'
+  const yesterday = todayIso(new Date(now.getTime() - 86_400_000))
+  if (iso === yesterday) return 'Yesterday'
+  const d = fromIso(iso)
+  if (!d) return iso
+  const otherYear = iso.slice(0, 4) !== today.slice(0, 4)
+  const loc = dateLocale()
+  const key = `${loc}|${otherYear}`
+  let fmt = dayFmt.get(key)
+  if (!fmt) {
+    fmt = {
+      weekday: new Intl.DateTimeFormat(loc, { weekday: 'short', timeZone: 'UTC' }),
+      date: new Intl.DateTimeFormat(loc, { day: 'numeric', month: 'short', ...(otherYear ? { year: 'numeric' } : {}), timeZone: 'UTC' }),
+    }
+    dayFmt.set(key, fmt)
+  }
+  return `${fmt.weekday.format(d)} ${fmt.date.format(d)}`
+}

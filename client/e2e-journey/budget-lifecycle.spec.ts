@@ -450,7 +450,7 @@ test('month navigation moves every screen together; the jars shelf follows the m
   // BUDG-042: the viewed month is app-wide MonthContext state — Transactions opens
   // on the same (previous) month, and Budget still shows it on the way back.
   await page.getByRole('link', { name: 'Transactions' }).click()
-  await expect(page.getByText(`Money in · ${prev.label}`)).toBeVisible()
+  await expect(page.getByLabel(new RegExp(`^Income for ${prev.label}:`))).toBeVisible()
   await page.getByRole('link', { name: 'Dashboard' }).click()
   await expect(page.getByText(`No budget for ${prev.label} yet.`)).toBeVisible()
 

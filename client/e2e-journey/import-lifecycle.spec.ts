@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { register } from './helpers'
+import { register, txRows } from './helpers'
 
 /**
  * Import lifecycle journeys — the generic-CSV behaviours the flagship import.spec.ts round-trip
@@ -197,10 +197,10 @@ test('a re-scan carries per-row work forward for unchanged rows, and the commit 
   await expect(moneyIn).toContainText('0.00')
   await expect(moneyOut).toContainText('12.40')
 
-  // --- IMP-070 (journey leg): the committed row persisted with its category — the register shows
+  // --- IMP-070 (journey leg): the committed row persisted with its category — the list shows
   // CORNER BAKERY assigned to Groceries, and the unticked NIGHT MARKET row was never created.
   await page.goto('/transactions')
-  const row = page.locator('tbody tr').filter({ hasText: 'CORNER BAKERY' })
+  const row = txRows(page).filter({ hasText: 'CORNER BAKERY' })
   await expect(row).toBeVisible()
   await expect(row).toContainText('Groceries')
   await expect(page.getByText('NIGHT MARKET')).toHaveCount(0)

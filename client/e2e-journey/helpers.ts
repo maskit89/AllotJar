@@ -139,6 +139,42 @@ export async function openJarMenu(page: Page, jar: string): Promise<Locator> {
   return menu
 }
 
+/**
+ * The rows of the Transactions list (restyle PR 5): one card, rows grouped under day headers, each
+ * row one element holding its icon, payee, category, account, amount and ⋯ (and, while open, its
+ * assign picker and transfer-leg editor). Replaces the old register's `tbody tr`. Filter by payee:
+ * rows come newest first, so `.first()` is only safe when one row is on screen.
+ */
+export function txRows(page: Page): Locator {
+  return page.getByTestId('tx-row')
+}
+
+/**
+ * Opens the ⋯ menu of a Transactions list row and returns it (its note, what the row's chips leave
+ * out, is the menu's first line); close it with `closeMenu`. The ⋯ is found inside the row, named
+ * "{payee}: more actions" (the date when the row has no payee).
+ */
+export async function openTxMenu(page: Page, row: Locator): Promise<Locator> {
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await row.getByRole('button', { name: /: more actions$/ }).click()
+  const menu = page.getByRole('menu')
+  await menu.waitFor()
+  return menu
+}
+
+/**
+ * Picks `item` from the ⋯ menu of a Transactions list row. `item` is the action's full name, which
+ * says which row it acts on: "Edit transaction: Tesco", "Split transaction: Costco", "Mark as
+ * refund: …", "Not a refund: …", "Confirm receipt: …", "Add departure date: …", "Edit transfer: …",
+ * "Delete transaction: …" (a RegExp for a payee that comes from a bank). Waits for no menu before
+ * and after, as `rowAction` does.
+ */
+export async function txAction(page: Page, row: Locator, item: string | RegExp): Promise<void> {
+  const menu = await openTxMenu(page, row)
+  await menu.getByRole('menuitem', typeof item === 'string' ? { name: item, exact: true } : { name: item }).click()
+  await expect(page.getByRole('menu')).toHaveCount(0)
+}
+
 /** Closes the open ⋯ menu with Escape and waits for it to fade out. */
 export async function closeMenu(page: Page): Promise<void> {
   await page.keyboard.press('Escape')

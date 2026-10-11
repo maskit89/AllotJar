@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { firstOfMonthAhead, groupAction, lineAction, register } from './helpers'
+import { firstOfMonthAhead, groupAction, lineAction, register, txRows } from './helpers'
 
 /**
  * Allocation end-to-end through the REAL stack (the ALLOC deferred set): a genuine
@@ -484,15 +484,15 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   expect(second.transfersRetained).toBe(2)
   await expect(page.getByRole('status')).toContainText('the 2 recorded transfers are unchanged')
 
-  // --- ALLOC-050 + ALLOC-058 (register leg): after TWO commits the register holds
-  // exactly two allocation transfers — badge rows, from → to cells, the confirmed
+  // --- ALLOC-050 + ALLOC-058 (list leg): after TWO commits the Transactions list holds
+  // exactly two allocation transfers — Transfer chips, from → to accounts, the confirmed
   // departure date, residual amounts — not four.
   await page.getByRole('link', { name: 'Transactions' }).click()
-  const allocRows = page.locator('tbody tr').filter({ hasText: 'Income allocation' })
+  const allocRows = txRows(page).filter({ hasText: 'Income allocation' })
   await expect(allocRows).toHaveCount(2)
   const chrisRow = allocRows.filter({ hasText: 'Joint → Alex Pot' })
   await expect(chrisRow).toHaveCount(1)
-  await expect(chrisRow.getByText('Transfer', { exact: true })).toBeVisible() // the badge
+  await expect(chrisRow.getByText('Transfer', { exact: true })).toBeVisible() // the chip
   await expect(chrisRow).toContainText('1,250.00')
   const robinRow = allocRows.filter({ hasText: 'Joint → Robin Pot' })
   await expect(robinRow).toHaveCount(1)
@@ -601,9 +601,9 @@ test('a member without a savings account strands their share; over-committing th
   expect(first.transfersCreated).toBe(1)
   await expect(page.getByRole('status')).toContainText('1 savings transfer recorded as in transit')
 
-  // Register: exactly ONE allocation row; Robin's 1,450.00 stayed in the source.
+  // Transactions: exactly ONE allocation row; Robin's 1,450.00 stayed in the source.
   await page.getByRole('link', { name: 'Transactions' }).click()
-  const allocRows = page.locator('tbody tr').filter({ hasText: 'Income allocation' })
+  const allocRows = txRows(page).filter({ hasText: 'Income allocation' })
   await expect(allocRows).toHaveCount(1)
   await expect(allocRows.first()).toContainText('Joint → Alex Pot')
   await expect(allocRows.first()).toContainText('1,450.00')
@@ -647,7 +647,9 @@ test('a member without a savings account strands their share; over-committing th
     `Allocated ${monthName} — nothing was transferred because shared spending overshoots the pooled income.`,
   )
   await page.getByRole('link', { name: 'Transactions' }).click()
-  await expect(page.locator('tbody tr').filter({ hasText: 'Income allocation' })).toHaveCount(0)
+  // Loaded first (the list, or its empty state), so the count of none means something.
+  await expect(page.getByRole('region', { name: 'Transactions' }).or(page.getByText('No transactions yet'))).toBeVisible()
+  await expect(txRows(page).filter({ hasText: 'Income allocation' })).toHaveCount(0)
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await page.getByRole('link', { name: 'View Joint', exact: true }).click()
   await expect(detailBalance(page, 'Joint')).toContainText('5,000.00') // fully reverted

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { shortDate, formatDate, monthYear } from './dates'
+import { shortDate, formatDate, monthYear, dayHeading } from './dates'
 
 // jsdom's navigator.language is en-US, so these assert the en-US rendering; the
 // helpers follow the browser locale at runtime.
@@ -52,5 +52,36 @@ describe('monthYear', () => {
 
   it('returns the input unchanged for a non-ISO value', () => {
     expect(monthYear('soon')).toBe('soon')
+  })
+})
+
+describe('dayHeading', () => {
+  // Sunday 11 Oct 2026, midday UTC.
+  const now = new Date(Date.UTC(2026, 9, 11, 12))
+  afterEach(() => vi.restoreAllMocks())
+
+  it('names today and yesterday', () => {
+    expect(dayHeading('2026-10-11', now)).toBe('Today')
+    expect(dayHeading('2026-10-10', now)).toBe('Yesterday')
+  })
+
+  it('gives the weekday, a space and the date in the browser locale, the year only for another year', () => {
+    // jsdom's navigator.language is en-US.
+    expect(dayHeading('2026-10-07', now)).toBe('Wed Oct 7')
+    expect(dayHeading('2025-12-31', now)).toBe('Wed Dec 31, 2025')
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue('en-GB')
+    expect(dayHeading('2026-10-07', now)).toBe('Wed 7 Oct')
+    expect(dayHeading('2025-12-31', now)).toBe('Wed 31 Dec 2025')
+  })
+
+  it('counts today on the UTC calendar, as todayIso does', () => {
+    // 00:30 UTC on the 12th is still the 11th in New York, but the app's "today" is UTC's.
+    const justAfterMidnight = new Date(Date.UTC(2026, 9, 12, 0, 30))
+    expect(dayHeading('2026-10-12', justAfterMidnight)).toBe('Today')
+    expect(dayHeading('2026-10-11', justAfterMidnight)).toBe('Yesterday')
+  })
+
+  it('returns the input unchanged when it is not a parseable ISO date', () => {
+    expect(dayHeading('not-a-date', now)).toBe('not-a-date')
   })
 })

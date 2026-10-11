@@ -7,6 +7,7 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 
 import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
+import { txAction, txNote } from '../test/rowMenu'
 import { TransactionsPage } from './TransactionsPage'
 import { setMoneyFormat } from '../lib/money'
 import { budgetCategory, budgetItem, budgetMonth } from '../test/fixtures/budget'
@@ -117,9 +118,9 @@ describe('TransactionsPage manual sheet', () => {
         expect.objectContaining({ payee: 'Tesco', accountId: 'a1' }),
       ),
     )
-    // The posted account shows in its column in the register (not the modal option).
-    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
-    expect(table.getByText('Everyday')).toBeInTheDocument()
+    // The posted account shows on its row in the list (not the modal option).
+    const list = within(await screen.findByRole('region', { name: 'Transactions' }, { timeout: 5000 }))
+    expect(await list.findByText('Everyday', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
   it('records a transfer between two accounts', { timeout: 15000 }, async () => {
@@ -153,9 +154,9 @@ describe('TransactionsPage manual sheet', () => {
         expect.objectContaining({ amount: 50, fromAccountId: 'a1', toAccountId: 'a2', receivedOn: null }),
       ),
     )
-    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
-    expect(table.getByText('Move to savings')).toBeInTheDocument()
-    expect(table.getByText('Transfer')).toBeInTheDocument()
+    const list = within(await screen.findByRole('region', { name: 'Transactions' }, { timeout: 5000 }))
+    expect(await list.findByText('Move to savings', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(list.getByText('Transfer')).toBeInTheDocument()
   })
 
   it('blocks a transfer between the same account without calling the API', { timeout: 15000 }, async () => {
@@ -239,7 +240,7 @@ describe('TransactionsPage manual sheet', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transaction: Tesco', {}, { timeout: 5000 }))
+    await txAction(user, 'Tesco', 'Edit transaction: Tesco')
     const amountInput = screen.getByLabelText('Edit amount')
     await user.clear(amountInput)
     await user.type(amountInput, '12.345')
@@ -259,7 +260,7 @@ describe('TransactionsPage manual sheet', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Delete transaction: Tesco', {}, { timeout: 5000 }))
+    await txAction(user, 'Tesco', 'Delete transaction: Tesco')
 
     await waitFor(() => expect(screen.queryByText('Tesco')).not.toBeInTheDocument())
     expect(screen.getByRole('status')).toHaveTextContent(warning)
@@ -274,7 +275,7 @@ describe('TransactionsPage manual sheet', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transaction: Tesco', {}, { timeout: 5000 }))
+    await txAction(user, 'Tesco', 'Edit transaction: Tesco')
     const amountInput = screen.getByLabelText('Edit amount')
     await user.clear(amountInput)
     await user.type(amountInput, '2')
@@ -290,8 +291,7 @@ describe('TransactionsPage manual sheet', () => {
 
     renderPage()
 
-    const del = await screen.findByLabelText('Delete transaction: Tesco', {}, { timeout: 5000 })
-    await user.click(del)
+    await txAction(user, 'Tesco', 'Delete transaction: Tesco')
 
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/transactions/t1'))
     await waitFor(() => expect(screen.queryByText('Tesco')).not.toBeInTheDocument())
@@ -304,15 +304,23 @@ describe('TransactionsPage manual sheet', () => {
       { ...tx(), id: 't2', payee: 'Lidl', accountId: 'p9', accountName: 'Private account', budgetItemId: 'i-food', budgetItemName: 'Groceries', inPrivateAccount: true },
       tx(),
     ])
+    const user = userEvent.setup()
 
     renderPage()
 
     expect(await screen.findByText('Lidl', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Private account')).toBeInTheDocument()
-    expect(screen.getByLabelText('Delete transaction: Tesco')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Delete transaction: Lidl')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Edit transaction: Lidl')).not.toBeInTheDocument()
+    // Its line shows, as a chip that is not a button.
+    expect(screen.getByText('Groceries')).toBeInTheDocument()
     expect(screen.queryByLabelText('Reassign Lidl')).not.toBeInTheDocument()
+    // The own row's ⋯ offers Edit and Delete; the private entry has no ⋯ at all (so no Edit or Delete).
+    expect(await screen.findByRole('button', { name: 'Tesco: more actions' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Lidl: more actions' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Tesco: more actions' }))
+    expect(await screen.findByRole('menuitem', { name: 'Delete transaction: Tesco' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Edit transaction: Tesco' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Delete transaction: Lidl' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Edit transaction: Lidl' })).not.toBeInTheDocument()
   })
 
   // W13 (P57): on a transfer between a shared and a private account, the others may confirm the
@@ -325,11 +333,23 @@ describe('TransactionsPage manual sheet', () => {
       { ...transfer, id: 't5', payee: 'Sam top-up', accountName: 'Private account', transferAccountId: 'a1', transferAccountName: 'Everyday', transferStatus: 'PendingReview', departedOn: null, receivedOn: '2026-06-12' },
     ], accountsFixture())
 
+    const user = userEvent.setup()
+
     renderPage()
 
-    expect(await screen.findByRole('button', { name: 'Add departure date: To Sam' }, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Confirm receipt: From Sam' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Add departure date: Sam top-up' })).not.toBeInTheDocument()
+    // Each row's ⋯ holds only the leg the others may confirm (no Edit, Split or Delete).
+    await user.click(await screen.findByRole('button', { name: 'To Sam: more actions' }, { timeout: 5000 }))
+    expect(await screen.findByRole('menuitem', { name: 'Add departure date: To Sam' })).toBeInTheDocument()
+    expect(screen.getAllByRole('menuitem')).toHaveLength(1)
+    await user.keyboard('{Escape}')
+    await user.click(screen.getByRole('button', { name: 'From Sam: more actions' }))
+    expect(await screen.findByRole('menuitem', { name: 'Confirm receipt: From Sam' })).toBeInTheDocument()
+    expect(screen.getAllByRole('menuitem')).toHaveLength(1)
+    await user.keyboard('{Escape}')
+    // The private side's leg is its holder's to confirm: no ⋯ on that row.
+    expect(screen.getByText('Sam top-up')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Sam top-up: more actions' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Add departure date: Sam top-up' })).not.toBeInTheDocument()
   })
 
   it('edits a transaction inline', { timeout: 15000 }, async () => {
@@ -339,7 +359,7 @@ describe('TransactionsPage manual sheet', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transaction: Tesco', {}, { timeout: 5000 }))
+    await txAction(user, 'Tesco', 'Edit transaction: Tesco')
     const payeeInput = screen.getByLabelText('Edit payee')
     await user.clear(payeeInput)
     await user.type(payeeInput, 'Aldi')
@@ -374,7 +394,7 @@ describe('TransactionsPage manual sheet', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Split transaction: Tesco', {}, { timeout: 5000 }))
+    await txAction(user, 'Tesco', 'Split transaction: Tesco')
 
     // Save stays disabled until the lines add up to the total.
     expect(screen.getByLabelText('Save split')).toBeDisabled()
@@ -407,7 +427,7 @@ describe('TransactionsPage manual sheet', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Edit transaction: Tesco'))
+    await txAction(user, 'Tesco', 'Edit transaction: Tesco')
     await user.click(screen.getByLabelText('Save transaction'))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t1', {
@@ -429,7 +449,7 @@ describe('TransactionsPage manual sheet', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Split transaction: Tesco'))
+    await txAction(user, 'Tesco', 'Split transaction: Tesco')
     expect(screen.getByLabelText('Save split')).toBeEnabled()
     await user.click(screen.getByLabelText('Save split'))
 
@@ -543,9 +563,10 @@ describe('TransactionsPage manual sheet', () => {
         ],
       }),
     )
-    // The register row renders the violet Split badge + slice summary.
-    const table = within(await screen.findByRole('table', {}, { timeout: 5000 }))
-    expect(table.getByText('Split')).toBeInTheDocument()
+    // The list row renders the Split chip + slice summary.
+    const list = within(await screen.findByRole('region', { name: 'Transactions' }, { timeout: 5000 }))
+    expect(await list.findByText('Split', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(list.getByText('Rent (Alex) €70.00 · Groceries €30.00')).toBeInTheDocument()
   })
 
   it('guards the Enter-key path: mismatched or incomplete slices never post', { timeout: 15000 }, async () => {
@@ -622,14 +643,17 @@ describe('TransactionsPage currency conversion (W08)', () => {
     const now = new Date()
     const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-10`
     mockLoad([{ ...fxRow(), date }, { ...tx(), date }])
+    const user = userEvent.setup()
 
     renderPage()
 
-    const tag = await screen.findByText('Needs EUR amount', {}, { timeout: 5000 })
+    // An editable row is flagged by its "+ € amount" chip, which is also how the amount is entered.
+    const tag = await screen.findByRole('button', { name: 'Enter amount in EUR: London Cab' }, { timeout: 5000 })
     expect(tag).toHaveAttribute('title', expect.stringContaining('Not counted anywhere until you enter the amount in EUR'))
-    expect(screen.getAllByText('Needs EUR amount')).toHaveLength(1) // only the waiting row
+    expect(screen.getAllByRole('button', { name: /^Enter amount in EUR/ })).toHaveLength(1) // only the waiting row
     // Its own figure is labelled with its code, never as budget money.
     expect(screen.getByText(/GBP 12\.50/)).toBeInTheDocument()
+    expect(await txNote(user, 'London Cab')).toContain('In another currency: not counted anywhere until it has its EUR amount.')
     // Money out counts only the EUR row (12.50), not 25.00.
     expect(screen.getByText('€12.50')).toBeInTheDocument()
     expect(screen.queryByText('€25.00')).not.toBeInTheDocument()
@@ -687,7 +711,9 @@ describe('TransactionsPage currency conversion (W08)', () => {
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t-fx/converted-amount', { amount: 14.8 }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    // The row is replaced: counted in EUR, with a muted note of what was paid.
+    // The row is replaced: counted in EUR, with a muted note of what was paid. Its "+ € amount"
+    // chip (an editable row's flag) has gone, and no "Needs EUR amount" flag took its place.
+    expect(screen.queryByRole('button', { name: 'Enter amount in EUR: London Cab' })).not.toBeInTheDocument()
     expect(screen.queryByText('Needs EUR amount')).not.toBeInTheDocument()
     expect(screen.getByText('GBP 12.50')).toHaveAttribute('title', 'Paid in GBP')
     expect(screen.getAllByText(/€14\.80/).length).toBeGreaterThanOrEqual(1)

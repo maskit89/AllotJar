@@ -505,6 +505,87 @@ test('archiving a jar from its ⋯ by keyboard leaves focus on the next card\'s 
   await expect(page.getByRole('button', { name: 'Home insurance: more actions' })).toBeFocused()
 })
 
+// Restyle PR 5 — a transaction's actions sit behind its ⋯, shown while the row is hovered or holds
+// focus: keyboard focus reaching the row shows it, Enter opens the menu, the arrows move through it,
+// Escape gives focus back to the ⋯, and an inline editor opened from it does the same when it closes.
+test('a transaction\'s ⋯ shows to the keyboard, works from it and gives focus back when its editor closes', async ({ page }) => {
+  await authedSetup(page, 'light')
+  await page.goto('/transactions')
+  await page.getByRole('heading', { level: 1 }).first().waitFor()
+  await page.mouse.move(0, 0)
+
+  const more = page.getByRole('button', { name: 'Welbees Supermarket: more actions' })
+  const opacity = () => more.evaluate((el) => getComputedStyle(el).opacity)
+  await expect.poll(opacity).toBe('0')
+  const box = await more.boundingBox()
+  expect(box!.width).toBeGreaterThanOrEqual(24)
+  expect(box!.height).toBeGreaterThanOrEqual(24)
+
+  // Tab from the row's category chip lands on its ⋯, which shows.
+  await page.getByRole('button', { name: 'Reassign Welbees Supermarket' }).focus()
+  await expect.poll(opacity).toBe('1')
+  await page.keyboard.press('Tab')
+  await expect(more).toBeFocused()
+
+  await page.keyboard.press('Enter')
+  const menu = page.getByRole('menu')
+  await expect(menu.getByRole('menuitem', { name: 'Edit transaction: Welbees Supermarket' })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('menuitem', { name: 'Split transaction: Welbees Supermarket' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(more).toBeFocused()
+
+  // Edit from the menu: the row's form opens with focus in it; Escape closes it, focus back on the ⋯.
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Enter')
+  await expect(page.getByLabel('Edit date')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByLabel('Edit date')).toHaveCount(0)
+  await expect(more).toBeFocused()
+})
+
+// Restyle PR 5 — the list's search: a button that turns into the field, filters as you type, and
+// Escape gives focus back to the button with every row back.
+test('the transactions search filters from the keyboard and Escape closes it', async ({ page }) => {
+  await authedSetup(page, 'light')
+  await page.goto('/transactions')
+  const rows = page.getByTestId('tx-row')
+  await expect(rows).toHaveCount(9)
+
+  const search = page.getByRole('button', { name: 'Search transactions' })
+  await search.focus()
+  await page.keyboard.press('Enter')
+  const box = page.getByRole('searchbox', { name: 'Search transactions' })
+  await expect(box).toBeFocused()
+  await page.keyboard.type('joint') // the account of seven rows
+  await expect(rows).toHaveCount(7)
+  await page.keyboard.type('zzz')
+  await expect(rows).toHaveCount(0)
+  await expect(page.getByText('No match for “jointzzz”.')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(box).toHaveCount(0)
+  await expect(search).toBeFocused()
+  await expect(rows).toHaveCount(9)
+})
+
+// Restyle PR 5 — on a phone the whole row is one button that opens the row's actions in a bottom
+// sheet titled with the payee; Escape closes it with focus back on the row.
+test('a transaction row on a phone opens its sheet from the keyboard and gives focus back', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await authedSetup(page, 'light')
+  await page.goto('/transactions')
+  const row = page.getByRole('button', { name: 'Welbees Supermarket', exact: true })
+  await row.focus()
+  await page.keyboard.press('Enter')
+  const sheet = page.getByRole('dialog', { name: 'Welbees Supermarket' })
+  await expect(sheet.getByRole('button', { name: 'Edit transaction: Welbees Supermarket' })).toBeVisible()
+  await expect(sheet.getByRole('button', { name: 'Delete transaction: Welbees Supermarket' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+  await expect(row).toBeFocused()
+})
+
 // ---------------------------------------------------------------------------
 // Motion (UX-049)
 // ---------------------------------------------------------------------------
